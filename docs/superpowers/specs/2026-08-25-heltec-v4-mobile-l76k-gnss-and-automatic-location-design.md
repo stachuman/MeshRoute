@@ -30,9 +30,10 @@ The following are requirements, not proposals:
 6. A plaintext DM or plaintext channel post never carries location.
 7. The existing `send ... -l` and `send_channel ... -l` forms remain the explicit attach-location request. Omitting
    `-l` means **do not attach location**, even when GPS is ON and a fresh fix exists.
-8. The simple on-device Heltec mobile send path defaults to sharing: when GPS is ON and a fresh fix is available, it
-   adds `-l` to an eligible encrypted app DM or team-key-sealed, team-only channel post. With GPS OFF or no fresh
-   fix, it omits `-l` and the ordinary message still sends.
+8. The simple on-device Heltec mobile send path defaults to sharing for the complete eligible set enumerated in
+   section 4.5: when GPS is ON and a fresh fix is available, it adds `-l` to the ruled encrypted app DM or
+   team-key-sealed, team-only channel post. With GPS OFF or no fresh fix, it omits `-l` and the ordinary message still
+   sends.
 9. Serial/BLE controllers and richer companions such as a LilyGo T-Deck or iOS app own their per-message policy.
    They request location by including `-l` and suppress it by omitting `-l`; firmware must not rewrite that choice.
 10. Configuration intent is not the authority. The carrier that will actually be emitted is the authority: direct
@@ -96,7 +97,7 @@ This design delivers:
 - non-blocking L76K power, reset, UART and NMEA service on `heltec_v4_mobile`;
 - a truthful fresh/stale/unavailable location authority;
 - one persisted live GNSS ON/OFF control reachable through USB serial and BLE-NUS;
-- a simple Heltec on-device default that requests a fresh location on eligible sealed app traffic;
+- a simple Heltec on-device default for the explicitly enumerated sealed app traffic;
 - explicit per-message location control for serial/BLE and richer companion producers through the retained `-l`;
 - route-independent honoring of that request by every supported encrypted app-DM and sealed team-only carrier;
 - no location on plaintext or internal traffic;
@@ -143,6 +144,12 @@ The coordinate pair alone is not a sufficient future runtime authority: `(0,0)` 
 is a fact distinct from two numbers. This design therefore adds a runtime-only `NodeConfig::location_available` fact.
 Existing static/manual producers seed it from the current non-zero sentinel; GNSS sets it from fix validity and age.
 It is not another coordinate source and is never persisted as a fix.
+
+GPS-2 owns this `NodeConfig::location_available` addition. Because `NodeConfig` is embedded in `Node`, GPS-2 is a
+deliberate lib/core layout slice even if the bool happens to occupy padding on one ABI. Before editing, record the
+current native sizes; after editing, update permanent `sizeof(NodeConfig)` and `sizeof(Node)` tripwires with measured
+old→new figures and the field/alignment arithmetic, then obtain the named board RAM deltas. Never infer a board ABI
+from native alignment and never move the field solely to hide its honest cost.
 
 The OLED status/team projections already consume the effective coordinates. This design feeds those same values;
 it does not create a second set of coordinates for the UI or MAC.
@@ -342,10 +349,21 @@ The core has only two per-message intents:
 | omit | no `-l` | send without location | send without location | send without location |
 | required | `-l` | refuse `no_location` | refuse `unsealable` | attach location |
 
-The simple Heltec on-device producer applies an opportunistic policy **before** issuing the command: if GPS is ON
-and the effective fix is fresh, it includes `-l`; otherwise it omits `-l`. That convenience is not a third core
-intent and is not applied to serial/BLE input. A T-Deck, iOS app or other advanced companion may expose a global,
-per-conversation or per-message control, but its on-wire command still reduces to presence or absence of `-l`.
+The simple Heltec on-device producer applies an opportunistic policy **before** issuing the command. The complete
+eligible set in the present OLED is:
+
+- the fixed emergency team-channel post: include `-l` when the effective fix is fresh, otherwise preserve its
+  existing safety rule and send the alarm without `-l`;
+- a canned team-only channel post: its command already requests `-e`; include `-l` when the effective fix is fresh,
+  otherwise issue the same `-e` post without location (the core still refuses if no team key can seal it);
+- a canned team-plane DM: include `-l` only when the effective fix is fresh **and** the live `e2e_dm` setting requests
+  encryption; when `e2e_dm` is off, omit `-l` and preserve the existing plaintext send.
+
+The K7 team-key grant, invite/reqpubkey operations, provisioning actions and every other internal/control command are
+not eligible. A future on-device producer must be classified explicitly in this list rather than inheriting the
+default by virtue of passing through `exec_command`. This convenience is not a third core intent and is not applied
+to serial/BLE input. A T-Deck, iOS app or other advanced companion may expose a global, per-conversation or
+per-message control, but its on-wire command still reduces to presence or absence of `-l`.
 
 There is no additional force-omit flag because omission of `-l` already means exactly that. GPS OFF controls the
 simple Heltec default and makes an explicit `-l` unavailable; it does not erase a companion's ability to express the
@@ -404,10 +422,11 @@ The exact signatures may be adjusted to match surrounding idiom, but these owner
 - the typed diagnostic snapshot;
 - the sleep-inhibit policy.
 
-The existing OLED send adapter owns the simple Heltec default. It reads the published effective-location fact and
-conditionally includes `-l` in the command line, as the present emergency path already does. It must not intercept
-or rewrite a line received from USB or BLE. Thus all producers still converge on the one command/core path, but a
-companion's deliberate omission of `-l` survives intact.
+The existing OLED send adapter owns the simple Heltec default. It reads the published effective-location fact and,
+for the DM arm, the live `e2e_dm` fact, then conditionally includes `-l` in the command line; the present emergency
+path already demonstrates that composition seam. It must not intercept or rewrite a line received from USB or BLE.
+Thus all producers still converge on the one command/core path, but a companion's deliberate omission of `-l`
+survives intact.
 
 `variants/heltec_v4/board_gnss.{h,cpp}` owns only:
 
@@ -521,8 +540,8 @@ power, not “attach this coordinate regardless of confidentiality.”
 The seed/default follows D2. `cfg set gps 0|1` uses the existing load/stamp/save ritual, applies live only after the
 write succeeds, and leaves both persisted and live state unchanged on an NV failure. Its handler returns a typed
 result instead of making BLE infer success from a dump: USB renders the result as text; BLE returns the fresh `cfg`
-object on success and a structured `bad_value`, `unsupported`, or `nv_save_failed` error otherwise. The setting is
-not added to the one-button OLED `ConfigService` in this slice.
+object on success and a structured `bad_value`, `unsupported`, `managed_by_gnss`, or `nv_save_failed` error otherwise.
+The setting is not added to the one-button OLED `ConfigService` in this slice.
 
 No coordinate or timestamp is added to any durable record. A fix must cause zero flash writes.
 
@@ -554,7 +573,22 @@ claim a measurement. The common `status` and `cfg` schemas always emit `gps_supp
 profiles emit `false` and status emits `gps_state:"unsupported"`. This lets a companion distinguish old firmware,
 unsupported hardware and an OFF supported receiver without board-name heuristics. Exact JSON is pinned natively.
 
-### 7.4 Send-size failures
+### 7.4 Configuration refusal surfaces
+
+The typed `cfg set` result must preserve one token across its transport renderers. In particular, the two new
+refusals are not folded into `bad_value`, and BLE must not answer a failed write with a fresh `cfg` object that looks
+like success:
+
+| condition | typed token | USB text | BLE/JSON command result | asynchronous send failure |
+|---|---|---|---|---|
+| `cfg set gps` on an unsupported build/role | `unsupported` | `> cfg err unsupported` | `{"err":"cfg","msg":"unsupported"}` | not applicable; no send started |
+| `cfg set lat/lon` while V4-mobile GNSS owns location | `managed_by_gnss` | `> cfg err managed_by_gnss` | `{"err":"cfg","msg":"managed_by_gnss"}` | not applicable; no send started |
+
+The existing `bad_value` and `nv_save_failed` outcomes use the same USB token-first and BLE
+`{"err":"cfg","msg":"<token>"}` shape. Success alone returns the fresh `cfg` object over BLE. One typed result and
+one token mapper feed both transports; USB text must not be scraped to decide the JSON result.
+
+### 7.5 Send-size failures
 
 Append, without renumbering existing values:
 
@@ -706,6 +740,8 @@ Required cases include:
 - invalid/no-fix NMEA does not refresh age;
 - no durable write on any fix/update/expiry;
 - a failed persisted ON/OFF write does not change live power;
+- unsupported `cfg set gps` and GNSS-owned `cfg set lat/lon` produce their exact USB and BLE/JSON refusal tokens,
+  never a success-shaped fresh `cfg` response;
 - non-GNSS stub stays inert and permits sleep;
 - GNSS ON denies sleep under the D2 first-slice policy, OFF restores it.
 
@@ -717,7 +753,9 @@ Drive ordinary and boundary-size messages through public commands for:
 - direct sealed with `-l` and a location available: location present and decodes within `pack_loc6` tolerance;
 - direct sealed without `-l`, with a location available: sends without location;
 - explicit `-l` without location: `no_location`;
-- Heltec on-device send with GPS ON plus a fresh fix adds `-l`; GPS OFF/no-fix omits it;
+- each of the three enumerated Heltec producers is pinned independently: emergency and canned team channel add `-l`
+  with a fresh fix; canned DM adds it only with both a fresh fix and live `e2e_dm`; GPS OFF/no-fix omits it;
+- K7 grant and every other internal/provisioning producer remain location-free with GPS ON and a fresh fix;
 - otherwise-identical serial/BLE commands with and without `-l` preserve that exact choice;
 - team keyless/plaintext, team sealed, global and mixed scope, both with and without `-l` where meaningful;
 - same-layer, delegated and cross-layer SEALED_RELAY with `-l`;
@@ -745,20 +783,24 @@ At minimum, automated controls must go RED for:
 11. accepting unknown SEALED_RELAY inner flag bits;
 12. using a new relay bit or appending a separate relay-flags byte instead of reusing `DATA_FLAG_LOCATION` in the
     existing former-origin byte;
-13. permitting light sleep while GPS ON under the approved first-slice policy.
+13. mapping `unsupported` or `managed_by_gnss` to a generic/success-shaped configuration response on either transport;
+14. adding `-l` to the K7 grant/internal path, or failing to add it to any one enumerated eligible OLED producer;
+15. permitting light sleep while GPS ON under the approved first-slice policy.
 
 ### 9.4 Durable wiring evidence
 
 Add a focused source/host probe that pins the only production bridge:
 
-- `mr_gnss_tick` executes before command dispatch and before the sleep decision;
+- `mr_gnss_tick` executes before command dispatch, before `mr_ui_tick` can call `build_snapshot`, and before the
+  sleep decision;
 - fix expiry therefore happens before a same-pass send can snapshot location;
+- the same ordering prevents STATUS from rendering a just-expired coordinate for one extra UI frame;
 - the sleep gate consults both `mr_ui_allows_sleep()` and `mr_gnss_allows_sleep()`;
 - status consumes the typed GNSS snapshot, not a re-derived coordinate guess;
 - `heltec_v4_mobile` alone links the real board adapter and parser dependency.
 
-Controls must fail for deletion, ordering after command processing, bypassing the sleep gate and compiling the real
-adapter into a static/gateway profile.
+Controls must fail for deletion, ordering after command processing, ordering after the UI snapshot, bypassing the
+sleep gate and compiling the real adapter into a static/gateway profile.
 
 ---
 
@@ -771,10 +813,12 @@ Read the current anchors from `simulation/BASELINE.md` at execution time. The co
 - native wrapper plus the real native test binary;
 - exact s18 keystone MD5/event/failure tuple;
 - warning census with zero new warning and zero `-Wswitch`;
-- every board environment, sequentially, including all three V4 profiles once they exist;
+- exactly two essential board environments, sequentially: `heltec_v4_mobile` (the real GNSS feature and Xtensa/team
+  arm) and `gateway` (the non-GNSS stub plus ARM/team-off arm); do not pre-authorize a third board build;
 - existing board/UI probes plus the GNSS wiring/parser probe;
 - `git diff --check`;
-- `sizeof(Node)` and `sizeof(NodeConfig)` pinned, with per-board RAM comparison if either layout can move.
+- `sizeof(Node)` and `sizeof(NodeConfig)` pinned; GPS-2 records measured old→new arithmetic and the RAM delta on both
+  named board environments.
 
 The simulator has no Device GNSS source and must not synthesize fixes or aired-location events. The expected s18
 result is exact identity; if any stream moves, investigate rather than blessing a GPS explanation.
@@ -782,6 +826,11 @@ result is exact identity; if any stream moves, investigate rather than blessing 
 ### 10.2 V4.2 and V4.3 metal checklist
 
 Run on both physical revisions with the same L76K module/cable where practical:
+
+**Expected transient during sequential reflashing:** if a newly flashed sender emits a located SEALED_RELAY before
+its peer has been reflashed, the old peer may display the six packed location bytes as a message prefix. This is the
+accepted no-wire-version-bump skew mode, not a new codec defect. Record it if observed, then reflash the peer; GPS-4
+qualification starts only after both ends run the new format and must then show clean text plus decoded location.
 
 1. Boot GPS OFF: rail is off, UART pins do not back-power the module, radio/OLED/button behavior is unchanged and
    `slept=` continues increasing.
@@ -819,9 +868,9 @@ in one diff.
 |---|---|---|---|
 | GPS-0 | design | owner review of this specification; D1/D2 settled | specification dispatchable |
 | GPS-1 | wire/core | settled D1: reuse sealed relay origin as authenticated `DATA_FLAG_LOCATION`, receive outputs, frames/protocol docs; explicitly no wire-version bump | relay native/dual-layer cases green; unlocated relay byte-identical; no GNSS or Heltec default policy |
-| GPS-2 | core feature | central omit/required request policy, exact preflight, appended error enums/renderers, direct/channel/relay matrix | native + s18 + boards green; configured test/static coordinates only |
+| GPS-2 | core feature/layout | `NodeConfig::location_available`; central omit/required request policy; exact preflight; appended error enums/renderers; direct/channel/relay matrix | native + s18 + two named boards green; deliberate old→new `sizeof(NodeConfig)`/`sizeof(Node)` arithmetic and both RAM deltas recorded; configured test/static coordinates only |
 | GPS-3 | device feature | `gps_enabled` NV field/version, parser adapter, firmware/board GNSS modules, V4-mobile profile dependency, simple Heltec `-l` default, diagnostics and sleep inhibit | automated gate green; no low-power wake optimization |
-| GPS-4 | metal acceptance | V4.2/V4.3 bench script evidence and documentation corrections | physical checklist recorded; feature ready |
+| GPS-4 | metal acceptance | V4.2/V4.3 bench script evidence, expected flash-skew observation, and documentation corrections | both peers on the new format; physical checklist recorded; feature ready |
 | GPS-5 | later optimization | UART/PPS/Standby power work, only after a separate design and metal proof | GPS ON can sleep without sentence/fix/radio regressions |
 
 GPS-1 isolates the relay-layout attribution but, by explicit owner ruling, does not bump `wire_version`. GPS-3 still
@@ -842,8 +891,8 @@ The feature is complete only when all of these statements are true:
 6. Every supported encrypted app-DM carrier, including SEALED_RELAY, honors the same explicit `-l` request.
 7. A sealed team-only channel honors the same request; a keyless/global/mixed post refuses it.
 8. Omitting `-l` always omits location, including on GPS-ON mobile and manually located static nodes.
-9. The simple Heltec on-device producer adds `-l` only while GPS is ON and its fix is fresh; serial/BLE producers are
-   never rewritten.
+9. The three enumerated Heltec app producers apply their ruled defaults, while K7/internal producers remain excluded
+   and serial/BLE commands are never rewritten.
 10. Internal/control traffic is never location-bearing.
 11. A requested location is never silently removed to make a message fit.
 12. `location_too_large` is distinct and visible over USB and BLE/JSON.
@@ -851,3 +900,6 @@ The feature is complete only when all of these statements are true:
 14. Radio service and UI remain responsive while GNSS is acquiring and tracking.
 15. The first implementation makes its GPS-ON power cost explicit; no unproved wake mechanism is presented as
     reliable.
+16. `unsupported` and `managed_by_gnss` remain distinct, typed and truthful on both USB and BLE/JSON.
+17. GPS-2 records the measured `NodeConfig`/`Node` layout arithmetic and the RAM delta on exactly the two named board
+    environments.

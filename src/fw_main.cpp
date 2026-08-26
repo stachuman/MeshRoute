@@ -878,6 +878,11 @@ void setup() {
     // blob buffer is deliberately NOT a local here: setup() runs on the FIXED 4 KB nRF52 loop-task stack — see the
     // static in firmware_commands.cpp, which owns both /mrpeers users.
     mrfw::peer_store_restore();
+    // §UI-10/11 P2 — the `/mrui` PRESET CATALOG. ⛔ A CALL, ⛔ not a decision (this file is board/runtime glue, U3):
+    // the four-state read, the compiled-defaults fallback and the two owner-approved diagnostic lines all live in
+    // `src/firmware_ui_preset_verbs.h` + `src/firmware_ui_presets.h`, which the native suite drives. A VALID or
+    // ABSENT store prints NOTHING here — an ordinary first boot is not a fault. ⛔ Zero writes on every arm.
+    mrfw::preset_boot_restore_console();
 #if defined(MRINBOX_QSPI_READY)
     mrcon.println(F("  inbox     = QSPI (durable)"));
 #else

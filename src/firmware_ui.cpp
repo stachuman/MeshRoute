@@ -529,8 +529,12 @@ bool ui_have_fix() {
     return mrui::ui_status_have_fix(cfg.lat_e7, cfg.lon_e7);
 }
 
+// ★★★★ §UI-10/11 P3 — THE CATALOG IS READ **LIVE, AT EXECUTION**, and that is design §3.3's own word: the request
+//      may have waited in `_req_pending` for seconds behind a busy tracker or a firing alarm, so the frozen frame's
+//      projection is not the question `send_gate_of` has to answer. ⛔ Do not "tidy" this into the snapshot's copy.
+// ⓘ The SAME instance `build_snapshot` projects from and the `ui preset` verbs write — one catalog, three readers.
 void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
-    mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req,
+    mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req, mrfw::preset_catalog().live(),
                           uint8_t(MR_UI_TEAM_CHANNEL_ID), ui_have_fix(), ui_exec, nullptr, now_ms);
 }
 
@@ -847,6 +851,18 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     s.own_lat_e7           = own_cfg.lat_e7;
     s.own_lon_e7           = own_cfg.lon_e7;
     s.own_fix              = mrui::ui_status_have_fix(own_cfg.lat_e7, own_cfg.lon_e7);
+    // ★★★★ §UI-10/11 P3 — **THE `/mrui` CATALOG REACHES THE PANEL HERE, AND NOWHERE ELSE.** `mrfw::preset_catalog()`
+    //      is the ONE live instance (`src/firmware_commands.cpp`), the SAME object the `ui preset` verbs write over
+    //      USB and BLE — so the panel and the console cannot be two opinions about the wearer's phrases.
+    // ★★ IT IS PUBLISHED AT THE **SNAPSHOT** SITE FOR THE `own_lat_e7` REASON DIRECTLY ABOVE, restated because it is
+    //    design §3.2.3's own requirement rather than a local habit: *"Page-buffer painting freezes one catalog
+    //    generation for the whole frame so a BLE update between OLED pages cannot tear two versions into one
+    //    image."* `draw_frame` replays the scene once per OLED page over the FROZEN copy, so a `ui preset set`
+    //    arriving between pages 3 and 4 cannot reach the image at all.
+    // ⛔ THE RENDERER ASKS THE CATALOG NOTHING — the `nearby[]` rule, one screen over.
+    // ⓘ ONE call (U2 — `s_counters.publish`'s shape): the generation and both projections come from the SAME
+    //   instant, so a frame can never freeze a list beside a generation that did not produce it.
+    mrui::ui_snapshot_publish_presets(s, mrfw::preset_catalog().live());
     fill_inbox_rows(s);
     return s;
 }
@@ -2097,6 +2113,17 @@ void draw_send_screen() {
 //    composes the console line and the native suite asserts it byte-for-byte), so the tables MOVED and the counts are
 //    now `sizeof`-derived from them — B66's own "durable cure: one table with the count derived from it". ⇒ there is
 //    nothing left here to keep in step, which is why the asserts are gone rather than merely still passing.
+// ⛔⛔ CORRECTED 2026-08-26 BY §UI-10/11 P3 (QG), AND THE PARAGRAPH ABOVE IS KEPT VISIBLE AS HISTORY BECAUSE IT IS
+//    NOW WRONG IN ITS PRESENT TENSE: **THERE ARE NO TABLES.** `mrui::kDmTexts` / `kChannelTexts` /
+//    `kEmergencyText` are RETIRED (their withdrawn declarations sit at their old home in `firmware_ui_model.h`),
+//    so nothing is `sizeof`-derived from them any more and the phrase *"the strings here"* describes a file state
+//    that ended two slices ago.
+// ★ B66's CURE IS NOT WITHDRAWN — it is STRONGER, and that is the only sentence above worth carrying forward:
+//   `back, don't send` is no longer the last ELEMENT OF A TABLE at all, it is a DERIVED ROW KIND
+//   (`mrui::compose_row_kind`) over a list whose length is the wearer's own enabled count. ⇒ no catalog edit of any
+//   size can turn it into a SEND, which `ui7-B66` now proves at every length 0..8 rather than at the one length a
+//   table happened to have. The compose rows this file draws come from the FROZEN catalog projection
+//   (`UiSnapshot::preset_dm` / `preset_ch`), through the pure composer — see `draw_compose`.
 
 // ★ THE SUB-VIEW'S SECOND PHASE (spec §3.4.1). The outcome REPLACES the canned list — the states are the model's
 //   (`DmState` / §B69's `ChanState`), never re-derived here.
@@ -2136,6 +2163,15 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
             // ⚠ NOT "failed": command.h insists the distinction is "delivery was never CONFIRMED, not that it failed".
             case mrui::DmState::not_confirmed: body_text(1, "NO CONFIRM"); break;
             case mrui::DmState::failed:        draw_failure_lines(v); break;
+            // ★★★★ §UI-10/11 P3 — §2's RULED VISIBLE WORD, and the lexeme is `mrui::kPresetChangedText` (declared
+            //      ONCE in the pure unit, where a native case pins it — ⛔ never a literal here: §B115, this TU is
+            //      compiled by neither the native suite nor the simulator). It means the catalog moved between the
+            //      press and the execution, so ⛔ NOTHING was submitted; the second row says what to do about it,
+            //      and the list the operator returns to is re-projected from the CURRENT catalog.
+            case mrui::DmState::preset_changed:
+                body_text(1, mrui::kPresetChangedText);
+                body_text(2, "not sent");
+                break;
         }
     } else {
         switch (v.chan) {
@@ -2163,12 +2199,17 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
                                                body_text(2, "no send handle"); break;
             case mrui::ChanState::blocked:    body_text(1, "BLOCKED"); break;
             case mrui::ChanState::failed:     draw_failure_lines(v); break;
+            // ★ §UI-10/11 P3 — the channel twin of the DM arm above, same lexeme, same meaning: ZERO submission.
+            case mrui::ChanState::preset_changed:
+                body_text(1, mrui::kPresetChangedText);
+                body_text(2, "not sent");
+                break;
         }
     }
     body_text(4, "press = back");
 }
 
-void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
+void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v) {
     const bool dm = (st.compose == mrui::Compose::dm);
     char head[kLineCap];
     if (dm) {
@@ -2187,14 +2228,25 @@ void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
     //     offered is four ruled facts (`compose_grant_offered`) — a renderer-side `if` over any of them would be a
     //     rule no gate in this tree can attack (§B115: this TU is compiled by neither the native suite nor the
     //     simulator). ⇒ the length, the row kind and the row's TEXT all come from the pure unit.
+    // ★★★★ §UI-10/11 P3 — THE ROWS ARE THE **FROZEN CATALOG PROJECTION's**, chosen by the sub-view's own kind. The
+    //      list, its length, each row's KIND, its `L`/`-` column and its whole LINE all come from the pure unit —
+    //      this loop composes nothing and decides nothing (§B115). ⛔ The empty state is an ANSWER, not an `if`
+    //      about `n`: `compose_empty_note` owns the rule and this file places the row it returns.
+    const mrui::ComposeList& list = dm ? s.preset_dm : s.preset_ch;
     const bool    grant = st.compose_grant_row;
-    const uint8_t n     = mrui::compose_row_count(dm, grant);
-    const uint8_t first = list_first(st.cursor, n, kBodyRows - 1);
-    for (uint8_t row = 0; row + 1 < kBodyRows && first + row < n; ++row) {
+    const uint8_t n     = mrui::compose_row_count(list, grant);
+    // §3.2.1's zero-enabled view: the note takes the first body row and the (back-only) list follows it. ⓘ With no
+    // enabled preset the list is at most `GRANT KEY` + `back`, so all three rows fit the four body rows below the
+    // header — no scrolling case can arise here.
+    const char*   note  = mrui::compose_empty_note(list);
+    const uint8_t top   = note ? uint8_t(2) : uint8_t(1);
+    if (note) body_text(1, note);
+    const uint8_t rows  = uint8_t(kBodyRows - top);
+    const uint8_t first = list_first(st.cursor, n, rows);
+    for (uint8_t row = 0; row < rows && first + row < n; ++row) {
         char l[kLineCap];
-        snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ',
-                 mrui::compose_row_text(uint8_t(first + row), dm, grant));
-        body_text(row + 1, l);
+        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);
+        body_text(uint8_t(row + top), l);
     }
 }
 
@@ -2309,7 +2361,9 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
     //    would be free to disagree. The one authority is the frozen projection.
     draw_rail(ch);
     if (v.st != mrui::Emergency::idle) { draw_emergency(v); return; }   // the alarm owns the body, from any screen
-    if (st.compose != mrui::Compose::none) { draw_compose(st, v); return; }
+    // ⓘ §UI-10/11 P3: it takes the FROZEN snapshot too — the compose list is a catalog projection now, and it must
+    //   be the frame's copy so a mid-frame `ui preset set` cannot tear the list across two page replays (§3.2.3).
+    if (st.compose != mrui::Compose::none) { draw_compose(st, s, v); return; }
     // ★ §UI-7D slice B: the THIRD body-replacing view. Its position after the overlay is what makes ledger §1.4's
     //   "a double under the overlay is absorbed entirely" true in display terms as well — while an alarm is up the modal
     //   is not drawn, and the model has already closed it at `long_arm` regardless.
@@ -2478,6 +2532,49 @@ bool mr_ui_allows_sleep() {
     if (s_sleep_locked_out) return false;
     return mrui::ui_allows_sleep(s_model, s_input, s_gate);
 }
+
+// ★★★★ §UI-10/11 P2 — **IS AN EMERGENCY ATTEMPT SERIES RUNNING?** The `busy` fact the `ui preset` verbs ask at
+//      HANDLING TIME (`mrfw::IEmergencyGate`, declared in `src/firmware_commands.h`, bound in
+//      `src/firmware_commands.cpp`). Spec §2's ruled row: an ACTIVE EMERGENCY makes EVERY mutating verb return
+//      `busy`, ⛔ including a no-op — because *"an alarm's retries must not change body or location policy halfway
+//      through the attempt series"* (§3.2.3).
+// ★★ THE THREE STATES ARE THE SERIES, and each is here for its own reason — this is the classification, so it is
+//    spelled out rather than left to a reader of the enum:
+//      · `arming`  — the long press is being held and `long_fire` is coming. The wearer has already committed;
+//                    swapping the emergency phrase underneath him now is the same defect one gesture earlier.
+//      · `firing`  — an attempt is in flight.
+//      · `blocked` — the attempt was refused and a RETRY IS ARMED (`tick_emergency` re-fires from `_retry_armed`).
+//                    ⛔ This is the arm a "the alarm isn't sending anything right now" reading would drop, and it is
+//                    precisely the middle of the attempt series the ruling names.
+// ⛔ THE TERMINAL/RETAINED STATES ARE ⛔ NOT BUSY, and that is the other half of the same ruling (*"an already-
+//    displayed outcome may finish"*): `picked_up`, `not_heard`, `reply`, `cancelled` and `failed` are RESULTS being
+//    read by the wearer, not attempts. Answering `busy` on them would leave the verbs dead for `kEmgHoldMs` after
+//    every alarm, with nothing in flight to protect.
+// ★ A `switch`, ⛔ never an if-chain (node.h:550, and dump_cfg's own §B214 note): `-Wswitch` cannot see an if-chain,
+//   and three enum->string defects in this tree came from exactly that. A new `Emergency` arm must be CLASSIFIED,
+//   and the build fails until it is.
+// ⓘ Pinned by `tools/probe_firmware_ui/` (which compiles THIS TU for real and drives the real model through a real
+//   long-press) — ⛔ not by the native suite, which cannot see this file (§B115).
+namespace mrfw {
+bool ui_emergency_active() {
+    // ⓘ ONE ARM PER LINE, WITH ITS OWN `return`, and that is not style: `tools/probe_firmware_ui/run.sh`'s controls
+    //   are single-line `sed` mutations, and a fall-through group can only be attacked by DELETING a label — which
+    //   `-Werror=switch` turns into a build failure instead of a red probe (a control that measures nothing). Written
+    //   this way, each of the nine classifications is a mutation of exactly one line.
+    switch (s_model.emergency()) {
+        case mrui::Emergency::arming:    return true;
+        case mrui::Emergency::firing:    return true;
+        case mrui::Emergency::blocked:   return true;
+        case mrui::Emergency::idle:      return false;
+        case mrui::Emergency::picked_up: return false;
+        case mrui::Emergency::not_heard: return false;
+        case mrui::Emergency::reply:     return false;
+        case mrui::Emergency::cancelled: return false;
+        case mrui::Emergency::failed:    return false;
+    }
+    return false;   // total function; -Werror=switch fires before this is reachable for a valid enumerator
+}
+}  // namespace mrfw
 
 // ★★★ §B200 — THE BOOT-SCOPED LOCKOUT. ONE writer of the latch (U1), and it hands back the EDGE so each caller can
 //   say its own line exactly once.

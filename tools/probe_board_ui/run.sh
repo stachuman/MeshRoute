@@ -1125,6 +1125,93 @@ wchk_in "$CFG_CPP" "W48 the grant-receipt /mrcfg write is the MEASURED-silent on
      w48 's@        b.team_key_active  = 1;@        b.team_key_active  = 1; mr_ui_on_config_saved();@' \
          's@b.team_key_team_id = team_id;@;@' \
          's@blob_put_team_channel_key(b, pub, priv);@;@'
+# ================================================================================================ W49-W51
+# ★★★★ §UI-10/11 P2 — **THE PRODUCTION WIRING OF THE `ui preset` FAMILY**, pinned here because it is reachable by
+#      nothing else in the tree. Landed on QG's HOLD of 2026-08-25, which named the exact hole: every gate the slice
+#      shipped stayed GREEN if someone (a) removed or mis-offset the live `ui` arm in `dispatch()`, (b) removed the
+#      boot-restore call in `setup()`, or (c) added a SEPARATE BLE `ui` implementation before the shared fallback.
+#      The pure unit is natively pinned and mutation-covered (`--target=uipresetverbs`, 19/19 RED) and the `busy`
+#      classification is probe-covered (`tools/probe_firmware_ui` C134-C136) — but all three of those instruments are
+#      handed the SERVICE, never the CONSOLE. §B97's lesson exactly: a fix wired to nothing passes every unit gate.
+#
+# ⚠⚠ **THIS IS THE DOCUMENTED RELAXATION, RULED BY QG 2026-08-25 AND RECORDED IN THE P2 PLAN'S HANDOFF LINE.** The
+#    stronger handoff — a host LINK against the real `mrfw::dispatch` / `mrcon` / `/mrui` store — is IMPRACTICAL and
+#    the reason is measured, not assumed:
+#      · `src/firmware_commands.cpp` includes `fw_context.h`, i.e. `<RadioLib.h>` — the very include whose removal
+#        from `firmware_ui.cpp` was [[B105]]'s whole refactor — plus ~20 `extern` device globals and the five
+#        `fw_*` board wrappers. Making it host-compilable is a [[B105]]-shaped REFACTOR, and C1 forbids folding a
+#        refactor into a feature slice.
+#      · `src/fw_main.cpp` — which owns TWO of the three sites — cannot be host-compiled at all: it defines
+#        `setup()`/`loop()`, and it is the single TU that may include `device_fault.h` (ISR vectors + the
+#        `MRFAULT_HW` macros).
+#    ⇒ **the BOARDS are the compile gate for these two TUs (their first compile is QG's two-env build), and THESE
+#      THREE SOURCE PINS ARE THE WIRING GATE.** Same mechanism, same floor and the same reason as W21/W47 above,
+#      which pin `fw_main.cpp`'s drain loop for exactly this reason (§B115).
+CMD_CPP="$ROOT/src/firmware_commands.cpp"
+# ONE function's body, from its column-0 signature to the first column-0 `}` — so a check can say "IN `dispatch()`",
+# ⛔ not merely "somewhere in the file". That distinction is the whole of control (d) below: an arm that lands in a
+# NEIGHBOURING function is what a bad merge produces, and a file-wide grep cannot see it.
+fn_body() { awk -v sig="$2" 'index($0, sig)==1 {inside=1} inside {print} inside && /^}$/ {exit}' "$1"; }
+fn_flat() { fn_body "$1" "$2" | sed 's://.*::' | tr '\n' ' ' | tr -s ' '; }   # §B77: comments stripped FIRST
+DISPATCH_SIG='bool dispatch(const char* line, size_t len, Print& out) {'
+SETUP_SIG='void setup() {'
+BLE_SIG='static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t cap) {'
+UI_ARM="if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }"
+
+# ★★★ W49 — THE LIVE ARM, AND IT IS PINNED WITH ITS OFFSETS. A substring check would pass a mis-sliced call, so the
+#     whole arm is matched: the `len == 2` bare form, the space at index 2, the two-byte `strncmp`, AND the
+#     `line + 2 / len - 2` slice `handle_ui` is handed. ⓘ `line + 2` is what makes the sub-verb parse see `preset …`
+#     rather than `ui preset …` — an off-by-two here answers the usage line to EVERY well-formed verb.
+echo "  W49 counts: $(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$CMD_CPP") arm line(s) in $(basename "$CMD_CPP") (required 1), $(fn_flat "$CMD_CPP" "$DISPATCH_SIG" | grep -cF "$UI_ARM") inside dispatch() (required 1)"
+w49() {
+  [ "$(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$1")" = 1 ] || return 1
+  fn_flat "$1" "$DISPATCH_SIG" | grep -qF "$UI_ARM"
+}
+wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice (both transports, no fork)" \
+     w49 '/handle_ui(line + 2, len - 2, out); return true;/d' \
+         's@handle_ui(line + 2, len - 2, out)@handle_ui(line, len, out)@' \
+         's@{ handle_ui(line + 2, len - 2, out); return true; }@{ return true; }@' \
+         's@ \&\& !strncmp(line, "ui", 2))@ \&\& !strncmp(line, "ui", 1))@' \
+         '/handle_ui(line + 2, len - 2, out); return true;/d; s@^static void dump_help(Print\& out) {$@&\n    if ((len == 2 || (len > 2 \&\& line[2] == '"'"' '"'"')) \&\& !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }@'
+
+# ★★★ W50 — THE BOOT LOAD. Without this call the catalog is never read: the node runs the COMPILED DEFAULTS for ever
+#     while `/mrui` holds the wearer's phrases, and ⛔ neither ruled diagnostic line is ever printed — a corrupt
+#     record becomes silent, which is the exact collapse the four storage states exist to prevent. Every native case
+#     and every battery entry stays green, because none of them boots anything.
+# ★ Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves
+#   the catalog correct and the WARNING gone — half the property, which is why a deletion-only control is not enough.
+echo "  W50 counts: $(grep -cF 'mrfw::preset_boot_restore_console();' "$FW_MAIN") boot-restore call(s) in $(basename "$FW_MAIN") (required 1), $(fn_flat "$FW_MAIN" "$SETUP_SIG" | grep -cF 'mrfw::preset_boot_restore_console();') inside setup() (required 1)"
+w50() {
+  [ "$(grep -cF 'mrfw::preset_boot_restore_console();' "$1")" = 1 ] || return 1
+  fn_flat "$1" "$SETUP_SIG" | grep -qF 'mrfw::preset_boot_restore_console();'
+}
+wchk_in "$FW_MAIN" "W50 setup() calls mrfw::preset_boot_restore_console() exactly once (the /mrui load + its ruled line)" \
+     w50 '/mrfw::preset_boot_restore_console();/d' \
+         's@    mrfw::preset_boot_restore_console();@    (void)mrfw::preset_catalog();@' \
+         '/mrfw::preset_boot_restore_console();/d; s@^void loop() {$@&\n    mrfw::preset_boot_restore_console();@'
+
+# ★★★★ W51 — **THE NO-FORK FACT, AND IT IS NEGATIVE SPACE**, so it carries the [[B237]]-class care in both
+#      directions. §3.2.3 rules that *"USB serial and BLE return the same bounded NDJSON records"*, and the slice
+#      delivers that STRUCTURALLY: `ble_dispatch_line` intercepts `status`/`cfg`/`peers`/`pull_inbox`/… before the
+#      shared fallback, and a `ui` arm added among them would give BLE a SECOND implementation that no native case,
+#      no probe and no battery could ever see (they are all handed the pure emitter, which cannot tell the two
+#      transports apart — that is the property, not an oversight).
+# ★ THE CHECK HAS A POSITIVE HALF TOO, and it is what stops it being a check that cannot fail: the shared fallback
+#   must be PRESENT. A purely-negative pin would go on passing after someone deleted the fallback entirely, i.e.
+#   after BLE lost the family altogether — control (c) is that wrong answer.
+# ⓘ THE FORBIDDEN SET IS ANCHORED, ⛔ not a bare `ui`: `\"ui` (a `ui`-prefixed command literal), `handle_ui` and
+#   `preset_` (any direct reach into the catalog). A bare `ui` would match `built` in this very function's
+#   `version` JSON and the check would be red on a correct tree.
+echo "  W51 counts: $(fn_flat "$FW_MAIN" "$BLE_SIG" | grep -cF 'if (dispatch(line, len, ls)) { ls.flush(); return 0; }') shared fallback(s) in ble_dispatch_line (required 1), $(fn_flat "$FW_MAIN" "$BLE_SIG" | grep -oE '"ui|handle_ui|preset_' | wc -l) ui-shaped handler token(s) (required 0)"
+w51() {
+  fn_flat "$1" "$BLE_SIG" | grep -qF 'if (dispatch(line, len, ls)) { ls.flush(); return 0; }' || return 1
+  ! fn_flat "$1" "$BLE_SIG" | grep -qE '"ui|handle_ui|preset_'
+}
+wchk_in "$FW_MAIN" "W51 ble_dispatch_line has NO ui arm of its own and keeps the shared dispatch fallback" \
+     w51 's@^    if (e == ParseErr::unknown_verb) {$@    if (len > 2 \&\& !strncmp(line, "ui", 2)) { LineSink lu(ble_sink); handle_ui(line + 2, len - 2, lu); lu.flush(); return 0; }\n&@' \
+         's@^    if (e == ParseErr::unknown_verb) {$@    if (len > 2 \&\& !strncmp(line, "ui", 2)) return write_err(out, cap, "ui", "console_only");\n&@' \
+         's@        if (dispatch(line, len, ls)) { ls.flush(); return 0; }@        (void)ls;@'
+
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

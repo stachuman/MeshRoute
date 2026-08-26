@@ -5,7 +5,7 @@ First written 2026-08-01. Revision 3 refreshed 2026-08-25 against MeshRoute
 e9008794d0ebf4910872b518564f33dee647bb86, the current pinned PlatformIO framework, Heltec's current V4
 documentation, and MeshCore main at 0679dbeffc504d562d2f09eb072fdc223f8ffc2a.
 
-**Status: OWNER-APPROVED AND DISPATCHABLE (2026-08-25).**
+**Status: OWNER-APPROVED AND DISPATCHABLE (2026-08-26).**
 
 Revision 3 replaces Revision 2 in place. It keeps the approved generic board-RF seam and conducted-output contract,
 but corrects the source drift and closes omissions found by the 2026-08-25 audit:
@@ -42,7 +42,8 @@ These decisions were approved on 2026-08-01 and remain authoritative:
 
 ### 0.2 Owner rulings approved 2026-08-25
 
-The owner approved all three first-build decisions on 2026-08-25. No policy decision remains before implementation.
+The owner approved all three first-build radio/product decisions on 2026-08-25. Their technical policy is closed;
+section 0.3 records the subsequent gate-scope ruling.
 
 **D1 — board population confirmation, not a policy choice.**
 
@@ -69,8 +70,19 @@ every other requested output. This is the conservative published reference point
 image today. Do not expose 28 dBm until each board revision has a measured table. The status and boot banner must say
 that 22 dBm is nominal/reference-derived until measured locally; it must not claim regulatory compliance.
 
-No owner choice remains for board assets, native testing, profile names or the common UI boundary; those are resolved
-below from the present tree.
+No owner choice remains for board assets, native testing, profile names, gate scope or the common UI boundary; those
+are resolved below from the present tree.
+
+### 0.3 V4-R1 — closed: two board environments per slice
+
+**Owner ruling 2026-08-26:** do not grant a full-fleet exception. Exactly two relevant board environments are built
+for each of V4-1 through V4-4, using the slice-specific matrix in section 10.1. This is sufficient because the native
+and production-header probes cover behavior and wiring, while the separately required warning census derives every
+OLED environment and therefore compiles each Heltec static/mobile/gateway profile as it lands.
+
+The warning census retains its standing exemption from the two-environment board-build cap. That dedicated clean
+instrument grows from the three existing OLED environments to all six after the V4 profiles land; it is not authority
+to add a third general board build to any slice. No implementation brief may widen the matrix silently.
 
 ---
 
@@ -165,6 +177,11 @@ This separation is load-bearing. apply_radio_live currently uses g_radio_ok to d
 may touch the radio. Marking hardware failed merely because a persisted setting is unsupported would prevent the
 operator from repairing that setting live. Boot/status prints hardware, configuration and their combined result
 after all three have been evaluated; a valid cfg set recomputes configuration validity without requiring a reboot.
+
+**Verify at implementation:** this claim is true in the Revision-3 audit tree
+(`firmware_config.cpp`'s file-static `apply_radio_live` gates its reconfiguration arm on `g_radio_ok`), but the coder
+must re-open that function immediately before changing the boot/status split. If concurrent work moved the guard,
+correct this description before relying on it; do not recreate a second radio-live authority from the prose here.
 
 CustomSX1262::std_init does not put a packet on air. It is safe to initialize the board FEM immediately after it and
 before the first startReceive. No V4 target may call startTransmit until the FEM is ready.
@@ -570,8 +587,23 @@ Pure tests cover:
 Extend tools/probe_board_ui/run.sh to exercise both common-canvas trait sets. Keep the firmware UI probe focused on
 board-independent screens; it need not duplicate every case for a second identical canvas.
 
-The warning census derives OLED environments. Adding V4 profiles without expectations must fail. Measure and pin all
-six OLED environments, with zero -Wswitch.
+V4-1 moves the existing 488-line canvas and will necessarily invalidate source-path and wiring anchors in
+`probe_board_ui`. Re-anchor the complete affected probe inside V4-1 and leave `tools/probe_board_ui/run.sh` green at
+that slice's exit. A normalized-red or partly stale probe is not an acceptable hand-off to V4-2; this is the
+wholesale-move form of B244's stale-regex failure.
+
+The warning census derives OLED environments and remains a separate required instrument, not one of the two general
+board builds. Adding a V4 profile without an expectation must fail. Measure and pin each profile as it lands; by the
+end of V4-4 the census covers all six OLED environments, with zero -Wswitch.
+
+Build exactly these two board environments for each slice, sequentially:
+
+| slice | first environment | second environment | coverage purpose |
+|---|---|---|---|
+| V4-1 | heltec_v3 | xiao_sx1262 | existing common-canvas consumer plus a non-Heltec control |
+| V4-2 | xiao_sx1262 | heltec_v3 | ARM and ESP32 null-FEM paths through the shared radio seam |
+| V4-3 | heltec_v4 | xiao_sx1262 | real V4 FEM path plus an existing null-FEM control |
+| V4-4 | heltec_v4_mobile | gateway_heltec_v4 | both newly introduced derived V4 profiles; heltec_v4 was proved in V4-3 |
 
 Run:
 
@@ -581,11 +613,12 @@ Run:
 - tools/probe_firmware_ui/run.sh;
 - the new radio sequencing probe and mutations;
 - tools/warning_census.sh;
-- every board environment sequentially, including all three V4 profiles;
+- exactly the two board environments named above for the current slice, sequentially;
 - git diff --check.
 
 Confirm no change to sizeof(Node), TxOutcome, wire/NV layout, timers, corpus anchors or simulator outcomes. Record
-per-board RAM and flash, especially the new V4 values and the null-FEM cost on existing boards.
+RAM and flash for both selected environments. In V4-2 record the null-FEM cost on both existing boards; in V4-3 and
+V4-4 record the selected new V4 values. The warning census separately records every derived OLED environment.
 
 ### 10.2 Metal — both boards
 
@@ -621,8 +654,8 @@ Each slice is independently reviewable and obeys C1.
 
 | slice | kind | content | completion |
 |---|---|---|---|
-| V4-0 | design | D1–D3 approved and recorded here on 2026-08-25 | complete; specification dispatchable |
-| V4-1 | refactor | move V3 canvas to heltec_common; required traits; dual board-ui probe; V3 byte/behavior proof | every existing gate green; no V4 env |
+| V4-0 | design | D1–D3 approved on 2026-08-25; two-environment V4-R1 gate matrix approved on 2026-08-26 | complete; specification dispatchable |
+| V4-1 | refactor | move V3 canvas to heltec_common; required traits; wholesale board-ui probe re-anchor; V3 byte/behavior proof | every existing gate, including probe_board_ui, green; no V4 env |
 | V4-2 | RF-seam feature | IBoardRf/provider; Sx1262Radio single arm_rx authority; null FEM on every existing board; truthful initial-arm failure; production-header probe | existing boards green; no V4 env |
 | V4-3 | V4 feature | board assets and provenance, heltec_v4 env, V4 RF driver/detection, fixed power and band enforcement, truthful diagnostics, V4 UI traits | heltec_v4 builds and passes both-board base metal checklist |
 | V4-4 | profile expansion | heltec_v4_mobile and gateway_heltec_v4; census and user/developer docs | all profiles build and census is pinned |

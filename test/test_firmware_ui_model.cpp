@@ -23,11 +23,25 @@
 
 using namespace mrui;
 
+// ★★★★ §UI-10/11 P3 — **THE COMPILED CATALOG, AS A RECORD**, because that is now what a compose list is projected
+//      from. `preset_defaults` is what `PresetCatalog::begin()` runs for an ABSENT `/mrui`, i.e. what an ordinary
+//      unconfigured device shows — so a snapshot published from it renders exactly the two DM and two channel rows
+//      the panel shipped before this slice. ⓘ It is a helper rather than a global so a case that wants a DIFFERENT
+//      catalog (a gapped one, an empty one, a located one) simply builds its own and publishes that.
+static mrnv::UiPresetBlob preset_defaults_blob() {
+    mrnv::UiPresetBlob b{};
+    mrfw::preset_defaults(b);
+    return b;
+}
 // A 3-member team, nothing in the inbox. `now_ms` is the only field the timing cases vary.
+// ⓘ §UI-10/11 P3: it PUBLISHES the compiled catalog. ⛔ `UiSnapshot{}` deliberately carries EMPTY lists (the honest
+//   unpublished state — see the field's own block), so every case that walks a compose list must say which catalog
+//   it is driving. This helper says "the compiled one", which is what the landed cases were always about.
 static UiSnapshot snap(uint32_t now_ms = 1000) {
     UiSnapshot s{};
     s.now_ms = now_ms; s.team_shown = 3; s.team_total = 3; s.unread_dm = 2; s.unread_ch = 5; s.batt_mv = 3900;
     for (uint8_t i = 0; i < 3; ++i) { s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60; }
+    ui_snapshot_publish_presets(s, preset_defaults_blob());
     return s;
 }
 
@@ -117,7 +131,8 @@ TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bo
     to_team(m, s); m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.take_send_request(req) == true);            // plan wrote REQUIRE: unavailable (-fno-exceptions)
-    CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); CHECK(req.text_index == 0);
+    CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id);
+    CHECK(req.slot == mrfw::kPresetDmFirst);            // ★ §UI-10/11 P3 — the STABLE slot `dm1`, ⛔ not a row index
     // ★★ REWRITTEN, NOT DELETED, BY UI-7 (the §B101 precedent). This line used to assert `compose == none` — i.e. it
     //    PINNED the modal closing as it sent. Spec §3.2.1/§3.4.1 require the OUTCOME to replace the list *in the
     //    sub-view* (`SENDING...` -> `DELIVERED to <label>` / `NO KEY` / `NO CONFIRM`), and with the modal closed on
@@ -257,7 +272,7 @@ TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 send
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.take_send_request(req) == true);
     CHECK(req.kind == SendKind::channel_canned);
-    CHECK(req.text_index == 1);
+    CHECK(req.slot == uint8_t(mrfw::kPresetChannelFirst + 1));   // ★ §UI-10/11 P3 — `channel2`, the second row
     // ★★ REWRITTEN BY UI-7, same reason as the DM case above: the modal now enters its RESULT phase instead of
     //    closing, because the canned post's outcome (§B69's ChanState) has nowhere else to be shown.
     CHECK(m.chan_state() == ChanState::submitting);
@@ -402,7 +417,7 @@ TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose mo
     CHECK(queued == true);                                               // ★ it really SENT — not `back`
     if (queued) {
         CHECK(req.peer_id    == 11);                                     // still the ENTRY-bound peer
-        CHECK(req.text_index == 1);                                      // ★ and still the text the user chose
+        CHECK(req.slot == uint8_t(mrfw::kPresetDmFirst + 1));            // ★ and still the text the user chose
     }
 }
 
@@ -634,10 +649,27 @@ TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
     CHECK(kMaxTeamRows  == 8);
     CHECK(kMaxInboxRows == 8);
     CHECK(kBlankMs      == 15000u);
-    CHECK(kDmTextCount      == 3);                   // "Are you OK?", "I'm OK", back without sending
-    CHECK(kChannelTextCount == 3);                   // "Got your message", "All good", back without sending
+    // ★★★★ §UI-10/11 P3 — the two FIXED COUNTS are RETIRED with their tables, and the WITHDRAWN lines are kept
+    //      visible: `CHECK(kDmTextCount == 3)` / `CHECK(kChannelTextCount == 3)`. A compose list's length is no
+    //      longer a compile-time bound at all — it is the ENABLED count of the wearer's catalog — so what replaces
+    //      them is the CAPACITY (fixed by the record, §3.2.2's *"eight DM slots and eight channel slots"*) plus the
+    //      derived row count over a projection of the COMPILED defaults, which is exactly the landed 2 + back = 3.
+    CHECK(mrfw::kPresetPerKind == 8);
+    {
+        ComposeList dm{}, ch{};
+        compose_project(preset_defaults_blob(), mrfw::PresetKind::dm,      dm);
+        compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);
+        CHECK(compose_row_count(dm, /*grant=*/false) == 3);   // "Are you OK?", "I'm OK", back, don't send
+        CHECK(compose_row_count(ch, /*grant=*/false) == 3);   // "Got your message", "All good", back, don't send
+    }
     CHECK(uint8_t(Screen::count) == 5);              // §UI-14: STATUS/TEAM/INBOX/SEND/SETTINGS (spec §3.1)
     UiSnapshot s{};
+    // ★ §UI-10/11 P3: the HONEST UNPUBLISHED STATE — no rows and no generation, so an unpublished snapshot lands on
+    //   §3.2.1's visible empty state rather than on a plausible-looking catalog nobody configured.
+    CHECK(s.preset_generation == 0u);
+    CHECK(s.preset_dm.n == 0);
+    CHECK(s.preset_ch.n == 0);
+    CHECK(compose_empty_note(s.preset_dm) != nullptr);
     CHECK(s.batt_mv == -1);                          // <0 = unavailable -> render "--", never a guess
     CHECK(s.team_build == true);
     // ★ §UI-14: the BLE row's condition defaults to ABSENT, which is spec §3.6.2's ruled state for "the UI-12
@@ -2087,15 +2119,41 @@ TEST_CASE("ui7-inbox: reset() really empties it, so a frame cannot inherit the p
     CHECK(s.inbox_shown == 0); CHECK(s.inbox_total == 0);
 }
 
-// ★ §B66's durable closure, asserted rather than assumed: the counts are DERIVED from the tables, so they cannot
-//   drift. The `back` row is the LAST row of each, and it is one row, not two (spec §3.2.2).
-TEST_CASE("ui7-B66: the canned counts are derived from the tables and `back` is the last row of each") {
-    CHECK(kDmTextCount == uint8_t(sizeof kDmTexts / sizeof kDmTexts[0]));
-    CHECK(kChannelTextCount == uint8_t(sizeof kChannelTexts / sizeof kChannelTexts[0]));
-    CHECK(kDmSendableTexts == uint8_t(kDmTextCount - 1));
-    CHECK(kChannelSendableTexts == uint8_t(kChannelTextCount - 1));
-    CHECK(std::strcmp(kDmTexts[kDmTextCount - 1], "back, don't send") == 0);
-    CHECK(std::strcmp(kChannelTexts[kChannelTextCount - 1], "back, don't send") == 0);
+// ★ §B66's durable closure, asserted rather than assumed. ⛔ THE WITHDRAWN FORM IS KEPT VISIBLE — it read the two
+//   counts back out of the two tables (`kDmTextCount == sizeof kDmTexts / sizeof kDmTexts[0]`, and `back` as
+//   `kDmTexts[kDmTextCount - 1]`). §UI-10/11 P3 retired the tables; the CURE is unchanged and now stronger, because
+//   `back` is no longer the last element of a table at all — it is a DERIVED ROW KIND, so no catalog edit of any
+//   size can turn it into a SEND. That is asserted here over catalogs of EVERY length the record allows.
+TEST_CASE("ui7-B66: `back, don't send` is the derived LAST row of every compose list, at every catalog size") {
+    for (uint8_t enabled = 0; enabled <= mrfw::kPresetPerKind; ++enabled) {
+        mrnv::UiPresetBlob b{};
+        mrfw::preset_defaults(b);
+        for (uint8_t i = 0; i < mrfw::kPresetPerKind; ++i) {
+            char t[8] = { 'd', 'm', char('0' + i), 0 };
+            mrfw::preset_slot_put(b.slot[mrfw::kPresetDmFirst + i], i < enabled, false, t, 3);
+            char c[8] = { 'c', 'h', char('0' + i), 0 };
+            mrfw::preset_slot_put(b.slot[mrfw::kPresetChannelFirst + i], i < enabled, false, c, 3);
+        }
+        ComposeList dm{}, ch{};
+        compose_project(b, mrfw::PresetKind::dm,      dm);
+        compose_project(b, mrfw::PresetKind::channel, ch);
+        CHECK(dm.n == enabled);
+        CHECK(ch.n == enabled);
+        for (const ComposeList* l : { &dm, &ch })
+            for (bool grant : { false, true }) {
+                const uint8_t n = compose_row_count(*l, grant);
+                CHECK(n == uint8_t(enabled + (grant ? 1 : 0) + 1));
+                CHECK(compose_row_kind(uint8_t(n - 1), *l, grant) == ComposeRow::back);   // ★ ONE `back`, and LAST
+                CHECK(std::strcmp(compose_row_text(uint8_t(n - 1), *l, grant), "back, don't send") == 0);
+                // ⛔ ...and it is ONE row, not two: nothing below the last row is a `back` a walk could reach twice.
+                uint8_t backs = 0;
+                for (uint8_t i = 0; i < n; ++i) if (compose_row_kind(i, *l, grant) == ComposeRow::back) ++backs;
+                CHECK(backs == 1);
+                // ⛔ AND `back` CARRIES NO LOCATION COLUMN (R-1's rule, and the reason K7's row is untouched).
+                CHECK(compose_row_loc_marker(uint8_t(n - 1), *l, grant) == '\0');
+            }
+    }
+    CHECK(std::strcmp(kComposeBackText, "back, don't send") == 0);
 }
 
 // ================================================================================ §UI-7D slice B — INBOX DETAIL/DELETE
@@ -5133,20 +5191,47 @@ TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body
     // ...and the wrapped body rows themselves
     CHECK(size_t(kDetailCols) <= kCols);
 
-    // ---- the compose presets, WITH their `>` marker (`%c%s`)
-    for (uint8_t i = 0; i < kDmTextCount; ++i)      CHECK(1u + strlen(kDmTexts[i])      <= kCols);
-    for (uint8_t i = 0; i < kChannelTextCount; ++i) CHECK(1u + strlen(kChannelTexts[i]) <= kCols);
-    // ★★ §7.1 RULE 6 — *"two selectable preset strings must not become visually identical after clamping"*. The rows
-    //    of ONE list are what the operator chooses between, so the comparison is WITHIN each table, over the VISIBLE
-    //    prefix (marker + 18 columns of text). ⛔ Relying on a hidden suffix is forbidden outright.
-    for (uint8_t a = 0; a < kDmTextCount; ++a)
-        for (uint8_t b = uint8_t(a + 1); b < kDmTextCount; ++b)
-            CHECK(strncmp(kDmTexts[a], kDmTexts[b], kCols - 1) != 0);
-    for (uint8_t a = 0; a < kChannelTextCount; ++a)
-        for (uint8_t b = uint8_t(a + 1); b < kChannelTextCount; ++b)
-            CHECK(strncmp(kChannelTexts[a], kChannelTexts[b], kCols - 1) != 0);
-    // ⓘ The emergency body is EXEMPT and stays 21 columns at x = 0 (§5.3) — `kEmergencyText` is not a body row at
-    //   all (it is the wire text of the alarm), and the `Font::large` headlines have their own 12-column budget,
+    // ---- ★★★★ §UI-10/11 P3 — THE COMPOSE ROWS, AT THE **WIDEST PHRASE THE CATALOG CAN HOLD**. ⛔ WITHDRAWN AND
+    //      KEPT VISIBLE: this used to walk `kDmTexts` / `kChannelTexts` and check `1 + strlen(text) <= kCols`, i.e.
+    //      the FIVE compiled strings. Those tables are retired, and — the point of OQ-A — a configured phrase can be
+    //      LONGER than any of them. ⇒ the budget is now proved against the BOUND (`mrnv::kUiPresetTextMax`, 17), so
+    //      it holds for every phrase the wearer can ever store rather than for the five that shipped.
+    // ★★ OQ-A's ARITHMETIC, ASSERTED RATHER THAN RESTATED: selection marker 1 + location marker 1 + text 17 = 19.
+    CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));
+    {
+        // A catalog whose two DM and two channel slots all carry a MAXIMUM-LENGTH phrase, in both location states.
+        mrnv::UiPresetBlob wide{};
+        mrfw::preset_defaults(wide);
+        const char* w17 = "ABCDEFGHIJKLMNOPQ";                 // exactly 17
+        CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));
+        for (uint8_t i : { uint8_t(mrfw::kPresetDmFirst), uint8_t(mrfw::kPresetDmFirst + 1),
+                           uint8_t(mrfw::kPresetChannelFirst), uint8_t(mrfw::kPresetChannelFirst + 1) })
+            mrfw::preset_slot_put(wide.slot[i], true, (i % 2) == 0, w17, strlen(w17));
+        ComposeList dm{}, ch{};
+        compose_project(wide, mrfw::PresetKind::dm,      dm);
+        compose_project(wide, mrfw::PresetKind::channel, ch);
+        char row[48];
+        for (const ComposeList* l : { &dm, &ch })
+            for (uint8_t i = 0; i < compose_row_count(*l, /*grant=*/true); ++i)
+                for (bool sel : { false, true }) {
+                    compose_row_line(row, sizeof row, i, *l, /*grant=*/true, sel);
+                    CHECK(strlen(row) <= size_t(kCols));
+                }
+        // ...and the DERIVED rows — `GRANT KEY` and `back, don't send` — with their one marker column.
+        CHECK(1u + strlen(kInviteGrantKey)  <= size_t(kCols));
+        CHECK(1u + strlen(kComposeBackText) <= size_t(kCols));
+        CHECK(strlen(kNoPresetsText)        <= size_t(kCols));
+        CHECK(strlen(kPresetChangedText)    <= size_t(kCols));
+    }
+    // ★★ §7.1 RULE 6 — *"two selectable preset strings must not become visually identical after clamping"*. ⛔ THE
+    //    CHECK IS WITHDRAWN AND KEPT VISIBLE, and the reason is a MEASUREMENT rather than a preference: it compared
+    //    the five COMPILED strings, and the catalog is now the WEARER's. Nothing in this tree can stop him
+    //    configuring `dm1` and `dm2` to the same words — and refusing a duplicate would be a new owner ruling
+    //    (§3.2.3's `set` validation has no such clause). ⇒ what survives is the half that is still ours to keep:
+    //    a phrase can never be CLAMPED at all, because `validate_preset_text` refuses 18+ bytes outright, so two
+    //    distinct phrases can never become identical *through truncation*. That is asserted above.
+    // ⓘ The emergency body is EXEMPT and stays 21 columns at x = 0 (§5.3) — the emergency phrase is not a body row
+    //   at all (it is the wire text of the alarm), and the `Font::large` headlines have their own 12-column budget,
     //   pinned by `tools/probe_board_ui`'s W11b.
 }
 
@@ -7547,7 +7632,11 @@ TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserve
     //   because K7's one published field lands in an existing pad (the full K7 arithmetic is in
     //   `ui16-k7-resources`).
     CHECK(sizeof(mrui::UiState) == 504u);
-    CHECK(sizeof(mrui::UiSnapshot) == 1008u);          // ⛔ UNCHANGED: N6 publishes no new snapshot field
+    // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
+    //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
+    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+    //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
+    CHECK(sizeof(mrui::UiSnapshot) == 1336u);          // ⛔ UNCHANGED BY N6 ITSELF — see the note above
     CHECK(sizeof(mrui::UiModel) == 928u);
 }
 
@@ -7787,9 +7876,12 @@ bool open_member_acts(UiModel& m, const UiSnapshot& s, uint8_t idx) {
 // Walk the act sub-view's cursor onto the GRANT row. ⛔ Never a hardcoded index: the row is OPTIONAL, which is
 // exactly the positional coupling §B66 forbids reasoning about. BOUNDED, so an ABSENT row fails the caller's check.
 bool compose_cursor_to_grant(UiModel& m, const UiSnapshot& s) {
-    for (int i = 0; i < mrui::kDmTextCount + 2; ++i) {
-        if (mrui::compose_row_kind(m.state().cursor, m.state().compose == Compose::dm,
-                                   m.state().compose_grant_row) == mrui::ComposeRow::grant) return true;
+    // ⓘ §UI-10/11 P3: the list is the SNAPSHOT's projection now, and the bound is its own length + the two derived
+    //   rows. ⛔ Still never a hardcoded index — the row is OPTIONAL, which is what §B66 forbids reasoning about.
+    const mrui::ComposeList& l = (m.state().compose == Compose::dm) ? s.preset_dm : s.preset_ch;
+    for (int i = 0; i < int(mrui::compose_row_count(l, true)) + 1; ++i) {
+        if (mrui::compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) == mrui::ComposeRow::grant)
+            return true;
         m.on_gesture(Gesture::short_press, s);
     }
     return false;
@@ -7830,13 +7922,17 @@ TEST_CASE("ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row an
     CHECK(f.m.state().compose_grant_row  == true);
     CHECK(f.m.state().compose_grant_hash == s.member[1].key_hash32);
     CHECK(f.m.state().compose_grant_hash != s.member[0].key_hash32);
-    // ...and the sub-view is the canned list PLUS one row, with `back` still LAST.
-    CHECK(mrui::compose_row_count(true, true) == uint8_t(mrui::kDmTextCount + 1));
-    CHECK(mrui::compose_row_kind(uint8_t(mrui::kDmSendableTexts), true, true) == mrui::ComposeRow::grant);
-    CHECK(mrui::compose_row_kind(uint8_t(mrui::kDmTextCount), true, true) == mrui::ComposeRow::back);
+    // ...and the sub-view is the ENABLED preset list PLUS one row, with `back` still LAST.
+    // ⓘ §UI-10/11 P3 / R-1 — RE-EXPRESSED, ⛔ NOT WEAKENED: the bound was `kDmTextCount` (a table's `sizeof`) and is
+    //   now the projection's own `n`. With the compiled catalog that is the SAME 2, so this case describes exactly
+    //   the list it always did — and it now also proves the row sits at `n` for a catalog of ANY size.
+    CHECK(s.preset_dm.n == 2);
+    CHECK(mrui::compose_row_count(s.preset_dm, true) == uint8_t(s.preset_dm.n + 2));
+    CHECK(mrui::compose_row_kind(s.preset_dm.n, s.preset_dm, true) == mrui::ComposeRow::grant);
+    CHECK(mrui::compose_row_kind(uint8_t(s.preset_dm.n + 1), s.preset_dm, true) == mrui::ComposeRow::back);
     // ⛔ THE WORD IS S-17, DECLARED ONCE IN THE INVITE UNIT AND REUSED — §K7 adds ⛔ no lexeme.
-    CHECK(mrui::compose_row_text(uint8_t(mrui::kDmSendableTexts), true, true) == mrui::kInviteGrantKey);
-    CHECK(strcmp(mrui::compose_row_text(uint8_t(mrui::kDmSendableTexts), true, true), "GRANT KEY") == 0);
+    CHECK(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true) == mrui::kInviteGrantKey);
+    CHECK(strcmp(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true), "GRANT KEY") == 0);
 
     CHECK(compose_cursor_to_grant(f.m, s));
     CHECK(f.invite_dev.grants == 0);                               // walking onto it performs NOTHING
@@ -7978,12 +8074,12 @@ TEST_CASE("ui16-k7-self: pin 5 — the SELF row offers nothing, and the core's o
     CHECK(open_member_acts(f.m, s, 0));
     CHECK(f.m.state().compose_grant_hash == s.my_key_hash32);      // the identity is still frozen, honestly...
     CHECK(f.m.state().compose_grant_row == false);                 // ...⛔ and the act is not offered
-    CHECK(mrui::compose_row_count(true, false) == mrui::kDmTextCount);   // the list is EXACTLY today's
+    CHECK(mrui::compose_row_count(s.preset_dm, false) == uint8_t(s.preset_dm.n + 1));   // the list is EXACTLY today's
     CHECK(compose_cursor_to_grant(f.m, s) == false);
     CHECK(f.invite_dev.reads == 0);                                // ⛔ not even the preflight is spent
     // ...and the last row is still `back, don't send`, which sends nothing.
     SendReq req{};
-    for (int i = 0; i < 8 && mrui::compose_row_kind(f.m.state().cursor, true, false) != mrui::ComposeRow::back; ++i)
+    for (int i = 0; i < 8 && mrui::compose_row_kind(f.m.state().cursor, s.preset_dm, false) != mrui::ComposeRow::back; ++i)
         f.m.on_gesture(Gesture::short_press, s);
     f.m.on_gesture(Gesture::double_press, s);
     CHECK(f.m.state().compose == Compose::none);
@@ -8031,7 +8127,7 @@ TEST_CASE("ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither
         CHECK(f.m.state().compose == Compose::channel);
         CHECK(f.m.state().compose_peer == 0);
         CHECK(f.m.state().compose_grant_row == false);
-        CHECK(mrui::compose_row_count(false, false) == mrui::kChannelTextCount);
+        CHECK(mrui::compose_row_count(s.preset_ch, false) == uint8_t(s.preset_ch.n + 1));
         CHECK(mrui::compose_grant_offered(/*dm=*/false, true, true, 0x1234u, 0x9999u) == false);
     }
     // ⓘ ...and the pure predicate itself, term by term, so each veto is attributable at match count 1.
@@ -8114,7 +8210,11 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     //    `offsetof`-proved rather than asserted in prose.
     // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the SHAPE, not the flash cost.
     // ---- the SNAPSHOT's one new field is FREE **and moves nothing** ---------------------------------------------
-    CHECK(sizeof(mrui::UiSnapshot) == 1008u);                      // ⛔ UNCHANGED by K7
+    // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
+    //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
+    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+    //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
+    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                      // ⛔ UNCHANGED BY K7 ITSELF
     CHECK(offsetof(mrui::UiSnapshot, my_key_hash32) == 700u);      // ★ the pad before the 8-aligned age below
     CHECK(offsetof(mrui::UiSnapshot, home_confirm_age_ms) == 704u);// ⛔ UNMOVED
     CHECK(offsetof(mrui::UiSnapshot, prov_invite) == 689u);        // ⛔ UNMOVED
@@ -8123,10 +8223,20 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     // ---- ...and the STATE's two frozen fields cost exactly ONE 8-byte quantum, together, at the head -------------
     CHECK(offsetof(mrui::UiState, compose_peer) == 3u);            // ⛔ UNMOVED
     CHECK(offsetof(mrui::UiState, compose_grant_hash) == 4u);      // ★ 4-aligned, immediately after the pick
-    CHECK(offsetof(mrui::UiState, compose_grant_row) == 8u);       // ★ ...and the flag costs NOTHING on top
-    CHECK(offsetof(mrui::UiState, compose_result) == 9u);          // pushed 4 -> 9 by the 4-alignment above
-    CHECK(sizeof(mrui::UiState) == 504u);                          // 496 + 8
-    CHECK(sizeof(mrui::UiModel) == 928u);                          // 920 + the same 8
+    // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, SUPERSEDED FIGURES KEPT VISIBLE: `compose_grant_row == 8u`,
+    //   `compose_result == 9u`.** P3 declared `uint32_t compose_gen` immediately after `compose_grant_hash`, which
+    //   is the 4-aligned slot at 8 — so the two flags shift to 12/13. ★ K7's CLAIM IS UNTOUCHED and is re-proved
+    //   below: the hash is still 4-aligned right after the pick, the flag still costs NOTHING on top of the field
+    //   in front of it, and `sizeof(UiState)` / `sizeof(UiModel)` are **UNCHANGED at 504 / 928 ON THE HOST** — i.e.
+    //   P3's own 4-byte field landed in padding that already existed here.
+    //   ⚠ ⛔ CORRECTED 2026-08-26 (QG): the withdrawn clause read *"and cost ZERO"* full stop, which is a HOST
+    //   statement wearing a general one's clothes. MEASURED on the board ABI it costs **+8** to `UiState` and `+8`
+    //   to `UiModel` — see `ui10-p3-resources`, which carries the figures and the toolchain.
+    CHECK(offsetof(mrui::UiState, compose_gen) == 8u);             // ★ §UI-10/11 P3 — 4-aligned, and FREE
+    CHECK(offsetof(mrui::UiState, compose_grant_row) == 12u);      // ★ ...and the flag costs NOTHING on top
+    CHECK(offsetof(mrui::UiState, compose_result) == 13u);         // pushed by the 4-alignment above
+    CHECK(sizeof(mrui::UiState) == 504u);                          // 496 + 8, and ⛔ UNMOVED by P3's uint32
+    CHECK(sizeof(mrui::UiModel) == 928u);                          // 920 + the same 8, likewise UNMOVED
     // ---- and K7 adds NO carrier to the chain it enters ------------------------------------------------------------
     CHECK(sizeof(mrui::InviteWindow) == 104u);                     // ⛔ UNCHANGED
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);                  // ⛔ UNCHANGED
@@ -8428,7 +8538,11 @@ TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both la
     //   `nearby_sel_id`, with ⛔ not one padding byte between them.
     CHECK(sizeof(mrui::UiState) == 504u);
     CHECK(sizeof(mrui::UiModel) == 928u);
-    CHECK(sizeof(mrui::UiSnapshot) == 1008u);                 // ⛔ UNCHANGED: K5 publishes no new snapshot field
+    // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
+    //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
+    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+    //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
+    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                 // ⛔ UNCHANGED BY K5 ITSELF
     CHECK(offsetof(mrui::UiState, nearby_sel_id) == 344u);    // 336 + 8 (K7's head insert)
     CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);   // ★ K5's field, still in the 4 bytes after it
 }
@@ -8850,7 +8964,11 @@ TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, an
     CHECK(offsetof(mrfw::SavedKeyEntry, reserved) == 5u);      // ★ NAMED padding — a whole-record compare is sound
     CHECK(sizeof(mrfw::SavedKeyList) == 36u);                  // 4 x 8 + n + st + served + binding_read
     // ---- the SNAPSHOT predicate is FREE: it lands in the bool run's existing padding ------------------------------
-    CHECK(sizeof(mrui::UiSnapshot) == 1008u);                  // ⛔ UNCHANGED by K6
+    // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
+    //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
+    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+    //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
+    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                  // ⛔ UNCHANGED BY K6 ITSELF
     CHECK(offsetof(mrui::UiSnapshot, prov_invite)     == 689u);   // ⛔ UNMOVED
     CHECK(offsetof(mrui::UiSnapshot, prov_saved_keys) == 690u);   // ★ the new flag, in the pad beside it
     // ---- the ANSWER's typed flag is FREE: it lands in the hole `saved_key` already sits in ------------------------
@@ -8987,4 +9105,394 @@ TEST_CASE("ui16-k6-grantack-join: the FULL-keyring landing works from the STATIC
     CHECK(f.m.state().saved_keys.n == 4);
     CHECK(f.prov.calls == 1);          // ⛔ only the JOIN the operator asked for — ⛔ nothing was re-run
     CHECK(f.m.state().forget_team == 0);
+}
+
+// ==================================================================================================================
+// §UI-10/11 slice P3 — THE CATALOG REACHES THE PANEL
+// ------------------------------------------------------------------------------------------------------------------
+// Authorities: the arc spec `docs/superpowers/specs/2026-08-25-ui10-11-preset-catalog-spec.md` §2 (OQ-A, the
+// mutation/modal table, `PRESET CHANGED`, R-1/R-2/R-3) and §4's pins, over the parent design
+// `2026-07-31-onboard-oled-ui-design.md` §3.2.2 (list semantics) + §3.2.3 (the per-kind sends) + §3.3's
+// generation-freeze paragraph.
+// ⓘ THE SEND COMPOSITIONS AND THE EXECUTION-TIME FREEZE LIVE IN `test/test_firmware_ui_send.cpp` (`ui10-p3-freeze`
+//   / `ui10-p3-loc` / `ui10-p3-emergency`), where the composer and the driver are. What is here is the LIST and the
+//   MODAL: row identity, the `L`/`-` column, the empty state, the ruled modal close, and R-1's K7 row.
+namespace {
+// A catalog with an arbitrary set of DM slots enabled, each carrying a text that NAMES its own slot — so a row that
+// resolved through the row INDEX instead of the stable slot shows the wrong word and the case can say which.
+mrnv::UiPresetBlob gapped_cat(std::initializer_list<uint8_t> dm_on,
+                              std::initializer_list<uint8_t> ch_on = {}) {
+    mrnv::UiPresetBlob b{};
+    mrfw::preset_defaults(b);
+    for (uint8_t i = 0; i < mrfw::kPresetPerKind; ++i) {
+        mrfw::preset_slot_put(b.slot[mrfw::kPresetDmFirst + i],      false, false, nullptr, 0);
+        mrfw::preset_slot_put(b.slot[mrfw::kPresetChannelFirst + i], false, false, nullptr, 0);
+    }
+    for (uint8_t o : dm_on) {
+        char t[8] = { 'D', 'M', char('0' + o), 0 };
+        mrfw::preset_slot_put(b.slot[mrfw::kPresetDmFirst + o - 1], true, (o % 2) == 0, t, 3);
+    }
+    for (uint8_t o : ch_on) {
+        char t[8] = { 'C', 'H', char('0' + o), 0 };
+        mrfw::preset_slot_put(b.slot[mrfw::kPresetChannelFirst + o - 1], true, (o % 2) == 0, t, 3);
+    }
+    return b;
+}
+UiSnapshot snap_with(const mrnv::UiPresetBlob& cat, uint32_t now_ms = 1000) {
+    UiSnapshot s = snap(now_ms);
+    ui_snapshot_publish_presets(s, cat);
+    return s;
+}
+}  // namespace
+
+// ★★★★ PIN 1 — **A VISIBLE ROW'S IDENTITY IS ITS STABLE SLOT** (§B66's cure, design §3.2.2's *"code must never
+//      derive `dmN` from the current row index"*). The design's own example is used verbatim: `dm1`, `dm4`, `dm8`.
+TEST_CASE("ui10-p3-slot: a GAPPED catalog projects dm1/dm4/dm8 to rows 0/1/2 carrying slots 1/4/8") {
+    const auto cat = gapped_cat({1, 4, 8});
+    ComposeList l{};
+    compose_project(cat, mrfw::PresetKind::dm, l);
+    CHECK(l.n == 3);
+    CHECK(l.row[0].slot == uint8_t(mrfw::kPresetDmFirst + 0));
+    CHECK(l.row[1].slot == uint8_t(mrfw::kPresetDmFirst + 3));
+    CHECK(l.row[2].slot == uint8_t(mrfw::kPresetDmFirst + 7));
+    CHECK(std::strcmp(l.row[0].text, "DM1") == 0);
+    CHECK(std::strcmp(l.row[1].text, "DM4") == 0);
+    CHECK(std::strcmp(l.row[2].text, "DM8") == 0);
+    // ⛔ AND THE ROW INDEX IS NOT THE SLOT: rows 1 and 2 would resolve to `dm2`/`dm3` under the withdrawn identity.
+    CHECK(l.row[1].slot != uint8_t(mrfw::kPresetDmFirst + 1));
+    CHECK(l.row[2].slot != uint8_t(mrfw::kPresetDmFirst + 2));
+    CHECK(compose_row_slot(1, l) == uint8_t(mrfw::kPresetDmFirst + 3));
+    CHECK(compose_row_slot(2, l) == uint8_t(mrfw::kPresetDmFirst + 7));
+    // ⛔ ...and the DERIVED rows answer a slot that is never a compose row, so nothing can send `back`.
+    CHECK(compose_row_slot(3, l) == mrfw::kPresetEmergency);
+    CHECK(compose_row_slot(99, l) == mrfw::kPresetEmergency);
+}
+
+TEST_CASE("ui10-p3-slot: the PRESS seals the row's stable slot — a gapped list sends dm4, never dm2") {
+    const auto cat = gapped_cat({1, 4, 8});
+    const auto s = snap_with(cat);
+    UiModel m; SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);                // open the DM compose on the first roster row
+    CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::short_press, s);                 // walk to ROW 1, which is `dm4`
+    CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::double_press, s);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    CHECK(req.slot == uint8_t(mrfw::kPresetDmFirst + 3));   // ★ dm4 — the STABLE slot the row carried
+    CHECK(req.slot != uint8_t(mrfw::kPresetDmFirst + 1));   // ⛔ not dm2, which the row INDEX would have named
+    CHECK(req.generation == cat.generation);               // ★ ...and the generation the wearer SAW
+}
+
+// ★★ DM AND CHANNEL ARE NEVER CROSSED (§3.2.2), and the emergency slot is on neither list.
+TEST_CASE("ui10-p3-slot: the two lists are kind-pure, and the emergency slot appears on neither") {
+    const auto cat = gapped_cat({2, 5}, {1, 3, 7});
+    ComposeList dm{}, ch{};
+    compose_project(cat, mrfw::PresetKind::dm,      dm);
+    compose_project(cat, mrfw::PresetKind::channel, ch);
+    CHECK(dm.n == 2);
+    CHECK(ch.n == 3);
+    for (uint8_t i = 0; i < dm.n; ++i) {
+        CHECK(mrfw::preset_kind_of(dm.row[i].slot) == mrfw::PresetKind::dm);
+        CHECK(std::strncmp(dm.row[i].text, "DM", 2) == 0);
+    }
+    for (uint8_t i = 0; i < ch.n; ++i) {
+        CHECK(mrfw::preset_kind_of(ch.row[i].slot) == mrfw::PresetKind::channel);
+        CHECK(std::strncmp(ch.row[i].text, "CH", 2) == 0);
+    }
+    // ⛔ The emergency slot is enabled in every catalog and is on NEITHER list — it is long-press only.
+    CHECK(cat.slot[mrfw::kPresetEmergency].enabled == 1);
+    for (uint8_t i = 0; i < dm.n; ++i) CHECK(dm.row[i].slot != mrfw::kPresetEmergency);
+    for (uint8_t i = 0; i < ch.n; ++i) CHECK(ch.row[i].slot != mrfw::kPresetEmergency);
+}
+
+// ★★ A DISABLED SLOT HAS NO ROW AT ALL, at every list length the record allows — and the walk is CONTAINED.
+TEST_CASE("ui10-p3-slot: a disabled slot is never rendered, and eight enabled slots all scroll into the list") {
+    const auto full = gapped_cat({1, 2, 3, 4, 5, 6, 7, 8});
+    ComposeList l{};
+    compose_project(full, mrfw::PresetKind::dm, l);
+    CHECK(l.n == mrfw::kPresetPerKind);
+    CHECK(compose_row_count(l, /*grant=*/false) == uint8_t(mrfw::kPresetPerKind + 1));
+    // ...and a walk over the whole list returns to row 0 having visited every row exactly once.
+    const auto s = snap_with(full);
+    UiModel m;
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    const uint8_t n = compose_row_count(s.preset_dm, m.state().compose_grant_row);
+    for (uint8_t i = 0; i < n; ++i) {
+        CHECK(m.state().cursor == i);
+        m.on_gesture(Gesture::short_press, s);
+    }
+    CHECK(m.state().cursor == 0);                          // wrapped, exactly once round
+}
+
+// ★★★★ PIN — **THE `L` / `-` COLUMN, ALWAYS EXACTLY ONE OF THE TWO** (OQ-A's premise). It is what the wearer
+//      confirms as part of the double press, so a blank column would silently read as `-`.
+TEST_CASE("ui10-p3-row: every PRESET row shows `L` or `-`, and the action rows show neither") {
+    const auto cat = gapped_cat({1, 2, 3, 4});             // gapped_cat sets loc on the EVEN ordinals
+    ComposeList l{};
+    compose_project(cat, mrfw::PresetKind::dm, l);
+    CHECK(l.n == 4);
+    CHECK(l.row[0].loc == false);   // dm1
+    CHECK(l.row[1].loc == true);    // dm2
+    CHECK(l.row[2].loc == false);   // dm3
+    CHECK(l.row[3].loc == true);    // dm4
+    for (bool grant : { false, true }) {
+        for (uint8_t i = 0; i < l.n; ++i) {
+            const char mk = compose_row_loc_marker(i, l, grant);
+            CHECK((mk == 'L' || mk == '-'));               // ★ ALWAYS one of the two, never blank
+            CHECK(mk == (l.row[i].loc ? 'L' : '-'));
+        }
+        // ⛔ R-1: an ACTION row carries no location column at all — see `compose_row_loc_marker`'s own block.
+        const uint8_t n = compose_row_count(l, grant);
+        if (grant) CHECK(compose_row_loc_marker(l.n, l, grant) == '\0');
+        CHECK(compose_row_loc_marker(uint8_t(n - 1), l, grant) == '\0');
+    }
+    // ---- the LINE, byte for byte: selection marker · L/- · text
+    char b[48];
+    compose_row_line(b, sizeof b, 0, l, /*grant=*/false, /*selected=*/true);
+    CHECK(std::strcmp(b, ">-DM1") == 0);
+    compose_row_line(b, sizeof b, 1, l, /*grant=*/false, /*selected=*/false);
+    CHECK(std::strcmp(b, " LDM2") == 0);
+    // ...and the two derived rows keep EXACTLY the one marker column they have always had (R-1).
+    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/false);
+    CHECK(std::strcmp(b, " GRANT KEY") == 0);
+    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/true);
+    CHECK(std::strcmp(b, ">GRANT KEY") == 0);
+    compose_row_line(b, sizeof b, uint8_t(l.n + 1), l, /*grant=*/true, /*selected=*/false);
+    CHECK(std::strcmp(b, " back, don't send") == 0);
+}
+
+// ★★★★ PIN 6 — §3.2.1's ZERO-ENABLED EMPTY STATE: the note, the back row only, and the cursor ON it.
+TEST_CASE("ui10-p3-empty: a catalog with no enabled slots shows the note and offers only `back`") {
+    const auto cat = gapped_cat({});                       // ⛔ every DM and channel slot disabled
+    ComposeList l{};
+    compose_project(cat, mrfw::PresetKind::dm, l);
+    CHECK(l.n == 0);
+    CHECK(compose_empty_note(l) != nullptr);
+    CHECK(std::strcmp(compose_empty_note(l), kNoPresetsText) == 0);
+    CHECK(compose_row_count(l, /*grant=*/false) == 1);      // ★ the back row, and nothing else
+    CHECK(compose_row_kind(0, l, /*grant=*/false) == ComposeRow::back);
+    // ⛔ AND A NON-EMPTY LIST HAS **NO** NOTE — the answer is `nullptr`, never an empty string a caller would draw.
+    ComposeList some{};
+    compose_project(gapped_cat({3}), mrfw::PresetKind::dm, some);
+    CHECK(some.n == 1);
+    CHECK(compose_empty_note(some) == nullptr);
+    // ---- and on the real model: the sub-view opens, the cursor lands on `back`, and a `double` SENDS NOTHING
+    const auto s = snap_with(cat);
+    UiModel m; SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor == 0);
+    CHECK(compose_row_kind(m.state().cursor, s.preset_dm, m.state().compose_grant_row) == ComposeRow::back);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);              // it LEFT
+    CHECK(m.take_send_request(req) == false);               // ⛔ and queued nothing
+}
+
+// ★★★★ PIN — **THE RULED MODAL TABLE (§2), DRIVEN BY THE GENERATION MOVE AND BY NOTHING ELSE.**
+TEST_CASE("ui10-p3-modal: a successful CHANGED mutation closes a selection-phase compose WITHOUT sending") {
+    const auto cat = gapped_cat({1, 4, 8});
+    auto s = snap_with(cat);
+    UiModel m; SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::short_press, s);                  // a selection is standing on row 1
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_gen == cat.generation);
+    // A `ui preset set` lands over BLE: P1 stamps the next generation into the record and publishes it.
+    auto changed = cat;
+    mrfw::preset_slot_put(changed.slot[mrfw::kPresetDmFirst + 1], true, false, "new", 3);
+    changed.generation = mrfw::preset_generation_next(changed.generation);
+    s = snap_with(changed);
+    m.on_tick(s);
+    CHECK(m.state().compose == Compose::none);              // ★ CLOSED
+    CHECK(m.take_send_request(req) == false);               // ⛔ ...WITHOUT SENDING
+    CHECK(m.state().compose_gen == 0u);                     // ⛔ and the seal is retired with the sub-view
+}
+
+TEST_CASE("ui10-p3-modal: a NO-OP and a FAILURE leave the compose open — the trigger is the generation, not the verb") {
+    const auto cat = gapped_cat({1, 4, 8});
+    auto s = snap_with(cat);
+    UiModel m;
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor == 1);
+    // (a) an IDENTICAL `set`: P1 answers `unchanged`, writes nothing and moves NO generation.
+    m.on_tick(snap_with(cat, 1100));
+    CHECK(m.state().compose == Compose::dm);                // ⛔ still open...
+    CHECK(m.state().cursor == 1);                           // ⛔ ...with the selection intact
+    // (b) a VALIDATION or STORAGE failure: nothing is published at all, so the projection and the generation stand.
+    m.on_tick(snap_with(cat, 1200));
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor == 1);
+    // (c) and a press still SENDS the row it was standing on.
+    SendReq req{};
+    m.on_gesture(Gesture::double_press, s);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (got) CHECK(req.slot == uint8_t(mrfw::kPresetDmFirst + 3));
+}
+
+TEST_CASE("ui10-p3-modal: an ALREADY-DISPLAYED OUTCOME may finish — a mutation does not discard a verdict") {
+    const auto cat = gapped_cat({1, 4, 8});
+    auto s = snap_with(cat);
+    UiModel m; SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::double_press, s);                 // send row 0 -> the RESULT phase
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_result == true);
+    CHECK(m.take_send_request(req) == true);
+    auto changed = cat;
+    changed.generation = mrfw::preset_generation_next(changed.generation);
+    m.on_tick(snap_with(changed, 1100));
+    CHECK(m.state().compose == Compose::dm);                // ★ the outcome is STILL on the panel
+    CHECK(m.state().compose_result == true);
+    // ...and the operator's acknowledgement is what retires it, exactly as before.
+    m.on_gesture(Gesture::short_press, snap_with(changed, 1200));
+    CHECK(m.state().compose == Compose::none);
+}
+
+// ★★★ THE PRESS-IN-THE-SAME-TICK ARM: `on_gesture` returns early for `Gesture::none`, so a `double` arriving in the
+//     very tick a mutation landed reaches the model through `compose_gesture` and must be CONSUMED, not honoured.
+TEST_CASE("ui10-p3-modal: a press arriving in the SAME tick as the mutation closes the modal and sends nothing") {
+    const auto cat = gapped_cat({1, 4, 8});
+    UiModel m; SendReq req{};
+    to_team(m, snap_with(cat));
+    m.on_gesture(Gesture::double_press, snap_with(cat));
+    CHECK(m.state().compose == Compose::dm);
+    auto changed = cat;
+    mrfw::preset_slot_put(changed.slot[mrfw::kPresetDmFirst + 0], true, false, "other", 5);
+    changed.generation = mrfw::preset_generation_next(changed.generation);
+    m.on_gesture(Gesture::double_press, snap_with(changed, 1100));   // the press and the change in one tick
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);               // ⛔ NOTHING was queued
+}
+
+// ★★★★ PIN 11 — the ruled visible word, and the states that carry it.
+TEST_CASE("ui10-p3-changed: `PRESET CHANGED` is the exact word, on its own terminal state, for both kinds") {
+    CHECK(std::strcmp(kPresetChangedText, "PRESET CHANGED") == 0);
+    UiModel a;
+    a.on_preset_changed(SendKind::dm, 1000);
+    CHECK(a.dm_state() == DmState::preset_changed);
+    CHECK(a.dm_state() != DmState::failed);                 // ⛔ never a generic failure (§2's ruling)
+    CHECK(a.chan_state() == ChanState::idle);
+    UiModel b;
+    b.on_preset_changed(SendKind::channel_canned, 1000);
+    CHECK(b.chan_state() == ChanState::preset_changed);
+    CHECK(b.chan_state() != ChanState::failed);
+    CHECK(b.dm_state() == DmState::idle);
+    // ⛔ AND THE EMERGENCY CANNOT REACH IT — R-3/§4.1. `send_gate_of` exempts the kind; the model refuses it too.
+    UiModel c;
+    c.on_preset_changed(SendKind::emergency, 1000);
+    CHECK(c.emergency() == Emergency::idle);
+    CHECK(c.dm_state() == DmState::idle);
+    CHECK(c.chan_state() == ChanState::idle);
+    // ★ IT IS TERMINAL: a later `send_aired` for some older flight cannot promote it into a claim of transmission.
+    a.on_send_aired(SendKind::dm, 2000);
+    CHECK(a.dm_state() == DmState::preset_changed);
+    b.on_send_aired(SendKind::channel_canned, 2000);
+    CHECK(b.chan_state() == ChanState::preset_changed);
+}
+
+// ★★★★ THE FRAME FREEZE — one generation per frame. The model reads the SNAPSHOT the frame froze, so a catalog that
+//      moves between two page replays cannot tear the list: the frozen copy is a VALUE, not a view.
+TEST_CASE("ui10-p3-freeze: a frozen snapshot keeps its whole list and generation when the catalog moves under it") {
+    const auto before = gapped_cat({1, 4, 8});
+    const UiSnapshot frozen = snap_with(before);            // ★ what a frame would freeze
+    auto after = gapped_cat({2, 3});
+    after.generation = mrfw::preset_generation_next(before.generation);
+    const UiSnapshot live = snap_with(after, 1100);
+    // The two projections disagree in every way that matters...
+    CHECK(frozen.preset_dm.n == 3);
+    CHECK(live.preset_dm.n == 2);
+    CHECK(frozen.preset_generation != live.preset_generation);
+    // ...and the frozen one is UNMOVED, row for row, because it holds COPIES rather than pointers.
+    CHECK(frozen.preset_dm.row[0].slot == uint8_t(mrfw::kPresetDmFirst + 0));
+    CHECK(frozen.preset_dm.row[1].slot == uint8_t(mrfw::kPresetDmFirst + 3));
+    CHECK(frozen.preset_dm.row[2].slot == uint8_t(mrfw::kPresetDmFirst + 7));
+    CHECK(std::strcmp(frozen.preset_dm.row[1].text, "DM4") == 0);
+    // ⇒ every row a frame draws comes from ONE generation. Asserted as the renderer walks it, row by row.
+    char b[48];
+    for (uint8_t i = 0; i < compose_row_count(frozen.preset_dm, false); ++i) {
+        compose_row_line(b, sizeof b, i, frozen.preset_dm, false, false);
+        CHECK(std::strstr(b, "DM2") == nullptr);            // ⛔ nothing from the NEW catalog can appear
+        CHECK(std::strstr(b, "DM3") == nullptr);
+    }
+}
+
+// ★★★★ R-1 — **K7's `GRANT KEY` ROW IS BYTE-IDENTICAL THROUGH THE REWORK**: same position (between the enabled DM
+//      slots and the back row), same gating (`compose_grant_offered`, untouched), same semantics (`double` opens
+//      N5/N6's chain and transmits nothing). ⓘ The landed K7 cases above re-run unmodified; this is the explicit
+//      equivalence the reconciliation asks for.
+TEST_CASE("ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index the one K7 landed against") {
+    const auto s = k7_snap(2);
+    CHECK(s.preset_dm.n == 2);                              // the two compiled DM presets
+    CHECK(std::strcmp(s.preset_dm.row[0].text, "Are you OK?") == 0);
+    CHECK(std::strcmp(s.preset_dm.row[1].text, "I'm OK") == 0);
+    for (bool grant : { false, true }) {
+        CHECK(compose_row_count(s.preset_dm, grant) == uint8_t(2 + (grant ? 1 : 0) + 1));
+        CHECK(compose_row_kind(0, s.preset_dm, grant) == ComposeRow::text);
+        CHECK(compose_row_kind(1, s.preset_dm, grant) == ComposeRow::text);
+        CHECK(compose_row_kind(2, s.preset_dm, grant) == (grant ? ComposeRow::grant : ComposeRow::back));
+    }
+    CHECK(compose_row_kind(3, s.preset_dm, true) == ComposeRow::back);
+    // ★ THE ROW'S POSITION IS THE LIST'S LENGTH, at EVERY catalog size — that is what "between the slots and the
+    //   back row" means once the list is configurable, and it is R-1 stated for the general case.
+    for (uint8_t k = 0; k <= mrfw::kPresetPerKind; ++k) {
+        ComposeList l{};
+        std::initializer_list<uint8_t> all = {1, 2, 3, 4, 5, 6, 7, 8};
+        mrnv::UiPresetBlob c{};
+        mrfw::preset_defaults(c);
+        for (uint8_t i = 0; i < mrfw::kPresetPerKind; ++i)
+            mrfw::preset_slot_put(c.slot[mrfw::kPresetDmFirst + i], i < k, false, "x", 1);
+        (void)all;
+        compose_project(c, mrfw::PresetKind::dm, l);
+        CHECK(l.n == k);
+        CHECK(compose_row_kind(k, l, /*grant=*/true) == ComposeRow::grant);
+        CHECK(compose_row_kind(uint8_t(k + 1), l, /*grant=*/true) == ComposeRow::back);
+        CHECK(compose_row_text(k, l, /*grant=*/true) == kInviteGrantKey);
+        // ⛔ ...and it is NEVER offered on the channel list, at any size (term 1 of `compose_grant_offered`).
+        CHECK(compose_grant_offered(/*dm=*/false, true, true, 0x1234u, 0x9999u) == false);
+    }
+}
+
+// ★★ THE RESOURCE MEASUREMENT, `offsetof`-proved (spec §5). ⚠ Native alignment hides the BOARD figure (D2).
+TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and ZERO of UiState") {
+    CHECK(sizeof(mrui::ComposeSlot) == 20u);               // 18 char + slot + loc, alignof 1, no padding
+    CHECK(sizeof(mrui::ComposeList) == 161u);              // 8 x 20 + the count
+    CHECK(offsetof(mrui::ComposeSlot, text) == 0u);
+    CHECK(offsetof(mrui::ComposeSlot, slot) == 18u);
+    CHECK(offsetof(mrui::ComposeSlot, loc)  == 19u);
+    // ★ THE PLACEMENT: `member[]` ended at the struct's old 8-aligned END (1008), so the `uint32_t` lands there for
+    //   free and the two alignof-1 lists follow it. ⇒ 1008 -> 1336, i.e. exactly 4 + 161 + 161 + 2 bytes of tail pad.
+    CHECK(offsetof(mrui::UiSnapshot, preset_generation) == 1008u);
+    CHECK(offsetof(mrui::UiSnapshot, preset_dm) == 1012u);
+    CHECK(offsetof(mrui::UiSnapshot, preset_ch) == 1173u);
+    CHECK(sizeof(mrui::UiSnapshot) == 1336u);
+    // ★ AND THE STATE'S SEALED GENERATION COSTS **NOTHING ON THE HOST**: it lands in padding that already existed.
+    // ⚠⚠ ⛔ NOT ON THE BOARD, and the difference is D2's warning MEASURED rather than repeated (QG, 2026-08-26,
+    //    `xtensa-esp-elf` GCC 13.2 / ILP32 / the heltec_mobile flag set): `sizeof(UiState)` **496 -> 504** and
+    //    `sizeof(UiModel)` **904 -> 912** there — the host's 8-byte adapter pointers open a hole the board has not
+    //    got. The panel TU carries a whole `UiState` TWICE in its statics (`s_frame_state`, and `s_model`'s own).
+    // ⛔ CORRECTED IN PLACE (QG), AND THE WITHDRAWN CLAUSE IS KEPT VISIBLE BECAUSE IT WAS **WRONG**: it read *"the
+    //    TU's measured board growth is +344, not this file's host-visible +328"*, which offers a SYMBOL-SIZE sum as
+    //    the device's RAM. ★ THE THREE FIGURES ARE THREE DIFFERENT THINGS ([[B246]]):
+    //      · SYMBOL-SIZE growth **+344 B** = `s_frame_snap` +328 · `s_frame_state` +8 · `s_model` +8;
+    //      · LINKED `heltec_mobile` RAM **218 564 -> 218 900 = +336 B** — the image truth, the only device cost;
+    //      · ⇒ **8 B absorbed by existing section/alignment padding** at link time.
+    // ⇒ these three lines pin the HOST shape, which is all a native case can see; the SYMBOL figures need the board
+    //   ABI compiler, and the RAM figure needs a LINK — i.e. the per-board `RAM_used` diff, which is the board gate's.
+    CHECK(offsetof(mrui::UiState, compose_gen) == 8u);
+    CHECK(sizeof(mrui::UiState) == 504u);
+    CHECK(sizeof(mrui::UiModel) == 928u);
+    // ★ `SendReq` gains 4 bytes over the withdrawn `{kind, peer, text_index}` — it is a by-value request, held in
+    //   ONE model member and one tick local, so this is 4 bytes of `UiModel` that measured ZERO above.
+    CHECK(sizeof(mrui::SendReq) == 8u);
 }

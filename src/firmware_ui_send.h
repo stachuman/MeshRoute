@@ -451,37 +451,93 @@ inline RefuseReason refuse_reason_of(const SendExec& r) {
 // Wide enough for the longest line either verb can produce, with the widest `%u` GCC must assume for a promoted
 // `uint8_t` (10 digits) and the longest canned text. Measured worst case is `send_channel` at ~52 B; the excess is
 // deliberate slack against `-Wformat-truncation=`, exactly as `firmware_ui.cpp`'s kLineCap documents.
+// ⓘ RE-MEASURED 2026-08-26 (§UI-10/11 P3), and the cap is UNCHANGED: the widest line is now the channel post with a
+//   full 17-byte configured phrase AND `-l` — `send_channel 255 "<17>" -t -l -e` = **45 B** — against 52 for the
+//   promoted-`%u` worst case the paragraph above sizes for. The bound is `mrnv::kUiPresetTextMax` (OQ-A's 17), so a
+//   phrase can never grow past it without the record's own constant moving.
 inline constexpr std::size_t kSendLineCap = 96;
+
+// ================================================================= §UI-10/11 P3 — THE STALE-GENERATION GATE (§3.3)
+// ★★★★ **THE FREEZE, AS A PREDICATE.** Design §3.3: *"If the slot is disabled or the generation no longer matches at
+//      execution, refuse and repaint — never resolve the same row index to newly configured words."* Both halves are
+//      here and each is a mutation of its own, because they catch different edits: a `set` on ANOTHER slot moves the
+//      GENERATION (the sealed row's own words are intact, but the list the wearer was looking at is not what he
+//      would see now), while a `clear` on THIS slot leaves the row with no text at all.
+// ★★★★ **IT IS ASKED AGAINST THE LIVE CATALOG, ⛔ NEVER AGAINST THE SNAPSHOT** — the word in the design is *"at
+//      EXECUTION"*, and the two are not the same instant: a request that finds the normal tracker busy (or that
+//      yields to a firing alarm) waits in `_req_pending` across ticks, so seconds can pass between the press and
+//      this question. Asking the frozen projection would re-ask what the press already knew.
+// ★★★★ **THE EMERGENCY IS EXEMPT, AND THAT IS R-3/§4.1 RATHER THAN AN OVERSIGHT.** *"An alarm is more important
+//      than its coordinates"* is the same ruling one axis over: it is more important than a phrase edit too. An
+//      alarm seals no generation (`take_send_request` stamps 0), its slot cannot be disabled or cleared by
+//      construction (`preset_slot_mandatory`), and refusing a distress call because somebody re-worded `dm4` over
+//      BLE would be the worst defect this arc could ship. ⇒ ⛔ never add an emergency arm below.
+enum class SendGate : uint8_t {
+    send,             // the sealed slot+generation still describe the live catalog — compose and submit
+    preset_changed,   // ★ §2's ruled refusal: ZERO core submission, `PRESET CHANGED`, repaint from the catalog
+};
+inline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat) {
+    if (req.kind == SendKind::emergency) return SendGate::send;              // ⛔ R-3/§4.1 — never gated
+    if (req.generation != cat.generation) return SendGate::preset_changed;   // ★ EQUALITY, never ordering (§3.2.3)
+    if (!mrfw::preset_slot_valid(req.slot)) return SendGate::preset_changed; // C2 — a slot this catalog has not got
+    if (!cat.slot[req.slot].enabled) return SendGate::preset_changed;        // ★ the slot was cleared under the press
+    // ★ KIND PURITY AT EXECUTION TOO (§3.2.2: *"DM presets never appear in the channel list and vice versa"*). The
+    //   projection already guarantees it on the way in; asked again here it is what stops a `SendReq` assembled any
+    //   other way from airing a channel phrase as a DM.
+    const mrfw::PresetKind want = (req.kind == SendKind::dm) ? mrfw::PresetKind::dm : mrfw::PresetKind::channel;
+    if (mrfw::preset_kind_of(req.slot) != want) return SendGate::preset_changed;
+    return SendGate::send;
+}
 
 // ★★ COMPOSE THE CONSOLE LINE. Returns its length, or 0 = REFUSE (C2 — never a truncated or partly-formed command).
 // ★ §3.4 — a DM is `send <team_local_id> "<text>" -t -a`. `-t` selects the TEAM plane; `-a` buys the ONE thing a
 //   channel post can never offer, a per-destination end-to-end ack. ⛔ NO `-e`: the parser gates it `allow_e=by_hash`
 //   and rejects it on an id target, so `crypt` stays `def` and follows the node's own `e2e_dm` setting. The UI must
 //   not force plaintext either — `CryptIntent::off` was deliberately removed from the console.
-// ★★★ §4.1 — `-l` IS CONDITIONAL, AND UNCONDITIONALLY SENDING IT WOULD TURN "NO FIX" INTO NO ALARM AT ALL.
-//   `node.cpp:1553` refuses `want_loc && lat_e7 == 0 && lon_e7 == 0` with `err_unsupported` BEFORE anything is
-//   enqueued. A distress call is worth more than the coordinates attached to it, so a node without a fix sends the
-//   alarm WITHOUT `-l` rather than not at all.
-// ⓘ The canned channel post carries no `-l`: it is not a distress message and §4.1's location ruling is about the
-//   alarm. It does carry `-e`, like the alarm, so both take the identical team-crypt path.
-inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req,
+// ★★★ §4.1 — THE EMERGENCY's `-l` IS CONDITIONAL, AND UNCONDITIONALLY SENDING IT WOULD TURN "NO FIX" INTO NO ALARM
+//   AT ALL. `node.cpp:1553` refuses `want_loc && lat_e7 == 0 && lon_e7 == 0` with `err_unsupported` BEFORE anything
+//   is enqueued. A distress call is worth more than the coordinates attached to it, so a node without a fix sends
+//   the alarm WITHOUT `-l` rather than not at all.
+// ★★★★ §UI-10/11 P3 / R-2 — **THE PER-SLOT `include_location` FLAG IS AUTHORITATIVE**, owner-ruled 2026-08-25, and
+//      the three kinds have DELIBERATELY DIFFERENT failure policies (§3.2.3's table):
+//        · emergency — `loc off` ⇒ never `-l` · `loc on` + fix ⇒ `-l` · `loc on` + NO fix ⇒ **send without `-l`**.
+//          ⓘ That last row is §4.1's ruling and is the ONLY place a location intent is dropped anywhere in this
+//          function. It is not a "downgrade to make the preset send": it is the alarm outranking its coordinates.
+//        · channel   — `-l` iff the slot says so, **⛔ NEVER STRIPPED**. *"No fix/key/seal means a LOUD REFUSAL"* —
+//          and the refusal is the CORE's own (`node.cpp:1553` / the seal gate), surfaced through the existing
+//          synchronous `on_send_refused` path with its `CmdCode`. ⛔ A UI-side pre-check would be a SECOND privacy
+//          gate able to disagree with the one that actually decides, which is the [[B48]] class; ⛔ and stripping
+//          `-l` to make the send succeed would air a message the wearer configured to carry coordinates without
+//          them, silently.
+//        · DM        — the same, and §3.2.3 spells the consequence out: the core *"accepts `-l` on an id form but
+//          refuses unless the effective DM is SEALED"*. ⛔ *"Do not change addressing to hash or silently downgrade
+//          merely to make the preset send."* ⇒ this function composes `-l` and changes NOTHING else about the form.
+// ⛔ THE TEXT IS THE **LIVE CATALOG's**, ⛔ never a table: the retired `kDmTexts`/`kChannelTexts`/`kEmergencyText`
+//    are recorded at their old home in `firmware_ui_model.h`. ⓘ `%.*s` bounds the copy by the record's own `len`
+//    rather than trusting a terminator — canonical records zero their tail, but a memcpy bound is not the place to
+//    rely on that (`preset_slot_put`'s own rule).
+// ⓘ CALL ONLY AFTER `send_gate_of` ANSWERED `send`: this function does not re-ask the freeze, it COMPOSES.
+inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req, const mrnv::UiPresetBlob& cat,
                                 uint8_t team_channel_id, bool have_fix) {
     if (!out || cap == 0) return 0;
     out[0] = '\0';
+    if (!mrfw::preset_slot_valid(req.slot)) return 0;      // C2 — ⛔ never an out-of-range read
+    const mrnv::UiPresetSlot& sl = cat.slot[req.slot];
+    if (!sl.enabled || sl.len == 0) return 0;              // ⛔ an empty row is not a message — REFUSE, never send ""
+    const int  tl  = int(sl.len);
+    const bool loc = (sl.loc != 0);
     int n = 0;
     if (req.kind == SendKind::dm) {
-        if (req.text_index >= kDmSendableTexts) return 0;   // `back` (or past the table) is not a message — REFUSE
-        n = snprintf(out, cap, "send %u \"%s\" -t -a",
-                     unsigned(req.peer_id), kDmTexts[req.text_index]);
+        n = loc ? snprintf(out, cap, "send %u \"%.*s\" -t -a -l", unsigned(req.peer_id), tl, sl.text)
+                : snprintf(out, cap, "send %u \"%.*s\" -t -a",    unsigned(req.peer_id), tl, sl.text);
     } else if (req.kind == SendKind::channel_canned) {
-        if (req.text_index >= kChannelSendableTexts) return 0;
-        n = snprintf(out, cap, "send_channel %u \"%s\" -t -e",
-                     unsigned(team_channel_id), kChannelTexts[req.text_index]);
-    } else {   // SendKind::emergency — one fixed body, no list, no cursor
-        n = have_fix ? snprintf(out, cap, "send_channel %u \"%s\" -t -l -e",
-                                unsigned(team_channel_id), kEmergencyText)
-                     : snprintf(out, cap, "send_channel %u \"%s\" -t -e",
-                                unsigned(team_channel_id), kEmergencyText);
+        n = loc ? snprintf(out, cap, "send_channel %u \"%.*s\" -t -l -e", unsigned(team_channel_id), tl, sl.text)
+                : snprintf(out, cap, "send_channel %u \"%.*s\" -t -e",    unsigned(team_channel_id), tl, sl.text);
+    } else {   // SendKind::emergency — the catalog's mandatory slot; ★ §4.1: the fix, not the flag alone, adds `-l`
+        n = (loc && have_fix) ? snprintf(out, cap, "send_channel %u \"%.*s\" -t -l -e",
+                                         unsigned(team_channel_id), tl, sl.text)
+                              : snprintf(out, cap, "send_channel %u \"%.*s\" -t -e",
+                                         unsigned(team_channel_id), tl, sl.text);
     }
     if (n <= 0 || std::size_t(n) >= cap) { out[0] = '\0'; return 0; }   // truncation is a refusal, never a short send
     return n;
@@ -501,11 +557,17 @@ inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req,
 // ⓘ It takes BOTH trackers and picks by kind, so a caller cannot hand an alarm to the normal slot. That choice was a
 //   caller obligation in the plan's listing; here it is one line inside the tested unit.
 inline void ui_perform_send(SendTracker& emg, SendTracker& normal, UiModel& m, const SendReq& req,
-                            uint8_t team_channel_id, bool have_fix,
+                            const mrnv::UiPresetBlob& cat, uint8_t team_channel_id, bool have_fix,
                             SendExecFn exec, void* ctx, uint32_t now_ms) {
     SendTracker& tr = (req.kind == SendKind::emergency) ? emg : normal;
+    // ★★★★ §UI-10/11 P3 — **THE FREEZE IS ASKED FIRST, AND ITS REFUSAL COSTS ZERO OF EVERYTHING.** No line is
+    //      composed, `exec` is never called, and — the half a reader will look for — ⛔ THE TRACKER IS NOT TOUCHED:
+    //      `tr.submit()` is below this, so no slot is opened and none needs closing. §2's ruling is *"ZERO core
+    //      submission"*, and the honest way to deliver that is to return before anything can submit.
+    // ⛔ IT IS ⛔ NOT `on_send_refused`: that would say the send was attempted and failed. See `on_preset_changed`.
+    if (send_gate_of(req, cat) == SendGate::preset_changed) { m.on_preset_changed(req.kind, now_ms); return; }
     char line[kSendLineCap];
-    const int n = ui_compose_send_line(line, sizeof line, req, team_channel_id, have_fix);
+    const int n = ui_compose_send_line(line, sizeof line, req, cat, team_channel_id, have_fix);
     // A line we refuse to compose never reaches the core, so there is no `CmdCode` for it — same shape as a parser
     // reject, and `RefuseReason::parser` is the predicate that says "read no code" (see UiModel::refuse_code).
     if (n == 0 || !exec) {

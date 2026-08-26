@@ -113,6 +113,13 @@
 // (UI-6/UI-7); the model only ever emits an index and asks. ⓘ V1 comment repair 2026-08-05: this line also claimed the
 // canned message TEXTS were over there — they are not, and have not been since §B66 moved `kDmTexts`/`kChannelTexts`
 // HERE (lines 80-89) so `back`'s positional identity has a single `sizeof`-derived declaration.
+// ⛔⛔ CORRECTED AGAIN 2026-08-26 BY §UI-10/11 P3 (QG), and the 2026-08-05 repair above is KEPT VISIBLE because its
+//    successor is the same class of drift: **there are no `kDmTexts`/`kChannelTexts` any more, and no line 80-89.**
+//    P3 RETIRED both tables (their withdrawn declarations sit beside `kComposeBackText` below), so nothing here is
+//    `sizeof`-derived. ⇒ the model still *emits* rather than sends, but what it emits is a **STABLE `/mrui` SLOT
+//    plus the catalog GENERATION the wearer saw** (`SendReq`), and the words themselves live in the record
+//    (`mrfw::PresetCatalog`), reaching the panel as a per-frame projection (`UiSnapshot::preset_dm`/`preset_ch`).
+//    ⓘ A line number in prose is a fact with no gate behind it; this block now names SYMBOLS only.
 // DONE here (2026-08-05, §B115): the emergency DISPLAY ORDINAL and the one string that renders it
 // (`emg_attempt_ordinal` / `emg_attempt_line`) — presentation split cleanly from `_tries`, which stays the limit's only
 // truth. The string is formatted in this pure unit precisely so a native test can assert the VISIBLE bytes.
@@ -197,6 +204,16 @@
 // ⛔ AND IT IS ⛔ NOT A LICENCE FOR THE MODEL TO REACH THE KEYRING: this unit calls no service. It holds an answer a
 //    seam handed it, exactly as it holds `mrfw::ProfileResult`.
 #include "firmware_team_keyring.h"
+// ★★★★ §UI-10/11 P3 — THE `/mrui` PRESET CATALOG'S PURE UNIT, included for the RECORD and the STABLE SLOT SPACE:
+//      `mrnv::UiPresetBlob` / `UiPresetSlot` (what a compose list is PROJECTED FROM) and `mrfw::kPresetPerKind` /
+//      `preset_kind_of` / `kPresetEmergency` (the slot ids a row CARRIES). P1 declared this dependency in advance —
+//      *"this header must stay model-INCLUDABLE (P3 needs it from inside `firmware_ui_model.h`)"* — and the direction
+//      is the §UI-16 N2 rule: a header the MODEL includes may never include the model.
+// ⛔ IT IS ⛔ NOT A LICENCE FOR THE MODEL TO REACH THE SERVICE, and that is the same sentence the keyring block above
+//    ends with, for the same reason: this unit constructs no `PresetCatalog`, calls no verb and performs no write.
+//    It reads a RECORD that `build_snapshot` published and that the frame FROZE (§3.2.3's per-frame generation
+//    freeze) — the `mrfw::SavedKeyList` discipline one feature over.
+#include "firmware_ui_presets.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -1365,18 +1382,99 @@ inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b
 // the strings in a PURE header anyway (`ui_compose_send_line` composes the console line and the native suite asserts
 // it byte-for-byte), so the tables moved here and the counts are `sizeof`-derived. ⇒ one declaration, no assert to
 // keep in step, and B66's own "durable cure: one table with the count derived from it" verbatim.
-// ★ Owner-fixed strings (plan §"Constants fixed by the owner"). ⛔ The emergency body is NOT a compose row — it has no
-//   list and no cursor — so it lives beside them rather than inside either table.
-inline const char* const kDmTexts[]      = { "Are you OK?",      "I'm OK",   "back, don't send" };
-inline const char* const kChannelTexts[] = { "Got your message", "All good", "back, don't send" };
-inline constexpr uint8_t kDmTextCount      = uint8_t(sizeof kDmTexts      / sizeof kDmTexts[0]);
-inline constexpr uint8_t kChannelTextCount = uint8_t(sizeof kChannelTexts / sizeof kChannelTexts[0]);
-// ★ The SENDABLE prefix of each table — everything but the trailing `back` row. Derived, never restated, for exactly
-//   the B66 reason: this is the bound `ui_compose_send_line` refuses on, so a hand-written `2` here would be the same
-//   positional coupling one level down. An index at or past it names `back` (or nothing) and must REFUSE, not clamp.
-inline constexpr uint8_t kDmSendableTexts      = uint8_t(kDmTextCount - 1);
-inline constexpr uint8_t kChannelSendableTexts = uint8_t(kChannelTextCount - 1);
-inline constexpr const char* kEmergencyText = "I'm in danger";
+//
+// ★★★★ **RETIRED 2026-08-26 BY §UI-10/11 P3, AND THE WITHDRAWN TABLES ARE KEPT VISIBLE** (the correction idiom this
+//      file uses everywhere; the tables themselves are DELETED so there can be no second source of truth, and what
+//      survives is the RECORD of what they were and why they stopped being firmware policy):
+//
+//        inline const char* const kDmTexts[]      = { "Are you OK?",      "I'm OK",   "back, don't send" };
+//        inline const char* const kChannelTexts[] = { "Got your message", "All good", "back, don't send" };
+//        inline constexpr uint8_t kDmTextCount      = uint8_t(sizeof kDmTexts      / sizeof kDmTexts[0]);
+//        inline constexpr uint8_t kChannelTextCount = uint8_t(sizeof kChannelTexts / sizeof kChannelTexts[0]);
+//        inline constexpr uint8_t kDmSendableTexts      = uint8_t(kDmTextCount - 1);
+//        inline constexpr uint8_t kChannelSendableTexts = uint8_t(kChannelTextCount - 1);
+//        inline constexpr const char* kEmergencyText = "I'm in danger";
+//
+// ⛔⛔ WHY THEY COULD NOT SIMPLY STAY BESIDE THE CATALOG: design §3.2.2 rules that *"the original hard-coded strings
+//    become DEFAULTS, not firmware policy"*, and P1 already carries those five spellings as `mrfw::kPresetDefaults`.
+//    Two live copies of the wearer's phrases is the U1 rot with a safety edge — the panel would show one and the
+//    `ui preset` verbs would edit the other — which is exactly why P1's own block called the duplication *"TEMPORARY,
+//    DELIBERATE AND BOUNDED"* and named THIS slice as the one that closes it. ⇒ the defaults live in ONE place
+//    (`mrfw::kPresetDefaults`), the live catalog in ONE place (`mrfw::PresetCatalog::live()`), and the panel reads a
+//    PROJECTION of that record. ⓘ P1's drift-fence case (`test_firmware_ui_presets.cpp`, which asserted the two
+//    spellings byte-for-byte against each other) is DISCHARGED with the duplication it fenced.
+// ★ WHAT SURVIVES UNCHANGED, and B66's cure with it: `back, don't send` is still an ACTION, still DERIVED, and still
+//   the final row of every compose list — `compose_row_count` derives it from the projected list's own length, so a
+//   catalog that grows an enabled slot can no more turn `back` into a SEND than a table that grew a string could.
+inline constexpr const char* kComposeBackText = "back, don't send";
+// ★★★ §3.2.1's EMPTY STATE, and it is a LEXEME here rather than an `if` in the renderer (§B115: `src/firmware_ui.cpp`
+//     is compiled by neither the native suite nor the simulator, so a word decided there is a word no gate can read).
+// ⛔ SHORTENED FROM THE DESIGN'S OWN `no presets configured`, AND THE WITHDRAWN SPELLING IS KEPT VISIBLE: that is 21
+//    columns and the §CHROME-2 body is **19** (`kBodyCols`), so u8g2 would have clipped it to `no presets configure`.
+//    The precedent is `draw_send_screen`'s own (`double = pick a text` -> `double = pick text` when the body narrowed
+//    from 21): drop a word, never a suffix, so nothing the operator acts on is lost. ⓘ `set` is the verb that fixes
+//    it (`ui preset set …`), which is what makes this shortening say MORE than the original rather than less.
+inline constexpr const char* kNoPresetsText = "no presets set";
+// ★★★ §2's RULED VISIBLE WORD for the stale-generation refusal (owner-approved 2026-08-25): *"a specific UI result
+//     with ZERO core submission, followed by a repaint from the current catalog. ⛔ Never a generic parser failure,
+//     never a silent fall-through."* Spelled ONCE, in the pure unit, for `kPresetInvalidLine`'s reason.
+// ⓘ 14 columns, inside the 19-column body.
+inline constexpr const char* kPresetChangedText = "PRESET CHANGED";
+
+// ================================================================== §UI-10/11 P3 — THE COMPOSE LIST'S FROZEN ROWS
+// ★★★★ ONE ROW OF A COMPOSE LIST, AS THE FRAME FREEZES IT. §3.2.3's last paragraph: *"Page-buffer painting likewise
+//      freezes one catalog generation for the whole frame so a BLE update between OLED pages cannot tear two versions
+//      into one image."* `draw_frame` replays the whole scene once per OLED page over the FROZEN copies, so the row's
+//      TEXT must be a COPY here — a pointer into the live catalog would be re-read on page 5 and the panel would show
+//      two catalogs in one image. That is the §UI-17 S3 defect class, verbatim, and it must not return.
+// ★★★★ `slot` IS THE **STABLE SLOT ID**, ⛔ NEVER THE ROW INDEX (§3.2.2, §B66's cure): *"Gaps are valid: for example
+//      `dm1`, `dm4` and `dm8` may be the three visible rows. Therefore every visible row carries its stable slot
+//      identifier; code must never derive `dmN` from the current row index."* It is `mrfw`'s record index (0 =
+//      emergency, 1..8 = dm1..dm8, 9..16 = channel1..channel8), carried whole so the `SendReq` it seals names the
+//      record and nothing else.
+struct ComposeSlot {
+    // 17 characters + the terminator — `mrnv::kUiPresetTextMax` is OQ-A's owner ruling and is ⛔ never re-typed here.
+    char    text[mrnv::kUiPresetTextMax + 1] = {};
+    uint8_t slot = 0;        // ★ the STABLE slot id — see the block above
+    bool    loc  = false;    // `include_location` — the row's `L` / `-` column (§3.2.2)
+};
+// The ENABLED slots of ONE kind, in stable-slot order. ⛔ The capacity is `mrfw::kPresetPerKind`, DERIVED from the
+// record's own constant and ⛔ never a hand-written 8 (§B66's lesson, one record over).
+// ⓘ COST, MEASURED not assumed: `sizeof(ComposeSlot)` is **20** (alignof 1 — 18 char + 2 uint8, no padding), so
+//   `sizeof(ComposeList)` is 8 x 20 + 1 = **161** and the pair on `UiSnapshot` costs 322. The `offsetof` proof is in
+//   `test_firmware_ui_model.cpp`; ⚠ native alignment hides the BOARD figure (D2).
+struct ComposeList {
+    ComposeSlot row[mrfw::kPresetPerKind] = {};
+    uint8_t     n = 0;                            // how many of `row[]` are real
+};
+// ★★★ THE PROJECTION, AND IT IS THE ONE PLACE A COMPOSE LIST IS DERIVED FROM THE RECORD (U1/U2 — ⛔ never rebuilt
+//     row-by-row at a second site). Three ruled properties, each its own mutation:
+//       · ENABLED ONLY — a disabled slot has no row at all (§3.2.2: *"The OLED lists only enabled slots"*);
+//       · STABLE-SLOT ORDER, gaps intact — the walk is over the record's own index space, so `dm1`/`dm4`/`dm8`
+//         project to rows 0/1/2 carrying slots 1/4/8;
+//       · KIND-PURE — *"DM presets never appear in the channel list and channel presets never appear in the DM
+//         list"*, asked at `mrfw::preset_kind_of`, the record's own authority (⛔ not a range re-derived here).
+// ⛔ THE EMERGENCY SLOT IS NEVER A ROW, on either list: `preset_kind_of(0)` is `emergency` and neither call asks for
+//    that kind — it is *"long press only; never appears in a compose list"* (§3.2.2's table).
+// ⓘ The text is copied `len` bytes and terminated. A canonical record already zeroes the tail, so the terminator is
+//   belt-and-braces against a record that reached here another way — ⛔ never a licence to skip `presets_canonical`.
+inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind, ComposeList& out) {
+    out = ComposeList{};
+    for (uint8_t i = 0; i < mrnv::kUiPresets && out.n < mrfw::kPresetPerKind; ++i) {
+        const mrnv::UiPresetSlot& s = cat.slot[i];
+        if (!s.enabled) continue;                                   // ★ ENABLED ONLY
+        if (mrfw::preset_kind_of(i) != kind) continue;              // ★ KIND-PURE
+        ComposeSlot& r = out.row[out.n++];
+        r.slot = i;
+        r.loc  = (s.loc != 0);
+        uint8_t n = s.len < mrnv::kUiPresetTextMax ? s.len : mrnv::kUiPresetTextMax;
+        for (uint8_t k = 0; k < n; ++k) r.text[k] = s.text[k];
+        r.text[n] = '\0';
+    }
+}
+// ★★ §3.2.1's EMPTY STATE, as an ANSWER rather than as a renderer's `if` — `mrfw::preset_boot_line`'s idiom, and its
+//    reason: `nullptr` is the third answer and a caller that printed an empty string would draw a blank row.
+inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }
 
 // ======================================================= §UI-16 K7 — THE ROSTER GRANT'S ENTRY, AS A COMPOSE ROW
 // ★★★★ [[B245]], OWNER-RULED 2026-08-25 (spec §K7, option 1). A member who joined BEFORE the invitation window was
@@ -1394,6 +1492,17 @@ inline constexpr const char* kEmergencyText = "I'm in danger";
 // ⓘ THE ROW ORDER IS FIXED AND DERIVED: the canned texts keep indices `0 .. sendable-1` (so `SendReq::text_index`
 //   is UNCHANGED and every landed compose case is byte-identical), the act sits at `sendable`, and `back` stays
 //   LAST. With the act absent the list is exactly today's, index for index.
+// ⓘ ★ §UI-10/11 P3, R-1 — **THE ORDER IS UNCHANGED; ITS TWO NOUNS ARE NOT.** ⛔⛔ CORRECTED 2026-08-26 (QG), AND THE
+//   WITHDRAWN CLAIM IS THE LINE DIRECTLY ABOVE, KEPT VISIBLE: my first P3 note said *"the sentence above is still
+//   exactly true"*, and that was FALSE in one word — the sentence names **`SendReq::text_index`**, which P3
+//   **DELETED**. A `SendReq` now carries `{slot, generation}` (see its own block), so nothing about it is
+//   "UNCHANGED", and `sendable` is no longer a compile-time count.
+// ★ WHAT IS ACTUALLY TRUE, restated so the ORDER claim survives without the two dead nouns: enabled preset rows
+//   occupy `0 .. n-1` where **`n` is the PROJECTED LIST's own length** (`ComposeList::n`), `GRANT KEY` sits at `n`,
+//   and `back` stays LAST. With the compiled defaults `n` is the SAME 2 the retired tables gave, so the list is
+//   index-for-index today's and every landed K7 case is byte-identical (`ui10-p3-r1` pins exactly that equivalence,
+//   and pins the position for EVERY `n` in 0..8). ⛔ R-1: the preset rework may not move, gate or re-anchor K7's
+//   row semantics — and it does not.
 enum class ComposeRow : uint8_t { text = 0, grant, back };
 
 // ★★★ THE OFFER, AND IT **HIDES** RATHER THAN REFUSING — the design decision §K7 asks to be reported either way.
@@ -1443,32 +1552,95 @@ inline uint32_t team_member_hash_of(const InviteMember* mem, uint8_t n, uint8_t 
 // ★★ THE LIST'S LENGTH AND ITS ROW RESOLVER, AS FUNCTIONS — §B66's rule, applied to the one list that still
 //    identified its `back` row by a bare `cursor + 1 == n`. Three call sites ask (the gesture, the renderer and
 //    the label below), so a fourth cannot get it wrong.
-inline uint8_t compose_row_count(bool dm, bool grant) {
-    return uint8_t((dm ? kDmSendableTexts : kChannelSendableTexts) + (grant ? 1u : 0u) + 1u);
+// ⓘ §UI-10/11 P3 — IT TAKES THE **LIST**, ⛔ not a `bool dm`, and the change is forced rather than chosen: with the
+//   catalog configurable there is no compile-time count to ask, and the honest bound is the projection's own `n`.
+//   ⛔ THE `bool dm` SIGNATURE IS WITHDRAWN AND KEPT VISIBLE — `compose_row_count(bool dm, bool grant)` returning
+//   `(dm ? kDmSendableTexts : kChannelSendableTexts) + grant + 1` — because it is the shape a reader will try to
+//   restore, and restoring it means resurrecting the retired tables (a battery entry attacks exactly that).
+inline uint8_t compose_row_count(const ComposeList& l, bool grant) {
+    return uint8_t(l.n + (grant ? 1u : 0u) + 1u);
 }
 // ⛔ FAILS CLOSED, exactly as `list_row_kind` does: anything at or past the last offered row names `back`, which
 //    leaves and sends nothing — ⛔ never a text row it would then send, and ⛔ never the grant.
-inline ComposeRow compose_row_kind(uint8_t idx, bool dm, bool grant) {
-    const uint8_t sendable = dm ? kDmSendableTexts : kChannelSendableTexts;
-    if (idx < sendable) return ComposeRow::text;
-    if (grant && idx == sendable) return ComposeRow::grant;
+inline ComposeRow compose_row_kind(uint8_t idx, const ComposeList& l, bool grant) {
+    if (idx < l.n) return ComposeRow::text;
+    if (grant && idx == l.n) return ComposeRow::grant;
     return ComposeRow::back;
+}
+// ★★★ THE ROW'S **STABLE SLOT**, AND THIS IS §B66's CURE ITSELF (§3.2.2: *"code must never derive `dmN` from the
+//     current row index"*). ⛔ It answers `mrfw::kPresetEmergency` — a slot that is never a compose row — for
+//     anything that is not a text row, so a caller that ignored `compose_row_kind` cannot get a sendable slot out
+//     of `back` or out of `GRANT KEY`. ⓘ FAILS CLOSED rather than clamping to the last row (C2).
+inline uint8_t compose_row_slot(uint8_t idx, const ComposeList& l) {
+    return idx < l.n ? l.row[idx].slot : mrfw::kPresetEmergency;
 }
 // The row's text, decided HERE and not in the renderer (§B115: `src/firmware_ui.cpp` is compiled by neither the
 // native suite nor the simulator, so a renderer-side `if` is a rule no gate in this tree can attack).
 // ★ `kInviteGrantKey` is S-17, DECLARED ONCE in `firmware_ui_invite.h` and REUSED verbatim — ⛔ §K7 adds no lexeme.
-inline const char* compose_row_text(uint8_t idx, bool dm, bool grant) {
-    switch (compose_row_kind(idx, dm, grant)) {
-        case ComposeRow::text:  return dm ? kDmTexts[idx] : kChannelTexts[idx];
+// ★ §UI-10/11 P3: a TEXT row's words are the PROJECTION's, ⛔ never a table's — that is what "the catalog reaches
+//   the panel" means, and resurrecting a fixed table here is a battery entry of its own.
+inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool grant) {
+    switch (compose_row_kind(idx, l, grant)) {
+        case ComposeRow::text:  return l.row[idx].text;
         case ComposeRow::grant: return kInviteGrantKey;
-        case ComposeRow::back:  return dm ? kDmTexts[kDmTextCount - 1] : kChannelTexts[kChannelTextCount - 1];
+        case ComposeRow::back:  return kComposeBackText;
     }
     return "";
+}
+// ★★★★ THE ROW's **LOCATION COLUMN** — OQ-A's owner ruling of 2026-08-25, and its premise is that there are ALWAYS
+//      EXACTLY TWO STATES: *"the row ALWAYS shows `L` **or** `-` per the parent design, so BOTH states consume
+//      selection marker 1 + location marker 1 + text ⇒ 17 in 19 columns unconditionally"*. That is why
+//      `mrnv::kUiPresetTextMax` is 17 and why a conditional bound was WRONG. ⛔ There is no third answer for a
+//      PRESET row: a blank column would silently mean `-`, i.e. *"this message carries no coordinates"*, on a row
+//      whose flag might say the opposite — the wearer confirms this column as part of the double press.
+// ★★ `'\0'` IS THE ANSWER FOR AN **ACTION** ROW, AND IT IS R-1, NOT AN OMISSION: `GRANT KEY` and `back, don't send`
+//    are ACTS, not messages — they carry no `include_location` and never will. Giving them a column would (a) put a
+//    location claim on a row that transmits no body and (b) shift K7's landed row by one character, which R-1
+//    forbids in as many words (*"byte-identical — position, gating, semantics"*). ⇒ an action row's line is exactly
+//    what it was before this slice, and `tools/probe_firmware_ui`'s landed `" GRANT KEY"` / `" back, don't send"`
+//    checks re-run untouched.
+inline char compose_row_loc_marker(uint8_t idx, const ComposeList& l, bool grant) {
+    switch (compose_row_kind(idx, l, grant)) {
+        case ComposeRow::text:  return l.row[idx].loc ? 'L' : '-';
+        case ComposeRow::grant: return '\0';
+        case ComposeRow::back:  return '\0';
+    }
+    return '\0';
+}
+// ★★★ THE WHOLE ROW, COMPOSED IN THE PURE UNIT (§B115) so the native suite asserts the VISIBLE BYTES — the
+//     `emg_attempt_line` / `ui_compose_send_line` discipline. The renderer places the answer; it decides nothing.
+// ⓘ The order is the design's: selection marker · `L`/`-` · text. A PRESET row is `>LAre you OK?`; an ACTION row is
+//   `>GRANT KEY`, exactly as it has always been.
+inline void compose_row_line(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool grant,
+                             bool selected) {
+    if (!out || cap == 0) return;
+    const char m = compose_row_loc_marker(idx, l, grant);
+    if (m) snprintf(out, cap, "%c%c%s", selected ? '>' : ' ', m, compose_row_text(idx, l, grant));
+    else   snprintf(out, cap, "%c%s",   selected ? '>' : ' ', compose_row_text(idx, l, grant));
 }
 
 // The model NEVER sends — it ASKS. firmware_ui.cpp drains the request, performs the send and feeds back a typed outcome.
 enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
-struct SendReq { SendKind kind = SendKind::emergency; uint8_t peer_id = 0; uint8_t text_index = 0; };
+// ★★★★ §UI-10/11 P3 — **`{slot, generation}` REPLACES ROW-INDEX IDENTITY**, and this is design §3.3's freeze
+//      paragraph in a struct: *"A `SendReq` identifies both the enabled stable slot selected by the wearer and the
+//      generation they saw; it never stores only the compacted visible-row index. If the slot is disabled or the
+//      generation no longer matches at execution, refuse and repaint — never resolve the same row index to newly
+//      configured words."*
+// ⛔ THE WITHDRAWN MEMBER IS KEPT VISIBLE: `uint8_t text_index` — the compacted VISIBLE-ROW index, whose whole
+//    defect is that it means something different the instant the catalog changes. A request sealed on row 1 of
+//    `dm1,dm4` and executed against `dm1,dm2,dm4` would have sent the wearer's `dm2` phrase to a person he chose
+//    a `dm4` phrase for.
+// ★ `generation == 0` MEANS **NOT SEALED**, and it is reserved by construction one record over: the persisted
+//   generation starts at 1 and SKIPS ZERO on wrap (`mrfw::preset_generation_next`), so no live catalog can ever
+//   carry it. It is the EMERGENCY's value — see `send_gate_of` in firmware_ui_send.h, where an alarm is
+//   DELIBERATELY exempt from the stale-generation refusal (R-3/§4.1: an alarm outranks its coordinates, and it
+//   outranks a phrase edit too).
+struct SendReq {
+    SendKind kind       = SendKind::emergency;
+    uint8_t  peer_id    = 0;
+    uint8_t  slot       = 0;      // ★ the STABLE `/mrui` slot, ⛔ never a row index
+    uint32_t generation = 0;      // ★ the generation the wearer SAW; 0 = not sealed (the emergency's)
+};
 
 struct TeamRow {
     // ⛔⛔ hops / score_q4 are WRITTEN AND READ BY NOTHING since §UI-17 S4 (spec §1.9 F-1/F-2) — deleting them is
@@ -1784,7 +1956,61 @@ struct UiSnapshot {
     //   `UiSnapshot` (`s_frame_snap`) plus the per-tick `build_snapshot` local ⇒ +160 static and +160 of
     //   TRANSIENT loop-task stack, ⛔ never 2 x 160 of static.
     InviteMember member[kMaxInviteRows] = {};
+    // ★★★★ §UI-10/11 P3 — **THE `/mrui` CATALOG, PROJECTED ONCE PER TICK AND FROZEN BY THE FRAME.** Published by
+    //      `build_snapshot` from `mrfw::preset_catalog().live()` — the ONE instance the `ui preset` verbs write
+    //      (`src/firmware_commands.cpp`), so the panel and the console can never be two opinions about the wearer's
+    //      phrases. The renderer asks the catalog NOTHING, for the reason `nearby[]` states two blocks up: a BLE
+    //      `ui preset set` landing between two of the eight page replays would TEAR the list, which is design
+    //      §3.2.3's own *"page-buffer painting freezes one catalog generation for the whole frame"*.
+    // ★★ THE GENERATION RIDES THE SAME SNAPSHOT AND IS THE **EQUALITY TOKEN** (§3.2.3 — compared for equality, never
+    //    ordering, which is what makes uint32 wrap harmless). Three consumers, one fact: the compose entry SEALS it
+    //    (`UiState::compose_gen`), a `SendReq` SEALS it, and a MOVE is what closes an open selection-phase modal.
+    // ⛔ EMPTY / GENERATION 0 BY DEFAULT, and that is the HONEST UNPUBLISHED STATE rather than a PLAUSIBLE one —
+    //    the rule every `bool` in this struct states about itself (*"FALSE by default … the opposite default would
+    //    offer CREATE TEAM on a gateway"*). ⛔ Defaulting to the COMPILED CATALOG was considered and REFUSED: it is
+    //    a perfectly plausible list, so a build that forgot to publish would show two sendable messages and NOTHING
+    //    would look wrong — whereas an unpublished snapshot now lands on §3.2.1's visible empty state, which is a
+    //    LOUD symptom (C2). ⓘ It is not the "absent record" case either: THAT is a published projection of
+    //    `preset_defaults`, which is what `PresetCatalog::begin()` runs and what `build_snapshot` therefore reads.
+    // ⓘ COST, MEASURED BY `offsetof` NOT ASSUMED (the `team_key_present` / `own_fix` placement rule, applied again):
+    //   `member[]` ends at **1008**, the struct's 8-aligned end, so the `uint32_t` lands at 1008 for free and the two
+    //   alignof-1 lists follow at **1012** and **1173**. `sizeof(UiSnapshot)` measures **1008 -> 1336 (+328)**.
+    //   ⚠ Declared with the lists FIRST the generation would need its own 4-align pad and the struct still measures
+    //   1336 — no worse, but the count-before-the-thing-counted ordering is the legible one (`nearby_n`'s precedent).
+    // ⛔⛔ THE FIVE FIGURES ABOVE WERE WRITTEN AS **1000 / 1004 / 1165 / 1000 -> 1328** AND WERE STALE ON ARRIVAL —
+    //    CORRECTED 2026-08-26 (QG). They were carried over from the §UI-16 N4-era prose one block up (`sizeof` was
+    //    1000 before §CHROME-5 appended the duty gauge's two bytes and pushed the struct to 1008). ★ THE EXECUTABLE
+    //    ASSERTIONS WERE RIGHT ALL ALONG and are the authority: `ui10-p3-resources` pins 1008 / 1012 / 1173 / 1336
+    //    with `offsetof` and is green. ⇒ when this prose and a case disagree, the CASE is the measurement and the
+    //    prose is the drift — which is why the numbers live in a case at all.
+    //   ⇒ ~+328 B of static RAM (ONE image-wide `UiSnapshot`, `s_frame_snap`) and ~+328 B of TRANSIENT loop-task
+    //   stack (`build_snapshot`'s local) — read off the IMAGE, ⛔ never doubled from the freeze pattern.
+    // ⚠⚠ AND THE **BOARD** COST IS **NOT** JUST THIS FIELD'S — D2's warning, MEASURED rather than repeated (QG,
+    //    2026-08-26, with the env's own toolchain family `xtensa-esp-elf` GCC 13.2, ILP32). ⛔ CORRECTED IN PLACE,
+    //    AND THE WITHDRAWN WORDING IS KEPT VISIBLE BECAUSE IT WAS **WRONG, NOT MERELY INCOMPLETE**: it read *"the
+    //    panel TU's static RAM moves +344, not +328"*, which quotes a SYMBOL-SIZE sum as if it were the RAM the
+    //    device pays. It is not. ★ THE THREE FIGURES ARE THREE DIFFERENT THINGS, and [[B246]] states them apart:
+    //      · **SYMBOL-SIZE growth = +344 B** — the object-level measurement of this TU: `s_frame_snap` **+328**
+    //        plus `s_frame_state` **+8** and `s_model` **+8** (`sizeof(UiState)` is **496 on the board**, not the
+    //        host's 504, so `UiState::compose_gen` finds NO hole there — see that field's own block);
+    //      · **LINKED `heltec_mobile` RAM = 218 564 -> 218 900 = +336 B** — the IMAGE truth, and the only number
+    //        that is a device cost;
+    //      · ⇒ **8 B of the symbol growth was ABSORBED by existing section/alignment padding** at link time.
+    //    ⛔ Never quote the host's +328 as the board figure, and ⛔ never quote the +344 as RAM: one is what the
+    //    symbols measure, the other is what the image pays, and only a LINK can tell you the second.
+    uint32_t    preset_generation = 0;
+    ComposeList preset_dm{};
+    ComposeList preset_ch{};
 };
+// ★ THE DEFAULT SNAPSHOT CARRIES THE COMPILED CATALOG — see the block above. It is a FUNCTION rather than a member
+//   initialiser so `UiSnapshot` stays an aggregate (`UiSnapshot s{}` is written all over this tree and in every test),
+//   and it is the ONE place the defaults are projected, so `build_snapshot`, the native suite and the probe cannot
+//   come to disagree about what an unconfigured device shows (U1/U2).
+inline void ui_snapshot_publish_presets(UiSnapshot& s, const mrnv::UiPresetBlob& cat) {
+    s.preset_generation = cat.generation;
+    compose_project(cat, mrfw::PresetKind::dm,      s.preset_dm);
+    compose_project(cat, mrfw::PresetKind::channel, s.preset_ch);
+}
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
 // they moved here for the §UI-6 GLUE reason: BOTH things that move them — a push arriving (`ui_route_recv_push`) and
@@ -1963,7 +2189,15 @@ enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, n
 // exactly what it can establish — the core ACCEPTED the send and minted a ctr — and renders `QUEUED`; `aired_waiting`
 // is reached only by a correlated `send_aired`, i.e. the SX1262 TxDone edge for THIS flight, and renders the existing
 // `SENT, waiting` string, now earned. Both are non-terminal; every terminal DM state outranks them (see on_send_aired).
-enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting };
+// ★★★★ §UI-10/11 P3 — `preset_changed` IS APPENDED, and it is a state of its own rather than a `failed` with a
+//      reason, for the reason §2's ruling gives it a WORD of its own: it means **ZERO CORE SUBMISSION**. Nothing was
+//      composed, nothing reached `mrfw::exec_command`, no tracker slot was opened and no airtime was spent — so
+//      calling it `failed` would say the send was attempted and did not work, which is the opposite of what
+//      happened, and would render `draw_failure_lines`' generic wording that the ruling forbids in as many words
+//      (*"⛔ Never a generic parser failure, never a silent fall-through"*).
+// ⓘ APPENDED, ⛔ never inserted: `DmState` is compared and switched on in several places and its ORDER is not
+//   otherwise meaningful, but appending keeps every landed value stable and makes the diff readable.
+enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting, preset_changed };
 // ★★★ §B69's CARRIER, HALF ONE (UI-7) — THE CANNED-CHANNEL OUTCOME MACHINE, and it is the DmState of the channel path.
 // Until now the canned channel post had NO model state at all: `ui_pump_trackers` had to CONSUME the normal tracker's
 // expiry and throw it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, because `on_outcome` is the
@@ -1986,7 +2220,10 @@ enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, n
 //                   It is the channel twin of `DmState::aired_waiting` and the ONLY channel state below `relayed`
 //                   that may say SENT. `waiting` (core acceptance) now renders `QUEUED`, because acceptance is
 //                   five measured gaps short of the air.
-enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired };
+//   `preset_changed` — ★ §UI-10/11 P3, the channel twin of `DmState::preset_changed`: the sealed `{slot, generation}`
+//                   no longer matches the live catalog, so the request was REFUSED WITHOUT SUBMISSION. ⛔ It is not
+//                   `failed` (nothing was attempted) and not `blocked` (nothing was throttled) — see the DM block.
+enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired, preset_changed };
 // ★★★ §B69's CARRIER, HALF TWO — THE EMERGENCY'S EVIDENCE, because the alarm's two channel outcomes collapse into ONE
 // `Emergency` state and the renderer cannot ask which happened. `on_outcome` maps `channel_no_relay` AND
 // `channel_remote_mint` down the SAME path (neither carries relay evidence ⇒ neither may claim PICKED UP ⇒ bounded
@@ -2084,6 +2321,32 @@ struct UiState {
     //   semantic home is also the cheapest one. ⛔ There is no 4-aligned four-byte hole anywhere in this struct to
     //   hide the hash in for free: the only pad near the head is the THREE bytes before `detail_seq`.
     uint32_t compose_grant_hash = 0;
+    // ★★★★ §UI-10/11 P3 — **THE CATALOG GENERATION THE OPEN SUB-VIEW IS SHOWING**, frozen at ENTRY in the same
+    //      breath as `compose_peer` and `compose_grant_hash`, and for a THIRD reason on top of theirs: §2's ruled
+    //      modal table. *"A successful CHANGED mutation … closes a selection-phase compose without sending"*, while
+    //      *"an identical no-op"* and *"a validation/storage failure"* must ⛔ NOT close it. The TRIGGER is the
+    //      GENERATION MOVE and nothing else (P2's threading decision — ⛔ no new hook), which delivers all three
+    //      rows from ONE fact: P1 stamps the next generation into the record only on a SUCCESSFUL durable write, so
+    //      a no-op and a failure leave this comparison equal BY CONSTRUCTION rather than by a rule written here.
+    // ⛔ 0 WHILE NO SUB-VIEW IS OPEN, and the value is reserved one record over (the persisted generation starts at
+    //    1 and skips zero on wrap), so a closed compose can never accidentally compare equal to a live catalog.
+    // ⓘ COST, MEASURED not assumed (host, `offsetof`-proved in `test_firmware_ui_model.cpp`): on the HOST it is
+    //   **FREE** — `sizeof(UiState)` stays 504 and `sizeof(UiModel)` stays 928, because it lands in a 4-byte hole
+    //   the host's 8-byte pointers had already opened.
+    // ⚠⚠ ON THE **BOARD** IT IS NOT FREE, AND THIS IS D2's WARNING PAYING OUT — MEASURED 2026-08-26 (QG) with the
+    //    env's own toolchain family (`xtensa-esp-elf` GCC 13.2, ILP32, the heltec_mobile flag set): `sizeof(UiState)`
+    //    **496 -> 504 (+8)** and `sizeof(UiModel)` **904 -> 912 (+8)**. There is no hole there, because `UiModel`'s
+    //    adapter POINTERS are 4 bytes and the host's are 8. ⇒ this field is carried **TWICE** by the panel TU's
+    //    statics — `s_frame_state` and `s_model` are both whole `UiState`-bearing objects — i.e. **+16 of SYMBOL
+    //    SIZE** on top of `UiSnapshot`'s +328.
+    // ⛔ CORRECTED IN PLACE (QG, 2026-08-26), AND THE WITHDRAWN CLAUSE IS KEPT VISIBLE BECAUSE IT WAS **WRONG**:
+    //    it read *"which is the +16 that turns `UiSnapshot`'s +328 into the TU's measured +344"* and stopped
+    //    there — inviting +344 to be read as the device's RAM cost. ★ THE THREE FIGURES, per [[B246]]:
+    //      · SYMBOL-SIZE growth **+344 B** (328 + 8 + 8) — what the objects measure;
+    //      · LINKED `heltec_mobile` RAM **218 564 -> 218 900 = +336 B** — what the image pays;
+    //      · ⇒ **8 B absorbed by existing section/alignment padding** at link time.
+    //    ⛔ Never report the host figure as the board's — and ⛔ never report the symbol sum as the RAM.
+    uint32_t compose_gen        = 0;
     bool     compose_grant_row  = false;
     // ★★ UI-7: THE SUB-VIEW'S SECOND PHASE. Spec §3.2.1/§3.4.1 require the OUTCOME to replace the canned list *in the
     //    sub-view* ("`SENDING...`", "`DELIVERED to <label>`", "`NO KEY`"), and UI-2 shipped `compose_gesture` CLOSING
@@ -2442,6 +2705,14 @@ public:
         // ownership of the window rather than being overwritten by a late first tick.
         if (!_seeded) { _last_input_ms = s.now_ms; _seeded = true; }
         tick_emergency(s);
+        // ★★★★ §UI-10/11 P3 — **THE PRESET MODAL CLOSE, ON THE TICK.** §3.2.3: *"A preset update while a
+        //      selection-phase compose modal is open closes that modal without sending."* A `ui preset set` arrives
+        //      over USB or BLE with NO gesture at all, and `on_gesture` returns early for `Gesture::none` — so this
+        //      is the path that carries the ordinary case, and `compose_gesture`'s copy of the question covers only
+        //      the tick that also carries a press. ⛔ ONE authority (`preset_generation_moved`), two callers.
+        // ⛔ IT IS ⛔ NOT A MODAL TIMEOUT and it does not re-open §UI-17 R-1's deleted auto-exit: the trigger is a
+        //    DURABLE CHANGE TO THE WEARER'S CATALOG, never the clock. The block below still stands verbatim.
+        if (preset_generation_moved(s)) close_compose();
         // ★★★★ §UI-17 S2 — **THERE ARE NO MODAL TIMEOUTS HERE ANY MORE**, and the absence is stated rather than left
         //      as a gap somebody re-fills. §3.3 (owner-ruled 2026-08-20, spec §9 R-1) is that **blanking is a POWER
         //      action**: it may not discard a draft, a detail selection or a compose choice. The panel goes dark, the
@@ -2818,7 +3089,11 @@ public:
     // existed but nothing assigned it, so a DM showed `idle` until its result came back. Emergency and canned-channel
     // requests leave `_dm` alone, exactly as on_send_accepted / on_send_refused do.
     bool take_send_request(SendReq& out) {
-        if (_emg_req_pending) { _emg_req_pending = false; out = SendReq{SendKind::emergency, 0, 0}; return true; }
+        // ⓘ §UI-10/11 P3 — the alarm's request names `mrfw::kPresetEmergency` and seals generation 0 ("not sealed").
+        //   ⛔ THE ZERO IS LOAD-BEARING: `send_gate_of` exempts the emergency kind, and a sealed generation on this
+        //   path would be a way for a phrase edit to refuse a distress call (R-3/§4.1 rule the opposite).
+        if (_emg_req_pending) { _emg_req_pending = false;
+                                out = SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0}; return true; }
         if (!_req_pending) return false;
         _req_pending = false; out = _req;
         if (out.kind == SendKind::dm) { _dm = DmState::submitting; _st.dirty = true; }
@@ -3037,6 +3312,26 @@ public:
         else                          { _chan = ChanState::failed; }
         _st.dirty = true;
     }
+    // ★★★★ §UI-10/11 P3 — **THE STALE-GENERATION REFUSAL REACHES THE PANEL**, and it is its OWN entry point rather
+    //      than a `RefuseReason` because it describes something no refusal reason can: ⛔ NOTHING WAS SUBMITTED. No
+    //      line was composed, `mrfw::exec_command` was never called, no tracker slot was opened and no airtime was
+    //      spent — so `on_send_refused`'s `failed` states would tell the wearer his message was attempted and did
+    //      not work. §2's ruling: *"a specific UI result with ZERO core submission, followed by a repaint from the
+    //      current catalog. ⛔ Never a generic parser failure, never a silent fall-through."*
+    // ⛔ THERE IS NO EMERGENCY ARM, AND ITS ABSENCE IS THE RULING (R-3/§4.1 — an alarm outranks its coordinates and
+    //    outranks a phrase edit): `send_gate_of` exempts `SendKind::emergency` outright, so no alarm can ever reach
+    //    this function. The `else` below therefore covers the CANNED-CHANNEL kind only, and an emergency arriving
+    //    here would be a caller defect — which is why the emergency's own states are left untouched rather than
+    //    quietly mapped onto a channel state that would move a live alarm (§2.1's crossover).
+    // ★ THE REPAINT IS `_st.dirty` PLUS THE PROJECTION ITSELF: the compose list is re-projected from the LIVE
+    //   catalog every tick, so "repaint from the current catalog" is a property of the freeze path rather than an
+    //   extra step here (U2 — one publication path, ⛔ never a second refresh hook).
+    void on_preset_changed(SendKind k, uint32_t now_ms) {
+        (void)now_ms;   // no deadline: the display window is the operator's acknowledgement (§UI-17 R-1)
+        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;
+        else if (k == SendKind::channel_canned)  _chan = ChanState::preset_changed;
+        _st.dirty = true;
+    }
     // ★★★ THE CANNED-CHANNEL OUTCOME ENTRY POINT (UI-7), AND IT EXISTS BECAUSE `on_outcome` MUST NOT BE USED FOR THIS.
     // `on_outcome` is the EMERGENCY-capable path: any channel kind it receives may move a LIVE alarm, so routing a
     // canned post's outcome (or its expiry) through it lets an unrelated compose action alter a distress call — the
@@ -3114,6 +3409,9 @@ public:
                 case DmState::idle: case DmState::submitting: return;                                  // a newer transaction owns the panel
                 case DmState::delivered: case DmState::no_key:
                 case DmState::not_confirmed: case DmState::failed: return;                             // ⛔ terminal: refuse
+                // ★ §UI-10/11 P3: a request REFUSED before submission holds no handle at all, so no `send_aired`
+                //   can correlate to it — and if one did it would belong to an older transaction. ⛔ Terminal.
+                case DmState::preset_changed: return;
             }
             return;
         }
@@ -3123,6 +3421,7 @@ public:
             case ChanState::idle: case ChanState::submitting: return;                                  // a newer transaction owns the panel
             case ChanState::relayed: case ChanState::no_relay: case ChanState::unconfirmed:
             case ChanState::blocked: case ChanState::failed: return;                                   // ⛔ terminal: refuse
+            case ChanState::preset_changed: return;                                                    // ★ §UI-10/11 P3 — see the DM arm
         }
     }
     void on_outcome(const SendOutcome& o, uint32_t now_ms) {
@@ -3174,7 +3473,7 @@ public:
         // evidence, so neither may claim PICKED UP, and both leave the alarm unconfirmed ⇒ bounded retry. They differ
         // only in what the RENDERER should say (SENT vs NOT HEARD), and the model has no state for that — register B69.
         if (_tries >= kEmgMaxTries) { _emg = Emergency::not_heard; retain(now_ms); _st.dirty = true; return; }
-        _emg = Emergency::firing; queue(SendKind::emergency, 0, 0); _st.dirty = true;
+        _emg = Emergency::firing; queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0); _st.dirty = true;
     }
     // ★ Whitelist + "an alarm actually went out". Accepting every non-idle state would let a coincident channel-0 post
     // become REPLY during `arming` (before the user even committed), or after `cancelled`/`failed` — manufacturing
@@ -3248,7 +3547,11 @@ public:
 protected:
     // Wrap-safe elapsed time. millis() wraps at ~49.7 days; `a >= b` would break across it, this does not.
     static uint32_t elapsed(uint32_t now, uint32_t then) { return now - then; }
-    void queue(SendKind k, uint8_t peer, uint8_t idx) {
+    // ⓘ §UI-10/11 P3 — `slot` is the STABLE `/mrui` slot and `gen` the generation the wearer SAW (⛔ withdrawn:
+    //   `uint8_t idx`, the compacted visible-row index — see `SendReq`). The EMERGENCY arm takes neither: its slot
+    //   is `mrfw::kPresetEmergency` by definition and it seals NO generation, because an alarm may never be refused
+    //   by a phrase edit (R-3/§4.1).
+    void queue(SendKind k, uint8_t peer, uint8_t slot, uint32_t gen) {
         // ★★ §B115: THE ORDINAL'S ONE WRITE POINT ON THE REQUEST SIDE, and `queue()` is chosen because it is the ONE
         // choke point all three alarm requests go through — `long_fire`, `on_outcome`'s bounded retry and
         // `tick_emergency`'s blocked retry. A new attempt is requested and `_tries` has not counted it yet, so the
@@ -3256,7 +3559,7 @@ protected:
         // it. ⛔ Do not also reset it in `long_fire`: `long_fire` ends by calling this, and a second writer is how the
         // two numbers drift apart again.
         if (k == SendKind::emergency) { _emg_req_pending = true; _emg_attempt_counted = false; return; }   // its own slot; never overwritten
-        _req = {k, peer, idx}; _req_pending = true;
+        _req = {k, peer, slot, gen}; _req_pending = true;
     }
 
     // ★ Spec §4.3: every retained emergency state refreshes the `kEmgHoldMs` panel-on DEADLINE — long_fire, then
@@ -3494,6 +3797,7 @@ private:
                 return;                                  // ⇒ NOTHING is queued. That is the whole assertion.
             }
             _st.compose = Compose::dm; _st.compose_peer = _team_sel_id; _st.cursor = 0;
+            _st.compose_gen = s.preset_generation;   // ★ §UI-10/11 P3 — the generation this sub-view SHOWS (see UiState)
             // ★★★★ §UI-16 K7 ([[B245]]) — THE ROSTER GRANT'S IDENTITY, FROZEN IN THE SAME BREATH AS `compose_peer`.
             //      The hash is resolved from the TEAM chain's OWN one-lookup-per-row answer, keyed by the pick §B64
             //      remembers; the OFFER is then decided ONCE, here, so nothing later in the sub-view's life can
@@ -3503,6 +3807,7 @@ private:
                                                            _st.compose_grant_hash, s.my_key_hash32);
         } else if (_st.screen == Screen::send) {
             _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
+            _st.compose_gen = s.preset_generation;   // ★ §UI-10/11 P3 — same freeze, the channel list's own entry
         } else if (_st.screen == Screen::inbox) {
             // ★★★★ §UI-7D slice B — WHAT USED TO BE A DELIBERATE NO-OP. Spec §3.2: a `double` on INBOX opens the detail
             //     modal. It is the SAME shape as §B64's TEAM activation and for the same reason: the thing activated is
@@ -4932,6 +5237,16 @@ private:
             if (g == Gesture::short_press || g == Gesture::double_press) close_compose();
             return;
         }
+        // ★★★★ §UI-10/11 P3 — **THE RULED MODAL CLOSE, ASKED BEFORE THE PRESS IS APPLIED** (§2's table + §3.2.3:
+        //      *"A preset update while a selection-phase compose modal is open closes that modal without sending"*).
+        //      It is checked HERE as well as in `on_tick` because `on_gesture` returns early for `Gesture::none`, so
+        //      a tick that carries a press reaches the model through THIS path only: without the question here, a
+        //      `double` arriving in the very tick a mutation landed would send a row the operator can no longer be
+        //      looking at. ⛔ ONE authority, two callers (`preset_generation_moved`), ⛔ never two predicates.
+        // ⓘ It sits AFTER the result-phase branch above, which is the other half of the ruling: *"an already-
+        //   displayed outcome may finish"* — an outcome is not a selection, and closing it would discard a verdict
+        //   the wearer has not read.
+        if (preset_generation_moved(s)) { close_compose(); return; }   // ⛔ CONSUMES the press — nothing is sent
         // ★★★ §UI-16 K7 — THE LIST IS NOW RESOLVED BY ITS OWN FUNCTIONS (§B66). ⛔ WITHDRAWN, KEPT VISIBLE:
         //     `const uint8_t n = (dm) ? kDmTextCount : kChannelTextCount;` with `back` identified by
         //     `_st.cursor + 1 == n`. With the grant act absent both express EXACTLY the same list, index for index
@@ -4939,10 +5254,13 @@ private:
         //     OPTIONAL row is the shape §B66 exists to forbid: one added row and `back` becomes a SEND.
         const bool    dm    = (_st.compose == Compose::dm);
         const bool    grant = _st.compose_grant_row;
-        const uint8_t n     = compose_row_count(dm, grant);
+        // ★ §UI-10/11 P3 — THE LIST IS THE SNAPSHOT'S PROJECTION, chosen by the sub-view's own kind. ⛔ DM presets
+        //   never appear in the channel list and vice versa (§3.2.2), and the choice is made ONCE, here.
+        const ComposeList& list = dm ? s.preset_dm : s.preset_ch;
+        const uint8_t n     = compose_row_count(list, grant);
         if (g == Gesture::short_press) { _st.cursor = uint8_t((_st.cursor + 1) % n); _st.dirty = true; return; }
         if (g != Gesture::double_press) return;
-        switch (compose_row_kind(_st.cursor, dm, grant)) {
+        switch (compose_row_kind(_st.cursor, list, grant)) {
             case ComposeRow::back:  close_compose(); return;                                                 // `back`
             // ★★★★ §UI-16 K7 — THE ACT. It performs NO grant and maps NO outcome: it OPENS the landed N5/N6 chain,
             //      whose preflight, ceremony, confirmation, one send forward and eleven-arm outcome mapping are
@@ -4950,10 +5268,16 @@ private:
             case ComposeRow::grant: run_roster_grant(s); return;
             case ComposeRow::text:  break;
         }
-        // ⓘ THE TEXT INDEX IS THE CURSOR, AND IT STILL IS: the canned rows occupy `0 .. sendable-1` by construction
-        //   (`compose_row_kind`), so the value handed to `queue` is unchanged and `ui_compose_send_line`'s bound is
-        //   untouched.
-        queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer, _st.cursor);
+        // ★★★★ §UI-10/11 P3 / §B66 — **THE ROW'S IDENTITY IS ITS STABLE SLOT, RESOLVED THROUGH THE PROJECTION.**
+        //      ⛔ WITHDRAWN AND KEPT VISIBLE: `queue(…, _st.compose_peer, _st.cursor)` — *"THE TEXT INDEX IS THE
+        //      CURSOR, AND IT STILL IS: the canned rows occupy `0 .. sendable-1` by construction"*. That was true of
+        //      a FIXED table and is FALSE of a configurable one: with `dm1`, `dm4`, `dm8` enabled, cursor 1 is
+        //      `dm4` — and the moment the catalog changes, cursor 1 is somebody else's phrase. §3.2.2 forbids
+        //      deriving `dmN` from a row index in as many words, and this line is where that forbidding bites.
+        // ★★ AND THE GENERATION IS SEALED WITH IT (design §3.3): the request carries the catalog the wearer SAW, so
+        //    execution can refuse rather than resolve the same row to newly configured words.
+        queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer,
+              compose_row_slot(_st.cursor, list), _st.compose_gen);
         // ★★ UI-7: THE MODAL STAYS OPEN. UI-2 closed it here, which left every `DmState` the spec defines with NO
         //    RENDERER — `DELIVERED to <label>` (the one thing `-a` buys that a channel post can never offer),
         //    `NO KEY`, `NO CONFIRM` — all unreachable on the panel. The cursor is still reset, so a re-opened modal
@@ -4972,9 +5296,23 @@ private:
     // ⓘ §UI-16 K7 — THE GRANT'S TWO FROZEN FIELDS ARE RETIRED WITH THE SUB-VIEW, as a set and in the one
     //   place (the `clear_settings_note` rule): a re-opened compose that inherited either of them would
     //   offer, or aim, an irreversible act at whoever the LAST sub-view was about.
+    // ⓘ §UI-10/11 P3 — the SEALED GENERATION is retired with the sub-view for the same reason and in the same
+    //   place: a re-opened compose that inherited it would be comparing against a catalog it never displayed.
     void close_compose() { _st.compose = Compose::none; _st.compose_result = false;
-                           _st.compose_grant_hash = 0; _st.compose_grant_row = false;
+                           _st.compose_grant_hash = 0; _st.compose_grant_row = false; _st.compose_gen = 0;
                            _st.cursor = 0; _st.dirty = true; }
+    // ★★★★ §UI-10/11 P3 — **THE ONE QUESTION BEHIND §2's WHOLE MODAL TABLE** (U1: two callers, `on_tick` and
+    //      `compose_gesture`, ⛔ never two predicates). It is TRUE only for an OPEN **SELECTION-PHASE** sub-view
+    //      whose sealed generation no longer equals the published one.
+    //  · a successful CHANGED mutation (incl. `reset all`, OQ-B) stamps the NEXT generation ⇒ TRUE  ⇒ closes;
+    //  · an identical no-op writes nothing and changes no generation      ⇒ FALSE ⇒ ⛔ does NOT close;
+    //  · a validation or storage failure publishes nothing                ⇒ FALSE ⇒ ⛔ does NOT close;
+    //  · an already-displayed outcome (`compose_result`)                  ⇒ FALSE ⇒ may finish.
+    // ⛔ EQUALITY, ⛔ NEVER ORDERING (§3.2.3), which is what makes the uint32 wrap harmless — and `compose_gen` is 0
+    //    while nothing is open, a value no live catalog can carry, so a closed sub-view can never answer TRUE.
+    bool preset_generation_moved(const UiSnapshot& s) const {
+        return _st.compose != Compose::none && !_st.compose_result && _st.compose_gen != s.preset_generation;
+    }
     // ★★★★ [[B232]] + §UI-17 S1 — **A SCREEN THAT HAS NOT BEEN ENTERED IS ONE ROW**, and that is the whole of "one
     //      press passes the screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle
     //      advances. It was [[B232]]'s ruling for the SETTINGS closed view and it is §UI-17's for the passive TEAM and
@@ -5068,14 +5406,14 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // ⓘ UI-7 routed it through `close_compose()` so the new RESULT phase is cleared with the modal (one exit, U1).
     close_compose();
     retain(s.now_ms);
-    queue(SendKind::emergency, 0, 0);
+    queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0);
 }
 
 inline void UiModel::tick_emergency(const UiSnapshot& s) {
     if (_emg == Emergency::cancelled && elapsed(s.now_ms, _cancelled_until_ms) < (1u << 31)) { _emg = Emergency::idle; _st.dirty = true; }
     if (_emg == Emergency::blocked && _retry_armed &&
         elapsed(s.now_ms, _retry_at_ms) < (1u << 31)) {                 // wrap-safe "now >= deadline"
-        _retry_armed = false; _emg = Emergency::firing; queue(SendKind::emergency, 0, 0); _st.dirty = true;
+        _retry_armed = false; _emg = Emergency::firing; queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0); _st.dirty = true;
     }
     if (_emg == Emergency::arming) {                                     // dirty ONLY when the visible digit changes
         const uint8_t d = arming_secs_left(s);

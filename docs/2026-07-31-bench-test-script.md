@@ -3405,3 +3405,38 @@ receipt.** Setup: H1 and H2 flashed; H1 has a crypto identity.
 5. ☐ **The window beside it is unchanged** — re-run Part 38's transcript verbatim; ⛔ FAIL on any difference.
 6. ☐ **No self-grant, no keyless offer** — on a node with no team content key, no member's sub-view shows a
    `GRANT KEY` row at all (hidden, never a refusing stub).
+
+## Part 46 — §UI-10/11 P2: the `ui preset` verbs and the `/mrui` boot lines on real hardware (2026-08-25)
+
+⛔ **THE RESIDUE ONLY.** The grammar, the three records' bytes, the six reasons, `list` = 17-including-disabled,
+the result→output rule, the `busy` table, the four boot-line states and the production wiring are all
+host-gated: native `test_firmware_ui_preset_verbs.cpp` (10 cases / 559 asserts), `--target=uipresetverbs`
+(V01-V19) and `--target=uipresets` (U01-U32), probe `P14e2`/`P26a`/`P26b` + controls C134-C136, `probe_board_ui`
+W49-W51. **Metal-only: real USB, real BLE, real flash and a real alarm.** Setup: one heltec_mobile.
+
+1. ☐ **The verbs over REAL USB.** `ui preset list` ⇒ exactly **18 lines**: seventeen `ui_preset` records in slot
+   order `emergency, dm1..dm8, channel1..channel8` — ⛔ the disabled ones present, with `"text":""` — then
+   `ui_presets_end` with `"capacity":17`. ⛔ FAIL on a dropped or fused line (that is the console stage, not the
+   emitter — a `!! CONSOLE_DROP` would be loud).
+2. ☐ **The verbs over REAL BLE** (`tools/meshroute_client_ble.py`): the same 18 lines, **byte-identical** to the
+   USB capture — diff them. ⛔ FAIL on any difference, and ⛔ FAIL if the companion reassembles two records into
+   one notification (each record is one `\n`-terminated line).
+3. ☐ ★★★ **A REAL FLASH WRITE, and its survival.** `ui preset set dm3 loc=on "meet at the hut"` ⇒ the dm3 record
+   with the new text and `"location":true`. **Power-cycle** ⇒ boot prints **no presets line**, and `ui preset
+   list` still shows it. Re-issue the identical `set` ⇒ the same record returns and `cfg`'s `saves=` does **not**
+   advance (the wear guard on real flash, which no host gate can see).
+4. ☐ ★★★ **POWER-CUT MID-WRITE — the [[B193]] class on `/mrui`.** Issue a `set` and cut power during the write
+   (~10× at varying delays). Each reboot must land in exactly one of two states: the OLD catalog intact, **or**
+   the NEW one intact. ⛔ A boot line reading `record invalid` is the smear this part exists to detect — and if
+   it appears, check that the next successful `set` **repairs** it (the line stops printing on the boot after).
+5. ☐ **The two boot lines on a REALLY corrupt store.** Corrupt `/mrui` deliberately (a partial write from step 4,
+   or a flashed image with a mangled record) ⇒ boot prints, verbatim:
+   `  ui presets = DEFAULTS (record invalid — repaired on next successful change)`; the panel still composes from
+   the compiled defaults; `ui preset set dm1 loc=off "x"` succeeds and the line is gone on the next boot.
+6. ☐ **`busy` against a REAL alarm.** Long-press to arm, and while the countdown/attempt series is running issue
+   `ui preset set dm1 loc=off "<its current text>"` over USB ⇒ `{"ev":"ui_preset_err","reason":"busy"}` — ⛔ even
+   though it would change nothing. `ui preset list` in the same window still answers 18 lines. Once the outcome is
+   displayed (a retained result, not an attempt), the same `set` answers with its record.
+7. ☐ **`clear emergency` ⇒ `mandatory`**, and `team`/`cfg` are unchanged afterwards — a phrase verb must never
+   reprovision anything. Then `factory_reset confirm` ⇒ after the reboot `ui preset list` shows the compiled
+   defaults and `generation` is back to 1 (the `mr` namespace took `/mrui` with it).

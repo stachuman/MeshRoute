@@ -190,6 +190,23 @@ TARGET_SRC = {
     #    mutation must reach ON ITS OWN, and a battery is per-SOURCE-FILE. ⓘ ONE target, not two: unlike N2's
     #    row this unit needs nothing from `firmware_ui_chrome.h` (its fingerprint is a SEPARATE definition by
     #    ruling and its row is fixed-width by construction), so it is model-includable in full.
+    # ★★ ADDED 2026-08-25 BY §UI-10/11 P1, and for the reason every target above it was added: the preset catalog's
+    #    OWNER-RULED policy is a set of clauses — the four storage states, the canonical record bytes, the coalescing
+    #    limit, the emergency invariants, the `busy` table, the candidate-then-live order — each of which must be
+    #    attacked ON ITS OWN, and a battery is per-SOURCE-FILE. Bound in `src/firmware_commands.cpp` (P2's verb) or in
+    #    `src/fw_main.cpp` (the boot line) they would have had NO battery at all: neither TU is compiled by the native
+    #    suite or the simulator (§B115). ⓘ The RECORD's own five entries live in `--target=devicenv` (N21-N25), where
+    #    the record is — including the only reddenable form of *"the catalog written through `/mrcfg`"*.
+    "uipresets":   "src/firmware_ui_presets.h",     # §UI-10/11 P1 — the /mrui catalog service and its whole policy
+    # ★★ ADDED 2026-08-25 BY §UI-10/11 P2, and for the reason every target above it was added: the VERB family's
+    #    decisions — the three NDJSON records' BYTES, the six reason spellings, `list` = 17-including-disabled, the
+    #    result->output rule, the `loc=` domain and the boot diagnosis — are each a published contract clause that
+    #    must be attacked ON ITS OWN, and a battery is per-SOURCE-FILE. Bound in `src/firmware_commands.cpp` (the
+    #    dispatch arm, the Print adapter, the ONE instance) they would have had NO battery at all: that TU is
+    #    compiled by neither the native suite nor the simulator (§B115). ⓘ The `busy` CLASSIFICATION is deliberately
+    #    NOT here — it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s
+    #    C134-C136, because that is the only instrument that compiles that file.
+    "uipresetverbs": "src/firmware_ui_preset_verbs.h",  # §UI-10/11 P2 — the grammar, the three records, the boot line
     "uiinvite":    "src/firmware_ui_invite.h",      # §UI-16 N4 — the two authorities, the handled set, the row
     "uinearby":    "src/firmware_ui_nearby.h",      # §UI-16 N2 — the own-team filter, the order, the rows, the lexemes
     "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
@@ -330,7 +347,130 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2148, 93187     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-16 K7 ([[B245]])** — the
+PIN_CASES, PIN_ASSERTS = 2211, 95231     # ★★ CROSS-CHECK RE-SYNCED 2026-08-26 by **§UI-10/11 P3** — THE
+                                         # CATALOG REACHES THE PANEL: the compose lists become a projection of the
+                                         # live `/mrui` record, `SendReq` carries `{slot, generation}`, and the
+                                         # fixed `kDmTexts`/`kChannelTexts`/`kEmergencyText` tables RETIRE.
+                                         # **2186 / 94712 -> 2211 / 95231** (+25 cases / **+519 assertions**),
+                                         # DERIVED from the clean run (six worker trees agreed).
+                                         # ⛔ NO battery TARGET gained or lost an entry list; two landed `model`
+                                         #   entries (W10) and two probe controls (R1/R2) were RE-ANCHORED because
+                                         #   the expressions they mutated moved — recorded at each site.
+                                         # ---- +290 — 25 NEW cases, MEASURED with `program -tc='<prefix>*'`:
+                                         #   `ui10-p3-slot*`       4 cases   49
+                                         #   `ui10-p3-row*`        1 case    29
+                                         #   `ui10-p3-empty*`      1 case    12
+                                         #   `ui10-p3-modal*`      4 cases   22
+                                         #   `ui10-p3-changed*`    1 case    12
+                                         #   `ui10-p3-freeze*`     7 cases   58   (1 in the model suite, 6 in send)
+                                         #   `ui10-p3-r1*`         1 case    57
+                                         #   `ui10-p3-resources*`  1 case    13
+                                         #   `ui10-p3-emergency*`  2 cases    7
+                                         #   `ui10-p3-loc*`        3 cases   31
+                                         #   4+1+1+4+1+7+1+1+2+3 = 25 cases ✓   49+29+12+22+12+58+57+13+7+31 = 290
+                                         # ---- +229 — the NET movement of the landed cases this slice REWROTE.
+                                         #   ⛔ NOTHING WAS DELETED: 2186 + 25 = 2211 exactly, so every landed case
+                                         #   still runs. The rewrites and their CURRENT measured counts:
+                                         #     `ui7-B66*`  6 -> **199** (+193) — the case that used to read the two
+                                         #        counts back out of the two tables now proves `back` is the DERIVED
+                                         #        last row at EVERY catalog size (0..8 enabled, both kinds, grant on
+                                         #        and off). The old figure is exact: the withdrawn case is kept in
+                                         #        the comment and is six straight CHECKs with no loop.
+                                         #     `chrome4-audit*` **148** — its compose block now proves the 19-column
+                                         #        budget against OQ-A's BOUND (17) instead of the five compiled
+                                         #        strings, over both location states.
+                                         #     `ui10-p1-defaults: THE DRIFT FENCE …` -> `… IS DISCHARGED` **23** —
+                                         #        the duplication it fenced no longer exists (P3 retired the tables),
+                                         #        so it asserts the defaults through the SHIPPED projection instead.
+                                         #     `ui7-line: a DISABLED slot …` **6**, `ui7-send: a request the composer
+                                         #        refuses …` **5** — re-pointed off the retired row-index identity.
+                                         #     `ui16-k7-act: pin 1*` **33**, `ui16-k7-self*` **13**,
+                                         #        `ui-model: the model's declared bounds*` **16**,
+                                         #        `ui16-k7-resources*` **15** — the same K7 / resource properties over the
+                                         #        projection and the re-measured `sizeof(UiSnapshot)` (1008 -> 1336).
+                                         #   290 + 229 = 519 ✓
+                                         #
+                                         # The superseded §UI-10/11 P2 sync follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2186, 94712 — the `ui preset`
+                                         # VERB FAMILY: the pure grammar/records/boot unit
+                                         # (`src/firmware_ui_preset_verbs.h`) + its suite. NEW battery target
+                                         # `uipresetverbs` (19 entries, V01-V19).
+                                         # **2176 / 94153 -> 2186 / 94712** (+10 cases / **+559 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING WAS SUBTRACTED and ⛔ NO existing
+                                         # case's count moved: P2 ADDS a header and a suite, consumes P1's service
+                                         # unchanged, and its ONE edit to `src/firmware_ui_presets.h` is COMMENT-ONLY
+                                         # (the `bad_location` done-vs-missing marker, closed) — so the `uipresets`
+                                         # battery's own cases survive byte-identical.
+                                         # MEASURED case by case with `program -tc='<prefix>*'`:
+                                         #  +559 — 10 NEW cases, `test/test_firmware_ui_preset_verbs.cpp`:
+                                         #    `P2 the three NDJSON records are byte-exact…`         15
+                                         #    `P2 list emits all 17 records…`                       66
+                                         #    `P2 a mutating verb answers with the RESULTING…`      53
+                                         #    `P2 the busy table (spec §2)…`                        70
+                                         #    `P2 loc= takes EXACTLY on|off…`                       46
+                                         #    `P2 the remaining reasons: bad_slot, bad_text…`       71
+                                         #    `P2 the grammar: an unknown sub-verb…`                57
+                                         #    `P2 USB and BLE byte-agree…`                         142
+                                         #    `P2 the boot restore: the four storage states…`       33
+                                         #    `P2 the resident cost of the ONE live catalog…`        6
+                                         #    15+66+53+70+46+71+57+142+33+6 = 559. ✓
+                                         # ⓘ `--target=uipresets`'s TARGET FILE moved (the comment-only marker
+                                         #   update), so that battery re-runs IN FULL even though not one of its
+                                         #   entries or cases changed.
+                                         #
+                                         # The superseded §UI-10/11 P1 sync follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2176, 94153 — the `/mrui`
+                                         # PRESET CATALOG: the pure service (`src/firmware_ui_presets.h`) + the
+                                         # `'MRU1'` record (`src/device_nv.h`). NEW battery target `uipresets`.
+                                         # **2148 / 93187 -> 2176 / 94153** (+28 cases / **+966 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION, and ⛔ NO
+                                         # EXISTING case's count moved: this slice ADDS a header and a suite and
+                                         # touches no landed assertion (`src/firmware_ui_model.h`'s fixed tables are
+                                         # deliberately UNCHANGED — P3 consumes the catalog, P1 does not).
+                                         # MEASURED case by case with `program -tc=<prefix>*` (the names carry
+                                         # commas, which doctest's `-tc` treats as a separator — hence the prefix):
+                                         #  +966 — 28 NEW cases, `test/test_firmware_ui_presets.cpp`:
+                                         #    `ui10-p1-abi        …the record's ABI…`                26
+                                         #    `ui10-p1-abi        …the storage-level four states…`   11
+                                         #    `ui10-p1-defaults   …§3.2.2's table verbatim…`         67
+                                         #    `ui10-p1-defaults   …THE DRIFT FENCE…`                 13
+                                         #    `ui10-p1-states     …ABSENT, silent…`                   9
+                                         #    `ui10-p1-states     …INVALID, counted…`                 8
+                                         #    `ui10-p1-states     …IO_FAILED, distinct…`              6
+                                         #    `ui10-p1-states     …VALID is LOADED…`                 10
+                                         #    `ui10-p1-states     …the two boot lines…`               5
+                                         #    `ui10-p1-semantic   …ANY violation -> invalid…`        140
+                                         #    `ui10-p1-canonical  …the written record's bytes…`      32
+                                         #    `ui10-p1-canonical  …the composition zeroes whole…`    19
+                                         #    `ui10-p1-generation …starts 1, skips zero…`            14
+                                         #    `ui10-p1-coalescing …valid store…`                     20
+                                         #    `ui10-p1-coalescing …ABSENT store…`                     7
+                                         #    `ui10-p1-coalescing …⛔ NOT over invalid…`             11
+                                         #    `ui10-p1-coalescing …★ LATE-ABSENT durability…`         13
+                                         #    `ui10-p1-emergency  …never cleared…`                   10
+                                         #    `ui10-p1-emergency  …text-editable…`                   17
+                                         #    `ui10-p1-busy       …every verb, incl. a no-op…`       19
+                                         #    `ui10-p1-order      …candidate then live…`             13
+                                         #    `ui10-p1-io         …every mutation, zero writes…`     17
+                                         #    `ui10-p1-validation …1..17, both loc states…`         285
+                                         #    `ui10-p1-validation …★ the 273-BYTE narrowing…`         19
+                                         #    `ui10-p1-slots      …the stable slot identity…`       100
+                                         #    `ui10-p1-slots      …zero enabled per kind…`           11
+                                         #    `ui10-p1-words      …the three enum inventories…`      59
+                                         #    `ui10-p1-resources  …the STACK GATE, measured…`         5
+                                         #    26+11+67+13+9+8+6+10+5+140+32+19+14+20+7+11+13+10+17
+                                         #    +19+13+17+285+19+100+11+59+5 = 966. ✓
+                                         # ⛔ RE-SYNCED AGAIN 2026-08-25 AFTER THE **QG HOLD** (three
+                                         #   corrections): +2 cases / +40 assertions on 2174 / 94113 —
+                                         #   the 273-byte narrowing regression (19), the LATE-ABSENT
+                                         #   durability case (13), and `words` 51 -> 59 (+8) for the
+                                         #   `bad_location` arm now in the inventory sweep. ⛔ Nothing
+                                         #   was subtracted and no other case's count moved.
+                                         # ⓘ `--target=devicenv` gains FIVE entries (N21-N25) for the record itself;
+                                         #   its target file moved, so that battery re-runs in full.
+                                         #
+                                         # The superseded §UI-16 K7 sync follows, kept visible:
+                                         # 2148 / 93187 — ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-16 K7 ([[B245]])** — the
                                          # ROSTER GRANT: an operator-initiated per-member act on the ENTERED
                                          # TEAM screen that opens the LANDED N5/N6 chain verbatim.
                                          # **2139 / 92925 -> 2148 / 93187** (+9 cases / **+262 assertions**),
@@ -2936,10 +3076,16 @@ MUTS_MODEL = [
   "        _st.invite.sel_hash = target;",
   "        _st.invite = invite_snapshot_take(s.member, s.team_shown);\n"
   "        _st.invite.sel_hash = target;"),
+ # ⓘ RE-ANCHORED 2026-08-26 (§UI-10/11 P3), and the withdrawn pattern is KEPT VISIBLE:
+ #   `"    if (grant && idx == sendable) return ComposeRow::grant;"`. P3 replaced the compile-time `sendable` with
+ #   the PROJECTION's own length, so the old pattern matched NOTHING — and a control that matches nothing is
+ #   VACUOUS. ⛔ MEASURED, ⛔ not anticipated: the first full pass after the slice reported exactly that. The
+ #   PROPERTY is unchanged (the optional row's slot must be claimed only when the act is OFFERED); only the
+ #   expression it is spelled against moved.
  ("W10 ★★ THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (§B66) — the grant's slot is claimed whether or not the "
   "act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
-  "    if (grant && idx == sendable) return ComposeRow::grant;",
-  "    if (idx == sendable) return ComposeRow::grant;"),
+  "    if (grant && idx == l.n) return ComposeRow::grant;",
+  "    if (idx == l.n) return ComposeRow::grant;"),
  ("W11 ★★ THE RULED FIVE-MINUTE BOUND IS NOT ARMED — the approval opened from the roster has no deadline at all, "
   "so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
   "        _invite_until_ms    = s.now_ms + kInviteWindowMs;",
@@ -2949,6 +3095,44 @@ MUTS_MODEL = [
   "must change each in exactly one place (the V38/V39 treatment, one screen over)",
   'inline constexpr const char* kSavedKeysTitle    = "SAVED KEYS";      // S-40 — the PROVISION child row AND the title',
   'inline constexpr const char* kSavedKeysTitle    = "SAVED KEY LIST";'),
+
+ # ===== §UI-10/11 P3 — THE CATALOG REACHES THE PANEL ==========================================================
+ # ★★★ EVERY ONE IS A TEMPTING WRONG FIX RATHER THAN A DELETION, and each attacks a decision the design or the
+ #     owner RULED. ⓘ The two decisions that live in `firmware_ui_send.h` (the stale-generation gate and the `-l`
+ #     policy) are `--target=uisend`'s U14/U15; the ones in `src/firmware_ui.cpp` are the probe's C137-C141.
+ ("Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog "
+  "(dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for",
+  "              compose_row_slot(_st.cursor, list), _st.compose_gen);",
+  "              uint8_t(mrfw::kPresetDmFirst + _st.cursor), _st.compose_gen);"),
+ ("Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are "
+  "empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS",
+  "        if (!s.enabled) continue;                                   // \u2605 ENABLED ONLY",
+  "        ;"),
+ ("Y03 \u2605\u2605\u2605\u2605 THE L / - COLUMN IS DROPPED FROM A PRESET ROW \u2014 OQ-A's premise is that BOTH location "
+  "states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-`",
+  "        case ComposeRow::text:  return l.row[idx].loc ? 'L' : '-';",
+  "        case ComposeRow::text:  return '\\0';"),
+ ("Y04 \u2605\u2605\u2605 THE FIXED TABLE IS RESURRECTED \u2014 the projection bypassed and the retired kDmTexts re-created "
+  "inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads",
+  "        case ComposeRow::text:  return l.row[idx].text;",
+  "        case ComposeRow::text:  { static const char* const t[] = { \"Are you OK?\", \"I'm OK\" };\n"
+  "                                  return idx < 2 ? t[idx] : l.row[idx].text; }"),
+ ("Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the "
+  "projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset",
+  "    if (grant && idx == l.n) return ComposeRow::grant;",
+  "    if (grant && idx == 2) return ComposeRow::grant;"),
+ ("Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an "
+  "identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows",
+  "        return _st.compose != Compose::none && !_st.compose_result && _st.compose_gen != s.preset_generation;",
+  "        return _st.compose != Compose::none && !_st.compose_result;"),
+ ("Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every "
+  "preset gets a sub-view with one unexplained back row and no reason for it",
+  "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }",
+  "inline const char* compose_empty_note(const ComposeList& l) { (void)l; return nullptr; }"),
+ ("Y08 \u2605\u2605\u2605\u2605 PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE \u2014 spec \u00a72 gives the refusal a "
+  "RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted",
+  "        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;",
+  "        if (k == SendKind::dm)                   _dm   = DmState::failed;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -3602,6 +3786,30 @@ MUTS_DEVICENV = [
  ("N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy",
   "    b.version = kTeamKeyVersion;",
   "    ;"),
+ # --- §UI-10/11 P1 — the `/mrui` PRESET CATALOG RECORD -------------------------------------------------------------
+ # ★★★ WHY THESE FIVE ARE HERE AND ⛔ NOT IN `--target=uipresets`: a battery is per-SOURCE-FILE, and the rules they
+ #     attack are the RECORD's, which lives in this file. ★ N21 in particular is the ATTACKABLE half of spec pin 7
+ #     (*"`/mrcfg` untouched"*): the SERVICE cannot reach a config record at all (it holds one seam), so the only
+ #     place "the catalog is written through `/mrcfg`" can be EXPRESSED — and therefore reddened — is the slot table.
+ ("N21 ★★★ THE CATALOG IS ADDRESSED AT `/mrcfg`: a phrase edit now writes the record whose version mismatch REPROVISIONS the node",
+  "inline constexpr Slot kSlotUi    { \"/mrui\",    \"mr\",      \"ui\"    };",
+  "inline constexpr Slot kSlotUi    { \"/mrcfg\",   \"mr\",      \"cfg\"   };"),
+ ("N22 ★★ the catalog carries `/mrcfg`'s MAGIC — the two records become mutually readable, which is the same collapse one layer in",
+  "constexpr uint32_t kUiPresetMagic   = 0x4D525531u;   // 'MRU1' — its OWN magic, ⛔ never kMagic ('MRC1'), never",
+  "constexpr uint32_t kUiPresetMagic   = kMagic;        //"),
+ ("N23 ★★ the /mrui seed stamps generation ZERO — the value reserved for 'no generation', which a SendReq can never seal",
+  "    b.generation = 1;",
+  "    b.generation = 0;"),
+ ("N24 the /mrui version policy is RELAXED from equality to a range — an unknown layout is parsed as the wearer's phrases",
+  "    return blob_valid_exact(b, n, kUiPresetMagic, kUiPresetVersion) ? UiPresetRead::ok : UiPresetRead::invalid;",
+  "    return blob_valid_range(b, n, kUiPresetMagic, 1, 0xFFFFu) ? UiPresetRead::ok : UiPresetRead::invalid;"),
+ ("N25 ★★ the /mrui read tests `absent` FIRST, so a store that would not open announces 'no catalog configured'",
+  "    if (io.backend_failed) return UiPresetRead::io_failed;\n"
+  "    if (io.oversize)       return UiPresetRead::invalid;\n"
+  "    if (n == kSlotAbsent)  return UiPresetRead::absent;",
+  "    if (n == kSlotAbsent)  return UiPresetRead::absent;\n"
+  "    if (io.backend_failed) return UiPresetRead::io_failed;\n"
+  "    if (io.oversize)       return UiPresetRead::invalid;"),
 ]
 
 # ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================
@@ -5097,6 +5305,21 @@ MUTS_UISEND = [
   "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;",
   "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n"
   "        c.last_dm_ms = now_ms; c.have_dm = true; ++c.arr_dm;\n        return true;"),
+
+ # ===== §UI-10/11 P3 — THE EXECUTION-TIME FREEZE AND THE `-l` POLICY =========================================
+ # ★★★ BOTH DECISIONS ARE THIS FILE'S AND NO OTHER INSTRUMENT'S: the compose LIST is `--target=model`'s (Y01-Y08)
+ #     and the WIRING is the probe's (C137-C141), but what a `SendReq` is checked against at EXECUTION, and whether
+ #     a configured location intent may be dropped to make a send succeed, are decided here.
+ ("U14 \u2605\u2605\u2605\u2605 THE GENERATION CHECK IS DROPPED \u2014 the freeze reduced to \"is the slot still enabled?\", "
+  "which is the half that CANNOT see a `reset <slot>`: the words are identical again, the generation moved, and the "
+  "wearer's press is honoured against a catalog he never saw (design \u00a73.3's headline)",
+  "    if (req.generation != cat.generation) return SendGate::preset_changed;   // \u2605 EQUALITY, never ordering (\u00a73.2.3)",
+  "    ;"),
+ ("U15 \u2605\u2605\u2605\u2605 `-l` IS STRIPPED ON A LOCATED CHANNEL POST WITH NO FIX \u2014 the exact \"make the preset "
+  "send\" fix \u00a73.2.3 forbids in as many words (*never silently strip -l*). The post AIRS, without the coordinates "
+  "the wearer configured, and nothing on the panel says so",
+  '        n = loc ? snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -l -e", unsigned(team_channel_id), tl, sl.text)',
+  '        n = (loc && have_fix) ? snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -l -e", unsigned(team_channel_id), tl, sl.text)'),
 ]
 
 MUTS_TEAMGRANT = [
@@ -5151,7 +5374,219 @@ MUTS_GRANTPARK = [
   "    if (_parked_sends_n >= protocol::cap_parked_sends) return true;"),
 ]
 
+# ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================
+# ★★★ WHAT THESE MEASURE: every OWNER-RULED clause of the preset catalog, attacked ON ITS OWN. The stakes are why the
+#     battery exists — the emergency slot is what a long press sends when the wearer is in trouble, and every
+#     canonical-byte rule below is what makes the flash-wear guard trustworthy. ⛔ Not one entry is a deletion for its
+#     own sake: each is a TEMPTING WRONG FIX (a simpler predicate, a shorter order, a reused arm).
+MUTS_UIPRESETS = [
+ # --- the FOUR STORAGE STATES (spec §3-P1 / pin 7) ---------------------------------------------------------------
+ ("U01 ★★★★ `io_failed` IS TREATED AS `invalid`: the REPAIR WRITE lands on a possibly-intact record after a transient mount fault",
+  "inline bool preset_read_refuses_writes(mrnv::UiPresetRead st) { return st == mrnv::UiPresetRead::io_failed; }",
+  "inline bool preset_read_refuses_writes(mrnv::UiPresetRead) { return false; }"),
+ ("U02 ★★★ THE SEMANTIC GATE IS DROPPED — a header-valid record with corrupt SLOT fields rides in as the wearer's catalog",
+  "        if (st == mrnv::UiPresetRead::ok && !presets_canonical(_cur)) st = mrnv::UiPresetRead::invalid;",
+  "        ;"),
+ ("U03 ★★ DEFAULTS-ON-CORRUPT, SILENTLY: the invalid load is no longer COUNTED, so nothing measures the warning",
+  "        if (st == mrnv::UiPresetRead::invalid)   ++_invalid_loads;",
+  "        ;"),
+ ("U04 the two unreadable warnings are COLLAPSED — a corrupt record and a dead store take the same operator action",
+  "        case mrnv::UiPresetRead::io_failed: return kPresetIoFailedLine;",
+  "        case mrnv::UiPresetRead::io_failed: return kPresetInvalidLine;"),
+ ("U05 ★★ AN ORDINARY FIRST BOOT WARNS — `absent` is worded as a fault, which is the collapse the four states exist to prevent",
+  "        case mrnv::UiPresetRead::absent:    return nullptr;   // ★ a first boot is SILENT (owner-ruled)",
+  "        case mrnv::UiPresetRead::absent:    return kPresetInvalidLine;"),
+ # --- the CANONICAL RECORD BYTES, one entry per rule, from the WRITER and from the READER --------------------------
+ ("U06 ★★★ THE GENERATION WRAP LANDS ON ZERO — the value reserved for 'no generation', disarming P3's stale-generation refusal",
+  "    return n == 0u ? 1u : n;",
+  "    return n;"),
+ ("U07 ★★★ A CANONICAL-ZEROING RULE DROPPED: the slot is edited in place, so the TAIL of a longer phrase survives",
+  "    s = mrnv::UiPresetSlot{};                       // ★ zeroes text, len, loc and enabled — see the block above",
+  "    s.enabled = 0; s.loc = 0; s.len = 0;"),
+ ("U08 the reader stops requiring the TAIL AFTER `len` to be zero — invisible garbage is accepted as canonical",
+  "    for (uint8_t i = s.len; i < sizeof s.text; ++i) if (s.text[i] != 0) return false;",
+  "    ;"),
+ ("U09 ★★ the booleans become 'non-zero is true' instead of EXACTLY 0/1 — the coalescing compare is unreliable forever after",
+  "    if (s.enabled > 1 || s.loc > 1) return false;                       // ★ EXACTLY 0 or 1",
+  "    ;"),
+ ("U10 ★★★ the reader no longer requires the EMERGENCY slot to be enabled — a bit-flip silently removes the alarm's phrase",
+  "    if (mandatory && s.enabled != 1) return false;                      // ★ the emergency slot is ALWAYS enabled",
+  "    ;"),
+ ("U11 a DISABLED slot may keep its LOCATION flag — the 'disabled slots are all-zero' rule half-dropped",
+  "        if (s.len != 0 || s.loc != 0) return false;",
+  "        if (s.len != 0) return false;"),
+ ("U12 the persisted generation may be ZERO — the record's one non-zero invariant dropped from the reader",
+  "    if (b.generation == 0) return false;                                // ★ NON-ZERO by ruling (see the wrap note)",
+  "    ;"),
+ ("U13 ★★ the compiled EMERGENCY default is DISABLED AND EMPTY — §3.2.2's mandatory row broken at its source",
+  "    { \"I'm in danger\", 1 },        //  0 emergency — ★ location ON, enabled, MANDATORY (§3.2.2 row 1)",
+  "    { nullptr,         0 },        //  0 emergency"),
+ ("U14 the compiled emergency default loses its LOCATION — §3.2.2 row 1 says location ON",
+  "    { \"I'm in danger\", 1 },        //  0 emergency — ★ location ON, enabled, MANDATORY (§3.2.2 row 1)",
+  "    { \"I'm in danger\", 0 },        //  0 emergency"),
+ # --- the TRANSACTION: coalescing, its RULED LIMIT, and the candidate-then-live order ------------------------------
+ ("U15 ★★★ COALESCING DROPPED — every `set` writes flash, including one that changes nothing",
+  "        if (st == mrnv::UiPresetRead::ok &&\n"
+  "            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+  "        ;"),
+ ("U16 ★★ the coalescing pin's ABSENT arm dropped — a no-op over a fresh device writes the record anyway",
+  "        if (st == mrnv::UiPresetRead::absent &&\n"
+  "            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+  "        ;"),
+ # ⛔ U17 WAS REWRITTEN 2026-08-25 (QG blocker 2), AND THE WITHDRAWN ENTRY IS KEPT VISIBLE BECAUSE IT WENT DEAD: it
+ #   was `st == absent` -> `st != ok`, which reddened only while the absent baseline was `_live`. Now that `_cur`
+ #   holds the DURABLE side on both readable arms (defaults for absent, the empty record for invalid), that edit
+ #   alone no longer coalesces anything — a mutation that cannot redden is an entry that measures nothing ([[B217]]).
+ #   ★ THE LIVE THREAT IS THE OTHER HALF OF THE SAME WRONG FIX — consulting RAM — so the entry now makes BOTH moves,
+ #   and is RED from two independent directions: the invalid-repair case AND the late-absent durability case.
+ ("U17 ★★★★ THE BASELINE BECOMES THE RUNNING CATALOG for every non-ok state: the REPAIR never happens AND a late-absent record never regains durability",
+  "        if (st == mrnv::UiPresetRead::absent &&\n"
+  "            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+  "        if (st != mrnv::UiPresetRead::ok &&\n"
+  "            memcmp(&_cand, &_live, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }"),
+ ("U29 ★★★★ THE DEFECT VERBATIM (QG blocker 2): the absent arm coalesces against `_live` — a custom catalog whose record went ABSENT answers `unchanged` to its own re-entry and is LOST at the next boot",
+  "        if (st == mrnv::UiPresetRead::absent &&\n"
+  "            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+  "        if (st == mrnv::UiPresetRead::absent &&\n"
+  "            memcmp(&_cand, &_live, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }"),
+ ("U30 ★★ an ABSENT record is materialised as an EMPTY one rather than the COMPILED DEFAULTS — so every no-op on a fresh device writes flash",
+  "        if (st == mrnv::UiPresetRead::absent) preset_defaults(_cur);",
+  "        if (st == mrnv::UiPresetRead::absent) mrnv::ui_preset_blob_init(_cur);"),
+ ("U18 ★★★★ CANDIDATE/LIVE ORDER INVERTED: the catalog is PUBLISHED BEFORE the save, so a failed write leaves phrases that vanish at the next boot",
+  "        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }",
+  "        _live = _cand;\n"
+  "        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }"),
+ ("U19 ★★★ THE WITHDRAWN ORDER: the candidate is saved WITHOUT the next generation (the spec row corrected in QA round 2)",
+  "        _cand.generation = preset_generation_next(_live.generation);",
+  "        _cand.generation = _live.generation;"),
+ ("U20 ★★ a failed save is reported as a SUCCESS — the 'success that isn't', over a catalog nothing stored",
+  "        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }",
+  "        _store.save(_cand);"),
+ ("U21 ★ `reset all` resets the GENERATION to the compiled 1 — a SendReq sealed under an OLD catalog compares EQUAL again",
+  "        _cand.generation = _live.generation;",
+  "        ;"),
+ # --- the EMERGENCY INVARIANTS and the `busy` table (spec §2) ------------------------------------------------------
+ ("U22 ★★★★ `clear emergency` IS ACCEPTED — the one slot the design says can never be disabled, cleared or emptied",
+  "        if (preset_slot_mandatory(static_cast<uint8_t>(slot))) { r.err = PresetErr::mandatory; return r; }",
+  "        ;"),
+ ("U23 ★★ an ACTIVE EMERGENCY no longer refuses `set` — an alarm's retry series can have its body changed halfway through",
+  "        if (_gate.emergency_active()) { r.err = PresetErr::busy; return r; }        // ⛔ 0 loads, 0 writes\n"
+  "        if (!preset_slot_valid(slot)) { r.err = PresetErr::bad_slot; return r; }    // ⛔ 0 loads, 0 writes\n"
+  "        const PresetErr ve = validate_preset_text(text, len);",
+  "        if (!preset_slot_valid(slot)) { r.err = PresetErr::bad_slot; return r; }\n"
+  "        const PresetErr ve = validate_preset_text(text, len);"),
+ ("U24 ★★ an ACTIVE EMERGENCY no longer refuses `reset all` — the whole catalog replaceable mid-alarm",
+  "        if (_gate.emergency_active()) { r.err = PresetErr::busy; return r; }        // ⛔ 0 loads, 0 writes\n"
+  "        const mrnv::UiPresetRead st = read_store();",
+  "        const mrnv::UiPresetRead st = read_store();"),
+ # --- VALIDATION: OQ-A's bound and §3.2.2's content rules ----------------------------------------------------------
+ ("U25 ★★★ OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (18) — the row always shows a location marker, so byte 18 is one the wearer cannot inspect",
+  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+  "    if (len == 0 || len > 18) return PresetErr::bad_text;"),
+ ("U26 the '≥ one non-space' rule dropped — a slot of spaces renders as a row the wearer believes is configured and cannot see",
+  "    return non_space ? PresetErr::none : PresetErr::bad_text;",
+  "    return PresetErr::none;"),
+ ("U27 the `\"` / `\\` refusal dropped — the two printable bytes that break every quoted console/NDJSON form P2 emits",
+  "        if (c == '\"' || c == '\\\\') return PresetErr::bad_text;",
+  "        ;"),
+ ("U28 the printable-ASCII domain is widened to 'not a control byte', so high bytes the panel cannot show are stored",
+  "        if (c < 0x20 || c > 0x7e) return PresetErr::bad_text;         // ⇒ NUL, CR, LF, DEL and every high byte",
+  "        if (c < 0x20) return PresetErr::bad_text;"),
+ # --- QG blocker 1: THE LENGTH BOUND MUST NOT BE BYPASSABLE BY INTEGER NARROWING ------------------------------------
+ # ★★★ THE TWO HALVES OF THE FIX GET ONE ENTRY EACH, because they fail in DIFFERENT PLACES and a reviewer's reflex
+ #     ("the record's field is a uint8_t, so the parameter should be too") reaches for either. U31 narrows INSIDE the
+ #     validator; U32 narrows AT THE PUBLIC BOUNDARY, before one line of the service runs. 273 & 0xFF = 17.
+ ("U31 ★★★★ THE BOUND IS TESTED AFTER A NARROW: a 273-byte phrase becomes 17 and is ACCEPTED as valid",
+  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+  "    len = static_cast<uint8_t>(len);\n"
+  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"),
+ ("U32 ★★★★ THE PUBLIC BOUNDARY IS NARROWED BACK to the record's own width — the length is laundered AT THE CALL, before any check runs",
+  "    PresetResult set(long slot, bool loc, const char* text, size_t len) {",
+  "    PresetResult set(long slot, bool loc, const char* text, uint8_t len) {"),
+]
+
+# ===== §UI-10/11 P2 — src/firmware_ui_preset_verbs.h ===============================================================
+# ★★★ WHAT THESE MEASURE: the PUBLISHED half of the slice. Every line below is a clause of a contract an iOS
+#     companion parses (`ios-companion/INBOX_SYNC_CONTRACT.md`) or of the design's own §3.2.3 grammar — and every one
+#     of them is a plausible simplification rather than a deletion. ⛔ The stakes are not cosmetic: a `list` that
+#     hides the disabled slots makes `dm5` UNREACHABLE to an editor, a collapsed reason set makes `busy` and
+#     `bad_text` indistinguishable to an app, and a stripped terminator breaks the STREAMING transport while the
+#     direct one still looks right.
+# ⛔ ONE MUTATION IS DELIBERATELY ABSENT AND IS RECORDED RATHER THAN FAKED: *"the BLE path forked from the USB path"*
+#    cannot be expressed in this file, BY CONSTRUCTION — there is exactly one emitter, it is handed an
+#    `IPresetLines` it cannot inspect, and nothing here can ask which transport is attached. A real fork would have
+#    to be written in `src/fw_main.cpp`'s `ble_dispatch_line` (which intercepts `status`/`cfg`/`peers` before the
+#    dispatch fallback), and NO battery reaches that TU. ⇒ V09 below is the closest reddenable shape — a
+#    transport-shaped edit at the single emitter that leaves USB looking correct — and the structural half of the
+#    proof is a grep: `ble_dispatch_line` contains no `ui` arm at all.
+MUTS_UIPRESETVERBS = [
+ # --- the three records' BYTES (design §3.2.3, verbatim) ----------------------------------------------------------
+ ('V01 the reason word is DECORATED at the writer — every one of the six reaches the companion mis-spelled',
+  '    j.lit("{\\"ev\\":\\"ui_preset_err\\",\\"reason\\":\\""); j.lit(preset_err_name(e)); j.ch(\'"\');',
+  '    j.lit("{\\"ev\\":\\"ui_preset_err\\",\\"reason\\":\\"err_"); j.lit(preset_err_name(e)); j.ch(\'"\');'),
+ ('V02 ★★ THE SIX REASONS ARE COLLAPSED TO ONE at the render site — `busy`, `mandatory` and `bad_text` become the same event',
+  '            preset_emit_err(r.err, out);',
+  '            preset_emit_err(PresetErr::store, out);'),
+ ("V03 ★★★ `list` SKIPS THE DISABLED SLOTS — an editor can no longer address `dm5` to turn it on (§3.2.3's own words)",
+  '    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);',
+  '    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) if (cat.slot(i).enabled) preset_emit_record(cat, i, out);'),
+ ("V04 ★★ the end record's `capacity` becomes a HAND-WRITTEN literal — the number the companion sizes its editor from can now drift from the record",
+  '    j.lit("{\\"ev\\":\\"ui_presets_end\\",\\"capacity\\":"); j.u32(mrnv::kUiPresets);',
+  '    j.lit("{\\"ev\\":\\"ui_presets_end\\",\\"capacity\\":"); j.u32(16);'),
+ ('V05 ★★ THE GENERATION IS DROPPED FROM THE END RECORD — a list no longer says WHICH catalog it just described',
+  '    j.lit(",\\"generation\\":");     j.u32(generation);',
+  '    ;'),
+ ('V06 the two ACTIVE COUNTS are swapped in the end record — invisible on the compiled defaults, where both are 2',
+  '                                             cat.enabled_count(PresetKind::dm),\n                                             cat.enabled_count(PresetKind::channel),',
+  '                                             cat.enabled_count(PresetKind::channel),\n                                             cat.enabled_count(PresetKind::dm),'),
+ # --- the RESULT -> OUTPUT rule (§3.2.3: "return the resulting record, or the full list for `reset all`") ----------
+ ('V07 ★★★ A MUTATING VERB ANSWERS WITH A DUMP — the companion must diff seventeen records to find what it just changed',
+  '            if (whole_list) preset_emit_list(cat, out);\n            else            preset_emit_record(cat, static_cast<uint8_t>(slot), out);',
+  '            preset_emit_list(cat, out);'),
+ ('V08 `reset all` answers with ONE record — for a verb that changed every slot and has no single one to name',
+  '            preset_render(cat, 0, /*whole_list=*/true, r, out);         // §3.2.3: `reset all` answers with the LIST',
+  '            preset_render(cat, 0, /*whole_list=*/false, r, out);        //'),
+ # --- the ONE emitter, i.e. the whole shape of the transport agreement --------------------------------------------
+ ('V09 ★★★ THE RECORD\'S TERMINATOR IS STRIPPED at the one emitter ("the sink adds one") — USB still reads correctly, the BLE line sink NEVER SHIPS',
+  'inline void preset_emit(IPresetLines& out, const char* buf, size_t n) { out.line(buf, n); }',
+  "inline void preset_emit(IPresetLines& out, const char* buf, size_t n) { if (n && buf[n - 1] == '\\n') --n; out.line(buf, n); }"),
+ # --- the `busy` table (spec §2) as THIS layer can break it -----------------------------------------------------
+ ("V10 ★★★★ `busy` BYPASSED FOR A NO-OP: the verb answers `unchanged` from the LIVE catalog without ever asking the service — the owner's ruled row, broken by an optimisation",
+  '        const PresetResult r = cat.set(slot, loc, xt, xn);',
+  '        PresetResult r{};\n        const mrnv::UiPresetSlot& cs = cat.slot(static_cast<uint8_t>(slot));\n        if (cs.enabled && cs.loc == (loc ? 1 : 0) && cs.len == xn && memcmp(cs.text, xt, xn) == 0)\n            r.verdict = PresetVerdict::unchanged;\n        else r = cat.set(slot, loc, xt, xn);'),
+ ('V11 ★★ `mandatory` IS PRE-EMPTED IN THE PARSER ("check it early") — so `clear emergency` answers `mandatory` DURING AN ALARM, where the ruled answer is `busy`',
+  '        const PresetResult r = cat.clear(slot);',
+  '        if (preset_slot_mandatory(static_cast<uint8_t>(slot))) { preset_emit_err(PresetErr::mandatory, out); return true; }\n        const PresetResult r = cat.clear(slot);'),
+ # --- the boot diagnosis -----------------------------------------------------------------------------------------
+ ('V12 ★★★ THE BOOT LINE IS PRINTED FOR `ok` AND `absent` too ("say something reassuring") — an ordinary first boot reads like a fault',
+  '    if (!ln) return st;                          // ★ `ok` / `absent` print NOTHING — an ordinary first boot is silent',
+  '    if (!ln) ln = "  ui presets = loaded";'),
+ ('V13 ★★ THE `invalid` WARNING IS NEVER CLEARED — `cfg` goes on reporting a corrupt record long after a successful mutation repaired it',
+  '    void on_result(const PresetResult& r) { if (r.verdict == PresetVerdict::ok) boot = mrnv::UiPresetRead::ok; }',
+  '    void on_result(const PresetResult&) { }'),
+ # --- the grammar ------------------------------------------------------------------------------------------------
+ ("V14 ★★★ `loc=` GOES LENIENT — anything that is not `off` means ON, so `loc=maybe` quietly AIRS THE WEARER'S COORDINATES",
+  '    if (t && n == 7 && !memcmp(t, "loc=off", 7)) { out = false; return true; }',
+  '    if (t && n >= 4 && !memcmp(t, "loc=", 4)) { out = !(n == 7 && !memcmp(t, "loc=off", 7)); return true; }'),
+ ('V15 ★★ THE ONE-DIGIT ORDINAL RULE IS DROPPED — `dm10` parses as `dm1` and the operator edits a slot he did not name',
+  '    if (n - pre != 1) return -1;                       // ⛔ exactly one digit — see the block above',
+  '    ;'),
+ ('V16 the slot TOKEN is emitted 0-based (`dm0`..`dm7`) — the wire names stop matching the grammar that parses them',
+  '                           : snprintf(out, cap, "%s%u", preset_kind_name(k), static_cast<unsigned>(o));',
+  '                           : snprintf(out, cap, "%s%u", preset_kind_name(k), static_cast<unsigned>(o - 1));'),
+ ('V17 an ABSENT text term becomes `bad_text` instead of the grammar — an incomplete line is answered with a reason code instead of the shape',
+  '        if (a.exhausted()) return false;\n        const long slot = preset_slot_of_token(st, sn);',
+  '        const long slot = preset_slot_of_token(st, sn);'),
+ ('V18 a TRAILING TOKEN on `list` is IGNORED rather than refused (C2) — `ui preset list all` silently runs a plain list',
+  '        if (!a.exhausted()) return false;                              // C2 — a trailing token is a MISTYPE',
+  '        ;'),
+ ('V19 ★★ THE MUTATING VERBS STOP DISTINGUISHING `refused` FROM A SUCCESS: a refusal renders the UNCHANGED record, so a companion reads a rejected edit as applied',
+  '        case PresetVerdict::refused:\n        case PresetVerdict::nv_failed:',
+  '        case PresetVerdict::refused:\n            preset_emit_record(cat, static_cast<uint8_t>(slot), out);\n            return;\n        case PresetVerdict::nv_failed:'),
+]
+
 MUTS_BY_TARGET = {"teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
+                  "uipresets": MUTS_UIPRESETS, "uipresetverbs": MUTS_UIPRESETVERBS,
                   "model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,

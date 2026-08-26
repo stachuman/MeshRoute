@@ -19,6 +19,8 @@
 #include "frame_trace.h"       // g_mr_trace_on (handle_debug)
 #include "sched_send.h"        // mrsched::Schedule (handle_testsched/teststatus + g_sched)
 #include "device_rng.h"        // mrrng::fill (do_regen)
+#include "firmware_ui_preset_verbs.h"  // §UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON
+                                       //   records — PURE; this file only binds the store, the gate and a Print
 
 #ifndef GIT_REV
 #define GIT_REV "nogit"        // fallback only (mirrors fw_main.cpp) — print_banner reads it
@@ -102,6 +104,74 @@ uint16_t peer_store_restore() {
     if (bad) { mrcon.print(F(" ⚠ ")); mrcon.print(bad); mrcon.print(F(" REJECTED")); }
     mrcon.println();
     return ok;
+}
+
+// ================================================================ §UI-10/11 slice P2 — THE `/mrui` CATALOG BINDING
+// ★★ THIN ON PURPOSE, for the fourth time in this arc and for the same MEASURED reason (§B115): this TU is compiled
+//    by NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a console
+//    verb or a boot. ⇒ every DECISION — the grammar, the three records' bytes, the six reason spellings, the stable
+//    slot order, the result->output rule and the boot diagnosis — lives in `src/firmware_ui_preset_verbs.h`, where
+//    `test/test_firmware_ui_preset_verbs.cpp` drives it and `--target=uipresetverbs` attacks it. What is left here
+//    is: bind the store, bind the `busy` fact, hold the ONE instance, adapt a `Print`, call.
+// ⛔ NOT `device_cfg_store()` AND NOT `mrnv::Blob`: `/mrui` is a DIFFERENT record with a FOUR-valued read, and the
+//    design's own rule is that *"editing a phrase must never reset radio, identity, team or key configuration"*.
+//    ⛔ No `/mrcfg` writer is in scope on any path below.
+namespace {
+struct DeviceUiPresetStore : mrfw::IUiPresetStore {
+    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { return mrnv::load_ui_presets(out); }
+    bool save(const mrnv::UiPresetBlob& b)           override { return mrnv::save_ui_presets(b); }
+};
+// ★ THE `busy` FACT, ASKED AT HANDLING TIME AND ⛔ NEVER CACHED — P1's `IEmergencyGate` contract, honoured by
+//   forwarding rather than by storing. `mrfw::ui_emergency_active()` is the per-profile seam declared in
+//   firmware_commands.h (the OLED TU defines it; every other profile inlines `false`).
+struct DeviceEmergencyGate : mrfw::IEmergencyGate {
+    bool emergency_active() const override { return mrfw::ui_emergency_active(); }
+};
+// The `Print` adapter, and it is the WHOLE of the transport difference between USB and BLE: `dispatch` hands USB
+// the global `mrcon` and BLE a `LineSink` (fw_main.cpp:549), both `Print`, and every byte below is composed once by
+// the pure emitter and written verbatim to whichever arrived. ⛔ There is no second emission path to fork.
+struct PresetPrintLines : mrfw::IPresetLines {
+    explicit PresetPrintLines(Print& o) : _o(o) {}
+    void line(const char* s, size_t n) override { _o.write(reinterpret_cast<const uint8_t*>(s), n); }
+    Print& _o;
+};
+// ★ The retained storage diagnosis (pure — see PresetDiag): what the boot read found, cleared by the first
+//   successful durable mutation, which is the owner's ruled repair.
+mrfw::PresetDiag s_preset_diag;
+}  // namespace
+// ★★★★ THE RESIDENT COST IS PAID HERE, AND IT IS THE OWNER-RULED NO-STACK PLACEMENT (spec §5, P1's STACK GATE):
+//      `sizeof(PresetCatalog)` = three 372-B records (the live catalog + the two transactional scratch members) +
+//      the counters and the two references ≈ 1.15 KB of `.bss`. ⛔ The stack alternative was REFUSED because
+//      `begin()` runs from `setup()`, i.e. on the nRF52 Arduino loop task's FIXED 4 KB stack, where this tree has
+//      already HARDFAULTED once (`stackhw` down to 72 B). The precedent is fifteen lines up: `static mrnv::PeerBlob
+//      s_peers` chose resident-over-stack for exactly this reason, at 1160 B.
+// ⓘ Function-local statics, exactly as `join_profile_service()` / `device_cfg_store()` are: constructed on first
+//   CALL, so there is no cross-TU initialisation-order question, and the panel (P3) and these verbs share ONE
+//   instance and therefore ONE write policy.
+mrfw::PresetCatalog& preset_catalog() {
+    static DeviceUiPresetStore st;
+    static DeviceEmergencyGate gate;
+    static mrfw::PresetCatalog cat(st, gate);
+    return cat;
+}
+
+// setup(): the boot load + the ruled diagnostic. ⛔ A CALL, ⛔ not a decision — `preset_boot_restore` asks
+// `begin()`, consults `preset_boot_line` and prints NOTHING for `ok`/`absent` (an ordinary first boot is not a
+// fault). Zero writes on every arm, including a corrupt record: the repair is a MUTATION's, never a read's.
+void preset_boot_restore_console() {
+    PresetPrintLines out(mrcon);
+    (void)mrfw::preset_boot_restore(preset_catalog(), s_preset_diag, out);
+}
+
+// `ui preset …` — the family, through the ONE dispatch. The pure verb answers `false` for anything that is not this
+// grammar, and THEN the usage line prints: a mistyped verb gets the grammar, a well-formed one gets NDJSON. (The
+// `handle_joinprofile` shape, U3.)
+void handle_ui(const char* args, size_t len, Print& out) {
+    PresetPrintLines lines(out);
+    if (mrfw::preset_verb(preset_catalog(), s_preset_diag, args, len, lines)) return;
+    out.println(F("> ui err usage: ui preset list | ui preset set <emergency|dm1..dm8|channel1..channel8> "
+                  "loc=<on|off> \"<text>\" | ui preset clear <dm1..dm8|channel1..channel8> | ui preset reset "
+                  "<emergency|dm1..dm8|channel1..channel8|all>"));
 }
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + mirror it to /mrpeers + the ack.
@@ -358,6 +428,23 @@ static void dump_cfg(Print& out) {
     out.print(F(" config_epoch="));     out.print(c.config_epoch);
     if (c.leaf_name_len) { out.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) out.print(c.leaf_name[i]); out.print(F("\"")); }
     out.println();
+    // ★ §UI-10/11 P2 — THE `/mrui` CATALOG'S STATUS SURFACE (design §3.2.3: a corrupt record *"emits a visible
+    // boot/status warning"*). Two lines, and the split is deliberate:
+    //   · the FACTS are live reads of the catalog — the generation a companion compares for equality, the two
+    //     active counts `ui_presets_end` publishes, and the SAVE count, which is the flash-wear guard measured
+    //     rather than argued;
+    //   · the WARNING is `preset_boot_line`'s exact owner-approved text (U1 — ⛔ never re-worded here), printed
+    //     only for the two fault states and only while it is still TRUE: a successful mutation rewrites the
+    //     complete canonical record, so `PresetDiag` clears the `invalid` diagnosis on the first `ok` verdict.
+    {
+        const mrfw::PresetCatalog& pc = preset_catalog();
+        out.print(F("  presets: generation="));   out.print(pc.generation());
+        out.print(F(" dm_active="));              out.print(pc.enabled_count(mrfw::PresetKind::dm));
+        out.print(F(" channel_active="));         out.print(pc.enabled_count(mrfw::PresetKind::channel));
+        out.print(F(" saves="));                  out.println(pc.saves());
+        const char* pl = s_preset_diag.line();
+        if (pl) out.println(pl);
+    }
     out.print(F("  ble   : ble_mode=")); out.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     out.print(F(" ble_period="));       out.print(g_ble_period_min);
     out.print(F(" ble_pin="));          out.println(g_ble_pin);
@@ -895,6 +982,20 @@ static void dump_help(Print& out) {
     out.println(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
     out.println(F("  del_msg <dm|chan> <seq>                     delete one record (erased|not_found|io_error)"));
     out.println(F(""));
+    // §UI-10/11 P2. ⓘ The hierarchical help is CODE and is this slice's (spec §3's documentation rule); the two
+    // DOCUMENT targets (ios-companion/INBOX_SYNC_CONTRACT.md, docs/manual/command-reference.md) are the
+    // supervisor's. ⚠ This dump is already larger than the console stage, so its TAIL is dropped as WHOLE lines
+    // with a loud `!! CONSOLE_DROP lines=N` (see the block above dump_help) — these five lines sit early, before
+    // the groups that were already being dropped, and the drop stays loud rather than garbled.
+    out.println(F("UI PRESETS   (the OLED compose catalog: 17 stable slots — 1 emergency + 8 dm + 8 channel; NDJSON out)"));
+    out.println(F("  ui preset list                                 all 17 records incl. DISABLED, then ui_presets_end"));
+    out.println(F("  ui preset set <emergency|dmN|channelN> loc=<on|off> \"<text>\"   text = 1..17 printable ASCII, no \" \\ CR LF"));
+    out.println(F("  ui preset clear <dmN|channelN> | ui preset reset <emergency|dmN|channelN|all>   N=1..8; clear emergency -> mandatory"));
+    out.println(F("    a mutating verb answers with the RESULTING record (`reset all`: the full list), or"));
+    out.println(F("    {\"ev\":\"ui_preset_err\",\"reason\":\"bad_slot|bad_text|bad_location|mandatory|busy|store\"}."));
+    out.println(F("    While an emergency is ACTIVE every mutating verb answers `busy` — including a no-op: an alarm's"));
+    out.println(F("    retry series must never have its body or its location policy changed halfway through."));
+    out.println(F(""));
     out.println(F("DIAGNOSTICS"));
     out.println(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
     out.println(F("  sleep [on|off] | debug [on|off] | regen | reboot | ota"));
@@ -1078,6 +1179,10 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg(out);    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5, out); return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5, out); return true; }
+    // §UI-10/11 P2 — the OLED preset catalog's administrative family. ⓘ ONE arm for the whole `ui …` namespace, so a
+    // future `ui` sub-verb needs no second dispatch line; the sub-verb parse (and the refusal for an unknown one) is
+    // the pure unit's. ⛔ It shadows nothing: no other verb in this router begins `ui`.
+    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "nameof", 6)) { handle_nameof(line + 6, len - 6, out); return true; }   // §1.3 peer name by hash

@@ -842,6 +842,10 @@ TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the
     UiModel m; UiSnapshot s = chrome_snap();
     s.team_id = 7; s.team_total = 3; s.team_shown = 3;
     for (uint8_t i = 0; i < 3; ++i) { s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60; }
+    // ★ §UI-10/11 P3: a compose list is a CATALOG PROJECTION now, and `chrome_snap()` establishes nothing by design
+    //   — so this case opts IN to the compiled catalog, which is the sendable list it was always driving. Without it
+    //   the sub-view would land on §3.2.1's empty state and the `double` below would be `back`, not a send.
+    {   mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat); ui_snapshot_publish_presets(s, cat); }
     m.on_gesture(Gesture::short_press, s);                       // STATUS -> TEAM
     if (m.state().screen != Screen::team) { CHECK(false); return; }
     m.on_gesture(Gesture::double_press, s);                      // §UI-17 S1: ENTER the interactive TEAM list...

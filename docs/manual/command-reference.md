@@ -115,6 +115,47 @@ The `team` family is available on normal builds. Team membership, role projectio
 | `team exportkey` | Read + Secret | Emits the current team public and private channel-key pair. |
 | `team grantkey <0xhash\|team-local-id> [name="<text>"] [-t]` | Air + Secret | Sends the team key to a verified peer in a sealed direct message. |
 
+## OLED preset catalog
+
+The `ui preset` family administers the seventeen stable preset slots the on-device compose lists render: one
+mandatory `emergency`, eight `dm` (`dm1`..`dm8`), and eight `channel` (`channel1`..`channel8`). Slot identity is
+the token, never a list position. The family answers in NDJSON on both transports; a mistyped line gets a usage
+line instead.
+
+| Command or form | Access/build | Effect | First classification |
+| --- | --- | --- | --- |
+| `ui preset list` | Local; Common | Read | Emits all 17 `ui_preset` records in stable slot order, including disabled slots, then `ui_presets_end` with the capacity, both active counts and the catalog generation. |
+| `ui preset set <emergency\|dm1..dm8\|channel1..channel8> loc=<on\|off> "<text>"` | Local; Common | Persistent + live | Validates the full record and enables that slot. Text is 1-17 printable ASCII bytes with at least one non-space; `"`, `\`, CR and LF are rejected. Answers with the resulting record. |
+| `ui preset clear <dm1..dm8\|channel1..channel8>` | Local; Common | Persistent + live | Disables the slot and clears its text and location flag. `clear emergency` is refused with `mandatory`. |
+| `ui preset reset <emergency\|dm1..dm8\|channel1..channel8>` | Local; Common | Persistent + live | Restores that slot's compiled default; slots 3-8 return to disabled. Answers with the resulting record. |
+| `ui preset reset all` | Local; Common | Persistent + live + Recovery | Restores the complete compiled catalog. Answers with the full list. The generation still advances. |
+
+Storage is a separate versioned UI record (`/mrui`), deliberately isolated from `/mrcfg`: editing a phrase can
+never reprovision radio, identity, team or key configuration. A factory reset erases it with the rest of the
+`mr` namespace.
+
+Refusals are reported as `{"ev":"ui_preset_err","reason":"…"}` with exactly six values: `bad_slot`, `bad_text`,
+`bad_location`, `mandatory`, `busy`, `store`. `store` covers both an unreadable record and a failed write; a
+failed write may have changed flash partially, so it must not be read as "nothing was written".
+
+While an emergency alarm is active, **every** mutating verb answers `busy` — including one that would change
+nothing — so that an alarm's retry series cannot have its body or its location policy changed halfway through.
+`ui preset list` is not a mutating verb and answers normally during an alarm.
+
+An identical `set` performs no write. The generation is a persisted non-zero counter that advances only on a
+successful durable update and is compared for equality, never ordering.
+
+At boot the node prints nothing when the record is valid or absent. A corrupt record prints
+`  ui presets = DEFAULTS (record invalid — repaired on next successful change)` and repairs itself on the next
+successful change; an unreadable store prints `  ui presets = DEFAULTS (store unreadable — changes disabled)`
+and refuses every mutation with `store` and no writes. `cfg` also reports
+`  presets: generation=<n> dm_active=<n> channel_active=<n> saves=<n>`.
+
+The textual `ui preset` storage and administration commands and the on-device compose-list rendering that
+consumes this catalog are both implemented (UI-10/11, 2026-08-26): the compose lists show the enabled slots in
+stable-slot order with an `L`/`-` location marker, and a catalog change between the wearer's selection and its
+execution is refused on the panel as `PRESET CHANGED` rather than sending newly configured words.
+
 ## Configuration keys
 
 `cfg set <key> <value>` is the sole generic configuration-write form. The live handler currently accepts 52 keys.

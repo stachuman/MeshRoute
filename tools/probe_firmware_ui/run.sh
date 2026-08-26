@@ -86,8 +86,19 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⓘ `firmware_ui_prov.h` JOINED THE LIST WITH [[B225]]'s arm: the child-enabled build compiles the adapter's PHY
 #   precondition and its verdict mapping into the binary under test, so it is now a file this probe READS.
-MD5_BEFORE=$(cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
-                 "$ROOT/src/firmware_ui_prov.h" "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
+# ⛔⛔ THE LIST IS SPELLED **ONCE**, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS (2026-08-25, §UI-10/11 P2):
+#    it used to be two `cat` lines 1470 lines apart, and this slice added a file to the FIRST one only — so BEFORE and
+#    AFTER hashed DIFFERENT FILE SETS and the tripwire reported *"the probe MODIFIED a real source file"* on a tree
+#    nothing had touched. ★ A FALSE RED IS AS BAD AS A FALSE GREEN: it teaches the reader to discount the one guard
+#    that says the instrument corrupted the repository. ⇒ one definition, two callers, and a future file joins the
+#    list in one place.
+md5_sources() {
+  cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
+      "$ROOT/src/firmware_ui_prov.h" "$ROOT/src/firmware_ui_preset_verbs.h" \
+      "$ROOT/src/firmware_ui_presets.h" "$ROOT/src/firmware_ui_model.h" "$ROOT/src/firmware_ui_send.h" \
+      "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1
+}
+MD5_BEFORE=$(md5_sources)
 
 echo "== §B105 feature-layer probe (src/firmware_ui.cpp, host-compiled) =="
 
@@ -1141,6 +1152,57 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C133 the home slot keeps its superseded x (the re-anchoring only half done)" yes \
       's|    /\* home \*/ { 27,      35,  52 },|    /* home */ { 28,      36,  53 },|'
 
+  # ================================================================ §UI-10/11 P2: THE PRESET `busy` GATE (C134-C136)
+  # ★★★ THESE THREE ARE THE ONLY CONTROLS IN THE TREE THAT CAN REACH `mrfw::ui_emergency_active()`. The verbs, the
+  #   records and the whole catalog service are natively pinned and mutation-covered (`--target=uipresetverbs` /
+  #   `--target=uipresets`) — but every one of those instruments is handed a FAKE gate. Which `mrui::Emergency` states
+  #   ARE an active attempt series is decided HERE, in a TU no native test and no scenario compiles (§B115), and a
+  #   wrong classification leaves the entire native gate green while an alarm's phrases are edited underneath it.
+  # ⛔ C134 THE MOST TEMPTING OF THE THREE — *"nothing is in flight yet, so the catalog is free"*. It is wrong for the
+  #    reason the ruling gives: the wearer has already committed to the alarm, and `long_fire` is one clock tick away.
+  ctl "C134 an ARMED alarm is not treated as busy (the fire has not happened yet)" yes \
+      's|        case mrui::Emergency::arming:    return true;|        case mrui::Emergency::arming:    return false;|'
+  # ⛔⛔ C135 THE HEADLINE ROW OF SPEC §2's TABLE: an attempt IS in flight and a preset write is accepted anyway.
+  ctl "C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight)" yes \
+      's|        case mrui::Emergency::firing:    return true;|        case mrui::Emergency::firing:    return false;|'
+  # ⛔ C136 THE OPPOSITE ERROR — fail-closed applied where there is nothing to close: an IDLE node answers `busy`, so
+  #    every `ui preset` verb is dead on a device that has never had an emergency at all. It is the mutation that
+  #    makes the two TRUE checks above mean something: `busy` is only evidence if not-busy was the alternative.
+  ctl "C136 an IDLE node answers busy (every preset verb dead with no alarm at all)" yes \
+      's|        case mrui::Emergency::idle:      return false;|        case mrui::Emergency::idle:      return true;|'
+
+  # =========================================================== §UI-10/11 P3: THE CATALOG ON THE PANEL (C137-C141)
+  # ★★★ EACH ONE IS A DECISION THAT LIVES IN `src/firmware_ui.cpp` AND THEREFORE IN NO OTHER INSTRUMENT (§B115): the
+  #   PUBLICATION (which catalog the frame freezes), the LIST SELECTION (which of the two projections a sub-view
+  #   walks), the ROW COMPOSITION (whether the pure line composer is used at all), the EMPTY-STATE PLACEMENT, and the
+  #   `PRESET CHANGED` arm. The pure halves are mutation-covered by `--target=model` / `--target=uisend`; these five
+  #   attack the wiring, which is the P2-round-2 lesson applied before QG has to ask for it.
+  # ⛔⛔ C137 THE PUBLICATION DROPPED — the panel then runs on the snapshot's HONEST UNPUBLISHED state (no rows), so
+  #     every compose list on the device shows §3.2.1's empty state and NOTHING can be sent from the panel. The whole
+  #     native suite stays green: it publishes its own snapshots.
+  ctl "C137 the catalog is never published into the frame (every compose list is empty on the device)" yes \
+      's|    mrui::ui_snapshot_publish_presets(s, mrfw::preset_catalog().live());|    ;|'
+  # ⛔⛔ C138 THE TWO LISTS CROSSED — a DM compose walks the CHANNEL projection. §3.2.2 forbids it in as many words,
+  #     and it is one character away: `s.preset_dm` / `s.preset_ch` differ by two letters at a site with a `dm` bool
+  #     already in scope. The wearer then sees his channel phrases in a private message list.
+  ctl "C138 the DM compose renders the CHANNEL list (the two projections crossed)" yes \
+      's|    const mrui::ComposeList\& list = dm ? s.preset_dm : s.preset_ch;|    const mrui::ComposeList\& list = s.preset_ch;|'
+  # ⛔⛔ C139 THE `L` / `-` COLUMN DROPPED, by re-composing the row here the way this loop did before P3 — the most
+  #     tempting wrong fix in the file, because `%c%s` is exactly what the withdrawn loop said and it still draws a
+  #     perfectly plausible list. OQ-A's premise is that the wearer CONFIRMS the location marker as part of the
+  #     double press, so a row without it is a message that may carry coordinates he never agreed to.
+  ctl "C139 the row is composed here as %c%s (the location column dropped)" yes \
+      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        snprintf(l, sizeof l, "%c%s", ((first + row) == st.cursor) ? 0x3e : 0x20, mrui::compose_row_text(uint8_t(first + row), list, grant));|'
+  # ⛔ C140 THE EMPTY STATE BYPASSED — §3.2.1's note never drawn, so a wearer who cleared every preset sees a
+  #    sub-view with one unexplained `back, don't send` row and no reason for it.
+  ctl "C140 the zero-enabled empty state is bypassed (no note is ever placed)" yes \
+      's|    const char\*   note  = mrui::compose_empty_note(list);|    const char*   note  = nullptr;|'
+  # ⛔⛔ C141 `PRESET CHANGED` FALLS THROUGH TO THE GENERIC FAILURE LINES — spec §2's refusal has a RULED VISIBLE
+  #     WORD precisely so this cannot happen: *"⛔ Never a generic parser failure, never a silent fall-through."* The
+  #     operator is then told his message FAILED, when in fact nothing was submitted at all.
+  ctl "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED" yes \
+      's|            case mrui::DmState::preset_changed:|            case mrui::DmState::preset_changed: draw_failure_lines(v); break;|'
+
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
   #   unreachable on the `l2` arm — a mutation of an unreachable renderer arm is the definition of a control that
@@ -1489,14 +1551,22 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   (`--target=model` W01-W11); what nothing else in the tree can see is whether THIS file draws the act's row set
   #   from the model's resolver, and whether it publishes the identity the SELF veto is asked at.
   # ⛔⛔ R1 IS THE HALF-DONE SLICE and the likeliest defect of all: the row's TEXT is taken from the pure unit (so the
-  #   act is visibly there) while the LENGTH is taken from the canned table again — which is §B66 exactly: the
-  #   optional row steals `back`'s slot and the operator's way out is off the panel.
+  #   act is visibly there) while the LENGTH forgets it — which is §B66 exactly: the optional row steals `back`'s
+  #   slot and the operator's way out is off the panel.
+  # ⓘ RE-ANCHORED 2026-08-26 (§UI-10/11 P3), because the SIGNATURE it mutated is gone and a control that matches
+  #   nothing is VACUOUS — measured, not anticipated: the first full pass after the slice reported exactly that.
+  #   The withdrawn sed is kept visible: `s|… mrui::compose_row_count(dm, grant);|… dm ? mrui::kDmTextCount :
+  #   mrui::kChannelTextCount;|`. The DEFECT is identical — the length counts the presets and `back` and forgets
+  #   the optional row — it is simply spelled against the projection the list now comes from.
   ctl "R1 ★★★ the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (§B66)" yes \
-      's|    const uint8_t n     = mrui::compose_row_count(dm, grant);|    const uint8_t n     = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;|'
-  # ⛔⛔ R2 IS THE OTHER HALF: the length knows about the act and the TEXT does not, so the row is drawn as a SECOND
+      's|    const uint8_t n     = mrui::compose_row_count(list, grant);|    const uint8_t n     = uint8_t(list.n + 1);|'
+  # ⛔⛔ R2 IS THE OTHER HALF: the length knows about the act and the ROW does not, so the row is drawn as a SECOND
   #   `back, don't send` — a list with two identical exits, one of which is the door to a private key.
+  # ⓘ RE-ANCHORED 2026-08-26 (§UI-10/11 P3) for R1's reason; the withdrawn sed is kept visible:
+  #   `s|… mrui::compose_row_text(uint8_t(first + row), dm, grant));|… dm, false));|`. P3 moved the row's WHOLE line
+  #   into the pure composer, so the same `grant`-blind resolution is now spelled on `compose_row_line`.
   ctl "R2 ★★★ the row TEXT is resolved without the act, so the grant row renders as a second way out" yes \
-      's|                 mrui::compose_row_text(uint8_t(first + row), dm, grant));|                 mrui::compose_row_text(uint8_t(first + row), dm, false));|'
+      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, false, (first + row) == st.cursor);|'
   # ⛔⛔⛔ R3 IS THE RENDERER DECIDING WHAT THE MODEL DECIDED — the "every DM has a member, so just draw it" edit. It
   #   offers the act for a ROUTE-ONLY member (no binding, no seal target) and for OURSELVES, i.e. it defeats the
   #   whole hide predicate at the one door where the act ships a private key.
@@ -1538,8 +1608,7 @@ else
 fi
 
 # ---- the tree must be exactly as we found it -------------------------------------------------------------------
-MD5_AFTER=$(cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
-                "$ROOT/src/firmware_ui_prov.h" "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
+MD5_AFTER=$(md5_sources)
 if [ "$MD5_BEFORE" != "$MD5_AFTER" ]; then
   echo "  FAIL the probe MODIFIED a real source file ($MD5_BEFORE -> $MD5_AFTER)"; rc=1
 else

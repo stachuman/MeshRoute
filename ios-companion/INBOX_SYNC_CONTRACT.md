@@ -1130,3 +1130,102 @@ in the 64-bit simulator.**
   (reboot/config/`password rotate`) require `unlock <pw>` + carry the challenge.
 - New telemetry: `admin_challenge_resync` (rate-limited) — the app resyncs silently on it.
 - (The open-read challenge piggyback — spec Q3 — is DEFERRED; the app relies on the bootstrap path.)
+
+## OLED preset catalog — `ui preset` verbs + three NDJSON records (§UI-10/11 P2, 2026-08-25) · ★ PURELY ADDITIVE
+
+The hard-coded OLED compose strings are now **defaults, not firmware policy**. The wearer's phrases live in a
+separate versioned UI record (`/mrui`, magic `'MRU1'`) with **seventeen fixed stable slots**: one mandatory
+`emergency`, eight `dm`, eight `channel`. ⚠ **The app must add these events before it exposes an editor.**
+
+⛔ **There is no PUSH here.** This surface is request/response only: the app sends a verb, the node answers with
+records. Nothing arrives unsolicited.
+
+### app → node: the grammar (USB serial and BLE, identical bytes — one dispatcher, one emitter)
+
+```
+ui preset list
+ui preset set <emergency|dm1..dm8|channel1..channel8> loc=<on|off> "<text>"
+ui preset clear <dm1..dm8|channel1..channel8>
+ui preset reset <emergency|dm1..dm8|channel1..channel8|all>
+```
+
+- The slot token IS the stable identity. ⛔ **Never derive `dmN` from a list position** — gaps are valid, and
+  `dm1`, `dm4`, `dm8` may legitimately be the three visible rows on the panel.
+- `<text>`: **1..17 printable ASCII bytes** (0x20..0x7e), at least one non-space; `"`, `\`, CR and LF are
+  rejected. 17 is a UI safety bound: the compose row always shows a selection marker AND a location marker, so
+  both location states consume 2 of the panel's 19 columns. ⛔ **Over-long text is REFUSED, never truncated** —
+  the device must never send a suffix the wearer could not inspect.
+- `loc=` takes **exactly** `on` or `off`. `loc=1`, `loc=ON`, `loc=maybe`, `loc=` and an absent term all refuse.
+- A trailing token is **refused, not ignored** (`ui preset list all` is an error, not a `list`).
+- An unrecognised sub-verb or an incomplete line gets the **human usage line** (`> ui err usage: …`), not a
+  reason code. The reason codes below are reserved for the six ruled failures.
+
+### node → app: the three records — one JSON object per line
+
+```json
+{"ev":"ui_preset","slot":"dm1","enabled":true,"text":"Are you OK?","location":false}
+{"ev":"ui_presets_end","capacity":17,"dm_active":2,"channel_active":2,"generation":7}
+{"ev":"ui_preset_err","reason":"bad_slot|bad_text|bad_location|mandatory|busy|store"}
+```
+
+- `list` emits **all seventeen `ui_preset` records in stable slot order, INCLUDING the disabled ones**, then
+  `ui_presets_end`. A disabled slot renders `"enabled":false,"text":"","location":false`. ★ This is what lets the
+  app address `dm5` to turn it ON; an enabled-only list could not.
+- **Mutating verbs answer with the RESULTING record** for the slot they changed — ⛔ not a dump. `reset all`
+  answers with the **full list** (17 + end), because it changed every slot and has no single one to name.
+- `unchanged` looks identical to a change: the same record comes back. The verb succeeded; it simply cost no
+  flash (byte-identical writes are coalesced). ⛔ Do not re-issue chasing a different reply.
+- `capacity` is the record's own constant. Raising it is an explicit catalog-format revision.
+- `generation` is a persisted **non-zero** uint32, incremented only on a successful durable update. **Compare it
+  for EQUALITY, never ordering** — wrap skips zero and is therefore harmless. It is the token the panel seals
+  into a pending send, so a change between the wearer's press and its execution is refused on the device.
+
+### the six reasons, and what the app should do
+
+| reason | meaning | app action |
+|---|---|---|
+| `bad_slot` | the slot token is outside `emergency` / `dm1..dm8` / `channel1..channel8` | fix the token; permanent |
+| `bad_text` | absent/empty/all-space, >17 bytes, or a forbidden byte (`"` `\` CR LF, non-printable) | fix the text; permanent |
+| `bad_location` | the `loc=` term is missing or is not exactly `on`/`off` | fix the term; permanent |
+| `mandatory` | `clear emergency` — the emergency slot can never be disabled, cleared or emptied | permanent; offer `ui preset set emergency …` (editing its TEXT is allowed) or `ui preset reset emergency` |
+| `busy` | **an emergency alarm is ACTIVE** | ★ TRANSIENT. Retry after the alarm ends. ⛔ Do not present it as a failure |
+| `store` | `/mrui` is unreadable, **or** the one save attempt failed | show the node's own boot/`cfg` diagnostic; a device-level fault |
+
+★ **`busy` covers EVERY mutating verb, including a no-op** — an alarm's retry series must not have its body or
+its location policy changed halfway through. `list` is **not** a mutating verb and answers normally during an
+alarm. ⛔ `busy` outranks `mandatory`: `clear emergency` during an alarm answers `busy`.
+
+⚠ **`store` deliberately covers BOTH** an unreadable record and a failed write, because the design's reason set
+is exactly six. The distinction the operator needs is carried at boot instead (see below). ⚠ **A save that
+reports failure may have written PARTIALLY** — no reason value here may be read as "no flash was changed".
+
+### location semantics per slot kind (what `location:true` will actually do)
+
+| slot kind | `location:true` |
+|---|---|
+| `emergency` | with a fix: `-l` is added. **Without a fix: the alarm still sends, WITHOUT `-l`** — an alarm outranks its coordinates |
+| `channel`   | `-l` is added. No fix/key/seal ⇒ a **loud refusal**; ⛔ `-l` is never silently stripped |
+| `dm`        | `-l` is added to a **sealed** DM only — needs `e2e_dm=1`, a usable key and a fix. ⛔ No downgrade to make a preset send |
+
+`location:false` emits the same command without `-l`. The core remains the final privacy gate: a
+location-bearing message must be sealed.
+
+### boot / status diagnostics (console text, NOT app events)
+
+The node prints nothing at boot when `/mrui` is valid **or absent** — an ordinary first boot is not a fault. The
+two fault states print exactly:
+
+```
+  ui presets = DEFAULTS (record invalid — repaired on next successful change)
+  ui presets = DEFAULTS (store unreadable — changes disabled)
+```
+
+An `invalid` record repairs itself on the next successful mutation (the whole canonical catalog is rewritten);
+an unreadable store refuses every mutation with `store` and **zero writes** until the device is dealt with.
+`cfg` additionally carries `  presets: generation=<n> dm_active=<n> channel_active=<n> saves=<n>`.
+
+### not in scope of this surface
+
+⛔ Editing a phrase never touches `/mrcfg` — no radio, identity, team or key configuration can be reprovisioned
+by this family. ⛔ There is no verb to read or set the catalog's generation directly; it moves only as a
+consequence of a successful durable mutation.

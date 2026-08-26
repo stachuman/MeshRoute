@@ -21,8 +21,31 @@
 #include "console_json.h" // meshroute::console::StatusFields / CfgExtras
 #include "console_parse.h" // meshroute::console::ParseErr — NAMED in ExecResult below, so it is included directly
                            // rather than left to arrive transitively through an unrelated header (U3).
+#include "mr_features.h"   // MR_FEAT_OLED — the emergency seam below is compiled per profile (U3: named, not
+                           // left to arrive transitively)
 
 namespace mrfw {
+
+class PresetCatalog;       // §UI-10/11 P2 — src/firmware_ui_presets.h. Forward-declared, ⛔ not included: this
+                           // header is pulled into every device TU and the catalog is needed by two of them.
+
+// ★★★ §UI-10/11 P2 — THE `busy` FACT'S SEAM, and it is a SEAM rather than a direct read for one hard reason: the
+// UI model (`s_model`, `src/firmware_ui.cpp`) is FILE-LOCAL and its TU is compiled only where `MR_FEAT_OLED=1`
+// (platformio.ini:218 lists `firmware_ui.cpp` for the heltec_v3 family and nowhere else), while the `ui preset`
+// verbs live in `firmware_commands.cpp`, which EVERY env compiles. ⇒ the fact crosses one declared boundary.
+// ⛔ NOT A NINTH `lib/hal/mr_ui.h` HOOK: that header is `lib/`, this slice is `src/`-confined by the spec's §3
+//    ruling, and a hook there would re-anchor nothing but would put a P2 decision outside the slice's own tree.
+// ★ THE NON-OLED ANSWER IS `false`, AND IT IS A FACT RATHER THAN A DEFAULT (C2): a profile with no panel has no
+//   emergency long-press, no alarm state machine and therefore no attempt series a preset edit could interrupt.
+//   ⛔ It is NOT "we could not tell" — that would be `true` (fail closed), and answering `busy` for ever on a
+//   gateway would make the verbs permanently dead there.
+// ⓘ The CLASSIFICATION — which `mrui::Emergency` states are an ACTIVE attempt series — is the OLED TU's, beside
+//   the model it reads, and is pinned by `tools/probe_firmware_ui/` (which compiles that TU for real).
+#if MR_FEAT_OLED
+bool ui_emergency_active();
+#else
+inline bool ui_emergency_active() { return false; }
+#endif
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key + persist to /mrpeers + the contract ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd);
@@ -75,6 +98,21 @@ meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispa
 //   slice and gate (C1). This is purely ADDITIVE: nothing that works today changes.
 // ⓘ `Command::body` BORROWS into `line` (console_parse.h:17-20), so `on_command` must run before `line` is reused —
 //   which is why the parse and the execute are one function and not two.
+// ★★ §UI-10/11 P2 — THE ONE `/mrui` CATALOG INSTANCE, and it is exported for the reason `join_profile_service()`
+// is: P3's OLED compose lists read the SAME catalog the `ui preset` verbs write, or the panel and the console
+// become two opinions about the wearer's phrases. Function-local static (constructed on first call), so there is
+// no cross-TU initialisation-order question.
+// ⓘ THE FACT P3 NEEDS FROM P2 IS ALREADY IN IT: `generation()`. A successful durable mutation stamps the NEXT
+//   generation into the record BEFORE the save (P1's `commit`), so a frozen frame's sealed generation stops
+//   comparing equal the moment a change lands — which is §3.2.3's modal-close trigger AND its stale-`SendReq`
+//   refusal, from ONE fact and with ⛔ no new hook.
+PresetCatalog& preset_catalog();
+// setup(): load `/mrui` through the four-state read and print the ruled diagnostic line for the two fault states
+// (`ok`/`absent` print NOTHING). ⛔ ZERO writes on every arm. Same shape and same reason as peer_store_restore().
+void preset_boot_restore_console();
+// `ui preset list|set|clear|reset` — dispatched from BOTH transports through the ONE `dispatch(line,len,Print&)`.
+void handle_ui(const char* args, size_t len, Print& out);
+
 struct ExecResult {
     bool                         ok        = false;                                  // false => the line did not parse
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;

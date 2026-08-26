@@ -53,6 +53,20 @@
 //     LOOKS breakable and is not is "the marker is GONE once it is durable": the marker comes straight from
 //     `config_unsaved()`, so the mutation that would wrongly keep it lives in the SERVICE, where the native battery's
 //     `C05` (the marker cleared before the write returns) already reddens it.
+//   ⓘ §UI-10/11 P2 ADDS FOUR MORE, and they are a DIFFERENT shape of exception, named rather than left to be
+//     rediscovered: P26b's four boot-line checks drive `mrfw::preset_boot_restore` — a PURE unit in
+//     `src/firmware_ui_preset_verbs.h`, not this file — so no `ctl` (which mutates `src/firmware_ui.cpp` and nothing
+//     else) can redden them. Their controls live where the code does: `--target=uipresetverbs` in
+//     `tools/probe_ui_model_mutations.py`, plus `test/test_firmware_ui_preset_verbs.cpp`. They are here anyway
+//     because THIS is the only binary that runs that path in a board-shaped build (`-DARDUINO`, `MR_FEAT_OLED=1`)
+//     beside the real panel TU. ⓘ CORRECTED IN PLACE against the MEASURED roll-up (2026-08-25) — this read *"the
+//     P26a checks are NOT exceptions"*, and FOUR of the five are not: C134/C135/C136 redden the two gate answers,
+//     the no-op `busy` and its zero-loads/zero-writes, because the classification they measure really does live in
+//     this file. The FIFTH — *"`list` still answers 17 records + the end record during the alarm"* — IS an
+//     exception, for the P26b reason: `list` is not a mutating verb, so no `busy` mutation can move it, and what
+//     would move it is a `preset_emit_list` mutation, i.e. `--target=uipresetverbs` V03/V05. ⛔ Recorded rather than
+//     rounded off: a coverage claim that names one check too few is the same defect class as one that names one too
+//     many.
 //   ⓘ §notify-every-save ([[B194]]) ADDS FOUR MORE, all negative space and all of P8f/P8g: "P8f ...with zero writes",
 //     "P8f DISCARD clears it, onto the record leave left", "P8g a JOIN-shaped write moves no covered field, raises
 //     nothing" and "P8g ...and no unsaved marker either". ★ The one worth naming is P8f's ZERO WRITES, because it
@@ -168,6 +182,8 @@
                                      //    what the P16 phase drives is the SHIPPED logic over a scripted store.
 #include "firmware_ui_join.h"        // ★ the SELECT/CONFIRM/WAITING strings and the four-term rule — the P16 checks
                                      //   compute their EXPECTATION with them, so a panel row is a VALUE RELATION.
+#include "firmware_ui_preset_verbs.h" // ★★ §UI-10/11 P2: the boot restore + the verb family. P26 drives BOTH over a
+                                      //   fake `/mrui` store and the REAL `mrfw::ui_emergency_active()` gate.
 #include "firmware_ui_chrome.h" // ★ the SHARED id / fingerprint / REPLACES formatters. The P15 checks compute their
                                 //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
                                 //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
@@ -585,7 +601,26 @@ void set_power_save(bool on)           {
     if (g_c.last_power_save != (on ? 1 : 0)) ++g_c.power_cmds;
     g_c.last_power_save = on ? 1 : 0;
 }
-bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
+// ★★★★ §UI-10/11 P3 — **THE ONE-SHOT MID-TICK CATALOG WRITE**, and it is the shipped RACE reproduced rather than a
+//      contrivance. `mr_ui_tick` reads the catalog TWICE per pass: `build_snapshot` projects it (freezing the
+//      generation into the frame the operator is looking at), and — later in the same pass — `ui_perform_send` reads
+//      it LIVE at execution. On hardware the `ui preset` verbs run on `g_mesh_task` while the panel ticks on the
+//      Arduino loop task, so a BLE write can land BETWEEN those two reads. That is exactly the window design §3.3
+//      writes `PRESET CHANGED` for, and this hook is where a host probe can stand in it: `button_pressed()` is
+//      called AFTER `build_snapshot` has returned and BEFORE the gesture is applied and the request drained.
+// ⛔ IT FIRES ONCE AND DISARMS ITSELF: a hook that fired every tick would be a permanently-moving catalog, which is
+//    a different (and much easier) thing to detect than a single interleaved write.
+struct PresetRace {
+    const char* cmd = nullptr;      // a REAL `ui preset …` line, run through the REAL P2 verb
+    bool        fired = false;
+};
+PresetRace g_preset_race;
+void preset_race_run();             // defined below, once `probe_presets()` exists
+bool button_pressed()                  {
+    ++g_c.button;
+    if (g_preset_race.cmd && !g_preset_race.fired) { g_preset_race.fired = true; preset_race_run(); }
+    return g_c.button_down;
+}
 // §B197/§B200: the REAL pair lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 +
 // its controls, including the pin re-sample and the rollback). Here they are scriptable stand-ins, because what THIS
 // probe measures is what the FEATURE layer does with the answers — map all three verdicts, latch only on a HARDWARE
@@ -652,6 +687,62 @@ ExecResult exec_command(const char* line, size_t len) {
     return r;
 }
 }  // namespace mrfw
+
+// ---- ★★★★ §UI-10/11 P3: THE `/mrui` CATALOG SEAM — **THE ONE INSTANCE THE SHIPPED PANEL READS** ------------------
+// ★★★ WHY IT IS FAKED **AT THE ACCESSOR**, exactly as `mrfw::exec_command` / `device_cfg_store()` above are: the real
+//     `mrfw::preset_catalog()` lives in `src/firmware_commands.cpp`, which is not in this link (it drags LittleFS/NVS
+//     and `<Arduino.h>`). ⛔ What is faked is the STORE, ⛔ never the service: the object below is a REAL
+//     `mrfw::PresetCatalog` over a RAM record and the **REAL** `mrfw::ui_emergency_active()` gate, so what the P27
+//     phase drives is the SHIPPED projection, the SHIPPED verbs and the SHIPPED renderer over a real catalog.
+// ★★ AND THE VERBS WRITE THE SAME OBJECT THE PANEL READS, which is the whole handoff seam this slice owes: P27
+//    reconfigures the catalog by running `mrfw::preset_verb` — the REAL P2 grammar — against `probe_presets()`, and
+//    then walks the compose list `src/firmware_ui.cpp` renders from `mrfw::preset_catalog().live()`. ⛔ There is no
+//    test-only mutator anywhere in this file.
+// ⓘ P26 (at the bottom) keeps its OWN function-local store, deliberately: it drives the four STORAGE STATES and a
+//   settable read answer against throwaway catalogs, which is a different fixture from the shipped singleton and
+//   must not perturb it.
+namespace {
+struct ShippedPresetStore : mrfw::IUiPresetStore {
+    mrnv::UiPresetBlob rec{};
+    int loads = 0, saves = 0;
+    ShippedPresetStore() { mrfw::preset_defaults(rec); }
+    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { ++loads; out = rec; return mrnv::UiPresetRead::ok; }
+    bool save(const mrnv::UiPresetBlob& b) override { ++saves; rec = b; return true; }
+};
+struct ShippedPresetGate : mrfw::IEmergencyGate {
+    bool emergency_active() const override { return mrfw::ui_emergency_active(); }   // ⛔ the REAL classification
+};
+// A `IPresetLines` that keeps the bytes, so P27 can assert that a reconfiguration really was accepted rather than
+// assuming it. ⓘ Same shape as the device's `PresetPrintLines`, minus the `Print`.
+struct PresetLineBuf : mrfw::IPresetLines {
+    char buf[4096] = {}; size_t len = 0; int lines = 0;
+    void line(const char* s, size_t n) override {
+        if (len + n + 1 >= sizeof buf) return;
+        memcpy(buf + len, s, n); len += n; buf[len] = '\0'; ++lines;
+    }
+    void reset() { len = 0; lines = 0; buf[0] = '\0'; }
+};
+ShippedPresetStore& probe_preset_store() { static ShippedPresetStore s; return s; }
+mrfw::PresetDiag&   probe_preset_diag()  { static mrfw::PresetDiag d; return d; }
+}  // namespace
+namespace mrfw {
+PresetCatalog& preset_catalog() {
+    static ShippedPresetGate gate;
+    static PresetCatalog cat(probe_preset_store(), gate);
+    return cat;
+}
+}  // namespace mrfw
+namespace {
+mrfw::PresetCatalog& probe_presets() { return mrfw::preset_catalog(); }
+// ⓘ ONE PATH INTO THE CATALOG FOR THE WHOLE PROBE (U1): the REAL P2 verb, over the REAL service, into the REAL
+//   store the shipped panel projects from. ⛔ There is no test-only mutator.
+bool run_preset_cmd(const char* cmd) {
+    PresetLineBuf out;
+    return mrfw::preset_verb(probe_presets(), probe_preset_diag(), cmd, strlen(cmd), out) &&
+           strstr(out.buf, "\"ev\":\"ui_preset_err\"") == nullptr;
+}
+}  // namespace
+namespace mrui { void preset_race_run() { (void)run_preset_cmd(g_preset_race.cmd); g_preset_race.cmd = nullptr; } }
 
 // ---- the globals `firmware_ui.cpp` reads. Construction order matters: g_hal before g_node, same TU, in order. -----
 namespace { meshroute::ArduinoClock g_probe_clock; ProbeRadio g_probe_radio; }
@@ -2598,12 +2689,22 @@ int main() {
         //    than trusted to the projection.
         {
             t16 = settle(t16 + 2000);
+            // ★★★ §UI-10/11 P2 — THE `busy` GATE'S IDLE ANSWER, measured on the REAL model one statement before an
+            //     alarm exists. `mrfw::ui_emergency_active()` is what the `ui preset` verbs ask (via
+            //     `mrfw::IEmergencyGate`), and answering `true` here would leave every mutating verb permanently
+            //     dead on a device that has never had an emergency.
+            CHK("P14e2 with no alarm the preset `busy` gate answers FALSE", !mrfw::ui_emergency_active());
             g_c.button_down = true;                             // hold past arm_ms -> the alarm ARMS
             for (int i = 0; i < 20; ++i) tick(t16 + 100 + uint32_t(i) * 100);
             t16 += 2200;
             paint(t16);
             CHK("P14e precondition: the emergency overlay owns the body",
                 strstr(g_c.page_text, "RELEASE!") != nullptr || strstr(g_c.page_text, "EMERGENCY IN") != nullptr);
+            // ★★★ §UI-10/11 P2 — **`arming` IS ALREADY THE ATTEMPT SERIES.** The wearer has committed; the fire is
+            //     coming. Swapping the emergency phrase underneath him at this instant is the same defect as
+            //     swapping it mid-retry, which is why the classification in `src/firmware_ui.cpp` includes this arm.
+            CHK("P14e2 ...and an ARMED alarm makes the preset `busy` gate answer TRUE",
+                mrfw::ui_emergency_active());
             CHK("P14e an emergency frame draws NO rail glyph and NO frame",
                 rail_glyphs_on_page(0) == 0 && rail_frames_on_page(0) == 0);
             CHK("P14e ...and the STRIP is still there (§5.3 keeps it)", strip_glyphs_on_page(0) == 6);
@@ -5725,7 +5826,7 @@ int main() {
                     // ★★★ THE ACT SUB-VIEW IS THE MEMBER'S OWN, and `GRANT KEY` is an ADDED row: the canned texts
                     //     keep their places and `back, don't send` stays LAST (⇒ ⛔ no landed row became a grant).
                     CHK("P24k7b GRANT KEY is a row on the member's act sub-view, between the texts and the way out",
-                        body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                        body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
                         body_row_is(3, " GRANT KEY") && body_row_is(4, " back, don't send"));
                     CHK("P24k7b ⛔ opening it reached NO grant seam, issued NO command and queued NOTHING (P-12)",
                         grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
@@ -5841,7 +5942,7 @@ int main() {
                         dirty_the_model(t17 + 100); t17 = see(t17 + 200);
                         t17 = see(double_press(t17 + 500));
                         CHK("P24k7f ⛔ a roster row that is US offers NO act — the list is the shipped canned one",
-                            body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                            body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
                             body_row_is(3, " back, don't send") &&
                             strstr(g_c.page_text, "GRANT KEY") == nullptr);
                         t17 = see(settle(t17 + 500));
@@ -5865,7 +5966,7 @@ int main() {
                         dirty_the_model(t17 + 100); t17 = see(t17 + 200);
                         t17 = see(double_press(t17 + 500));
                         CHK("P24k7e ⛔ the act is ABSENT — the list is exactly the shipped canned one",
-                            body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                            body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
                             body_row_is(3, " back, don't send") &&
                             strstr(g_c.page_text, "GRANT KEY") == nullptr);
                         t17 = see(settle(t17 + 500));
@@ -6218,6 +6319,296 @@ int main() {
 
     }
 #endif  // MR_N_LAYERS < 2
+
+    // ============================================================================================================ P26
+    // ============================================================================================================ P27
+    // §UI-10/11 slice P3 — **THE CATALOG ON GLASS**, and this is the slice's handoff seam WITH the unit: the
+    // reconfiguration goes through the REAL P2 verb family (`mrfw::preset_verb`) into the REAL `mrfw::PresetCatalog`
+    // that `src/firmware_ui.cpp`'s `build_snapshot` projects from, and the rows asserted below are what the SHIPPED
+    // renderer drew. ⛔ Nothing here pokes the model, and there is no test-only mutator anywhere in this file.
+    // ⓘ R-1's on-glass proof is P24k7b/f above (`" GRANT KEY"` between the presets and `" back, don't send"`), which
+    //   re-run UNTOUCHED on the child-enabled arm; what P27 adds is that the row still sits at the END of a list
+    //   whose length the wearer changed.
+    {
+        // ⓘ `see` is the press-then-newer-frame helper the §UI-15/16 phases use, spelled here because those blocks
+        //   scope theirs to their own braces (U3: same idiom, not a shared global).
+        auto see = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+        uint32_t t27 = settle(g_probe_millis + 5000);
+        // ⓘ HARNESS NAVIGATION, ⛔ not a measurement: the child-enabled arm's previous phase leaves the panel inside
+        //   the PROVISION sub-view, which OWNS the press — so a screen walk would press against it. Leave it the way
+        //   the §UI-16 phases do, and only when it is actually up.
+        paint(t27);
+        if (strstr(g_c.page_text, "CREATE TEAM") != nullptr) t27 = open_highlighted(t27 + 500, ">BACK");
+        // ---- (a) RECONFIGURE THROUGH THE REAL VERBS: dm1 / dm4 / dm8, the design's own gap example -------------
+        const uint32_t gen0 = probe_presets().generation();
+        CHK("P27a the shipped catalog starts on the compiled defaults (2 DM presets, non-zero generation)",
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 && gen0 != 0);
+        const bool cfg_ok =
+            run_preset_cmd("preset clear dm2") &&
+            run_preset_cmd("preset set dm4 loc=on \"MEET AT THE COL\"") &&
+            run_preset_cmd("preset set dm8 loc=off \"ON MY WAY\"");
+        CHK("P27a the REAL `ui preset` verbs reconfigure the catalog the panel reads",
+            cfg_ok && probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 &&
+            probe_presets().generation() != gen0);
+
+        // ---- (b) THE COMPOSE LIST ON GLASS: exact rows, stable-slot order, gaps intact, the `L`/`-` column -----
+        t27 = enter_list(t27 + 500, kSlotTeam);
+        t27 = see(double_press(t27 + 500));
+        CHK("P27b the DM compose sub-view is open on the reconfigured list", g_c.page_text[0] != '\0');
+        // ★★★ THE HEADLINE: three ENABLED slots with GAPS (dm1, dm4, dm8), in stable-slot order, each row carrying
+        //     its own configured words — ⛔ never dm2's, which a row-index resolution would have shown at row 2.
+        CHK("P27b ★★★★ the gapped catalog renders dm1 / dm4 / dm8 in stable-slot order, with `back` LAST",
+            body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
+            body_row_is(3, " -ON MY WAY")   && body_row_is(4, " back, don't send"));
+        CHK("P27b ⛔ ...and the CLEARED slot's words are nowhere on the panel (a disabled slot has no row)",
+            strstr(g_c.page_text, "I'm OK") == nullptr);
+        // ★★ THE `L` / `-` COLUMN, ALWAYS EXACTLY ONE OF THE TWO (OQ-A's premise). `dm4` is `loc=on`, the other two
+        //    are `loc=off`, and the marker is what the wearer confirms as part of the double press.
+        CHK("P27b the location column is `L` for the located preset and `-` for the others — never blank",
+            strstr(g_c.page_text, " LMEET AT THE COL") != nullptr &&
+            strstr(g_c.page_text, "-Are you OK?") != nullptr &&
+            strstr(g_c.page_text, "-ON MY WAY") != nullptr &&
+            strstr(g_c.page_text, " MEET AT THE COL") == nullptr);
+        // ⛔ AND THE DERIVED ROW KEEPS ITS SINGLE MARKER COLUMN (R-1): `back` is an ACTION and carries no location.
+        CHK("P27b ⛔ the derived `back` row carries NO location column",
+            strstr(g_c.page_text, " -back, don't send") == nullptr &&
+            strstr(g_c.page_text, " Lback, don't send") == nullptr);
+        t27 = open_highlighted(t27 + 500, ">back, don't send");        // leave it — each part opens its own
+
+#if MR_N_LAYERS < 2
+        // ---- (b2) ★★★★ R-1 ON GLASS, WITH A LIST THE WEARER CHANGED: K7's `GRANT KEY` STILL SITS **BETWEEN THE
+        //      ENABLED PRESETS AND `back`**. The landed P24k7b/f checks prove the row against the COMPILED catalog
+        //      (2 presets ⇒ row 3) and re-run untouched; this proves the position TRACKS the list rather than a
+        //      constant — three presets ⇒ row 4, `back` scrolled off below it.
+        // ⓘ Only the child-enabled arm can reach it at all: `prov_invite` requires `MR_N_LAYERS < 2 && MR_FEAT_TEAM
+        //   && team_id != 0`, which is `[env:heltec_v3]` and nothing else in this tree.
+        {
+            uint8_t pubP[32];
+            for (int i = 0; i < 32; ++i) pubP[i] = uint8_t(0x40 + i);
+            pubP[0] = 0x77; pubP[1] = 0x66; pubP[2] = 0x55; pubP[3] = 0x00;
+            const uint32_t hashP = MESHROUTE_NS::key_hash32_of(pubP);
+            g_node.clear_team_routing_state();
+            g_node.test_learn_route(77, 77, 1, 144, /*team_plane=*/true);
+            g_node.team_key_set(77, hashP, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            CHK("P27b2 precondition: a bound teammate, a team key to grant, and a NOT-us identity",
+                g_node.rt_team_count() == 1 && g_node.team_channel_key_present() && hashP != g_node.key_hash32());
+            t27 = enter_list(t27 + 500, kSlotTeam);
+            g_node.test_learn_route(77, 77, 1, 144, /*team_plane=*/true);
+            g_node.team_key_set(77, hashP, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            dirty_the_model(t27 + 100); t27 = see(t27 + 200);
+            t27 = see(double_press(t27 + 500));
+            CHK("P27b2 ★★★★ K7's GRANT KEY row follows the LIST's length — after dm8, still before `back`",
+                body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
+                body_row_is(3, " -ON MY WAY")   && body_row_is(4, " GRANT KEY"));
+            CHK("P27b2 ⛔ ...and the act row carries NO location column (R-1: byte-identical)",
+                strstr(g_c.page_text, " -GRANT KEY") == nullptr &&
+                strstr(g_c.page_text, " LGRANT KEY") == nullptr);
+            t27 = open_highlighted(t27 + 500, ">back, don't send");   // leave without granting anything
+        }
+#endif
+
+        // ---- (c) A MID-TICK MUTATION LANDS `PRESET CHANGED` ON GLASS ------------------------------------------
+        // ★★★★ THE SHIPPED RACE, REPRODUCED: the verb runs BETWEEN `build_snapshot`'s projection and the drain's
+        //      LIVE read (see `PresetRace`). The press therefore seals the generation the FRAME showed and the
+        //      execution finds a different one ⇒ §2's ruled refusal, with ⛔ ZERO core submission.
+        {
+            t27 = enter_list(t27 + 500, kSlotTeam);                   // a FRESH sub-view, on both arms
+            t27 = see(double_press(t27 + 500));
+            CHK("P27c a selection-phase compose is open before the interleaved write",
+                body_row_is(1, ">-Are you OK?"));
+            const int exec0 = g_exec.calls;
+            g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 4242;
+            // ⓘ THE DOUBLE PRESS IS SPELLED OUT rather than driven through `double_press()`, because the ARMING
+            //   INSTANT is the whole experiment: `InputFsm` emits `double_press` on the DEBOUNCED RELEASE OF TAP 2,
+            //   i.e. on the tick at `t + 350`. Arming after `tick(t + 300)` puts the catalog write inside exactly
+            //   that tick — after `build_snapshot` has frozen the OLD generation into the frame the operator is
+            //   looking at, and before the press is applied and the request drained.
+            const uint32_t tr = t27 + 500;
+            g_c.button_down = true;  tick(tr);       tick(tr + 50);
+            g_c.button_down = false; tick(tr + 100); tick(tr + 150);
+            g_c.button_down = true;  tick(tr + 200); tick(tr + 250);
+            g_c.button_down = false; tick(tr + 300);
+            mrui::g_preset_race.cmd = "preset set dm5 loc=off \"LATER\"";   // ⛔ a DIFFERENT slot: only the generation moves
+            mrui::g_preset_race.fired = false;
+            tick(tr + 350);                                           // ★ the tick that delivers the double press
+            CHK("P27c the interleaved write really ran inside that tick", mrui::g_preset_race.cmd == nullptr);
+            t27 = see(tr + 400);
+            CHK("P27c ★★★★ a catalog mutation between the frame and the execution renders `PRESET CHANGED`",
+                strstr(g_c.page_text, mrui::kPresetChangedText) != nullptr);
+            CHK("P27c ⛔ ...with ZERO core submissions — nothing reached `mrfw::exec_command`",
+                g_exec.calls == exec0);
+            CHK("P27c ⛔ ...and the panel does NOT report a generic failure or a send",
+                strstr(g_c.page_text, "SENDING") == nullptr && strstr(g_c.page_text, "QUEUED") == nullptr);
+            mrui::g_preset_race.cmd = nullptr;
+            // ...and acknowledging it REPAINTS FROM THE CURRENT CATALOG — `dm5` is now a row, in its stable place.
+            t27 = see(double_press(t27 + 500));                       // acknowledge -> the sub-view closes
+            t27 = enter_list(t27 + 500, kSlotTeam);
+            t27 = see(double_press(t27 + 500));
+            CHK("P27c the repaint is from the CURRENT catalog — dm5 has taken its stable place between dm4 and dm8",
+                body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
+                body_row_is(3, " -LATER") && body_row_is(4, " -ON MY WAY"));
+        }
+
+        // ---- (d) A MUTATION WHILE THE LIST IS OPEN CLOSES THE SELECTION-PHASE MODAL, WITHOUT SENDING ----------
+        {
+            const int exec1 = g_exec.calls;
+            t27 = see(settle(t27 + 500));                             // a selection is standing on row 1
+            CHK("P27d a selection is standing before the mutation", body_row_is(2, ">LMEET AT THE COL"));
+            CHK("P27d the mutation is accepted by the REAL verb", run_preset_cmd("preset set dm6 loc=off \"SOON\""));
+            dirty_the_model(t27 + 100);
+            t27 = see(t27 + 200);
+            CHK("P27d ★★★ the open SELECTION-PHASE compose is CLOSED by the successful change",
+                strstr(g_c.page_text, "MEET AT THE COL") == nullptr &&
+                strstr(g_c.page_text, "back, don't send") == nullptr);
+            CHK("P27d ⛔ ...and it sent NOTHING on the way out", g_exec.calls == exec1);
+            // ⛔ A NO-OP DOES NOT CLOSE IT: the trigger is the GENERATION, never the verb's name.
+            t27 = enter_list(t27 + 500, kSlotTeam);
+            t27 = see(double_press(t27 + 500));
+            t27 = see(settle(t27 + 500));
+            CHK("P27d a fresh compose is open with a selection standing", body_row_is(2, ">LMEET AT THE COL"));
+            const uint32_t gen_noop = probe_presets().generation();
+            CHK("P27d an IDENTICAL `set` is accepted and moves NO generation",
+                run_preset_cmd("preset set dm4 loc=on \"MEET AT THE COL\"") &&
+                probe_presets().generation() == gen_noop);
+            dirty_the_model(t27 + 100);
+            t27 = see(t27 + 200);
+            CHK("P27d ⛔ ...so the compose STAYS OPEN, with the selection intact",
+                body_row_is(2, ">LMEET AT THE COL"));
+        }
+
+        // ---- (e) THE ZERO-ENABLED EMPTY STATE (§3.2.1), reached through the real verbs -------------------------
+        {
+            bool cleared = true;
+            for (int i = 1; i <= 8; ++i) {
+                char cmd[32];
+                snprintf(cmd, sizeof cmd, "preset clear dm%d", i);
+                if (probe_presets().slot(uint8_t(mrfw::kPresetDmFirst + i - 1)).enabled && !run_preset_cmd(cmd))
+                    cleared = false;
+            }
+            CHK("P27e every DM slot is cleared through the REAL verb",
+                cleared && probe_presets().enabled_count(mrfw::PresetKind::dm) == 0);
+            t27 = enter_list(t27 + 500, kSlotTeam);
+            t27 = see(double_press(t27 + 500));
+            CHK("P27e ★★★ a catalog with NO enabled DM slot shows the empty note and offers only `back`",
+                body_row_is(1, mrui::kNoPresetsText) && body_row_is(2, ">back, don't send"));
+            const int exec2 = g_exec.calls;
+            t27 = see(double_press(t27 + 500));
+            CHK("P27e ⛔ ...and the only press it offers SENDS NOTHING", g_exec.calls == exec2);
+        }
+
+        // ---- (f) RESTORE, THROUGH THE REAL VERB, so no later phase inherits a reconfigured catalog -------------
+        CHK("P27f `preset reset all` restores the compiled catalog for the phases that follow",
+            run_preset_cmd("preset reset all") &&
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 &&
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 2);
+    }
+
+    // §UI-10/11 slice P2 — THE `/mrui` PRESET CATALOG's TWO DEVICE-SIDE FACTS. Both are here rather than in the
+    // native suite for the SAME reason this whole probe exists (§B115):
+    //   (a) the `busy` classification lives in `src/firmware_ui.cpp` — a TU no native test and no scenario compiles;
+    //   (b) the BOOT path runs in a build configured exactly as the board's (`-DARDUINO`, `MR_FEAT_OLED=1`), beside
+    //       the real panel TU, which is the closest any host gate gets to `setup()`.
+    // ⛔ THE LIMIT, stated: the store is a FAKE (the `mrfw::IUiPresetStore` seam), the sink is a recorder, and
+    //    `mrfw::dispatch` / `mrcon` are NOT in this link. The verbs over a real USB/BLE transport and the boot lines
+    //    on a really-corrupt `/mrui` are METAL-ONLY (M2) and are drafted as bench residue.
+    // ⓘ THIS BLOCK IS LAST ON PURPOSE: (a) drives a REAL alarm all the way to `firing`, and no later phase may
+    //   inherit that state.
+    {
+        // ---- (a) the FIRING arm of the `busy` gate, on the real model ------------------------------------------
+        struct ProbePresetStore : mrfw::IUiPresetStore {
+            mrnv::UiPresetBlob rec{};
+            mrnv::UiPresetRead state = mrnv::UiPresetRead::ok;
+            int loads = 0, saves = 0;
+            mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override {
+                ++loads;
+                if (state != mrnv::UiPresetRead::ok) { memset(&out, 0xA5, sizeof out); return state; }
+                out = rec; return mrnv::UiPresetRead::ok;
+            }
+            bool save(const mrnv::UiPresetBlob& b) override { ++saves; rec = b; state = mrnv::UiPresetRead::ok; return true; }
+        };
+        struct ProbeLines : mrfw::IPresetLines {
+            char buf[4096] = {}; size_t len = 0; int lines = 0;
+            void line(const char* s, size_t n) override {
+                if (len + n + 1 >= sizeof buf) return;
+                memcpy(buf + len, s, n); len += n; buf[len] = '\0'; ++lines;
+            }
+            void reset() { len = 0; lines = 0; buf[0] = '\0'; }
+        };
+        // ★ THE GATE THE VERBS REALLY USE: the device binding in `src/firmware_commands.cpp` forwards
+        //   `IEmergencyGate::emergency_active()` straight to `mrfw::ui_emergency_active()`, so this adapter IS the
+        //   shipped wiring — ⛔ not a stand-in policy.
+        struct RealUiGate : mrfw::IEmergencyGate {
+            bool emergency_active() const override { return mrfw::ui_emergency_active(); }
+        };
+
+        uint32_t t26 = settle(g_probe_millis + 5000);
+        CHK("P26a precondition: no alarm is running before the hold", !mrfw::ui_emergency_active());
+        g_c.button_down = true;                             // ★ hold PAST fire_ms (3500) -> the alarm FIRES
+        for (int i = 0; i < 60; ++i) tick(t26 + 100 + uint32_t(i) * 100);
+        // ★★★ `firing` IS THE MIDDLE OF THE ATTEMPT SERIES, and this is the row spec §2 rules on: while it holds,
+        //     EVERY mutating `ui preset` verb must answer `busy` — including a no-op — so the alarm's retries can
+        //     never have their body or their location policy changed halfway through.
+        CHK("P26a a FIRING alarm makes the preset `busy` gate answer TRUE", mrfw::ui_emergency_active());
+        {
+            ProbePresetStore ps; RealUiGate rg; mrfw::PresetCatalog cat{ps, rg}; mrfw::PresetDiag dg; ProbeLines out;
+            mrfw::preset_defaults(ps.rec);
+            cat.begin();
+            ps.loads = 0; ps.saves = 0;
+            const char* cmd = "preset set dm1 loc=off \"Are you OK?\"";      // ⛔ a NO-OP, and still `busy`
+            CHK("P26a ...so a NO-OP `set` is answered `busy` through the REAL gate",
+                mrfw::preset_verb(cat, dg, cmd, strlen(cmd), out) &&
+                strcmp(out.buf, "{\"ev\":\"ui_preset_err\",\"reason\":\"busy\"}\n") == 0);
+            CHK("P26a ⛔ ...with ZERO loads and ZERO writes", ps.loads == 0 && ps.saves == 0);
+            // ...and `list` is not a mutation, so it still answers in full.
+            out.reset();
+            const char* lc = "preset list";
+            mrfw::preset_verb(cat, dg, lc, strlen(lc), out);
+            CHK("P26a ...while `list` still answers 17 records + the end record during the alarm",
+                out.lines == mrnv::kUiPresets + 1);
+        }
+        g_c.button_down = false;
+        for (int i = 0; i < 10; ++i) tick(t26 + 6200 + uint32_t(i) * 100);
+        t26 = settle(t26 + 8000);
+
+        // ---- (b) THE FOUR STORAGE STATES DRIVE THE BOOT LINE (or none) ------------------------------------------
+        // ★★★ The owner ruled FOUR states because collapsing any pair tells the wearer the wrong thing: `absent` is
+        //     an ordinary first boot and must be SILENT, `invalid` says his phrases are gone and will be repaired,
+        //     `io_failed` says the store is dead and changes are refused. ⛔ `ok`/`absent` must print NOTHING — a
+        //     blank or a spurious line at boot is the defect this arm exists to catch.
+        {
+            struct { mrnv::UiPresetRead st; const char* expect; const char* label; } arms[] = {
+                { mrnv::UiPresetRead::ok,        nullptr,                    "ok" },
+                { mrnv::UiPresetRead::absent,    nullptr,                    "absent" },
+                { mrnv::UiPresetRead::invalid,   mrfw::kPresetInvalidLine,   "invalid" },
+                { mrnv::UiPresetRead::io_failed, mrfw::kPresetIoFailedLine,  "io_failed" },
+            };
+            bool all_ok = true, silent_ok = true, usable = true, no_writes = true;
+            for (const auto& a : arms) {
+                ProbePresetStore ps; RealUiGate rg; mrfw::PresetCatalog cat{ps, rg}; mrfw::PresetDiag dg; ProbeLines out;
+                mrfw::preset_defaults(ps.rec);
+                ps.state = a.st;
+                const mrnv::UiPresetRead got = mrfw::preset_boot_restore(cat, dg, out);
+                if (got != a.st) all_ok = false;
+                if (ps.saves != 0) no_writes = false;
+                if (!a.expect) { if (out.lines != 0 || out.len != 0) silent_ok = false; }
+                else {
+                    char want[256];
+                    snprintf(want, sizeof want, "%s\n", a.expect);
+                    if (out.lines != 1 || strcmp(out.buf, want) != 0) all_ok = false;
+                }
+                // ⛔ THE PANEL IS USABLE ON EVERY ARM: all three non-`ok` states run the COMPILED DEFAULTS, so the
+                //    difference between them is what the wearer is TOLD, ⛔ never what he can send.
+                if (cat.slot(mrfw::kPresetEmergency).enabled != 1 || cat.slot(mrfw::kPresetEmergency).len == 0)
+                    usable = false;
+            }
+            CHK("P26b the four /mrui states each drive the ruled boot line and return their own state", all_ok);
+            CHK("P26b ⛔ ...and `ok` / `absent` print NOTHING AT ALL (not even a blank line)", silent_ok);
+            CHK("P26b ⛔ ...and the boot NEVER writes, not even to repair a corrupt record", no_writes);
+            CHK("P26b ...and the emergency slot is live and non-empty on every one of the four", usable);
+        }
+    }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

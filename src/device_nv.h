@@ -319,6 +319,73 @@ static_assert(sizeof(TeamKeyRecord) == 72, "device_nv.h: the /mrteams record lay
 static_assert(alignof(TeamKeyRecord) == 4, "device_nv.h: /mrteams record alignment moved — the 72-byte claim is ABI-dependent");
 static_assert(sizeof(TeamKeyBlob) == 8 + 4 * 72, "device_nv.h: the /mrteams blob layout moved — bump kTeamKeyVersion");
 
+// ---- UI PRESET CATALOG record (`/mrui`) — §UI-10/11 slice P1 -------------------------------------------
+// Spec: docs/superpowers/specs/2026-08-25-ui10-11-preset-catalog-spec.md §3-P1 (owner-approved 2026-08-25), over the
+// parent design `2026-07-31-onboard-oled-ui-design.md` §3.2.2 (the catalog table) / §3.2.3 (persistence).
+//
+// ★★★ WHY A RECORD OF ITS OWN AND ⛔ NEVER A `Blob` FIELD — the design says it in one sentence and it is the whole
+//     reason this struct exists: *"Do not grow `mrnv::Blob`: its size/version mismatch deliberately REPROVISIONS the
+//     whole node, and editing a phrase must never reset radio, identity, team or key configuration."* ⇒ ★ EDITING A
+//     PHRASE CAN NEVER REPROVISION THE NODE, and that property is delivered by the SEPARATION — its own magic, its
+//     own version, its own slot — with ⛔ not one line of policy anywhere else.
+// ⛔ A NEW NV RECORD IS NOT A WIRE CHANGE. No frame moves; nothing re-anchors (the `/mrteams` note's point).
+//
+// ★★ SEVENTEEN FIXED SLOTS, and the count is the DESIGN's (§3.2.2): ONE mandatory `emergency` + EIGHT `dm` + EIGHT
+//    `channel`. Fixed because a record must have ONE size (the `slot_size_ok` policy); the VISIBLE count is not fixed
+//    — zero to eight of each may be enabled, and gaps are valid. Raising a capacity is an explicit format revision.
+// ★ THE INDEX ORDER IS THE STABLE SLOT IDENTITY: 0 = emergency, 1..8 = dm1..dm8, 9..16 = channel1..channel8. The
+//   design forbids deriving `dmN` from a compose-list ROW index (§B66's cure), so the array index IS the id.
+struct UiPresetSlot {
+    // ★ EXACTLY 0 OR 1, ⛔ never "non-zero is true" (the owner-ruled canonical bytes): a record whose flag byte reads
+    //   `2` would compare unequal to the same catalog written canonically and so rewrite flash forever. The predicate
+    //   that REFUSES such a record is `mrfw::preset_slot_canonical` — this header owns the LAYOUT, that one the
+    //   CONTENT policy (the `/mrjoin` split: `join_blob_state` here, `validate_profile` there).
+    uint8_t enabled;
+    uint8_t loc;       // `include_location` — the row's `L` / `-` marker (§3.2.2)
+    uint8_t len;       // 0..kUiPresetTextMax; ★ the bytes AT and AFTER `len` are ZERO (canonical)
+    // ★★ 18 = 17 CHARACTERS + THE CANONICAL TERMINATOR, and the 17 is OQ-A's owner ruling (2026-08-25): the compose
+    //    row ALWAYS shows a selection marker AND a location marker, so BOTH location states consume 2 of the panel's
+    //    19 columns. ⛔ The draft's conditional bound (18 when loc=off) was WRONG and is kept visible in the spec.
+    // ⓘ ⛔ NO `reserved` MEMBER, and that is a measurement rather than an omission: 3 × uint8 + 18 char = 21 with
+    //   alignof 1 and NO implicit padding, so there is nothing for one to fix — the `JoinProfile` ruling verbatim.
+    char    text[18];
+};
+constexpr uint8_t kUiPresets       = 17;   // 1 emergency + 8 dm + 8 channel — the design's §3.2.2 table
+constexpr uint8_t kUiPresetTextMax = 17;   // OQ-A: 17 printable ASCII bytes for EVERY preset, both location states
+struct UiPresetBlob {
+    uint32_t magic;       // kUiPresetMagic
+    uint16_t version;     // kUiPresetVersion — EQUALITY (see ui_preset_blob_state)
+    uint16_t reserved;    // ★ NAMED header padding, zeroed by ui_preset_blob_init — part of the byte-identical compare
+    // ★★★ THE PERSISTED GENERATION (§3.2.3). NON-ZERO by construction: it starts at 1 and SKIPS ZERO on wrap
+    //     (`mrfw::preset_generation_next`), so `0` is available as "no generation" and a `SendReq` can never seal one.
+    //     Consumers compare it for EQUALITY, never ordering, which is what makes uint32 wrap harmless.
+    uint32_t generation;
+    UiPresetSlot slot[kUiPresets];
+    // ★★★ NAMED TAIL PADDING, AND IT IS LOAD-BEARING ARITHMETIC, ⛔ not symmetry: the header is 12 B and 17 × 21 =
+    //     357, so the struct body ends at 369 — which is NOT a multiple of `alignof(UiPresetBlob)` (4, from `magic`).
+    //     A compiler therefore inserts THREE bytes of IMPLICIT tail padding, and implicit padding is INDETERMINATE
+    //     after `UiPresetBlob{}` — which would make the whole-record `memcmp` the write-coalescing policy IS answer
+    //     differently on identical catalogs and rewrite flash for nothing. ⇒ the three bytes are DECLARED, so they
+    //     are zeroed by value-initialisation like every other member. (`TeamKeyRecord::reserved[4]`'s rule, arrived
+    //     at from the other direction: there the named member REMOVES padding, here it REPLACES it.)
+    uint8_t  reserved_tail[3];
+};
+constexpr uint32_t kUiPresetMagic   = 0x4D525531u;   // 'MRU1' — its OWN magic, ⛔ never kMagic ('MRC1'), never
+                                                     // kJoinMagic ('MRJ1'), never kTeamKeyMagic ('MRK1')
+constexpr uint16_t kUiPresetVersion = 1;             // v1: the first /mrui layout. A bump REJECTS the old record
+                                                     // outright (equality policy) -> the node comes up on the
+                                                     // COMPILED DEFAULTS, which is a safe and visible state.
+// ★ PER-ABI, NOT native-only — the reason PeerRec's, JoinProfile's and TeamKeyRecord's pins are here: `sizeof` IS the
+//   migration policy (load_ui_presets' exact size check), and test/ can only measure the HOST ABI, so pin it where it
+//   compiles on ARM and Xtensa too. 3 + 18 = 21 with alignof 1; blob = 12-B header + 17 × 21 + 3 named tail = 372.
+static_assert(sizeof(UiPresetSlot) == 21, "device_nv.h: the /mrui slot layout moved — bump kUiPresetVersion");
+static_assert(alignof(UiPresetSlot) == 1, "device_nv.h: /mrui slot alignment moved — the 21-byte claim is ABI-dependent");
+static_assert(sizeof(UiPresetBlob) == 12 + 17 * 21 + 3, "device_nv.h: the /mrui blob layout moved — bump kUiPresetVersion");
+// ★★ AND THE POINT OF THE NAMED TAIL, ASSERTED RATHER THAN ARGUED: the declared members must account for EVERY byte,
+//    or an indeterminate hole is back and the coalescing compare is unsound again.
+static_assert(sizeof(UiPresetBlob) % alignof(UiPresetBlob) == 0,
+              "device_nv.h: /mrui carries IMPLICIT tail padding — reserved_tail no longer closes the record");
+
 // ---- slot table --------------------------------------------------------------------------------------
 // The ONE place each record's storage names live. Both live backends address the same four records with
 // different models, so a slot carries both spellings and each arm reads the field it needs.
@@ -346,6 +413,18 @@ inline constexpr Slot kSlotJoin  { "/mrjoin",  "mr",      "join"  };
 //    make ITS corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as
 //    `TeamKeyRead::invalid` / `io_failed`.
 inline constexpr Slot kSlotTeams { "/mrteams", "mr",      "teams" };
+// §UI-10/11 P1 — the UI preset catalog. ★★ `"mr"` IS THE FACTORY-RESET RULING, EXPRESSED AS DATA, exactly as it is
+// for `/mrjoin` and `/mrteams` above: the ESP32 `factory_erase()` clears the whole `"mr"` namespace in one `clear()`
+// and the nRF52 arm's `InternalFS.format()` takes every file, so the spec's *"factory reset erases `/mrui`"* is
+// delivered by the namespace choice alone, with ⛔ not one line of new code. `/mrfault` is the deliberate exception
+// ABOVE and configured phrases are emphatically not one — a factory-reset device must come up on the compiled texts.
+// ⛔⛔ AND IT IS **A DIFFERENT SLOT FROM `kSlotCfg`, WHICH IS THE WHOLE SEPARATION**: `/mrcfg` is the record whose
+//    version mismatch REPROVISIONS the node, so a phrase edit that landed there could reset radio, identity, team and
+//    key configuration. The design forbids it in as many words; here is where the forbidding is DATA.
+// ⛔ Deliberately NOT in `mount_or_repair()`'s nRF52 probe list (`kFiles[]`), for the reason `/mrjoin` and `/mrteams`
+//    are not: that function recovers by `InternalFS.format()`, so listing an OPTIONAL store there would make ITS
+//    corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as `UiPresetRead`.
+inline constexpr Slot kSlotUi    { "/mrui",    "mr",      "ui"    };
 
 // ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
 // This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
@@ -571,6 +650,59 @@ inline void team_key_blob_init(TeamKeyBlob& b) {
     //   above already zeroed `count`, so ⛔ no mutation can redden this line. It is kept for symmetry with
     //   `peers_blob_init`, which spells the same triple for the same reason.
     b.count   = 0;
+}
+
+// ---- /mrui: THE SAME FOUR-STATE READ, for the record a wearer's phrases live in (§UI-10/11 P1) --------
+// ★★★ WHY THE FOUR STATES ARE OWED HERE TOO, and the spec RULES each arm's behaviour rather than leaving it to a
+//     reader (§3-P1): an ABSENT store is an ordinary first boot and the node runs the COMPILED DEFAULTS with ⛔ NO
+//     warning; an INVALID one means the wearer's configured phrases are gone, which he must be TOLD (a counted,
+//     visible warning) because the panel is now showing texts he did not choose; and an `io_failed` store means
+//     NOTHING IS KNOWN about the record, over which a blind rewrite would destroy a possibly-intact catalog because
+//     a mount failed transiently — so every mutation refuses with `store` and ⛔ ZERO writes.
+// ⓘ U1, CONSIDERED AND ANSWERED IN PLACE, exactly as `TeamKeyRead` answers it against `JoinRead`: the three enums
+//   carry the same four arms and are SIBLINGS rather than one reuse — each documents its arms in ITS OWN record's
+//   terms and each feeds a different verb vocabulary (`ProfileErr` / `KeyringErr` / `PresetErr`). ★ A shared
+//   classifier under a record-neutral name is the right end state and is ⛔ NOT taken here: it would be a refactor of
+//   three shipped records folded into a feature slice (C1). What IS shared, deliberately, are the primitives —
+//   `SlotIo`, `kSlotAbsent`, `slot_size_ok`, `blob_valid_exact`.
+enum class UiPresetRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an ordinary first boot, ⛔ never an error and ⛔ never warned about
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch ORDER mirrors `join_blob_state`'s and `team_key_blob_state`'s, for their measured reasons: a backend
+// that would not open returns `kSlotAbsent`, so testing `absent` first would launder a dead store into "no catalog
+// configured"; and an OVER-LENGTH record is `invalid` and ⛔ never `ok`, because nRF52 reads `len` bytes out of a
+// longer file and a valid PREFIX would otherwise pass every check below.
+// ⛔ IT JUDGES THE **STORAGE**, ⛔ NOT THE CATALOG. Whether the seventeen slots obey the owner-ruled canonical-byte
+//    rules is `mrfw::presets_canonical`'s question, one layer up, where the CONTENT policy lives (the `/mrjoin`
+//    split: the magic/version/length matrix here, `validate_profile` in the service header).
+inline UiPresetRead ui_preset_blob_state(const UiPresetBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return UiPresetRead::io_failed;
+    if (io.oversize)       return UiPresetRead::invalid;
+    if (n == kSlotAbsent)  return UiPresetRead::absent;
+    // EQUALITY on the version, like /mrid, /mrpeers, /mrjoin and /mrteams and ⛔ unlike /mrcfg's range: there is no
+    // migration arm for a phrase catalog and there must not be one — a rejected record costs the operator a retype
+    // of what he configured and is VISIBLE, whereas a migration path is code that runs once per chip and can then
+    // never be exercised again.
+    return blob_valid_exact(b, n, kUiPresetMagic, kUiPresetVersion) ? UiPresetRead::ok : UiPresetRead::invalid;
+}
+// Stamp an EMPTY, VALID catalog record — magic, version and the FIRST generation. ONE path (U2), exactly as
+// `peers_blob_init` / `join_blob_init` / `team_key_blob_init` exist so the triple is never re-typed at a write site.
+// ★ `UiPresetBlob{}` zeroes `reserved`, `reserved_tail` and every slot byte, which is what makes the whole-record
+//   byte compare a valid "nothing changed".
+// ⛔ IT LEAVES THE SEVENTEEN SLOTS **EMPTY**, ⛔ NOT DEFAULTED: the COMPILED DEFAULTS are a UI policy (the §3.2.2
+//    table) and live in `firmware_ui_presets.h`. A storage header that knew the wearer's phrases would be the second
+//    authority over them.
+inline void ui_preset_blob_init(UiPresetBlob& b) {
+    b = UiPresetBlob{};
+    b.magic      = kUiPresetMagic;
+    b.version    = kUiPresetVersion;
+    // ★★ 1, ⛔ NEVER 0 — and this line is the only place the FIRST generation is spelled. `0` is reserved for "no
+    //    generation" (see UiPresetBlob::generation), so a record stamped with it would be rejected as non-canonical
+    //    by the very predicate that protects a `SendReq` from sealing one.
+    b.generation = 1;
 }
 
 // ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
@@ -919,4 +1051,22 @@ inline TeamKeyRead load_team_keys(TeamKeyBlob& out) {
 //    entries), so the compare is FREE one level up in `mrfw::TeamKeyringService`, where the native suite can COUNT
 //    the writes; here it would cost a second flash READ **of a secret** and still be untestable off-device.
 inline bool save_team_keys(const TeamKeyBlob& b) { return write_slot(kSlotTeams, &b, sizeof b); }
+// §UI-10/11 P1 — the UI preset catalog. ★ The THIRD wrapper pair that does not return a bool, for the reason
+// `UiPresetRead` states: absent (a first boot), corrupt (the wearer's phrases are gone and he must be told) and
+// unreadable (nothing is known, so ⛔ nothing may be written) are three different answers. ⓘ It asks the primitive
+// for `SlotIo` exactly as `load_join` and `load_team_keys` do; the four bool records still pass no `io` and are
+// therefore byte-for-byte the calls they were.
+// ⛔⛔ `kSlotUi`, ⛔ NEVER `kSlotCfg` — the separation this record exists for (see the slot table). A phrase edit
+//    that reached `/mrcfg` would reprovision radio, identity, team and keys on a version mismatch.
+inline UiPresetRead load_ui_presets(UiPresetBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotUi, &out, sizeof out, &io);
+    return ui_preset_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+// ⛔ NO read-before-write COALESCING HERE — the same deliberate asymmetry `save_join` and `save_team_keys` state, and
+//    for the same reason: the caller has ALREADY loaded the record (it must, to edit one slot of seventeen), so the
+//    byte compare is FREE one level up in `mrfw::PresetCatalog`, which is a pure header the native suite can COUNT
+//    the writes of. Repeating /mrcfg's pattern here would add a second flash READ per write and would still be
+//    untestable off-device — which is exactly how "seventeen green instruments" happened.
+inline bool save_ui_presets(const UiPresetBlob& b) { return write_slot(kSlotUi, &b, sizeof b); }
 }  // namespace mrnv
