@@ -357,6 +357,59 @@ TEST_CASE("ui15-join-text the CONFIRM screen shows all four values, and 869.4625
     CHECK(1u + strlen(mrui::join_confirm_label(true)) <= 19u);
 }
 
+TEST_CASE("B247 a corrupt stored PHY renders one bounded invalid-profile state, never truncated raw fields") {
+    // ★ `/mrjoin`'s record header can be valid while one slot's contents are not. Each corrupt fixture moves ONE
+    //   field outside the transaction's own domain; every other field remains the ordinary known-good profile.
+    mrnv::JoinProfile bad[] = {
+        prof(0,   9, 869462500u, 125000u),       // layer below 1 (uint8_t cannot represent above 255)
+        prof(4,   4, 869462500u, 125000u),       // SF below 5
+        prof(4,  13, 869462500u, 125000u),       // SF above 12
+        prof(4,   9,  99999999u, 125000u),       // frequency below 100 MHz
+        prof(4,   9, 1000000001u, 125000u),      // frequency above 1000 MHz
+        prof(4,   9, 869462500u, 6999u),         // bandwidth below 7 kHz
+        prof(4,   9, 869462500u, 500001u),       // bandwidth above 500 kHz
+        prof(4,   9, 869462500u, UINT32_MAX),    // the exact raw-type width that provoked B247's warning
+    };
+    for (const mrnv::JoinProfile& p : bad) {
+        CHECK(mrui::join_profile_phy_valid(p) == false);
+        char phy[mrui::kJoinPhyLineCap];
+        char frq[mrui::kJoinFreqLineCap];
+        memset(phy, 'X', sizeof phy);
+        memset(frq, 'X', sizeof frq);
+        mrui::join_fmt_phy(phy, sizeof phy, p);
+        mrui::join_fmt_freq(frq, sizeof frq, p);
+        CHECK(strcmp(phy, mrui::kJoinInvalidProfile) == 0);
+        CHECK(strlen(phy) == 15u);
+        CHECK(frq[0] == '\0');                         // one explicit row, not the same warning twice
+    }
+
+    // The copy itself remains safe for any caller capacity: terminator inside the cap, sentinel beyond untouched.
+    char tiny[5] = {'X', 'X', 'X', 'X', 'S'};
+    mrui::join_fmt_phy(tiny, 4, bad[0]);
+    CHECK(strcmp(tiny, "PRO") == 0);
+    CHECK(tiny[3] == '\0');
+    CHECK(tiny[4] == 'S');
+}
+
+TEST_CASE("B247 the exact lower and upper stored-PHY boundaries remain valid and byte-exact") {
+    const mrnv::JoinProfile edge[] = {
+        prof(1,   5,  100000000u,   7000u),
+        prof(255, 12, 1000000000u, 500000u),
+    };
+    const char* const want_phy[] = {"L1 SF5 BW7.00", "L255 SF12 BW500.00"};
+    const char* const want_frq[] = {"100.0000 MHz",  "1000.0000 MHz"};
+    for (size_t i = 0; i < 2; ++i) {
+        CHECK(mrui::join_profile_phy_valid(edge[i]) == true);
+        char phy[mrui::kJoinPhyLineCap], frq[mrui::kJoinFreqLineCap];
+        mrui::join_fmt_phy(phy, sizeof phy, edge[i]);
+        mrui::join_fmt_freq(frq, sizeof frq, edge[i]);
+        CHECK(strcmp(phy, want_phy[i]) == 0);
+        CHECK(strcmp(frq, want_frq[i]) == 0);
+        CHECK(strlen(phy) <= 19u);
+        CHECK(strlen(frq) <= 19u);
+    }
+}
+
 TEST_CASE("ui15-join-text 60 s is a WORD CHANGE — `STILL JOINING`, ⛔ never a failure, and never `JOINED`") {
     // ★★★ PLAN §2.3 RULE 5: normal adoption is ~23 s, one conflict/retry reaches ~53 s, and retries are NOT finitely
     //     bounded — so a deadline that declared failure would LIE about an operation still in progress.

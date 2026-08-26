@@ -14,7 +14,7 @@
 //            outbound queue, moved by the real `tx()`) · `mrui::UiModel` / `FrameGate` / the trackers.
 //     FAKED  the CANVAS (`board_ui.h`'s nine entry points) — counting stand-ins, so a page loop and a battery sample
 //            are observable; the RADIO (`IRadio`) — scriptable, so `tx_busy()` can be driven; and `mrfw::exec_command`.
-//   ⓘ The canvas is faked rather than linked from `variants/heltec_v3/board_ui.cpp` DELIBERATELY: that TU already has
+//   ⓘ The canvas is faked rather than linked from `variants/heltec_common/board_ui.cpp` DELIBERATELY: that TU already has
 //     its own probe (`tools/probe_board_ui/`), which measures the panel side — including, since §UI-9, the real ADC
 //     reader's polarity/enable/disable/plausibility behaviour. Faking it here keeps this probe pointed at the FEATURE
 //     layer and lets `battery_sample_mv()` answer differently per case, which is what makes the "a GOOD reading
@@ -256,7 +256,7 @@ struct Canvas {
     int32_t batt_answer = -1;             // what battery_sample_mv() hands back; <0 = unavailable (the real V3 today)
     int  bus_ops() const { return init + begin_frame + next_page + power_save; }
     // ★★★ §CHROME-3 — THE PANEL'S LATCH, MODELLED, because `bus_ops()` above counts CALLS and the real board counts
-    //   COMMANDS. `variants/heltec_v3/board_ui.cpp`'s `set_power_save` returns immediately when the value has not
+    //   COMMANDS. `variants/heltec_common/board_ui.cpp`'s `set_power_save` returns immediately when the value has not
     //   changed ("repeat calls are GENUINE no-ops"), so the tick's per-blanked-tick `set_power_save(true)` reaches
     //   the SSD1306 exactly once, on the edge. A fake that counted every call would make §8.3.1's "zero ADDITIONAL
     //   bus calls" fail against a correct implementation — and, far worse, invite somebody to "fix" it by suppressing
@@ -589,7 +589,7 @@ void draw_text(int x, int y, const char* s) {
 }
 void draw_hline(int, int, int)         { ++g_c.draw_hline; }
 // ★★ §CHROME-3 — THE TWO §CHROME-2 PRIMITIVES, faked here for the first time because THIS SLICE IS THEIR FIRST
-//    CALLER. Both are compose-only on the real board (`variants/heltec_v3/board_ui.cpp`, pure forwards to U8g2's
+//    CALLER. Both are compose-only on the real board (`variants/heltec_common/board_ui.cpp`, pure forwards to U8g2's
 //    `drawXBM` / `drawFrame`) and `tools/probe_board_ui` measures that against the real TU; here they only record.
 // ★★ §CHROME-4: `draw_rect` NOW HAS ITS ONLY LEGITIMATE CALLER — the rail's selection frame. The recorded
 //    `[rect]` entry carries a NULL byte pointer, which is what distinguishes it from a glyph in every reader below.
@@ -621,7 +621,7 @@ bool button_pressed()                  {
     if (g_preset_race.cmd && !g_preset_race.fired) { g_preset_race.fired = true; preset_race_run(); }
     return g_c.button_down;
 }
-// §B197/§B200: the REAL pair lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 +
+// §B197/§B200: the REAL pair lives in variants/heltec_common/board_ui.cpp and is measured by tools/probe_board_ui (P11 +
 // its controls, including the pin re-sample and the rollback). Here they are scriptable stand-ins, because what THIS
 // probe measures is what the FEATURE layer does with the answers — map all three verdicts, latch only on a HARDWARE
 // failure, say each failure once, and ⛔ never arm at boot.

@@ -6,8 +6,8 @@
 // the block at the fourth one already called it "THE FOURTH HOOK", 2026-08-14 §B197/§B198 added the fifth,
 // 2026-08-15 §B200 added the arm/disarm PAIR, and 2026-08-25 [[B243]] added the eighth; a count in prose beside a
 // list is exactly the thing that drifts, so it is checked against the list when either changes)
-// in a TU compiled under `#if MR_FEAT_OLED` (variants/heltec_v3/board_ui.cpp — §A0 2026-08-03; the port is
-// per-BOARD, so V4 brings its own variants/heltec_v4/board_ui.cpp). EVERY other
+// in a TU compiled under `#if MR_FEAT_OLED` (variants/heltec_common/board_ui.cpp, specialized by required board
+// traits). EVERY other
 // profile gets the inline no-ops below, so the fw_main call sites are UNCONDITIONAL (no `#if` sprawl at the call
 // site — the same stub pattern as the TEAM/MOBILE features). The next board-UI PR just fills the seam; it pulls
 // g_node / the config itself inside the .cpp, so this header stays dependency-light (only a Push forward-decl).

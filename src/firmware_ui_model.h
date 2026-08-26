@@ -3,7 +3,7 @@
 //
 // Pure screen/state model for the one-button board UI (UI-2). Consumes a gesture plus a plain-data snapshot and
 // produces what to draw. Knows nothing of g_node, Arduino or the display — that is what keeps it native-testable and
-// every hardware concern in variants/heltec_v3/board_ui.cpp. See
+// every hardware concern in variants/heltec_common/board_ui.cpp. See
 // docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md §2-§5.
 //
 // DONE here (UI-2): screens + the list-aware cursor, the compose modal and its two canned lists, the send REQUEST
@@ -1265,7 +1265,7 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
         //     `PHY DIFFERS` / `USE SERIAL` pair immediately above does, and for the identical reason (§7.1 rule 5:
         //     the panel may not clip an actionable statement). ⛔ NEITHER HALF MAY BE REWORDED OR CLIPPED, and the
         //     em dash is the ROW BREAK rather than a character: `drawStr` is not UTF-8 aware
-        //     (`variants/heltec_v3/board_ui.cpp:301`), so a literal `—` would draw two garbage glyphs. The
+        //     (`variants/heltec_common/board_ui.cpp`), so a literal `—` would draw two garbage glyphs. The
         //     precedent is the same one this pair copies — the design writes `PHY DIFFERS — USE SERIAL` and the
         //     panel renders the two halves on two rows with no dash.
         case UiProvOutcome::team_key_unsaved: return "NOT SAVED";

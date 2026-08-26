@@ -1,7 +1,7 @@
 // MeshRoute — tools/probe_board_ui/fakes/esp_sleep.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// phA5 PROBE SHIM for the TWO ESP-IDF `esp_sleep.h` entry points `variants/heltec_v3/board_ui.cpp` uses
+// phA5 PROBE SHIM for the TWO ESP-IDF `esp_sleep.h` entry points the common board canvas uses
 // (§B197 admitted the source; §B200 withdraws it again after every sleep).
 // ⛔ Deliberately does NOT declare `esp_sleep_enable_ext1_wakeup`, `esp_light_sleep_start`, the timer source or
 //    `esp_sleep_get_wakeup_cause`: those belong to `src/fw_main.cpp`'s `board_sleep_until()`, which this probe does

@@ -48,7 +48,7 @@ set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 ROOT=$(cd ../.. && pwd)          # ★ absolute — a relative path in a cwd-resetting shell silently measured nothing
 HERE=$(pwd)                      #   once already (register B82). Never make these relative.
-BOARD="$ROOT/variants/heltec_v3"
+CANVAS="$ROOT/variants/heltec_common"
 FAKES="$ROOT/tools/probe_board_ui/fakes"   # ⓘ SHARED, not forked (U1) — the second probe adds Print/millis/Serial there
 FW_UI="$ROOT/src/firmware_ui.cpp"
 CXX=${CXX:-g++}
@@ -71,16 +71,16 @@ trap 'rm -rf "$OUT"' EXIT
 #           and therefore the only one in which `draw_provision_screen` (`src/firmware_ui.cpp:1143`) — real shipped
 #           rendering — is reachable AT ALL. Under `l2` both children hide, so §UI-15 slice 5's three screens were
 #           measured by nothing. ⓘ `MR_UI_ADC_CTRL` / `MR_UI_VBAT_READ` are carried for EXACTNESS even though the ADC
-#           reader that consumes them is `variants/heltec_v3/board_ui.cpp` — faked here, and measured by the sibling
+#           reader that consumes them is `variants/heltec_common/board_ui.cpp` — faked here, and measured by the sibling
 #           probe. The env's remaining flags (`-DBOARD_HELTEC_V3`, the LORA_PIN_*/SX126X_* wiring,
-#           `-DMESHROUTE_NO_TELEMETRY`, `-I variants/heltec_v3`) are the RADIO's and the board TU's; `INCS` already
+#           `-DMESHROUTE_NO_TELEMETRY`, `-I variants/heltec_common`) are the RADIO's and the board TU's; `INCS` already
 #           carries the include dir, and no TU in THIS link reads any of the rest.
 # ⚠ THE ARMS ASSERT THEIR OWN EXPECTATIONS FROM ONE SOURCE: `probe_main.cpp` carries the matching `#if MR_N_LAYERS < 2`
 #   (P7's parent-row check flips direction; P15 exists only on `v3`), exactly as the `MR_UI_BLE_ROW` arm below does.
 DEFS=(-DARDUINO=100 -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_TEAM_CHANNEL_ID=0 -DMR_CONSOLE=1 -DMR_N_LAYERS=2)
 LEAF_DEFS=(-DARDUINO=100 -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_TEAM_CHANNEL_ID=0 -DMR_CONSOLE=1
            -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1)
-INCS=(-I"$FAKES" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console" -I"$ROOT/src" -I"$ROOT/lib/monocypher/src")
+INCS=(-I"$FAKES" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console" -I"$ROOT/src" -I"$ROOT/lib/monocypher/src")
 STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 
 # ---- the tree must not move ------------------------------------------------------------------------------------

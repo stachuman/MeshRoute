@@ -11,6 +11,12 @@ extern const u8g2_cb_t u8g2_cb_r0;
 extern const uint8_t u8g2_font_6x10_tf[];
 extern const uint8_t u8g2_font_10x20_tf[];
 
+// Constant-initialized before the canvas TU's global U8g2 constructor runs, so the probe can verify that the OLED
+// reset/clock/data traits reached the real constructor in the right order.
+inline int g_probe_u8_ctor_rst = -1;
+inline int g_probe_u8_ctor_scl = -1;
+inline int g_probe_u8_ctor_sda = -1;
+
 struct ProbeU8g2 {
     int begin = 0, firstPage = 0, nextPage = 0, setFont = 0, drawStr = 0, drawHLine = 0, setPowerSave = 0;
     int last_power_save_arg = -1;
@@ -36,7 +42,11 @@ extern ProbeU8g2 g_u8;
 class U8G2_SSD1306_128X64_NONAME_1_HW_I2C {
 public:
     U8G2_SSD1306_128X64_NONAME_1_HW_I2C(const u8g2_cb_t*, uint8_t reset, uint8_t clock, uint8_t data)
-        : rst(reset), scl(clock), sda(data) {}
+        : rst(reset), scl(clock), sda(data) {
+        g_probe_u8_ctor_rst = reset;
+        g_probe_u8_ctor_scl = clock;
+        g_probe_u8_ctor_sda = data;
+    }
     uint8_t rst, scl, sda;
     bool     begin()      { g_u8.begin++; return true; }
     void     firstPage()  { g_u8.firstPage++; g_u8.pages_left = 8; }   // composes only — touches NO bus

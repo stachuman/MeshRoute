@@ -6,7 +6,7 @@
 // THIS one, so the counters and the scripted return codes live in exactly one place rather than being duplicated per
 // header (U1).
 //
-// ★ WHY IT HAS TO EXIST AT ALL: `variants/heltec_v3/board_ui.cpp` is compiled by neither the native suite nor the
+// ★ WHY IT HAS TO EXIST AT ALL: `variants/heltec_common/board_ui.cpp` is compiled by neither the native suite nor the
 //   simulator, so `arm_button_wake()` / `disarm_button_wake()` — functions whose ONLY observable behaviour is which
 //   platform calls they make and what they do with the return codes — would otherwise have no automated cover at all.
 // ★★ §B200 ADDED THE TWO TEARDOWN CALLS, and they are not decoration: the DEFECT was an arm that was never undone.

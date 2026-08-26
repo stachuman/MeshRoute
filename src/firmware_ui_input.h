@@ -7,7 +7,7 @@
 //
 // DONE here: debounce, short vs double, long arm/fire/cancel, wrap-safe timing, per-instance InputCfg.
 // NOT here (deliberate, by unit boundary — [[meshroute-mark-done-vs-missing-in-code]]):
-//   - reading the GPIO and its active level: variants/heltec_v3/board_ui.cpp (UI-5/UI-6)
+//   - reading the GPIO and its active level: variants/heltec_common/board_ui.cpp (UI-5/UI-6)
 //   - what a gesture MEANS on screen: firmware_ui_model.h (UI-2/UI-3)
 // Spec: docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md §3.2, §4.
 #pragma once

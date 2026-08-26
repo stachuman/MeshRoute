@@ -159,6 +159,27 @@ inline void join_row_label(char* out, std::size_t cap, const mrnv::JoinProfile& 
     memcpy(out, p.name, n);
     out[n] = '\0';
 }
+// ★★ A STRUCTURALLY VALID `/mrjoin` record can still contain out-of-domain slot bytes: an older build or a damaged
+//    record may have the right record header while its layer/SF/frequency/bandwidth is not a legal join request.
+//    The confirmation must say that plainly rather than format those raw integers into a plausible, truncated PHY.
+// ⛔ ONE DOMAIN AUTHORITY (U1): compose the request through the store's ONE reverse conversion, then ask the SAME
+//    validator the join transaction asks. There is deliberately no second 1..255 / 100..1000 / 7..500 / 5..12
+//    range table in the display layer.
+inline bool join_profile_phy_valid(const mrnv::JoinProfile& p) {
+    return mrfw::validate_join(mrfw::join_request_from_profile(p)) == mrfw::JoinErr::none;
+}
+inline constexpr char kJoinInvalidProfile[] = "PROFILE INVALID";   // 15 columns; one explicit bounded state
+
+// Copy a complete token into an arbitrary caller buffer without asking `snprintf` to prove that buffer's size.
+// The formatters below accept small buffers in native tests, so truncation here is intentional, NUL-terminated and
+// bounded; the real panel buffers are sized for the complete valid/invalid tokens.
+inline void join_copy_line(char* out, std::size_t cap, const char* text) {
+    if (!out || cap == 0) return;
+    std::size_t n = strlen(text);
+    if (n > cap - 1) n = cap - 1;
+    memcpy(out, text, n);
+    out[n] = '\0';
+}
 // `L255 SF12 BW500.00` — the layer, the routing SF and the bandwidth, i.e. three of design §3.6.3's four "complete
 // values". ⓘ INTEGER ARITHMETIC ON THE STORED Hz, deliberately: the record is integral (plan §3) and this build's
 // `snprintf` may have no float support linked at all on the nRF52 target. The ONE integral -> double conversion this
@@ -167,9 +188,20 @@ inline void join_row_label(char* out, std::size_t cap, const mrnv::JoinProfile& 
 inline constexpr std::size_t kJoinPhyLineCap = 19;    // `L255 SF12 BW500.00` = 18 + NUL
 inline void join_fmt_phy(char* out, std::size_t cap, const mrnv::JoinProfile& p) {
     if (!out || cap == 0) return;
+    if (!join_profile_phy_valid(p)) {
+        join_copy_line(out, cap, kJoinInvalidProfile);
+        return;
+    }
     const unsigned long khz = (unsigned long)(p.bw_hz / 1000u);
     const unsigned long cen = (unsigned long)((p.bw_hz % 1000u) / 10u);   // 2 dp: 62.50 / 41.67 are real LoRa BWs
-    snprintf(out, cap, "L%u SF%u BW%lu.%02lu", unsigned(p.layer), unsigned(p.routing_sf), khz, cen);
+    // ★ THE PUBLIC BUFFER STAYS AT THE PANEL'S 19-COLUMN BOUND. This private scratch is instead derived from the
+    //   widest RAW FIELD TYPES (`L255 SF255 BW4294967.99` = 23 + NUL), so GCC can prove the write even though its
+    //   range analysis cannot carry `validate_join`'s floating-point predicates into this integer format call.
+    //   The validity gate above guarantees every copied success is at most `L255 SF12 BW500.00`.
+    char line[24];
+    snprintf(line, sizeof line, "L%u SF%u BW%lu.%02lu",
+             unsigned(p.layer), unsigned(p.routing_sf), khz, cen);
+    join_copy_line(out, cap, line);
 }
 // `869.4625 MHz` — the fourth value, at the 4 decimal places `joinprofile list` prints, which is what makes
 // 869.4625 render EXACTLY. ⓘ Sub-100 Hz digits are not shown; that is a DISPLAY choice and the stored Hz is what
@@ -177,6 +209,8 @@ inline void join_fmt_phy(char* out, std::size_t cap, const mrnv::JoinProfile& p)
 inline constexpr std::size_t kJoinFreqLineCap = 15;   // `1000.0000 MHz` = 13 + NUL, with a column spare
 inline void join_fmt_freq(char* out, std::size_t cap, const mrnv::JoinProfile& p) {
     if (!out || cap == 0) return;
+    // The PHY line carries the one explicit refusal; leaving this row empty avoids repeating the same state twice.
+    if (!join_profile_phy_valid(p)) { out[0] = '\0'; return; }
     const unsigned long mhz  = (unsigned long)(p.freq_hz / 1000000u);
     const unsigned long frac = (unsigned long)((p.freq_hz % 1000000u) / 100u);
     snprintf(out, cap, "%lu.%04lu MHz", mhz, frac);

@@ -8,7 +8,7 @@
 #   (1) it HARDCODED `/home/staszek/MeshRoute` and a session SCRATCH directory, and compiled the SCRATCH copies of
 #       `probe_main.cpp`/`probe_ctl` — so it ignored the paths its runner passed and would keep "passing" off files
 #       that vanish with the session. QA proved it by passing nonexistent paths: every control still "ran".
-#   (2) it wrote the mutation into the REAL `variants/heltec_v3/board_ui.cpp` with no try/finally, so an interrupt
+#   (2) it wrote the mutation into the REAL board_ui.cpp with no try/finally, so an interrupt
 #       LEFT THE WORKING TREE POISONED.
 # ⇒ Now: every path arrives by argv, every mutation lands on a COPY under the caller's temp dir, and the real source
 #   is opened READ-ONLY and never written. There is nothing to restore because nothing is modified.
@@ -23,8 +23,12 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 CXX  = sys.argv[3] if len(sys.argv) > 3 else os.environ.get('CXX', 'g++')
 # ★ Share the runner's configuration rather than restating it — a drift here measures a build the board never makes.
 FLAGS = sys.argv[4:] or ['-std=gnu++20', '-fno-exceptions', '-fno-rtti', '-Wall', '-Wextra', '-Werror',
-                         '-DMR_FEAT_OLED=1', '-DMR_UI_BTN_PIN=0',
-                         '-DMR_UI_ADC_CTRL=37', '-DMR_UI_VBAT_READ=1',   # §UI-9; board_ui.cpp #errors without them
+                         '-DMR_FEAT_OLED=1', '-DMR_PROBE_V4=0',
+                         '-DMR_UI_OLED_RST=21', '-DMR_UI_OLED_SCL=18', '-DMR_UI_OLED_SDA=17',
+                         '-DMR_UI_OLED_ADDR=0x3C', '-DMR_UI_VEXT_PIN=36', '-DMR_UI_VEXT_ON_LEVEL=LOW',
+                         '-DMR_UI_BTN_PIN=0', '-DMR_UI_ADC_CTRL=37', '-DMR_UI_VBAT_READ=1',
+                         '-DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE',
+                         '-DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW', '-DMR_UI_VBAT_ADC_SCALE=5.42f',
                          '-I' + os.path.join(HERE, 'fakes'), '-I' + os.path.dirname(SRC),
                          '-I' + os.path.join(ROOT, 'lib/hal'), '-I' + os.path.join(ROOT, 'lib/core'),
                          '-I' + os.path.join(ROOT, 'src')]
@@ -32,7 +36,7 @@ PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')     # the REPO's probe, never 
 orig = open(SRC).read()                                # READ-ONLY. The real file is never written.
 print(f'baseline {os.path.relpath(SRC, ROOT)} md5 = {hashlib.md5(orig.encode()).hexdigest()}  ({len(orig)} bytes)\n')
 
-MUT=[
+MUT_V3=[
  ('C1 drop the blanking LATCH (edge -> level triggered)',
   '    if (on == s_asleep) return;   // repeat calls are GENUINE no-ops, not merely cheap ones\n', ''),
  ('C2 drop "a blank abandons the open page loop"',
@@ -49,7 +53,8 @@ MUT=[
   '    s_u8g2.firstPage();     // clears the page buffer and rewinds to tile row 0 — composes only, touches NO bus',
   '    /* control: firstPage() dropped */;'),
  ('C5 park Vext HIGH instead of the proven LOW',
-  'static constexpr uint8_t kVextOnLevel = LOW;', 'static constexpr uint8_t kVextOnLevel = HIGH;'),
+  'static constexpr uint8_t kVextOnLevel = MR_UI_VEXT_ON_LEVEL;',
+  'static constexpr uint8_t kVextOnLevel = HIGH;'),
  ('C6 button compared against HIGH (wrong polarity)',
   'return digitalRead(MR_UI_BTN_PIN) == LOW;', 'return digitalRead(MR_UI_BTN_PIN) == HIGH;'),
  # ★★ §UI-9 REPLACED THE OLD C7, AND THE REPLACEMENT IS EIGHT CONTROLS (C7a-C7h), NOT ONE. C7 used to be
@@ -106,7 +111,7 @@ MUT=[
   '    digitalWrite(MR_UI_ADC_CTRL, s_adc_active_high ? LOW : HIGH);'),
  # C7o the fail-safe level itself is inverted. Separates "there is a constant" from "the constant is the right one".
  ('C7o the fail-safe park constant is inverted (HIGH = V3.2 MEASURING)',
-  'static constexpr uint8_t kAdcCtrlFailsafePark = LOW;',
+  'static constexpr uint8_t kAdcCtrlFailsafePark = MR_UI_ADC_CTRL_FAILSAFE_PARK;',
   'static constexpr uint8_t kAdcCtrlFailsafePark = HIGH;'),
  # ★★ C7p IS THE CONTROL THAT PROVES THE FIX IS *NOT* THE "HARDCODE THE POLARITY" SPEC §7 AND PLAN TASK 9 FORBID.
  #    Collapse the park to the fail-safe on EVERY path and the MEASUREMENT polarity stops being detected — P6f (an
@@ -123,7 +128,8 @@ MUT=[
  ('C7f one sample instead of the mean of 8',
   'static constexpr uint8_t  kAdcSamples   = 8;', 'static constexpr uint8_t  kAdcSamples   = 1;'),
  ('C7g the combined ADC scale is dropped from the formula',
-  'static constexpr float    kVbatAdcScale = 5.42f;', 'static constexpr float    kVbatAdcScale = 1.0f;'),
+  'static constexpr float    kVbatAdcScale = MR_UI_VBAT_ADC_SCALE;',
+  'static constexpr float    kVbatAdcScale = 1.0f;'),
  ('C7h the ADC resolution the divisor assumes is never set',
   '    analogReadResolution(kAdcBits);\n', ''),
  # C7i is the CONFUSION the pin names invite and the header warns about in capitals: ADC_CTRL is a CONTROL line, not
@@ -131,7 +137,8 @@ MUT=[
  ('C7i the burst samples the CONTROL line instead of the ADC input',
   'raw += uint32_t(analogRead(MR_UI_VBAT_READ));', 'raw += uint32_t(analogRead(MR_UI_ADC_CTRL));'),
  ('C7j the control line is driven without ever being made an OUTPUT',
-  '    pinMode(MR_UI_ADC_CTRL, OUTPUT);\n', ''),
+  '    pinMode(MR_UI_ADC_CTRL, OUTPUT);\n    // ★ PARK INACTIVE',
+  '    // control: pin never made OUTPUT\n    // ★ PARK INACTIVE'),
  # §UI-6 / §B91: the presence test must be able to say NO. A board_init() that always reports "panel present" is exactly
  # the instrument-that-cannot-fail this project keeps finding — and it is what UI-5 shipped, by having a void return.
  ('C8 board_init() claims the panel is present without asking',
@@ -320,6 +327,26 @@ MUT=[
  ('C10l draw_bitmap "helpfully" offsets the origin by one pixel',
   's_u8g2.drawXBM(x, y, w, h, bits);', 's_u8g2.drawXBM(x + 1, y + 1, w, h, bits);'),
 ]
+
+# V4-1's new source arm is deliberately tiny, but each of its three state writes is load-bearing. These controls run
+# against the V4 trait build: all compile, and each must redden the V4 behavioral probe rather than merely upsetting
+# the compiler. Shared canvas/wake/draw behavior remains controlled by MUT_V3 above because it is one source path.
+MUT_V4=[
+ ('C11a V4 parks ADC_CTRL HIGH at boot (the divider is left enabled)',
+  '    digitalWrite(MR_UI_ADC_CTRL, LOW);\n}',
+  '    digitalWrite(MR_UI_ADC_CTRL, HIGH);\n}'),
+ ('C11b V4 marks the fixed control active LOW (sampling runs on the parked level)',
+  '    s_adc_active_high = true;',
+  '    s_adc_active_high = false;'),
+ ('C11c V4 marks its fixed polarity unavailable (every battery read is refused)',
+  '    s_adc_polarity_known = true;',
+  '    s_adc_polarity_known = false;'),
+]
+
+ARM = os.environ.get('MR_BOARD_UI_NEGCTL_ARM', 'v3')
+if ARM not in ('v3', 'v4'):
+    sys.exit(f'unknown MR_BOARD_UI_NEGCTL_ARM={ARM!r}; expected v3 or v4')
+MUT = MUT_V4 if ARM == 'v4' else MUT_V3
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):
     n = orig.count(find)
@@ -344,5 +371,5 @@ for idx, (label, find, repl) in enumerate(MUT):
 # ★ The real source must be untouched, and we assert it rather than trusting that we never wrote it.
 assert hashlib.md5(open(SRC).read().encode()).hexdigest() == hashlib.md5(orig.encode()).hexdigest(), \
        'FATAL: the real board_ui.cpp changed -- controls must only ever mutate a copy'
-print(f'\nreal source verified UNCHANGED; {len(MUT)} controls run')
+print(f'\nreal source verified UNCHANGED; {len(MUT)} {ARM.upper()} controls run')
 sys.exit(rc_all)

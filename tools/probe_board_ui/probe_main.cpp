@@ -1,5 +1,5 @@
-// phA5 PROBE — compiles the REAL variants/heltec_v3/board_ui.cpp against counting shims for Arduino + U8g2 + Wire and
-// measures the behaviours no native test and no simulator can reach. Every check prints its own denominator.
+// Shared Heltec canvas probe — compiles the REAL variants/heltec_common/board_ui.cpp against counting shims under the
+// V3 and V4 trait sets and measures behavior no native test or simulator can reach.
 //
 // ⚠⚠ §UI-6 CHANGED WHAT THIS PROBE CAN SEE, and the change is worth stating rather than quietly absorbing. UI-5's
 //   `mr_ui_init/tick/on_push` lived in board_ui.cpp TEMPORARILY, so this probe could link them and assert two caller
@@ -13,6 +13,7 @@
 //     run.sh) and board_init() must REPORT the panel ACK honestly (§B91).
 #include "board_ui.h"
 #include <Arduino.h>
+#include "board_ui_traits.h"
 #include <U8g2lib.h>
 #include <Wire.h>
 // §B197: the two ESP-IDF shims this file DEFINES (the counters and the scripted return codes live in
@@ -21,6 +22,10 @@
 #include <esp_sleep.h>
 #include <cstdio>
 #include <cstring>
+
+#ifndef MR_PROBE_V4
+#  error "MR_PROBE_V4 must identify the trait arm under test"
+#endif
 
 // ---- shim storage ------------------------------------------------------------------------------------------------
 ProbeGpio  g_gpio;
@@ -186,15 +191,24 @@ int main() {
     // BOARD WIRING, as board_init() actually programs it. Re-run it so the counters cover THIS call.
     reset_counters();                                 // fresh ProbeGpio -> read_returns is HIGH again
     (void)mrui::board_init();
-    CHK("P6a button pin is INPUT_PULLUP",              g_gpio.mode[MR_UI_BTN_PIN] == (int)INPUT_PULLUP);
-    CHK("P6b Vext (36) driven OUTPUT",                 g_gpio.mode[36] == (int)OUTPUT);
-    CHK("P6c Vext driven to the proven level (LOW)",    g_gpio.level[36] == (int)LOW);
+    CHK("P6a button trait is GPIO0 and INPUT_PULLUP",   MR_UI_BTN_PIN == 0 && g_gpio.mode[0] == (int)INPUT_PULLUP);
+    CHK("P6b Vext trait is GPIO36 driven OUTPUT",       MR_UI_VEXT_PIN == 36 && g_gpio.mode[36] == (int)OUTPUT);
+    CHK("P6c Vext uses this board's ruled level",        g_gpio.level[36] == (MR_PROBE_V4 ? (int)HIGH : (int)LOW));
     CHK("P6d panel brought up exactly once",           g_u8.begin == 1);
+    CHK("P6h OLED reset trait reaches U8g2 as GPIO21", g_probe_u8_ctor_rst == 21);
+    CHK("P6i OLED clock trait reaches U8g2 as GPIO18", g_probe_u8_ctor_scl == 18);
+    CHK("P6j OLED data trait reaches U8g2 as GPIO17",  g_probe_u8_ctor_sda == 17);
+    CHK("P6k battery traits are CTRL=37 and VBAT=1",   MR_UI_ADC_CTRL == 37 && MR_UI_VBAT_READ == 1);
+#if MR_PROBE_V4
+    CHK("P6e V4 ADC_CTRL ends board_init() as an OUTPUT", g_gpio.mode[MR_UI_ADC_CTRL] == (int)OUTPUT);
+    CHK("P6f V4 ADC_CTRL is parked INACTIVE (LOW)",       g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+#else
     // §UI-9: the battery CONTROL line is board wiring too, and its boot state is the half that costs current if it is
     // wrong. The idle level here is HIGH (the shim's default), so the auto-detect must resolve active = LOW and PARK
     // the line HIGH. A line left floating, or parked active, drains the cell between samples for ever.
     CHK("P6e ADC_CTRL (37) ends board_init() as an OUTPUT", g_gpio.mode[MR_UI_ADC_CTRL] == (int)OUTPUT);
     CHK("P6f ... parked INACTIVE for an idle-HIGH board",   g_gpio.level[MR_UI_ADC_CTRL] == (int)HIGH);
+#endif
     CHK("P6g ... and no conversion happened at boot",       g_gpio.analog_calls == 0);
 
     // ================================================================================================ P7
@@ -203,6 +217,7 @@ int main() {
     g_gpio.read_returns = HIGH;  CHK("P7b HIGH -> not pressed",  mrui::button_pressed() == false);
 
     // ================================================================================================ P8
+#if !MR_PROBE_V4
     // ★★ THE BATTERY READER (plan Task 9 / slice UI-9, spec §7). Until this slice `battery_sample_mv()` was a
     //    hardcoded `-1` and the only check here was "it is still -1". Now it reads hardware, so what has to be
     //    measured is the SHAPE of the read, not just its answer:
@@ -323,6 +338,39 @@ int main() {
     CHK("P8ab ... and the refusal still holds in the mirrored world", mrui::battery_sample_mv() < 0);
 
     g_gpio = ProbeGpio();                                  // leave the shim as the later cases expect (read_returns HIGH)
+#else
+    // V4 has one fixed battery-control contract: GPIO37 is HIGH only during the conversion burst and LOW at rest.
+    // It must never run V3's polarity detector. Script contradictory pull answers to make any accidental probe visible.
+    g_gpio = ProbeGpio();
+    g_gpio.read_under_pullup = HIGH;
+    g_gpio.read_under_pulldown = LOW;
+    (void)mrui::board_init();
+    CHK("P8a V4 requests neither ADC-control pull", !g_gpio.saw_pullup[MR_UI_ADC_CTRL] &&
+                                                     !g_gpio.saw_pulldown[MR_UI_ADC_CTRL]);
+    CHK("P8b V4 never reads ADC-control polarity",  g_gpio.read_calls == 0);
+    CHK("P8c V4 ADC_CTRL is an OUTPUT",             g_gpio.mode[MR_UI_ADC_CTRL] == (int)OUTPUT);
+    CHK("P8d V4 ADC_CTRL parks LOW",                g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+
+    g_gpio.ctrl_pin = MR_UI_ADC_CTRL;
+    g_gpio.analog_returns = 223;
+    const int writes_before = g_gpio.write_calls;
+    const int32_t mv = mrui::battery_sample_mv();
+    const double kRefMvPerCount = 5.42 * (3.3 / 1024.0) * 1000.0;
+    const int32_t ref_mv = int32_t(kRefMvPerCount * 223.0);
+    CHK("P8e V4 sets the 10-bit ADC resolution",     g_gpio.analog_res_bits == 10);
+    CHK("P8f V4 takes exactly eight conversions",   g_gpio.analog_calls == 8);
+    CHK("P8g V4 samples only the VBAT input",        g_gpio.analog_pin == MR_UI_VBAT_READ);
+    CHK("P8h V4 holds ADC_CTRL HIGH for every conversion", g_gpio.ctrl_high_during_read == 8);
+    CHK("P8i V4 never samples while ADC_CTRL is LOW",       g_gpio.ctrl_low_during_read == 0);
+    CHK("P8j V4 performs exactly enable + disable writes",  g_gpio.write_calls - writes_before == 2);
+    CHK("P8k V4 parks ADC_CTRL LOW after sampling",         g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    CHK("P8l V4 uses the approved empirical ADC scale",     mv - ref_mv <= 1 && ref_mv - mv <= 1);
+
+    g_gpio.analog_returns = 0;
+    CHK("P8m V4 dead divider is UNAVAILABLE, not 0.0V", mrui::battery_sample_mv() < 0);
+    CHK("P8n V4 refusal still parks ADC_CTRL LOW",      g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    g_gpio = ProbeGpio();
+#endif
 
     // ================================================================================================ P9
     // ★ §B91 — THE PANEL-ACK REPORT, and the point is that it can say NO. Before UI-6, `board_init()` was void and
@@ -334,7 +382,7 @@ int main() {
     reset_counters();
     const bool init_ack = mrui::board_init();
     CHK("P9a board_init() probed one address",         g_wire.begin_tx == 1 && g_wire.end_tx == 1);
-    CHK("P9b ... and it was the SSD1306's 0x3C",       g_wire.last_addr == 0x3C);
+    CHK("P9b ... and it was the ruled 0x3C address",    g_wire.last_addr == 0x3C);
     CHK("P9c ACK (0) is reported as present",          init_ack == true);
     g_wire.end_returns = 2;                            // Arduino's "address NACK"
     const bool nak = mrui::board_init();
@@ -605,6 +653,7 @@ int main() {
 
     reset_counters();   // leave the shims as constructed for any later case
 
-    printf("phA5 board_ui probe: %d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
+    printf("Heltec %s board_ui probe: %d passed / %d failed / %d total\n",
+           MR_PROBE_V4 ? "V4" : "V3", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;
 }

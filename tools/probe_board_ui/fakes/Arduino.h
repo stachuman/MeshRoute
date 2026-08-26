@@ -1,4 +1,4 @@
-// phA5 PROBE SHIM — a host stand-in for Arduino.h so the REAL variants/heltec_v3/board_ui.cpp can be compiled and
+// phA5 PROBE SHIM — a host stand-in for Arduino.h so the REAL variants/heltec_common/board_ui.cpp can be compiled and
 // its bus/GPIO behaviour COUNTED. Not part of the firmware build.
 //
 // ★ SHARED BY TWO PROBES (§B105, 2026-08-06). `tools/probe_firmware_ui/` compiles `src/firmware_ui.cpp` against this

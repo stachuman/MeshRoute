@@ -1,7 +1,7 @@
 // MeshRoute — tools/probe_board_ui/fakes/driver/gpio.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// phA5 PROBE SHIM for the TWO ESP-IDF `driver/gpio.h` entry points `variants/heltec_v3/board_ui.cpp` uses
+// phA5 PROBE SHIM for the ESP-IDF `driver/gpio.h` entry points the common board canvas uses
 // (§B197 armed; §B200 added the disarm that makes the arm safe).
 // ⛔ Not a port of the header: everything else in the real one is deliberately absent, so a future use of another IDF
 //    GPIO call is a BUILD FAILURE here rather than a silently unmeasured call.

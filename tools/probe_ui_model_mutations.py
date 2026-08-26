@@ -347,8 +347,17 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2211, 95231     # ★★ CROSS-CHECK RE-SYNCED 2026-08-26 by **§UI-10/11 P3** — THE
-                                         # CATALOG REACHES THE PANEL: the compose lists become a projection of the
+PIN_CASES, PIN_ASSERTS = 2213, 95276     # ★★ CROSS-CHECK RE-SYNCED 2026-08-26 by **[[B247]]** — corrupt stored
+                                         # join-profile PHY values now render one bounded `PROFILE INVALID` state
+                                         # through the transaction's existing validation authority. Native moved
+                                         # **2211 / 95231 -> 2213 / 95276**: exactly +2 cases / +45 assertions,
+                                         # measured both filtered (`program -tc='B247*'` = 2 / 45 / 0) and whole.
+                                         # One `uijoin` mutation (J26) restores the unvalidated path; no existing
+                                         # case or target was removed.
+                                         #
+                                         # The superseded §UI-10/11 P3 sync follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2211, 95231 — THE CATALOG REACHES THE PANEL:
+                                         # the compose lists become a projection of the
                                          # live `/mrui` record, `SendReq` carries `{slot, generation}`, and the
                                          # fixed `kDmTexts`/`kChannelTexts`/`kEmergencyText` tables RETIRE.
                                          # **2186 / 94712 -> 2211 / 95231** (+25 cases / **+519 assertions**),
@@ -4932,8 +4941,10 @@ MUTS_UIJOIN = [
  ("J21 the frequency loses its four decimals — 869.4625 MHz renders (and reads) as 869",
   '    snprintf(out, cap, "%lu.%04lu MHz", mhz, frac);', '    snprintf(out, cap, "%lu MHz", mhz);'),
  ("J22 the confirmation shows the LEAF NIBBLE instead of the full layer byte (17 reads as 1)",
-  '    snprintf(out, cap, "L%u SF%u BW%lu.%02lu", unsigned(p.layer), unsigned(p.routing_sf), khz, cen);',
-  '    snprintf(out, cap, "L%u SF%u BW%lu.%02lu", unsigned(p.layer & 0x0F), unsigned(p.routing_sf), khz, cen);'),
+  '    snprintf(line, sizeof line, "L%u SF%u BW%lu.%02lu",\n'
+  '             unsigned(p.layer), unsigned(p.routing_sf), khz, cen);',
+  '    snprintf(line, sizeof line, "L%u SF%u BW%lu.%02lu",\n'
+  '             unsigned(p.layer & 0x0F), unsigned(p.routing_sf), khz, cen);'),
  ("J23 the bandwidth is rendered in Hz (500000.00 — the units mix plan §3's mutation controls name)",
   "    const unsigned long khz = (unsigned long)(p.bw_hz / 1000u);",
   "    const unsigned long khz = (unsigned long)p.bw_hz;"),
@@ -4942,6 +4953,9 @@ MUTS_UIJOIN = [
  ("J25 the confirmation's two actions are swapped, so `>BACK` performs the join",
   'inline const char* join_confirm_label(bool confirm) { return confirm ? "JOIN" : "BACK"; }',
   'inline const char* join_confirm_label(bool confirm) { return confirm ? "BACK" : "JOIN"; }'),
+ ("J26 ★ B247's validity authority is bypassed — corrupt slot bytes are formatted as plausible PHY values",
+  "    return mrfw::validate_join(mrfw::join_request_from_profile(p)) == mrfw::JoinErr::none;",
+  "    (void)p; return true;"),
 ]
 
 # ===== [[B230]] — src/firmware_provisioning_service.h ==============================================================

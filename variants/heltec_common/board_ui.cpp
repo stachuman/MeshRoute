@@ -1,10 +1,10 @@
-// MeshRoute — variants/heltec_v3/board_ui.cpp
+// MeshRoute — variants/heltec_common/board_ui.cpp
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// Heltec WiFi LoRa 32 V3 board-UI port: the ONLY translation unit in the tree that knows U8g2, I2C, the user-button
-// GPIO, the battery ADC and the panel power rail exist. Compiled ONLY when MR_FEAT_OLED=1 — today the heltec_v3 env
-// and the two that extend it (gateway_heltec / heltec_mobile). On every other profile this whole TU is empty and
-// fw_main uses mr_ui.h's inline no-ops, so the call sites stay unconditional.
+// Shared Heltec board-UI port: the ONLY translation unit in the tree that knows U8g2, I2C, the user-button GPIO, the
+// battery ADC and the panel power rail exist. Compiled ONLY when MR_FEAT_OLED=1 with a complete board trait set. On
+// every other profile this whole TU is empty and fw_main uses mr_ui.h's inline no-ops, so the call sites stay
+// unconditional.
 // Plan Task 5 = spec slice UI-5 (`docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md`).
 //
 // ★ WHAT IS DONE AND WHAT IS NOT — stated here because docs rot and code is read:
@@ -24,10 +24,10 @@
 //   NOT DONE  nothing in this TU can prove that the digital-domain GPIO wake COEXISTS with the radio's RTC-domain
 //             `ext1` DIO1 wake in ESP32-S3 light sleep. That is the design's one unproven hardware assumption and is
 //             metal-only, per wake source, independently (bench script Part 23).
-//   DONE      battery_sample_mv() is REAL as of plan Task 9 / slice UI-9 (spec §7): auto-detected ADC_CTRL polarity,
-//             divider enabled only around the burst, mean of 8 samples, NO settling delay. It still answers `-1` when
-//             the reading is not a battery (see the plausibility window), because `--` is this project's rule for an
-//             unavailable reading (console_json.h:137), never a plausible wrong number.
+//   DONE      battery_sample_mv() is REAL as of plan Task 9 / slice UI-9 (spec §7): the selected ADC-control
+//             strategy, divider enabled only around the burst, mean of 8 samples, NO sampling delay. It still answers
+//             `-1` when the reading is not a battery (see the plausibility window), because `--` is this project's
+//             rule for an unavailable reading (console_json.h:137), never a plausible wrong number.
 //   NOT DONE  nothing in this TU can prove the ADC SCALE or the detected POLARITY are right for the board in the
 //             operator's hand — both are reproduced from a working port, and only a multimeter closes that
 //             (docs/2026-07-31-bench-test-script.md Part 9; guide H8-09/H9-01).
@@ -37,9 +37,9 @@
 //   DONE      §B91 (Task 6): board_init() now REPORTS whether the panel ACKed — an I2C address probe, the same
 //             mechanism MeshCore uses (SSD1306Display::i2c_probe), because U8g2's begin() always returns 1. The canvas
 //             still owns no report CHANNEL: src/firmware_ui.cpp turns the bool into a console line.
-//   GONE      the three TEMPORARY mr_ui_* hooks that used to sit at the bottom of this file. ★ Task 6 took ownership:
-//             they are DEFINED IN src/firmware_ui.cpp NOW, and defining them in both places is a duplicate-symbol
-//             link failure. A board file must never see a `Push` or decide when to paint (spec §2.1, §5; rule U3).
+//   GONE      the TEMPORARY mr_ui_* hooks that used to sit at the bottom of this file. ★ The feature layer owns the
+//             seam in src/firmware_ui.cpp now, and defining any hook here too is a duplicate-symbol link failure. A
+//             board file must never see a `Push` or decide when to paint (spec §2.1, §5; rule U3).
 #include "mr_features.h"
 
 #if MR_FEAT_OLED
@@ -52,24 +52,12 @@
 // §B197/§B200: the light-sleep GPIO wake source, armed and DISARMED per sleep. `driver/gpio.h` for
 // gpio_wakeup_enable / gpio_wakeup_disable + GPIO_INTR_LOW_LEVEL, `esp_sleep.h` for esp_sleep_enable_gpio_wakeup /
 // esp_sleep_disable_wakeup_source. This TU is compiled ONLY on the ESP32-S3 OLED envs (MR_FEAT_OLED), so no
-// architecture `#if` is needed — and adding one would state a portability this file does not have (it names U8g2, I2C
-// and the board's pin table outright). The V4 port brings its own variants/heltec_v4/board_ui.cpp.
+// architecture `#if` is needed — and adding one would state a portability this file does not have (it names U8g2 and
+// I2C outright). Board wiring and ADC-control policy arrive through the required traits below.
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include "board_ui.h"
-
-#ifndef MR_UI_BTN_PIN
-#  error "MR_UI_BTN_PIN is not defined — the board env must supply the user-button GPIO (platformio.ini, [env:heltec_v3])"
-#endif
-// §UI-9 (plan Task 9): the battery pins arrive WITH the reader, by the standing "no config before its reader" rule.
-// C2 — fail loud rather than defaulting: a wrong ADC pin silently reads a different net, and a defaulted control pin
-// would leave a divider enabled for ever (a standing current draw on a safety device).
-#ifndef MR_UI_ADC_CTRL
-#  error "MR_UI_ADC_CTRL is not defined — the board env must supply the battery-divider CONTROL GPIO (platformio.ini, [env:heltec_v3])"
-#endif
-#ifndef MR_UI_VBAT_READ
-#  error "MR_UI_VBAT_READ is not defined — the board env must supply the battery ADC input GPIO (platformio.ini, [env:heltec_v3])"
-#endif
+#include "board_ui_traits.h"
 
 // ---- board table -------------------------------------------------------------------------------------------------
 // Recovered from MeshCore's WORKING Heltec V3 port, not from datasheet reading (the provenance rule spec §10 states):
@@ -79,12 +67,12 @@
 //                                 VARIANT does not, but the display driver it selects does, and 21 is also what our
 //                                 own pre-A0 seam note said. Still worth one bench confirmation.
 //   panel addr  0x3C            — U8g2's ssd1306_128x64_noname descriptor already targets it
-// Identical on the V4 (spec §10.1), and the V4 gets its own variants/heltec_v4/board_ui.cpp regardless (spec §0), so
-// these stay file-local constants: nothing outside this TU reads them and there is nothing to override.
-static constexpr uint8_t kOledRst  = 21;
-static constexpr uint8_t kOledScl  = 18;
-static constexpr uint8_t kOledSda  = 17;
-static constexpr uint8_t kOledAddr = 0x3C;   // §B91: the 7-bit address the ACK probe asks for (U8g2's own target)
+// V3 and the original V4 happen to share these values, but the common canvas does not own that coincidence. The board
+// environment supplies every value explicitly so a later Heltec port cannot inherit a plausible wrong pin.
+static constexpr uint8_t kOledRst  = MR_UI_OLED_RST;
+static constexpr uint8_t kOledScl  = MR_UI_OLED_SCL;
+static constexpr uint8_t kOledSda  = MR_UI_OLED_SDA;
+static constexpr uint8_t kOledAddr = MR_UI_OLED_ADDR;   // §B91: 7-bit address asked by the ACK probe
 
 // ★ THE PANEL POWER RAIL — added against the plan's Task-5 code block, which does not touch it, and this is a
 //   dark-panel risk rather than a nicety. Vext (GPIO 36) is a switched peripheral rail on this board and NOTHING in
@@ -94,12 +82,11 @@ static constexpr uint8_t kOledAddr = 0x3C;   // §B91: the 7-bit address the ACK
 //   ⇒ **LOW** — and its SSD1306 comes up with the display holding no claim on that pin.
 //   ⇒ LOW is the level under which that panel is KNOWN to work; leaving the pin floating is not.
 // ⚠ What that port does NOT establish is whether the panel is on this rail at all (it never claims it), so this is
-//   "reproduce the proven pin level", not "Vext is active-low". If the bench shows a dark panel, flip kVextOnLevel to
-//   HIGH *before* suspecting the reset pin or the driver — the plan's Step 5 hint sends you to the reset pin first,
-//   and on a rail that was floating until this slice that is the wrong first suspect.
+//   "reproduce the proven pin level", not "Vext is active-low". V4 deliberately supplies a different provisional
+//   level through the same required trait; neither board can inherit the other's level silently.
 //   Bench check + both remedies: docs/2026-07-31-bench-test-script.md, Part 8.
-static constexpr uint8_t kVextPin     = 36;
-static constexpr uint8_t kVextOnLevel = LOW;
+static constexpr uint8_t kVextPin     = MR_UI_VEXT_PIN;
+static constexpr uint8_t kVextOnLevel = MR_UI_VEXT_ON_LEVEL;
 
 // ---- panel -------------------------------------------------------------------------------------------------------
 // U8G2_SSD1306_128X64_NONAME_1_HW_I2C(rotation, reset, clock, data) — signature verified against the pinned U8g2
@@ -118,8 +105,8 @@ static bool s_asleep   = false;   // ★ the blanking LATCH; see set_power_save(
 // ---- battery divider (spec §7; plan Task 9 = slice UI-9) -----------------------------------------------------------
 // Provenance rule (spec §10, and the same one the Vext block above obeys): every value here is recovered from
 // MeshCore's WORKING Heltec V3 port — ~/MeshCore/variants/heltec_v3/HeltecV3Board.h, `begin()` :31-36 and
-// `getBattMilliVolts()` :79-92 — not from datasheet reading. V3 and V4 share the pins and the formula (spec §10.1);
-// only the polarity handling and the settle differ, and V4 gets its own variants/heltec_v4/board_ui.cpp anyway.
+// `getBattMilliVolts()` :79-92 — not from datasheet reading. The sampling/formula path is shared; the required board
+// traits select the ADC pins, empirical scale and either V3's polarity probe or V4's fixed-active-HIGH control.
 static constexpr uint8_t  kAdcBits      = 10;      // analogReadResolution(10) — the resolution the divisor assumes
 static constexpr float    kAdcFullScale = 1024.0f; // 2^kAdcBits; MeshCore's formula divides by exactly this
 static constexpr float    kAdcRefV      = 3.3f;    // full-scale volts at the ADC pin
@@ -138,7 +125,8 @@ static constexpr float    kAdcRefV      = 3.3f;    // full-scale volts at the AD
 //   community and by `ropg/heltec_esp32_lora_v3`'s README, read off the schematic — Heltec's own HTIT-WB32LA_V3.2 PDF
 //   was fetched and is not machine-readable, so this is third-party-from-schematic, NOT a vendor spec sheet.
 // ⛔ The VALUE is unchanged and still comes from the WORKING reference port. Do not retune it from one voltage point.
-static constexpr float    kVbatAdcScale = 5.42f;   // mv = kVbatAdcScale * (kAdcRefV / kAdcFullScale) * raw * 1000
+static constexpr float    kVbatAdcScale = MR_UI_VBAT_ADC_SCALE;
+                                                    // mv = scale * (kAdcRefV / kAdcFullScale) * raw * 1000
 static constexpr uint8_t  kAdcSamples   = 8;       // mean of 8, as the reference port does
 // ★ THE PLAUSIBILITY WINDOW IS NOT A NEW POLICY — it is this tree's EXISTING answer for an ADC battery reader (U1):
 //   src/firmware_commands.cpp's read_batt_mv() ends `return (mv > 2000 && mv < 4500) ? mv : -1;` with the comment
@@ -151,6 +139,9 @@ static constexpr uint8_t  kAdcSamples   = 8;       // mean of 8, as the referenc
 //     is registered as a follow-up instead of done here.
 static constexpr int32_t  kBattMinMv    = 2000;
 static constexpr int32_t  kBattMaxMv    = 4500;
+
+// ---- V3 ADC-control strategy: probe polarity ----------------------------------------------------------------------
+#if MR_UI_ADC_CTRL_STRATEGY == MR_UI_ADC_CTRL_PROBE
 
 // ★★ POLARITY IS PROBED, NEVER HARDCODED — AND THE PROBE IS CHECKED, BECAUSE THE OBVIOUS FORM OF IT IS A COIN FLIP.
 //    `MR_UI_ADC_CTRL` (GPIO 37) is a CONTROL line, not the ADC input: it gates the VBAT divider, so it must be driven
@@ -216,7 +207,7 @@ static constexpr int32_t  kBattMaxMv    = 4500;
 //    that BIASES the gate at all is a revision the two-pull probe DETECTS, and then the fallback never runs — the
 //    fallback runs only when NOTHING biases the line. ⛔ **This is not "provably safe on all revisions", and no such
 //    claim is made.** Only the bench closes it: guide **H9-05 part C**, script **8.31**.
-static constexpr uint8_t kAdcCtrlFailsafePark = LOW;
+static constexpr uint8_t kAdcCtrlFailsafePark = MR_UI_ADC_CTRL_FAILSAFE_PARK;
 // ⓘ FALSE-NEGATIVE DIRECTION: an external pull WEAKER than the ESP32-S3's internal (~45 kΩ) would read as "floating"
 //   and the panel would show `--` on a board that actually works. That is a refusal, not a wrong number, and the bench
 //   entries distinguish it (guide H9-01 / H9-05 part B).
@@ -250,6 +241,23 @@ static void battery_init() {
     digitalWrite(MR_UI_ADC_CTRL, s_adc_polarity_known ? (s_adc_active_high ? LOW : HIGH)
                                                       : kAdcCtrlFailsafePark);
 }
+
+// ---- V4 ADC-control strategy: fixed active HIGH -------------------------------------------------------------------
+#elif MR_UI_ADC_CTRL_STRATEGY == MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH
+
+// Heltec's original V4 reference fixes GPIO37 HIGH only around the sample burst and parks it LOW. There is no V3
+// polarity probe on this arm: probing a board whose contract is already known would add an ambiguous second authority.
+static bool s_adc_active_high    = true;
+static bool s_adc_polarity_known = true;
+
+static void battery_init() {
+    s_adc_active_high = true;
+    s_adc_polarity_known = true;
+    pinMode(MR_UI_ADC_CTRL, OUTPUT);
+    digitalWrite(MR_UI_ADC_CTRL, LOW);
+}
+
+#endif
 
 namespace mrui {
 
@@ -461,28 +469,17 @@ int32_t battery_sample_mv() {
 
 // ---- ★★ THE mr_ui_* SEAM IS NO LONGER HERE — deleted by Task 6, deliberately, and this note replaces it. ----------
 //
-// UI-5 defined `mr_ui_init` / `mr_ui_tick` / `mr_ui_on_push` in this file and marked them TEMPORARY. They existed for
-// exactly one reason: `fw_main` calls all three UNCONDITIONALLY and `MR_FEAT_OLED=1` removes `mr_ui.h`'s inline stubs,
-// so UI-5 could not link without SOMEBODY defining them. UI-6 is that somebody — `src/firmware_ui.cpp`.
+// UI-5 defined the original `mr_ui_init` / `mr_ui_tick` / `mr_ui_on_push` hooks here and marked them TEMPORARY. They
+// existed only because fw_main called them unconditionally while `MR_FEAT_OLED=1` removed mr_ui.h's inline stubs.
+// The feature layer in `src/firmware_ui.cpp` now owns the complete seam.
 //
-// ⛔ DO NOT RE-ADD THEM HERE. Two definitions of the same three externs is a duplicate-symbol link failure across the
-//    heltec_v3 / heltec_mobile / gateway_heltec images, and the render policy they would carry (the MAC-idle predicate,
-//    the <=2 Hz dirty throttle, page pacing, the blank timer, the battery cadence, push correlation) does not belong in
-//    a board file at all: rule U3, and spec §2.1 keeps raw `Push`es away from the model for a safety reason.
+// ⛔ DO NOT RE-ADD THEM HERE. Duplicate extern definitions break every canvas consumer, and the render policy they
+//    would carry (the MAC-idle predicate, dirty throttle, page pacing, blank timer, battery cadence, push correlation)
+//    does not belong in a board file: rule U3, and spec §2.1 keeps raw `Push`es away from the model for a safety reason.
 //    That is also why `mr_ui.h` and `command.h` are no longer included above — this TU has no use for either.
 //
-// ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real caller:
-//    `firmware_ui.cpp` calls `board_init`, `begin_frame`, `next_page`, `set_font`, `draw_text`, `draw_hline`,
-//    `set_power_save`, `button_pressed`, `battery_sample_mv` and — since §B200 — `arm_button_wake` /
-//    `disarm_button_wake`: ELEVEN of the canvas entry points, so none of those is collected. (§B197's single
-//    `enable_button_wake` is gone; the pair replaced it.)
-// ⛔⛔ AND THE TWO §CHROME-2 PRIMITIVES ARE **NOT** IN THAT LIST, WHICH IS SAID OUT LOUD RATHER THAN LEFT TO BE
-//    DISCOVERED AS A SURPRISING FLASH NUMBER: `draw_bitmap` and `draw_rect` have **NO CALLER ANYWHERE IN THE TREE**
-//    until the slice-3 renderer, so `--gc-sections` is entitled to discard both. They are COMPILED into this TU's
-//    object on every OLED env (measurable with `nm` on the `.pio` object) but they are NOT LINKED and NOT EXERCISED
-//    in any firmware image, and a near-zero per-board flash delta for this slice is therefore EXPECTED and is NOT
-//    evidence that the strip fits. ⇒ design §11.2's *"linked and exercised in every OLED environment"* bullet is
-//    DEFERRED TO SLICE 3, where the renderer becomes their caller; it is deliberately NOT faked here with a dummy
-//    reference, because a fake caller would link dead code into every shipped image to satisfy a test.
+// ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real feature
+//    caller. `firmware_ui.cpp` reaches every canvas entry point, including the chrome bitmap/outline primitives and
+//    the §B200 wake pair; no dummy reference is needed to retain board code.
 
 #endif  // MR_FEAT_OLED

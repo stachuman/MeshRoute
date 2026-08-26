@@ -3,11 +3,11 @@
 //
 // The board-UI FEATURE layer (plan Task 6 = spec slice UI-6). It owns the model, the two send trackers, ALL render
 // policy, the battery cache and the correlation of node-wide pushes into UI outcomes — and it is where the three
-// `mr_ui_*` hooks LIVE, which is what let UI-5's TEMPORARY copies in variants/heltec_v3/board_ui.cpp be deleted.
+// `mr_ui_*` hooks LIVE, which is what let UI-5's TEMPORARY board-canvas copies be deleted.
 // Adds no new core API: every read is an accessor that already existed (spec §6).
 //
 // ★ THE TWO BOUNDARIES THIS FILE SITS BETWEEN, both of them load-bearing rather than tidy:
-//   above it  `variants/heltec_v3/board_ui.h` — a display-INDEPENDENT canvas. Nothing here names U8g2, I2C or a pin;
+//   above it  `variants/heltec_common/board_ui.h` — a display-INDEPENDENT canvas. Nothing here names U8g2, I2C or a pin;
 //             nothing there knows what a "screen" is. That is what makes the V4 port a pin table, not a rewrite.
 //   below it  `firmware_ui_model.h` / `firmware_ui_send.h` — pure, board-free, natively tested. Every gesture meaning,
 //             every state transition and the whole two-tracker glue live THERE so the native suite can drive them;
@@ -140,7 +140,7 @@
                                  //   `mrfw::ITeamCreateDevice`). EVERY decision of §3.6.3's create — the PHY
                                  //   precondition, `phy.present = false`, the verdict mapping — lives THERE, where
                                  //   the native suite compiles it; this file supplies only the four device forwards.
-#include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
+#include "board_ui.h"        // resolved by `-I variants/heltec_common` — ★ THIS is the task that makes that flag
                              //   load-bearing; §A0 predicted Task 5 and UI-5 measured it dead there three ways.
 #include "mr_ui.h"           // the hook DECLARATIONS we define below (fw_main calls them unconditionally). ⛔ V1: this
                              //   comment said "three" and the header now declares EIGHT — a count in prose beside a
@@ -2384,7 +2384,7 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
 // ★ These are the seam `lib/hal/mr_ui.h` declares and `fw_main` calls UNCONDITIONALLY (⛔ V1 2026-08-25: this line
 //   said "these three" and the seam is now EIGHT hooks — it names no number, for the reason the header's own count
 //   line gives). They lived TEMPORARILY in
-//   variants/heltec_v3/board_ui.cpp so UI-5 could link; Task 6 took ownership and DELETED those copies. Defining them
+//   the board canvas so UI-5 could link; Task 6 took ownership and DELETED those copies. Defining them
 //   in both places is a duplicate-symbol link failure.
 
 void mr_ui_init() {

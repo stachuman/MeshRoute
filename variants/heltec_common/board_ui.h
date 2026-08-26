@@ -1,4 +1,4 @@
-// MeshRoute — variants/heltec_v3/board_ui.h
+// MeshRoute — variants/heltec_common/board_ui.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The display-INDEPENDENT canvas the UI feature layer draws through (spec 2026-07-31-onboard-oled-ui-design §2's hard

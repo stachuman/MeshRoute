@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #
-# §UI-5 board-canvas probe — the ONLY automated cover `variants/heltec_v3/board_ui.cpp` will ever have.
+# Shared Heltec board-canvas probe — host-compiles the real `variants/heltec_common/board_ui.cpp` under both the V3
+# and V4 trait sets. It is the behavioral cover for code no native test or simulator compiles.
 #
 # WHY THIS EXISTS AND WHY IT IS NOT A `pio` ENV:
 #   `board_ui.cpp` is compiled by NEITHER the native suite (`test/` is native-only and has no Arduino/U8g2) NOR the
@@ -32,7 +33,7 @@ cd "$(dirname "$0")" || exit 1
 ROOT=$(cd ../.. && pwd)                 # ★ absolute — a relative path in a cwd-resetting shell silently measured
                                         #   nothing once already (register B82). Never make these relative.
 HERE=$(pwd)
-BOARD="$ROOT/variants/heltec_v3"
+CANVAS="$ROOT/variants/heltec_common"
 CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -40,23 +41,118 @@ trap 'rm -rf "$OUT"' EXIT
 # ⚠ These -D MUST mirror the `[env:heltec_v3]` SECTION of platformio.ini (addressed by section, never by line number:
 #   the old form cited `:221`/`:227` and those had already drifted). If they drift, the probe measures a configuration
 #   the board never builds — the same vacuous-instrument failure the controls exist to catch.
-# ★ §UI-9 added MR_UI_ADC_CTRL / MR_UI_VBAT_READ. They are not decoration here: board_ui.cpp `#error`s without them
-#   (C2), so a drift in EITHER direction — dropped from the env, or dropped from here — is a hard build failure rather
-#   than a silently different measurement. THE DEFINED SET IS ALSO ASSERTED AGAINST platformio.ini by check S6 below.
-BOARD_DEFS=(-DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1)
-build() {   # build($1 = board_ui.cpp path, $2 = output binary)
+# Every required production trait is explicit in both arms. V3_DEFS is also asserted byte-for-byte against the live
+# [env:heltec_v3] section by S6; V4_DEFS is the approved future board table and has no production env in V4-1.
+V3_DEFS=(-DMR_FEAT_OLED=1 -DMR_PROBE_V4=0
+         -DMR_UI_OLED_RST=21 -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_ADDR=0x3C
+         -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_BTN_PIN=0
+         -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1
+         -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW
+         -DMR_UI_VBAT_ADC_SCALE=5.42f)
+V4_DEFS=(-DMR_FEAT_OLED=1 -DMR_PROBE_V4=1
+         -DMR_UI_OLED_RST=21 -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_ADDR=0x3C
+         -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=HIGH -DMR_UI_BTN_PIN=0
+         -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1
+         -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH
+         -DMR_UI_VBAT_ADC_SCALE=5.42f)
+build() {   # build($1 = defs array name, $2 = board_ui.cpp path, $3 = output binary)
+  local -n selected_defs=$1
   "$CXX" -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-     "${BOARD_DEFS[@]}" \
-     -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
-     "$HERE/probe_main.cpp" "$1" -o "$2" 2>&1
+     "${selected_defs[@]}" \
+     -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
+     "$HERE/probe_main.cpp" "$2" -o "$3" 2>&1
 }
 
-echo "== §UI-5 board-canvas probe =="
-if ! build "$BOARD/board_ui.cpp" "$OUT/probe"; then
-  echo "PROBE BUILD FAILED — see above"; exit 1
+echo "== shared Heltec board-canvas probe: V3 traits =="
+if ! build V3_DEFS "$CANVAS/board_ui.cpp" "$OUT/probe_v3"; then
+  echo "V3 PROBE BUILD FAILED — see above"; exit 1
 fi
-"$OUT/probe"; rc=$?
-echo "probe exit=$rc"
+"$OUT/probe_v3"; rc=$?
+echo "V3 probe exit=$rc"
+
+echo
+echo "== shared Heltec board-canvas probe: V4 traits =="
+if ! build V4_DEFS "$CANVAS/board_ui.cpp" "$OUT/probe_v4"; then
+  echo "V4 PROBE BUILD FAILED — see above"; exit 1
+fi
+"$OUT/probe_v4"; v4_rc=$?
+echo "V4 probe exit=$v4_rc"
+[ "$v4_rc" -eq 0 ] || rc=1
+
+# Trait controls mutate the compile-time board table, not the canvas source. Every wrong value must still compile and
+# must turn the corresponding real-source probe RED; a compile failure would only prove the compiler noticed it.
+trait_pass=0; trait_fail=0
+trait_control() {   # label, defs-array, exact old token, replacement token, optional extra token
+  local label=$1 base_name=$2 old=$3 new=$4 extra=${5:-}
+  local -n base=$base_name
+  local defs=("${base[@]}")
+  local hits=0 i
+  for i in "${!defs[@]}"; do
+    if [ "${defs[$i]}" = "$old" ]; then defs[$i]=$new; hits=$((hits+1)); fi
+  done
+  if [ "$hits" -ne 1 ]; then
+    trait_fail=$((trait_fail+1)); echo "  FAIL $label — mutation matched $hits tokens, expected 1"; return
+  fi
+  [ -z "$extra" ] || defs+=("$extra")
+  local tag="trait_$((trait_pass+trait_fail))"
+  if ! build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; then
+    trait_fail=$((trait_fail+1)); echo "  FAIL $label — wrong trait did not compile, so behavior was not tested"; return
+  fi
+  if "$OUT/$tag" >"$OUT/$tag.run" 2>&1; then
+    trait_fail=$((trait_fail+1)); echo "  FAIL $label — probe stayed GREEN"; return
+  fi
+  trait_pass=$((trait_pass+1))
+}
+
+echo
+echo "== board-trait negative controls (each must compile and turn its arm RED) =="
+trait_control "T1 V3 OLED reset pin changed"       V3_DEFS -DMR_UI_OLED_RST=21 -DMR_UI_OLED_RST=22
+trait_control "T2 V3 OLED clock pin changed"       V3_DEFS -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SCL=19
+trait_control "T3 V3 OLED data pin changed"        V3_DEFS -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_SDA=16
+trait_control "T4 V3 OLED address changed"         V3_DEFS -DMR_UI_OLED_ADDR=0x3C -DMR_UI_OLED_ADDR=0x3D
+trait_control "T5 V3 Vext pin changed"             V3_DEFS -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_PIN=35
+trait_control "T6 V3 Vext level changed"           V3_DEFS -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_VEXT_ON_LEVEL=HIGH
+trait_control "T7 V3 button pin changed"           V3_DEFS -DMR_UI_BTN_PIN=0 -DMR_UI_BTN_PIN=2
+trait_control "T8 V3 ADC control pin changed"      V3_DEFS -DMR_UI_ADC_CTRL=37 -DMR_UI_ADC_CTRL=38
+trait_control "T9 V3 battery ADC pin changed"      V3_DEFS -DMR_UI_VBAT_READ=1 -DMR_UI_VBAT_READ=2
+trait_control "T10 V3 ADC strategy fixed"          V3_DEFS -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH
+trait_control "T11 V3 fail-safe park inverted"     V3_DEFS -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW -DMR_UI_ADC_CTRL_FAILSAFE_PARK=HIGH
+trait_control "T12 V3 ADC scale changed"           V3_DEFS -DMR_UI_VBAT_ADC_SCALE=5.42f -DMR_UI_VBAT_ADC_SCALE=1.0f
+trait_control "T13 V4 Vext level changed"          V4_DEFS -DMR_UI_VEXT_ON_LEVEL=HIGH -DMR_UI_VEXT_ON_LEVEL=LOW
+trait_control "T14 V4 uses the V3 polarity probe"  V4_DEFS -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW
+echo "traits:      $trait_pass passed / $trait_fail failed / $((trait_pass+trait_fail)) controls verified RED"
+[ "$trait_fail" -eq 0 ] || rc=1
+
+# Missing-trait controls pin C2's other half: no board fact may acquire a fallback. Each compile must fail through the
+# named #error in board_ui_traits.h, not merely because probe_main later happened to use an undefined token.
+missing_pass=0; missing_fail=0
+missing_trait_control() {   # macro name
+  local name=$1 defs=() hit=0 token
+  for token in "${V3_DEFS[@]}"; do
+    if [[ "$token" == "-D${name}="* ]]; then hit=$((hit+1)); else defs+=("$token"); fi
+  done
+  local tag="missing_$name"
+  if [ "$hit" -ne 1 ]; then
+    missing_fail=$((missing_fail+1)); echo "  FAIL $name — removal matched $hit tokens, expected 1"; return
+  fi
+  if build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; then
+    missing_fail=$((missing_fail+1)); echo "  FAIL $name — missing trait compiled"; return
+  fi
+  if ! grep -q "#error.*$name" "$OUT/$tag.build"; then
+    missing_fail=$((missing_fail+1)); echo "  FAIL $name — compile failed without its named fail-loud diagnostic"; return
+  fi
+  missing_pass=$((missing_pass+1))
+}
+
+echo
+echo "== missing-trait compile controls (each must fail through its named #error) =="
+for name in MR_UI_OLED_RST MR_UI_OLED_SCL MR_UI_OLED_SDA MR_UI_OLED_ADDR \
+            MR_UI_VEXT_PIN MR_UI_VEXT_ON_LEVEL MR_UI_BTN_PIN MR_UI_ADC_CTRL MR_UI_VBAT_READ \
+            MR_UI_ADC_CTRL_STRATEGY MR_UI_ADC_CTRL_FAILSAFE_PARK MR_UI_VBAT_ADC_SCALE; do
+  missing_trait_control "$name"
+done
+echo "missing:     $missing_pass passed / $missing_fail failed / $((missing_pass+missing_fail)) controls failed loud"
+[ "$missing_fail" -eq 0 ] || rc=1
 
 # ---------------------------------------------------------------------------------------------------------------------
 # §UI-6 STRUCTURAL CHECKS. ⚠ WEAKER THAN THE PROBE, AND LABELLED AS SUCH: these read source/symbols instead of measuring
@@ -64,7 +160,7 @@ echo "probe exit=$rc"
 # fw_context.h, i.e. RadioLib and the whole device stack), and "no cover at all" is worse than a check that can at least
 # turn red when the property alone is reverted. S1 is the strongest — it is a symbol-table fact, not a grep.
 FW_UI="$ROOT/src/firmware_ui.cpp"
-BOARD_H="$BOARD/board_ui.h"
+BOARD_H="$CANVAS/board_ui.h"
 s_pass=0; s_fail=0
 schk() {  # schk(label, expr-as-command)
   if eval "$2" >/dev/null 2>&1; then s_pass=$((s_pass+1))
@@ -78,9 +174,9 @@ echo "== §UI-6 structural checks (source/symbol level — weaker than the probe
 #    board TU as TEMPORARY. Defining them in BOTH is a link failure on three shipped envs, and this is what catches a
 #    re-add. Measured with nm on the real object, not by grepping for a comment.
 "$CXX" -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-   "${BOARD_DEFS[@]}" \
-   -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
-   -c "$BOARD/board_ui.cpp" -o "$OUT/board_ui.o" 2>/dev/null
+   "${V3_DEFS[@]}" \
+   -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
+   -c "$CANVAS/board_ui.cpp" -o "$OUT/board_ui.o" 2>/dev/null
 if [ -f "$OUT/board_ui.o" ]; then
   defined=$(nm --defined-only "$OUT/board_ui.o" 2>/dev/null | grep -c 'mr_ui_')
   schk "S1 board_ui.o defines NO mr_ui_* symbol (got $defined)" "[ '$defined' -eq 0 ]"
@@ -130,10 +226,12 @@ env_defs() {   # the LIVE -DNAME=VALUE tokens of [env:heltec_v3]
   awk '/^\[env:heltec_v3\]/{on=1;next} /^\[/{on=0} on' "$ROOT/platformio.ini" \
     | sed 's/;.*//' | grep -oE '\-D[A-Za-z_][A-Za-z_0-9]*=[^[:space:]]+'
 }
-for nm in MR_UI_BTN_PIN MR_UI_ADC_CTRL MR_UI_VBAT_READ; do
+for nm in MR_UI_OLED_RST MR_UI_OLED_SCL MR_UI_OLED_SDA MR_UI_OLED_ADDR \
+          MR_UI_VEXT_PIN MR_UI_VEXT_ON_LEVEL MR_UI_BTN_PIN MR_UI_ADC_CTRL MR_UI_VBAT_READ \
+          MR_UI_ADC_CTRL_STRATEGY MR_UI_ADC_CTRL_FAILSAFE_PARK MR_UI_VBAT_ADC_SCALE; do
   n_env=$(env_defs | grep -cE "^-D${nm}=")
   v_env=$(env_defs | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
-  v_prb=$(printf '%s\n' "${BOARD_DEFS[@]}" | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
+  v_prb=$(printf '%s\n' "${V3_DEFS[@]}" | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
   schk "S6 -D${nm} mirrors [env:heltec_v3] (env x$n_env='${v_env:-<none>}' probe='${v_prb:-<none>}')" \
        "[ '$n_env' -eq 1 ] && [ -n '$v_prb' ] && [ '$v_env' = '$v_prb' ]"
 done
@@ -838,7 +936,7 @@ wchk_in "$FW_MAIN" "W33 the boot scrub runs after the WDT arm and BEFORE the rad
 #   the normal disarm and both arm-failure paths).
 # ★ FOUR CONTROLS, and each is a real way the copies drift apart: inline the body at the rollback · inline it at the
 #   disarm · revert one caller to the bit-10-only call · drop a caller's teardown entirely.
-BOARD_CPP="$BOARD/board_ui.cpp"
+BOARD_CPP="$CANVAS/board_ui.cpp"
 n_of() { flat1 "$1" | grep -o -F "$2" | wc -l; }
 w34() { [ "$(n_of "$1" 'gpio_set_intr_type(')" -eq 1 ] && \
         [ "$(n_of "$1" 'gpio_wakeup_disable(')" -eq 1 ] && \
@@ -1212,6 +1310,36 @@ wchk_in "$FW_MAIN" "W51 ble_dispatch_line has NO ui arm of its own and keeps the
          's@^    if (e == ParseErr::unknown_verb) {$@    if (len > 2 \&\& !strncmp(line, "ui", 2)) return write_err(out, cap, "ui", "console_only");\n&@' \
          's@        if (dispatch(line, len, ls)) { ls.flush(); return 0; }@        (void)ls;@'
 
+# ★★★ V4-1 — THE PRODUCTION SIDE OF THE COMMON-CANVAS MOVE. The host probe compiles whatever path and traits this
+# runner names; without this check, platformio.ini could keep compiling the deleted V3 path or carry a different trait
+# set while both probe arms remain green. Pin the complete V3 binding in its real section, including the single shared
+# source/include and every exact required trait. Five controls cover the path, include and representative trait axes.
+v3_env_code() {
+  awk '/^\[env:heltec_v3\]/{on=1;next} /^\[/{on=0} on' "$1" | sed 's/;.*//'
+}
+w52() {
+  local f=$1 code
+  code=$(v3_env_code "$f")
+  [ "$(printf '%s\n' "$code" | grep -cF '+<../variants/heltec_common/board_ui.cpp>')" -eq 1 ] || return 1
+  [ "$(printf '%s\n' "$code" | grep -cF -- '-I variants/heltec_common')" -eq 1 ] || return 1
+  ! printf '%s\n' "$code" | grep -qF 'variants/heltec_v3/board_ui' || return 1
+  local token
+  for token in \
+      -DMR_UI_OLED_RST=21 -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_ADDR=0x3C \
+      -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_BTN_PIN=0 \
+      -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1 \
+      -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE \
+      -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW -DMR_UI_VBAT_ADC_SCALE=5.42f; do
+    [ "$(printf '%s\n' "$code" | grep -cF -- "$token")" -eq 1 ] || return 1
+  done
+}
+wchk_in "$ROOT/platformio.ini" "W52 heltec_v3 compiles the one common canvas with its complete exact trait set" \
+     w52 's@+<../variants/heltec_common/board_ui.cpp>@+<../variants/heltec_v3/board_ui.cpp>@' \
+         's@-I variants/heltec_common@-I variants/heltec_v3@' \
+         's@-DMR_UI_VEXT_ON_LEVEL=LOW@-DMR_UI_VEXT_ON_LEVEL=HIGH@' \
+         's@-DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE@-DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH@' \
+         '/-DMR_UI_VBAT_ADC_SCALE=5.42f/d'
+
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1
@@ -1222,9 +1350,15 @@ if [ "${1:-}" != "--no-neg" ]; then
   echo "== negative controls (each MUST fail) =="
   [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
   # ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
-  python3 "$HERE/negctl.py" "$BOARD/board_ui.cpp" "$OUT" "$CXX" \
+  python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
      -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-     "${BOARD_DEFS[@]}" \
-     -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
+     "${V3_DEFS[@]}" \
+     -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
+  echo
+  echo "== V4 fixed-ADC source controls (each MUST fail) =="
+  MR_BOARD_UI_NEGCTL_ARM=v4 python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+     -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
+     "${V4_DEFS[@]}" \
+     -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
 fi
 exit $rc

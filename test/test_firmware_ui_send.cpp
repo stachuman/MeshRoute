@@ -1047,7 +1047,7 @@ TEST_CASE("ui-frame: F3 — a consumed press never operates the screen under the
 //   the tick really maps those onto the two panel commands is pinned separately and structurally, by
 //   `tools/probe_board_ui/run.sh`'s W6 — which carries its own negative control.
 struct PanelLog {
-    bool    asleep  = false;    // the board's LATCH (variants/heltec_v3/board_ui.cpp:143 `if (on == s_asleep) return;`)
+    bool    asleep  = false;    // the common canvas's LATCH (`if (on == s_asleep) return;`)
     uint8_t cmds[8] = {};       // ONLY what reached the bus: 1 = SSD1306 DISPLAYOFF, 0 = DISPLAYON
     uint8_t n       = 0;
     void power_save(bool on) { if (on == asleep) return; asleep = on; if (n < 8) cmds[n++] = on ? 1 : 0; }
