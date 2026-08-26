@@ -24,6 +24,7 @@
 // MeshRoute logic above it (DeviceHal) is native-proven against MockRadio.
 #pragma once
 #include "iradio.h"
+#include "iboard_rf.h"
 
 #if defined(ARDUINO)
 #include <RadioLib.h>
@@ -68,13 +69,14 @@ static void MR_ISR_ATTR mr_on_dio1() { g_dio1_fired = true; g_isr_count = g_isr_
 
 class Sx1262Radio : public IRadio {
 public:
-    explicit Sx1262Radio(CustomSX1262& radio) : _radio(radio) {}
+    Sx1262Radio(CustomSX1262& radio, IBoardRf* board_rf) : _radio(radio), _board_rf(board_rf) {}
 
-    // Register the DIO1 ISR, then arm continuous RX. Call once in setup() (post-std_init).
+    // Register the DIO1 ISR, initialize an optional board FEM, then arm continuous RX through the ONE RX authority.
+    // Call once in setup() (post-std_init). Any failed board transition is fail-closed: no startReceive follows it.
     bool begin() {
         _radio.setPacketReceivedAction(mr_on_dio1);              // DIO1 -> mr_on_dio1 (RxDone while in RX)
         g_dio1_fired = false;
-        const bool ok = _radio.startReceive() == RADIOLIB_ERR_NONE;   // arms the RxDone IRQ on DIO1
+        const bool ok = rf_begin() && arm_rx();
         radio_canary_arm();                                     // snapshot the Module/HAL critical bytes (no-op unless MR_RADIO_CANARY)
         return ok;
     }
@@ -136,6 +138,11 @@ public:
     // ignores it while a TX is on air; poll_tx_done consumes it).
     TxResult start_transmit(const uint8_t* b, size_t n,
                             int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
+        // Translate before touching the SX1262. A front end may expose only a bounded set of conducted-output
+        // operating points; refusal leaves continuous RX exactly as it was. The null-FEM path is identity mapping.
+        const BoardRfDrive drive = output_drive(pw);
+        if (!drive.valid) return TxResult::radio_error;
+
         ++_tx_count;
         if (sf > 0) _cur_sf = sf;                                                  // TEMP DEBUG
         mr_trace_frame(/*is_rx=*/false, b, n, _cur_sf, 0.0f, 0.0f, millis());   // decoded arm-time trace; [txdone] below marks completion -> Δ = airtime
@@ -143,9 +150,13 @@ public:
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
-        if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
+        if (pw  > -100) _radio.setOutputPower(drive.chip_dbm);
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
         g_dio1_fired = false;                                                      // H6: clear any edge latched up to here (now in STANDBY, RX stopped) — the real TxDone re-sets it a min-airtime later; no live RX means poll_tx_done can't see a premature RxDone-as-TxDone
+        if (!rf_tx_mode()) {
+            arm_rx();                                                              // restore FEM RX + continuous RX after the failed transition
+            return TxResult::radio_error;
+        }
         const int16_t st = _radio.startTransmit(const_cast<uint8_t*>(b), n);       // NON-BLOCKING; DIO1 -> TxDone
         if (st != RADIOLIB_ERR_NONE) {
             if (g_mr_trace_on) { Serial.print(F("[txerr st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); }   // arm failed — recover to RX. GATED (the radio hot path stays silent by default — the MeshCore lesson; `debug on` restores it)
@@ -307,6 +318,11 @@ public:
     uint32_t isr_count() const { return g_isr_count; } // status diagnostic (DIO1 edges) — proves the IRQ line fires
     uint32_t rxbad_count() const { return g_rxbad_count; } // status diagnostic: failed-decode RX (CRC storm) — a clean counter delta, read by `status rxbad=` / `rcmd status`
     uint32_t rx_arm_failures() const { return _rx_arm_failures; } // L5 status diagnostic: startReceive() re-arm failures (SPI glitch) — a non-zero delta means the node went transiently deaf; visible instead of silent
+    uint32_t rf_mode_failures() const { return _rf_mode_failures; } // failed external-FEM begin/RX/TX transitions; surfaced with V4 diagnostics
+    BoardRfKind board_rf_kind() const { return _board_rf ? _board_rf->kind() : BoardRfKind::none; }
+    BoardRfLnaState board_rf_lna_state() const {
+        return _board_rf ? _board_rf->lna_state() : BoardRfLnaState::not_applicable;
+    }
 
 private:
     // Software-LBT tunables (bench-tunable). Threshold too low -> false-busy/starvation; too high -> missed
@@ -318,12 +334,38 @@ private:
     static constexpr uint16_t kFloorStuckRejects = 64;   // consecutive above-window idle samples -> re-seed the floor (stuck-floor escape; MeshCore resetAGC). ~0.64s @ kFloorSampleMs; bench-tunable
 
     CustomSX1262& _radio;
+    IBoardRf* _board_rf;
+    bool rf_begin() {
+        if (!_board_rf || _board_rf->begin()) return true;
+        ++_rf_mode_failures;
+        return false;
+    }
+    bool rf_tx_mode() {
+        if (!_board_rf || _board_rf->tx_mode()) return true;
+        ++_rf_mode_failures;
+        return false;
+    }
+    bool rf_rx_mode() {
+        if (!_board_rf || _board_rf->rx_mode()) return true;
+        ++_rf_mode_failures;
+        return false;
+    }
+    BoardRfDrive output_drive(int8_t requested_dbm) const {
+        return _board_rf ? _board_rf->drive_for_output(requested_dbm)
+                         : BoardRfDrive{ true, requested_dbm };
+    }
     // L5: every RX re-arm routes through here so a failed startReceive() (an SPI glitch) is COUNTED + surfaced in
     // status, instead of silently leaving the node deaf forever. (An auto-retry loop is a noted follow-up; making
     // the failure visible is the load-bearing half — currently a failed re-arm has no signal at all.)
-    void arm_rx() { if (_radio.startReceive() != RADIOLIB_ERR_NONE) ++_rx_arm_failures; }
+    bool arm_rx() {
+        if (!rf_rx_mode()) return false;
+        if (_radio.startReceive() == RADIOLIB_ERR_NONE) return true;
+        ++_rx_arm_failures;
+        return false;
+    }
     uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
     uint32_t _rx_arm_failures = 0;   // L5: startReceive() re-arm failures (SPI glitch) — surfaced via rx_arm_failures()
+    uint32_t _rf_mode_failures = 0;  // optional board-FEM transition failures; null-FEM boards never increment it
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
     bool _tx_in_flight = false; // async TX armed (start_transmit) until poll_tx_done drains the TxDone edge; routes the shared DIO1 flag

@@ -620,6 +620,10 @@ Confirm no change to sizeof(Node), TxOutcome, wire/NV layout, timers, corpus anc
 RAM and flash for both selected environments. In V4-2 record the null-FEM cost on both existing boards; in V4-3 and
 V4-4 record the selected new V4 values. The warning census separately records every derived OLED environment.
 
+**V4-2 measured null-FEM cost (2026-08-26):** `xiao_sx1262` 171332/564556 -> 171340/565004,
+**+8 B RAM / +448 B flash**; `heltec_v3` 219380/1329748 -> 219388/1329876,
+**+8 B RAM / +128 B flash**.
+
 ### 10.2 Metal — both boards
 
 Add the irreducible checks to docs/2026-07-31-bench-test-script.md with exact expected lines.

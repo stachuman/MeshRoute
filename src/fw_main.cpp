@@ -19,6 +19,7 @@
 #include "protocol_constants.h"
 #include "iclock.h"
 #include "device_radio.h"
+#include "board_rf_provider.h"   // optional board FEM; inline null provider on every pre-V4 board
 #include "device_hal.h"
 #include "frame_trace.h"      // mr_trace_frame() — decoded one-line RX/TX console trace
 #include "node.h"
@@ -164,7 +165,7 @@ static constexpr uint8_t MESHROUTE_SYNC_WORD = 0x4D;   // 'M'
 Module                  g_mod(LORA_PIN_NSS, LORA_PIN_DIO1, LORA_PIN_RST, LORA_PIN_BUSY);   // all extern in fw_context.h
 CustomSX1262            g_radio(&g_mod);
 meshroute::ArduinoClock g_clock;
-meshroute::Sx1262Radio  g_iradio(g_radio);
+meshroute::Sx1262Radio  g_iradio(g_radio, meshroute::board_rf_instance());
 meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
 // Inbox stores. On nRF52 (QSPIFLASH=1 -> MRINBOX_QSPI_READY) the durable QSPI/LittleFS DeviceInboxStore records
@@ -183,7 +184,7 @@ meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
 meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32; extern in fw_context.h
 
 uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];   // block below all extern in fw_context.h
-bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
+bool     g_radio_ok = false;   // combined SX1262 init + optional board-FEM init + initial continuous-RX arm result
 uint32_t g_rx_count = 0;       // frames received (status diagnostic)
 uint32_t g_sleep_count = 0;    // idle light-sleep entries that ACTUALLY HALTED (status `slept=`); §B200 moved the ++ after the call
 // ★★★ §B200 — THE LIGHT-SLEEP WAKE/ARM DIAGNOSTICS. ⓘ ESP32 ONLY, and the guard is the same triple `board_sleep_until`
@@ -650,8 +651,6 @@ void setup() {
 #else
     bool ok = g_radio.std_init();
 #endif
-    mrcon.print(F("  radio     = ")); mrcon.println(ok ? F("OK") : F("INIT FAILED"));
-    g_radio_ok = ok;
     // Device config from compile-time defaults; a persisted `cfg set` (NV) then overrides the radio/protocol
     // knobs AND the node identity. node_id 0 = unprovisioned (sends refused; provision via NV or join).
     meshroute::NodeConfig cfg;
@@ -849,9 +848,10 @@ void setup() {
         g_radio.setBandwidth((float)cfg.radio_bw_hz / 1000.0f);
         g_radio.setCodingRate((uint8_t)cfg.radio_cr);
         g_radio.setSyncWord(MESHROUTE_SYNC_WORD);               // override std_init's PRIVATE (0x12): reject alien protocols at the PHY
-        g_iradio.begin();                                       // (re)arm continuous RX on the applied SF
-
+        ok = g_iradio.begin();                                  // FEM init + the truthful initial continuous-RX arm result
     }
+    g_radio_ok = ok;
+    mrcon.print(F("  radio     = ")); mrcon.println(g_radio_ok ? F("OK") : F("INIT FAILED"));
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
                     /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);
