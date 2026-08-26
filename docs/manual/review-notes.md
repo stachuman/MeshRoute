@@ -8,7 +8,7 @@ Resolved facts belong in the relevant manual chapter. Developer rationale remain
 
 | ID | Chapter | Question or uncertainty | Source checked | Metal evidence | Resolution |
 | --- | --- | --- | --- | --- | --- |
-| MAN-001 | Getting started | Confirm the supported board/build matrix before publishing it. | Pending | Pending | Open |
+| MAN-001 | Getting started | Confirm the complete supported board/build matrix before publishing it. The V4.2/V4.3 base, mobile, and gateway environment bindings are source-audited; their operating status remains pending metal. | `platformio.ini`, `lib/core/mr_features.h`, and V4 RF constraints checked 2026-08-26 | Pending for V4.2/V4.3 | Open; V4 rows drafted, not marked Available |
 | MAN-002 | Connections | Establish the current scope of BLE metal validation before describing it as verified. | Pending | Pending | Open |
 | MAN-003 | Heltec OLED | Recheck the boundary between existing OLED behavior and unfinished UI-15 work when drafting the chapter. | Pending | Pending | Open; UI-15 remains planned |
 | MAN-004 | Choose your path | Confirm a concise user-facing explanation of device role, network participation, mobile attachment, and team membership. | Pending | Pending | Open |

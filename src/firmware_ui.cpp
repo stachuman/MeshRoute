@@ -283,12 +283,15 @@ struct DeviceJoinProvision : mrfw::IJoinDevice {
     //    site 3, and its own note records why the resulting ordering is unobservable.
     void on_started(const mrfw::JoinResult& r) override { (void)r; mr_ui_on_config_saved(); }
 };
-// ★★★ §UI-16 N5 — TWO DEVICE FORWARDS AND NO DECISIONS. `peer_key_at_least` calls the exact accessor used by
+// ★★★ §UI-16 N5 / [[B249]] — FOUR DEVICE FORWARDS AND NO DECISIONS. `request_team_announcement` reaches the
+//      existing core scheduler exactly once when the pure model asks; it does not inspect or reproduce any of the
+//      scheduler's eligibility, jitter, coalescing or interval policy. `peer_key_at_least` calls the exact accessor used by
 //      `Node::team_key_grant_send`'s no_pubkey arm and discards the public key bytes; the PURE caller supplies that
 //      arm's authoritative floor. `issue` hands the already-complete typed Command through the PURE formatter to
 //      the existing firmware command executor — the same sink the OLED send path uses — so this TU makes no
 //      kind/hash/plane decision and no second Node command path is opened.
 struct DeviceInvite : mrui::IUiInviteDevice {
+    void request_team_announcement() override { g_node.schedule_triggered_beacon(); }
     bool peer_key_at_least(uint32_t key_hash32, MESHROUTE_NS::Node::PeerKeyConf floor) const override {
         uint8_t ed[32];
         MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;

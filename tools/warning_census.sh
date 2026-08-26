@@ -69,7 +69,18 @@ cd "$(dirname "$0")/.." || exit 1
 #   `-Wswitch` 0. Its +5 versus `heltec_v3` is the existing RadioLib native-USB `#warning`, emitted once in each of
 #   five translation units; `variants/heltec_v4/board_rf.cpp` accounts for the one additional object and adds no
 #   warning. The existing 178/178/174 pins are unchanged.
-declare -A EXPECT_WARN=( [heltec_v3]=178 [heltec_mobile]=178 [gateway_heltec]=174 [heltec_v4]=183 )
+# ★ V4-4 ADDITION 2026-08-26: the two role profiles inherit that same V4/native-USB warning surface. Clean isolated
+#   builds measure `heltec_v4_mobile` at 327 objects / 183 warnings and `gateway_heltec_v4` at 327 / 179, both with
+#   `-Wswitch` 0. The gateway total is the existing V3 gateway pin plus the same five native-USB diagnostics. No
+#   existing pin moved.
+declare -A EXPECT_WARN=(
+  [heltec_v3]=178
+  [heltec_mobile]=178
+  [gateway_heltec]=174
+  [heltec_v4]=183
+  [heltec_v4_mobile]=183
+  [gateway_heltec_v4]=179
+)
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it
 #   returned an empty set, and v1 only "worked" because I had passed the env names explicitly, so its

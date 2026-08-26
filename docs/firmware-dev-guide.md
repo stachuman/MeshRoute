@@ -11,7 +11,15 @@ Practical instructions for building the firmware, debugging it (host + on-metal,
 | `native` | host (your dev machine) | doctest suite + the simulator driver | none (logic only) |
 | `xiao_sx1262` | Seeed XIAO nRF52840 + Wio-SX1262 | **primary** device | SX1262 |
 | `heltec_v3` | Heltec WiFi LoRa 32 V3 (ESP32-S3) | backup device | SX1262 |
-| `heltec_v4` | Heltec WiFi LoRa 32 V4.2/V4.3 (ESP32-S3) | first-build V4 base image | SX1262 + runtime-detected external FEM |
+| `heltec_v4` | Heltec WiFi LoRa 32 V4.2/V4.3 (ESP32-S3) | full, single-layer V4 base image | SX1262 + runtime-detected external FEM |
+
+The V4 base also has two role-specific derived environments. They inherit the complete `heltec_v4` board, display,
+native-USB and RF/FEM definition; each adds only the existing role flags used on other boards:
+
+| Env | Select for | Role delta |
+|---|---|---|
+| `heltec_v4_mobile` | a roaming personal endpoint | `MR_PROFILE_MOBILE`; remote management is compiled out |
+| `gateway_heltec_v4` | a fixed dual-layer bridge | shared gateway profile; two layers, gateway-only runtime gate, reduced unused buffers |
 
 > The protocol core (`lib/core`) is platform-neutral and depends only on the abstract `Hal`. The same code runs on the host (under the simulator) and on the device (over the MeshCore-vendored SX1262 PHY) — so **most development and debugging happens on `native`**, and the device builds prove it on metal.
 
@@ -49,16 +57,20 @@ First run downloads the **Adafruit nRF52 BSP** (`framework-arduinoadafruitnrf52 
 pio run -e heltec_v3        # ESP32-S3; dedicated SPI bus (P_LORA_SCLK/MISO/MOSI)
 ```
 
-### Device — Heltec V4.2/V4.3 (base image)
+### Device — Heltec V4.2/V4.3
 ```bash
-pio run -e heltec_v4        # one image; the external FEM revision is detected at boot
+pio run -e heltec_v4             # full, single-layer base image
+pio run -e heltec_v4_mobile      # roaming mobile endpoint
+pio run -e gateway_heltec_v4     # dual-layer gateway
 ```
 
-This target is for the original high-power 863–928 MHz V4.2/V4.3 boards, not V4 R8, the low-power/no-FEM model,
-or the 433–510 MHz population. It supports one requested nominal conducted output: 22 dBm, translated to the
-first-build 10 dBm SX1262 drive. Other powers and frequencies outside 863–928 MHz are refused. The boot banner must
-say `board=heltec_v4`; the RF line must identify `fem=gc1109 lna=n/a` on V4.2 or `fem=kct8103l lna=on` on V4.3.
-Treat that runtime FEM label as the revision authority.
+These profiles are for the original high-power 863–928 MHz V4.2/V4.3 boards, not V4 R8, the low-power/no-FEM model,
+or the 433–510 MHz population. All three use the same runtime revision detector and support one requested nominal
+conducted output: 22 dBm, translated to the first-build 10 dBm SX1262 drive. Other powers and frequencies outside
+863–928 MHz are refused. The boot banner must say `board=heltec_v4`; the RF line must identify
+`fem=gc1109 lna=n/a` on V4.2 or `fem=kct8103l lna=on` on V4.3. Treat that runtime FEM label as the revision authority.
+
+The word `mobile` selects the existing MeshRoute firmware role; it does not enable the planned L76K GNSS work.
 
 ### Artifacts
 `.pio/build/<env>/firmware.elf` (+ `.hex`, and `.uf2` for the XIAO). Use `firmware.elf` for debugging, `firmware.uf2` for drag-drop flashing.
@@ -154,14 +166,17 @@ pio run -e heltec_v3 -t upload     # esptool over USB; auto-enters bootloader
 Attach the correct antenna or a rated dummy load before any transmission.
 
 ```bash
-pio run -e heltec_v4 -t upload
-pio device monitor -e heltec_v4
+# Choose heltec_v4, heltec_v4_mobile, or gateway_heltec_v4.
+MR_V4_ENV=heltec_v4_mobile
+pio run -e "$MR_V4_ENV" -t upload
+pio device monitor -e "$MR_V4_ENV"
 ```
 
 V4 uses the ESP32-S3 native USB Serial/JTAG CDC path selected by its vendored board JSON, not V3's UART bridge. If
 automatic upload recovery fails, hold the active-low user button (GPIO0), tap RESET, then release the button after
 the ROM download port enumerates and repeat the upload. GPIO0 is a boot strap: holding the button through any reset
-can intentionally enter that downloader. Preserve `.pio/build/heltec_v4/firmware.elf` with every metal result.
+can intentionally enter that downloader. Preserve the selected environment's `.pio/build/.../firmware.elf` with
+every metal result.
 
 ### Troubleshooting
 - **`No device found` / upload hangs (XIAO):** enter the bootloader (double-tap reset) and re-run; verify `pio device list` shows the port; use a *data* USB cable (not charge-only). When in doubt, use the UF2 drag-drop path.
@@ -175,14 +190,16 @@ can intentionally enter that downloader. Preserve `.pio/build/heltec_v4/firmware
 # build
 pio test -e native              &&  .pio/build/native/program   # host tests (real counts)
 pio run  -e xiao_sx1262                                          # device firmware
-pio run  -e heltec_v4                                            # V4.2/V4.3 base firmware
+pio run  -e heltec_v4                                            # V4.2/V4.3 full/base firmware
+pio run  -e heltec_v4_mobile                                     # V4.2/V4.3 mobile-role firmware
+pio run  -e gateway_heltec_v4                                    # V4.2/V4.3 gateway firmware
 # debug
 pio debug -e native                                              # host gdb (logic)
 pio device monitor -e xiao_sx1262                                # serial (115200)
 pio debug -e xiao_sx1262                                         # SWD (needs a CMSIS-DAP probe)
 # upload
 pio run -e xiao_sx1262 -t upload                                 # nrfutil (double-tap reset)
-pio run -e heltec_v4 -t upload                                   # ESP32-S3 native USB / esptool
+pio run -e heltec_v4_mobile -t upload                            # ESP32-S3 native USB / esptool (selected V4 role)
 #   or drag .pio/build/xiao_sx1262/firmware.uf2 onto the XIAO drive
 #   or manual DFU: adafruit-nrfutil dfu serial -p <PORT> -b 115200 --singlebank -pkg .pio/build/xiao_sx1262/firmware.zip
 

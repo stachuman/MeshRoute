@@ -15,10 +15,12 @@
 //   That is MISLEADING SYNTAX, not RAM corruption. ⇒ the admission unit is now a LINE, never a fragment.
 //
 // ★★★ THE TRANSPORT CEILING THAT SHAPES THIS FILE — MEASURED IN THE INSTALLED FRAMEWORKS, NOT ASSUMED:
-//   ESP32-S3 UART profiles (heltec_v3 / heltec_mobile / xiao_esp32s3): `Serial` is `Serial0` = UART0 (`ARDUINO_USB_CDC_ON_BOOT`
-//     is unset ⇒ HardwareSerial.h:364 aliases it), and `HardwareSerial::_txBufferSize` defaults to 0 ⇒
+//   ESP32-S3 UART profiles (every Heltec V3 and XIAO ESP32-S3 role): `Serial` is `Serial0` = UART0
+//     (`ARDUINO_USB_CDC_ON_BOOT` is unset ⇒ HardwareSerial.h:364 aliases it), and
+//     `HardwareSerial::_txBufferSize` defaults to 0 ⇒
 //     `availableForWrite()` == free bytes of the **128-byte** hardware TX FIFO (SOC_UART_FIFO_LEN = 128).
-//   ESP32-S3 native-USB profile (heltec_v4): the vendored board JSON sets `ARDUINO_USB_MODE=1` and
+//   ESP32-S3 native-USB profiles (`heltec_v4`, `heltec_v4_mobile`, `gateway_heltec_v4`): the vendored board JSON sets
+//     `ARDUINO_USB_MODE=1` and
 //     `ARDUINO_USB_CDC_ON_BOOT=1`, so `Serial` is HWCDC. In the pinned framework HWCDC::availableForWrite() reports
 //     current TX-ring free bytes and HWCDC::write() first enqueues at most that space without waiting. This sink's
 //     single-writer rule prevents an intervening writer consuming the measured space; actual unplug/backpressure

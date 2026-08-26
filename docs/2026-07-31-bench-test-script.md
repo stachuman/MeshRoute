@@ -3214,18 +3214,21 @@ post, a real retune.** Setup: H1 joins H2's team **through NEARBY** (Part 36 set
 
 ## Part 38 — §UI-16 N4: the invitation window on glass (2026-08-23)
 
-⛔ **THE RESIDUE ONLY** (rows, two-authority snapshot, diff, handled set, freeze, expiry, blank/wake and zero-TX
-are host-gated: 24 native cases, `uiinvite` 11 / `model` V01-V09, probe P23a-f). **Metal-only: real light sleep,
-the wall clock, real member state.**
+⛔ **THE RESIDUE ONLY** (rows, two-authority snapshot, diff, handled set, freeze, expiry, blank/wake and B249's
+one-request-per-fresh-open / zero-further-request rule are host-gated). **Metal-only: real light sleep, the wall
+clock, real member state, and whether the scheduled public team beacon is actually heard over RF.**
 
 1. ☐ H2 (in a team): PROVISION offers **`INVITE MEMBER`** as its fourth row; `double` ⇒ title, H2's six-hex team
-   fingerprint, **`NO CANDIDATES`**. ⛔ FAIL on anything name-shaped.
+   fingerprint, **`NO CANDIDATES`**. On a same-PHY, same-leaf teamless H1, NEARBY must discover H2 after the existing
+   triggered-beacon scheduler permits the announcement (normally its 2–10 s jitter; a recent beacon may invoke the
+   existing 120 s minimum interval). ⛔ FAIL if a manual `team <id>` workaround is still required; ⛔ FAIL on anything
+   name-shaped.
 2. ☐ ★ A REAL new member: H1 `team 0` then re-join; open the window **before** H1 re-joins ⇒ row
    `>       T<id> <6-hex>` — name column **BLANK**, fingerprint **POPULATED**, 19 columns unclipped. ⛔ FAIL on
    `KEYLESS`.
-3. ☐ ★ **Five-minute hold across REAL light sleep (P-4b + OQ-3)**: panel blanks on the ordinary ~15 s timer, the
-   node still light-sleeps (`mrcon` cadence vs a STATUS baseline — the half no host gate reaches), and ⛔ no
-   query/DM/post/location request appears.
+3. ☐ ★ **Five-minute hold across REAL light sleep (P-4b + OQ-3)**: after the one opening announcement request, the
+   panel blanks on the ordinary ~15 s timer, the node still light-sleeps (`mrcon` cadence vs a STATUS baseline — the
+   half no host gate reaches), and ⛔ no further UI-driven beacon request, query, DM, post or location request appears.
 4. ☐ ★ **Expiry on the wall clock (P-11)**: untouched past 5 min ⇒ wake press, then **`WINDOW CLOSED`**; `team`,
    `team exportkey` and the member list unchanged.
 5. ☐ **Blank/wake**: `double` a candidate ⇒ `NEW MEMBER` + full `0x<H1-hash>`; let it blank, press once ⇒ panel
@@ -3470,9 +3473,12 @@ line and `.pio/build/heltec_v4/firmware.elf` with the result.
    rises, `txfail=0 txto=0 rfmodefail=0`; each receiver continues receiving after the peer's reply. Repeat after a
    forced startTransmit failure and after a TX-watchdog abort; RX must recover and the relevant existing failure
    counter must rise instead of a false success.
-8. ☐ **Shared V4 UI traits on both revisions.** With no external Vext load, the OLED ACKs and paints with GPIO36 HIGH;
-   a page-buffer frame completes promptly, blanking and one short press work, and battery voltage is plausible. ⛔ If
-   either revision needs GPIO36 LOW, stop and revise the trait—do not add a revision guess.
+8. ☐ **Shared V4 UI traits on both revisions.** ⛔ **V4.3 HIGH FAILED 2026-08-26:** the boot probe printed
+   `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)` with `fem=kct8103l`; Heltec's V4 factory test agrees
+   with the corrected GPIO36 LOW trait. ✅ **POLARITY PASSED ON BOTH REVISIONS 2026-08-26:** the same LOW image makes
+   the OLED work on V4.3 (`kct8103l`) and V4.2 (`gc1109`), so no runtime split is needed. Still prove a page-buffer
+   frame completes promptly, blanking and one short press work, and battery voltage is plausible on both; panel
+   illumination alone does not discharge those separate checks.
 9. ☐ **Sleep/RF coexistence.** While light-sleeping, receive a LoRa frame: `wk_ext1=` and `rx=` both increase. The
    short-button wake and one-page service cadence remain as in the existing Heltec UI parts.
 10. ☐ **V4.3 LNA and first-build output measurement.** Compare receive behavior/current with the approved LNA-on

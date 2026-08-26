@@ -73,6 +73,7 @@ InviteSelList rows(const InviteWindow& w, const InviteMember* live, uint8_t n) {
 uint8_t cands(const InviteSelList& l) { return uint8_t(l.n - 1); }
 
 struct InviteDeviceFake : mrui::IUiInviteDevice {
+    void request_team_announcement() override {}
     bool present = false;
     MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;
     mutable int reads = 0;
@@ -976,6 +977,7 @@ public:
 struct RealGrantSeam : mrui::IUiInviteDevice {
     MESHROUTE_NS::Node& n;
     explicit RealGrantSeam(MESHROUTE_NS::Node& node) : n(node) {}
+    void request_team_announcement() override { n.schedule_triggered_beacon(); }
     bool peer_key_at_least(uint32_t key_hash32, MESHROUTE_NS::Node::PeerKeyConf floor) const override {
         uint8_t ed[32];
         MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;

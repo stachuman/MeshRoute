@@ -96,6 +96,11 @@ struct UiInviteIssue {
 
 struct IUiInviteDevice {
     virtual ~IUiInviteDevice() = default;
+    // ★★★★ [[B249]] — request the EXISTING core-owned triggered team announcement. The pure model owns the
+    //      once-per-fresh-open decision and the ordering relative to its snapshot; the device adapter owns only
+    //      this one forward. The core remains the authority for team/mobile eligibility, jitter, coalescing and
+    //      the minimum announcement interval, so there is deliberately no UI-side result or retry state.
+    virtual void request_team_announcement() = 0;
     virtual bool peer_key_at_least(uint32_t key_hash32, MESHROUTE_NS::Node::PeerKeyConf floor) const = 0;
     virtual UiInviteIssue issue(const MESHROUTE_NS::Command& command) = 0;
     // ★★★★ §UI-16 N6 — THE ONE GRANT FORWARD, AND IT IS `Node::team_key_grant_send`'s OWN SIGNATURE minus the two

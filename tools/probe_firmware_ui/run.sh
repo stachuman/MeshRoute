@@ -1431,6 +1431,11 @@ if [ "${1:-}" != "--no-neg" ]; then
        s|            mem.name\[nn\] = .\\\\0.;|            ;|'
   ctl "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)" yes \
       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'
+  # ★★★★ [[B249]] THE WRONG PRODUCTION DESTINATION. W53 pins this structurally; this independent behavioral
+  #   control proves why the binding matters by replacing the deferred scheduler with team-DAD. P23a must see the
+  #   immediate frame and/or local-identity mutation, so a method name that merely still compiles cannot pass.
+  ctl "O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler" yes \
+      's|g_node.schedule_triggered_beacon()|g_node.team_dad_fire()|'
 
   # ====================================================== §UI-16 N5: O10-O16, REQUEST PUBKEY's DEVICE/RENDERER SEAMS
   # ★★★ O10, O11 AND O16 ARE THE FORWARDS NO PURE TEST CAN SEE. The typed carrier, plane, hash correlation and grant

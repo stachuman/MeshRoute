@@ -228,6 +228,14 @@ pure headers, which **removes both new warnings** and unlocks the `probe_firmwar
 > five-warning difference from `heltec_v3` is exactly RadioLib's existing native-USB `#warning`, emitted once in each
 > of five translation units; the V4 FEM driver's `board_rf.cpp` is the additional object and adds no warning. The live
 > pins remain `heltec_v3` 178, `heltec_mobile` 178, `gateway_heltec` 174, with `heltec_v4` appended at 183.
+
+> ★ **V4-4 ADDENDUM 2026-08-26 — TWO ROLE PROFILES, OLD PINS UNCHANGED.** The clean isolated census now also
+> derives `heltec_v4_mobile`: **327 objects / 183 warnings / `-Wswitch` 0 / 219188 B RAM / 1323500 B flash**, and
+> `gateway_heltec_v4`: **327 objects / 179 warnings / `-Wswitch` 0 / 244452 B RAM / 1273768 B flash**. The mobile
+> image inherits the V4 base warning surface unchanged. The gateway image is the existing V3 gateway warning surface
+> plus RadioLib's five native-USB diagnostics. The six live pins are therefore 178 / 178 / 174 / 183 / 183 / 179 for
+> `heltec_v3` / `heltec_mobile` / `gateway_heltec` / `heltec_v4` / `heltec_v4_mobile` /
+> `gateway_heltec_v4`, respectively.
 ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
 238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
 **no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).

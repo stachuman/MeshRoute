@@ -42,7 +42,7 @@ trap 'rm -rf "$OUT"' EXIT
 #   the old form cited `:221`/`:227` and those had already drifted). If they drift, the probe measures a configuration
 #   the board never builds — the same vacuous-instrument failure the controls exist to catch.
 # Every required production trait is explicit in both arms. V3_DEFS is also asserted byte-for-byte against the live
-# [env:heltec_v3] section by S6; V4_DEFS is the approved future board table and has no production env in V4-1.
+# [env:heltec_v3] section by S6; V4_DEFS is the approved V4 board table exercised by the production V4 env.
 V3_DEFS=(-DMR_FEAT_OLED=1 -DMR_PROBE_V4=0
          -DMR_UI_OLED_RST=21 -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_ADDR=0x3C
          -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_BTN_PIN=0
@@ -51,7 +51,7 @@ V3_DEFS=(-DMR_FEAT_OLED=1 -DMR_PROBE_V4=0
          -DMR_UI_VBAT_ADC_SCALE=5.42f)
 V4_DEFS=(-DMR_FEAT_OLED=1 -DMR_PROBE_V4=1
          -DMR_UI_OLED_RST=21 -DMR_UI_OLED_SCL=18 -DMR_UI_OLED_SDA=17 -DMR_UI_OLED_ADDR=0x3C
-         -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=HIGH -DMR_UI_BTN_PIN=0
+         -DMR_UI_VEXT_PIN=36 -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_BTN_PIN=0
          -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1
          -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH
          -DMR_UI_VBAT_ADC_SCALE=5.42f)
@@ -118,7 +118,7 @@ trait_control "T9 V3 battery ADC pin changed"      V3_DEFS -DMR_UI_VBAT_READ=1 -
 trait_control "T10 V3 ADC strategy fixed"          V3_DEFS -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH
 trait_control "T11 V3 fail-safe park inverted"     V3_DEFS -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW -DMR_UI_ADC_CTRL_FAILSAFE_PARK=HIGH
 trait_control "T12 V3 ADC scale changed"           V3_DEFS -DMR_UI_VBAT_ADC_SCALE=5.42f -DMR_UI_VBAT_ADC_SCALE=1.0f
-trait_control "T13 V4 Vext level changed"          V4_DEFS -DMR_UI_VEXT_ON_LEVEL=HIGH -DMR_UI_VEXT_ON_LEVEL=LOW
+trait_control "T13 V4 Vext level changed"          V4_DEFS -DMR_UI_VEXT_ON_LEVEL=LOW -DMR_UI_VEXT_ON_LEVEL=HIGH
 trait_control "T14 V4 uses the V3 polarity probe"  V4_DEFS -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH -DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE -DMR_UI_ADC_CTRL_FAILSAFE_PARK=LOW
 echo "traits:      $trait_pass passed / $trait_fail failed / $((trait_pass+trait_fail)) controls verified RED"
 [ "$trait_fail" -eq 0 ] || rc=1
@@ -1339,6 +1339,18 @@ wchk_in "$ROOT/platformio.ini" "W52 heltec_v3 compiles the one common canvas wit
          's@-DMR_UI_VEXT_ON_LEVEL=LOW@-DMR_UI_VEXT_ON_LEVEL=HIGH@' \
          's@-DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_PROBE@-DMR_UI_ADC_CTRL_STRATEGY=MR_UI_ADC_CTRL_FIXED_ACTIVE_HIGH@' \
          '/-DMR_UI_VBAT_ADC_SCALE=5.42f/d'
+
+# ★★★★ W53 — [[B249]]'s PRODUCTION AUTHORITY BINDING. The pure model battery proves fresh-open cardinality and
+#      snapshot/window-before-request ordering, but a fake cannot prove the shipped adapter reaches the existing
+#      core scheduler. Pin the complete policy-free override AND its sole call site: a dead/no-op forward or the
+#      tempting `team_dad_fire()` replacement would otherwise leave every pure case green.
+w53() {
+  [ "$(grep -cF 'g_node.schedule_triggered_beacon();' "$1")" -eq 1 ] || return 1
+  code_flat "$1" | grep -qE 'void request_team_announcement\(\) override \{ g_node\.schedule_triggered_beacon\(\); \}'
+}
+wchk_in "$FW_UI" "W53 DeviceInvite binds B249's request exactly once to Node::schedule_triggered_beacon" \
+     w53 '/void request_team_announcement() override { g_node.schedule_triggered_beacon(); }/d' \
+         's/g_node\.schedule_triggered_beacon()/g_node.team_dad_fire()/'
 
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"

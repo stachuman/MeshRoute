@@ -5268,8 +5268,19 @@ int main() {
                 t17 = walk_to(t17 + 500, ">INVITE MEMBER");
                 CHK("P23a INVITE MEMBER is the FOURTH child of the PROVISION menu",
                     strstr(g_c.page_text, ">INVITE MEMBER") != nullptr);
+                const uint8_t invite_local_before = g_node.team_local_id();
+                const uint32_t invite_team_before = g_node.config().team_id;
+                const int invite_queue_before = g_hal.txq_depth();
+                const int invite_starts_before = g_probe_radio.starts;
                 t17 = see(double_press(t17 + 500));
                 CHK("P23a the window's title is the design's own words", body_row_is(0, mrui::kInviteTitle));
+                // ★★★★ [[B249]] THE FRESH OPEN REQUESTS ONLY THE EXISTING DEFERRED SCHEDULER. Its call is pinned by
+                //      W53; here the shipped adapter is measured against the two forbidden substitutions: it emits
+                //      no immediate application frame and performs no team-DAD identity change.
+                CHK("P23a B249's fresh open emits no immediate frame or radio start",
+                    g_hal.txq_depth() == invite_queue_before && g_probe_radio.starts == invite_starts_before);
+                CHK("P23a B249's fresh open leaves team membership and local identity unchanged",
+                    g_node.config().team_id == invite_team_before && g_node.team_local_id() == invite_local_before);
                 {
                     // ★★ THE SCREEN'S IDENTITY IS **OUR TEAM's FINGERPRINT** AND ⛔ THERE IS NO LABEL (F-3, S-36).
                     char fp_team[mrui::kTeamFpTokenCap];
@@ -5313,15 +5324,15 @@ int main() {
                 CHK("P23b ⛔ the ROUTE-ONLY member is on no row (no invented fingerprint anywhere)",
                     strstr(g_c.page_text, "T82") == nullptr && strstr(g_c.page_text, "000000") == nullptr);
 
-                // ---- (c) ★★ ZERO TRAFFIC ACROSS A HELD-OPEN WINDOW (spec §3 P-4b) ---------------------------
-                // ★★ COUNTED, NOT ARGUED, and both counters are the REAL ones. ⓘ This is the automated half of
-                //    bench §7.3 step 4 — and the stronger half, because on metal a scheduled beacon cannot be told
-                //    apart from a panel-driven send without a baseline window.
+                // ---- (c) ★★ ZERO ADDITIONAL UI TRAFFIC AFTER THE FRESH-OPEN REQUEST (spec §3 P-4b) -----------
+                // ★★ COUNTED, NOT ARGUED, and both counters are the REAL ones. This host probe deliberately does
+                //    not service the Node timer wheel: W53 proves that the open reached the existing scheduler;
+                //    this block proves repaint, cursor movement and local refresh add no second UI-originated send.
                 {
                     g_hal.collect_tx_completion(); g_hal.pump_tx();
                     const int d0 = g_hal.txq_depth();
                     const int s0 = g_probe_radio.starts;
-                    CHK("P23c precondition: nothing is queued before the window is held open", d0 == 0);
+                    CHK("P23c precondition: no immediate frame is queued after the deferred open request", d0 == 0);
                     uint32_t tb = t17 + 500;
                     for (int i = 0; i < 8; ++i) {            // many refreshes: repaints AND a walk of every row
                         dirty_the_model(tb);
@@ -5329,10 +5340,10 @@ int main() {
                         tb = settle(tb + 300);
                     }
                     paint(tb + 300);
-                    CHK("P23c ⛔ a HELD-OPEN, repeatedly refreshed window enqueues NOTHING (the real queue)",
+                    CHK("P23c ⛔ a HELD-OPEN, repeatedly refreshed window enqueues NO ADDITIONAL frame",
                         g_hal.txq_depth() == 0);
                     g_hal.collect_tx_completion(); g_hal.pump_tx();
-                    CHK("P23c ⛔ ...and pumping the queue starts NO transmission", g_probe_radio.starts == s0);
+                    CHK("P23c ⛔ ...and pumping after those refreshes starts NO transmission", g_probe_radio.starts == s0);
                     t17 = tb + 500;
                 }
 

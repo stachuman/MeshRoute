@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Negative controls for the V4-3 device-radio, Heltec FEM and production-wiring probes."""
+"""Negative controls for the V4 device-radio, Heltec FEM, profile and production-wiring probes."""
 
 from __future__ import annotations
 
@@ -304,7 +304,22 @@ def main() -> int:
             " +<../variants/heltec_v4/board_rf.cpp>", "")),
         ("S8 omit the strict V4 frequency envelope", "platform", replace_once(
             "  -DMR_RF_STRICT_ENVELOPE=1\n", "")),
-        ("S9 introduce a premature derived V4 profile", "platform", lambda text: text + "\n[env:heltec_v4_mobile]\n"),
+        ("S9 delete the V4 mobile profile", "platform", replace_once(
+            "[env:heltec_v4_mobile]", "[env:heltec_v4_mobile_deleted]")),
+        ("S10 derive V4 mobile from the V3 board", "platform", after_marker(
+            "[env:heltec_v4_mobile]", "extends = env:heltec_v4", "extends = env:heltec_v3")),
+        ("S11 omit V4 board flags from the mobile profile", "platform", after_marker(
+            "[env:heltec_v4_mobile]", "  ${env:heltec_v4.build_flags}\n", "")),
+        ("S12 omit the mobile role from the V4 mobile profile", "platform", after_marker(
+            "[env:heltec_v4_mobile]", "  -DMR_PROFILE_MOBILE\n", "")),
+        ("S13 delete the V4 gateway profile", "platform", replace_once(
+            "[env:gateway_heltec_v4]", "[env:gateway_heltec_v4_deleted]")),
+        ("S14 derive the V4 gateway from the V3 board", "platform", after_marker(
+            "[env:gateway_heltec_v4]", "extends = env:heltec_v4", "extends = env:heltec_v3")),
+        ("S15 omit V4 board flags from the V4 gateway", "platform", after_marker(
+            "[env:gateway_heltec_v4]", "  ${env:heltec_v4.build_flags}\n", "")),
+        ("S16 omit the shared gateway role flags from the V4 gateway", "platform", after_marker(
+            "[env:gateway_heltec_v4]", "  ${gateway_flags.build_flags}\n", "")),
     ]
 
     flags = [
@@ -408,7 +423,7 @@ def main() -> int:
             print(f"  UNUSABLE {mutation.label}: exit={ran.returncode}, failed-check-lines={ran.stdout.count('  FAIL ')}")
             failures += 1
 
-    print("== V4-3 cross-file structural mutation controls ==")
+    print("== V4 cross-file structural mutation controls ==")
     for index, (label, target, apply) in enumerate(source_mutations, 1):
         try:
             mutant = apply(source_live[target])

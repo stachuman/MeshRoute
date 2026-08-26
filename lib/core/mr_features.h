@@ -17,8 +17,9 @@
 
 // §remote-mgmt (spec 2026-07-13 §10): a MOBILE is a roaming personal endpoint managed LOCALLY, never a remotely-administered
 // relay — and the most physically-capturable node — so it sheds the whole remote-command + admin-auth subsystem. The mobile
-// ROLE is a distinct env (`xiao_mobile` / `heltec_mobile` / `xiao_esp32s3_mobile` in platformio.ini) that sets
-// `-DMR_PROFILE_MOBILE`; the base boards + `production` (static) + the gateways do NOT, so they KEEP remote-mgmt.
+// ROLE is a distinct `*_mobile` env (`xiao_mobile`, `heltec_mobile`, `heltec_v4_mobile`,
+// `xiao_esp32s3_mobile`) that sets `-DMR_PROFILE_MOBILE`; the base boards + `production` (static) + the gateways do
+// NOT, so they KEEP remote-mgmt.
 #if defined(MR_PROFILE_MOBILE)
 #  define MR_FEAT_REMOTE_MGMT 0
 #endif

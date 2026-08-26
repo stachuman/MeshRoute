@@ -4244,6 +4244,11 @@ struct UiFakeProvision : IUiProvision {
     mrfw::SavedKeyList saved_keys() override { ++keys_calls; return keys; }
 };
 struct UiFakeInvite : IUiInviteDevice {
+    UiModel* model = nullptr;
+    int announcement_requests = 0;
+    bool snapshot_taken_at_announcement = false;
+    uint8_t snapshot_n_at_announcement = 0;
+    Provision provisioning_at_announcement = Provision::closed;
     bool present = true;
     MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
     mutable int reads = 0;
@@ -4260,6 +4265,13 @@ struct UiFakeInvite : IUiInviteDevice {
     }
     mrui::UiInviteIssue issue(const MESHROUTE_NS::Command& command) override {
         ++commands; last = command; return answer;
+    }
+    void request_team_announcement() override {
+        ++announcement_requests;
+        if (!model) return;
+        snapshot_taken_at_announcement = model->state().invite.taken;
+        snapshot_n_at_announcement = model->state().invite.n;
+        provisioning_at_announcement = model->state().provisioning;
     }
     // ---- §UI-16 N6: the GRANT seam, scripted. ★ The default is the ordinary ADMISSION with a handle, so a case
     //      that does not care about the outcome still exercises the promotable state; the eight arms and the words
@@ -4282,7 +4294,12 @@ struct UiFakeInvite : IUiInviteDevice {
 struct CreateFix : CfgFix {
     UiFakeProvision prov;
     UiFakeInvite invite_dev;
-    CreateFix() { prov.m = &m; m.attach_provision(prov); m.attach_invite(invite_dev); }
+    CreateFix() {
+        prov.m = &m;
+        invite_dev.model = &m;
+        m.attach_provision(prov);
+        m.attach_invite(invite_dev);
+    }
 };
 // Open PROVISION and put the confirmation up. The caller ASSERTS the landing.
 bool open_create_confirm(CreateFix& f, const UiSnapshot& s) {
@@ -7129,7 +7146,7 @@ TEST_CASE("ui16-inviterow: pin 12 — the row is the FOURTH child, and it is HID
     //     is absent on a TEAMLESS node even on a build that could show it. A node with no membership has nobody
     //     to invite into it and no key it could ever grant — [[B209]]: hide it, ⛔ never a refusing stub.
     {
-        CfgFix f; const auto s = invite_snap(1, 1000, /*invite_row=*/false);
+        CreateFix f; const auto s = invite_snap(1, 1000, /*invite_row=*/false);
         CHECK(open_provision(f.m, s));
         CHECK(f.m.provision_row_list(s).n == 4);                  // CREATE / JOIN NETWORK / JOIN TEAM / BACK
         for (int i = 0; i < 6; ++i) {
@@ -7139,6 +7156,7 @@ TEST_CASE("ui16-inviterow: pin 12 — the row is the FOURTH child, and it is HID
             f.m.on_gesture(Gesture::short_press, s);
         }
         CHECK(prov_cursor_to(f.m, s, ProvRow::invite) == false);
+        CHECK(f.invite_dev.announcement_requests == 0);           // [[B249]] hidden means no request seam
     }
     // ⓘ THE `gateway_heltec` SHAPE (OLED=1, MR_N_LAYERS=2, MR_FEAT_TEAM=0): every child is off, so the PARENT row
     //   is hidden too — the predicate derived from the child list, which needed no change for a fourth child.
@@ -7146,7 +7164,7 @@ TEST_CASE("ui16-inviterow: pin 12 — the row is the FOURTH child, and it is HID
     CHECK(provision_rows(false, false, false, false, false).n == 1);
     // ★ AND WITH IT PUBLISHED, IT IS THE FOURTH ROW AND IT OPENS THE WINDOW.
     {
-        CfgFix f; const auto s = invite_snap(1);
+        CreateFix f; const auto s = invite_snap(1);
         CHECK(open_provision(f.m, s));
         const ProvRowList l = f.m.provision_row_list(s);
         CHECK(l.n == 5);
@@ -7159,18 +7177,26 @@ TEST_CASE("ui16-inviterow: pin 12 — the row is the FOURTH child, and it is HID
         CHECK(enter_invite_from_menu(f.m, s));
         CHECK(f.m.state().settings == Settings::provisioning);
         CHECK(f.m.state().cursor == 0);
+        CHECK(f.invite_dev.announcement_requests == 1);
     }
 }
 
-TEST_CASE("ui16-invopen: pins 2/3/10 — the snapshot is taken AT OPEN, and opening/holding performs NOTHING") {
+TEST_CASE("ui16-invopen: B249 — snapshot then window then exactly one announcement request per fresh open") {
     CreateFix f;
     auto s = invite_snap(2);                                       // two members present BEFORE the window opens
     const int calls = f.prov.calls, writes = f.store.writes, applies = f.live.applies;
+    CHECK(f.invite_dev.announcement_requests == 0);
     CHECK(open_invite(f, s));
     // ★ THE SNAPSHOT EXISTS AND IT IS THE OPENING's: both members are in it, so ⛔ neither is a candidate.
     CHECK(f.m.state().invite.taken == true);
     CHECK(f.m.state().invite.n == 2);
     CHECK(invite_cands(f.m, s) == 0);
+    // ★★★★ [[B249]] THE AUTHORITY BINDING AND ORDER: the fresh-open transition reaches the attached seam once,
+    //      and the fake observes both the completed snapshot and the established invitation arm AT THE CALL.
+    CHECK(f.invite_dev.announcement_requests == 1);
+    CHECK(f.invite_dev.snapshot_taken_at_announcement == true);
+    CHECK(f.invite_dev.snapshot_n_at_announcement == 2);
+    CHECK(f.invite_dev.provisioning_at_announcement == Provision::invite);
     // ...and it stays that way across an arbitrary number of refreshes (the list is rebuilt, the snapshot is not).
     for (int i = 0; i < 5; ++i) { f.m.on_tick(s); CHECK(invite_cands(f.m, s) == 0); }
     // ★ A MEMBER ARRIVING **AFTER** THE OPEN IS A CANDIDATE, and exactly one.
@@ -7178,8 +7204,9 @@ TEST_CASE("ui16-invopen: pins 2/3/10 — the snapshot is taken AT OPEN, and open
     CHECK(invite_cands(f.m, s) == 1);
     f.m.on_tick(s);
     CHECK(invite_cands(f.m, s) == 1);
-    // ⛔⛔ AND NOTHING WAS PERFORMED BY ANY OF IT (spec §4-N4 pin 10): the window opens, holds and refreshes with
-    //     ⛔ zero transactions, zero durable writes and zero live applies. ★ The authority is the COUNTERS, ⛔ not
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ redraw/tick/arrival do not repeat it
+    // ⛔⛔ ASIDE FROM THE ONE SCHEDULER REQUEST, NOTHING WAS PERFORMED (spec §4-N4 pin 10): the window opens, holds
+    //     and refreshes with ⛔ zero transactions, zero durable writes and zero live applies. ★ The authority is the COUNTERS, ⛔ not
     //     the screen — a model that quietly acted would look identical if it also failed to navigate.
     CHECK(f.prov.calls   == calls);
     CHECK(f.store.writes == writes);
@@ -7189,7 +7216,12 @@ TEST_CASE("ui16-invopen: pins 2/3/10 — the snapshot is taken AT OPEN, and open
     leave_invite(f.m, s);
     CHECK(f.m.state().provisioning == Provision::menu);
     CHECK(f.m.state().invite.taken == false);                      // ⛔ the window's state died with the window
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ close does not request
     CHECK(enter_invite_from_menu(f.m, s));
+    CHECK(f.invite_dev.announcement_requests == 2);                // ★ a genuinely fresh open requests afresh
+    CHECK(f.invite_dev.snapshot_taken_at_announcement == true);
+    CHECK(f.invite_dev.snapshot_n_at_announcement == 3);
+    CHECK(f.invite_dev.provisioning_at_announcement == Provision::invite);
     CHECK(f.m.state().invite.n == 3);                              // ★ the arrival is now part of the SNAPSHOT...
     CHECK(invite_cands(f.m, s) == 0);                              // ...so it is nobody's candidate any more
 }
@@ -7198,6 +7230,7 @@ TEST_CASE("ui16-invexpire: pin 1 — the window expires BY ITSELF at five minute
     CreateFix f;
     auto s = invite_snap(1);
     CHECK(open_invite(f, s));
+    CHECK(f.invite_dev.announcement_requests == 1);
     add_member(s, 200, 0xAABBCCDDu);
     CHECK(invite_cands(f.m, s) == 1);
     const int calls = f.prov.calls, writes = f.store.writes, applies = f.live.applies;
@@ -7211,6 +7244,7 @@ TEST_CASE("ui16-invexpire: pin 1 — the window expires BY ITSELF at five minute
     //    so it closes on exactly the tick the deadline arrives — the same edge the blank clock fires on.
     f.m.on_tick(at(mrui::kInviteWindowMs));
     CHECK(f.m.state().provisioning == Provision::invite_closed);
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ expiry is not another open
     CHECK(strcmp(mrui::kInviteClosed, "WINDOW CLOSED") == 0);       // ...with the ruled word
     // ⛔⛔ P-11: THE EXPIRY GRANTED, REVOKED AND REWROTE NOTHING — no transaction, no durable write, no live
     //     apply — and the WINDOW'S OWN STATE IS GONE rather than left standing behind a screen.
@@ -7229,6 +7263,7 @@ TEST_CASE("ui16-invexpire: pin 1 — the window expires BY ITSELF at five minute
     CHECK(f.m.state().provisioning == Provision::invite_closed);
     f.m.on_gesture(Gesture::short_press, at(mrui::kInviteWindowMs + 10));
     CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ wake/ack/close do not repeat it
     // ...and the OTHER press does the same, because the screen is terminal and has no selectable row.
     {
         CreateFix g;
@@ -7244,6 +7279,7 @@ TEST_CASE("ui16-invexpire: pin 1 — the window expires BY ITSELF at five minute
     // ★ AND RE-OPENING WORKS AND RE-ARMS: the member set the second window sees is the SAME one the first did.
     auto later = at(mrui::kInviteWindowMs + 20);
     CHECK(enter_invite_from_menu(f.m, later));
+    CHECK(f.invite_dev.announcement_requests == 2);                // ★ fresh open, fresh bounded request
     CHECK(f.m.state().invite.taken == true);
     CHECK(f.m.state().invite.n == 2);                              // both members, byte-identical across the expiry
     f.m.on_tick(at(mrui::kInviteWindowMs + 21));
@@ -7255,6 +7291,7 @@ TEST_CASE("ui16-invblank: pin 13 — the WINDOW survives blank/wake; an UNFINISH
     CreateFix f;
     auto s = invite_snap(1);
     CHECK(open_invite(f, s));
+    CHECK(f.invite_dev.announcement_requests == 1);
     add_member(s, 200, 0xAABBCCDDu);
     CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
     // ★★ THE WINDOW DOES **NOT** HOLD THE PANEL LIT (✅ OQ-3): with no press for `kBlankMs` the panel goes dark
@@ -7273,6 +7310,7 @@ TEST_CASE("ui16-invblank: pin 13 — the WINDOW survives blank/wake; an UNFINISH
     CHECK(f.m.state().cursor == was_cursor);
     CHECK(f.m.state().provisioning == Provision::invite);
     CHECK(invite_cands(f.m, s) == 1);
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ blank/wake did not re-open
     // ★★★ THE OTHER HALF: an UNFINISHED CONFIRMATION DOES NOT SURVIVE. The operator may not wake onto a screen
     //     whose act is one press away and which they may not remember opening (§3.6.5 rule 1).
     f.m.on_gesture(Gesture::double_press, at(kBlankMs + 60));
@@ -7288,6 +7326,7 @@ TEST_CASE("ui16-invblank: pin 13 — the WINDOW survives blank/wake; an UNFINISH
     CHECK(f.m.state().provisioning == Provision::invite);
     f.m.on_tick(at(mrui::kInviteWindowMs + 1));
     CHECK(f.m.state().provisioning == Provision::invite_closed);
+    CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ fallback/expiry did not repeat it
 }
 
 TEST_CASE("ui16-invreject: the ready confirmation freezes the hash, defaults REJECT and grants nothing in N5") {

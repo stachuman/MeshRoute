@@ -409,7 +409,7 @@ public:
     }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
-    void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
+    void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public UI/test trigger seam
     int        mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* source, bool local_only); // :4320; public for tests
     // R4.4 originator anti-spam (dv:3205-3277). track = ledger append (prune+dedup-first); compute = the
     // sliding-window metric. kind: 0=rts, 1=cts. Draw-free. Public for tests.

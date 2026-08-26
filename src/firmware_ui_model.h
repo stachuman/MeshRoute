@@ -2893,8 +2893,9 @@ public:
     //    constructs the adapter over the device bindings and hands it here once, at `mr_ui_init`; the native suite
     //    hands over the SAME pure adapter built on the transaction's own fakes. ⛔ The model never constructs one.
     void attach_provision(IUiProvision& p) { _prov = &p; }
-    // ★ §UI-16 N5 — one pointer to the two device facts the pure model cannot own: the grant-bar cache read and
-    //   the final typed-command forward. The decisions (floor, hash, kind and TEAM plane) all live in
+    // ★ §UI-16 N5 / [[B249]] — one pointer to the device facts the pure model cannot own: the core announcement
+    //   scheduler, the grant-bar cache read and the final typed-command/grant forwards. The decisions (when to
+    //   request, floor, hash, kind and TEAM plane) all live in
     //   `firmware_ui_invite.h`; the device implementation is deliberately policy-free.
     void attach_invite(IUiInviteDevice& d) { _invite_dev = &d; }
     void on_invite_push(const MESHROUTE_NS::Push& pu) {
@@ -4284,15 +4285,21 @@ private:
             //   because "nothing is audible here" is a fact the operator came to learn — the same reasoning
             //   `join_static`'s refusing-store arm carries one row up.
             case ProvRow::join_team:   load_nearby(s);       enter_provision(Provision::nearby);      return;
-            // ★★★★ §UI-16 N4 — THE INVITATION WINDOW OPENS, AND **THE SNAPSHOT IS TAKEN HERE**: on the
-            //      TRANSITION, ⛔ not at the first render and ⛔ not per tick. That ordering IS the feature —
+            // ★★★★ §UI-16 N4 / [[B249]] — THE INVITATION WINDOW OPENS, AND **THE SNAPSHOT IS TAKEN HERE**: on the
+            //      TRANSITION, ⛔ not at the first render and ⛔ not per tick. Only AFTER the snapshot and the
+            //      window arm are established does a fresh open request the core's existing triggered team
+            //      announcement. That order IS the feature —
             //      *"opening invitation mode snapshots the known member identities"* — and taking it at the
             //      first draw would take it AFTER a member could already have arrived, hiding exactly the
             //      candidate the window exists to surface (and re-taking it on every repaint).
             // ⓘ AN EMPTY TEAM IS NOT A REFUSING TRANSITION (the `join_static` / `join_team` rule, a third time):
             //   the window OPENS and says `NO CANDIDATES`, because "nobody new" is what the operator came to
             //   learn. The row itself is hidden when we are in no team at all (`prov_invite`).
-            case ProvRow::invite:      load_invite(s);       enter_provision(Provision::invite);      return;
+            case ProvRow::invite:
+                load_invite(s);
+                enter_provision(Provision::invite);
+                if (_invite_dev) _invite_dev->request_team_announcement();
+                return;
             // ★★★★ §UI-16 K6 — THE RETENTION LIST OPENS, AND ⛔ THE KEYRING IS READ **HERE AND ONCE**: on the
             //      TRANSITION, ⛔ not per tick and ⛔ not per page, because the enumeration reaches FLASH. That is
             //      `join_static`'s rule (`profiles()`) verbatim, and freezing it is also what keeps a record from
@@ -4792,6 +4799,9 @@ private:
         _st.invite      = invite_snapshot_take(s.member, s.team_shown);
         _invite_until_ms = s.now_ms + kInviteWindowMs;
     }
+    // ⓘ [[B249]] deliberately does not request the announcement here: this helper establishes the snapshot and
+    //   deadline only. The sole transition above requests AFTER this function and AFTER `enter_provision`, making
+    //   both the order and the once-per-fresh-open cardinality visible to the attached seam.
     // ★★★★ THE LOCAL REFRESH IS THE LIST ITSELF (F-14 / R-10): the rows are built from the LIVE snapshot every
     //      time they are needed — here for the cursor's bound, in `draw_provision_screen` for the pixels — so a
     //      member that appears mid-window appears on the panel with ⛔ no scan, ⛔ no query and ⛔ nothing

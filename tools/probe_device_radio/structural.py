@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V4-3 source-shape checks that complement the production-header/GPIO behavioral probes."""
+"""V4 port source-shape checks that complement the production-header/GPIO behavioral probes."""
 
 from pathlib import Path
 import sys
@@ -25,6 +25,14 @@ def main() -> int:
         else:
             failed += 1
             print(f"  FAIL {label}")
+
+    def env_section(name: str) -> str:
+        marker = f"[env:{name}]"
+        start = platform.find(marker)
+        if start < 0:
+            return ""
+        end = platform.find("\n[", start + len(marker))
+        return platform[start:end if end >= 0 else len(platform)]
 
     # One physical RadioLib authority for each direction. Names in comments do not count: these expressions name
     # the wrapped object exactly, so a bypass anywhere is visible.
@@ -98,9 +106,12 @@ def main() -> int:
     check("S21 board_name has an explicit Heltec V4 arm",
           '#elif defined(BOARD_HELTEC_V4)\n    return "heltec_v4";' in commands)
 
-    v4_section = platform[platform.find("[env:heltec_v4]"):platform.find("[env:xiao_esp32s3]")]
-    check("S22 exactly one base heltec_v4 env, with no premature derived profiles",
-          platform.count("[env:heltec_v4]") == 1 and "heltec_v4_mobile" not in platform and "gateway_heltec_v4" not in platform)
+    v4_section = env_section("heltec_v4")
+    v4_mobile_section = env_section("heltec_v4_mobile")
+    v4_gateway_section = env_section("gateway_heltec_v4")
+    check("S22 exactly one base and one of each V4 role profile",
+          all(platform.count(f"[env:{name}]") == 1
+              for name in ("heltec_v4", "heltec_v4_mobile", "gateway_heltec_v4")))
     required_v4 = ("board = heltec_v4", "board_build.variants_dir = arduino_variants", "-DMR_BOARD_RF_FRONTEND=1",
                    "-DLORA_TX_POWER=10", "-DMR_DEFAULT_OUTPUT_DBM=22", "-DMR_RF_OUTPUT_MIN_DBM=22",
                    "-DMR_RF_OUTPUT_MAX_DBM=22", "-DMR_RF_FREQ_MIN_MHZ=863.0", "-DMR_RF_FREQ_MAX_MHZ=928.0",
@@ -108,6 +119,16 @@ def main() -> int:
                    "+<../variants/heltec_v4/board_rf.cpp>")
     check("S23 V4 env pins the first-build RF/output/variant contract",
           bool(v4_section) and all(token in v4_section for token in required_v4))
+    check("S24 V4 mobile inherits the V4 board and adds only the mobile role",
+          all(token in v4_mobile_section for token in
+              ("extends = env:heltec_v4", "${env:heltec_v4.build_flags}", "-DMR_PROFILE_MOBILE")) and
+          all(token not in v4_mobile_section for token in
+              ("${gateway_flags.build_flags}", "board =", "build_src_filter =")))
+    check("S25 V4 gateway inherits the V4 board and adds only the shared gateway role",
+          all(token in v4_gateway_section for token in
+              ("extends = env:heltec_v4", "${env:heltec_v4.build_flags}", "${gateway_flags.build_flags}")) and
+          all(token not in v4_gateway_section for token in
+              ("-DMR_PROFILE_MOBILE", "board =", "build_src_filter =")))
 
     print(f"{passed} structural checks passed, {failed} failed")
     return 1 if failed else 0

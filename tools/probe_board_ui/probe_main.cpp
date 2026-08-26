@@ -193,7 +193,7 @@ int main() {
     (void)mrui::board_init();
     CHK("P6a button trait is GPIO0 and INPUT_PULLUP",   MR_UI_BTN_PIN == 0 && g_gpio.mode[0] == (int)INPUT_PULLUP);
     CHK("P6b Vext trait is GPIO36 driven OUTPUT",       MR_UI_VEXT_PIN == 36 && g_gpio.mode[36] == (int)OUTPUT);
-    CHK("P6c Vext uses this board's ruled level",        g_gpio.level[36] == (MR_PROBE_V4 ? (int)HIGH : (int)LOW));
+    CHK("P6c Vext uses this board's ruled LOW level",    g_gpio.level[36] == (int)LOW);
     CHK("P6d panel brought up exactly once",           g_u8.begin == 1);
     CHK("P6h OLED reset trait reaches U8g2 as GPIO21", g_probe_u8_ctor_rst == 21);
     CHK("P6i OLED clock trait reaches U8g2 as GPIO18", g_probe_u8_ctor_scl == 18);

@@ -282,9 +282,12 @@ into the next visit would re-open a confirmation the operator never asked for, w
 - **F-14 · INVITE REFRESH IS NOT THE SAME QUESTION AS NEARBY REFRESH, AND THE DRAFT'S §10 CONFLATED THEM.**
   ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the draft's §10 said *"⛔ **no auto-refresh of either list**"*.
   ✅ **RULED (owner, 2026-08-22):** **NEARBY** teams = a **frozen snapshot per entry**, manual refresh only (leave and
-  re-enter). **INVITE** candidates = **locally refreshed while the window is active** — which performs **no scan and
-  transmits nothing**: it only re-reads member state the node already holds (`rt_team_at` / `team_key_of_id`, both
-  `const`). **Selection stays identity-based, and opening a confirmation FREEZES the selected hash/id.**
+  re-enter). **INVITE** candidates = **locally refreshed while the window is active** — the refresh itself performs
+  **no scan and transmits nothing**: it only re-reads member state the node already holds (`rt_team_at` /
+  `team_key_of_id`, both `const`). ★ **B249 CORRECTION (owner-ruled 2026-08-26): opening a FRESH invitation window,
+  after taking its member snapshot, requests exactly ONE existing triggered team announcement through
+  `Node::schedule_triggered_beacon()`; holding, refreshing, waking and closing request nothing further.** Selection
+  stays identity-based, and opening a confirmation FREEZES the selected hash/id.
 - **F-15 · ⛔ THE DRAFT BANNED NAMES OUTRIGHT WHERE §3.6.4 ONLY BANS *GUESSED* ONES — THERE IS A LIFECYCLE, AND IT IS
   ALREADY HALF-BUILT.** ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the draft's **P-5** read *"rows render fingerprint ·
   signal · age and ⛔ nothing name-shaped"* as a permanent rule on **both** screens.
@@ -438,7 +441,7 @@ is that a briefed 16 B measured 20, so the implementer **pins `sizeof` and two `
 | **P-2b** | ★ **a RETAINED key is ⛔ never silently reactivated by mere knowledge of the public team_id** (keyring ruling) | `/mrcfg`'s new active-binding fact (active team id + `team_key_active`); boot install **only on exact active-team match** | K2 pin: re-joining a previously-known team offers **`SAVED KEY FOUND`** with `BACK` selected and requires an explicit **`USE SAVED KEY`**; a mutation that auto-installs on an id match must redden. Metal §7.5 |
 | **P-3** | the **observation path is READ-ONLY** | N1's write site touches **only** the new array; ⛔ it calls no `rt_merge`, `team_key_set`, `id_bind_set`, `peer_key_set` or NV path | ★ the slice's headline controls: three mutations routing the observation into `_rt_team` / `_team_keys` / `id_bind_set`, each RED at match count 1; plus a native case asserting `rt_team_count()`, `_team_keys` occupancy and `team_channel_key_present()` unchanged across N foreign beacons. Metal §7.1 step 5 |
 | **P-4** | the scan **transmits nothing** | N1 adds no send site; N2 renders a cache | N2 probe arm: a full NEARBY walk with TX-queue depth and radio starts asserted **zero**. Metal §7.1 step 6 measures it against a STATUS baseline |
-| **P-4b** | ★ the **INVITE refresh** transmits nothing either (F-14) | it re-reads `rt_team_at` / `team_key_of_id`, both `const`; ⛔ no scan, no query | N4 probe arm: an INVITE window held open across many refreshes, TX asserted **zero** |
+| **P-4b** | ★ the **INVITE refresh** transmits nothing (F-14); ★ a **fresh OPEN** requests exactly one existing triggered team announcement (B249) | open: snapshot first, then one `Node::schedule_triggered_beacon()` request through the invite device seam; refresh: only `rt_team_at` / `team_key_of_id`, both `const`; ⛔ no scan, query, key, DM or channel send | N4/B249: one request per fresh open; zero additional requests across hold/refresh/redraw/wake/close; teamless/layered arms request zero |
 | **P-5** | a label may be shown only from a **trusted PROVENANCE**, ⛔ never **guessed from an id**. ⛔ **REWORDED 2026-08-22 (QG, K1 gate round), WITHDRAWN TEXT KEPT VISIBLE:** this cell read *"from an **authenticated source**"* — ⛔ **overclaims**; see F-15(c) | ⛔⛔ **REWRITTEN IN PLACE 2026-08-22 (F-15), AND THE WITHDRAWN CELL IS KEPT VISIBLE:** it read *"⛔ **no label is shown at all in v1** (F-3) · N2/N4 pin: rows render fingerprint · signal · age and ⛔ nothing name-shaped"*. **That over-applies the rule.** ★ **TEAM-name half unchanged and still absolute:** ⛔ **no TEAM label exists to show** (F-3) — nothing is stored, so nothing is rendered, on either screen. ★ **MEMBER-name half is a LIFECYCLE:** a member's **node name** is **MUTABLE METADATA CACHED ALONGSIDE a verified pubkey** — ⛔ **not itself authenticated** (⛔ **reworded 2026-08-22, QG K1 gate round; the withdrawn phrase was *"is authenticated-by-exchange"***) — and, once cached, **is preferred** (rules 2-3) | N2 pin: a NEARBY row renders the **team** fingerprint · signal · age and ⛔ nothing name-shaped. N4 pins: a candidate row's name column is **blank** until a pubkey lands, then carries the cached name. A mutation substituting `label_for_team_id` (`src/firmware_ui.cpp:359-361`) into a **NEARBY** row must redden |
 | **P-5b** | ★ **rule 1 — ⛔ AN ADVERTISER'S NODE NAME IS NEVER PRESENTED AS THE TEAM NAME** | the NEARBY row's identity is the **team fingerprint**, and the pure unit has ⛔ no access to a node-name source for that row | ★ N2's headline privacy control: a mutation that resolves the **beacon sender's** name (via `peer_name_find`) and renders it as the row's team label must **redden**. ⓘ This is a genuinely plausible defect — the sender's hash is in scope at the observation site — which is why it is a control and not a comment. Metal §7.1 step 3 |
 | **P-7c** | ★ **rule 4 — the FULL hash stays VISIBLE at the moment of an irreversible act** | the confirmation / detail screen renders the full `0x%08lX` hash beside whatever name is shown | N4/N5/N6 pins: the `REQUEST PUBKEY`, `GRANT KEY` and `REJECT` confirmations each carry the full hash **even when a name is available**; ⛔ a name is never the only identity on those screens. Metal §7.4 |
@@ -739,8 +742,10 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   ⓘ **THE 6-COLUMN CLAMP IS DELIBERATE AND MATCHES THE TEAM ROW's `%-6.6s`** (§UI-17 S-11): a member that appears on
   both TEAM and the invite list must not render **two different truncations of one name**.
 - **★ THE WINDOW REFRESHES LOCALLY WHILE ACTIVE (✅ F-14 ruled)** — it re-reads `rt_team_at` / `team_key_of_id`, both
-  `const`: ⛔ no scan, ⛔ nothing transmitted. **Selection stays identity-based, and opening a confirmation FREEZES the
-  selected hash/id** — so a refresh between the two presses cannot move what the operator is about to act on.
+  `const`: ⛔ no scan and ⛔ no refresh traffic. ★ **B249:** a FRESH open takes the member snapshot first and then
+  requests exactly ONE existing triggered team announcement; no redraw/tick/wake/confirmation-return/close request
+  exists. **Selection stays identity-based, and opening a confirmation FREEZES the selected hash/id** — so a refresh
+  between the two presses cannot move what the operator is about to act on.
 - **★ THE WINDOW IS A SEPARATE DEADLINE AND ⛔ MUST NOT WRITE `_last_input_ms`** — the §UI-17 S8 mechanism verbatim
   (that field is written only by a real gesture and the first-tick seed, and it drives the panel blank). ⇒
   `_invite_until_ms` + `window_active(now)` beside the existing `hold_active(now)`, wrap-safe the same way (U3).
@@ -756,8 +761,11 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   **does** prompt, and the case is driven directly so the documented behaviour is measured rather than asserted in
   prose. (7) The candidate word is **`NEW MEMBER`**; ⛔ `KEYLESS` appears nowhere. (8) ★ A `REJECT`ed candidate does
   **not** return on the next refresh, **and** returns after the window is closed and re-opened. (9) The screen shows
-  the team's own fingerprint and ⛔ no label. (10) ⛔ **Nothing is transmitted** by opening, holding, refreshing or
-  closing the window. (11) With the window closed, a new member changes ⛔ no screen, cursor or note (P-12).
+  the team's own fingerprint and ⛔ no label. (10) ★ **A fresh open requests exactly ONE triggered team announcement,
+  after the member snapshot; holding, refreshing, redrawing, waking, returning from a confirmation and closing
+  request nothing further.** The request reaches only `Node::schedule_triggered_beacon()` — ⛔ never
+  `team_dad_fire`, a key/query/DM/channel send or a new wire carrier. (11) With the window closed, a new member changes
+  ⛔ no screen, cursor or note (P-12).
   (12) The row is hidden on a teamless node and on `gateway_heltec`. (13) The window survives blank/wake; an
   unfinished confirmation does not.
   ★ **ADDED 2026-08-22 (F-15):** (14) **rule 2** — a candidate with **no cached name** renders a **blank** name column
@@ -779,9 +787,13 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   filling beside it (⇒ the identity aid vanishes the moment a name arrives) · the name resolved through
   `label_from_hash` and clamped (⇒ the truncated-`0x` third spelling) · the name rendered **without** the 6-column
   clamp (⇒ a long name pushes the id and the fingerprint off the row) · the confirmation dropping the **full hash**
-  once a name is available (P-7c).
+  once a name is available (P-7c) ·
+  ★ **B249:** the opening request deleted · duplicated on one open or repeated from tick/refresh/wake/close · moved
+  before the opening member snapshot · the device forward retargeted from `schedule_triggered_beacon()` to
+  `team_dad_fire()`.
 - **Probe.** An INVITE arm with a seeded member set asserting the exact candidate rows; a window-expiry arm; a
-  held-open-across-refreshes **zero-TX** arm (P-4b).
+  fresh-open arm asserting one ordered triggered-announcement request; a held-open-across-refreshes arm asserting
+  zero **additional** request/TX; teamless and layered arms asserting zero.
 
 ### N5 — UI: the explicit `REQUEST PUBKEY` step *(new — F-12)*
 
@@ -1066,7 +1078,7 @@ Option 1 ruled over widening the F-11 diff (a proxy wrong in both directions) an
 | N1 | the `lib/core` beacon/team suites | native mutations (no per-file battery target exists for `lib/core`; the controls are driven as native mutations at match count 1 and **reported individually**) | ⛔ none (headless core) |
 | N2 | new `test/test_firmware_ui_nearby.cpp` + `test/test_firmware_ui_model.cpp` | **new `uinearby`**, `model` | seeded-cache NEARBY arm (real renderer); PROVISION row census; zero-bus/zero-TX arm |
 | N3 | `test/test_firmware_ui_prov.cpp` + `test/test_firmware_ui_model.cpp` | `uiprov`, `model` | confirm/refuse arm; `PHY DIFFERS` arm; `BACK`-performs-nothing arm |
-| N4 | new `test/test_firmware_ui_invite.cpp` + `test/test_firmware_ui_model.cpp` | **new `uiinvite`**, `model` | seeded-member INVITE arm; window-expiry arm; held-open zero-TX arm |
+| N4 | new `test/test_firmware_ui_invite.cpp` + `test/test_firmware_ui_model.cpp` | **new `uiinvite`**, `model` | seeded-member INVITE arm; window-expiry arm; B249 fresh-open one-request + held-open zero-additional-request arms |
 | N5 | `test/test_firmware_ui_invite.cpp` | `uiinvite`, `model` | a command-counting arm (⛔ zero WANT_PUBKEY without the confirmation) |
 | N6 | `test/test_firmware_ui_invite.cpp` + `test/test_firmware_ui_send.cpp` | `uiinvite`, **`uisend`**, `model` | eight-outcome + two-push GRANT arm against the fake seam |
 | K3 | `test/test_firmware_team_keyring.cpp` | `teamkeyring`, `config` | ⛔ none; the real-flash half is **metal-only** |
@@ -1202,7 +1214,9 @@ does not edit the bench script (supervisor-landed after PASS).
 
 ### 7.3 The invitation window (N4)
 1. ☐ On **H2**: SETTINGS → PROVISION → **`INVITE MEMBER`** → `double`. Expected: H2's team **fingerprint**, ⛔ no
-   label, and a candidate list.
+   label, and a candidate list. On a same-PHY, same-leaf teamless **H1**, NEARBY discovers H2 after the existing
+   triggered scheduler permits the public team beacon (normally 2–10 s jitter; the existing 120 s minimum interval
+   may defer it after a recent beacon). ⛔ FAIL if the old manual `team <id>` workaround is still required.
 2. ☐ ★ **THE SNAPSHOT IS TAKEN AT OPEN.** With H1 already joined and heard **before** the window opened, expected on
    first open: **`NO CANDIDATES`**. ⛔ FAIL if an already-known member appears.
 3. ☐ Leave the window. On **H1**: `team 0`, then re-join through NEARBY (§7.2). On **H2**: open `INVITE MEMBER`
@@ -1211,9 +1225,10 @@ does not edit the bench script (supervisor-landed after PASS).
    ★ **RULE 2 — THE INITIAL STATE, READ OFF THE GLASS:** the row's **name column is BLANK** and its **fingerprint
    column is populated**. ⛔ FAIL if a name is already showing — H2 holds no verified pubkey for H1 yet, so no name
    has been cached alongside one. ⛔ FAIL if the fingerprint column is empty.
-4. ☐ ★ **THE LOCAL REFRESH TRANSMITS NOTHING (P-4b).** Hold the window open for a full **five minutes**, capturing
-   H2's console. Expected: candidates refresh on the panel and ⛔ **no query, DM, channel post or location request
-   appears** that a STATUS window would not also show.
+4. ☐ ★ **THE LOCAL REFRESH TRANSMITS NOTHING (P-4b).** After the one fresh-open announcement request, hold the
+   window open for a full **five minutes**, capturing H2's console. Expected: candidates refresh on the panel and
+   ⛔ **no further UI-driven beacon request, query, DM, channel post or location request appears** that a STATUS
+   window would not also show.
 5. ☐ ★ **WINDOW EXPIRY (P-11).** Leave the window untouched past **5 minutes** ⇒ **`WINDOW CLOSED`**, the approval UI
    closes by itself, and ⛔ **H1 is still a member and still holds whatever key it held.**
 6. ☐ **Blank/wake (OQ-3's clarification).** Re-open the window, let the panel blank (~20 s), press **once** ⇒ the
@@ -1461,8 +1476,10 @@ present · the loaded blob belongs to the same team — closing the delayed-push
 **R-10 · Refresh — ★ NEARBY IS FROZEN; INVITE REFRESHES LOCALLY.**
 *Asked (implicitly, by the draft's blanket "no auto-refresh"):* do both lists behave the same?
 *Ruled:* **no.** NEARBY teams = a **frozen snapshot per entry**, manual refresh only. INVITE candidates = **locally
-refreshed while the window is active** — no scan, transmits nothing, it only re-reads existing member state.
-**Selection stays identity-based; opening a confirmation FREEZES the selected hash/id.** ⇒ landed at **§1.7 F-14**,
+refreshed while the window is active** — the refresh performs no scan and transmits nothing; it only re-reads existing
+member state. ★ **B249 adds one existing triggered-team-announcement request on each fresh open, after the opening
+snapshot; it adds no refresh traffic.** Selection stays identity-based; opening a confirmation FREEZES the selected
+hash/id. ⇒ landed at **§1.7 F-14**,
 **§4-N2 and §4-N4**, **§3 P-4b**, **§10**, metal **§7.3 step 4**.
 
 **R-11 · `REJECT` — ★ IT NEEDS A VOLATILE PER-WINDOW HANDLED SET.**
@@ -1548,7 +1565,8 @@ lapse because the list is empty.
 - ⛔ **no `JOIN COMPLETE`, no `KEY RECEIVED` on the granter, and no `KEY SENT` before a correlated `send_aired`**
   (R-8) — there is no e2e ack on a grant;
 - ⛔ **no auto-refresh of NEARBY** (frozen per entry) — ⛔ **CORRECTED, KEPT VISIBLE: the draft said "of either list";
-  INVITE DOES refresh locally** while its window is active, transmitting nothing (R-10);
+  INVITE DOES refresh locally** while its window is active, and that refresh transmits nothing (R-10). ★ B249's one
+  triggered team-announcement request belongs only to a fresh open;
 - ⛔ **no invitation carrier on the wire**, ⛔ **no cross-PHY onboarding**, ⛔ **no Crockford-Base32 rendering and no
   one-button character entry** — all four are named in §3.6.4 as later or out of scope (`:830-837`);
 - ⛔ **WITHDRAWN, KEPT VISIBLE:** the first pass excluded `SAVED KEY FOUND` / `USE SAVED KEY` and `FORGET KEY`.

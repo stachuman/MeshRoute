@@ -2467,6 +2467,7 @@ struct N6Live : mrfw::ICfgLive {
 };
 // The grant seam, scripted — the ADMISSION arm with a handle, which is the only state a push may promote.
 struct N6Invite : IUiInviteDevice {
+    void request_team_announcement() override {}
     int grants = 0;
     uint16_t tx_ctr = 4242;
     bool peer_key_at_least(uint32_t, MESHROUTE_NS::Node::PeerKeyConf) const override { return true; }

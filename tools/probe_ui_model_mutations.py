@@ -2720,8 +2720,24 @@ MUTS_MODEL = [
   "        if (!provision_is_invite(_st.provisioning)) return;\n"
   "        _st.invite = invite_snapshot_take(s.member, s.team_shown);"),
  ("V03 ★★ the snapshot is NEVER taken — the window opens with no authorities at all",
-  "            case ProvRow::invite:      load_invite(s);       enter_provision(Provision::invite);      return;",
-  "            case ProvRow::invite:      enter_provision(Provision::invite);      return;"),
+  "                load_invite(s);",
+  "                ;"),
+ # ★★★★ [[B249]] — THE FRESH-OPEN ANNOUNCEMENT'S THREE MODEL FAILURES. These are separate controls because a
+ #      count-only case cannot prove the request followed the snapshot/window authority, and an order-only case
+ #      cannot prove that redraw/tick/close refrain from repeating it.
+ ("B249-1 ★★★ the fresh INVITE open never requests the existing triggered team announcement",
+  "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "                ;"),
+ ("B249-2 ★★★ the fresh INVITE open requests the announcement TWICE",
+  "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }"),
+ ("B249-3 ★★★ the announcement request precedes the member snapshot and established invitation arm",
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "                if (_invite_dev) _invite_dev->request_team_announcement();\n"
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);"),
  ("V04 ★★★ the expiry RENEWS the window instead of closing it — the bounded window is unbounded and the panel "
   "never says WINDOW CLOSED (P-11)",
   "        enter_provision(Provision::invite_closed);",

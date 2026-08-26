@@ -243,7 +243,7 @@ The following is the target table for the original V4.2/V4.3 family:
 | button | GPIO0, active LOW | same | common Heltec canvas |
 | OLED | SSD1315-compatible 128x64 at 0x3C | same | common page canvas |
 | OLED SDA / SCL / RESET | 17 / 18 / 21 | same | traits |
-| Vext | GPIO36, active HIGH | same | traits |
+| Vext | GPIO36, active LOW | same | traits |
 | battery ADC / divider control | GPIO1 / GPIO37, control active HIGH | same | traits |
 | battery multiplier | 5.42 reference value | same | traits |
 | USB console | native ESP32-S3 CDC/JTAG | same | board JSON and existing console |
@@ -251,10 +251,11 @@ The following is the target table for the original V4.2/V4.3 family:
 Heltec names the controller SSD1315; the current MeshCore OLED port and the compatible U8g2 command path use an
 SSD1306-class driver. Compatibility is an on-metal acceptance item, not a reason to duplicate the renderer.
 
-There is a documented-source conflict on Vext polarity: current pinned MeshCore declares GPIO36 active HIGH, while
-the V4.2 Heltec datasheet prose says VextCtrl must be LOW to use VE. The first build follows the current MeshCore
-reference (HIGH), but the trait is provisional until panel ACK and current are measured on both boards. If V4.2
-and V4.3 differ, derive the runtime level from the already detected FEM kind; do not choose one revision silently.
+There was a documented-source conflict on Vext polarity: pinned MeshCore declared GPIO36 active HIGH, while the
+V4.2 Heltec datasheet prose and Heltec's V4 factory test use LOW to power Vext. The provisional HIGH first build was
+falsified on a metal V4.3 (`fem=kct8103l`): the panel did not ACK at 0x3C. The shared LOW trait then made the OLED
+work on that V4.3 and on a V4.2 (`fem=gc1109`) with the same image. GPIO36 LOW is therefore shared by both target
+revisions; no runtime polarity split is needed.
 
 GPIO0 remains a boot strap. Holding the UI button through reset can enter the ROM downloader, exactly as on V3.
 
@@ -313,7 +314,7 @@ control. Missing traits are compile errors, never defaults.
 The real-board UI probe must compile the same common source twice and prove both trait sets:
 
 - V3: present pin values, Vext LOW, ADC polarity probing;
-- V4: OLED 17/18/21, Vext HIGH, ADC control LOW at rest and HIGH only while sampling;
+- V4: OLED 17/18/21, Vext LOW, ADC control LOW at rest and HIGH only while sampling;
 - both: one-page-per-service paint, panel ACK check, blanking, button polling, wake arm/disarm and no frame-policy
   leakage into the board adapter.
 
@@ -518,7 +519,7 @@ Required V4-only values:
 - FEM GPIOs 7, 2, 46 and 5;
 - DIO2 RF switch, 1.8 V TCXO, 140 mA current limit, boosted RX and the V4 register 0x8B5 patch;
 - MR_FEAT_OLED=1 and the common Heltec canvas include/source;
-- OLED 17/18/21, Vext 36 active HIGH, button 0, VBAT 1, ADC control 37 fixed active HIGH;
+- OLED 17/18/21, Vext 36 active LOW, button 0, VBAT 1, ADC control 37 fixed active HIGH;
 - safe chip init 10 and default nominal output 22;
 - the D2 LNA default.
 
@@ -628,6 +629,10 @@ V4-4 record the selected new V4 values. The warning census separately records ev
 **219668 B RAM / 1328916 B flash**; `xiao_sx1262` **171348 B RAM / 566588 B flash** (versus the V4-2 null-FEM
 baseline above: **+8 B RAM / +1584 B flash** for the shared enforcement and diagnostics).
 
+**V4-4 measured board pair (2026-08-26, clean isolated builds):** `heltec_v4_mobile`
+**219188 B RAM / 1323500 B flash**; `gateway_heltec_v4` **244452 B RAM / 1273768 B flash**. Both compile 327
+objects; their pinned warning totals are respectively 183 and 179, with zero `-Wswitch`.
+
 ### 10.2 Metal — both boards
 
 Add the irreducible checks to docs/2026-07-31-bench-test-script.md with exact expected lines.
@@ -641,8 +646,9 @@ Before every TX test, attach the correct antenna or a rated dummy load.
 5. Receive a frame before this board has transmitted anything; this proves the initial RX transition.
 6. Exchange frames V4.2 to V4.3 and V4.3 to V4.2; verify TxDone, outcome delivery and restored RX.
 7. Exercise a forced startTransmit failure and watchdog abort; verify RX recovers.
-8. With no external Vext load attached, verify the GPIO36 level that powers the panel on each revision by panel ACK
-   and current; reconcile the MeshCore-HIGH / Heltec-datasheet-LOW conflict before pinning the trait.
+8. With no external Vext load attached, verify GPIO36 LOW powers the panel on each revision by panel ACK and current.
+   Metal result: V4.3 HIGH failed the ACK check; the same LOW image makes both V4.3 and V4.2 OLEDs work. Current
+   measurement remains a separate acceptance item.
 9. Let the OLED page frame complete; test blanking, short button wake and battery plausibility on both boards.
 10. While light-sleeping, receive a LoRa frame and prove the DIO1 wake counter increments and the frame is delivered.
 11. On V4.3, measure receive behavior and current with the approved D2 LNA state and compare against bypass; record
