@@ -546,6 +546,7 @@ static void dump_status(Print& out) {
     // reading "this never happened", and omitting it makes that indistinguishable from "never counted".
     out.print(F(" offerfull="));          out.print(g_node.mobile_offer_ring_full_count());   // pending-OFFER ring admissions refused `full` (§5.3.2) — non-zero = mobiles are colliding on the ring
     out.print(F(" offerrej="));           out.print(g_node.mobile_offer_reject_count());      // armed OFFERs OUR OWN transmitter refused (defer ring full / HAL rejection) — a LOCAL fact, never a mobile's fault
+    out.print(F(" ctrrefuse="));          out.print(g_node.mobile_ctr_admission_refused_count());   // B251: hosted-mobile counter translation refused before hop ACK (queue/correlation full)
     out.print(F(" txto="));               out.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
     out.print(F(" slept="));              out.print(g_sleep_count);          // idle light-sleep entries that ACTUALLY HALTED — climbs = the gate fires (0 = never sleeps)
 #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)

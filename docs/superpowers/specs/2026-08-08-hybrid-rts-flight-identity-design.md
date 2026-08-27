@@ -8,6 +8,13 @@ landed.** This
 supersedes the no-growth conclusion recorded by B153/B157. It does not erase that investigation: the deletion was locally safe, but its
 system-level interaction cost was measured later and changed the decision.
 
+⛔ **2026-08-27 B251 SUPERSESSION / CLOSURE HOLD:** B161's approved canonical typed-answer implementation exposed a
+second identity alias in the required corpus. A type-8 answer from home 17 and a later hosted-mobile DM forwarded by
+that same home can both present `(from=17, dst=30, GLOBAL, origin=17, ctr=1)` to the completed-flight cache, despite
+being different flights. The receiver returned a false terminal CTS and discarded the DM (`s22`, 8 → 7 unique
+deliveries, one assertion failure). See the B161 spec §11. Therefore B161, B157 and B153 remain open; do not cite the
+old cumulative gate as proving universal identity safety.
+
 **Scope:** unicast DATA/DM RTS identity and the two optimisations that consume it. This is a protocol/MAC change,
 not a routing-policy tuning slice and not the B159 long-horizon DATA dedup fix.
 

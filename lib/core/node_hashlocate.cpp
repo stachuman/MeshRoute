@@ -1124,7 +1124,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 EF_I("node", answer_node_id), EF_I("target_layer", _cfg.leaf_id), EF_B("authoritative", binding_verifiable));  // dv:11649
         if (h.want_pubkey && mobile_proxy) {                        // §Part 2 Fix 7: the HOME answers WANT_PUBKEY on behalf of its LIVE mobile (Option 1 — the home carries the key). MUST precede the owner branch: a live proxy has node_id==_node_id, so the owner branch would otherwise leak the HOME's own key under the mobile's hash.
             const uint8_t* mk = host_mobile_ed_pub(h.query_hash());  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
-            if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.query_hash(), mobile_epoch, mk);
+            if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.query_hash(), mobile_epoch, mk, h.team_scoped);
             // no cached key (the push hasn't arrived yet, or this is a redirect) -> stay SILENT on WANT_PUBKEY: the locate times out and the sender's reqpubkey retries (the push races registration). The flood is still suppressed by the return below.
             // §S3 part2 (D3 eager): the requester needs OUR mobile's key (above) AND our mobile needs the REQUESTER's key to
             // DECRYPT its future sealed DM. Cache the requester here (the owner branch's mutual-exchange, which this proxy
@@ -1208,6 +1208,18 @@ void Node::h_forward_fire(uint8_t slot) {
 // the owner proved it holds the key, never that it holds the id. So the owner passes FALSE here for a by-id answer,
 // the plain `DATA_TYPE_H_ANSWER` goes out, and `on_hash_bind_response` maps it to `IdBindConf::claimed` — honest
 // reuse of an existing codepoint (§3-D5a), not a workaround.
+bool Node::pack_typed_answer_inner(TxItem& item, Plane plane, uint8_t dst,
+                                   const uint8_t* body, uint8_t body_len) {
+    item.plane = plane;
+    stamp_origin(item, item.plane, dst);
+    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), /*flags=*/0,
+                                        /*dst_key_hash32=*/0, /*layer_ids=*/nullptr, /*n_layers=*/0, /*cur=*/0,
+                                        item.origin, /*source_hash=*/0, body, body_len, /*lat_e7=*/0, /*lon_e7=*/0);
+    if (n == 0) return false;
+    item.inner_len = static_cast<uint8_t>(n);
+    return true;
+}
+
 void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
                                    uint32_t key_hash32, bool binding_verifiable, bool mobile_proxy, uint8_t epoch, bool team_scoped) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
@@ -1218,19 +1230,18 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, sizeof(inner)), mobile_proxy);
     if (n == 0) return;
     TxItem item{};
-    item.origin = _node_id; item.dst = to_origin;
-    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.dst = to_origin;
     item.flags = 0;                                              // byte-1 flags clear; the H_ANSWER TYPE byte (below) types it
     // §F-TR-2: a TEAM-scoped H answer routes home on the TEAM plane. AUTO dispatches by is_team_peer(to_origin), which is
     // FALSE when the origin (the querier's team_local_id) has not yet been learned as a team peer — AUTO then falls to the
     // static _rt, RREQs the team id on the STATIC plane, and the dual-member owner (whose static id != team id) never
     // self-answers that RREQ -> no_route/giveup. Forcing TEAM routes via _rt_team + a TEAM RREQ (owner self-answers on
     // team_local_id). Byte-identical where a team route already exists (AUTO already picked _rt_team); s22-s26 audited.
-    item.plane = team_scoped ? Plane::TEAM : Plane::AUTO;
     item.type  = mobile_proxy ? DATA_TYPE_MOBILE_H_ANSWER
                : binding_verifiable ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
-    for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
-    item.inner_len = static_cast<uint8_t>(n);
+    if (!pack_typed_answer_inner(item, team_scoped ? Plane::TEAM : Plane::AUTO, to_origin,
+                                 inner, static_cast<uint8_t>(n))) return;
+    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
     item.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT("hash_bind_response_enqueued", EF_I("to", to_origin), EF_I("node", node_id),
@@ -1363,29 +1374,33 @@ const uint8_t* Node::host_mobile_ed_pub(uint32_t key_hash32) const {
     return nullptr;
 }
 
-// §mobile hash-locate Part 2 (Fix 7): a WANT_PUBKEY answer for a hosted mobile — inner = the mobile hash_bind (7 B: home
-// routing + epoch) ‖ the mobile's ed_pub[32] (39 B), TYPE 13. Distinct from the owner's TYPE-5 answer: the sender must learn
-// BOTH the mobile's key AND that it routes via the HOME (not to the local id). Mirrors send_hash_bind_response's TxItem shape.
+// §mobile hash-locate Part 2 (Fix 7) / B161: a WANT_PUBKEY answer for a hosted mobile — canonical unicast inner
+// `[origin][body]`, where BODY = the mobile hash_bind (7 B: home routing + epoch) ‖ ed_pub[32] ‖ name_len ‖ name,
+// TYPE 13. Distinct from the owner's TYPE-5 answer: the sender must learn BOTH the mobile's key AND that it routes via
+// the HOME (not to the local id). The H-query's plane is explicit so stamp_origin chooses the same namespace as types 1/2/8.
 void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id,
-                                     uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]) {
+                                     uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32], bool team_scoped) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;
     hash_bind_inner hb{}; hb.target_layer = target_layer; hb.node_id = home_id; hb.key_hash32 = key_hash32; hb.epoch = epoch;
-    uint8_t inner[7 + 32 + 1 + 32];
-    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, 7), /*mobile=*/true);   // 7 B mobile variant (home routing + epoch)
+    uint8_t body[7 + 32 + 1 + 32];
+    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(body, 7), /*mobile=*/true);   // 7 B mobile variant (home routing + epoch)
     if (n == 0) return;
-    for (int i = 0; i < 32; ++i) inner[n + i] = ed_pub[i];                                      // ‖ the mobile's ed_pub
+    for (int i = 0; i < 32; ++i) body[n + i] = ed_pub[i];                                      // ‖ the mobile's ed_pub
     uint8_t nlen = 0;                                                                            // §1.3: ‖ the hosted MOBILE's name (from _mobile_reg, pushed with the key)
-    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-        if (_active->_mobile_reg[i].key_hash32 == key_hash32) { nlen = _active->_mobile_reg[i].name_len > 32 ? 32 : _active->_mobile_reg[i].name_len;
-            for (uint8_t b = 0; b < nlen; ++b) inner[n + 32 + 1 + b] = static_cast<uint8_t>(_active->_mobile_reg[i].name[b]); break; }
-    inner[n + 32] = nlen;
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) {
+        if (_active->_mobile_reg[i].key_hash32 != key_hash32) continue;
+        nlen = _active->_mobile_reg[i].name_len > 32 ? 32 : _active->_mobile_reg[i].name_len;
+        for (uint8_t b = 0; b < nlen; ++b) body[n + 32 + 1 + b] = static_cast<uint8_t>(_active->_mobile_reg[i].name[b]);
+        break;
+    }
+    body[n + 32] = nlen;
     TxItem item{};
-    item.origin = _node_id; item.dst = to_origin;
-    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.dst = to_origin;
     item.flags = 0; item.type = DATA_TYPE_MOBILE_H_ANSWER_PUBKEY;
     const size_t total = n + 32 + 1u + nlen;
-    for (size_t i = 0; i < total; ++i) item.inner[i] = inner[i];
-    item.inner_len = static_cast<uint8_t>(total);
+    if (!pack_typed_answer_inner(item, team_scoped ? Plane::TEAM : Plane::AUTO, to_origin,
+                                 body, static_cast<uint8_t>(total))) return;
+    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
     item.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT("mobile_pubkey_answer_tx", EF_I("to", to_origin), EF_I("home", home_id));
@@ -1464,17 +1479,18 @@ void Node::on_mobile_key_forward(const uint8_t* body, uint8_t len) {
 // pubkey ingest (on_hash_bind_pubkey) with the mobile-home cache (on_mobile_hash_bind_response) — the sender can now seal
 // to M and address the sealed DM to the home (do_send override_dst_hash=M seals under peer_key[M]).
 void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inner_len) {
-    if (inner_len < 7 + 32) return;
+    if (inner_len < 40) return;                                  // hash-bind 7 + ed_pub 32 + name_len
+    const uint8_t nlen = inner[39];
+    if (nlen > 32 || inner_len != static_cast<uint8_t>(40 + nlen)) return;
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, 7));   // the mobile 7 B: home routing + epoch (ignores the ed_pub tail)
     if (!hb) return;
     const uint8_t* ed = inner + 7;
     const uint32_t kh = key_hash32_of(ed);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
-    const char* nm = nullptr; uint8_t nlen = 0;                            // §1.3: appended [name_len][name] after the 39-B base
-    if (inner_len > 39) { nlen = inner[39]; if (nlen > 32) nlen = 32; if (40u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 40); else nlen = 0; }
-    if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative, nm, nlen)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
-        MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", hb->node_id));
-        push_peer_key_cached(kh);   // §7: app prompts "secure send ready — resend" (§S6: + the cached name)
-    }
+    if (kh != hb->key_hash32) return;                              // malformed answer earns no key/home/drain effect
+    const char* nm = nlen ? reinterpret_cast<const char*>(inner + 40) : nullptr;
+    if (!peer_key_set(kh, ed, PeerKeyConf::authoritative, nm, nlen)) return;   // never id_bind the LOCAL id
+    MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", hb->node_id));
+    push_peer_key_cached(kh);   // §7: app prompts "secure send ready — resend" (§S6: + the cached name)
     mobile_home_set(hb->key_hash32, hb->node_id, hb->epoch, hb->target_layer);   // M -> home (+layer): the sealed DM routes via the home, not to the local id
     MR_EMIT("mobile_home_cached", EF_I("key", static_cast<int64_t>(hb->key_hash32)), EF_I("home", hb->node_id), EF_I("epoch", hb->epoch));
     drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // a parked CRYPTED send can now seal (peer_key[M]) + fly (via home)
@@ -1609,6 +1625,33 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             sbody = sbuf; sblen = static_cast<uint8_t>(pn + body_len); itype = DATA_TYPE_INTRO;
         }
     }
+    const bool delegated_e2e = reply_to_hash != 0 && mobile_ctr != 0
+                            && (flags & DATA_FLAG_E2E_ACK_REQ) && itype != DATA_TYPE_E2E_ACK;
+    const bool delegated_origin = reply_to_hash != 0 && mobile_ctr != 0 && itype != DATA_TYPE_E2E_ACK;
+    auto release_deleg_ack = [&]() {
+        if (delegated_e2e)
+            deleg_ack_release(reply_to_hash, mobile_ctr, DelegAckPeer::key_hash,
+                              key_hash32, active_layer_id());
+    };
+    auto commit_deleg_ack = [&](uint16_t ctr_h, const SendDispatch* dispatch,
+                                DelegAckPeer return_kind, uint32_t return_peer) {
+        // B251 QG: enqueue_data deliberately returns its minted counter even when the queue is full. Only the
+        // admission authority may create logical-origin evidence or turn the pre-ACK reservation ACTIVE. The
+        // nullptr fallback preserves the pre-existing contract for callers that did not request dispatch evidence;
+        // the MOBILE_SEND consumer now always supplies it.
+        const bool admitted = dispatch ? dispatch->admit == SendDispatch::Admit::queued : ctr_h != 0;
+        if (!admitted) {
+            release_deleg_ack();
+            return false;
+        }
+        if (delegated_origin) emit_deleg_originated(reply_to_hash, ctr_h, mobile_ctr);
+        if (!delegated_e2e) return true;
+        const bool ok = deleg_ack_put(reply_to_hash, ctr_h, mobile_ctr,
+                                     DelegAckPeer::key_hash, key_hash32,
+                                     return_kind, return_peer, active_layer_id());
+        if (!ok) release_deleg_ack();
+        return ok;
+    };
 #if MR_FEAT_TEAM
     // §6.4 HARD SPLIT: `send -t 0x<hash>` (TEAM plane) resolves a HEARD teammate from the team-key cache ONLY (beacon-only,
     // NO id_bind / home / H-flood / global fallback). An unheard teammate FAILS LOUD -> the app retries when a beacon arrives.
@@ -1629,11 +1672,13 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // used to be indistinguishable from a stored park (both returned 0 here).
             const bool stored = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                                           /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
+            if (!stored) release_deleg_ack();
             if (out_dispatch) out_dispatch->admit = stored ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;
             emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note): want_pubkey stays FALSE, owner-ratified 2026-07-29
             return 0;
         }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        release_deleg_ack();
         push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
         return 0;
     }
@@ -1642,7 +1687,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
         const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane, out_dispatch);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
-        if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
+        (void)commit_deleg_ack(ch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(id));
         return ch;
     }
 #if MR_FEAT_TEAM
@@ -1730,7 +1775,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // ★ §xl-deleg-ack: the THIRD site that stamped the mobile's SOURCE_HASH without mapping ctr_H->ctr_M. Reached
             // when a home hosts BOTH the delegating mobile and the target: the target acks to us with DST_HASH = M, and the
             // hosted-mobile last-mile fork's deleg_ack_translate missed, so M received the HOME's ctr. Same one-line shape.
-            if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, lch, mobile_ctr);
+            (void)commit_deleg_ack(lch, out_dispatch, DelegAckPeer::node_id, _node_id);
             return lch;
         }
 #endif
@@ -1759,7 +1804,8 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // The fix is symmetric with the sibling: pass the mobile's hash, take the ctr the DM flew with from the
             // return, and map ctr_H -> ctr_M so the returning ack reaches the mobile with the ctr IT is waiting on.
             const uint16_t xch = send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, crypt, itype, /*override_source_hash=*/reply_to_hash);
-            if (reply_to_hash != 0 && xch != 0) deleg_ack_put(reply_to_hash, xch, mobile_ctr);   // §mobile reverse-ack, XL arm: xch==0 means nothing flew (next_ctr never mints 0) -> never record a phantom ctr_H
+            if (xch != 0) (void)commit_deleg_ack(xch, nullptr, DelegAckPeer::key_hash, key_hash32);
+            else          release_deleg_ack();
             // ⚠ DELIBERATELY still `return 0` (C1): send_by_hash's contract is "the ctr if sent immediately, else 0",
             // and this arm has always answered 0. `xch` is now available, but returning it would change what the
             // console/companion reports for a hash-addressed cross-layer send (and what on_command arms) — a separate
@@ -1773,7 +1819,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         // deleg_ack_translate, and a MISS forwarded the HOME's ctr to a mobile awaiting its own). The XL-CRYPT note that
         // sat here claimed this line already called deleg_ack_put; it did not — corrected per V1 while fixing it.
         const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::AUTO, out_dispatch);
-        if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, hch, mobile_ctr);   // §mobile reverse-ack: same shape as the id_bind arm above (no-op if mobile_ctr==0)
+        (void)commit_deleg_ack(hch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(home));
         return hch;
     }
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
@@ -1795,39 +1841,162 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 #endif
     const bool parked_ok = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                                      /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
+    if (!parked_ok) release_deleg_ack();
     if (out_dispatch) out_dispatch->admit = parked_ok ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;   // §UI-16 N6b
     emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior. §no-auto-reqpubkey (see the header note): a CRYPTED send to an unresolved hash fails loud with no_pubkey — it does NOT escalate to WANT_PUBKEY
     return 0;
 }
 
-// §mobile reverse-ack (delegated) ctr map. A home re-originates a hosted mobile's delegated send under its OWN ctr
-// (ctr_H); the target's E2E-ack (for ctr_H) comes home, and this map recovers the mobile's original ctr (ctr_M) so the
-// last-miled ack matches what the mobile awaits. The TTL keeps a stale entry from mistranslating a much-later ack to the
-// same target that happens to reuse ctr_H.
-static constexpr uint64_t kDelegAckTtlMs = 180000;   // 3 min — well past the e2e-ack round trip
+// B251 reverse-ACK correlation. The old ring keyed only (mobile_hash,ctr_H) even though next_ctr is destination-scoped,
+// and overwrote the oldest LIVE row when full. Both properties can misdeliver an ACK. The strengthened ring has an
+// admission phase (RESERVED before the mobile's hop ACK) and an ACTIVE phase keyed by what the returning ACK actually
+// exposes. Its TTL is the existing delegated/cross-layer E2E deadline, not the old 180 s literal (the real deadline is
+// 300 s). Every scan prunes first; no live row is ever evicted.
+static constexpr uint64_t kDelegAckTtlMs = protocol::e2e_ack_deadline_xl_ms;
 
-void Node::deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) {
-    if (ctr_m == 0 || mobile_hash == 0) return;                // 0 = not a delegated send (guard)
-    const uint64_t now = _hal.now();
-    uint8_t pick = 0; uint64_t oldest = ~0ull;                 // reuse a free/expired slot, else evict the OLDEST
-    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
-        DelegAck& e = _deleg_acks[i];
-        if (!e.valid || (now - e.ts_ms) > kDelegAckTtlMs) { pick = i; break; }
-        if (e.ts_ms < oldest) { oldest = e.ts_ms; pick = i; }
-    }
-    _deleg_acks[pick] = { mobile_hash, ctr_h, ctr_m, now, true };
-    MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)), EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m));
+void Node::emit_deleg_originated(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) {
+    if (mobile_hash == 0 || ctr_h == 0 || ctr_m == 0) return;
+    // Application-identity evidence is independent of the reverse-ACK ring: a delegated non-E2E send still
+    // has a mobile logical origin, but must not consume one of the eight correlation rows.
+    MR_EMIT("deleg_originated", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+            EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m));
 }
 
-bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_t& out_mobile_ctr) {
+bool Node::deleg_ack_reserve(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
+                            uint32_t target, uint8_t layer, uint8_t& out_slot, uint32_t& retry_ms) {
+    out_slot = kDelegAckNoSlot;
+    retry_ms = protocol::nack_busy_quantum_ms;
+    if (mobile_hash == 0 || ctr_m == 0 || target == 0) return false;
     const uint64_t now = _hal.now();
+    uint8_t free_slot = kDelegAckNoSlot;
+    uint64_t earliest_expiry = UINT64_MAX;
     for (uint8_t i = 0; i < kDelegAckCap; ++i) {
         DelegAck& e = _deleg_acks[i];
-        if (!e.valid) continue;
-        if ((now - e.ts_ms) > kDelegAckTtlMs) { e.valid = false; continue; }   // prune expired
-        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr) {
+        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        if (e.state == DelegAckState::reserved
+            && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
+            && e.peer_kind == target_kind && e.peer == target && e.layer == layer) {
+            e.ts_ms = now;                                      // exact retry: keep the same reservation
+            out_slot = i;
+            return true;
+        }
+        if (e.state == DelegAckState::free) {
+            if (free_slot == kDelegAckNoSlot) free_slot = i;
+        } else {
+            const uint64_t expiry = e.ts_ms + kDelegAckTtlMs;
+            if (expiry < earliest_expiry) earliest_expiry = expiry;
+        }
+    }
+    if (free_slot == kDelegAckNoSlot) {
+        if (earliest_expiry > now) {
+            const uint64_t wait = earliest_expiry - now;
+            retry_ms = static_cast<uint32_t>(wait > UINT32_MAX ? UINT32_MAX : wait);
+        }
+        return false;
+    }
+    DelegAck& e = _deleg_acks[free_slot];
+    e.ts_ms = now; e.mobile_hash = mobile_hash; e.peer = target;
+    e.ctr_h = 0; e.ctr_m = ctr_m; e.layer = layer;
+    e.peer_kind = target_kind; e.state = DelegAckState::reserved;
+    out_slot = free_slot;
+    MR_EMIT("deleg_ack_reserved", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+            EF_I("ctr_m", ctr_m), EF_I("target", static_cast<int64_t>(target)), EF_I("layer", layer));
+    return true;
+}
+
+bool Node::deleg_ack_activation_available(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_kind,
+                                         uint32_t return_peer, uint8_t layer, uint32_t& retry_ms) const {
+    retry_ms = protocol::nack_busy_quantum_ms;
+    if (slot >= kDelegAckCap || ctr_h == 0 || return_peer == 0
+        || _deleg_acks[slot].state != DelegAckState::reserved) return false;
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        if (i == slot) continue;
+        const DelegAck& e = _deleg_acks[i];
+        if (e.state != DelegAckState::active || now - e.ts_ms >= kDelegAckTtlMs) continue;
+        if (e.mobile_hash == _deleg_acks[slot].mobile_hash && e.ctr_h == ctr_h
+            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
+            const uint64_t wait = kDelegAckTtlMs - (now - e.ts_ms);
+            retry_ms = static_cast<uint32_t>(wait > UINT32_MAX ? UINT32_MAX : wait);
+            return false;                                       // two live rows would be wire-indistinguishable
+        }
+    }
+    return true;
+}
+
+bool Node::deleg_ack_activate(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_kind,
+                             uint32_t return_peer, uint8_t layer) {
+    uint32_t ignored_retry_ms = 0;
+    if (!deleg_ack_activation_available(slot, ctr_h, return_kind, return_peer, layer,
+                                        ignored_retry_ms)) return false;
+    DelegAck& e = _deleg_acks[slot];
+    e.ts_ms = _hal.now(); e.ctr_h = ctr_h; e.peer = return_peer; e.layer = layer;
+    e.peer_kind = return_kind; e.state = DelegAckState::active;
+    MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(e.mobile_hash)),
+            EF_I("ctr_h", ctr_h), EF_I("ctr_m", e.ctr_m),
+            EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
+    return true;
+}
+
+bool Node::deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                        DelegAckPeer target_kind, uint32_t target,
+                        DelegAckPeer return_kind, uint32_t return_peer, uint8_t layer) {
+    if (mobile_hash == 0 || ctr_h == 0 || ctr_m == 0 || target == 0 || return_peer == 0) return false;
+    const uint64_t now = _hal.now();
+    uint8_t free_slot = kDelegAckNoSlot;
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        DelegAck& e = _deleg_acks[i];
+        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
+            && e.peer_kind == target_kind && e.peer == target && e.layer == layer)
+            return deleg_ack_activate(i, ctr_h, return_kind, return_peer, layer);
+        if (e.state == DelegAckState::active && e.mobile_hash == mobile_hash && e.ctr_h == ctr_h
+            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
+            if (e.ctr_m != ctr_m) return false;                    // same return key, different answer: ambiguous
+            e.ts_ms = now;                                        // exact active refresh, never a replacement
+            MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+                    EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m),
+                    EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
+            return true;
+        }
+        if (e.state == DelegAckState::free && free_slot == kDelegAckNoSlot) free_slot = i;
+    }
+    if (free_slot == kDelegAckNoSlot) {
+        ++_mobile_ctr_admission_refused_n;
+        MR_EMIT("deleg_ack_put_refused", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+                EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m));
+        return false;                                             // every row is live: never evict one
+    }
+    DelegAck& e = _deleg_acks[free_slot];
+    e.ts_ms = now; e.mobile_hash = mobile_hash; e.peer = return_peer;
+    e.ctr_h = ctr_h; e.ctr_m = ctr_m; e.layer = layer;
+    e.peer_kind = return_kind; e.state = DelegAckState::active;
+    MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+            EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m),
+            EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
+    return true;
+}
+
+void Node::deleg_ack_release(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
+                            uint32_t target, uint8_t layer) {
+    for (DelegAck& e : _deleg_acks)
+        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
+            && e.peer_kind == target_kind && e.peer == target && e.layer == layer) {
+            e = DelegAck{};
+            return;
+        }
+}
+
+bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, DelegAckPeer return_kind,
+                              uint32_t return_peer, uint8_t layer, uint16_t& out_mobile_ctr) {
+    const uint64_t now = _hal.now();
+    for (DelegAck& e : _deleg_acks) {
+        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        if (e.state != DelegAckState::active) continue;
+        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr
+            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
             out_mobile_ctr = e.ctr_m;
-            e.valid = false;                                                    // one-shot: this ack is delivered
+            e = DelegAck{};                                      // one-shot: this ACK consumed the correlation
             return true;
         }
     }
@@ -2072,12 +2241,36 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                 // anyway on XL-CRYPT's principle — "unreachable today is not a guarantee" — so that a future
                 // park_send that does carry a delegation cannot silently lose it the way this arm's sibling did.
                 const uint16_t pch = send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.crypt, p.type, /*override_source_hash=*/p.reply_to_hash);
-                if (p.reply_to_hash != 0 && pch != 0) deleg_ack_put(p.reply_to_hash, pch, p.mobile_ctr);
+                if (p.reply_to_hash != 0 && pch != 0 && p.type != DATA_TYPE_E2E_ACK) {
+                    emit_deleg_originated(p.reply_to_hash, pch, p.mobile_ctr);
+                    if (p.flags & DATA_FLAG_E2E_ACK_REQ)
+                        (void)deleg_ack_put(p.reply_to_hash, pch, p.mobile_ctr,
+                                            DelegAckPeer::key_hash, p.key_hash32,
+                                            DelegAckPeer::key_hash, p.key_hash32, active_layer_id());
+                }
             } else {
                 MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("node", resolved_id));
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
-                const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
-                if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a parked delegated re-origination resolved -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
+                SendDispatch dispatch{};
+                const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash, Plane::AUTO, &dispatch);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
+                const bool delegated_e2e = p.reply_to_hash != 0 && (p.flags & DATA_FLAG_E2E_ACK_REQ)
+                                        && p.type != DATA_TYPE_E2E_ACK;
+                if (dispatch.admit == SendDispatch::Admit::refused && delegated_e2e) {
+                    _parked_sends[w++] = p;                      // queue full: keep both the send and its reservation
+                    continue;
+                }
+                if (p.reply_to_hash != 0 && dispatch.admit == SendDispatch::Admit::queued
+                    && p.type != DATA_TYPE_E2E_ACK) {
+                    emit_deleg_originated(p.reply_to_hash, ch, p.mobile_ctr);
+                    if (delegated_e2e && !deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr,
+                                                       DelegAckPeer::key_hash, p.key_hash32,
+                                                       DelegAckPeer::node_id, resolved_id, active_layer_id()))
+                        deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
+                                          p.key_hash32, active_layer_id());
+                } else if (delegated_e2e && dispatch.admit != SendDispatch::Admit::refused) {
+                    deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
+                                      p.key_hash32, active_layer_id());
+                }
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
         }
@@ -2112,8 +2305,26 @@ void Node::drain_resolved_parked_sends() {
                 }
             } else {
                 MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)), EF_I("node", id));
-                const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
-                if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a beacon-resolved parked delegated re-origination -> map ctr_H->ctr_M keyed by the MOBILE's hash
+                SendDispatch dispatch{};
+                const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash, Plane::AUTO, &dispatch);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
+                const bool delegated_e2e = p.reply_to_hash != 0 && (p.flags & DATA_FLAG_E2E_ACK_REQ)
+                                        && p.type != DATA_TYPE_E2E_ACK;
+                if (dispatch.admit == SendDispatch::Admit::refused && delegated_e2e) {
+                    _parked_sends[w++] = p;                      // retry after capacity returns; reservation stays RESERVED
+                    continue;
+                }
+                if (p.reply_to_hash != 0 && dispatch.admit == SendDispatch::Admit::queued
+                    && p.type != DATA_TYPE_E2E_ACK) {
+                    emit_deleg_originated(p.reply_to_hash, ch, p.mobile_ctr);
+                    if (delegated_e2e && !deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr,
+                                                       DelegAckPeer::key_hash, p.key_hash32,
+                                                       DelegAckPeer::node_id, static_cast<uint8_t>(id), active_layer_id()))
+                        deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
+                                          p.key_hash32, active_layer_id());
+                } else if (delegated_e2e && dispatch.admit != SendDispatch::Admit::refused) {
+                    deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
+                                      p.key_hash32, active_layer_id());
+                }
             }
             continue;                                            // drop the parked entry (forwarded / sent)
         }
@@ -2135,6 +2346,9 @@ void Node::age_out_parked_sends() {
             if (p.is_resolve) {
                 push_hash_resolved(p.key_hash32, 0, false);     // a `resolve` that never resolved -> timeout answer
             } else {
+                if (p.reply_to_hash != 0 && (p.flags & DATA_FLAG_E2E_ACK_REQ) && p.type != DATA_TYPE_E2E_ACK)
+                    deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
+                                      p.key_hash32, active_layer_id());
                 MR_EMIT("send_hash_giveup", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)));
             }
             continue;                                            // drop (handled: reported / gave up)

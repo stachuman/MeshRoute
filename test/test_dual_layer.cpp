@@ -243,6 +243,20 @@ struct DualLayerTestAccess {
         return n.send_by_hash(h, body, len, flags, CryptIntent::off, reply_to_hash, mobile_ctr, Plane::AUTO, type);
     }
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
+    // B161: reuse the existing DualLayerTestAccess friend for controlled zero-corpus typed-answer producers.
+    static void     send_typed_hash_answer(Node& n, uint8_t to, uint8_t layer, uint8_t id, uint32_t key,
+                                           bool verifiable, bool mobile, uint8_t epoch, bool team) {
+        n.send_hash_bind_response(to, layer, id, key, verifiable, mobile, epoch, team);
+    }
+    static void     send_mobile_key_answer(Node& n, uint8_t to, uint8_t layer, uint8_t home, uint32_t key,
+                                           uint8_t epoch, const uint8_t ed[32], bool team) {
+        n.send_mobile_pubkey_answer(to, layer, home, key, epoch, ed, team);
+    }
+    static void     send_type5_answer(Node& n, uint8_t to, uint8_t layer, uint8_t id, const uint8_t ed[32], bool team) {
+        n.send_hash_bind_pubkey_response(to, layer, id, ed, /*dst_hash=*/0, team);
+    }
+    static RtsFlightIdentity flight_identity(Node& n, const PendingTx& pt) { return n.flight_identity(pt); }
+    static void     set_pending_data_sf(Node& n, uint8_t sf) { if (n._active->_pending_tx) n._active->_pending_tx->chosen_data_sf = sf; }
     // ★★ §MH-S4 §4.1 — this helper means "a FULLY REGISTERED mobile", so it must now also place the two §4.1
     // planes in their CONFIRMED state. Before S4 `_my_mobile_reg.active` was the whole truth; it no longer is, and a
     // helper that set only `active` would produce a mobile stuck in `dormant`/unconfirmed — which routes every
@@ -303,6 +317,10 @@ struct DualLayerTestAccess {
     static bool     mobile_reg_has_pubkey(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].has_pubkey; }  // §mobile Part 2 Fix 6
     static const uint8_t* mobile_reg_ed_pub(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].ed_pub; }   // §mobile Part 2 Fix 6
     static void     set_mobile_pubkey(Node& n, uint8_t slot, const uint8_t ed[32]) { for (uint8_t k=0;k<32;++k) n._active->_mobile_reg[slot].ed_pub[k]=ed[k]; n._active->_mobile_reg[slot].has_pubkey=true; }  // §mobile Part 2 Fix 7 setup
+    static void     set_mobile_name(Node& n, uint8_t slot, const uint8_t* name, uint8_t len) {
+        auto& r = n._active->_mobile_reg[slot]; r.name_len = len > 32 ? 32 : len;
+        for (uint8_t i=0; i<r.name_len; ++i) r.name[i] = static_cast<char>(name[i]);
+    }
     static void     drive_post_ack_pubkey_push(Node& n, uint32_t source_hash, const uint8_t ed[32]) {   // §mobile Part 2 Fix 6: run do_post_ack for a MOBILE_PUBKEY_PUSH DM
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending = true; pa.is_forward = false; pa.origin = 5; pa.dst = n._node_id;
@@ -358,10 +376,25 @@ struct DualLayerTestAccess {
         pa.inner[5]=static_cast<uint8_t>(acked_ctr & 0xFF); pa.inner[6]=static_cast<uint8_t>(acked_ctr >> 8); pa.inner_len=7;
         n.do_post_ack();
     }
-    static void     deleg_ack_put(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) { n.deleg_ack_put(mobile_hash, ctr_h, ctr_m); }   // §GapB: seed the delegated ctr map (keyed by the mobile's hash)
+    static bool     deleg_ack_put(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                                  uint32_t return_peer, bool return_is_hash = false) {
+        const auto kind = return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id;
+        return n.deleg_ack_put(mobile_hash, ctr_h, ctr_m, kind, return_peer,
+                               kind, return_peer, n.active_layer_id());
+    }
     // §xl-deleg-ack: READ the map back. The returning ack's ctr rewrite (node_mac_rx.cpp's hosted-mobile last-mile fork)
     // IS this call, so asserting on it asserts the ctr the MOBILE will actually see.
-    static bool     deleg_ack_xlate(Node& n, uint32_t mobile_hash, uint16_t acked, uint16_t& out_m) { return n.deleg_ack_translate(mobile_hash, acked, out_m); }
+    static bool     deleg_ack_xlate(Node& n, uint32_t mobile_hash, uint16_t acked, uint32_t return_peer,
+                                    bool return_is_hash, uint16_t& out_m) {
+        const auto kind = return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id;
+        return n.deleg_ack_translate(mobile_hash, acked, kind, return_peer, n.active_layer_id(), out_m);
+    }
+    static uint8_t  deleg_ack_live_n(Node& n) {
+        uint8_t count = 0;
+        for (const auto& e : n._deleg_acks)
+            if (e.state != Node::DelegAckState::free) ++count;
+        return count;
+    }
     // §xl-deleg-ack: how many E2E-ack DEADLINES this node armed. A HOME re-originating for its mobile must arm NONE (the
     // MOBILE is the one awaiting the ack) — enqueue_cross_layer's `override_source_hash == 0` guard, which only becomes
     // reachable on the XL arm once the delegation identity is actually threaded through.
@@ -598,6 +631,25 @@ struct DualLayerTestAccess {
     static void     hear_on_leaf(Node& n, uint8_t id, uint32_t key)  { n.id_bind_set(id, key, Node::IdBindSource::bcn, Node::IdBindConf::authoritative); }   // an authoritative id_bind = "heard on our leaf"
     static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
     static uint8_t        deferred_count(Node& n)            { return n._active->_deferred_n; }
+    static bool           static_binding(Node& n, uint8_t id, uint32_t key) {
+        for (uint16_t i=0; i<n._active->_id_bind_n; ++i)
+            if (n._active->_id_bind[i].node_id == id && n._active->_id_bind[i].key_hash32 == key) return true;
+        return false;
+    }
+    static bool           team_binding(Node& n, uint8_t id, uint32_t key) {
+        for (uint8_t i=0; i<n._active->_team_keys_n; ++i)
+            if (n._active->_team_keys[i].id == id && n._active->_team_keys[i].key_hash32 == key) return true;
+        return false;
+    }
+    static void           drive_typed_answer(Node& n, uint8_t type, bool forward, bool team_plane,
+                                             uint8_t origin, uint8_t dst, const uint8_t* inner, uint8_t inner_len) {
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=forward; pa.team_plane=team_plane; pa.origin=origin; pa.dst=dst;
+        pa.ctr=0x1234; pa.ctr_lo=4; pa.flags=0; pa.type=type; pa.previous_hop=99;
+        pa.inner_len=inner_len; pa.fwd_remaining=5; pa.fwd_committed=1;
+        for (uint8_t i=0; i<inner_len; ++i) pa.inner[i]=inner[i];
+        n.do_post_ack();
+    }
     static void           fill_tx_queue(Node& n, uint8_t leaf)  { n._layers[leaf]._tx_queue_n = Node::kTxQueueCap; }   // simulate a full queue
     static void           clear_tx_queue(Node& n, uint8_t leaf) { n._layers[leaf]._tx_queue_n = 0; }
     static void           store_gw_schedule(Node& n, uint8_t gw_node, uint8_t leaf_served) {   // a known gateway WITHOUT a route (4d.2)
@@ -2249,7 +2301,8 @@ TEST_CASE("★★ §xl-deleg-ack — a DELEGATED SEALED cross-layer DM ARRIVES A
     // ...and the reverse-ack half: ctr_H -> ctr_M was recorded, so the far ack reaches M with the ctr M is waiting on.
     CHECK(f.hal.saw_emit("deleg_ack_put"));
     uint16_t m_ctr = 0;
-    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr,
+                                               f.idT.key_hash32, /*return_is_hash=*/true, m_ctr));
     CHECK(m_ctr == 0x0006);
     // The HOME must arm NO ack deadline of its own — the MOBILE owns that wait (else a spurious e2e_ack_timeout here).
     CHECK(DualLayerTestAccess::pending_e2e_ack_n(home) == 0);
@@ -2272,16 +2325,25 @@ TEST_CASE("★ §xl-deleg-ack — the returning far ack reaches the MOBILE with 
     CHECK(ui.has_value());
     if (ui) CHECK(ui->source_hash == f.idM.key_hash32);         // send_xl_ack addresses dm.source_hash => the ack comes back FOR M
     DualLayerTestAccess::clear_tx_queue(home, 0);
-    // T acks ctr_H, addressed DST_HASH = M (send_e2e_ack's "to the home, FOR the mobile"). The home's hosted-mobile
-    // last-mile fork must REWRITE the 2-B body to ctr_M before forwarding — which needs the map entry this fix records.
-    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/20, /*mobile_hash=*/f.idM.key_hash32, /*acked=*/ctr_h);
+    // T's cross-layer ACK returns with SOURCE_HASH=T. The home's hosted-mobile last-mile fork must use that
+    // wire discriminator and rewrite the 2-B body to ctr_M before forwarding.
+    const uint8_t revpath[2] = { 2, 1 };
+    DualLayerTestAccess::drive_post_ack_xl_ack(home, /*origin*/20, /*mobile_hash=*/f.idM.key_hash32,
+                                               /*acker_hash=*/f.idT.key_hash32, ctr_h, revpath, 2);
     CHECK(f.hal.saw_emit("mobile_reverse_ack"));                // ★ translated, not passed through verbatim
     const PendingTx* pt = DualLayerTestAccess::pending(home);
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->dst == 17); CHECK(pt->addr_len == 1); CHECK(pt->type == DATA_TYPE_E2E_ACK);
-        CHECK(pt->inner[5] == 0x06);                           // ★ ctr_M = 6 reaches the mobile, NOT the home's ctr_H
-        CHECK(pt->inner[6] == 0x00);
+        auto ack_ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ack_ui.has_value());
+        if (ack_ui) {
+            CHECK(ack_ui->body.size() >= 2);
+            if (ack_ui->body.size() >= 2) {
+                CHECK(ack_ui->body[0] == 0x06);                // ★ ctr_M = 6 reaches the mobile, NOT the home's ctr_H
+                CHECK(ack_ui->body[1] == 0x00);
+            }
+        }
     }
 }
 
@@ -2303,7 +2365,8 @@ TEST_CASE("§xl-deleg-ack — CONTROL: a NON-delegated cross-layer send is uncha
     if (ui) CHECK(ui->source_hash == f.idH.key_hash32);         // OUR own key, exactly as before
     CHECK_FALSE(f.hal.saw_emit("deleg_ack_put"));               // no delegation => no ctr map entry
     uint16_t m_ctr = 0;
-    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr,
+                                                     f.idT.key_hash32, /*return_is_hash=*/true, m_ctr));
     CHECK(DualLayerTestAccess::pending_e2e_ack_n(home) == 1);   // WE are the originator => we DO wait for the ack
 }
 
@@ -2353,7 +2416,8 @@ TEST_CASE("★ §xl-deleg-ack — the SAME-LAYER mobile_home_find sibling maps c
     CHECK(ui.has_value());
     if (ui) { CHECK(ui->dst_key_hash32 == f.idT.key_hash32); CHECK(ui->source_hash == f.idM.key_hash32); }
     uint16_t m_ctr = 0;
-    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr,
+                                               /*return node*/20, /*return_is_hash=*/false, m_ctr));
     CHECK(m_ctr == 0x0006);                                    // ★ the ack will be rewritten to the MOBILE's ctr
 }
 
@@ -2374,7 +2438,8 @@ TEST_CASE("★ §xl-deleg-ack — the OWN-HOSTED-TARGET last-mile arm maps ctr_H
     const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
     CHECK(it.dst == 18); CHECK(it.addr_len == 1);              // the direct last-mile to the hosted target
     uint16_t m_ctr = 0;
-    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr,
+                                               /*return home*/7, /*return_is_hash=*/false, m_ctr));
     CHECK(m_ctr == 0x0006);
 }
 
@@ -3664,7 +3729,9 @@ TEST_CASE("§GapB p2 Step 3 — a home translates a delegated target-ack (ctr_H)
     StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
-    DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M*/0xC0FFEEu, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);   // a prior delegated re-origination (keyed by the mobile's hash)
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M*/0xC0FFEEu,
+                                             /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u,
+                                             /*return node*/70));
     // X(70) acks ctr_H=0x0C addressed DST_HASH=M -> the home last-miles to M but with the MOBILE's own ctr (6)
     DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*mobile_hash=M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
     const PendingTx* pt = DualLayerTestAccess::pending(home);
@@ -3675,6 +3742,84 @@ TEST_CASE("§GapB p2 Step 3 — a home translates a delegated target-ack (ctr_H)
         CHECK(pt->inner[6] == 0x00);
     }
     CHECK(hal.saw_emit("mobile_reverse_ack"));
+}
+
+TEST_CASE("§B251 reverse key — destination scopes equal destination-local ctrH values for one hosted mobile") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t mobile_hash = 0xC0FFEEu;
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/7, /*ctrM*/101,
+                                             /*return node*/70));
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/7, /*ctrM*/202,
+                                             /*return node*/71));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 2);
+    uint16_t translated = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, 7, /*wrong return*/72,
+                                                     /*return_is_hash=*/false, translated));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, 7, /*return*/71,
+                                               /*return_is_hash=*/false, translated));
+    CHECK(translated == 202);
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, 7, /*return*/70,
+                                               /*return_is_hash=*/false, translated));
+    CHECK(translated == 101);
+}
+
+TEST_CASE("§B251 reverse key — two hosted-mobile hashes sharing ctrH and return peer cannot cross-correlate") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile A*/0xAAAA1111u, 7, 101, /*return*/70));
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile B*/0xBBBB2222u, 7, 202, /*return*/70));
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0xBBBB2222u, 7, 70, false, translated));
+    CHECK(translated == 202);
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0xAAAA1111u, 7, 70, false, translated));
+    CHECK(translated == 101);
+}
+
+TEST_CASE("§B251 reverse key — the same mobile, ctrH and return peer cannot cross-correlate across layers") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    CHECK(home.on_init(cfg));
+
+    constexpr uint32_t mobile_hash = 0xC0FFEEu;
+    DualLayerTestAccess::set_active(home, 0);
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/7, /*ctrM*/101,
+                                             /*return node*/70));
+    DualLayerTestAccess::set_active(home, 1);
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/7, /*ctrM*/202,
+                                             /*return node*/70));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 2);
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, 7, 70, false, translated));
+    CHECK(translated == 202);
+    DualLayerTestAccess::set_active(home, 0);
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, 7, 70, false, translated));
+    CHECK(translated == 101);
+}
+
+TEST_CASE("§B251 reverse ring — a ninth live correlation is refused without evicting an earlier answer") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t mobile_hash = 0xC0FFEEu;
+    for (uint16_t i = 1; i <= 8; ++i)
+        CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/i, /*ctrM*/(100 + i),
+                                                 /*return node*/static_cast<uint32_t>(60 + i)));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/9, /*ctrM*/109,
+                                                   /*return node*/69));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, /*ctrH*/1, /*return*/61,
+                                               false, translated));
+    CHECK(translated == 101);
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, /*ctrH*/9, /*return*/69,
+                                                     false, translated));
 }
 
 // ============================ §S1 + §GapA + §GapB (2026-07-18) ============================
@@ -3835,7 +3980,9 @@ TEST_CASE("§GapB — the delegating home rewrites a returning XL ack ctr_H->ctr
     StubHal hal; Node home(hal, /*id*/101, /*hash*/0x44070011u);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     DualLayerTestAccess::store_mobile(home, /*M1*/0x2716EFCDu, /*local*/17);
-    DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M1*/0x2716EFCDu, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M1*/0x2716EFCDu,
+                                             /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u,
+                                             /*return hash=M3*/0xBCC13CC5u, /*return_is_hash=*/true));
     // a CROSS_LAYER E2E_ACK returns, addressed DST_HASH=M1, source_hash=M3 (the acker), carrying ctr_H=0x0C
     const uint8_t revpath[2] = { 7, 4 };                                           // reversed [M3_layer, M1_layer], cur=1
     DualLayerTestAccess::drive_post_ack_xl_ack(home, /*origin*/111, /*mobile=M1*/0x2716EFCDu, /*acker=M3*/0xBCC13CC5u, /*ctr_H*/0x000C, revpath, 2);
@@ -3988,7 +4135,10 @@ TEST_CASE("§mobile 4a — a host proxying a hosted mobile emits DATA_TYPE_MOBIL
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);   // ★ the distinct mobile-proxy TYPE (not a plain H_ANSWER)
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) CHECK(pt->origin == ui->origin);         // B161: carrier, DATA and plaintext RTS share one origin
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); CHECK(o->epoch == 1); }   // M -> home(30), epoch 1
     }
@@ -4016,7 +4166,8 @@ TEST_CASE("§mobile hash-locate Fix 1/2 — a registered mobile is SILENT on a s
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);            // ★ proxy answer -> resolves to the HOME, never the local id 17
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); }
     }
@@ -4119,7 +4270,10 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);    // ★ authoritative binding to the LOCAL id (teammates route to it via the 6.2 team table)
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) CHECK(pt->origin == ui->origin);                 // B161: TEAM origin is exposed canonically
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) CHECK(o->node_id == 17);
     }
@@ -4217,11 +4371,15 @@ TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY);
-        CHECK(pt->inner_len == 7 + 32 + 1);   // §1.3: + the appended [name_len] byte (this hosted mobile has no name -> name_len=0, no name bytes)
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, 7));
+        CHECK(pt->inner_len == 1 + 7 + 32 + 1);   // B161 origin + §1.3 appended name_len (this hosted mobile has no name)
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        auto o = ui ? parse_hash_bind_inner(ui->body.first(7)) : std::nullopt;
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); }   // ★ home routing
-        bool same=true; for (int i=0;i<32;++i) if (pt->inner[7+i]!=ed[i]) same=false; CHECK(same);   // ★ carries the mobile's ed_pub
+        bool same = ui.has_value();
+        if (ui) for (int i=0;i<32;++i) if (ui->body[7+i]!=ed[i]) same=false;
+        CHECK(same);   // ★ carries the mobile's ed_pub
     }
 }
 
@@ -4249,7 +4407,8 @@ TEST_CASE("§mobile Part 2 — a STALE (redirect) home FORWARDS a WANT_PUBKEY lo
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) CHECK(o->node_id == 99);                         // ★ redirect -> the new home
     }
@@ -4259,11 +4418,12 @@ TEST_CASE("§mobile Part 2 Fix 8 — a MOBILE_H_ANSWER_PUBKEY caches peer_key(M)
     StubHal hal; Node sender(hal, 7, 0x0707u);
     NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=4; CHECK(sender.on_init(sc));
     uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0x20+i);
-    // build the answer inner: [7B hash_bind: layer=4, home=30, hash=M, epoch=2][ed_pub 32]
+    // build the answer BODY: [7B hash_bind: layer=4, home=30, hash=M, epoch=2][ed_pub 32][name_len=0]
     hash_bind_inner hb{}; hb.target_layer=4; hb.node_id=30; hb.key_hash32=0xB0B1u; hb.epoch=2;
-    uint8_t inner[7+32]; size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner,7), /*mobile=*/true);
+    uint8_t inner[7+32+1]; size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner,7), /*mobile=*/true);
     for (int i=0;i<32;++i) inner[n+i]=ed[i];
-    sender.on_mobile_hash_bind_pubkey_response(inner, static_cast<uint8_t>(n+32));
+    inner[n+32] = 0;
+    sender.on_mobile_hash_bind_pubkey_response(inner, static_cast<uint8_t>(n+32+1));
     // peer_key[M] cached authoritative
     uint8_t got[32]; Node::PeerKeyConf conf;
     CHECK(sender.peer_key_find(0xB0B1u, got, &conf));
@@ -4535,17 +4695,22 @@ TEST_CASE("§enc — a team peer's key (from its beacon) is cached team-scoped -
 // drives a REAL team-plane H_ANSWER through on_recv -> handle_data -> the post-ack timer, so the carry is proven
 // end-to-end rather than assumed; the arms below are the same frame on the two planes.
 TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the air does not enter the static _id_bind; a STATIC one does") {
-    // Build the DATA once: inner = a bare hash_bind_inner (send_hash_bind_response enqueues the packed inner directly,
-    // with no [origin] prefix), TYPE = AUTHORITATIVE_H_ANSWER so do_post_ack routes it to on_hash_bind_response.
+    // Build the DATA once: B161 canonical inner = [origin][hash_bind body], TYPE = AUTHORITATIVE_H_ANSWER so
+    // do_post_ack routes ui.body to on_hash_bind_response. Origin 44 is deliberately distinct from target_layer 0.
     uint8_t hbb[7];
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 34; hb.key_hash32 = 0xCCCC0003u; hb.authoritative = true;
     const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(hbb, sizeof hbb));
     CHECK(il > 0);
+    uint8_t inner[8];
+    const size_t uil = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), /*flags=*/0,
+                                          0, nullptr, 0, 0, /*origin=*/44, 0,
+                                          hbb, static_cast<uint8_t>(il), 0, 0);
+    CHECK(uil == il + 1);
     const uint8_t mac4[4] = {0,0,0,0};
     auto make_answer = [&](uint8_t next, uint8_t addr_len, uint8_t* frame, size_t cap) -> size_t {
         data_in din{}; din.addr_len = addr_len; din.flags = 0; din.type = DATA_TYPE_AUTHORITATIVE_H_ANSWER;
         din.next = next; din.dst = next; din.hops_remaining = 31; din.ctr = 42;   // ctr 42 -> ctr_lo4 = 0x0A
-        din.inner = std::span<const uint8_t>(hbb, il); din.mac = std::span<const uint8_t>(mac4, 4);
+        din.inner = std::span<const uint8_t>(inner, uil); din.mac = std::span<const uint8_t>(mac4, 4);
         return pack_data(din, std::span<uint8_t>(frame, cap));
     };
 
@@ -4560,12 +4725,10 @@ TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the 
         CHECK(b.id_bind_find_by_hash(0xCCCC0003u) == -1);
         uint8_t frame[64]; const size_t fl = make_answer(tid, /*addr_len=*/1, frame, sizeof frame);
         CHECK(fl > 0);
-        // ★★ §hybrid-rts S2 AND THE FINDING THIS CASE EXPOSES: this DATA's inner is a BARE `hash_bind_inner` with
-        //    NO `[origin]` prefix, so the origin `parse_unicast_inner` reads is `hbb[0]` — a hash-bind payload byte.
-        //    That is what the plaintext identity is derived from at BOTH ends. Registered as [[B161]].
-        //    The plane is TEAM here (addr_len=1 to our team_local_id), so the reservation must say so.
-        DualLayerTestAccess::set_pending_rx(b, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4),
-                                           /*origin=*/hbb[0], /*ctr=*/42, /*team_plane=*/true);
+        // B161: reservation identity reads canonical origin 44; the plane is TEAM here (addr_len=1 to our
+        // team_local_id), so the otherwise identical reservation must also say TEAM.
+        DualLayerTestAccess::set_pending_rx(b, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(uil + 4),
+                                           /*origin=*/44, /*ctr=*/42, /*team_plane=*/true);
         RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
         b.on_recv(frame, fl, meta);
         b.on_timer(9 /*kPostAckTimerId*/);
@@ -4578,8 +4741,8 @@ TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the 
         CHECK(s.id_bind_find_by_hash(0xCCCC0003u) == -1);
         uint8_t frame[64]; const size_t fl = make_answer(/*next=*/9, /*addr_len=*/0, frame, sizeof frame);
         CHECK(fl > 0);
-        DualLayerTestAccess::set_pending_rx(s, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4),
-                                           /*origin=*/hbb[0], /*ctr=*/42, /*team_plane=*/false);   // §hybrid-rts S2: STATIC arm
+        DualLayerTestAccess::set_pending_rx(s, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(uil + 4),
+                                           /*origin=*/44, /*ctr=*/42, /*team_plane=*/false);   // §hybrid-rts S2: STATIC arm
         RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
         s.on_recv(frame, fl, meta);
         s.on_timer(9 /*kPostAckTimerId*/);
@@ -6206,7 +6369,8 @@ TEST_CASE("§mobile 4b — the old home records the redirect + answers future H-
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 99); CHECK(o->epoch == 7); CHECK(o->target_layer == 6); }   // ★ redirect answer M -> new home 99, epoch 7, LAYER 6 (§5b)
     }
@@ -6638,7 +6802,8 @@ TEST_CASE("§F-TR-2 (a): a DUAL (registered) team member answers a TEAM-scoped H
     if (pt) {
         CHECK(pt->type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
         CHECK(pt->plane == Plane::TEAM);                                   // ★ the answer routes in the TEAM universe (_rt_team), not AUTO/static
-        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        auto o = ui ? parse_hash_bind_inner(ui->body) : std::nullopt;
         CHECK(o.has_value());
         if (o) CHECK(o->node_id == 138);                                  // ★★ team_local_id, NOT the host-assigned static id 254 (the §18 cross-universe leak, fixed)
     }
@@ -6826,4 +6991,230 @@ TEST_CASE("★ §B132/1b — a GATEWAY emits NO mobile OFFER with EITHER leaf ac
         stat.on_recv(db, dn, RxMeta{9.0f, -70.0f, 0, static_cast<int8_t>(-1)});
         CHECK(h2.saw_emit("mobile_offer_scheduled"));                   // ★ the frame IS well-formed and the path IS live
     }
+}
+
+// ============================================================================
+// B161 — canonical typed hash-answer origin/body envelope.
+// ============================================================================
+
+TEST_CASE("§B161 producer — types 1/2/8 stamp GLOBAL and TEAM origins; RTS/CTS constants and DATA lengths stay canonical") {
+    using A = DualLayerTestAccess;
+    struct Shape { bool verifiable; bool mobile; uint8_t type; uint8_t body_len; uint8_t data_len; };
+    const Shape shapes[] = {
+        {false, false, DATA_TYPE_H_ANSWER,               6, 20},
+        {true,  false, DATA_TYPE_AUTHORITATIVE_H_ANSWER, 6, 20},
+        {false, true,  DATA_TYPE_MOBILE_H_ANSWER,        7, 21},
+    };
+    for (bool team : {false, true}) for (const Shape& s : shapes) {
+        StubHal hal; Node n(hal, /*node_id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4;
+        cfg.team_id = team ? 0xABCD1234u : 0;
+        CHECK(n.on_init(cfg));
+        if (team) { n.set_team_local_id(138); A::learn_team_neighbor(n, /*querier=*/50, 0x5050u); }
+        else A::learn_neighbor(n, /*querier=*/50);
+
+        A::send_typed_hash_answer(n, /*to=*/50, /*target_layer=*/7, /*answer id/home=*/77,
+                                  /*hash=*/0x11223344u, s.verifiable, s.mobile, /*epoch=*/9, team);
+        const PendingTx* pt = A::pending(n);
+        CHECK(pt != nullptr);
+        if (!pt) continue;
+        const uint8_t expected_origin = team ? 138 : 30;
+        CHECK(pt->type == s.type);
+        CHECK(pt->plane == (team ? Plane::TEAM : Plane::AUTO));
+        CHECK(pt->origin == expected_origin);
+        CHECK(pt->inner_len == static_cast<uint8_t>(1 + s.body_len));
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->origin == expected_origin);
+            CHECK(ui->origin != 7);                                  // target_layer is not flight identity
+            CHECK(ui->body.size() == s.body_len);
+            const auto hb = parse_hash_bind_inner(ui->body);
+            CHECK(hb.has_value());
+            if (hb) {
+                CHECK(hb->target_layer == 7); CHECK(hb->node_id == 77); CHECK(hb->key_hash32 == 0x11223344u);
+                CHECK(hb->epoch == (s.mobile ? 9 : 0));
+            }
+        }
+        const auto rts = parse_rts(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(rts.has_value());
+        CHECK(hal.last_tx_len == 10);                                // plaintext unicast RTS is not enlarged
+        if (rts) {
+            CHECK(rts->payload_len == static_cast<uint8_t>(pt->inner_len + 4));
+            CHECK(rts->id.domain == RtsIdDomain::plaintext);
+            CHECK(rts->id.bytes[0] == expected_origin);
+        }
+        A::set_pending_data_sf(n, 8); A::data_tx(n);
+        const auto data = parse_data(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(data.has_value()); CHECK(hal.last_tx_len == s.data_len);
+        if (data) {
+            CHECK(data->type == s.type);
+            const auto dui = parse_unicast_inner(data_inner(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *data), data->flags);
+            CHECK(dui.has_value()); if (dui) CHECK(dui->origin == expected_origin);
+        }
+    }
+    // Parent-wire positive controls: no B161 source edit may change any CTS width.
+    cts_in ordinary{}; ordinary.tx_id=50; ordinary.rx_id=30; ordinary.chosen_data_sf=8; ordinary.payload_len=11;
+    uint8_t cbuf[8]{}; CHECK(pack_cts(ordinary, cbuf) == 4);
+    cts_in terminal{}; terminal.tx_id=50; terminal.rx_id=30; terminal.already_received=true;
+    terminal.id = rts_flight_identity_plain(/*origin=*/30, /*ctr=*/0x1234);
+    CHECK(pack_cts(terminal, cbuf) == 6);
+}
+
+TEST_CASE("§B161 producer — type 13 is reachable on GLOBAL and TEAM planes with N=0/N=32 and keeps its complete name tail") {
+    using A = DualLayerTestAccess;
+    for (bool team : {false, true}) for (uint8_t name_len : {uint8_t(0), uint8_t(32)}) {
+        StubHal hal; Node home(hal, /*node_id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4;
+        cfg.team_id = team ? 0xABCD1234u : 0;
+        CHECK(home.on_init(cfg));
+        if (team) { home.set_team_local_id(138); A::learn_team_neighbor(home, /*querier=*/50, 0x5050u); }
+        else A::learn_neighbor(home, /*querier=*/50);
+        constexpr uint32_t mobile_hash = 0x13121110u;
+        A::store_mobile(home, mobile_hash, /*local=*/17);
+        uint8_t ed[32]; for (uint8_t i=0; i<32; ++i) ed[i]=static_cast<uint8_t>(0x10+i);
+        A::set_mobile_pubkey(home, 0, ed);
+        uint8_t name[32]; for (uint8_t i=0; i<32; ++i) name[i]=static_cast<uint8_t>(0xA0+i);
+        A::set_mobile_name(home, 0, name, name_len);
+
+        h_in q{}; q.leaf_id=4; q.origin=50; q.query_key32=mobile_hash; q.ttl=3; q.hard=true; q.want_pubkey=true;
+        q.team_scoped=team; q.team_id=team ? 0xABCD1234u : 0;
+        std::array<uint8_t, 96> qbuf{}; const size_t qn=pack_h(q, qbuf); CHECK(qn > 0);
+        home.on_recv(qbuf.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+
+        const PendingTx* pt=A::pending(home); CHECK(pt != nullptr);
+        if (!pt) continue;
+        const uint8_t expected_origin=team ? 138 : 30;
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY);
+        CHECK(pt->plane == (team ? Plane::TEAM : Plane::AUTO));
+        CHECK(pt->origin == expected_origin);
+        CHECK(pt->inner_len == static_cast<uint8_t>(41 + name_len));
+        const auto ui=parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->origin == expected_origin); CHECK(ui->body.size() == static_cast<size_t>(40 + name_len));
+            const auto hb=parse_hash_bind_inner(ui->body.first(7)); CHECK(hb.has_value());
+            if (hb) { CHECK(hb->target_layer==4); CHECK(hb->node_id==30); CHECK(hb->key_hash32==mobile_hash); CHECK(hb->epoch==1); }
+            bool key_same=ui->body.size() >= 40;
+            for (uint8_t i=0; key_same && i<32; ++i) if (ui->body[7+i] != ed[i]) key_same=false;
+            CHECK(key_same); if (ui->body.size() >= 40) CHECK(ui->body[39] == name_len);
+            bool name_same=ui->body.size() == static_cast<size_t>(40 + name_len);
+            for (uint8_t i=0; name_same && i<name_len; ++i) if (ui->body[40+i] != name[i]) name_same=false;
+            CHECK(name_same);
+        }
+        const auto rts=parse_rts(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(rts.has_value()); CHECK(hal.last_tx_len==10);
+        if (rts) { CHECK(rts->payload_len == static_cast<uint8_t>(45 + name_len)); CHECK(rts->id.bytes[0]==expected_origin); }
+        A::set_pending_data_sf(home, 8); A::data_tx(home);
+        CHECK(hal.last_tx_len == static_cast<size_t>(54 + name_len));
+    }
+}
+
+TEST_CASE("§B161 positive control — production type 5 retains its existing one-envelope bytes and name tail") {
+    using A=DualLayerTestAccess;
+    StubHal h; Node n(h,30,0x3030u); NodeConfig c;c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
+    n.set_name("T",1);                                               // explicit one-byte name makes the established tail exact
+    A::learn_neighbor(n,50);
+    uint8_t ed[32];for(uint8_t i=0;i<32;++i)ed[i]=static_cast<uint8_t>(0x10+i);
+    A::send_type5_answer(n,/*to=*/50,/*layer=*/7,/*id=*/77,ed,/*team=*/false);
+    const PendingTx* pt=A::pending(n);CHECK(pt!=nullptr);
+    if(pt){
+        CHECK(pt->type==DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY);CHECK(pt->inner_len==37);
+        const auto ui=parse_unicast_inner(std::span<const uint8_t>(pt->inner,pt->inner_len),pt->flags);CHECK(ui.has_value());
+        if(ui){CHECK(ui->origin==30);CHECK(ui->body.size()==36);const auto p=parse_hash_bind_pubkey_inner(ui->body.first(34));CHECK(p.has_value());
+            if(p){CHECK(p->target_layer==7);CHECK(p->node_id==77);bool same=true;for(uint8_t i=0;i<32;++i)if(p->ed_pub[i]!=ed[i])same=false;CHECK(same);}
+            CHECK(ui->body[34]==1);CHECK(ui->body[35]=='T');}
+        A::set_pending_data_sf(n,8);A::data_tx(n);CHECK(h.last_tx_len==50);
+    }
+}
+
+TEST_CASE("§B161 authority — flight_identity remains derived from canonical DATA bytes, not a disagreeing carrier field") {
+    using A=DualLayerTestAccess;
+    StubHal h;Node n(h,5,0x5050u);NodeConfig c;c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
+    PendingTx pt{};pt.origin=99;pt.dst=50;pt.ctr=0x1234;pt.ctr_lo=4;pt.flags=0;
+    const uint8_t body[2]={'o','k'};
+    pt.inner_len=static_cast<uint8_t>(pack_unicast_inner(std::span<uint8_t>(pt.inner,sizeof pt.inner),0,0,nullptr,0,0,
+                                                        /*wire origin=*/30,0,body,sizeof body,0,0));
+    CHECK(pt.inner_len==3);
+    const RtsFlightIdentity id=A::flight_identity(n,pt);
+    CHECK(id.domain==RtsIdDomain::plaintext);CHECK(id.bytes[0]==30);CHECK(id.bytes[0]!=pt.origin);
+    CHECK(id.bytes[1]==0x12);CHECK(id.bytes[2]==0x34);
+}
+
+TEST_CASE("§B161 consume — canonical bodies preserve type semantics and TEAM/GLOBAL stores remain separate") {
+    using A = DualLayerTestAccess;
+    auto wrap = [](uint8_t origin, const uint8_t* body, uint8_t body_len, std::array<uint8_t, 96>& out) {
+        return static_cast<uint8_t>(pack_unicast_inner(out, 0, 0, nullptr, 0, 0, origin, 0, body, body_len, 0, 0));
+    };
+    hash_bind_inner hb{}; hb.target_layer=7; hb.node_id=77; hb.key_hash32=0x11223344u;
+    uint8_t body6[6]; CHECK(pack_hash_bind_inner(hb, body6, false)==6);
+    std::array<uint8_t,96> wire{}; const uint8_t w6=wrap(/*origin=*/30, body6, 6, wire); CHECK(w6==7);
+
+    { StubHal h; Node n(h,5,0x5050u); NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
+      const uint16_t before=n.id_bind_count();
+      A::drive_typed_answer(n, DATA_TYPE_AUTHORITATIVE_H_ANSWER, false, false, 30, 5, wire.data(), w6);
+      CHECK(n.id_bind_count()==before+1); CHECK(A::static_binding(n,77,0x11223344u)); CHECK_FALSE(A::team_binding(n,77,0x11223344u)); }
+    { StubHal h; Node n(h,5,0x5050u); NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;c.team_id=0xABCD1234u;CHECK(n.on_init(c));n.set_team_local_id(90);
+      const uint16_t before=n.id_bind_count();
+      A::drive_typed_answer(n, DATA_TYPE_H_ANSWER, false, true, 30, 5, wire.data(), w6);
+      CHECK(n.id_bind_count()==before); CHECK_FALSE(A::static_binding(n,77,0x11223344u)); CHECK(A::team_binding(n,77,0x11223344u)); }
+
+    hb.epoch=9; uint8_t body7[7]; CHECK(pack_hash_bind_inner(hb, body7, true)==7);
+    const uint8_t w7=wrap(30, body7, 7, wire); CHECK(w7==8);
+    { StubHal h; Node n(h,5,0x5050u); NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
+      const uint16_t before=n.id_bind_count();
+      A::drive_typed_answer(n, DATA_TYPE_MOBILE_H_ANSWER, false, false, 30, 5, wire.data(), w7);
+      uint8_t layer=0; CHECK(n.mobile_home_find(0x11223344u,&layer)==77); CHECK(layer==7); CHECK(n.id_bind_count()==before); }
+
+    uint8_t keybody[43]{}; hb.key_hash32=0x13121110u; CHECK(pack_hash_bind_inner(hb, std::span<uint8_t>(keybody,7), true)==7);
+    for (uint8_t i=0;i<32;++i) keybody[7+i]=static_cast<uint8_t>(0x10+i);
+    keybody[39]=3; keybody[40]='M'; keybody[41]='o'; keybody[42]='b';
+    const uint8_t wk=wrap(30,keybody,43,wire); CHECK(wk==44);
+    { StubHal h; Node n(h,5,0x5050u); NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
+      const uint16_t before=n.id_bind_count();
+      A::drive_typed_answer(n, DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, false, false, 30, 5, wire.data(), wk);
+      uint8_t got[32]{}; CHECK(n.peer_key_find(0x13121110u,got)); char name[32]{}; CHECK(n.peer_name_find(0x13121110u,name,sizeof name)==3);
+      CHECK(name[0]=='M'); CHECK(name[2]=='b'); CHECK(n.mobile_home_find(0x13121110u)==77); CHECK(n.id_bind_count()==before); }
+}
+
+TEST_CASE("§B161 malformed — every legacy raw answer and an inconsistent type-13 key have zero semantic effects") {
+    using A = DualLayerTestAccess;
+    auto fresh_cfg=[](){ NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4; return c; };
+    hash_bind_inner hb{}; hb.target_layer=7;hb.node_id=77;hb.key_hash32=0x11223344u;hb.epoch=9;
+    uint8_t raw6[6]; CHECK(pack_hash_bind_inner(hb,raw6,false)==6);
+    for (uint8_t type : {uint8_t(DATA_TYPE_H_ANSWER),uint8_t(DATA_TYPE_AUTHORITATIVE_H_ANSWER)}) {
+        StubHal h; Node n(h,5,0x5050u); CHECK(n.on_init(fresh_cfg())); const uint16_t before=n.id_bind_count();
+        A::drive_typed_answer(n,type,false,false,30,5,raw6,6); CHECK(n.id_bind_count()==before); CHECK_FALSE(A::static_binding(n,77,0x11223344u));
+    }
+    uint8_t raw7[7]; CHECK(pack_hash_bind_inner(hb,raw7,true)==7);
+    { StubHal h; Node n(h,5,0x5050u); CHECK(n.on_init(fresh_cfg())); const uint16_t before=n.id_bind_count();
+      A::drive_typed_answer(n,DATA_TYPE_MOBILE_H_ANSWER,false,false,30,5,raw7,7);
+      CHECK(n.mobile_home_find(0x11223344u)==-1); CHECK(n.id_bind_count()==before); }
+
+    uint8_t raw13[40]{}; hb.key_hash32=0x13121110u; CHECK(pack_hash_bind_inner(hb,std::span<uint8_t>(raw13,7),true)==7);
+    for(uint8_t i=0;i<32;++i) raw13[7+i]=static_cast<uint8_t>(0x10+i);
+    raw13[39]=0;
+    { StubHal h; Node n(h,5,0x5050u); CHECK(n.on_init(fresh_cfg()));
+      A::drive_typed_answer(n,DATA_TYPE_MOBILE_H_ANSWER_PUBKEY,false,false,30,5,raw13,40);
+      uint8_t got[32]{}; CHECK_FALSE(n.peer_key_find(0x13121110u,got)); CHECK(n.mobile_home_find(0x13121110u)==-1); }
+
+    // Canonical length/name, but a key that does not hash to the advertised mobile: fail before key, home or drain.
+    std::array<uint8_t,64> canonical{}; raw13[2]=0x44;raw13[3]=0x33;raw13[4]=0x22;raw13[5]=0x11;
+    const uint8_t cn=static_cast<uint8_t>(pack_unicast_inner(canonical,0,0,nullptr,0,0,30,0,raw13,40,0,0)); CHECK(cn==41);
+    { StubHal h; Node n(h,5,0x5050u); CHECK(n.on_init(fresh_cfg()));
+      A::drive_typed_answer(n,DATA_TYPE_MOBILE_H_ANSWER_PUBKEY,false,false,30,5,canonical.data(),cn);
+      uint8_t got[32]{}; CHECK_FALSE(n.peer_key_find(0x11223344u,got)); CHECK(n.mobile_home_find(0x11223344u)==-1); }
+}
+
+TEST_CASE("§B161 relay — type-2 snoop reads ui.body and forwarding preserves the complete canonical inner verbatim") {
+    using A=DualLayerTestAccess;
+    StubHal h; Node relay(h,5,0x5050u); NodeConfig c;c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(relay.on_init(c));
+    A::learn_neighbor(relay,/*final dst=*/77);
+    hash_bind_inner hb{};hb.target_layer=7;hb.node_id=88;hb.key_hash32=0x88776655u;
+    uint8_t body[6];CHECK(pack_hash_bind_inner(hb,body,false)==6);
+    std::array<uint8_t,16> inner{};const uint8_t il=static_cast<uint8_t>(pack_unicast_inner(inner,0,0,nullptr,0,0,30,0,body,6,0,0));CHECK(il==7);
+    A::drive_typed_answer(relay,DATA_TYPE_AUTHORITATIVE_H_ANSWER,true,false,30,77,inner.data(),il);
+    CHECK(A::static_binding(relay,88,0x88776655u));
+    const PendingTx* pt=A::pending(relay);CHECK(pt!=nullptr);
+    if(pt){CHECK(pt->inner_len==il);bool same=true;for(uint8_t i=0;i<il;++i)if(pt->inner[i]!=inner[i])same=false;CHECK(same);}
 }

@@ -225,6 +225,15 @@ TARGET_SRC = {
     #   two attack whether the fact is TOLD AT ALL. One `if`'s own answer each, at match count 1.
     "grantadmit":   "lib/core/node_mac.cpp",      # §UI-16 N6b — enqueue_data's TX-queue admission fact
     "grantpark":    "lib/core/node_hashlocate.cpp",  # §UI-16 N6b — park_send's stored-or-dropped fact
+    # B161 spans the two raw-answer producers, their deferred consumers and the one hybrid identity authority.
+    # Keep one target per source file: the runner's mutation/restore/build guards are file-keyed.
+    "b161hash":     "lib/core/node_hashlocate.cpp",
+    "b161rx":       "lib/core/node_mac_rx.cpp",
+    "b161mac":      "lib/core/node_mac.cpp",
+    # B251 spans receive-flight authority/admission and the bounded reverse-ACK ledger. Kept separate from B161 so
+    # each slice can be re-proved independently even though two targets share the same production files.
+    "b251rx":       "lib/core/node_mac_rx.cpp",
+    "b251hash":     "lib/core/node_hashlocate.cpp",
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -347,7 +356,28 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2213, 95276     # ★★ CROSS-CHECK RE-SYNCED 2026-08-26 by **[[B247]]** — corrupt stored
+PIN_CASES, PIN_ASSERTS = 2240, 96469     # ★★ CROSS-CHECK RE-SYNCED 2026-08-27 by **[[B251 QG correction]]** — the hosted-mobile
+                                         # counter boundary adds twelve cases / 424 assertions: exact s22 collision,
+                                         # two-mobile receive identity, retry, queue/ring admission, reverse-key
+                                         # destination/hash/layer separation, no-live-eviction, static/team/encrypted
+                                         # exclusions and the cryptographic counter-negative. Thirteen B251
+                                         # mutations live under b251rx/b251hash; D05 pins SendDispatch as the
+                                         # sole admission authority for delegated evidence/correlation.
+                                         # Superseded [[B161]] pin follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2227, 95998 — canonical typed
+                                         # answer origin adds nine cases / 411 assertions: exact complete DATA
+                                         # bytes, both producer planes, type-13 N=0/N=32, type-5 preservation,
+                                         # destination/relay/raw refusal semantics and typed hybrid identity.
+                                         # The 15 B161 mutations live under b161hash/b161rx/b161mac.
+                                         # Superseded [[B250]] pin follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2218, 95587 — the roster grant's
+                                         # explicit caller context adds five model cases and 291 assertions: both
+                                         # parents' cancel/terminal/blank/push/expiry/emergency landings, all eleven
+                                         # outcomes, the stale-caller contamination path, and B64's
+                                         # unchanged/moved/gone identity arms. Derived baseline
+                                         # remains authoritative ([[B217]]); this is the stale-pin warning only.
+                                         # Superseded [[B247]] pin follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2213, 95276 — corrupt stored
                                          # join-profile PHY values now render one bounded `PROFILE INVALID` state
                                          # through the transaction's existing validation authority. Native moved
                                          # **2211 / 95231 -> 2213 / 95276**: exactly +2 cases / +45 assertions,
@@ -2822,18 +2852,22 @@ MUTS_MODEL = [
   "          for (const char* p = invite_name_of(s.member, s.team_shown, _st.invite.sel_hash); *p; ++p)\n"
   "              k = uint32_t(k * 31u + uint8_t(*p));\n"
   "          run_invite_grant(k); }"),
+ # ⚠ V16/V17 RE-ANCHORED 2026-08-26 ([[B250]]): caller-aware landing gives `run_invite_reject` the snapshot and
+ #   replaces its direct `enter_provision(invite)` with the one shared landing helper. The old patterns therefore
+ #   matched zero sites in the first complete B250 battery (237 RED / 2 vacuous). The two properties are unchanged:
+ #   REJECT must send nothing, and invitation-origin REJECT must add the selected hash before returning to its list.
  ("V16 ★★★ `REJECT` CALLS THE SEND — the SAFE default arm, the one selected on entry, ships the team's private "
   "key; one double-press on an unchanged confirmation grants instead of declining",
-  "    void run_invite_reject() {\n"
+  "    void run_invite_reject(const UiSnapshot& s) {\n"
   "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);",
-  "    void run_invite_reject() {\n"
+  "    void run_invite_reject(const UiSnapshot& s) {\n"
   "        run_invite_grant(_st.invite.sel_hash);\n"
   "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);"),
  ("V17 ★★ `REJECT` no longer adds the hash to the handled set (F-13) — the local refresh re-offers the candidate "
   "the operator has just declined, one tick later",
   "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);\n"
-  "        enter_provision(Provision::invite);",
-  "        enter_provision(Provision::invite);"),
+  "        leave_grant_chain(GrantExit::resume, s);",
+  "        leave_grant_chain(GrantExit::resume, s);"),
  # ★★★★ V18 IS PIN 8, AND IT IS AN ORDERING DEFECT RATHER THAN A MISSING FEATURE: `on_gesture` runs BEFORE
  #      `on_tick`, so without this guard a `double` that lands after the ruled five minutes grants — and the tick
  #      that closes the window arrives afterwards, too late to have bounded anything.
@@ -3115,6 +3149,103 @@ MUTS_MODEL = [
   "so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
   "        _invite_until_ms    = s.now_ms + kInviteWindowMs;",
   "        // (no deadline armed)"),
+
+ # ===== [[B250]] — THE ROSTER GRANT'S EXPLICIT CALLER + IDENTITY-SAFE RETURN ===================================
+ ("W12 ★★★★ THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains — every shared "
+  "exit sees `none` and falls to PROVISION instead of returning to the member who opened it",
+  "        _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together",
+  "        clear_grant_return();                                // caller binding deleted"),
+ ("W13 ★★★ THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action — the empty "
+  "roster carrier is treated as having no caller and terminal acknowledgement loses its parent",
+  "        _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together",
+  "        _grant_return = {_st.invite.taken ? GrantOrigin::invite_window : GrantOrigin::none, peer};"),
+ ("W14 ★★★ BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING — a roster REJECT/ack opens PROVISION's invitation "
+  "parent instead of returning to TEAM",
+  "            case GrantOrigin::team_roster:\n"
+  "                return_to_team_roster(back.team_local_id, s);\n"
+  "                return;",
+  "            case GrantOrigin::team_roster:\n"
+  "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
+  "                return;"),
+ ("W15 ★★★ BOTH ORIGINS COLLAPSE TO THE TEAM LANDING — an invitation-window REJECT leaves its window and "
+  "selects a roster row the invitation never named",
+  "            case GrantOrigin::invite_window:\n"
+  "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
+  "                return;",
+  "            case GrantOrigin::invite_window:\n"
+  "                return_to_team_roster(back.team_local_id, s);\n"
+  "                return;"),
+ ("W16 ★★★ GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed — the natural no-selection "
+  "expiry re-opens an invitation list it has no selected caller for",
+  "            case GrantOrigin::none:\n"
+  "                enter_provision(Provision::menu);\n"
+  "                return;",
+  "            case GrantOrigin::none:\n"
+  "                enter_provision(Provision::invite);\n"
+  "                return;"),
+ ("W17 ★★★ THE ROSTER IS RESTORED PASSIVE — the caller's entered list is lost and the next double only enters "
+  "row zero instead of operating at the saved member",
+  "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)\n"
+  "        _st.list_view = ListView::interactive;",
+  "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)\n"
+  "        _st.list_view = ListView::passive;"),
+ ("W18 ★★★ SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY — the top-level screen says TEAM while the "
+  "sub-state still owns SETTINGS",
+  "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)",
+  "        ;                                       // SETTINGS/provisioning left open"),
+ ("W19 ★★★ THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity — selecting member 1 and "
+  "returning silently points at member 0",
+  "        _team_sel_id = team_local_id;",
+  "        _team_sel_id = s.team[0].id;"),
+ ("W20 ★★★ THE B64 IDENTITY-FOLLOW STEP IS REMOVED — a member reordered while the terminal screen was up "
+  "leaves the highlight at the old row",
+  "        _st.dirty = true;\n"
+  "        sync_team_cursor(s);",
+  "        _st.dirty = true;"),
+ ("W21 ★★★ A GONE RETURN SELECTS ITS NEIGHBOUR — the existing B64 refusal is replaced by row zero, so the "
+  "next double opens a DM for somebody else",
+  "        _team_sel_valid = false; _st.team_pick_gone = true; _st.dirty = true;",
+  "        _team_sel_id = s.team[0].id; _team_sel_valid = true; _st.team_pick_gone = false; _st.dirty = true;"),
+ ("W22 ★★★ A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST — it loses the operation the operator "
+  "started instead of opening the safe-default confirmation",
+  "            case GrantOrigin::team_roster:\n"
+  "                enter_provision(Provision::invite_confirm);\n"
+  "                return;",
+  "            case GrantOrigin::team_roster:\n"
+  "                enter_provision(Provision::invite);\n"
+  "                return;"),
+ ("W23 ★★★ A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION — invite-origin behaviour is no "
+  "longer byte-identical and the refreshed candidate list is skipped",
+  "            case GrantOrigin::invite_window:\n"
+  "                enter_provision(Provision::invite);\n"
+  "                return;",
+  "            case GrantOrigin::invite_window:\n"
+  "                enter_provision(Provision::invite_confirm);\n"
+  "                return;"),
+ ("W24 ★★★ A RETURN REPEATS THE PUBKEY REQUEST — cancellation/acknowledgement grows an unauthorised second "
+  "device command instead of being navigation-only",
+  "            case GrantOrigin::team_roster:\n"
+  "                return_to_team_roster(back.team_local_id, s);",
+  "            case GrantOrigin::team_roster:\n"
+  "                (void)invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash);\n"
+  "                return_to_team_roster(back.team_local_id, s);"),
+ ("W25 ★★★ A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT — the result's frozen hash is sent a second time "
+  "before the roster landing",
+  "            case GrantOrigin::team_roster:\n"
+  "                return_to_team_roster(back.team_local_id, s);",
+  "            case GrantOrigin::team_roster:\n"
+  "                if (_st.grant.hash) run_invite_grant(_st.grant.hash);\n"
+  "                return_to_team_roster(back.team_local_id, s);"),
+ ("W26 ★★★ AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN — a later invitation window with no "
+  "selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION",
+  "    void clear_grant_return() { _grant_return = GrantReturn{}; }",
+  "    void clear_grant_return() { _grant_return.team_local_id = 0; }"),
+ ("W27 ★★★ EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED — after pre-emption, a fresh "
+  "unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent",
+  "    void clear_grant_return() { _grant_return = GrantReturn{}; }",
+  "    void clear_grant_return() {\n"
+  "        if (_grant_return.origin == GrantOrigin::invite_window) _grant_return = GrantReturn{};\n"
+  "    }"),
 
  ("V50 ★ the ruled RETENTION lexemes are re-spelled — S-40/S-42 are owner-ruled and declared once, so a re-ruling "
   "must change each in exactly one place (the V38/V39 treatment, one screen over)",
@@ -5404,6 +5535,146 @@ MUTS_GRANTPARK = [
   "    if (_parked_sends_n >= protocol::cap_parked_sends) return true;"),
 ]
 
+# ===== B161 — canonical typed-answer producers / consumers / hybrid identity =====================================
+# These entries attack decisions independently. The new native cases drive the real dedicated producers, deferred
+# destination/relay consumers and a deliberately disagreeing carrier-vs-wire identity; a compile-only failure is
+# unusable under the runner's standing rule.
+MUTS_B161HASH = [
+ ("H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority",
+  "    stamp_origin(item, item.plane, dst);",
+  "    item.origin = _node_id;"),
+ ("H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope",
+  "    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), /*flags=*/0,\n"
+  "                                        /*dst_key_hash32=*/0, /*layer_ids=*/nullptr, /*n_layers=*/0, /*cur=*/0,\n"
+  "                                        item.origin, /*source_hash=*/0, body, body_len, /*lat_e7=*/0, /*lon_e7=*/0);",
+  "    if (body_len > sizeof item.inner) return false;\n"
+  "    for (uint8_t i = 0; i < body_len; ++i) item.inner[i] = body[i];\n"
+  "    const size_t n = body_len;"),
+ ("H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO",
+  "    const size_t total = n + 32 + 1u + nlen;\n"
+  "    if (!pack_typed_answer_inner(item, team_scoped ? Plane::TEAM : Plane::AUTO, to_origin,\n"
+  "                                 body, static_cast<uint8_t>(total))) return;",
+  "    const size_t total = n + 32 + 1u + nlen;\n"
+  "    if (!pack_typed_answer_inner(item, Plane::AUTO, to_origin,\n"
+  "                                 body, static_cast<uint8_t>(total))) return;"),
+ ("H04 B161 type 13 omits both name_len and the name tail from the transmitted body",
+  "    const size_t total = n + 32 + 1u + nlen;",
+  "    const size_t total = n + 32;"),
+ ("H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix",
+  "    body[n] = nlen; n += 1u + nlen;",
+  "    body[n] = nlen; n += 1u + nlen; body[0] = _node_id;"),
+ ("H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains",
+  "    if (kh != hb->key_hash32) return;                              // malformed answer earns no key/home/drain effect",
+  "    ;"),
+]
+
+MUTS_B161RX = [
+ ("R01 B161 types 1/2 restore a legacy raw fallback when canonical parsing/shape validation refuses",
+  "            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))\n"
+  "                on_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()),\n"
+  "                                      pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);",
+  "            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))\n"
+  "                on_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()),\n"
+  "                                      pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);\n"
+  "            else on_hash_bind_response(pa.inner, pa.inner_len,\n"
+  "                                       pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);"),
+ ("R02 B161 type 8 restores a legacy raw fallback when canonical parsing/shape validation refuses",
+  "            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))\n"
+  "                on_mobile_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));",
+  "            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))\n"
+  "                on_mobile_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));\n"
+  "            else on_mobile_hash_bind_response(pa.inner, pa.inner_len);"),
+ ("R03 B161 destination types 1/2 pass the whole inner, reintroducing the one-byte body shift",
+  "                on_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()),",
+  "                on_hash_bind_response(pa.inner, pa.inner_len,"),
+ ("R04 B161 destination type 8 passes the whole inner, reintroducing the one-byte body shift",
+  "                on_mobile_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));",
+  "                on_mobile_hash_bind_response(pa.inner, pa.inner_len);"),
+ ("R05 B161 destination type 13 passes the whole inner, reintroducing the one-byte body shift",
+  "                on_mobile_hash_bind_pubkey_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));",
+  "                on_mobile_hash_bind_pubkey_response(pa.inner, pa.inner_len);"),
+ ("R06 B161 relay snoop passes the whole inner while forwarding still carries the canonical bytes",
+  "                on_hash_bind_snoop(ui->body.data(), static_cast<uint8_t>(ui->body.size()),",
+  "                on_hash_bind_snoop(pa.inner, pa.inner_len,"),
+ ("R07 B161 implicit-forward credit collapses the identity back to the counter low nibble",
+  "        if (rts_flight_identity_equal(r.id, mine)\n"
+  "            && rts_wire_team_plane(r) == rts_wire_team_plane(mk.addr_len, mk.mobile_src))",
+  "        if (r.ctr_lo == pt.ctr_lo\n"
+  "            && rts_wire_team_plane(r) == rts_wire_team_plane(mk.addr_len, mk.mobile_src))"),
+ ("R08 B161 terminal CTS collapses the identity back to the counter low byte",
+  "            bound = rts_flight_identity_equal(c.id, mine) && (c.team_plane == my_team);",
+  "            bound = (c.id.bytes[2] == mine.bytes[2]) && (c.team_plane == my_team);"),
+]
+
+MUTS_B161MAC = [
+ ("M01 B161 flight_identity trusts PendingTx.origin instead of the origin exposed by the DATA inner",
+  "                               ui ? ui->origin : 0, pt.ctr, pt.dst, pt.nonce_seed);",
+  "                               pt.origin, pt.ctr, pt.dst, pt.nonce_seed);"),
+]
+
+# ===== B251 — hosted-mobile first-hop counter boundary / reverse-ACK correlation ================================
+MUTS_B251RX = [
+ ("X01 B251 translation is removed, restoring the downstream home/mobile counter alias",
+  "    const bool translate_mobile_transit = hosted_mobile_direct && !for_me_dst(d.dst)\n"
+  "        && !(_cfg.is_gateway && !_cfg.intra_layer_relay);",
+  "    const bool translate_mobile_transit = false;"),
+ ("X02 B251 first-hop identity is rebuilt from current row zero instead of the accepted hosted-mobile row",
+  "             | (uint64_t(hosted_mobile_hash) << 24) | (uint64_t(d.dst) << 16) | d.ctr)",
+  "             | (uint64_t(_active->_mobile_reg[0].key_hash32) << 24) | (uint64_t(d.dst) << 16) | d.ctr)"),
+ ("X03 B251 the hosted-mobile hash discriminator is dropped from the seen-origin key",
+  "        : hosted_mobile_direct\n          ? ((uint64_t(1) << 62)",
+  "        : false\n          ? ((uint64_t(1) << 62)"),
+ ("X04 B251 ordinary CRYPTED mobile transit is admitted to counter rewriting",
+  "    if (!d.crypted && _active->_pending_rx->mobile_from && !_active->_pending_rx->wire_team_plane\n"
+  "        && for_static_data && ui) {",
+  "    if (_active->_pending_rx->mobile_from && !_active->_pending_rx->wire_team_plane\n"
+  "        && for_static_data && ui) {"),
+ ("X05 B251 mobile_from alone authorises translation, collapsing TEAM and static planes",
+  "    if (!d.crypted && _active->_pending_rx->mobile_from && !_active->_pending_rx->wire_team_plane\n"
+  "        && for_static_data && ui) {",
+  "    if (!d.crypted && _active->_pending_rx->mobile_from && ui) {"),
+ ("X06 B251 a mismatching SOURCE_HASH is allowed to borrow the hosted row's translation authority",
+  "            if (ui->has_source_hash && ui->source_hash != row.key_hash32) {",
+  "            if (false && ui->has_source_hash && ui->source_hash != row.key_hash32) {"),
+ ("X07 B251 queue/correlation pressure is checked but ignored, so the mobile is hop-ACKed anyway",
+  "    if (admission_refusal != 0) {",
+  "    if (false && admission_refusal != 0) {"),
+ ("X09 B251 completed-flight lookup drops the immediate sender, so two mobiles can alias before DATA",
+  "        if (e.from != from || e.dst != dst || e.team_plane != team_plane) continue;",
+  "        if (e.dst != dst || e.team_plane != team_plane) continue;"),
+]
+
+MUTS_B251HASH = [
+ ("D01 B251 reverse lookup drops the returning destination discriminator",
+  "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.layer == layer) {"),
+ ("D02 B251 reverse lookup drops the layer/plane discriminator",
+  "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.peer == return_peer) {"),
+ ("D03 B251 reverse lookup drops the hosted-mobile hash discriminator",
+  "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "        if (e.ctr_h == acked_ctr\n"
+  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {"),
+ ("D04 B251 a full live correlation ring evicts slot zero instead of applying backpressure",
+  "    if (free_slot == kDelegAckNoSlot) {\n"
+  "        ++_mobile_ctr_admission_refused_n;\n"
+  "        MR_EMIT(\"deleg_ack_put_refused\", EF_I(\"mobile_hash\", static_cast<int64_t>(mobile_hash)),\n"
+  "                EF_I(\"ctr_h\", ctr_h), EF_I(\"ctr_m\", ctr_m));\n"
+  "        return false;                                             // every row is live: never evict one\n"
+  "    }",
+ "    if (free_slot == kDelegAckNoSlot) {\n"
+  "        free_slot = 0;                                            // mutant: evict a live answer\n"
+  "    }"),
+ ("D05 B251 MOBILE_SEND treats a minted non-zero counter as admission and manufactures phantom evidence/state",
+  "        const bool admitted = dispatch ? dispatch->admit == SendDispatch::Admit::queued : ctr_h != 0;",
+  "        const bool admitted = ctr_h != 0;"),
+]
+
 # ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================
 # ★★★ WHAT THESE MEASURE: every OWNER-RULED clause of the preset catalog, attacked ON ITS OWN. The stakes are why the
 #     battery exists — the emergency slot is what a long press sends when the wearer is in trouble, and every
@@ -5616,6 +5887,8 @@ MUTS_UIPRESETVERBS = [
 ]
 
 MUTS_BY_TARGET = {"teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
+                  "b161hash": MUTS_B161HASH, "b161rx": MUTS_B161RX, "b161mac": MUTS_B161MAC,
+                  "b251rx": MUTS_B251RX, "b251hash": MUTS_B251HASH,
                   "uipresets": MUTS_UIPRESETS, "uipresetverbs": MUTS_UIPRESETVERBS,
                   "model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,

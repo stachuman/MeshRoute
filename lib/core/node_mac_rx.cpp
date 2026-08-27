@@ -25,6 +25,45 @@ static uint8_t bucket_of_snr_2b(int snr_q4) {
     return 2;
 }
 
+// B161: types 1/2/8/13 are internal answers with fixed, type-owned BODY shapes inside the
+// standard plaintext-unicast envelope. Merely parsing `[origin][body]` is not enough to
+// distinguish a legacy raw body: its first type byte can be consumed as a plausible origin.
+// Require the exact production body shape before any cache/store/drain side effect. Type 5
+// remains outside this classifier because its existing standard-DM body and optional DST_HASH
+// prefix are unchanged by B161.
+static bool canonical_typed_answer_body_valid(uint8_t type, std::span<const uint8_t> body) {
+    switch (type) {
+        case DATA_TYPE_H_ANSWER:
+        case DATA_TYPE_AUTHORITATIVE_H_ANSWER:
+            return body.size() == 6;
+        case DATA_TYPE_MOBILE_H_ANSWER:
+            return body.size() == 7;
+        case DATA_TYPE_MOBILE_H_ANSWER_PUBKEY: {
+            if (body.size() < 40) return false;                 // hash-bind 7 + ed_pub 32 + name_len
+            const uint8_t name_len = body[39];
+            return name_len <= 32 && body.size() == static_cast<size_t>(40 + name_len);
+        }
+        default:
+            return true;
+    }
+}
+
+// B251/U2: the one PostAck -> forwarded TxItem conversion. The ordinary post-ACK relay and the hosted-mobile
+// counter-boundary prequeue both use it; the latter changes only ctr/ctr_lo and the explicit GLOBAL plane on the
+// accepted PostAck before calling here. Keeping one conversion prevents a later carrier field from being preserved
+// on normal relays but silently dropped on translated ones.
+static TxItem forward_item_from_post_ack(const PostAck& pa, uint64_t now_ms) {
+    TxItem it{};
+    it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
+    it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;
+    it.inner_len = pa.inner_len;
+    for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
+    for (int i = 0; i < 8; ++i) it.nonce_seed[i] = pa.nonce_seed[i];
+    it.fwd_remaining = pa.fwd_remaining; it.fwd_committed = pa.fwd_committed;
+    it.enqueue_time_ms = now_ms;
+    return it;
+}
+
 void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pr = parse_rts(std::span<const uint8_t>(bytes, len));
     if (!pr) return;
@@ -1067,7 +1106,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         //    which prefers `meta.src_hint` (the simulator's PHY oracle, -1 on hardware) — feeding that into an
         //    identity would make the comparison sim/metal-divergent, which is [[B156]]'s defect class. The sender
         //    computes the same `ui ? ui->origin : 0` from its own carrier (see `tx_rts_retry`), so the two agree
-        //    for EVERY frame shape including the raw-inner typed answers of [[B161]].
+        //    for every production frame shape. B161 removed the typed-answer raw-inner exception.
         const RtsFlightIdentity did = rts_flight_identity(d.crypted, ui ? ui->origin : 0, d.ctr, d.dst, nseed);
         if (!plane_ok || !rts_flight_identity_equal(did, _active->_pending_rx->id)) {
             // ⛔ ALL FOUR PROHIBITIONS, and they are enforced by RETURNING HERE rather than by four separate
@@ -1084,6 +1123,28 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _active->_pending_rx.reset();
             become_free();
             return;
+        }
+    }
+    // B251: bind a static-plane mobile ingress to the LIVE DIRECT hosted row while PendingRx still carries the
+    // immediate sender. `mobile_from` alone is not a plane discriminator (team traffic sets it too), so the stored
+    // wire plane and the DATA admission plane are both load-bearing. A SOURCE_HASH, when present, must name this
+    // exact row; a mismatch gets no translation authority and follows the pre-B251 path.
+    uint32_t hosted_mobile_hash = 0;
+    bool hosted_mobile_direct = false;
+    if (!d.crypted && _active->_pending_rx->mobile_from && !_active->_pending_rx->wire_team_plane
+        && for_static_data && ui) {
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) {
+            const auto& row = _active->_mobile_reg[i];
+            if (row.mobile_local_id != _active->_pending_rx->from || !host_row_live_direct(i)) continue;
+            if (ui->has_source_hash && ui->source_hash != row.key_hash32) {
+                MR_EMIT("mobile_transit_source_mismatch", EF_I("local", row.mobile_local_id),
+                        EF_I("expected", static_cast<int64_t>(row.key_hash32)),
+                        EF_I("got", static_cast<int64_t>(ui->source_hash)));
+                break;
+            }
+            hosted_mobile_hash = row.key_hash32;
+            hosted_mobile_direct = true;
+            break;
         }
     }
     // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
@@ -1211,6 +1272,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const RtsFlightIdentity done_id   = _active->_pending_rx->id;
     const uint8_t           done_from = _active->_pending_rx->from;         // ON-AIR immediate sender, never src_hint
     const bool              done_team = _active->_pending_rx->wire_team_plane;
+    const bool              done_mobile = _active->_pending_rx->mobile_from;
     _hal.cancel(kPendingRxExpiryTimerId);
     _hal.set_rx_sf(_cfg.routing_sf);                     // receiver retunes back
     _active->_pending_rx.reset();
@@ -1248,14 +1310,20 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // (node_mac.cpp:817 ORs it with team_next). So the residual alias was team-vs-mobile-static INSIDE the 2^62 range,
         // not team-vs-static. `for_team_data` (computed at the top of this function, :564 — "this DATA is addressed to OUR
         // team-plane id") is the exact plane discriminator and is stable across every hop of a team flight, since each
-        // team hop is addressed addr_len=1 to the next hop's team id. FOUR disjoint ranges now: static <2^32 ·
-        // mobile-static [2^62, 2^62+2^32) · TEAM [2^62+2^61, …) · CRYPTED >=2^63.
+        // team hop is addressed addr_len=1 to the next hop's team id. B251 adds bit 60 for a VERIFIED hosted-mobile
+        // first hop and replaces its redundant home-origin byte with the hosted row's full key hash. That is what keeps
+        // two mobiles at the same ctrM/dst from being mistaken for a loop. FIVE disjoint ranges now: static <2^32 ·
+        // generic mobile-static at bit62 · hosted-mobile first-hop at bit62+bit60 · TEAM at bit62+bit61 · CRYPTED >=2^63.
         // Static reduction: for_team_data is false for every static node and every non-team frame (team_addr_for_us
-        // requires team_id!=0 && _team_local_id!=0, and stubs to false on the three MR_FEAT_TEAM 0 gateway_* envs), so
-        // no static or mobile-static key VALUE changes — only team-plane flights move, and they move together.
-        : (((uint64_t(origin) << 24) | (uint64_t(d.dst) << 16) | d.ctr)
-           | (_active->_pending_rx->mobile_from ? (uint64_t(1) << 62) : uint64_t(0))
-           | (for_team_data                     ? (uint64_t(1) << 61) : uint64_t(0)));
+        // requires team_id!=0 && _team_local_id!=0, and stubs to false on the three MR_FEAT_TEAM 0 gateway_* envs).
+        // Ordinary static and generic mobile-static key values stay unchanged. Team-plane flights move together, and
+        // only a verified live-direct hosted-mobile first hop enters the B251 hash-qualified range.
+        : hosted_mobile_direct
+          ? ((uint64_t(1) << 62) | (uint64_t(1) << 60)
+             | (uint64_t(hosted_mobile_hash) << 24) | (uint64_t(d.dst) << 16) | d.ctr)
+          : (((uint64_t(origin) << 24) | (uint64_t(d.dst) << 16) | d.ctr)
+             | (done_mobile  ? (uint64_t(1) << 62) : uint64_t(0))
+             | (for_team_data ? (uint64_t(1) << 61) : uint64_t(0)));
     // HOP_BUDGET enforcement FIRST (dv:10918-10964), BEFORE the dedup AND the ACK so the
     // NACK fires IN LIEU OF the ACK. A FORWARDER (d.dst != self) decrements the TTL; if the
     // decremented value went negative (the frame arrived with hops_remaining==0 at a
@@ -1273,7 +1341,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         record_seen_origin(sokey, from, nowm);   // prune + roll-evict-oldest-if-full + insert (see the def)
         nack_in nin{}; nin.reason = protocol::nack_reason_hop_budget; nin.ctr_lo = d.ctr_lo4;
         nin.payload = static_cast<uint8_t>((hb_new_committed & 0x0f) << 4);   // committed in the HIGH nibble
-        nin.to = from; nin.mobile_to = _active->_pending_rx->mobile_from;   // §mobile: a mobile/team DATA's origin is a LOCAL id -> mark the NACK
+        nin.to = from; nin.mobile_to = done_mobile;   // §mobile: use the receive-flight discriminator captured before PendingRx was retired
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
         tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (HOP_BUDGET NACK)
         MR_EMIT("nack_tx", EF_I("to", from), EF_I("reason", protocol::nack_reason_hop_budget), EF_I("ctr", d.ctr));
@@ -1300,6 +1368,71 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;
         }
     }
+    // B251 admission boundary. A qualifying hosted-mobile transit must own a real queue row before we acknowledge
+    // ctrM; an E2E-requesting one must also own reverse-correlation capacity. The same reservation protects the
+    // existing MOBILE_SEND delegation path, whose re-origination may be immediate or parked. A retryable BUSY_RX NACK
+    // is preferable to silence: the sender already has a bounded same-hop wait/retry path and eventually reports its
+    // ordinary send_failed if pressure persists.
+    const bool translate_mobile_transit = hosted_mobile_direct && !for_me_dst(d.dst)
+        && !(_cfg.is_gateway && !_cfg.intra_layer_relay);
+    const bool wants_reverse_map = (d.flags & DATA_FLAG_E2E_ACK_REQ) != 0
+                                && d.type != DATA_TYPE_E2E_ACK;
+    uint32_t map_mobile_hash = 0;
+    DelegAckPeer map_target_kind = DelegAckPeer::node_id;
+    uint32_t map_target = 0;
+    if (!live_dup && translate_mobile_transit && wants_reverse_map) {
+        map_mobile_hash = hosted_mobile_hash;
+        map_target = d.dst;
+    } else if (!live_dup && !d.crypted && !done_team && for_me_dst(d.dst) && wants_reverse_map
+               && d.type == DATA_TYPE_MOBILE_SEND && ui && ui->has_source_hash && ui->has_dst_hash) {
+        // Existing wrapper path: reserve by the stable requested target hash. do_post_ack/send_by_hash later
+        // finalizes this same row with the return discriminator exposed by the chosen same/XL route.
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].key_hash32 == ui->source_hash && host_row_live_direct(i)) {
+                map_mobile_hash = ui->source_hash;
+                map_target_kind = DelegAckPeer::key_hash;
+                map_target = ui->dst_key_hash32;
+                break;
+            }
+    }
+    uint8_t correlation_slot = kDelegAckNoSlot;
+    uint16_t admitted_ctr_h = 0;                                // B251 E2E path: predicted without allocating
+    uint32_t admission_retry_ms = protocol::nack_busy_quantum_ms;
+    uint8_t admission_refusal = 0;                              // 1=TX queue, 2=correlation ring
+    if (!live_dup && translate_mobile_transit && _active->_tx_queue_n >= kTxQueueCap) {
+        admission_refusal = 1;
+    } else if (map_mobile_hash != 0
+               && !deleg_ack_reserve(map_mobile_hash, d.ctr, map_target_kind, map_target,
+                                      active_layer_id(), correlation_slot, admission_retry_ms)) {
+        admission_refusal = 2;
+    }
+    if (admission_refusal == 0 && correlation_slot != kDelegAckNoSlot && translate_mobile_transit) {
+        admitted_ctr_h = peek_next_ctr(d.dst);
+        if (!deleg_ack_activation_available(correlation_slot, admitted_ctr_h, DelegAckPeer::node_id,
+                                            d.dst, active_layer_id(), admission_retry_ms)) {
+            deleg_ack_release(map_mobile_hash, d.ctr, map_target_kind, map_target, active_layer_id());
+            correlation_slot = kDelegAckNoSlot;
+            admission_refusal = 2;
+        }
+    }
+    if (admission_refusal != 0) {
+        ++_mobile_ctr_admission_refused_n;
+        MR_EMIT("mobile_ctr_admission_refused", EF_I("reason", admission_refusal),
+                EF_I("mobile_hash", static_cast<int64_t>(map_mobile_hash ? map_mobile_hash : hosted_mobile_hash)),
+                EF_I("dst", d.dst), EF_I("ctr_m", d.ctr), EF_I("retry_ms", admission_retry_ms));
+        uint32_t q = (admission_retry_ms + protocol::nack_busy_quantum_ms - 1)
+                   / protocol::nack_busy_quantum_ms;
+        if (q == 0) q = 1;
+        if (q > 255) q = 255;
+        nack_in nin{}; nin.reason = protocol::nack_reason_busy_rx; nin.ctr_lo = d.ctr_lo4;
+        nin.payload = static_cast<uint8_t>(q); nin.to = from; nin.mobile_to = done_mobile;
+        uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, sizeof nbuf));
+        tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);
+        MR_EMIT("nack_tx", EF_I("to", from), EF_I("reason", protocol::nack_reason_busy_rx),
+                EF_I("ctr", d.ctr));
+        become_free();
+        return;
+    }
     // ACK on routing_sf (2-bit SNR bucket). R4.2: piggyback OUR budget tier, capped at CRITICAL (the
     // protocol caps the forward hint at CRITICAL per Lua dv:11054 — a node already >=CRITICAL refuses
     // the RTS with a BUDGET NACK and rarely ACKs; EXHAUSTED is the reverse-NACK's concern). So the
@@ -1313,7 +1446,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // `to` is a home-assigned/team LOCAL id -> set mobile_to so the originator ACCEPTS it (its gate at handle_ack requires
     // (mobile_to==1)==is_mobile) and a colliding STATIC id ignores it. Without this EVERY mobile/team-ORIGINATED DM fails at
     // the ACK step (retries + dups). 0 for a static originator -> byte-identical.
-    ain.mobile_to = _active->_pending_rx->mobile_from;
+    ain.mobile_to = done_mobile;
     // Inc 3: warn the sender (via the ACK warn bit) when its observed airtime is in the warn band — the
     // soft sender-side precursor to the hard drop. orig_air = this sender's windowed airtime (post-DATA,
     // computed above for the data_rx diagnostic). cap = share x budget; warn at warn_fraction x cap.
@@ -1349,7 +1482,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _active->_post_ack.pending = true; _active->_post_ack.is_forward = !for_me_dst(d.dst);   // §6.4: deliver a DM addressed to our team-plane id too (dual member)
     _active->_post_ack.team_plane = for_team_data;   // ★ §hashbind-plane: carry the PLANE to the deferred ingest (do_post_ack cannot re-derive it — no `next`/`addr_len` there, and _pending_rx is reset above). Same discriminator T6/B already uses for the dedup key; false for every static/non-team frame.
     _active->_post_ack.origin = origin; _active->_post_ack.dst = d.dst; _active->_post_ack.ctr_lo = d.ctr_lo4;
-    _active->_post_ack.ctr = d.ctr; _active->_post_ack.flags = d.flags; _active->_post_ack.type = d.type; _active->_post_ack.previous_hop = from;
+    _active->_post_ack.ctr = d.ctr; _active->_post_ack.flags = d.flags; _active->_post_ack.type = d.type;
+    _active->_post_ack.previous_hop = translate_mobile_transit ? done_from : from;
     _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _active->_post_ack.inner_len; ++i) _active->_post_ack.inner[i] = inner[i];
@@ -1361,6 +1495,36 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // leak into a budget. (L2c re-budgets its leg from rt anyway; this is belt-and-suspenders.)
     _active->_post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining < 0 ? 0 : hb_new_remaining);
     _active->_post_ack.fwd_committed = hb_new_committed;                         // carried into the forward TxItem
+    if (translate_mobile_transit) {
+        // The mobile's ACK above used ctrM. Only now mint the home's destination-scoped counter, then consume the
+        // queue capacity checked before that ACK. The short hold keeps this already-reserved item behind the post-ACK
+        // semantic pass; no other producer can steal its slot after handle_data returns.
+        const uint16_t ctr_h = next_ctr(d.dst);
+        _active->_post_ack.ctr = ctr_h;
+        _active->_post_ack.ctr_lo = static_cast<uint8_t>(ctr_h & 0x0F);
+        _active->_post_ack.forward_prequeued = true;
+        const bool correlation_ready = correlation_slot == kDelegAckNoSlot
+            || (ctr_h == admitted_ctr_h
+                && deleg_ack_activate(correlation_slot, ctr_h, DelegAckPeer::node_id,
+                                      d.dst, active_layer_id()));
+        if (!correlation_ready) {
+            // All resource/collision checks ran before the hop ACK, and the loop task is single-threaded. Reaching
+            // this means an internal counter/reservation invariant was broken, not ordinary pressure. Never forward
+            // without the map; the prequeued marker also prevents do_post_ack from materialising a fallback copy.
+            if (correlation_slot != kDelegAckNoSlot)
+                deleg_ack_release(hosted_mobile_hash, d.ctr, DelegAckPeer::node_id, d.dst, active_layer_id());
+            ++_mobile_ctr_admission_refused_n;
+            MR_EMIT("mobile_ctr_commit_failed", EF_I("mobile_hash", static_cast<int64_t>(hosted_mobile_hash)),
+                    EF_I("dst", d.dst), EF_I("ctr_m", d.ctr), EF_I("ctr_h", ctr_h));
+        } else {
+            TxItem it = forward_item_from_post_ack(_active->_post_ack, nowm);
+            it.plane = Plane::GLOBAL;
+            it.next_attempt_ms = nowm + airtime_routing_ms(3) + 2;
+            _active->_tx_queue[_active->_tx_queue_n++] = it;                   // capacity was reserved above
+            MR_EMIT("mobile_ctr_translated", EF_I("mobile_hash", static_cast<int64_t>(hosted_mobile_hash)),
+                    EF_I("dst", d.dst), EF_I("ctr_m", d.ctr), EF_I("ctr_h", ctr_h));
+        }
+    }
     (void)_hal.after(airtime_routing_ms(3) + 1, kPostAckTimerId);
 }
 
@@ -1368,9 +1532,11 @@ void Node::do_post_ack() {
     if (!_active->_post_ack.pending) return;
     const PostAck pa = _active->_post_ack;
     _active->_post_ack.pending = false;
+    // B161: one canonical plaintext-unicast parse serves both destination consumers and relay snoops. A typed answer
+    // without this envelope may complete its hop exchange, but it earns no semantic state change.
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
     if (!pa.is_forward) {
-        // Parse the inner up-front (the optional DST_HASH prefix + the cross-layer layer-path, read from pa.flags).
-        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        // The optional DST_HASH prefix + cross-layer path are read from pa.flags by the shared parse above.
         // §mobile delegated hash-locate (2026-07-11): a hosted mobile handed us (its home) a PLAINTEXT payload to send to
         // ui->dst_key_hash32 (the target). RE-ORIGINATE via send_by_hash (existing resolve/park machinery), stamping
         // SOURCE_HASH = the requesting mobile's hash (ui->source_hash) so the target's E2E-ack routes back to the MOBILE,
@@ -1400,11 +1566,18 @@ void Node::do_post_ack() {
             bool ours = false;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == ui->source_hash && host_row_live_direct(i)) { ours = true; break; }
+            const bool reserved_reverse_ack = (pa.flags & DATA_FLAG_E2E_ACK_REQ) != 0;
+            auto release_reverse_ack = [&]() {
+                if (reserved_reverse_ack)
+                    deleg_ack_release(ui->source_hash, pa.ctr, DelegAckPeer::key_hash,
+                                      ui->dst_key_hash32, active_layer_id());
+            };
             if (ours && (pa.flags & DATA_FLAG_MS_ENCLOSED_TYPE) && ui->body.size() >= 2 && ui->body[0] == DATA_TYPE_CHANNEL_POST) {
                 // §S7 T-B: a delegated GLOBAL/leaf channel post. Body = [DATA_TYPE_CHANNEL_POST][channel_id][text].
                 // Re-originate via do_send_channel under OUR OWN origin/ctr (the home mints; the wrapper's DST_HASH =
                 // the mobile's own hash is a placeholder — never used here). Anti-spam bills the HOME + our self-GATE
                 // applies (deliberate: hosting implies consenting to the mobile's channel share).
+                release_reverse_ack();                           // channel posts do not use the delegated DM E2E map
                 do_send_channel(ui->body[1], ui->body.data() + 2, static_cast<uint8_t>(ui->body.size() - 2));
                 become_free();
                 return;
@@ -1422,6 +1595,7 @@ void Node::do_post_ack() {
                              && ui->layer_ids[0] != active_layer_id();   // 1 + n_layers must fit; hops[0] != our own layer
                 for (uint8_t i = 0; valid && i < ui->n_layers; ++i) if (ui->layer_ids[i] == 0) valid = false;
                 if (!valid) {
+                    release_reverse_ack();
                     MR_EMIT("xl_delegate_bad_path", EF_I("n", ui->n_layers), EF_I("m", static_cast<int64_t>(ui->source_hash)));
                     presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                 } else {
@@ -1432,9 +1606,14 @@ void Node::do_post_ack() {
                                                               payload, plen, reflags, hctr,
                                                               /*type=*/etype, /*override_source_hash=*/ui->source_hash);
                     if (code == CmdCode::queued) {
-                        if (etype != DATA_TYPE_E2E_ACK && (pa.flags & DATA_FLAG_E2E_ACK_REQ))
-                            deleg_ack_put(ui->source_hash, hctr, pa.ctr);   // ctr_H -> ctr_M for the returning far ack
+                        if (etype != DATA_TYPE_E2E_ACK && reserved_reverse_ack) {
+                            if (!deleg_ack_put(ui->source_hash, hctr, pa.ctr,
+                                              DelegAckPeer::key_hash, ui->dst_key_hash32,
+                                              DelegAckPeer::key_hash, ui->dst_key_hash32, active_layer_id()))
+                                presence_mark_deleg_fail(ui->source_hash);
+                        }
                     } else {
+                        release_reverse_ack();
                         MR_EMIT("xl_delegate_no_route", EF_I("m", static_cast<int64_t>(ui->source_hash)), EF_I("code", static_cast<int>(code)));
                         presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                     }
@@ -1454,8 +1633,15 @@ void Node::do_post_ack() {
                     etype = wb[0]; wb += 1; wl = static_cast<uint8_t>(wl - 1);
                     reflags = pa.flags & DATA_FLAG_E2E_ACK_REQ;                              // strip the marker from the re-originated flags
                 }
+                // B251 QG: the minted counter is not admission authority — enqueue_data returns it even when its
+                // queue is full. send_by_hash consumes this dispatch to emit/activate only for a STORED outward item,
+                // retain a genuine park, or release the pre-ACK reservation on refusal.
+                SendDispatch dispatch{};
                 (void)send_by_hash(ui->dst_key_hash32, wb, wl, reflags, CryptIntent::off,
-                                   /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr, Plane::AUTO, /*type=*/etype);   // plaintext-only (v1)
+                                   /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr, Plane::AUTO, /*type=*/etype,
+                                   /*suppress_intro=*/false, &dispatch);   // plaintext-only (v1)
+            } else {
+                release_reverse_ack();                           // spoofed/stale source: no later resolver can consume it
             }
             become_free();
             return;
@@ -1498,7 +1684,12 @@ void Node::do_post_ack() {
                         if (pa.type == DATA_TYPE_E2E_ACK && ui->body.size() >= 2) {
                             const uint16_t acked = static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8));
                             uint16_t m_ctr = acked;
-                            if (deleg_ack_translate(ui->dst_key_hash32, acked, m_ctr)) {
+                            const bool xl_ack = (pa.flags & DATA_FLAG_CROSS_LAYER) != 0
+                                             && ui->has_source_hash && ui->source_hash != 0;
+                            const DelegAckPeer return_kind = xl_ack ? DelegAckPeer::key_hash : DelegAckPeer::node_id;
+                            const uint32_t return_peer = xl_ack ? ui->source_hash : pa.origin;
+                            if (deleg_ack_translate(ui->dst_key_hash32, acked, return_kind,
+                                                   return_peer, active_layer_id(), m_ctr)) {
                                 const size_t boff = static_cast<size_t>(ui->body.data() - pa.inner);
                                 if (boff + 1 < sizeof it.inner) {
                                     it.inner[boff]     = static_cast<uint8_t>(m_ctr & 0xFF);
@@ -1524,12 +1715,14 @@ void Node::do_post_ack() {
             if (!(ui->has_dst_hash && ui->dst_key_hash32 == _key_hash32)) { bridge_cross_layer(pa, *ui); return; }
         }
         if (pa.type == DATA_TYPE_MOBILE_H_ANSWER) {   // §mobile 4a: a mobile-proxy answer -> cache M->home only (NO id_bind, NO deliver)
-            on_mobile_hash_bind_response(pa.inner, pa.inner_len);
+            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))
+                on_mobile_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));
             become_free();
             return;
         }
         if (pa.type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY) {   // §mobile Part 2 Fix 8: a home's WANT_PUBKEY answer -> cache peer_key(M) + M->home (NO id_bind, NO deliver)
-            on_mobile_hash_bind_pubkey_response(pa.inner, pa.inner_len);
+            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))
+                on_mobile_hash_bind_pubkey_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()));
             become_free();
             return;
         }
@@ -1599,7 +1792,9 @@ void Node::do_post_ack() {
         }
 #endif
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
-            on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: a TEAM-plane answer must not write the static _id_bind
+            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))
+                on_hash_bind_response(ui->body.data(), static_cast<uint8_t>(ui->body.size()),
+                                      pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: a TEAM-plane answer must not write the static _id_bind
             become_free();
             return;
         }
@@ -1812,22 +2007,20 @@ void Node::do_post_ack() {
             return;
         }
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
-        if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
-            on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: cache-on-pass of a TEAM-plane answer must not write the static _id_bind
+        if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {
+            if (ui && canonical_typed_answer_body_valid(pa.type, ui->body))
+                on_hash_bind_snoop(ui->body.data(), static_cast<uint8_t>(ui->body.size()),
+                                   pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: cache-on-pass of a TEAM-plane answer must not write the static _id_bind
+        }
         else if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: cache-on-pass — no `ui` on the forward path, so skip [dst_hash?][origin] to reach the pubkey BODY (Wave 2 standard DM; no SOURCE_HASH on this app_dm=false type)
             const uint8_t off = static_cast<uint8_t>((pa.flags & DATA_FLAG_DST_HASH ? 4 : 0) + 1);
             if (pa.inner_len > off) on_hash_bind_pubkey(pa.inner + off, static_cast<uint8_t>(pa.inner_len - off));
         }
-        TxItem it{};
-        it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
-        it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;
-        it.inner_len = pa.inner_len;
-        for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
-        for (int i = 0; i < 8; ++i) it.nonce_seed[i] = pa.nonce_seed[i];   // CRYPTED: a relay re-tx's the original nonce-seed verbatim
-        it.fwd_remaining = pa.fwd_remaining; it.fwd_committed = pa.fwd_committed;   // carry the decremented budget
-        it.enqueue_time_ms = _hal.now();                 // fresh hop attempt (dv:11391): the cascade-requeue
-                                                         // total-age window starts when THIS hop accepts the
-                                                         // forward — else it defaults 0 and the cap mis-fires.
+        if (pa.forward_prequeued) {                         // B251: queue row + translated ctrH already belong to this accepted flight
+            become_free();
+            return;
+        }
+        TxItem it = forward_item_from_post_ack(pa, _hal.now());
         if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
         become_free();
     }

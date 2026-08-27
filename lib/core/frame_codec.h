@@ -713,20 +713,20 @@ inline constexpr size_t data_mac_len(uint8_t flags) { return (flags & DATA_FLAG_
 // the wire — APP=0 means no TYPE byte). AUTHORITATIVE is folded into the H_ANSWER code (1 vs 2); E2E_IS_ACK
 // became the E2E_ACK type. The H_ANSWER inner is cleartext so relays cache-on-pass.
 enum DataType : uint8_t {
-    DATA_TYPE_H_ANSWER               = 1,   // the inner is a hash-bind answer (cache key_hash32->node_id)
-    DATA_TYPE_AUTHORITATIVE_H_ANSWER = 2,   // same inner; the answer is the owner's (authoritative)
+    DATA_TYPE_H_ANSWER               = 1,   // canonical plaintext-unicast inner; body = hash-bind answer [target_layer][node_id][key_hash32 LE] (6 B)
+    DATA_TYPE_AUTHORITATIVE_H_ANSWER = 2,   // same canonical envelope/body; the answer is the owner's (authoritative)
     DATA_TYPE_E2E_ACK                = 3,   // normal-unicast inner; body = the acked ctr (2 B LE)
     DATA_TYPE_H_ANSWER_PUBKEY               = 4,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
-    DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: the owner's pubkey answer — inner [target_layer][node_id][ed_pub 32]
+    DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: canonical plaintext-unicast inner; body = [target_layer][node_id][ed_pub 32][name_len][name]. Already canonical before B161.
     DATA_TYPE_REMOTE_CMD             = 6,   // OTA remote diagnostics (2026-06-24): inner body = a console-style query keyword
     DATA_TYPE_REMOTE_RESP            = 7,   //   its response text. Plain inner, cleartext (honest-net diagnostic; E2E-seal is a later option).
     // (TYPE 6 was CONFIG_ANSWER, removed 2026-06-22 — leaf config now rides the C control frame cmd 0xB; reused here.)
-    DATA_TYPE_MOBILE_H_ANSWER        = 8,   // §mobile 4a: a host PROXYING for a hosted mobile (M -> home_id, always CLAIMED); inner carries the registration epoch (7 B). Distinct TYPE -> the sender caches M->home + NEVER id_binds (repeat-robust) + freshest-epoch wins.
+    DATA_TYPE_MOBILE_H_ANSWER        = 8,   // §mobile 4a: canonical plaintext-unicast inner; body = [target_layer][home][mobile_hash LE][epoch] (7 B). Distinct TYPE -> cache M->home, NEVER id_bind, freshest epoch wins.
     DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8][new_home_layer:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
     DATA_TYPE_MOBILE_LAYER_QUERY     = 10,  // §mobile 5a: a mobile asks a gateway "list the layers you bridge" (SOURCE_HASH=M). Empty body.
     DATA_TYPE_MOBILE_LAYER_ANSWER    = 11,  // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
     DATA_TYPE_MOBILE_PUBKEY_PUSH     = 12,  // §mobile hash-locate Part 2 (Fix 6): a mobile pushes its ed_pub[32] to its home (1-hop DM, SOURCE_HASH=M) so the home can answer WANT_PUBKEY locates on its behalf. Re-sent on re-home. Body = ed_pub[32].
-    DATA_TYPE_MOBILE_H_ANSWER_PUBKEY = 13,  // §mobile hash-locate Part 2 (Fix 7): a home's WANT_PUBKEY answer for its LIVE mobile — inner = the mobile hash_bind (7 B: home routing + epoch) ‖ the mobile's ed_pub[32] = 39 B. Sender caches peer_key(M)+mobile_home(M->home), NEVER id_binds the local id.
+    DATA_TYPE_MOBILE_H_ANSWER_PUBKEY = 13,  // §mobile hash-locate Part 2 (Fix 7): canonical plaintext-unicast inner; body = mobile hash-bind[7] + ed_pub[32] + name_len[1] + name[0..32]. Cache peer_key(M)+mobile_home(M->home), NEVER id_bind the local id.
     DATA_TYPE_MOBILE_SEND            = 14,   // §mobile delegated hash-locate (2026-07-11): a registered mobile asks its HOME to send the enclosed PLAINTEXT payload to DST_HASH (the target). dst=home_id, SOURCE_HASH=mobile_hash. The home re-originates via send_by_hash (resolve/park) stamping source_hash=mobile_hash so the target's E2E-ack routes back to the mobile. A mobile NEVER hash-locates on the static plane (origin=local id -> RREQ storm). Home-only (_mobile_reg_n>0) -> static-inert.
     DATA_TYPE_INTRO                  = 15,   // §S2 first-contact pubkey attach: a NORMAL plaintext app DM whose inner BODY is prefixed [ed_pub 32][name_len u8][name <=32] before the message text. Requires SOURCE_HASH; the ADDRESSED recipient verifies ed_pub[:4]==source_hash (peerkey self-consistency), peer_key_set(authoritative)+name (fires peer_key_cached), STRIPS the prefix, and delivers the remainder as a plain DM (inbox + msg_recv, enc absent, dedup (sender_hash,ctr) unchanged). Ride rule (D1): a plaintext hash-addressed send attaches INTRO iff we hold no peer_confirmed(dst) (no SEALED frame opened from dst yet) AND we have a crypto identity. s18-inert: no identity -> never attached, never received.
     DATA_TYPE_MOBILE_KEY_FORWARD     = 16,   // §S3 part2: a HOME forwards a WANT_PUBKEY requester's key to its hosted mobile (1-hop last-mile, addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. The mobile caches it (self-consistency-checked) -> closes the recipient-side decrypt gap for the reqpubkey path (the mobile can now open the requester's sealed DM). Mobile-only consume; a static never sees it.
@@ -899,7 +899,9 @@ std::optional<p_roster_out> parse_p_roster(std::span<const uint8_t> frame);   //
 // i-th roster entry (i < count) incl. its quality tier + has_key bit; nullopt if out of range.
 std::optional<PRosterEntry> parse_p_roster_entry(std::span<const uint8_t> frame, const p_roster_out& r, uint8_t i);
 
-// Hash-bind answer inner (H §3.7a): [target_layer][node_id][key_hash32 LE] = 6 B. NO payload-flags byte —
+// Hash-bind answer BODY (H §3.7a): [target_layer][node_id][key_hash32 LE] = 6 B. The DATA producer wraps this
+// codec in the canonical plaintext-unicast envelope; this helper deliberately owns no origin or flags byte.
+// NO payload-flags byte exists in the body —
 // the frame TYPE (DATA_TYPE_H_ANSWER vs DATA_TYPE_AUTHORITATIVE_H_ANSWER) carries H_ANSWER + AUTHORITATIVE,
 // so the caller types the frame from `authoritative` (and reads it back from the TYPE). CLEARTEXT (CRYPTED=0)
 // so relays cache-on-pass. key_hash32 is LITTLE-endian (matches pack_h / the beacon). `authoritative` here is
@@ -909,8 +911,9 @@ struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_has
 size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out, bool mobile = false);  // 6; 7 if mobile (+epoch); 0 on short buf
 std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: < 6 B; reads a 7th epoch byte when present (mobile)
 
-// Hash-bind PUBKEY answer inner (E2E §6, DATA TYPE 5): [target_layer 1][node_id 1][ed_pub 32] = 34 B. The key_hash32
-// is DROPPED (== ed_pub[:4]; the cacher derives + verifies it). CLEARTEXT (CRYPTED=0) so relays cache-on-pass.
+// Hash-bind PUBKEY answer BODY prefix (E2E §6, DATA TYPE 5): [target_layer 1][node_id 1][ed_pub 32] = 34 B.
+// Its producer appends [name_len][name] and the standard enqueue path supplies the canonical unicast envelope.
+// The key_hash32 is DROPPED (== ed_pub[:4]; the cacher derives + verifies it). CLEARTEXT so relays cache-on-pass.
 struct hash_bind_pubkey_inner { uint8_t target_layer; uint8_t node_id; uint8_t ed_pub[32]; };
 size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out);          // 34; 0 on short buf
 std::optional<hash_bind_pubkey_inner> parse_hash_bind_pubkey_inner(std::span<const uint8_t> inner);    // nullopt: < 34 B

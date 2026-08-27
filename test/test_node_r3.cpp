@@ -283,12 +283,15 @@ static size_t mk_data_dsthash(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t o
 }
 // DATA carrying an H_ANSWER (hash-bind) inner: resolves hb_key -> hb_node (authoritative=owner). Routed to
 // `dst`; do_post_ack consumes it via on_hash_bind_response (drains a parked redirect/send for hb_key).
-static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr,
+static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
                                uint8_t hb_node, uint32_t hb_key, bool authoritative,
                                std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 7> body{};
     std::array<uint8_t, 16> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = hb_node; hb.key_hash32 = hb_key;   // 6-B inner; authoritative via TYPE
-    const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    const size_t bl = pack_hash_bind_inner(hb, std::span<uint8_t>(body.data(), body.size()));
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner.data(), inner.size()), /*flags=*/0,
+                                         0, nullptr, 0, 0, origin, 0, body.data(), static_cast<uint8_t>(bl), 0, 0);
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.type = authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;   // H_ANSWER rides the frame TYPE
@@ -339,6 +342,133 @@ static CmdResult send_cmd(Node& node, uint8_t dst, const char* body) {
     c.body = reinterpret_cast<const uint8_t*>(body);
     c.body_len = static_cast<uint8_t>(std::strlen(body));
     return node.on_command(c);
+}
+
+// B251 hop driver. The caller supplies the exact RTS bytes already emitted by the sender; every later frame is
+// required to be a NEW radio hand-off, so a stale captured CTS/DATA/ACK cannot make a broken path look green.
+struct DrivenHop {
+    bool got_rts = false, terminal = false, got_data = false, got_ack = false;
+    uint8_t rts_src = 0, rts_next = 0, rts_dst = 0, rts_ctr_lo = 0;
+    RtsFlightIdentity rts_id{};
+    uint16_t data_ctr = 0;
+    uint8_t data_flags = 0, data_type = 0;
+    std::vector<uint8_t> inner;
+};
+
+static size_t tx_label_count(const TestHal& hal, const char* label) {
+    size_t n = 0;
+    for (const auto& f : hal.tx_frames) if (f.label == label) ++n;
+    return n;
+}
+
+static std::vector<uint8_t> last_tx_copy(const TestHal& hal, const char* label) {
+    const TxFrame* f = hal.last_tx(label);
+    return f ? f->bytes : std::vector<uint8_t>{};
+}
+
+static DrivenHop drive_current_hop(Node& sender, TestHal& sender_hal,
+                                   Node& receiver, TestHal& receiver_hal,
+                                   const std::vector<uint8_t>& rts_wire,
+                                   uint64_t& now, bool run_post_ack = true) {
+    DrivenHop out{};
+    const auto rts = parse_rts(std::span<const uint8_t>(rts_wire.data(), rts_wire.size()));
+    CHECK(rts.has_value());
+    if (!rts) return out;
+    out.got_rts = true; out.rts_src = rts->src; out.rts_next = rts->next; out.rts_dst = rts->dst;
+    out.rts_ctr_lo = rts->ctr_lo; out.rts_id = rts->id;
+
+    const size_t cts0 = tx_label_count(receiver_hal, "CTS");
+    sender_hal._now = receiver_hal._now = ++now;
+    receiver.on_recv(rts_wire.data(), rts_wire.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(receiver_hal, "CTS") == cts0 + 1);
+    const std::vector<uint8_t> cts_wire = last_tx_copy(receiver_hal, "CTS");
+    const auto cts = parse_cts(std::span<const uint8_t>(cts_wire.data(), cts_wire.size()));
+    CHECK(cts.has_value());
+    if (!cts) return out;
+    out.terminal = cts->already_received;
+
+    sender_hal._now = receiver_hal._now = ++now;
+    sender.on_recv(cts_wire.data(), cts_wire.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    if (out.terminal) return out;
+
+    const size_t data0 = tx_label_count(sender_hal, "DATA");
+    sender_hal._now = receiver_hal._now = ++now;
+    sender.on_timer(kCtsToDataGapTimerId);
+    CHECK(tx_label_count(sender_hal, "DATA") == data0 + 1);
+    const std::vector<uint8_t> data_wire = last_tx_copy(sender_hal, "DATA");
+    const auto data = parse_data(std::span<const uint8_t>(data_wire.data(), data_wire.size()));
+    CHECK(data.has_value());
+    if (!data) return out;
+    out.got_data = true; out.data_ctr = data->ctr; out.data_flags = data->flags; out.data_type = data->type;
+    const auto data_payload = data_inner(std::span<const uint8_t>(data_wire.data(), data_wire.size()), *data);
+    out.inner.assign(data_payload.begin(), data_payload.end());
+
+    const size_t ack0 = tx_label_count(receiver_hal, "ACK");
+    sender_hal._now = receiver_hal._now = ++now;
+    receiver.on_recv(data_wire.data(), data_wire.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(receiver_hal, "ACK") == ack0 + 1);
+    const std::vector<uint8_t> ack_wire = last_tx_copy(receiver_hal, "ACK");
+    const auto ack = parse_ack(std::span<const uint8_t>(ack_wire.data(), ack_wire.size()));
+    CHECK(ack.has_value());
+    if (!ack) return out;
+    out.got_ack = true;
+
+    sender_hal._now = receiver_hal._now = ++now;
+    sender.on_recv(ack_wire.data(), ack_wire.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    if (run_post_ack) {
+        sender_hal._now = receiver_hal._now = ++now;
+        receiver.on_timer(kPostAckTimerId);
+    }
+    return out;
+}
+
+static CmdResult send_e2e_global(Node& node, uint8_t dst, const char* body) {
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst;
+    c.u.send.flags = DATA_FLAG_E2E_ACK_REQ;
+    c.u.send.plane = static_cast<uint8_t>(Plane::GLOBAL);
+    c.body = reinterpret_cast<const uint8_t*>(body);
+    c.body_len = static_cast<uint8_t>(std::strlen(body));
+    return node.on_command(c);
+}
+
+// A production-shaped registered-mobile first-hop DATA/RTS pair. The inner uses the shared codec and carries
+// SOURCE_HASH exactly as enqueue_data does; only the radio exchange is hand-driven so capacity tests can retain
+// eight outstanding E2E correlations without filling a separate mobile node's own pending-ACK ring.
+static std::vector<uint8_t> b251_mobile_data(uint8_t home, uint8_t dst, uint16_t ctr_m,
+                                             uint32_t mobile_hash, const char* body,
+                                             bool e2e = true) {
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_SOURCE_HASH
+                           | (e2e ? DATA_FLAG_E2E_ACK_REQ : 0));
+    uint8_t inner[protocol::max_payload_bytes_hard_cap]{};
+    const uint8_t body_len = static_cast<uint8_t>(std::strlen(body));
+    const size_t inner_len = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags,
+                                                 0, nullptr, 0, 0, home, mobile_hash,
+                                                 reinterpret_cast<const uint8_t*>(body), body_len, 0, 0);
+    CHECK(inner_len > 0);
+    std::array<uint8_t, protocol::lora_max_frame_bytes> wire{};
+    const uint8_t mac[4] = {0, 0, 0, 0};
+    data_in d{}; d.addr_len = 0; d.flags = flags; d.next = home; d.dst = dst;
+    d.hops_remaining = 31; d.ctr = ctr_m;
+    d.inner = std::span<const uint8_t>(inner, inner_len); d.mac = std::span<const uint8_t>(mac, sizeof mac);
+    const size_t n = pack_data(d, std::span<uint8_t>(wire.data(), wire.size()));
+    CHECK(n > 0);
+    return std::vector<uint8_t>(wire.begin(), wire.begin() + n);
+}
+
+static std::vector<uint8_t> b251_mobile_rts(uint8_t mobile_local, uint8_t home, uint8_t dst,
+                                            const std::vector<uint8_t>& data_wire) {
+    const auto d = parse_data(std::span<const uint8_t>(data_wire.data(), data_wire.size()));
+    CHECK(d.has_value());
+    if (!d) return {};
+    const auto inner = data_inner(std::span<const uint8_t>(data_wire.data(), data_wire.size()), *d);
+    rts_in r{}; r.leaf_id = 0; r.src = mobile_local; r.next = home; r.dst = dst;
+    r.ctr_lo = d->ctr_lo4; r.sf_index = 3; r.mobile_src = true; r.addr_len = 0;
+    r.payload_len = static_cast<uint8_t>(inner.size() + data_mac_len(d->flags));
+    r.id = id_of_data_frame(data_wire.data(), data_wire.size());
+    std::array<uint8_t, 16> wire{};
+    const size_t n = pack_rts(r, std::span<uint8_t>(wire.data(), wire.size()));
+    CHECK(n > 0);
+    return std::vector<uint8_t>(wire.begin(), wire.begin() + n);
 }
 
 }  // namespace
@@ -6544,9 +6674,9 @@ TEST_CASE("L2c — parked redirect resolves to a DIFFERENT id: forward, NEVER re
     CHECK(hal.count("l2c_redirect_parked") == 1);
     CHECK(hal.count("l2c_redirect_forward") == 0);               // nothing forwarded yet (parked, awaiting resolution)
     // HARD-H answer: 0x1234 is at id 7 (the recipient MOVED; not our id) -> forward, no collision.
-    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/0, /*ctr=*/0x0006);
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/4, /*ctr=*/0x0006);
     hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
-    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/7, /*hb_key=*/0x1234, true, ab);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*origin=*/4, /*hb_node=*/7, /*hb_key=*/0x1234, true, ab);
     hal._now = 3100; node.on_recv(ab.data(), an, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_redirect_forward") == 1);               // forwarded to the moved recipient
@@ -6568,9 +6698,9 @@ TEST_CASE("L2c — parked redirect resolves to OUR id: CONFIRMED collision, we W
     CHECK(hal.count("l2c_redirect_parked") == 1);
     // HARD-H answer: 0xFFFF0000 is at id 2 (OUR id) -> proven same-id collision.
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
-    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/0, /*ctr=*/0x0006);
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/4, /*ctr=*/0x0006);
     hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
-    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0xFFFF0000u, true, ab);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*origin=*/4, /*hb_node=*/2, /*hb_key=*/0xFFFF0000u, true, ab);
     hal._now = 3100; node.on_recv(ab.data(), an, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("addr_conflict_self_defended") == 1);        // the answer did NOT clobber our self-binding
@@ -6592,9 +6722,9 @@ TEST_CASE("L2c — parked redirect resolves to OUR id, we LOSE (joined): forced_
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_redirect_parked") == 1);
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
-    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/0, /*ctr=*/0x0006);
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/4, /*ctr=*/0x0006);
     hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
-    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0x00000001u, true, ab);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*origin=*/4, /*hb_node=*/2, /*hb_key=*/0x00000001u, true, ab);
     hal._now = 3100; node.on_recv(ab.data(), an, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_collision_confirmed") == 1);
@@ -6679,9 +6809,9 @@ TEST_CASE("L2c — park_send into a recycled redirect slot is NOT mis-drained as
     hal._now += 5000; send_hash_cmd(node, /*dst_hash=*/0xBBBBu, "yo");
     CHECK(hal.count("send_parked_for_hash") == 1);
     // (4) Resolve 0xBBBB -> id 8. It MUST drain via the plain (do_send) path, NOT the stale redirect branch.
-    std::array<uint8_t, 16> rb3{}; size_t rn3 = mk_rts(4, 2, 2, 7, 7, rb3, 0, /*origin=*/0, /*ctr=*/0x0007);
+    std::array<uint8_t, 16> rb3{}; size_t rn3 = mk_rts(4, 2, 2, 7, 7, rb3, 0, /*origin=*/4, /*ctr=*/0x0007);
     hal._now += 1000; node.on_recv(rb3.data(), rn3, m4);
-    std::array<uint8_t, 64> ab2{}; size_t an2 = mk_data_hashbind(2, 2, 0x0007, /*hb_node=*/8, /*hb_key=*/0xBBBBu, true, ab2);
+    std::array<uint8_t, 64> ab2{}; size_t an2 = mk_data_hashbind(2, 2, 0x0007, /*origin=*/4, /*hb_node=*/8, /*hb_key=*/0xBBBBu, true, ab2);
     hal._now += 100; node.on_recv(ab2.data(), an2, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("send_hash_resolved") == 1);                // plain send-by-hash path (correct, post-reset)
@@ -6727,9 +6857,9 @@ TEST_CASE("L2c — cfg/NV-provisioned LOSER (not joined): collision confirmed bu
     hal._now = 2000; node.on_recv(db.data(), dn, from1);
     node.on_timer(kPostAckTimerId);
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
-    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/0, /*ctr=*/0x0006);
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2, 0, /*origin=*/4, /*ctr=*/0x0006);
     hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
-    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0x00000001u, true, ab);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*origin=*/4, /*hb_node=*/2, /*hb_key=*/0x00000001u, true, ab);
     hal._now = 3100; node.on_recv(ab.data(), an, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_collision_confirmed") == 1);
@@ -6782,9 +6912,9 @@ TEST_CASE("L2c — a no-route redirect DROPS (forwarder semantics), it does NOT 
     node.restore_join_state(/*epoch=*/0, /*joined=*/true);
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
     // An H answer (via relay 4) binds 7->0x1234 AUTHORITATIVE but installs NO route to 7 (only to relay 4).
-    std::array<uint8_t, 16> rba{}; const size_t rna = mk_rts(4, 2, 2, 9, 7, rba, 0, /*origin=*/0, /*ctr=*/0x0009);
+    std::array<uint8_t, 16> rba{}; const size_t rna = mk_rts(4, 2, 2, 9, 7, rba, 0, /*origin=*/4, /*ctr=*/0x0009);
     hal._now = 500; node.on_recv(rba.data(), rna, m4);
-    std::array<uint8_t, 64> aba{}; const size_t ana = mk_data_hashbind(2, 2, 0x0009, /*hb_node=*/7, /*hb_key=*/0x1234, true, aba);
+    std::array<uint8_t, 64> aba{}; const size_t ana = mk_data_hashbind(2, 2, 0x0009, /*origin=*/4, /*hb_node=*/7, /*hb_key=*/0x1234, true, aba);
     hal._now = 600; node.on_recv(aba.data(), ana, m4);
     node.on_timer(kPostAckTimerId);
     // Misdeliver a DM wanting 0x1234: owner 7 is known authoritatively -> immediate forward, but no route to 7.
@@ -6809,9 +6939,9 @@ TEST_CASE("L2c/H — a plain send-by-hash that resolves to OUR OWN id gives up (
     // An H answer claims 0xCAFE is at id 2 (OUR id) with a foreign key -> self-guard refuses the bind, and the
     // plain parked send must NOT do_send to ourselves.
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
-    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(4, 2, 2, 6, 7, rb, 0, /*origin=*/0, /*ctr=*/0x0006);
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(4, 2, 2, 6, 7, rb, 0, /*origin=*/4, /*ctr=*/0x0006);
     hal._now = 2000; node.on_recv(rb.data(), rn, m4);
-    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0xCAFEu, true, ab);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*origin=*/4, /*hb_node=*/2, /*hb_key=*/0xCAFEu, true, ab);
     hal._now = 2100; node.on_recv(ab.data(), an, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("addr_conflict_self_defended") == 1);       // the foreign-key bind on our id was refused
@@ -9189,11 +9319,9 @@ TEST_CASE("§hybrid-rts S2 — a stale reservation is RE-POINTED by a retried RT
     CHECK(acks_on_wire(hal).size() == 1);
 }
 
-TEST_CASE("§hybrid-rts S2 [[B161]] — a RAW-INNER typed answer's RTS identity is the byte the DATA EXPOSES, "
-          "not the originator's carrier `origin`") {
-    // send_hash_bind_response enqueues a BARE `hash_bind_inner` with no `[origin]` prefix, so the receiver's
-    // `parse_unicast_inner` reads inner[0] = target_layer = 0. Feeding `pt.origin` (= our node_id) into the
-    // identity made 69 of 4 949 corpus DATA receptions unverifiable — all of them type 2 or type 8.
+TEST_CASE("§B161 — a canonical typed answer exposes its stamped origin to DATA, RTS and terminal CTS") {
+    // send_hash_bind_response wraps its unchanged hash_bind BODY in `[origin]`. The carrier stamp, DATA parse and
+    // frame-derived hybrid identity must agree; target_layer=0 is deliberately distinct from node_id/origin=2.
     TestHal hal; Node node(hal, /*node_id=*/2, /*key_hash32=*/0x0000BBBBu);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
@@ -9213,13 +9341,9 @@ TEST_CASE("§hybrid-rts S2 [[B161]] — a RAW-INNER typed answer's RTS identity 
         CHECK(pr.has_value());
         if (pr) {
             CHECK(pr->id.domain == RtsIdDomain::plaintext);
-            CHECK(pr->id.bytes[0] == 0);      // ★ the DATA-EXPOSED origin (hash_bind_inner.target_layer)
-            CHECK(pr->id.bytes[0] != 2);      // ⛔ NOT the carrier's `origin` (= our node_id) — the S1 behaviour
-            // ★★★ AND THE SENDER MUST ACCEPT ITS OWN FLIGHT'S TERMINAL ECHO. This half exists because the first
-            // S2 draft derived the RTS identity from the inner but the terminal-CTS comparison from `pt.origin`
-            // — two derivations of one identity. On this exact frame shape they differ (0 vs 2), and the corpus
-            // answered with 40 `cts_terminal_mismatch` refusals and a retry deadlock in s15/s15_metal/s27.
-            // Collapsing both onto `Node::flight_identity` is the fix; this is its detector.
+            CHECK(pr->id.bytes[0] == 2);      // ★ B161 canonical DATA origin == stamp_origin's node id
+            CHECK(pr->id.bytes[0] != 0);      // ⛔ never regress to target_layer as the identity
+            // The sender must also accept its own flight's exact terminal echo through the one identity producer.
             cts_in tc{}; tc.already_received = true; tc.tx_id = 9; tc.rx_id = 2; tc.id = pr->id;
             std::array<uint8_t, 8> cb{};
             const size_t cn = pack_cts(tc, std::span<uint8_t>(cb.data(), cb.size()));
@@ -9230,6 +9354,46 @@ TEST_CASE("§hybrid-rts S2 [[B161]] — a RAW-INNER typed answer's RTS identity 
             CHECK_FALSE(node.has_pending_tx());               // ...and the terminal answer completed the flight
         }
     }
+}
+
+TEST_CASE("§B161 hybrid — equal-shape typed answers with different stamped origins cannot terminal- or implicit-credit each other") {
+    auto begin_answer = [](Node& n, TestHal& hal, uint8_t node_id, uint32_t key) {
+        NodeConfig cfg; cfg.routing_sf=7; cfg.leaf_id=0; cfg.allowed_sf_bitmap=(1u<<7); cfg.lbt_enabled=false;
+        CHECK(n.on_init(cfg));
+        n.route_inject(/*querier dst=*/9, /*next=*/20, /*hops=*/2, /*score=*/100);
+        h_in q{}; q.leaf_id=0; q.origin=9; q.query_key32=key; q.ttl=4;
+        std::array<uint8_t,48> qb{}; const size_t qn=pack_h(q,qb); CHECK(qn>0);
+        hal._now=1000; n.on_recv(qb.data(),qn,RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(9)});
+        const OurRts o=our_last_rts(hal); CHECK(o.got); CHECK(o.src==node_id); CHECK(o.next==20); CHECK(o.dst==9);
+        CHECK(o.plen==11); CHECK(o.id.domain==RtsIdDomain::plaintext); CHECK(o.id.bytes[0]==node_id);
+        return o;
+    };
+
+    TestHal h2; Node n2(h2,/*id=*/2,/*key=*/0x2222u); const OurRts a=begin_answer(n2,h2,2,0x2222u);
+    TestHal h3; Node n3(h3,/*id=*/3,/*key=*/0x3333u); const OurRts b=begin_answer(n3,h3,3,0x3333u);
+    CHECK(a.ctr_lo==b.ctr_lo); CHECK(a.plen==b.plen); CHECK(a.dst==b.dst);
+    CHECK_FALSE(rts_flight_identity_equal(a.id,b.id));                 // only the stamped canonical origin differs
+
+    auto terminal = [](Node& n, TestHal& hal, uint8_t rx_id, const RtsFlightIdentity& id) {
+        cts_in c{}; c.already_received=true; c.tx_id=20; c.rx_id=rx_id; c.id=id;
+        std::array<uint8_t,8> cb{}; const size_t cn=pack_cts(c,cb); CHECK(cn==6);
+        hal._now+=100; n.on_recv(cb.data(),cn,RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(20)});
+    };
+    terminal(n3,h3,3,a.id);
+    CHECK(h3.count("cts_terminal_mismatch")==1); CHECK(n3.has_pending_tx());  // A cannot clear B
+    terminal(n3,h3,3,b.id);
+    CHECK(h3.count("cts_terminal_mismatch")==1); CHECK_FALSE(n3.has_pending_tx());
+
+    TestHal h4; Node n4(h4,/*id=*/4,/*key=*/0x4444u); const OurRts c=begin_answer(n4,h4,4,0x4444u);
+    std::array<uint8_t,16> fb{};
+    const RtsFlightIdentity wrong=rts_flight_identity_plain(/*other origin=*/2,
+        static_cast<uint16_t>((c.id.bytes[1]<<8)|c.id.bytes[2]));
+    const size_t badn=mk_rts_wire(/*src=*/20,/*next=*/8,/*dst=*/9,c.ctr_lo,c.plen,fb,wrong);
+    h4._now=1500; n4.on_recv(fb.data(),badn,RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(20)});
+    CHECK(h4.count("implicit_ack_from_forward")==0); CHECK(n4.has_pending_tx());
+    const size_t goodn=mk_rts_wire(20,8,9,c.ctr_lo,c.plen,fb,c.id);
+    h4._now=1600; n4.on_recv(fb.data(),goodn,RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(20)});
+    CHECK(h4.count("implicit_ack_from_forward")==1); CHECK_FALSE(n4.has_pending_tx());
 }
 
 TEST_CASE("§hybrid-rts S2 — the WIRE declaration decides the plane, not whichever receiver predicate matched") {
@@ -9675,4 +9839,508 @@ TEST_CASE("§hybrid-rts S2 — a `(1,0)` frame naming a STATIC team member's tea
     hal._now = 2000; n.on_recv(rb2.data(), rn2, from31);
     CHECK(hal.count("cts_tx") == 1);
     CHECK(hal.count("rts_rx") == 1);
+}
+
+// ============================================================================
+// B251 — a registered mobile owns ctrM only to its home; the home owns ctrH on
+// the static mesh. These cases use only normal command/on_recv/on_timer seams.
+// ============================================================================
+
+TEST_CASE("§B251 exact — the canonical home type-8 ctr 1 cannot swallow a later hosted-mobile ctrM 1; "
+          "the returned E2E ACK is translated back to ctrM") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE_LOCAL = 70;
+    constexpr uint32_t HOME_HASH = 0x10101010u, DEST_HASH = 0x30303030u, MOBILE_HASH = 0x70707070u;
+    TestHal mh, hh, dh;
+    Node mobile(mh, MOBILE_LOCAL, MOBILE_HASH), home(hh, HOME, HOME_HASH), dest(dh, DEST, DEST_HASH);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false;
+    NodeConfig mc = c; mc.is_mobile = true;
+    CHECK(mobile.on_init(mc)); CHECK(home.on_init(c)); CHECK(dest.on_init(c));
+    uint64_t now = 1000; mh._now = hh._now = dh._now = now;
+    uint8_t mobile_pub[32]{};
+    home.test_add_host_mobile(MOBILE_HASH, MOBILE_LOCAL, mobile_pub);
+    mobile.test_set_my_mobile_reg(HOME, MOBILE_LOCAL);
+    home.route_inject(DEST, DEST, 1, 100);
+    dest.route_inject(HOME, HOME, 1, 100);
+    CHECK(dest.test_id_bind_set(HOME, HOME_HASH, true));       // lets the E2E ACK attach DST_HASH=MOBILE_HASH
+
+    // Reproduce B251's first flight through the real type-8 producer: DEST asks for the hosted mobile's hash;
+    // HOME answers on ctr 1 with origin HOME, and DEST completes/caches that exact flight.
+    h_in q{}; q.leaf_id = 0; q.origin = DEST; q.query_key32 = MOBILE_HASH; q.ttl = 4;
+    std::array<uint8_t, 48> qwire{};
+    const size_t qn = pack_h(q, std::span<uint8_t>(qwire.data(), qwire.size()));
+    CHECK(qn > 0);
+    const size_t seed_rts0 = tx_label_count(hh, "RTS");
+    hh._now = ++now;
+    home.on_recv(qwire.data(), qn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(DEST)});
+    CHECK(tx_label_count(hh, "RTS") == seed_rts0 + 1);
+    const DrivenHop seed = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+    CHECK(seed.got_data); CHECK_FALSE(seed.terminal);
+    CHECK(seed.data_type == DATA_TYPE_MOBILE_H_ANSWER);
+    CHECK(seed.data_ctr == 1);
+    const auto seed_ui = parse_unicast_inner(std::span<const uint8_t>(seed.inner.data(), seed.inner.size()), seed.data_flags);
+    CHECK(seed_ui.has_value()); if (seed_ui) CHECK(seed_ui->origin == HOME);
+
+    // The hosted mobile independently starts its destination-scoped counter at ctrM=1. The first-hop RTS/DATA and
+    // HOME's hop ACK retain that identity; only the already-admitted outward copy changes to ctrH=2.
+    const size_t mobile_rts0 = tx_label_count(mh, "RTS");
+    const CmdResult sent = send_e2e_global(mobile, DEST, "b251-mobile");
+    CHECK(sent.code == CmdCode::queued);
+    CHECK(tx_label_count(mh, "RTS") == mobile_rts0 + 1);
+    const DrivenHop first = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now);
+    CHECK(first.got_data); CHECK_FALSE(first.terminal); CHECK(first.data_ctr == 1);
+    CHECK(first.rts_src == MOBILE_LOCAL); CHECK(first.rts_next == HOME); CHECK(first.rts_dst == DEST);
+    const auto home_acks = acks_on_wire(hh);
+    CHECK_FALSE(home_acks.empty());
+    if (!home_acks.empty()) {
+        CHECK(home_acks.back().ctr_lo == 1); CHECK(home_acks.back().to == MOBILE_LOCAL);
+        CHECK(home_acks.back().mobile_to);
+    }
+    CHECK(hh.count("mobile_ctr_translated") == 1);
+
+    const size_t outward_rts0 = tx_label_count(hh, "RTS");
+    now += 5000; mh._now = hh._now = dh._now = now;
+    home.on_timer(kQueueWakeupTimerId);
+    CHECK(tx_label_count(hh, "RTS") == outward_rts0 + 1);
+    const DrivenHop outward = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+    CHECK(outward.got_data); CHECK_FALSE(outward.terminal);              // pre-fix: terminal already_received here
+    CHECK(outward.data_ctr == 2); CHECK(outward.data_ctr != first.data_ctr);
+    CHECK(outward.rts_id.domain == RtsIdDomain::plaintext);
+    CHECK(outward.rts_id.bytes[0] == HOME);
+    CHECK(outward.rts_id.bytes[1] == 0); CHECK(outward.rts_id.bytes[2] == 2);
+    CHECK(outward.inner == first.inner);                                // application envelope/source identity verbatim
+    CHECK(delivered_payloads(dh).size() == 1);
+    if (!delivered_payloads(dh).empty()) CHECK(delivered_payloads(dh)[0] == "b251-mobile");
+
+    // DEST's post-ACK work originated the E2E ACK for ctrH=2. HOME consumes it, looks up
+    // (mobile hash, ctrH, return DEST, layer), rewrites only the body counter, then starts the last mile.
+    const TxFrame* ack_rts = dh.last_tx("RTS"); CHECK(ack_rts != nullptr);
+    DrivenHop reverse{};
+    if (ack_rts) reverse = drive_current_hop(dest, dh, home, hh, ack_rts->bytes, now);
+    CHECK(reverse.got_data); CHECK(reverse.data_type == DATA_TYPE_E2E_ACK);
+    const auto reverse_ui = parse_unicast_inner(std::span<const uint8_t>(reverse.inner.data(), reverse.inner.size()),
+                                                reverse.data_flags);
+    CHECK(reverse_ui.has_value());
+    if (reverse_ui && reverse_ui->body.size() >= 2)
+        CHECK(static_cast<uint16_t>(reverse_ui->body[0] | (reverse_ui->body[1] << 8)) == 2);
+    CHECK(hh.count("mobile_reverse_ack") == 1);
+
+    const TxFrame* lastmile_rts = hh.last_tx("RTS"); CHECK(lastmile_rts != nullptr);
+    DrivenHop lastmile{};
+    if (lastmile_rts) lastmile = drive_current_hop(home, hh, mobile, mh, lastmile_rts->bytes, now);
+    CHECK(lastmile.got_data); CHECK(lastmile.data_type == DATA_TYPE_E2E_ACK);
+    const auto lastmile_ui = parse_unicast_inner(std::span<const uint8_t>(lastmile.inner.data(), lastmile.inner.size()),
+                                                 lastmile.data_flags);
+    CHECK(lastmile_ui.has_value());
+    if (lastmile_ui && lastmile_ui->body.size() >= 2)
+        CHECK(static_cast<uint16_t>(lastmile_ui->body[0] | (lastmile_ui->body[1] << 8)) == 1);
+    bool got_e2e_push = false; Push push{};
+    while (mobile.next_push(push))
+        if (push.kind == PushKind::send_e2e_acked) {
+            got_e2e_push = true; CHECK(push.dst == DEST); CHECK(push.ctr == 1);
+        }
+    CHECK(got_e2e_push);
+}
+
+TEST_CASE("§B251 first-hop identity — two hosted mobiles with the same ctrM and destination are both accepted "
+          "and produce two distinct outward DATA flights") {
+    constexpr uint8_t HOME = 10, DEST = 30, MA = 70, MB = 71;
+    constexpr uint32_t HA = 0x70707070u, HB = 0x71717171u;
+    TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, DEST, 0x30303030u);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false;
+    CHECK(home.on_init(c)); CHECK(dest.on_init(c));
+    uint64_t now = 1000; hh._now = dh._now = now;
+    uint8_t pub[32]{}; home.test_add_host_mobile(HA, MA, pub); home.test_add_host_mobile(HB, MB, pub);
+    home.route_inject(DEST, DEST, 1, 100);
+
+    auto accept_first_hop = [&](uint8_t local, uint32_t hash, const char* text) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, /*ctrM=*/1, hash, text, /*e2e=*/false);
+        const std::vector<uint8_t> rts = b251_mobile_rts(local, HOME, DEST, data);
+        const size_t cts0 = tx_label_count(hh, "CTS");
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        CHECK(tx_label_count(hh, "CTS") == cts0 + 1);
+        const auto cts = parse_cts(std::span<const uint8_t>(hh.last_tx("CTS")->bytes.data(), hh.last_tx("CTS")->bytes.size()));
+        CHECK(cts.has_value()); if (cts) CHECK_FALSE(cts->already_received);   // completed-flight cache kept MA/MB distinct
+        const size_t ack0 = tx_label_count(hh, "ACK"), nack0 = tx_label_count(hh, "NACK");
+        hh._now = ++now; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        CHECK(tx_label_count(hh, "ACK") == ack0 + 1); CHECK(tx_label_count(hh, "NACK") == nack0);
+        home.on_timer(kPostAckTimerId);                                // _seen_origins kept MA/MB distinct too
+    };
+    accept_first_hop(MA, HA, "from-a");
+    accept_first_hop(MB, HB, "from-b");
+    CHECK(hh.count("mobile_ctr_translated") == 2);
+    CHECK(hh.count("dup_drop") == 0);
+    CHECK(home.test_tx_queue_n() == 2);
+
+    const size_t rts0 = tx_label_count(hh, "RTS");
+    now += 5000; hh._now = dh._now = now; home.on_timer(kQueueWakeupTimerId);
+    CHECK(tx_label_count(hh, "RTS") == rts0 + 1);
+    const DrivenHop a = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+    CHECK(a.got_data); CHECK_FALSE(a.terminal);
+    CHECK(tx_label_count(hh, "RTS") == rts0 + 2);                     // ACK of A immediately starts queued B
+    const DrivenHop b = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+    CHECK(b.got_data); CHECK_FALSE(b.terminal);
+    CHECK(a.data_ctr != b.data_ctr);
+    const auto ua = parse_unicast_inner(std::span<const uint8_t>(a.inner.data(), a.inner.size()), a.data_flags);
+    const auto ub = parse_unicast_inner(std::span<const uint8_t>(b.inner.data(), b.inner.size()), b.data_flags);
+    CHECK(ua.has_value()); CHECK(ub.has_value());
+    if (ua && ub) { CHECK(ua->source_hash == HA); CHECK(ub->source_hash == HB); }
+    const auto delivered = delivered_payloads(dh);
+    CHECK(delivered.size() == 2);
+    if (delivered.size() == 2) { CHECK(delivered[0] == "from-a"); CHECK(delivered[1] == "from-b"); }
+}
+
+TEST_CASE("§B251 retry identity — lost CTS and lost hop ACK retries allocate one ctrH and emit one outward DATA") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u;
+    TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, DEST, 0x30303030u);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false; CHECK(home.on_init(c)); CHECK(dest.on_init(c));
+    uint64_t now = 1000; hh._now = dh._now = now; uint8_t pub[32]{};
+    home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub); home.route_inject(DEST, DEST, 1, 100);
+    const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, /*ctrM=*/1, MOBILE_HASH, "retry", false);
+    const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+
+    // Lost CTS: the same pending receive is re-CTS'd, but no message state exists yet and no ctrH is allocated.
+    hh._now = ++now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    hh._now = ++now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    const auto early_cts = ctses_on_wire(hh);
+    CHECK(early_cts.size() == 2);
+    if (early_cts.size() == 2) { CHECK_FALSE(early_cts[0].already_received); CHECK_FALSE(early_cts[1].already_received); }
+    CHECK(hh.count("mobile_ctr_translated") == 0);
+
+    // One DATA is accepted and ACKed. Pretend that ACK was lost, then retry the exact RTS: the completed-flight
+    // cache answers terminally and the accepted DATA is not staged a second time.
+    hh._now = ++now; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(acks_on_wire(hh).size() == 1); CHECK(hh.count("mobile_ctr_translated") == 1);
+    home.on_timer(kPostAckTimerId);
+    hh._now = ++now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    const auto all_cts = ctses_on_wire(hh);
+    CHECK(all_cts.size() == 3);
+    if (all_cts.size() == 3) CHECK(all_cts.back().already_received);
+    CHECK(acks_on_wire(hh).size() == 1);
+    CHECK(hh.count("mobile_ctr_translated") == 1);
+    CHECK(home.test_tx_queue_n() == 1);
+
+    const size_t out_rts0 = tx_label_count(hh, "RTS");
+    now += 5000; hh._now = dh._now = now; home.on_timer(kQueueWakeupTimerId);
+    CHECK(tx_label_count(hh, "RTS") == out_rts0 + 1);
+    const DrivenHop out = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+    CHECK(out.got_data); CHECK_FALSE(out.terminal); CHECK(out.data_ctr == 1);
+    CHECK(tx_label_count(hh, "DATA") == 1);                          // exactly one translated outward DATA
+    CHECK(delivered_payloads(dh).size() == 1);
+}
+
+TEST_CASE("§B251 admission — a full live reverse-correlation ring BUSY-NACKs before ACK/cache/forward and remains retryable") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u;
+    TestHal hh; Node home(hh, HOME, 0x10101010u);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false; CHECK(home.on_init(c));
+    uint64_t now = 1000; hh._now = now; uint8_t pub[32]{};
+    home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub); home.route_inject(DEST, DEST, 1, 100);
+
+    // Keep eight E2E correlations live. Each accepted first hop is allowed to start its outward RTS; an exact
+    // terminal CTS closes that transport flight without returning the E2E ACK, so the mapping remains live while
+    // the TX queue is empty for the next admission.
+    for (uint16_t ctr_m = 1; ctr_m <= 8; ++ctr_m) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, ctr_m, MOBILE_HASH, "hold", true);
+        const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+        const size_t cts0 = tx_label_count(hh, "CTS"), ack0 = tx_label_count(hh, "ACK");
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        CHECK(tx_label_count(hh, "CTS") == cts0 + 1);
+        hh._now = ++now; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        CHECK(tx_label_count(hh, "ACK") == ack0 + 1);
+        home.on_timer(kPostAckTimerId);
+        const size_t out0 = tx_label_count(hh, "RTS");
+        now += 5000; hh._now = now; home.on_timer(kQueueWakeupTimerId);
+        CHECK(tx_label_count(hh, "RTS") == out0 + 1);
+        const std::vector<uint8_t> outward = last_tx_copy(hh, "RTS");
+        const auto pr = parse_rts(std::span<const uint8_t>(outward.data(), outward.size()));
+        CHECK(pr.has_value());
+        if (pr) {
+            cts_in terminal{}; terminal.already_received = true; terminal.tx_id = DEST; terminal.rx_id = HOME;
+            terminal.id = pr->id; terminal.team_plane = false;
+            std::array<uint8_t, 8> tw{}; const size_t tn = pack_cts(terminal, std::span<uint8_t>(tw.data(), tw.size()));
+            CHECK(tn == 6); hh._now = ++now;
+            home.on_recv(tw.data(), tn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        }
+        CHECK_FALSE(home.has_pending_tx()); CHECK(home.test_tx_queue_n() == 0);
+    }
+    CHECK(hh.count("mobile_ctr_translated") == 8);
+    CHECK(home.mobile_ctr_admission_refused_count() == 0);
+
+    const std::vector<uint8_t> ninth_data = b251_mobile_data(HOME, DEST, 9, MOBILE_HASH, "refuse", true);
+    const std::vector<uint8_t> ninth_rts = b251_mobile_rts(MOBILE, HOME, DEST, ninth_data);
+    const size_t cts0 = tx_label_count(hh, "CTS"), ack0 = tx_label_count(hh, "ACK"), nack0 = tx_label_count(hh, "NACK");
+    hh._now = ++now; home.on_recv(ninth_rts.data(), ninth_rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(hh, "CTS") == cts0 + 1);                    // reservation itself is ordinary/retryable
+    hh._now = ++now; home.on_recv(ninth_data.data(), ninth_data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(hh, "ACK") == ack0);                        // ★ no false first-hop success
+    CHECK(tx_label_count(hh, "NACK") == nack0 + 1);
+    const auto pn = parse_nack(std::span<const uint8_t>(hh.last_tx("NACK")->bytes.data(), hh.last_tx("NACK")->bytes.size()));
+    CHECK(pn.has_value());
+    if (pn) { CHECK(pn->reason == protocol::nack_reason_busy_rx); CHECK(pn->ctr_lo == 9); CHECK(pn->mobile_to); }
+    CHECK(home.mobile_ctr_admission_refused_count() == 1);
+    CHECK(hh.count("mobile_ctr_admission_refused") == 1);
+    CHECK(hh.count("mobile_ctr_translated") == 8); CHECK(home.test_tx_queue_n() == 0);
+
+    // The refusal seeded neither completed-flight nor delivery dedup state: the same RTS is admitted again and can
+    // follow the existing bounded BUSY wait/retry machinery. It is still ordinary, never terminal success.
+    hh._now = ++now; home.on_recv(ninth_rts.data(), ninth_rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(hh, "CTS") == cts0 + 2);
+    const auto retry_cts = parse_cts(std::span<const uint8_t>(hh.last_tx("CTS")->bytes.data(), hh.last_tx("CTS")->bytes.size()));
+    CHECK(retry_cts.has_value()); if (retry_cts) CHECK_FALSE(retry_cts->already_received);
+
+    // Only E2E-requesting sends need reverse correlation. Retire the ninth receive reservation, then prove a
+    // non-E2E tenth flight is still accepted and translated while all eight ring rows remain live.
+    home.test_fire_pending_rx_expiry();
+    const std::vector<uint8_t> tenth_data = b251_mobile_data(HOME, DEST, 10, MOBILE_HASH, "no-e2e", false);
+    const std::vector<uint8_t> tenth_rts = b251_mobile_rts(MOBILE, HOME, DEST, tenth_data);
+    const size_t ack1 = tx_label_count(hh, "ACK"), nack1 = tx_label_count(hh, "NACK");
+    hh._now = ++now; home.on_recv(tenth_rts.data(), tenth_rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    hh._now = ++now; home.on_recv(tenth_data.data(), tenth_data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(hh, "ACK") == ack1 + 1); CHECK(tx_label_count(hh, "NACK") == nack1);
+    CHECK(hh.count("mobile_ctr_translated") == 9);
+    CHECK(home.mobile_ctr_admission_refused_count() == 1);
+}
+
+TEST_CASE("§B251 queue admission — a full forward queue BUSY-NACKs before the hosted mobile's hop ACK") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u;
+    TestHal hh; Node home(hh, HOME, 0x10101010u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false; CHECK(home.on_init(cfg));
+    uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+    home.route_inject(DEST, DEST, 1, 100);
+
+    home.test_suspend_tx_drain(true);
+    const uint8_t queued_body[] = {'q'};
+    for (uint8_t i = 0; i < 8; ++i)
+        CHECK(home.test_do_send_typed(DEST, queued_body, sizeof queued_body, CryptIntent::off, 0, 0) != 0);
+    CHECK(home.test_tx_queue_n() == 8);
+    home.test_suspend_tx_drain(false);                              // preserve the queue, release only the test guard
+
+    const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, 1, MOBILE_HASH, "queue-full", false);
+    const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+    hh._now = 1000; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    const size_t ack0 = tx_label_count(hh, "ACK"), nack0 = tx_label_count(hh, "NACK");
+    hh._now = 1001; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    CHECK(tx_label_count(hh, "ACK") == ack0);
+    CHECK(tx_label_count(hh, "NACK") == nack0 + 1);
+    CHECK(home.has_pending_tx()); CHECK(home.test_tx_queue_n() == 7);  // the NACK completion starts one old item; seven remain
+    CHECK(hh.count("mobile_ctr_translated") == 0);
+    CHECK(home.mobile_ctr_admission_refused_count() == 1);
+}
+
+TEST_CASE("§B251 MOBILE_SEND admission — a full home queue releases the reserved correlation and emits no phantom origin") {
+    constexpr uint8_t HOME = 10, MOBILE = 70, DEST = 30, FILL_DEST = 40;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u, DEST_HASH = 0x30303030u;
+    TestHal mh, hh; Node mobile(mh, MOBILE, MOBILE_HASH), home(hh, HOME, 0x10101010u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig mc = cfg; mc.is_mobile = true;
+    CHECK(mobile.on_init(mc)); CHECK(home.on_init(cfg));
+    uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+    mobile.test_set_my_mobile_reg(HOME, MOBILE);
+    mobile.route_inject(HOME, HOME, 1, 100);
+    home.route_inject(FILL_DEST, FILL_DEST, 1, 100);
+    home.route_inject(DEST, DEST, 1, 100);
+    CHECK(home.test_id_bind_set(DEST, DEST_HASH, true));             // immediate send_by_hash arm, not a park
+
+    // Fill the HOME queue with unrelated flights. The MOBILE_SEND first hop is still accepted and ACKed (B112 is
+    // deliberately outside B251), but its immediate re-origination must trust SendDispatch::refused, not the minted ctr.
+    home.test_suspend_tx_drain(true);
+    const uint8_t filler[] = {'q'};
+    for (uint8_t i = 0; i < 8; ++i)
+        CHECK(home.test_do_send_typed(FILL_DEST, filler, sizeof filler, CryptIntent::off, 0, 0) != 0);
+    CHECK(home.test_tx_queue_n() == 8);
+    home.test_suspend_tx_drain(false);
+
+    auto send_mobile_hash = [&](const char* body) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = DEST_HASH;
+        c.u.send.flags = DATA_FLAG_E2E_ACK_REQ; c.u.send.plane = static_cast<uint8_t>(Plane::GLOBAL);
+        c.crypt = CryptIntent::off; c.body = reinterpret_cast<const uint8_t*>(body);
+        c.body_len = static_cast<uint8_t>(std::strlen(body));
+        return mobile.on_command(c);
+    };
+
+    uint64_t now = 1000; mh._now = hh._now = now;
+    const CmdResult first = send_mobile_hash("first");
+    CHECK(first.code == CmdCode::queued); CHECK(first.ctr != 0);
+    const DrivenHop first_hop = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now);
+    CHECK(first_hop.got_data); CHECK(first_hop.got_ack); CHECK(first_hop.data_type == DATA_TYPE_MOBILE_SEND);
+    CHECK(hh.count("deleg_ack_reserved") == 1);                    // pre-ACK reservation really existed
+    CHECK(hh.count("deleg_originated") == 0);                     // no outward application flight exists
+    CHECK(hh.count("deleg_ack_put") == 0);                        // therefore no ACTIVE reverse mapping exists
+    CHECK(home.test_deleg_ack_live_n() == 0);                      // reservation was released, not left for 300 s
+    uint8_t target_rows = 0;
+    for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i)
+        if (home.test_tx_dst(i) == DEST) ++target_rows;
+    CHECK(target_rows == 0);                                      // every retained queue row is one of the fillers
+
+    // Drop only the test-held in-flight filler. Seven queued fillers remain, giving the next real wrapper one slot.
+    // Its reservation must reuse the capacity just released and become ACTIVE only after the outward item is stored.
+    home.test_suspend_tx_drain(false);
+    mh._now = hh._now = now + 100;
+    const CmdResult second = send_mobile_hash("second");
+    CHECK(second.code == CmdCode::queued); CHECK(second.ctr != 0); CHECK(second.ctr != first.ctr);
+    const DrivenHop second_hop = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now);
+    CHECK(second_hop.got_data); CHECK(second_hop.got_ack); CHECK(second_hop.data_type == DATA_TYPE_MOBILE_SEND);
+    CHECK(hh.count("deleg_ack_reserved") == 2);
+    CHECK(hh.count("deleg_originated") == 1);
+    CHECK(hh.count("deleg_ack_put") == 1);
+    CHECK(home.test_deleg_ack_live_n() == 1);                      // exactly the admitted second flight, never the first
+    target_rows = 0;
+    for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i)
+        if (home.test_tx_dst(i) == DEST) ++target_rows;
+    CHECK(target_rows == 1);
+}
+
+TEST_CASE("§B251 exclusions — ordinary static and team-plane transit preserve their original counters") {
+    // Static control: even an immediate sender whose numeric id matches a hosted row is not translated unless the
+    // RTS explicitly declares a mobile source.
+    {
+        constexpr uint8_t HOME = 10, DEST = 30, STATIC = 20;
+        TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, DEST, 0x30303030u);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        cfg.leaf_id = 0; cfg.lbt_enabled = false; CHECK(home.on_init(cfg)); CHECK(dest.on_init(cfg));
+        uint8_t pub[32]{}; home.test_add_host_mobile(0x20202020u, STATIC, pub);
+        home.route_inject(DEST, DEST, 1, 100);
+        std::array<uint8_t, 64> db{}; const size_t dn = mk_data(HOME, DEST, 9, STATIC, "static", db);
+        const auto pd = parse_data(std::span<const uint8_t>(db.data(), dn)); CHECK(pd.has_value());
+        std::array<uint8_t, 16> rb{};
+        const uint8_t plen = pd ? static_cast<uint8_t>(pd->inner_len + data_mac_len(pd->flags)) : 0;
+        const size_t rn = mk_rts_for_frame(STATIC, HOME, DEST, 9, plen, rb, db.data(), dn);
+        uint64_t now = 1000; hh._now = now; home.on_recv(rb.data(), rn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        hh._now = ++now; home.on_recv(db.data(), dn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        home.on_timer(kPostAckTimerId);
+        CHECK(hh.count("mobile_ctr_translated") == 0);
+        const DrivenHop out = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+        CHECK(out.got_data); CHECK(out.data_ctr == 9);
+    }
+
+    // Hosted-row authority control: a SOURCE_HASH is stronger than the local id. A mismatch is observable and
+    // receives no translation authority; the pre-B251 forwarding semantics remain intact.
+    {
+        constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+        constexpr uint32_t EXPECTED_HASH = 0x70707070u, CLAIMED_HASH = 0x71717171u;
+        TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, DEST, 0x30303030u);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        cfg.leaf_id = 0; cfg.lbt_enabled = false; CHECK(home.on_init(cfg)); CHECK(dest.on_init(cfg));
+        uint8_t pub[32]{}; home.test_add_host_mobile(EXPECTED_HASH, MOBILE, pub); home.route_inject(DEST, DEST, 1, 100);
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, 1, CLAIMED_HASH, "mismatch", false);
+        const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+        uint64_t now = 1000; hh._now = now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        hh._now = ++now; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        home.on_timer(kPostAckTimerId);
+        CHECK(hh.count("mobile_transit_source_mismatch") == 1);
+        CHECK(hh.count("mobile_ctr_translated") == 0);
+        const DrivenHop out = drive_current_hop(home, hh, dest, dh, last_tx_copy(hh, "RTS"), now);
+        CHECK(out.got_data); CHECK(out.data_ctr == 1);
+    }
+
+    // Team control: mobile_src alone is deliberately insufficient. The `(addr_len=1,mobile_src=1)` wire plane
+    // keeps the team-local counter and team route even when the sender is also a live hosted-mobile local id.
+    {
+        constexpr uint32_t TEAM = 0x06EF37AEu;
+        constexpr uint8_t HOME = 10, HOME_TEAM = 90, DEST_TEAM = 91, MOBILE = 70;
+        TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, 30, 0x30303030u);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        cfg.leaf_id = 0; cfg.lbt_enabled = false; cfg.team_id = TEAM;
+        CHECK(home.on_init(cfg)); CHECK(dest.on_init(cfg)); home.set_team_local_id(HOME_TEAM); dest.set_team_local_id(DEST_TEAM);
+        uint8_t pub[32]{}; home.test_add_host_mobile(0x70707070u, MOBILE, pub);
+        home.test_learn_route(DEST_TEAM, DEST_TEAM, 1, 160, /*team_plane=*/true);
+        std::array<uint8_t, 64> db{};
+        const size_t dn = t2_team_data(HOME_TEAM, DEST_TEAM, 5, MOBILE, 0, "team", db);
+        const auto pd = parse_data(std::span<const uint8_t>(db.data(), dn)); CHECK(pd.has_value());
+        std::array<uint8_t, 16> rb{};
+        const uint8_t plen = pd ? static_cast<uint8_t>(pd->inner_len + data_mac_len(pd->flags)) : 0;
+        const size_t rn = t2_team_rts(MOBILE, HOME_TEAM, DEST_TEAM, 5, plen, rb, MOBILE, 5);
+        uint64_t now = 1000; hh._now = now; home.on_recv(rb.data(), rn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        hh._now = ++now; home.on_recv(db.data(), dn, RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+        home.on_timer(kPostAckTimerId);
+        CHECK(hh.count("mobile_ctr_translated") == 0);
+        const std::vector<uint8_t> outward_rts = last_tx_copy(hh, "RTS");
+        const auto pr = parse_rts(std::span<const uint8_t>(outward_rts.data(), outward_rts.size()));
+        CHECK(pr.has_value()); if (pr) { CHECK(pr->mobile_src); CHECK(pr->addr_len == 1); }
+        const DrivenHop out = drive_current_hop(home, hh, dest, dh, outward_rts, now);
+        CHECK(out.got_data); CHECK(out.data_ctr == 5);
+    }
+}
+
+TEST_CASE("§B251 encryption boundary — an ordinary CRYPTED hosted-mobile transit keeps ctr and nonce-derived RTS identity") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    TestHal hh, dh; Node home(hh, HOME, 0x10101010u), dest(dh, DEST, 0x30303030u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false; CHECK(home.on_init(cfg)); CHECK(dest.on_init(cfg));
+    uint8_t pub[32]{}; home.test_add_host_mobile(0x70707070u, MOBILE, pub); home.route_inject(DEST, DEST, 1, 100);
+    const uint8_t seed[8] = {1,2,3,4,5,6,7,8};
+    std::array<uint8_t, 64> db{}; const size_t dn = mk_data_crypted(HOME, DEST, 7, HOME, 0x30303030u, seed, "opaque", db);
+    const std::vector<uint8_t> data(db.begin(), db.begin() + dn);
+    const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+    const auto incoming_rts = parse_rts(std::span<const uint8_t>(rts.data(), rts.size())); CHECK(incoming_rts.has_value());
+    uint64_t now = 1000; hh._now = now; home.on_recv(rts.data(), rts.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    hh._now = ++now; home.on_recv(data.data(), data.size(), RxMeta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)});
+    home.on_timer(kPostAckTimerId);
+    CHECK(hh.count("mobile_ctr_translated") == 0);
+    const std::vector<uint8_t> outward_rts = last_tx_copy(hh, "RTS");
+    const auto outgoing_rts = parse_rts(std::span<const uint8_t>(outward_rts.data(), outward_rts.size())); CHECK(outgoing_rts.has_value());
+    if (incoming_rts && outgoing_rts) {
+        CHECK(incoming_rts->id.domain == RtsIdDomain::crypted);
+        CHECK(rts_flight_identity_equal(incoming_rts->id, outgoing_rts->id));
+    }
+    const DrivenHop out = drive_current_hop(home, hh, dest, dh, outward_rts, now);
+    CHECK(out.got_data); CHECK(out.data_ctr == 7); CHECK(out.rts_id.domain == RtsIdDomain::crypted);
+}
+
+TEST_CASE("§B251 encryption boundary — consistently rewriting an ordinary CRYPTED DATA counter invalidates its seal") {
+    uint8_t seed_a[32], seed_b[32];
+    for (int i = 0; i < 32; ++i) { seed_a[i] = static_cast<uint8_t>(i + 1); seed_b[i] = static_cast<uint8_t>(100 - i); }
+    Identity id_a{}, id_b{}; identity_from_seed(id_a, seed_a); identity_from_seed(id_b, seed_b);
+    TestHal ah; Node a(ah, 1, id_a.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 0;
+    CHECK(a.on_init(cfg)); a.set_crypto_identity(id_a.x_secret, id_a.ed_pub);
+    a.peer_key_set(id_b.key_hash32, id_b.ed_pub, Node::PeerKeyConf::authoritative);
+    uint8_t valid[128]{}, inner_buf[96]{}, nonce_seed[8]{};
+    const size_t valid_n = e2e_seal_AtoB(a, id_a, id_b, 0, "counter-bound", valid, sizeof valid,
+                                         inner_buf, sizeof inner_buf, nonce_seed);
+    CHECK(valid_n > 0);
+    const auto parsed = parse_data(std::span<const uint8_t>(valid, valid_n)); CHECK(parsed.has_value());
+    std::array<uint8_t, 128> changed{}; size_t changed_n = 0;
+    if (parsed) {
+        const auto wire = std::span<const uint8_t>(valid, valid_n);
+        data_in d{}; d.addr_len = parsed->addr_len; d.flags = parsed->flags; d.type = parsed->type;
+        d.next = parsed->next; d.dst = parsed->dst; d.hops_remaining = parsed->hops_remaining;
+        d.committed_hops = parsed->committed_hops; d.prev_fwd_rt_hops = parsed->prev_fwd_rt_hops;
+        d.ctr = static_cast<uint16_t>(parsed->ctr + 1);
+        d.inner = data_inner(wire, *parsed); d.mac = data_mac(wire, *parsed);
+        changed_n = pack_data(d, std::span<uint8_t>(changed.data(), changed.size()));
+    }
+    CHECK(changed_n == valid_n);
+
+    auto receive = [&](const uint8_t* frame, size_t frame_n) {
+        TestHal bh; Node b(bh, 2, id_b.key_hash32); CHECK(b.on_init(cfg));
+        b.set_crypto_identity(id_b.x_secret, id_b.ed_pub);
+        b.peer_key_set(id_a.key_hash32, id_a.ed_pub, Node::PeerKeyConf::authoritative);
+        std::array<uint8_t, 64> beacon{}; beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+        beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = id_a.key_hash32;
+        bin.entries = std::span<const beacon_entry>(&be, 1);
+        bh._now = 500; b.on_recv(beacon.data(), pack_beacon(bin, std::span<uint8_t>(beacon.data(), beacon.size())),
+                                 RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(1)});
+        const auto pd = parse_data(std::span<const uint8_t>(frame, frame_n)); CHECK(pd.has_value());
+        std::array<uint8_t, 16> rts{};
+        const uint8_t plen = pd ? static_cast<uint8_t>(pd->inner_len + data_mac_len(pd->flags)) : 0;
+        const uint8_t ctr_lo = pd ? pd->ctr_lo4 : 0;
+        const size_t rn = mk_rts_for_frame(1, 2, 2, ctr_lo, plen, rts, frame, frame_n);
+        bh._now = 1000; b.on_recv(rts.data(), rn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(1)});
+        bh._now = 2000; b.on_recv(frame, frame_n, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(1)});
+        b.on_timer(kPostAckTimerId);
+        return std::pair<size_t, int>{delivered_payloads(bh).size(), bh.count("e2e_open_no_key")};
+    };
+    const auto valid_result = receive(valid, valid_n);
+    const auto changed_result = receive(changed.data(), changed_n);
+    CHECK(valid_result.first == 1); CHECK(valid_result.second == 0);
+    CHECK(changed_result.first == 0); CHECK(changed_result.second >= 1);
 }

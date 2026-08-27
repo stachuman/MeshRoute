@@ -3218,7 +3218,7 @@ post, a real retune.** Setup: H1 joins H2's team **through NEARBY** (Part 36 set
 one-request-per-fresh-open / zero-further-request rule are host-gated). **Metal-only: real light sleep, the wall
 clock, real member state, and whether the scheduled public team beacon is actually heard over RF.**
 
-1. ☐ H2 (in a team): PROVISION offers **`INVITE MEMBER`** as its fourth row; `double` ⇒ title, H2's six-hex team
+1. ☑ **PASS 2026-08-26 (owner).** H2 (in a team): PROVISION offers **`INVITE MEMBER`** as its fourth row; `double` ⇒ title, H2's six-hex team
    fingerprint, **`NO CANDIDATES`**. On a same-PHY, same-leaf teamless H1, NEARBY must discover H2 after the existing
    triggered-beacon scheduler permits the announcement (normally its 2–10 s jitter; a recent beacon may invoke the
    existing 120 s minimum interval). ⛔ FAIL if a manual `team <id>` workaround is still required; ⛔ FAIL on anything
@@ -3484,3 +3484,16 @@ line and `.pio/build/heltec_v4/firmware.elf` with the result.
 10. ☐ **V4.3 LNA and first-build output measurement.** Compare receive behavior/current with the approved LNA-on
     state against a controlled bypass build if available. Measure conducted output at chip drive 10 dBm with suitable
     RF equipment; until measured, report 22 dBm only as nominal/reference-derived, never calibrated fact.
+
+## Part 48 — [[B251]]: equal-counter hosted mobiles on real radios (2026-08-27)
+
+⛔ **THE RESIDUE ONLY.** Native and corpus gates already prove first-hop identity, queue/ring admission, duplicate
+suppression, reverse-key discrimination, retry bounds and encrypted exclusion. Metal proves only concurrent real-radio
+timing. Setup: one static home H, two directly registered mobiles M1/M2 and one static destination D, all on the same
+global network. Arrange/reset M1 and M2 so their next plaintext E2E-ACK-requesting DM to D uses the same `ctrM`.
+
+1. ☐ Send both DMs back-to-back through H. D receives both application bodies exactly once; neither first hop is
+   swallowed as the other's retry or classified as a loop.
+2. ☐ Both mobiles receive their own E2E ACK carrying their original equal `ctrM`; no ACK crosses between M1/M2.
+3. ☐ On H, `status` contains exactly `ctrrefuse=0` under this ordinary two-flight load. Any non-zero value requires
+   preserving the full serial/RF timing trace; do not hide it by extending a retry or ring limit.

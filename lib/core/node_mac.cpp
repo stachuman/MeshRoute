@@ -17,10 +17,17 @@
 
 namespace MESHROUTE_NS {
 
-uint16_t Node::next_ctr(uint8_t dst) {
-    uint16_t& c = _active->_peer_send_counter[dst];
+uint16_t Node::peek_next_ctr(uint8_t dst) const {
+    uint16_t c = 0;
+    const auto it = _active->_peer_send_counter.find(dst);
+    if (it != _active->_peer_send_counter.end()) c = it->second;
     if (c < _active->_peer_ctr_floor) c = _active->_peer_ctr_floor;   // D7: resume above the pre-reboot per-peer high-water (no (sender_hash,ctr) dedup-collision)
-    c = (c >= 65535) ? 1 : static_cast<uint16_t>(c + 1);   // wraps 65535->1 (NOT a rand site)
+    return (c >= 65535) ? 1 : static_cast<uint16_t>(c + 1);           // wraps 65535->1 (NOT a rand site)
+}
+
+uint16_t Node::next_ctr(uint8_t dst) {
+    const uint16_t c = peek_next_ctr(dst);
+    _active->_peer_send_counter[dst] = c;
     return c;
 }
 
@@ -1157,21 +1164,18 @@ void Node::tx_rts_retry() {
     //   PendingTx and are already copied by the single conversion (U2).
     // ★★★★ §hybrid-rts S2 (2026-08-08) — **THE PLAINTEXT IDENTITY'S `origin` IS THE BYTE THE DATA WILL EXPOSE,
     // NOT `pt.origin`, AND THIS CORRECTION WAS FORCED BY MEASUREMENT.** S1 fed `pt.origin` here. The receiver can
-    // only recompute from what the frame carries — `parse_unicast_inner(inner, flags)->origin` — and for the TYPED
-    // frames that build a RAW inner (`DATA_TYPE_AUTHORITATIVE_H_ANSWER` and `DATA_TYPE_MOBILE_H_ANSWER`, whose inner
-    // is a bare `hash_bind_inner` with NO `[origin]` prefix) those two are DIFFERENT: the originator's carrier says
-    // `_node_id` while the frame's first inner byte is `target_layer`. Measured on the corpus with the validation in
-    // census-only mode: **69 of 4 949 plaintext DATA receptions (1.39 %) disagreed, and every single one was type 2
-    // (57) or type 8 (12)** — no other type, and ZERO plane disagreements. With `pt.origin` here, S2's fail-loud
-    // path would have dropped all 69 hash-bind answers. Registered as [[B161]].
-    // ⇒ BOTH ENDS NOW READ THE SAME FIELD, so the identity is FRAME-DERIVED and symmetric by construction.
+    // only recompute from what the frame carries — `parse_unicast_inner(inner, flags)->origin`. Typed-answer frames
+    // used to build a RAW inner with no `[origin]` prefix, so the originator's carrier said
+    // `_node_id` while the frame's first inner byte was `target_layer`. B161 now wraps types 1/2/8/13 in this same
+    // canonical envelope; type 5 already used it. Keeping the read frame-derived proves the RTS identity against the
+    // bytes DATA will actually air, while native controls require it to equal `pt.origin`.
     // ⛔ AND THE FALLBACK IS `0`, DELIBERATELY, NOT the RTS `src`: `handle_data`'s `origin` local falls back to
     //    `from`, which PREFERS `meta.src_hint` — the simulator's PHY oracle, which carries a homed teammate's STATIC
     //    id rather than the `team_local_id` the frame aired. Binding the identity to that would be a [[B156]]-class
     //    sim/metal divergence. A frame whose inner exposes no origin (an empty typed inner) therefore identifies as
     //    `(0, ctr)` on both sides — still bound to the full 16-bit ctr and to the cache's (sender, dst, plane) key.
-    // ⓘ A relay is unaffected either way: it already copies the DATA-exposed origin into its own carrier
-    //    (`_post_ack.origin` -> `TxItem::origin`), so only the ORIGINATOR of a raw-inner typed frame ever diverged.
+    // ⓘ A relay was unaffected by the historical defect: it already copied the DATA-exposed origin into its own
+    //    carrier (`_post_ack.origin` -> `TxItem::origin`), so only the originator of a pre-B161 typed answer diverged.
     rin.id = flight_identity(pt);   // ⇐ the ONE producer (below) — never inline this derivation again
     uint8_t buf[11];                                     // §hybrid-rts S1: 10 B plaintext / 11 B crypted
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
@@ -1201,8 +1205,8 @@ void Node::tx_rts_retry() {
 //    one identity is exactly the U1 failure the design's "one producer, one comparator" rule names.
 // ★ THE RULE: the plaintext identity's `origin` is **the byte the DATA will EXPOSE** — `parse_unicast_inner`'s
 //   `origin` over this flight's own inner, which is byte-for-byte what the receiver parses (`do_data_tx` airs
-//   `pt.inner` verbatim). `pt.origin` is the CARRIER's notion and is NOT always the same byte: the typed
-//   raw-inner answers (`AUTHORITATIVE_H_ANSWER`, `MOBILE_H_ANSWER`) pack no `[origin]` prefix at all.
+//   `pt.inner` verbatim). B161 makes every production plaintext-unicast producer expose the carrier's stamped
+//   origin through that canonical byte; the frame-derived comparator remains the stronger authority.
 // ⛔ The fallback is `0` and NOT the aired `src` — see the argument at `tx_rts_retry`'s call site ([[B156]]).
 RtsFlightIdentity Node::flight_identity(const PendingTx& pt) const {
     const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt.inner, pt.inner_len), pt.flags);

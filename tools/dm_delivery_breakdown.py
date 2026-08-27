@@ -962,6 +962,11 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
         "lastmile_refused_ambiguous": 0,
         # a `delivered` that matched no record at all, by wire key or by (origin, ctr)
         "lastmile_unmatched": 0,
+        # B251: a hosted mobile's ctrM record is joined to the home's ctrH outward delivery by the firmware's
+        # explicit `mobile_ctr_translated` evidence. The two refusal counters keep an absent/ambiguous link loud.
+        "mobile_ctr_correlated": 0,
+        "mobile_ctr_refused_ambiguous": 0,
+        "mobile_ctr_unmatched": 0,
         # ⛔ one wire (origin,dst,ctr) claimed by SEVERAL emitting slots -> both logical sends refused
         "refused_wire_key_shared": 0,
         # ⛔ an undelivered record whose wire dst is a HOME its sender also addresses a hosted mobile
@@ -977,7 +982,7 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
         # ★★★★ [[B185]]/QG 2026-08-12 — THE DELEGATED-ORIGINATION COUNTERS. A hosted mobile whose target it
         # cannot resolve itself sends a MOBILE_SEND *wrapper* to its home, and the HOME re-originates the DM
         # under its OWN identity. ⇒ a third logical-identity break, and the firmware ALREADY names the link.
-        "deleg_reattributed_samelayer": 0,    # via `deleg_ack_put{mobile_hash, ctr_h, ctr_m}` at the home
+        "deleg_reattributed_samelayer": 0,    # via explicit delegated-origination evidence at the home
         "deleg_reattributed_xl": 0,           # via `mobile_delegate_xl{home, ctr, dst_hash}` at the mobile
         "deleg_refused_ambiguous": 0,         # ⛔ several delegating mobiles fit one re-origination -> REFUSED
         "deleg_wrappers_excluded": 0,         # the mobile->home wrapper leg: transport, not an app-level send
@@ -986,21 +991,25 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
         "dst_from_wire": 0,
     })
     # ★★★ THE DELEGATION LEDGER, read off the firmware's own emits (V1, verified at the producers):
-    #   · `deleg_ack_put` — `lib/core/node_hashlocate.cpp:1788`, called at `:2052` (the parked re-origination) and
-    #     `:1712` (a home hosting BOTH the delegator and the target). It fires ONLY when `reply_to_hash != 0 &&
-    #     mobile_ctr != 0`, i.e. EXACTLY on a delegated re-origination, and it carries the three fields that close
-    #     the identity gap: the delegating mobile's stable `mobile_hash`, the HOME's re-originated `ctr_h`, and the
-    #     MOBILE's own `ctr_m`.
+    #   · `deleg_originated` — emitted for every delegated application origination, including a non-E2E send that
+    #     correctly consumes no reverse-correlation row. `deleg_ack_put` carries the same identity on E2E sends and
+    #     remains accepted for older streams/fixtures. Both carry the three fields that close the identity gap: the
+    #     delegating mobile's stable `mobile_hash`, the HOME's re-originated `ctr_h`, and the MOBILE's own `ctr_m`.
     #   · `mobile_delegate_xl` — `lib/core/node_mac.cpp:813`, at the MOBILE's slot, carrying `home`, its own `ctr`
     #     and the final target's `dst_hash`.
-    # ⛔⛔ AN EARLIER DRAFT OF THIS FILE (and a register entry, since corrected) CLAIMED THE SAME-LAYER SHAPE NEEDED
-    #    A NEW `lib/core` EMIT. THAT WAS WRONG: `deleg_ack_put` already exists and already names the mobile. The
-    #    claim was made from `tx_enqueue`'s field list alone without looking for a sibling emit — a
-    #    "the evidence does not exist" conclusion drawn from one call site.
-    # ⓘ MEASURED on `s27`: 4 `deleg_ack_put` + 10 `mobile_delegate_xl` = 14, precisely its 14 delegated originations.
+    # ⓘ MEASURED on `s27`: 4 `deleg_originated` + 10 `mobile_delegate_xl` = 14, precisely its 14 delegated
+    # originations. Before B251 the four same-layer records used `deleg_ack_put`; the fallback above lets the
+    # authority remain able to inspect those retained streams without pretending a reverse-ACK row still exists.
     deleg_same = defaultdict(set)   # (home_slot, ctr_h) -> {delegating mobile slots}
     deleg_xl = []                   # [{mobile_slot, home_id, ctr_m, dst_slot, t_ms, used}]
     deleg_wrappers = set()          # (mobile_slot, ctr_m, home_id) -> the wrapper leg, excluded from pairing
+    # B251 counter boundary. Keyed by the exact outward wire identity and kept as a timeline so a 16-bit ctr wrap
+    # selects the most recent causal translation rather than conflating two generations.
+    mobile_ctr_translations = defaultdict(list)   # (home wire id, dst, ctrH) -> [(t_ms, mobile slot, ctrM)]
+    # The ctr namespaces can overlap: an older outward ctrH can equal a later ctrM, even for the same
+    # destination. Keep the observed input identity separately so the mobile's tx/ACK and the home's
+    # accepting data_rx are never mistaken for the older outward leg merely because the numbers match.
+    mobile_ctr_inputs = defaultdict(list)         # (home wire id, dst, ctrM) -> [(t_ms, mobile slot, home slot)]
     # Observed hosting: home slot -> {hosted mobile slots}. ★ OBSERVED, never inferred from a config
     # flag: `mobile_registered` fires AT the home and carries the mobile's stable key_hash32, and
     # `mobile_adopted` fires AT the mobile and names its home's id. Both are read; neither is trusted
@@ -1100,7 +1109,13 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
                 hosted_by[h].add(slot)
             if d.get("local_id") is not None and h is not None and slot is not None:
                 lease_owner[d["local_id"]].add((slot, h))
-        elif et == "deleg_ack_put" and slots is not None:
+        elif et == "mobile_ctr_translated" and slots is not None:
+            mobile_slot = slots.of_hash(d.get("mobile_hash"))
+            dst, ctr_h, ctr_m = d.get("dst"), d.get("ctr_h"), d.get("ctr_m")
+            if mobile_slot is not None and fid is not None and dst is not None and ctr_h is not None and ctr_m is not None:
+                mobile_ctr_translations[(fid, dst, ctr_h)].append((t_ms, mobile_slot, ctr_m))
+                mobile_ctr_inputs[(fid, dst, ctr_m)].append((t_ms, mobile_slot, slot))
+        elif et in ("deleg_originated", "deleg_ack_put") and slots is not None:
             m = slots.of_hash(d.get("mobile_hash"))
             ch, cm = d.get("ctr_h"), d.get("ctr_m")
             if m is not None and slot is not None and ch is not None:
@@ -1110,7 +1125,7 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
                 # `{ctr:1,dst:105}` (delegated, t=1061206) and `{ctr:1,dst:106}` (S1's OWN send to M5,
                 # t=1204903) — a `(slot, ctr)` key collided all three and STOLE S1's own send from it,
                 # dropping `S1(101) -> M5(0)` from 1/1 to 0/1. ⇒ the emit is produced in the SAME call chain as
-                # its `tx_enqueue`, with no clock advance between them (verified: all four `deleg_ack_put` in
+                # its `tx_enqueue`, with no clock advance between them (verified: all four delegation emits in
                 # `s27` share their `tx_enqueue`'s exact millisecond), so an EXACT `enqueued_ms` match is an
                 # identity, not a time heuristic.
                 deleg_same[(slot, ch, t_ms)].add(m)
@@ -1406,6 +1421,36 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
             continue
         origin, dst, ctr = k
 
+        # B251: events on the home's outward leg name ctrH, while the originating mobile's one durable record names
+        # ctrM. Join them only through the firmware's explicit translation event. The most recent event at/before
+        # this wire event is causal; several candidates at that same instant are refused, never guessed.
+        translated = False
+        # An input event is authoritative even when its ctrM aliases an older ctrH. The originating
+        # mobile is named by the translation evidence; the accepting home data_rx is the event at the
+        # same home slot and millisecond as that evidence. This is exact producer/slot evidence, not a
+        # timing window or a guess from the current node state.
+        inputs = mobile_ctr_inputs.get(k, ())
+        is_input_event = any(mobile_slot == slot for _tm, mobile_slot, _home_slot in inputs) \
+            or any(tm == t_ms and home_slot == slot for tm, _mobile_slot, home_slot in inputs)
+        if not is_input_event:
+            tr = mobile_ctr_translations.get(k, ())
+            past = [x for x in tr if x[0] <= t_ms]
+            if past:
+                latest_ms = max(x[0] for x in past)
+                candidates = {(mobile_slot, ctr_m) for tm, mobile_slot, ctr_m in past if tm == latest_ms}
+                if len(candidates) == 1:
+                    mobile_slot, ctr_m = next(iter(candidates))
+                    original_key = (origin, dst, ctr_m)
+                    original = msgs.get(original_key)
+                    if original is not None and original.get("src_slot") == mobile_slot:
+                        k = original_key
+                        origin, dst, ctr = k
+                        translated = True
+                    elif et == "delivered":
+                        logical["mobile_ctr_unmatched"] += 1
+                elif et == "delivered":
+                    logical["mobile_ctr_refused_ambiguous"] += 1
+
         # ★★★★ [[B182]] item 4 — the LAST-MILE fallback, tried BEFORE the record-creation policy so a
         # `delivered` whose `dst` has become a leased id is not simply skipped as "no record".
         if et == "delivered" and k not in msgs and slots is not None:
@@ -1469,7 +1514,7 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
         #    **IT IS FALSE FOR A DELEGATED RE-ORIGINATION.** When a hosted mobile cannot resolve its target itself it
         #    sends a MOBILE_SEND wrapper to its home and THE HOME emits the `tx_enqueue` — the home is the EMITTER and
         #    is NOT the application sender. ⇒ the emitting slot is the sender **unless** the firmware's own
-        #    `deleg_ack_put` / `mobile_delegate_xl` names a delegating mobile for it, which
+        #    `deleg_originated` / `mobile_delegate_xl` names a delegating mobile for it, which
         #    `assign_logical_pairs()` applies. MEASURED: `s27` has 14 such re-originations out of 15 sends.
         # ⛔⛔ The `fid == origin or alias` test DROPPED THE
         # RECORD ENTIRELY for a hosted mobile's own DM, because `stamp_origin` stamps the HOME's static
@@ -1507,6 +1552,8 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, 
             # recipient. (`data_rx` is deliberately not used for this — a RELAY emits `data_rx`
             # carrying the message's final `dst`; this file's §xl note has said so since 2026-06.)
             note_delivered(r, slot, t_ms)
+            if translated:
+                logical["mobile_ctr_correlated"] += 1
         if r["payload"] is None and "payload" in d:
             r["payload"] = d["payload"]
 
@@ -1751,7 +1798,7 @@ def assign_logical_pairs(msgs, slots, hosted_by, intended_by_pair, logical, dele
             rec["logical_src"] = rec["logical_dst"] = None
             rec["logical_basis"] = "refused-ambiguous-delegation"
 
-        # --- (a) SAME-LAYER, via `deleg_ack_put{mobile_hash, ctr_h, ctr_m}` emitted AT THE HOME, in the same call
+        # --- (a) SAME-LAYER, via `{mobile_hash, ctr_h, ctr_m}` evidence emitted AT THE HOME, in the same call
         #     chain and the same millisecond as the re-originated `tx_enqueue`. ⇒ a per-message identity.
         cands = deleg_same.get((r["logical_src"], r["ctr"], r["enqueued_ms"]))
         if cands:
@@ -2368,6 +2415,7 @@ def logical_total_keys(logical):
     lg = logical or {}
     return {f"logical_{k}": int(lg.get(k, 0)) for k in (
         "lastmile_correlated", "lastmile_refused_ambiguous", "lastmile_unmatched",
+        "mobile_ctr_correlated", "mobile_ctr_refused_ambiguous", "mobile_ctr_unmatched",
         "refused_wire_key_shared", "refused_ambiguous_dst", "refused_multi_delivery",
         "refused_shared_dst_id", "refused_no_logical_src", "refused_unresolved_dst",
         "deleg_reattributed_samelayer", "deleg_reattributed_xl", "deleg_refused_ambiguous",
@@ -2375,6 +2423,7 @@ def logical_total_keys(logical):
 
 
 LOGICAL_REFUSAL_KEYS = ("logical_lastmile_refused_ambiguous", "logical_lastmile_unmatched",
+                        "logical_mobile_ctr_refused_ambiguous", "logical_mobile_ctr_unmatched",
                         "logical_refused_wire_key_shared", "logical_refused_ambiguous_dst",
                         "logical_refused_multi_delivery", "logical_refused_shared_dst_id",
                         "logical_refused_no_logical_src", "logical_refused_unresolved_dst",
@@ -4038,11 +4087,15 @@ def main():
         print(f"logical identity ([[B182]]): pair basis — {lt['logical_dst_from_delivery']} from an "
               f"OBSERVED delivery ({lt['logical_lastmile_correlated']} of them recovered through the "
               f"hosted-mobile last mile), {lt['logical_dst_from_wire']} from the wire dst.")
+        if lt["logical_mobile_ctr_correlated"]:
+            print(f"   B251 hosted-mobile counter boundary: {lt['logical_mobile_ctr_correlated']} outward "
+                  f"delivery correlation(s) joined ctrH back to the mobile's ctrM through "
+                  f"mobile_ctr_translated evidence.")
         if lt["logical_deleg_reattributed_samelayer"] or lt["logical_deleg_reattributed_xl"] \
                 or lt["logical_deleg_wrappers_excluded"]:
             print(f"   delegated originations re-attributed from the HOME to the sending mobile "
                   f"([[B185]]): {lt['logical_deleg_reattributed_samelayer']} same-layer (via "
-                  f"deleg_ack_put) + {lt['logical_deleg_reattributed_xl']} cross-layer (via "
+                  f"deleg_originated) + {lt['logical_deleg_reattributed_xl']} cross-layer (via "
                   f"mobile_delegate_xl); {lt['logical_deleg_wrappers_excluded']} mobile->home wrapper "
                   f"leg(s) excluded as transport.")
         if lt["logical_wire_slot_conflicts"]:

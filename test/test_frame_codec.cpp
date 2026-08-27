@@ -2597,6 +2597,100 @@ TEST_CASE("§mobile 4a — hash_bind_inner: mobile variant packs the epoch (7 B)
     for (int i=0;i<6;i++) CHECK(nb[i]==mb[i]);               // ★ the 6-B prefix is identical (normal answer untouched)
 }
 
+TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; type 5 stays byte-identical") {
+    // Fixed DATA header shared by every golden below. The golden arrays pin the COMPLETE frame, including the
+    // APP/type byte and four-byte plaintext trailer; the helper only centralises the standard envelope construction.
+    auto check_frame = [](uint8_t type, std::span<const uint8_t> body, std::span<const uint8_t> expected) {
+        std::array<uint8_t, 128> inner{};
+        const size_t inner_len = pack_unicast_inner(inner, /*flags=*/0, /*dst_hash=*/0,
+                                                    /*layers=*/nullptr, /*n_layers=*/0, /*cur=*/0,
+                                                    /*origin=*/0x2A, /*source_hash=*/0,
+                                                    body.data(), static_cast<uint8_t>(body.size()), 0, 0);
+        CHECK(inner_len == body.size() + 1);
+        std::array<uint8_t, 128> frame{};
+        data_in in{};
+        in.flags = 0; in.type = type; in.next = 0x0B; in.dst = 0x0C;
+        in.hops_remaining = 10; in.committed_hops = 2; in.prev_fwd_rt_hops = 3; in.ctr = 0x1234;
+        in.inner = std::span<const uint8_t>(inner.data(), inner_len);       // empty mac => canonical four zero bytes
+        const size_t n = pack_data(in, frame);
+        CHECK(n == expected.size());
+        bool exact = n == expected.size();
+        for (size_t i = 0; exact && i < n; ++i) if (frame[i] != expected[i]) exact = false;
+        CHECK(exact);
+        const auto d = parse_data(std::span<const uint8_t>(frame.data(), n));
+        CHECK(d.has_value());
+        if (!d) return;
+        const auto ui = parse_unicast_inner(data_inner(std::span<const uint8_t>(frame.data(), n), *d), d->flags);
+        CHECK(ui.has_value());
+        if (!ui) return;
+        CHECK(ui->origin == 0x2A);
+        CHECK(ui->body.size() == body.size());
+        bool body_exact = ui->body.size() == body.size();
+        for (size_t i = 0; body_exact && i < body.size(); ++i) if (ui->body[i] != body[i]) body_exact = false;
+        CHECK(body_exact);                                                  // pre-B161 type-specific BODY is unchanged
+    };
+
+    const std::array<uint8_t, 6> hash_body = {0x07, 0x08, 0x44, 0x33, 0x22, 0x11};
+    const std::array<uint8_t, 20> type1 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x01, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
+    };
+    const std::array<uint8_t, 20> type2 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x02, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
+    };
+    check_frame(DATA_TYPE_H_ANSWER, hash_body, type1);
+    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER, hash_body, type2);
+
+    const std::array<uint8_t, 7> mobile_body = {0x07,0x08,0x44,0x33,0x22,0x11,0x09};
+    const std::array<uint8_t, 21> type8 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x08, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11,0x09, 0,0,0,0
+    };
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER, mobile_body, type8);
+
+    std::array<uint8_t, 40> mobile_key_body{};
+    mobile_key_body[0]=0x07; mobile_key_body[1]=0x08;
+    mobile_key_body[2]=0x10; mobile_key_body[3]=0x11; mobile_key_body[4]=0x12; mobile_key_body[5]=0x13;
+    mobile_key_body[6]=0x09;
+    for (uint8_t i=0; i<32; ++i) mobile_key_body[7+i]=static_cast<uint8_t>(0x10+i);
+    mobile_key_body[39]=0;
+    const std::array<uint8_t, 54> type13_empty = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x0D, 0x2A,
+        0x07,0x08,0x10,0x11,0x12,0x13,0x09,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+        0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
+        0x00, 0,0,0,0
+    };
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_body, type13_empty);
+
+    std::array<uint8_t, 72> mobile_key_name_body{};
+    for (size_t i=0; i<mobile_key_body.size(); ++i) mobile_key_name_body[i]=mobile_key_body[i];
+    mobile_key_name_body[39]=32;
+    for (uint8_t i=0; i<32; ++i) mobile_key_name_body[40+i]=static_cast<uint8_t>(0xA0+i);
+    const std::array<uint8_t, 86> type13_name32 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x0D, 0x2A,
+        0x07,0x08,0x10,0x11,0x12,0x13,0x09,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+        0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
+        0x20,
+        0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF,
+        0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF,
+        0,0,0,0
+    };
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_name_body, type13_name32);
+
+    // Type 5 already used the standard envelope before B161. Its complete N=0 bytes are the positive control.
+    std::array<uint8_t, 35> type5_body{};
+    type5_body[0]=0x07; type5_body[1]=0x08;
+    for (uint8_t i=0; i<32; ++i) type5_body[2+i]=static_cast<uint8_t>(0x10+i);
+    type5_body[34]=0;
+    const std::array<uint8_t, 49> type5 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x05, 0x2A,0x07,0x08,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+        0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
+        0x00, 0,0,0,0
+    };
+    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, type5_body, type5);
+}
+
 TEST_CASE("§mobile 5a — LayerRecord codec round-trips (with a name, and name-less)") {
     LayerRecord r{}; r.layer_id=7; r.freq_khz=868100; r.sf=9; r.bw_hz=125000; r.name_len=4;
     r.name[0]='t'; r.name[1]='e'; r.name[2]='s'; r.name[3]='t';

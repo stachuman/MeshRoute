@@ -3713,7 +3713,7 @@ bool prov_cursor_to(UiModel& m, const UiSnapshot& s, ProvRow want) {
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------- §5 — the state shape
-TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub-state is an ENUM not a flag") {
+TEST_CASE("ui15-model: every Provision arm is explicit, and the sub-state is an ENUM not a flag") {
     // ★ The arms and their ORDER are plan §5's, listed one by one rather than counted: a battery that asserted only
     //   a total would pass on a set with the right size and the wrong members.
     CHECK(uint8_t(Provision::closed)         == 0);
@@ -3742,6 +3742,10 @@ TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub
     //   nothing else), exactly as N3's does.
     CHECK(uint8_t(Provision::invite_result)  == 15);
     CHECK(uint8_t(Provision::saved_key)      == 16);
+    CHECK(uint8_t(Provision::saved_keys)         == 17);
+    CHECK(uint8_t(Provision::saved_keys_confirm) == 18);
+    CHECK(uint8_t(Provision::saved_keys_active)  == 19);
+    CHECK(uint8_t(Provision::saved_keys_result)  == 20);
     CHECK(provision_is_invite(Provision::saved_key) == false);   // ⛔ it is not a window arm: no snapshot survives it
     CHECK(provision_is_invite(Provision::invite)         == true);
     CHECK(provision_is_invite(Provision::invite_confirm) == true);
@@ -3750,6 +3754,29 @@ TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub
     CHECK(provision_is_invite(Provision::invite_closed)  == false);
     CHECK(provision_is_invite(Provision::menu)           == false);
     CHECK(provision_is_invite(Provision::nearby)         == false);
+    // ★★★★ [[B250]] The caller context survives EXACTLY the five shared grant arms. This list is intentionally
+    //      exhaustive rather than a count or range: appending an arm requires an explicit lifetime decision here too.
+    CHECK(provision_is_grant_chain(Provision::closed) == false);
+    CHECK(provision_is_grant_chain(Provision::menu) == false);
+    CHECK(provision_is_grant_chain(Provision::create_confirm) == false);
+    CHECK(provision_is_grant_chain(Provision::create_result) == false);
+    CHECK(provision_is_grant_chain(Provision::join_select) == false);
+    CHECK(provision_is_grant_chain(Provision::join_confirm) == false);
+    CHECK(provision_is_grant_chain(Provision::join_waiting) == false);
+    CHECK(provision_is_grant_chain(Provision::join_result) == false);
+    CHECK(provision_is_grant_chain(Provision::nearby) == false);
+    CHECK(provision_is_grant_chain(Provision::nearby_confirm) == false);
+    CHECK(provision_is_grant_chain(Provision::invite) == false);
+    CHECK(provision_is_grant_chain(Provision::invite_confirm) == true);
+    CHECK(provision_is_grant_chain(Provision::invite_closed) == true);
+    CHECK(provision_is_grant_chain(Provision::invite_need_pubkey) == true);
+    CHECK(provision_is_grant_chain(Provision::invite_wait_pubkey) == true);
+    CHECK(provision_is_grant_chain(Provision::invite_result) == true);
+    CHECK(provision_is_grant_chain(Provision::saved_key) == false);
+    CHECK(provision_is_grant_chain(Provision::saved_keys) == false);
+    CHECK(provision_is_grant_chain(Provision::saved_keys_confirm) == false);
+    CHECK(provision_is_grant_chain(Provision::saved_keys_active) == false);
+    CHECK(provision_is_grant_chain(Provision::saved_keys_result) == false);
     // ⛔ AND THE SUB-VIEW IS THE `Settings` ENUM'S FOURTH ARM, ⛔ never a `bool in_provision` beside it: the domain
     //    is four-valued and this file's own block names the binary-test-over-a-ternary-domain defect five times over.
     CHECK(uint8_t(Settings::provisioning) == 3);
@@ -7258,11 +7285,14 @@ TEST_CASE("ui16-invexpire: pin 1 — the window expires BY ITSELF at five minute
     //   twenty blank windows. That is the landed contract, not a quirk of this screen, and it is asserted here
     //   rather than dodged with an extra press nobody explains.
     CHECK(f.m.state().blanked == true);
+    const int commands = f.invite_dev.commands, grants = f.invite_dev.grants;
     f.m.on_gesture(Gesture::short_press, at(mrui::kInviteWindowMs + 5));
     CHECK(f.m.state().blanked == false);
     CHECK(f.m.state().provisioning == Provision::invite_closed);
     f.m.on_gesture(Gesture::short_press, at(mrui::kInviteWindowMs + 10));
     CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.invite_dev.commands == commands);                       // GrantOrigin::none performs no device act
+    CHECK(f.invite_dev.grants == grants);
     CHECK(f.invite_dev.announcement_requests == 1);                // ⛔ wake/ack/close do not repeat it
     // ...and the OTHER press does the same, because the screen is terminal and has no selectable row.
     {
@@ -7888,11 +7918,10 @@ TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set d
 // =====================================================================================================================
 // §UI-16 K7 ([[B245]]) — THE ROSTER GRANT: the per-member act on the ENTERED TEAM screen (spec §K7, ruled 2026-08-25)
 // =====================================================================================================================
-// ★★★ WHAT THIS BLOCK MEASURES, AND WHAT IT DELIBERATELY DOES NOT. K7 is an **ENTRY POINT** and nothing else: every
-//     screen, lexeme, send path and outcome word past the act belongs to N5/N6, is reached VERBATIM, and is already
-//     driven by the cases above and by `test/test_firmware_ui_invite.cpp`. ⇒ what is driven HERE is exactly the
-//     seam: WHERE the act hangs, WHEN it is offered, WHAT identity it freezes, and that reaching the landed chain
-//     from this door changes NOTHING about the chain — including the invitation window it deliberately bypasses.
+// ★★★ WHAT THIS BLOCK MEASURES. The screens, lexemes, send path and outcome words belong to N5/N6 and remain
+//     shared. K7 supplies the roster entry; [[B250]] supplies its explicit parent authority. The cases therefore pin
+//     where the act hangs, what identity it freezes, every caller-aware exit, and that invite-origin behaviour and
+//     the invitation window's F-11/F-13 semantics remain unchanged.
 // ⛔ THE RENDERER IS MEASURED IN NEITHER SUITE (§B115): its cover is `tools/probe_firmware_ui`'s roster-grant phase,
 //    which drives the whole B245 repro through the REAL services.
 namespace {
@@ -7924,6 +7953,25 @@ bool compose_cursor_to_grant(UiModel& m, const UiSnapshot& s) {
         m.on_gesture(Gesture::short_press, s);
     }
     return false;
+}
+// Open the shared grant chain from one roster row. The caller asserts which arm the real preflight selected.
+bool open_roster_grant(UiModel& m, const UiSnapshot& s, uint8_t idx) {
+    if (!open_member_acts(m, s, idx)) return false;
+    if (!compose_cursor_to_grant(m, s)) return false;
+    m.on_gesture(Gesture::double_press, s);
+    return m.state().provisioning == Provision::invite_confirm ||
+           m.state().provisioning == Provision::invite_need_pubkey;
+}
+// Leave an entered TEAM roster without activating a member, then return to STATUS. Bounded and row-identity based.
+void leave_team_to_status(UiModel& m, const UiSnapshot& s) {
+    if (m.state().screen == Screen::team && m.state().list_view == ListView::interactive) {
+        for (int i = 0; i < mrui::kMaxTeamRows + 2 &&
+             mrui::list_row_kind(m.state().cursor, s.team_shown) != mrui::ListRow::back; ++i)
+            m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, s);
+    }
+    for (int i = 0; i < 12 && m.state().screen != Screen::status; ++i)
+        m.on_gesture(Gesture::short_press, s);
 }
 // Leave the provisioning sub-view, then the SETTINGS menu, then the screen — landing on STATUS, from which
 // `to_team` runs. ⛔ Every step is by ROW IDENTITY, never by a press count.
@@ -8044,9 +8092,24 @@ TEST_CASE("ui16-k7-b245: pin 2 — THE REPRO, END TO END: a member present BEFOR
     CHECK(f.store.writes == 0);
     CHECK(f.prov.calls == 0);
     CHECK(f.live.applies == 0);
+    // [[B250]] The terminal acknowledgement returns to the entered roster at the same member, and it cannot repeat
+    // the act: the first press only lands; a second ordinary navigation press changes no device counter.
+    const int grants = f.invite_dev.grants, commands = f.invite_dev.commands;
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().screen == Screen::team);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().list_view == ListView::interactive);
+    CHECK(f.m.state().compose == Compose::none);
+    CHECK(f.m.state().cursor == 0);
+    CHECK(f.invite_dev.grants == grants);
+    CHECK(f.invite_dev.commands == commands);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.invite_dev.grants == grants);
+    CHECK(f.invite_dev.commands == commands);
 }
 
-TEST_CASE("ui16-k7-window: pin 3 — the invitation window is UNDISTURBED in both directions") {
+TEST_CASE("ui16-k7-window: pin 3 — roster context retires before a fresh invitation window") {
     // ★★★ THE STRONGEST PROOF IS A DIFF (`src/firmware_ui_invite.h` is untouched by this slice); what is driven
     //     here is the STATE the two doors share, because that is the one thing a diff cannot answer.
     CreateFix f; const auto s = k7_snap(2);
@@ -8056,14 +8119,16 @@ TEST_CASE("ui16-k7-window: pin 3 — the invitation window is UNDISTURBED in bot
     f.m.on_gesture(Gesture::double_press, s);
     CHECK(f.m.state().provisioning == Provision::invite_confirm);
     f.m.on_gesture(Gesture::double_press, s);                      // REJECT — the handled set's only writer
-    CHECK(f.m.state().provisioning == Provision::invite);
-    CHECK(f.m.state().invite.handled_n == 1);                      // ...it works from this door too (F-13)
-    CHECK(f.m.state().invite.taken == false);                      // ⛔ but there is still NO snapshot
+    CHECK(f.m.state().screen == Screen::team);                     // [[B250]] return to the roster parent
+    CHECK(f.m.state().list_view == ListView::interactive);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().invite.handled_n == 0);                      // the roster's temporary carrier died on return
+    CHECK(f.m.state().invite.taken == false);                      // ⛔ and there was never a snapshot
     // The window proper, opened afterwards, takes its OWN snapshot and starts with an EMPTY handled set.
-    leave_invite(f.m, s);                                          // ...this list's BACK lands on the PROVISION menu
-    CHECK(f.m.state().provisioning == Provision::menu);
-    CHECK(prov_cursor_to(f.m, s, ProvRow::invite));
-    f.m.on_gesture(Gesture::double_press, s);
+    leave_team_to_status(f.m, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(open_invite(f, s));
     CHECK(f.m.state().provisioning == Provision::invite);
     CHECK(f.m.state().invite.taken == true);
     CHECK(f.m.state().invite.n == 2);                              // BOTH authoritative hashes, as always
@@ -8241,6 +8306,310 @@ TEST_CASE("ui16-k7-words: pin 8 — the outcome words are N6's EXACTLY, over the
         // ⛔ AND NO COMPLETION WORD, EVER: there is no e2e ack on a grant, so this node cannot know it arrived.
         for (const char* forbidden : { "JOIN COMPLETE", "KEY RECEIVED", "DELIVERED", "WAITING FOR KEY", "KEYLESS" })
             CHECK(strstr(mrui::invite_grant_word(f.m.state().grant.st), forbidden) == nullptr);
+        // [[B250]] Every one of the eleven terminal outcomes owes the same caller-aware acknowledgement. It lands
+        // on the original entered member row and makes no second grant/query call.
+        const int grants = f.invite_dev.grants, commands = f.invite_dev.commands;
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().compose == Compose::none);
+        CHECK(f.m.state().cursor == 0);
+        CHECK(f.invite_dev.grants == grants);
+        CHECK(f.invite_dev.commands == commands);
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.invite_dev.grants == grants);
+        CHECK(f.invite_dev.commands == commands);
+    }
+}
+
+// ===============================================================================================================
+// [[B250]] — THE SHARED GRANT CHAIN RETURNS TO THE PARENT THAT EXPLICITLY OPENED IT
+// ===============================================================================================================
+TEST_CASE("b250-roster-resume: REJECT, NEED BACK, WAIT exit and both blank fallbacks return to the same roster row") {
+    // Ready confirmation: REJECT is still safe/default, but its parent is the entered TEAM roster.
+    {
+        CreateFix f; const auto s = k7_snap(2);
+        CHECK(open_roster_grant(f.m, s, 1));
+        CHECK(f.m.state().provisioning == Provision::invite_confirm);
+        const int commands = f.invite_dev.commands, grants = f.invite_dev.grants;
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().compose == Compose::none);
+        CHECK(f.m.state().cursor == 1);                              // the original TEAM-local id, not row zero
+        CHECK(f.m.state().team_pick_gone == false);
+        CHECK(f.invite_dev.commands == commands);
+        CHECK(f.invite_dev.grants == grants);
+    }
+    // Missing pubkey: BACK returns to the same roster member and emits nothing.
+    {
+        CreateFix f; const auto s = k7_snap(2); f.invite_dev.present = false;
+        CHECK(open_roster_grant(f.m, s, 1));
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().cursor == 1);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+    }
+    // The explicit request runs exactly once; leaving WAITING does not retry it and returns to the roster.
+    {
+        CreateFix f; const auto s = k7_snap(2); f.invite_dev.present = false;
+        CHECK(open_roster_grant(f.m, s, 1));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+        CHECK(f.invite_dev.commands == 1);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().cursor == 1);
+        CHECK(f.invite_dev.commands == 1);
+        CHECK(f.invite_dev.grants == 0);
+    }
+    // A ready confirmation that blanks retires the act and returns to TEAM before the dark frame freezes.
+    {
+        CreateFix f; const auto s = k7_snap(2);
+        CHECK(open_roster_grant(f.m, s, 1));
+        UiSnapshot late = s; late.now_ms += kBlankMs + 1;
+        f.m.on_tick(late);
+        CHECK(f.m.state().blanked == true);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().cursor == 1);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+    }
+    // The NEED-PUBKEY confirmation has the identical caller-aware blank fallback.
+    {
+        CreateFix f; const auto s = k7_snap(2); f.invite_dev.present = false;
+        CHECK(open_roster_grant(f.m, s, 1));
+        UiSnapshot late = s; late.now_ms += kBlankMs + 1;
+        f.m.on_tick(late);
+        CHECK(f.m.state().blanked == true);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().cursor == 1);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+    }
+}
+
+TEST_CASE("b250-roster-push: only a matching authoritative cache arrival opens the REJECT-default confirmation") {
+    CreateFix f; const auto s = k7_snap(2); f.invite_dev.present = false;
+    CHECK(open_roster_grant(f.m, s, 1));
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.commands == 1);
+
+    MESHROUTE_NS::Push wrong{};
+    wrong.kind = MESHROUTE_NS::PushKind::peer_key_cached;
+    wrong.sender_hash = s.member[0].key_hash32;
+    const int reads = f.invite_dev.reads;
+    f.m.on_invite_push(wrong);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.reads == reads);                              // wrong identity does not preflight
+
+    MESHROUTE_NS::Push unusable = wrong;
+    unusable.kind = MESHROUTE_NS::PushKind::send_aired;
+    unusable.sender_hash = s.member[1].key_hash32;
+    f.m.on_invite_push(unusable);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.reads == reads);                              // wrong push kind is unusable too
+
+    MESHROUTE_NS::Push right = wrong;
+    right.sender_hash = s.member[1].key_hash32;
+    f.invite_dev.present = true;
+    f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;
+    f.m.on_invite_push(right);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey); // matching but below the grant's own floor
+    CHECK(f.invite_dev.grants == 0);
+
+    f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
+    f.m.on_invite_push(right);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);   // push itself cannot select or send GRANT
+    CHECK(f.invite_dev.commands == 1);
+    CHECK(f.invite_dev.grants == 0);
+    f.m.on_gesture(Gesture::double_press, s);                        // REJECT returns to the roster parent
+    CHECK(f.m.state().screen == Screen::team);
+    CHECK(f.m.state().cursor == 1);
+    CHECK(f.invite_dev.commands == 1);
+    CHECK(f.invite_dev.grants == 0);
+
+    // A synchronous refusal never claims WAITING, and the retained roster context still makes BACK land correctly.
+    CreateFix g; const auto t = k7_snap(2); g.invite_dev.present = false;
+    g.invite_dev.answer = mrui::UiInviteIssue{true, MESHROUTE_NS::CmdCode::err_no_identity, false};
+    CHECK(open_roster_grant(g.m, t, 1));
+    g.m.on_gesture(Gesture::short_press, t);
+    g.m.on_gesture(Gesture::double_press, t);
+    CHECK(g.m.state().provisioning == Provision::invite_need_pubkey);
+    CHECK(g.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(g.invite_dev.commands == 1);
+    g.m.on_gesture(Gesture::short_press, t);                         // REQUEST PUBKEY -> BACK
+    g.m.on_gesture(Gesture::double_press, t);
+    CHECK(g.m.state().screen == Screen::team);
+    CHECK(g.m.state().cursor == 1);
+    CHECK(g.invite_dev.commands == 1);
+    CHECK(g.invite_dev.grants == 0);
+}
+
+TEST_CASE("b250-roster-identity: expiry follows a reordered id; a gone id refuses rather than selecting a neighbour") {
+    // Expiry keeps the terminal caller context. Reorder before acknowledgement: B64 must follow the id to row zero.
+    {
+        CreateFix f; const auto s = k7_snap(2);
+        CHECK(open_roster_grant(f.m, s, 1));
+        UiSnapshot moved = s;
+        const auto team0 = moved.team[0]; moved.team[0] = moved.team[1]; moved.team[1] = team0;
+        const auto mem0  = moved.member[0]; moved.member[0] = moved.member[1]; moved.member[1] = mem0;
+        moved.now_ms += mrui::kInviteWindowMs;
+        f.m.on_tick(moved);
+        CHECK(f.m.state().provisioning == Provision::invite_closed);
+        CHECK(f.m.state().blanked == true);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+        f.m.on_gesture(Gesture::short_press, moved);                 // wake, consumed
+        f.m.on_gesture(Gesture::short_press, moved);                 // terminal acknowledgement
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().cursor == 0);                              // selected id moved 1 -> 0
+        CHECK(f.m.state().team_pick_gone == false);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+    }
+    // A completed result whose selected id disappeared raises the existing refusal and cannot act on row zero.
+    {
+        CreateFix f; const auto s = k7_snap(2);
+        CHECK(open_roster_grant(f.m, s, 1));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_result);
+        UiSnapshot gone = s; gone.team_shown = 1; gone.team_total = 1;
+        const int commands = f.invite_dev.commands, grants = f.invite_dev.grants;
+        f.m.on_gesture(Gesture::double_press, gone);
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().compose == Compose::none);
+        CHECK(f.m.state().team_pick_gone == true);
+        CHECK(f.invite_dev.commands == commands);
+        CHECK(f.invite_dev.grants == grants);
+        f.m.on_gesture(Gesture::double_press, gone);                 // ⛔ no neighbour/row-zero activation
+        CHECK(f.m.state().compose == Compose::none);
+        CHECK(f.m.state().team_pick_gone == true);
+        CHECK(f.invite_dev.commands == commands);
+        CHECK(f.invite_dev.grants == grants);
+    }
+}
+
+TEST_CASE("b250-lifetime: a retired roster caller cannot contaminate a later unbound expiry") {
+    CreateFix f; const auto s = k7_snap(1);
+    CHECK(open_roster_grant(f.m, s, 0));
+    f.m.on_gesture(Gesture::double_press, s);                        // REJECT returns to TEAM and consumes its caller
+    CHECK(f.m.state().screen == Screen::team);
+    CHECK(f.m.state().list_view == ListView::interactive);
+    leave_team_to_status(f.m, s);
+    CHECK(f.m.state().screen == Screen::status);
+
+    // This fresh window has no selected candidate, hence it binds no grant caller. Its later terminal arm must take
+    // GrantOrigin::none's fail-closed MENU landing; a roster discriminant retained across the unrelated close would
+    // instead jump back to TEAM (and a retained id payload could silently select a row there).
+    UiSnapshot fresh = s; fresh.now_ms += 100;
+    CHECK(open_invite(f, fresh));
+    CHECK(invite_cands(f.m, fresh) == 0);
+    UiSnapshot expired = fresh; expired.now_ms += mrui::kInviteWindowMs;
+    const int commands = f.invite_dev.commands, grants = f.invite_dev.grants;
+    f.m.on_tick(expired);
+    CHECK(f.m.state().provisioning == Provision::invite_closed);
+    CHECK(f.m.state().blanked == true);
+    f.m.on_gesture(Gesture::double_press, expired);                  // wake, consumed
+    f.m.on_gesture(Gesture::double_press, expired);                  // unbound terminal acknowledgement
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.invite_dev.commands == commands);
+    CHECK(f.invite_dev.grants == grants);
+}
+
+TEST_CASE("b250-emergency: pre-emption clears either caller and each fresh flow binds only its own origin") {
+    // Invitation origin pre-empted; the next roster grant must return to TEAM, not inherit the invitation parent.
+    {
+        CreateFix f; auto s = k7_snap(1);
+        CHECK(open_invite(f, s));
+        add_member(s, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_confirm);
+        f.m.on_gesture(Gesture::long_arm, s);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.emergency() == Emergency::arming);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+        f.m.on_gesture(Gesture::long_cancel, s);
+        UiSnapshot later = s; later.now_ms += kCancelledMs + 1;
+        f.m.on_tick(later);
+        CHECK(f.m.emergency() == Emergency::idle);
+        leave_settings_to_status(f.m, later);
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(open_roster_grant(f.m, later, 0));
+        f.m.on_gesture(Gesture::double_press, later);                // REJECT
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
+    }
+    // Roster origin pre-empted; the next invitation grant must return to its invitation list, not TEAM.
+    {
+        CreateFix f; const auto s = k7_snap(1);
+        CHECK(open_roster_grant(f.m, s, 0));
+        f.m.on_gesture(Gesture::long_arm, s);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.emergency() == Emergency::arming);
+        f.m.on_gesture(Gesture::long_cancel, s);
+        UiSnapshot later = s; later.now_ms += kCancelledMs + 1;
+        f.m.on_tick(later);
+        CHECK(f.m.emergency() == Emergency::idle);
+        leave_settings_to_status(f.m, later);
+        CHECK(f.m.state().screen == Screen::status);
+        // Before assigning another caller, drive a fresh window with no candidate selection. This terminal arm has
+        // GrantOrigin::none, so a roster caller retained by emergency pre-emption is observable as a wrong TEAM jump.
+        UiSnapshot empty = k7_snap(1, later.now_ms + 1);
+        CHECK(open_invite(f, empty));
+        UiSnapshot expired = empty; expired.now_ms += mrui::kInviteWindowMs;
+        const int commands = f.invite_dev.commands, grants = f.invite_dev.grants;
+        f.m.on_tick(expired);
+        CHECK(f.m.state().provisioning == Provision::invite_closed);
+        f.m.on_gesture(Gesture::double_press, expired);              // wake, consumed
+        f.m.on_gesture(Gesture::double_press, expired);              // no caller -> fail-closed menu
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().provisioning == Provision::menu);
+        CHECK(f.invite_dev.commands == commands);
+        CHECK(f.invite_dev.grants == grants);
+
+        UiSnapshot fresh = k7_snap(1, expired.now_ms + 1);
+        CHECK(enter_invite_from_menu(f.m, fresh));
+        add_member(fresh, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(f.m, fresh, 0xAABBCCDDu));
+        f.m.on_gesture(Gesture::double_press, fresh);
+        f.m.on_gesture(Gesture::double_press, fresh);                // REJECT
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().settings == Settings::provisioning);
+        CHECK(f.m.state().provisioning == Provision::invite);
+        CHECK(f.m.state().invite.taken == true);
+        CHECK(f.invite_dev.commands == 0);
+        CHECK(f.invite_dev.grants == 0);
     }
 }
 

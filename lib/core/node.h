@@ -835,6 +835,7 @@ public:
     };
     uint16_t          mobile_offer_ring_full_count() const { return _mobile_offer_ring_full_n; }   // §10 counter: admissions refused `full`
     uint16_t          mobile_offer_reject_count()    const { return _mobile_offer_reject_n; }      // §10 counter: OFFERs our own transmitter refused
+    uint16_t          mobile_ctr_admission_refused_count() const { return _mobile_ctr_admission_refused_n; }   // B251: hop ACK withheld because the translated forward could not reserve queue/correlation capacity
     uint8_t           mobile_offers_pending_n() const {                                            // slots IN USE (armed and/or reserved) right now
         uint8_t n = 0;
         for (uint8_t i = 0; i < cap_pending_mobile_offers; ++i)
@@ -894,6 +895,13 @@ public:
     // ★ §id-hash S4b test seam, same rule as the line above: the periodic aging sweep is where the two-stage
     // `reqpubkey` intent times out (spec §5 step 5), and its timer id is private so a test cannot hard-code 2.
     void              test_fire_aging() { on_timer(kAgingTimerId); }
+    // B251 retry/backpressure: retire a deliberately unanswered DATA reservation without hard-coding the private id.
+    void              test_fire_pending_rx_expiry() { on_timer(kPendingRxExpiryTimerId); }
+    uint8_t           test_deleg_ack_live_n() const {
+        uint8_t n = 0;
+        for (const auto& e : _deleg_acks) if (e.state != DelegAckState::free) ++n;
+        return n;
+    }
     void              test_mark_mobile_peer(uint8_t id) { _active->_mobile_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7)); }   // simulate an is_mobile beacon setting the SET-only bit
     bool              test_id_bind_set(uint8_t id, uint32_t key_hash32, bool authoritative) { return id_bind_set(id, key_hash32, IdBindSource::bcn, authoritative ? IdBindConf::authoritative : IdBindConf::claimed); }
     void              test_defer_send(uint8_t dst, uint16_t ctr, uint8_t redrain_count) { TxItem it{}; it.dst = dst; it.ctr = ctr; it.redrain_count = redrain_count; defer_send(it); }   // drive the defer-loop giveup directly
@@ -1460,10 +1468,12 @@ private:
     // §id-hash S4a / spec §3-D4: the last bool is `binding_verifiable`, NOT "we answered". It selects the plain vs
     // AUTHORITATIVE answer TYPE, i.e. whether the id->hash assertion in this frame is one the receiver can check.
     // An owner's BY_ID answer passes FALSE: it owns the key, but an id is an address, not a commitment.
-    void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool binding_verifiable, bool mobile_proxy = false, uint8_t epoch = 0, bool team_scoped = false); // B: routed DATA(H_ANSWER inner) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch; §F-TR-2: team_scoped -> route the answer on the TEAM plane (_rt_team + team RREQ), not AUTO (which falls to the static plane when the origin isn't yet a known team peer)
+    bool    pack_typed_answer_inner(TxItem& item, Plane plane, uint8_t dst,
+                                    const uint8_t* body, uint8_t body_len);  // B161: stamp a plane-correct origin and wrap a bounded internal-answer BODY in the canonical plaintext-unicast envelope
+    void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool binding_verifiable, bool mobile_proxy = false, uint8_t epoch = 0, bool team_scoped = false); // B: routed DATA(H_ANSWER body) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch; §F-TR-2: team_scoped -> route the answer on the TEAM plane (_rt_team + team RREQ), not AUTO (which falls to the static plane when the origin isn't yet a known team peer)
     void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash = 0, bool team_scoped = false);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub). Wave 2: dst_hash!=0 (mobile requester) -> DST_HASH so the home last-miles it; §F-TR-2: team_scoped -> TEAM plane
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
-    void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]);  // §mobile Part 2 Fix 7: DATA TYPE 13 (home routing ‖ the mobile's ed_pub)
+    void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32], bool team_scoped);  // §mobile Part 2 Fix 7 / B161: canonical DATA TYPE 13 BODY (home routing ‖ the mobile's ed_pub ‖ name) on the originating H-query's plane
     uint32_t cache_want_pubkey_requester(const h_out& h);          // §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key (self-consistency + non-zero + the mobile/team id_bind gate), fire peer_key_cached. Returns the requester hash (0 = rejected). Used by the home proxy-answer branch + the mobile TX-free overhear cache.
     void    forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32], const char* name, uint8_t name_len);   // §S3 part2: 1-hop last-mile DATA_TYPE_MOBILE_KEY_FORWARD to a hosted mobile (dedup same-requester via _mobile_reg[].last_key_fwd_hash32)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
@@ -2135,8 +2145,23 @@ private:
     // §mobile reverse-ack (delegated): a home re-originates a hosted mobile's send under its OWN ctr (ctr_H). When the
     // target's E2E-ack (for ctr_H) comes home, translate ctr_H -> the mobile's original ctr (ctr_M) so the last-miled ack
     // matches what the mobile is waiting on. A DIRECT send (home only forwarded) has NO entry -> out stays acked_ctr.
-    void     deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m);                 // §GapB p2: keyed by the MOBILE's hash (XL acker ids alias across leaves — id-keying is WRONG). Record {mobile_hash,ctr_H}->ctr_M (evict oldest/expired)
-    bool     deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
+    enum class DelegAckPeer : uint8_t { node_id = 0, key_hash = 1 };
+    enum class DelegAckState : uint8_t { free = 0, reserved = 1, active = 2 };
+    static constexpr uint8_t kDelegAckNoSlot = 0xFF;
+    bool     deleg_ack_reserve(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
+                              uint32_t target, uint8_t layer, uint8_t& out_slot, uint32_t& retry_ms);
+    bool     deleg_ack_activation_available(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_kind,
+                                            uint32_t return_peer, uint8_t layer, uint32_t& retry_ms) const;
+    bool     deleg_ack_activate(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_kind,
+                               uint32_t return_peer, uint8_t layer);
+    bool     deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                          DelegAckPeer target_kind, uint32_t target,
+                          DelegAckPeer return_kind, uint32_t return_peer, uint8_t layer);
+    void     emit_deleg_originated(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m);
+    void     deleg_ack_release(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
+                              uint32_t target, uint8_t layer);
+    bool     deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, DelegAckPeer return_kind,
+                                uint32_t return_peer, uint8_t layer, uint16_t& out_mobile_ctr);
     // ★ E2E-ack DEADLINE (shelf item (i), 2026-07-24) — node_mac.cpp. Arm/clear are emit-free (byte-neutral when acks arrive).
     void     e2e_ack_arm(uint32_t key, bool is_xl, uint8_t dst, uint16_t ctr, uint32_t budget_ms);   // silent: a -a send minted its ctr -> track until send_e2e_acked or the deadline. Full ring -> skip + telemetry (the command path pre-refuses).
     void     e2e_ack_clear(uint8_t acker_origin, uint16_t acked_ctr, uint32_t sender_hash);          // silent: a send_e2e_acked arrived -> drop the matching pending entry (a late/unknown ack is a harmless no-op)
@@ -2408,6 +2433,7 @@ private:
     void     try_drain_deferred();                                // TTL-first, route-exists drain :6765
     bool     alt_tried(const PendingTx& pt, uint8_t hop) const;
     void     mark_tried(PendingTx& pt, uint8_t hop);
+    uint16_t peek_next_ctr(uint8_t dst) const;                    // B251: read the next destination-scoped value without allocating it (single-threaded pre-ACK admission)
     uint16_t next_ctr(uint8_t dst);                               // per-(self,dst) counter (NOT rand)
     uint8_t  select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const;  // adaptive DATA SF, Lua :3043+:3027
     uint32_t airtime_routing_ms(uint16_t len) const;             // floor-exact, for timeout sizing
@@ -2711,11 +2737,21 @@ private:
                         uint8_t  reflood_count = 0; uint64_t reflood_at_ms = 0;   // next scheduled re-flood (wall clock); the scan re-arms the shared timer to the earliest
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
-    // §mobile reverse-ack (delegated): {acker (the static target's id), ctr_H} -> ctr_M. Populated when THIS home
-    // re-originates a hosted mobile's delegated send under its OWN ctr (ctr_H); consumed when the target's E2E-ack (for
-    // ctr_H) comes home -> translate to ctr_M so the last-miled ack matches the ctr the mobile is waiting on. A small TTL
-    // ring; empty on a node that hosts no mobiles -> inert (s18 byte-identical). See deleg_ack_put/deleg_ack_translate.
-    struct DelegAck { uint32_t mobile_hash = 0; uint16_t ctr_h = 0; uint16_t ctr_m = 0; uint64_t ts_ms = 0; bool valid = false; };
+    // B251 strengthens the delegated reverse-ACK ring without growing a row. `peer` is phase-dependent: while RESERVED
+    // it is the requested target (node id or stable hash); once ACTIVE it is the discriminator the returning ACK exposes
+    // (same-layer origin id or cross-layer SOURCE_HASH). `layer` separates node-local ids across a dual-layer gateway.
+    // No live row is evicted. Field order is deliberate: this remains 24 B, the pre-B251 DelegAck size.
+    struct DelegAck {
+        uint64_t ts_ms = 0;
+        uint32_t mobile_hash = 0;
+        uint32_t peer = 0;
+        uint16_t ctr_h = 0;
+        uint16_t ctr_m = 0;
+        uint8_t layer = 0;
+        DelegAckPeer peer_kind = DelegAckPeer::node_id;
+        DelegAckState state = DelegAckState::free;
+    };
+    static_assert(sizeof(DelegAck) == 24, "B251: DelegAck grew; re-pack the bounded x8 ring before accepting RAM cost");
     static constexpr uint8_t kDelegAckCap = 8;
     DelegAck _deleg_acks[kDelegAckCap] = {};
     // ★ E2E-ack DEADLINE ring (shelf item (i), 2026-07-24): sends awaiting their DATA_TYPE_E2E_ACK. ARMED (emit-free) when an
@@ -3100,6 +3136,11 @@ private:
                       bool same_key(const DeniedId& o) const { return id == o.id; } };
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
+    // §B251 — translated-mobile DATA refused before its hop ACK because queue/correlation admission was full.
+    // Its semantic home is beside the reverse-ACK ring, but this placement is deliberate and measured: the u8 count
+    // above was followed by seven bytes of native alignment padding before the 8-aligned MediatedRecent array. This
+    // u16 consumes two of them. The native tripwire stays 222008; D2 still measures both board ABIs independently.
+    uint16_t _mobile_ctr_admission_refused_n = 0;
     struct MediatedRecent { uint8_t node_id; uint32_t loser_hash; uint64_t t_ms;      // L2a: suppress per-(id,loser) re-DENY
                             bool same_key(const MediatedRecent& o) const { return node_id == o.node_id && loser_hash == o.loser_hash; } };
     MediatedRecent _mediated_recent[protocol::cap_mediated_recent] = {};

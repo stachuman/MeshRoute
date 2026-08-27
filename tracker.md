@@ -5,25 +5,40 @@ Last refreshed: **2026-08-17**
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
-## Ongoing
-
+## Marked as implemented
 - `2026-07-31-onboard-oled-ui-design.md` / `2026-07-31-onboard-oled-ui-phase-a.md` — UI-14, TX-completion T3 and
   the status/navigation redesign are implemented. Finish the B196 sleep correction and QG, then run refreshed R1-R6
   plus Parts 19-25 metal qualification before UI-15/UI-16 provisioning.
+  2026-07-31-onboard-oled-ui-design.md / 2026-07-31-onboard-oled-ui-phase-a.md — Phase A implementation complete and metal-tested; subsequent UI-15/UI-16/UI-17 and
+  preset work are maintained in their dedicated specifications. Remaining defects and optional hardware qualification are tracked separately.
+
+- `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — port and qualify Heltec V4 hardware.
+
+
+## Ongoing
+  1. B159 contradicts a design premise. The design says existing DATA dedup prevents repeated delivery (docs/superpowers/specs/2026-08-23-internal-data-and-custody-
+     outcome-design.md:876), while B159 records that dedup can expire inside the retry horizon. Either fix B159 first or explicitly design custody-record idempotence
+     without relying on transport dedup.
+
+  2. B134 needs an explicit product ruling. Custody outcomes can be implemented with the existing store abstraction, but on Heltec they will remain RAM-only and
+     disappear on reboot. If persistent custody history on Heltec is required now, B134 must precede custody Slice C/G. Otherwise record that limitation and defer
+     B134.
+
+-  fault reason and internal data : `2026-08-23-internal-data-and-custody-outcome-design.md`
 
 ## Backlog — priority order
-
+- GPS: 2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md - to be reviewed
 
 - 2026-08-07-mobile-home-attachment-reliability-design.md — core S0–S5 mostly landed. Resume with B151 late-home/
   auto-OFF scenarios, finish S6 product integration and then evaluate narrowed B178 proactive roaming. B184 and
   B186b remain separate adjacent follow-ups.
 
--  new spec - fault reason and internal data : `2026-08-23-internal-data-and-custody-outcome-design.md`
 -  reviewed and ready - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2
   
-- 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed and cumulative gate passed. Resume with B161
-  typed-answer origin, then verify/close B157 and B153. Fix B166 NAV under-reservation next; treat B158 as a
-  separate MeshRoute-native jitter redesign.
+- 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
+  canonical typed-answer origin passed combined QG and are closed. Re-evaluate B157/B153 next. B112 remains separately
+  open and does not block B251. Fix B166 NAV under-reservation later;
+  treat B158 as a separate MeshRoute-native jitter redesign.
 
 - 2026-08-05-channel-app-code-draft.md — design-only and unimplemented. Refresh against the new DATA-type namespace
   (DATA_TYPE_APP_MESSAGE=0x05), settle the transport, authentication, lifetime, plaintext and DM-scope rulings, then
@@ -38,20 +53,34 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-  B209 - autoregister bug
-  B207 provisioning transaction - awaiting QG
-  Parallel metal checks: B196, B164, B193 - B196 awaiting final test, B164 - awaiting final test, B193 - probably not implemented
-  B206/B138 measurement reliability, then B205.
-  B20/B21, B35, B159 message correctness.
-  B161 → B157 → B153 hybrid-RTS closure.
-  B151 → B178 → B186b mobile-home work.
-  B134, O4, and remaining product/UI backlog.
+  B250 — finish and land the roster-grant return-context fix.
+
+  Bookkeeping closure — close B209, B207, B196, B164 and B193 from their existing
+  QG/metal evidence; no further implementation expected.
+
+  B206 → B138 → B205 — restore trustworthy build/measurement gates before the next
+  large core and wire transition.
+
+  B20/B21 → B159 → B35 — resolve silent-loss, duplicate-delivery and plane-correctness
+  defects. B159 is a prerequisite for the custody design unless that design adds its
+  own explicit idempotence mechanism.
+
+  Re-evaluate B157 → re-evaluate B153 — B251/B161 are closed; finish the hybrid-RTS disposition before changing the
+  DATA namespace and terminal-custody paths.
+
+  2026-08-23-internal-data-and-custody-outcome-design.md — next major arc. Finalize
+  the review, settle B159 and B134 dependencies, unpark B59, then implement slices A–H
+  with separate gates and attribution.
+
+  B151 → B178 → B186b — resume mobile-home reliability after the custody arc.
+
+  B134 — move before custody Slice C/G if Heltec custody records must survive reboot;
+  otherwise retain as product backlog. Then O4 and remaining product/UI work.
 
 
 
 ### Hardware backlog
 
-9. `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — port and qualify Heltec V4 hardware.
 10. `2026-07-14-t1000e-feasibility.md` — revisit T1000E feasibility after the current Heltec work.
 
 ## Done — implementation

@@ -53,10 +53,21 @@ an RTS-time answer bindable. ⓘ Owner ruling: ledger §1.10.
 
 **DATA must reproduce the identity before the receiver stores completion.** At DATA reception the receiver recomputes
 the identity from the canonical DATA fields and compares. On mismatch: a named diagnostic, `PendingRx` cleared, and
-**no** app delivery, **no** ACK, **no** cache store and **no** route-success credit. ⚠ [[B161]] is **open**: two typed
-answer families (`send_hash_bind_response` and its mobile-proxy sibling) put no `origin` byte on the wire, so their
-canonical identity is currently a payload byte — 69 of 4 949 plaintext DATA frames could not reproduce their own RTS
-identity when first measured.
+**no** app delivery, **no** ACK, **no** cache store and **no** route-success credit. B161 normalized typed hash answers
+(DATA types 1, 2, 8 and 13) onto the same plaintext-unicast envelope: their stamped `origin` is now present on the wire,
+while their type-specific bodies remain unchanged. There is no parser for the former raw shape. B251 closes the hosted-
+mobile counter collision at the home boundary without changing the envelope or any frame length: a qualifying plaintext
+static/global transit keeps the mobile's `ctrM` on the direct hop, while the home allocates its own destination-scoped
+`ctrH` and forwards under `ctrH`. For direct by-id transit, the home reserves the forward and any required E2E-ACK
+correlation before ACKing `ctrM`. A `MOBILE_SEND` hash wrapper retains the existing B112
+first-hop-ACK behavior, but reserves required correlation before that ACK and uses `SendDispatch` after PostAck as the
+only proof of outward admission: queued activates the mapping and emits origin evidence, parked retains the reservation
+until it is admitted, and refused releases it without either a mapping or evidence.
+The verified hosted-mobile hash distinguishes equal first-hop counters in loop de-duplication; the completed-flight cache
+continues to distinguish the mobiles by their immediate on-air sender. A returning ACK is keyed by mobile, `ctrH`, return
+peer and layer, then translated back to `ctrM`. Team-plane and ordinary CRYPTED traffic do not enter this path; encrypted
+counters remain untouched. Independent QG passed and B251/B161 are closed. B157 and B153 remain open and are ready
+for explicit re-evaluation. B112 remains a separate, non-blocking first-hop-ACK issue.
 
 **(1) The terminal `already_received` CTS — restored, and terminal only because it echoes the identity.** A receiver
 that has *completed* this exact flight answers a retried RTS with the 6/7-B terminal CTS: the complete identity echo

@@ -73,13 +73,19 @@ cd "$(dirname "$0")/.." || exit 1
 #   builds measure `heltec_v4_mobile` at 327 objects / 183 warnings and `gateway_heltec_v4` at 327 / 179, both with
 #   `-Wswitch` 0. The gateway total is the existing V3 gateway pin plus the same five native-USB diagnostics. No
 #   existing pin moved.
+# ★ B161 RE-PIN 2026-08-27: every environment drops exactly ONE warning. The canonical type-13 answer producer
+#   expanded the hosted-name copy from a one-line `for (...) body[...] = ...; break;` into an honestly braced loop;
+#   that removes the pre-existing `node_hashlocate.cpp -Wmisleading-indentation` diagnostic. Controlled clean A/B
+#   on `gateway_heltec` is 174 -> 173, and the normalized warning multiset diff contains exactly that one removed
+#   line. Object counts and `-Wswitch == 0` are unchanged. V4 keeps its existing +5 native-USB diagnostics, so all
+#   six pins move by the same -1; this is warning removal, not a relaxed ceiling.
 declare -A EXPECT_WARN=(
-  [heltec_v3]=178
-  [heltec_mobile]=178
-  [gateway_heltec]=174
-  [heltec_v4]=183
-  [heltec_v4_mobile]=183
-  [gateway_heltec_v4]=179
+  [heltec_v3]=177
+  [heltec_mobile]=177
+  [gateway_heltec]=173
+  [heltec_v4]=182
+  [heltec_v4_mobile]=182
+  [gateway_heltec_v4]=178
 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it

@@ -586,6 +586,10 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     // 116736 xiao_sx1262/xiao_esp32s3; 147352 gateway/gateway_esp32s3; 116704 both *_mobile), because the +2 lands in
     // padding LayerRuntime already had after `_post_ack`. Hence no D2 six-env escalation was owed for this slice.
     bool     team_plane = false;
+    // B251: the accepted hosted-mobile transit leg already consumed a real TX-queue row before handle_data
+    // returned. do_post_ack still owns the relay snoop/policy pass, but must not materialize a second TxItem.
+    // This is accepted-flight state, never reconstructed from the current mobile registry.
+    bool     forward_prequeued = false;
     uint8_t  origin = 0, dst = 0, ctr_lo = 0, previous_hop = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;

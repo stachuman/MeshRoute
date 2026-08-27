@@ -1036,12 +1036,14 @@ Option 1 ruled over widening the F-11 diff (a proxy wrong in both directions) an
 (persistent state, against F-13).*
 
 - **Scope.** An operator-initiated per-member act from the **TEAM screen's roster**: enter TEAM, select a
-  member, and an explicit act opens **the landed N5/N6 chain VERBATIM** — the pubkey preflight
+  member, and an explicit act opens the landed N5/N6 chain. The grant decisions, screens, words and send path are
+  reused — the pubkey preflight
   (`invite_grant_preflight`, the grant's own bar) → `NEED PUBKEY` / `REQUEST PUBKEY` / `WAITING FOR PUBKEY`
   (N5's screens, S-18..S-21) → the `GRANT KEY` confirmation (safe default, full `0x%08lX` hash even when
   named — P-7c/P-7d) → the dispatch-truth outcome mapping and `{dst, ctr}` correlation (N6's, S-21..S-24,
-  S-37/S-38). ⛔ **No new screen, no new lexeme, no new send path, no new state machine** — this slice is an
-  ENTRY POINT to machinery that exists; if any piece cannot be reached verbatim, STOP and report.
+  S-37/S-38). ⛔ **No new screen, no new lexeme, no new send path and no second grant state machine.**
+  **Amended 2026-08-26 by [[B250]]:** parent navigation is selected by an explicit caller context; it is not inferred
+  from the invitation snapshot, current screen, a zero field or the active `Provision` arm.
 - **★ The rulings it must NOT disturb:** the invite window's F-11 diff and F-13 handled set stay byte-for-byte
   (the window remains the watch-for-new-joiners flow); **P-12 stays whole** — nothing here is unsolicited: the
   operator navigates to a member and acts. The TEAM screen's landed passive/entered contract (§UI-17) governs
@@ -1054,18 +1056,39 @@ Option 1 ruled over widening the F-11 diff (a proxy wrong in both directions) an
 - ⛔ **No self-grant** (the grant's own `self` arm refuses — drive it from here too). ⛔ A keyless node offers
   no grant act (the `no_key` arm — but prefer the act hidden/absent when `team_channel_key_present()` is
   false, stated as a design decision either way).
+- **[[B250]] Two callers, one grant chain.** Invitation-origin behaviour is byte-identical. Roster-origin ordinary
+  exits restore the **entered TEAM roster** at the saved TEAM-local member identity; `sync_team_cursor()` follows a
+  reordered row or raises `TEAMMATE GONE` and refuses when it disappeared. Emergency pre-emption keeps its existing
+  higher-priority landing and clears the caller context. A missing caller fails closed to the PROVISION menu.
+
+  | shared-chain event | invitation-window origin | TEAM-roster origin |
+  |---|---|---|
+  | NEED PUBKEY: BACK | invitation list | entered TEAM roster |
+  | WAITING FOR PUBKEY: either press | invitation list | entered TEAM roster |
+  | ready confirmation: REJECT | add to handled set; invitation list | entered TEAM roster |
+  | ready/need confirmation blanks | invitation list | entered TEAM roster |
+  | expiry | `WINDOW CLOSED`; ack → PROVISION menu | `WINDOW CLOSED`; ack → entered TEAM roster |
+  | any grant result | ack → PROVISION menu | ack → entered TEAM roster |
+  | matching `peer_key_cached` while waiting | invitation list | existing REJECT-default `GRANT KEY` confirmation |
+  | wrong/unusable push | no change | no change |
+  | synchronous request refusal | remain on NEED PUBKEY | remain on NEED PUBKEY |
+  | grant performs nothing | remain on confirmation | remain on confirmation |
+
 - **Pins.** (1) The act exists on an entered-TEAM member row and opens the N5/N6 chain with the row's full
   hash. (2) The early-joiner scenario end-to-end: a member present BEFORE any window opened is grantable here
-  (the B245 repro, now green). (3) The invite window's behaviour is byte-identical (its cases re-run
+  (the B245 repro, now green). (3) Invite-origin behaviour is byte-identical (its cases re-run
   untouched). (4) Nothing transmits without the operator's explicit confirmations (the N5 command-count idiom
   re-proven from this entry). (5) The self row refuses/offers nothing. (6) A keyless node offers nothing.
   (7) P-7c/P-7d through this entry (full hash shown; target = hash). (8) The outcome words are N6's exactly —
-  ⛔ no new word.
+  ⛔ no new word. (9) Every cancel/terminal path obeys the table above and issues no repeated request or grant.
+  (10) same/reordered/gone roster identities follow/refuse through the existing B64 authority.
 - **Mutation classes.** The act auto-issuing on row selection (the no-unsolicited shape) · the target from the
   display name / row index · the self refusal dropped · the keyless offer appearing · a second outcome mapping
-  forked (anchor on the reused call) · the invite window's diff disturbed (its landed controls must stay RED).
-- **Files / boundary.** UI model (the TEAM-screen act + arms) · renderer forwards · reuse of the landed
-  invite/prov adapters. ⛔ No `lib/` of any kind, no wire, no NV.
+  forked (anchor on the reused call) · caller binding deleted/derived/collapsed · wrong parent landing · passive,
+  row-zero or neighbour roster restoration · matching pushes crossed between origins · repeated request/grant ·
+  the invitation window's diff disturbed (its landed controls must stay RED).
+- **Files / boundary.** UI model (the TEAM-screen act, private typed caller context and landings) · renderer probe
+  expectations · reuse of the landed invite/prov adapters. ⛔ No `lib/` of any kind, no wire, no NV.
 
 ---
 
@@ -1085,6 +1108,7 @@ Option 1 ruled over widening the F-11 diff (a proxy wrong in both directions) an
 | K4 | `test/test_firmware_ui_send.cpp` | `uisend`, `model` | a push arm asserting the note and the **absence** of navigation/wake |
 | K5 | `test/test_firmware_team_keyring.cpp`, `test/test_firmware_ui_prov.cpp`, `test/test_firmware_ui_model.cpp` | `teamkeyring`, `uiprov`, `model` | saved-key offer + explicit activation arms |
 | K6 | `test/test_firmware_team_keyring.cpp`, console/parser tests, `test/test_firmware_ui_model.cpp` | `teamkeyring`, `uiprov`, `model` | full-store → management; list, active refusal, full-id confirmation and successful refresh |
+| K7 / B250 | `test/test_firmware_ui_model.cpp` | `model` | real adapters: invite-origin result → PROVISION; roster-origin result/wait exit → entered TEAM; no extra device call |
 
 **Standing rules for every slice.**
 - **[[B217]] re-pin duty.** The runner aborts with `sys.exit(2)` and **applies zero mutations** when the clean

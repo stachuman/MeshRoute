@@ -444,13 +444,14 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //                      GRANT KEY only after N5's preflight. ✅ §UI-16 N6 LANDED ITS ACT: a `double` on GRANT KEY
 //                      now performs the ONE forward to `Node::team_key_grant_send` and lands `invite_result`.
 //   `invite_result`  — LIVE (§UI-16 N6): the grant's VERDICT (`UiState::grant`), in the outcome's own word.
-//                      Terminal, either press returns to the menu. ★ IT OUTLIVES THE WINDOW deliberately — the act
-//                      ended it — which is why the verdict carries its own hash and its own `{dst, ctr}` handle,
+//                      Terminal; [[B250]] returns to the parent that explicitly opened the grant chain (invitation
+//                      menu or entered TEAM roster). ★ IT OUTLIVES THE WINDOW deliberately — the act ended it —
+//                      which is why the verdict carries its own hash and its own `{dst, ctr}` handle,
 //                      and why `provision_is_invite` excludes this arm (an expiring window may ⛔ not overwrite a
 //                      verdict with `WINDOW CLOSED`).
 //   `invite_need_pubkey` / `invite_wait_pubkey` — LIVE (§UI-16 N5): the explicit BACK-default request and the
-//                      post-request wait. No request is automatic; a matching cached-key push returns to the
-//                      locally refreshed candidate row, whose next double re-runs the grant's own preflight.
+//                      post-request wait. No request is automatic. A matching cached-key push returns an invitation
+//                      origin to its refreshed row; a roster origin opens the existing REJECT-default confirmation.
 //   `saved_key`      — LIVE (§UI-16 K5): design §3.6.4 point 4's *"`SAVED KEY FOUND` with `BACK` selected and an
 //                      explicit `USE SAVED KEY`"*. ★★★ IT IS REACHED FROM THE **ACKNOWLEDGEMENT OF A `team_joined`
 //                      RESULT**, and only when the JOINED team has a RETAINED `/mrteams` record — ⛔ never from the
@@ -462,9 +463,9 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //                      untouched. (⛔ ⛔ It does ⛔ NOT "leave the node keyless": after a membership change under
 //                      the offer the node may legitimately hold the CURRENT team's key, and declining an offer
 //                      about another team may never destroy it.)
-//   `invite_closed`  — LIVE (§UI-16 N4): the window RAN OUT (`WINDOW CLOSED`). Terminal, either press returns to
-//                      the menu. ⛔ ENTERING IT GRANTS, REVOKES AND REWRITES NOTHING (P-11) — it moves a screen
-//                      and drops RAM, and `enter_provision` is what discards the window's whole state with it.
+//   `invite_closed`  — LIVE (§UI-16 N4): the window RAN OUT (`WINDOW CLOSED`). Terminal; [[B250]] acknowledges to
+//                      the explicit caller's parent (or fails closed to the menu when no selection ever bound one).
+//                      ⛔ ENTERING IT grants, revokes and rewrites nothing (P-11); the window carrier still dies.
 enum class Provision : uint8_t {
     closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result,
     nearby, nearby_confirm, invite, invite_confirm, invite_closed, invite_need_pubkey, invite_wait_pubkey,
@@ -507,6 +508,39 @@ enum class Provision : uint8_t {
 inline bool provision_is_invite(Provision p) {
     return p == Provision::invite || p == Provision::invite_confirm ||
            p == Provision::invite_need_pubkey || p == Provision::invite_wait_pubkey;
+}
+
+// ★★★★ [[B250]] — THE FIVE SHARED GRANT ARMS, NAMED ONCE. A roster-origin grant and an invitation-
+//      window grant reuse these screens and acts, but they do not share a parent. The caller context therefore lives
+//      across exactly these five arms and is retired by every other provisioning entry. ⛔ No ordinal/range test:
+//      `Provision` is append-only and a new arm must make this switch warn until its lifetime is decided explicitly.
+inline bool provision_is_grant_chain(Provision p) {
+    switch (p) {
+        case Provision::invite_confirm:
+        case Provision::invite_need_pubkey:
+        case Provision::invite_wait_pubkey:
+        case Provision::invite_closed:
+        case Provision::invite_result:
+            return true;
+        case Provision::closed:
+        case Provision::menu:
+        case Provision::create_confirm:
+        case Provision::create_result:
+        case Provision::join_select:
+        case Provision::join_confirm:
+        case Provision::join_waiting:
+        case Provision::join_result:
+        case Provision::nearby:
+        case Provision::nearby_confirm:
+        case Provision::invite:
+        case Provision::saved_key:
+        case Provision::saved_keys:
+        case Provision::saved_keys_confirm:
+        case Provision::saved_keys_active:
+        case Provision::saved_keys_result:
+            return false;
+    }
+    return false;
 }
 
 // ★★ THE CONFIRMATION'S TWO ACTIONS, AND `back` IS FIRST BECAUSE §3.6.3 REQUIRES IT TO BE THE DEFAULT — verbatim:
@@ -2859,7 +2893,7 @@ public:
             //    lost it. The window's expiry cannot overwrite it either — see `provision_is_invite`.
             if (_st.provisioning == Provision::invite_confirm ||
                 _st.provisioning == Provision::invite_need_pubkey)
-                enter_provision(Provision::invite);
+                leave_grant_chain(GrantExit::resume, s);
             // ★★★★ §UI-16 K5 — THE SAVED-KEY OFFER IS AN **UNFINISHED CONFIRMATION** AND THEREFORE DOES NOT SURVIVE
             //      THE BLANK EITHER (OQ-3, the same clause the two arms above answer to). ⛔ It is one `double` from
             //      installing a stored SECRET, so waking onto it — on a screen the operator may not remember
@@ -2903,9 +2937,21 @@ public:
         if (!invite_peer_key_cached_matches(pu, _st.invite.sel_hash)) return;
         // Re-run the accessor rather than trusting/caching the push's answer: the grant does the same aged read.
         if (!invite_grant_preflight(_invite_dev, _st.invite.sel_hash)) return;
-        // The push completes the WAIT, not the operator's next choice. Returning to the list exposes the name that
-        // `build_snapshot` reads from the existing cache; a push never supplies a parallel UI name field.
-        enter_provision(Provision::invite);
+        // [[B250]] The push completes the WAIT, but still performs no act. An invitation flow returns to its list so
+        // the cached name can refresh; a roster flow opens the existing REJECT-default confirmation the operator
+        // deliberately requested. `none` fails closed and never infers a parent from the window or screen.
+        switch (_grant_return.origin) {
+            case GrantOrigin::none:
+                clear_grant_return();
+                enter_provision(Provision::menu);
+                return;
+            case GrantOrigin::invite_window:
+                enter_provision(Provision::invite);
+                return;
+            case GrantOrigin::team_roster:
+                enter_provision(Provision::invite_confirm);
+                return;
+        }
     }
     // ★★★★ §UI-16 N6 — THE GRANT'S OUTCOME PUSH, AND IT ARRIVES THROUGH THE **ONE PURE PUSH ROUTER**
     //      (`mrui::ui_route_send_push`, `src/firmware_ui_send.h`) rather than through a second device call: that
@@ -3729,6 +3775,19 @@ protected:
     }
 
 private:
+    // ★★★★ [[B250]] — THE CALLER IS AN EXPLICIT TYPED FACT, never inferred from an invitation snapshot,
+    //      a zero id, the current screen or a provisioning arm. `team_local_id` is the selected member's TEAM-plane
+    //      local id, ⛔ not the 32-bit team identity; zero remains a valid value because `origin` carries validity.
+    enum class GrantOrigin : uint8_t { none = 0, invite_window, team_roster };
+    struct GrantReturn {
+        GrantOrigin origin = GrantOrigin::none;
+        uint8_t team_local_id = 0;
+    };
+    enum class GrantExit : uint8_t { resume = 0, terminal };
+    // Private navigation authority for the shared grant chain. The renderer never consumes it, so it stays out of
+    // `UiState` and the frozen frame; the saved id is navigation-only and never reaches send/correlation.
+    GrantReturn _grant_return{};
+
     void advance_or_next(const UiSnapshot& s) {
         const uint8_t n = list_len(s);
         if (n > 1 && _st.cursor + 1 < n) { ++_st.cursor; return; }
@@ -3885,6 +3944,7 @@ private:
         //    it", not "the paths that can leave today close it": the first slice-5/6 arm that a push or a timeout
         //    moves the screen out of finds this already true.
         if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite)) _st.dirty = true;
+        clear_grant_return();
         _cfg_sel_valid = false;
     }
     // ★★★ [[B232]]'s TWO PRIMITIVES, and they are two because the menu is now ENTERED and LEFT rather than merely
@@ -4113,10 +4173,16 @@ private:
     //   deliberate — the field then has exactly one meaning ("what a confirmation would open on"), and no arm can
     //   inherit a CONFIRM selected in a previous, abandoned confirmation. ⇒ the default is asserted on the one entry
     //   this slice CAN drive (`menu`), which is the same assignment every later entry will run.
+    void clear_grant_return() { _grant_return = GrantReturn{}; }
+
     void enter_provision(Provision p) {
         _st.settings = Settings::provisioning; _st.provisioning = p;
         _st.prov_confirm = ProvConfirm::back;
         _st.cursor = 0;                        // each arm's list starts at its own first row
+        // ★★★★ [[B250]] The explicit caller survives only the five named shared-chain arms. In particular,
+        //      `invite` is a PARENT rather than part of the chain, while both terminal screens retain the context
+        //      until their acknowledgement. One classifier is the whole lifetime decision (U1).
+        if (!provision_is_grant_chain(p)) clear_grant_return();
         // ★ §UI-15 slice 5: the ANSWER is retired by EVERY entry, so the only thing `create_result` can ever render is
         //   the verdict `run_create_team` wrote one statement after the transaction returned. ⛔ A result that
         //   survived into a later screen would be the "success that isn't" this project has already registered once.
@@ -4158,6 +4224,7 @@ private:
     void close_provisioning() {
         _st.settings = Settings::browsing;
         provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite);
+        clear_grant_return();
         _st.dirty = true;
     }
     // ★★★ THE SUB-VIEW'S GESTURES. `short` CYCLES within the arm's list and ⛔ never walks out of the screen — the
@@ -4234,19 +4301,18 @@ private:
             // §UI-16 N6 — the grant-ready confirmation needs the SNAPSHOT for the window's own deadline: the act
             // must be refused on an EXPIRED window, and the tick that would close it has not run yet.
             case Provision::invite_confirm: invite_confirm_gesture(g, s);    return;
-            case Provision::invite_need_pubkey: invite_need_pubkey_gesture(g); return;
-            // The request has already been authorised and issued. Either press merely returns to the window;
-            // it cannot cancel, retry or grant anything (the join-waiting idiom one flow over).
-            case Provision::invite_wait_pubkey: enter_provision(Provision::invite); return;
+            case Provision::invite_need_pubkey: invite_need_pubkey_gesture(g, s); return;
+            // The request has already been authorised and issued. Either press merely returns to its explicit
+            // caller's parent; it cannot cancel, retry or grant anything (the join-waiting idiom one flow over).
+            case Provision::invite_wait_pubkey: leave_grant_chain(GrantExit::resume, s); return;
             // The EXPIRY screen is terminal in exactly the way the two result screens are: either press leaves
             // it, and ⛔ nothing is re-run, re-opened or confirmed — the window is over.
-            case Provision::invite_closed:  enter_provision(Provision::menu); return;
+            case Provision::invite_closed:  leave_grant_chain(GrantExit::terminal, s); return;
             // ★★ §UI-16 N6 — THE GRANT'S VERDICT IS TERMINAL IN THE SAME WAY (pin 9): either press acknowledges it
             //    and ⛔ NOTHING is re-run — a second grant would be a second private key on the air for one
-            //    operator decision. ⓘ It lands on the MENU and ⛔ not back in the window: the act ended the
-            //    window, and a re-opened one takes a FRESH snapshot in which the member just granted is simply
-            //    present (and therefore, correctly, no longer a candidate).
-            case Provision::invite_result:  enter_provision(Provision::menu); return;
+            //    operator decision. [[B250]] The invitation caller lands on the MENU (the act ended that window);
+            //    the roster caller returns to its entered TEAM parent by saved TEAM-local identity.
+            case Provision::invite_result:  leave_grant_chain(GrantExit::terminal, s); return;
             // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
             //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
             //    back in step instead of interpreting a press against a state that does not exist.
@@ -4829,6 +4895,7 @@ private:
         //     255 other peers share them; [[B48]]'s class).
         _st.invite.sel_hash = r.cand.key_hash32;
         _st.invite.sel_id   = r.cand.id;
+        _grant_return = {GrantOrigin::invite_window, 0};
         // ★ N5'S SIDE-EFFECT-FREE PREFLIGHT. Merely entering the row asks the same aged cache question the grant
         //   asks and emits NOTHING. A name is deliberately absent from this condition: descriptive text never
         //   enables an airtime-and-secret action.
@@ -4840,7 +4907,7 @@ private:
     //      `short` (REJECT -> GRANT KEY) and then a `double`, and neither press alone can reach it (P-13).
     void invite_confirm_gesture(Gesture g, const UiSnapshot& s) {
         if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
-        if (_st.prov_confirm == ProvConfirm::invite_reject) { run_invite_reject(); return; }
+        if (_st.prov_confirm == ProvConfirm::invite_reject) { run_invite_reject(s); return; }
         // ★★★★ N6 PIN 8 — **THE GRANT IS UNREACHABLE WITH THE WINDOW CLOSED**, and the guard is HERE rather than
         //      left to `tick_invite` because THE TICK RUNS AFTER THE GESTURE (`mr_ui_tick`: on_gesture -> on_tick ->
         //      step). A `double` landing after the five minutes but before the closing tick would otherwise ship a
@@ -4856,9 +4923,9 @@ private:
     }
     // ★★★ THE EXPLICIT REQUEST CONFIRMATION. BACK is selected on entry and sends nothing. Only the other arm's
     //      double constructs and forwards the existing typed reqpubkey command, then enters the waiting screen.
-    void invite_need_pubkey_gesture(Gesture g) {
+    void invite_need_pubkey_gesture(Gesture g, const UiSnapshot& s) {
         if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
-        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::invite); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { leave_grant_chain(GrantExit::resume, s); return; }
         // ★★★ THE WAITING SCREEN IS A CLAIM ABOUT A SUCCESSFULLY STARTED (OR LOCALLY COMPLETED) WORKFLOW, SO ONLY
         //     ONE MAY REACH IT — ⛔ "started" here is `invite_request_started`'s term, NOT `CmdResult::accepted`
         //     (QG blocker, 2026-08-24): with no attached seam, or against a synchronous refusal, `WAITING FOR PUBKEY`
@@ -4874,16 +4941,17 @@ private:
     // ★★★★ `REJECT`, THE WINDOW'S ONLY MEMBERSHIP-SHAPING ACT UNTIL N6. N5's explicit pubkey request exists beside
     //      it, but that request neither grants nor rejects anything. WHAT REJECT CHANGES IS RAM THAT dies with the
     //      window: the candidate's HASH joins the
-    //      volatile handled set (F-13) and the screen returns to the list, where the refresh no longer offers it.
+    //      volatile handled set (F-13). An invitation origin then returns to its list; a roster origin returns to
+    //      TEAM, and its temporary empty handled set dies with the shared carrier.
     // ⛔⛔ IT TOUCHES ⛔ NO CORE, RADIO, MEMBERSHIP, KEY OR NV STATE — there is no seam call here at all, which is
     //     why the native cases assert it on the SEAM's call count and the store's write count rather than on a
     //     screen. ★ And the set is DISCARDED when the window closes, so the same candidate returns after a close
     //     and re-open — which is the ruling's own pin, in both directions.
     // ⓘ IT IS KEYED BY THE FROZEN HASH (P-7d), ⛔ never by the row the cursor happens to be on now: a refresh
     //   between the two presses would otherwise reject somebody else.
-    void run_invite_reject() {
+    void run_invite_reject(const UiSnapshot& s) {
         (void)invite_handled_add(_st.invite, _st.invite.sel_hash);
-        enter_provision(Provision::invite);
+        leave_grant_chain(GrantExit::resume, s);
     }
     // ★★★★ §UI-16 N6 — **THE GRANT**, AND EVERY DECISION IN IT IS SOMEBODY ELSE'S: the plane, the eight-arm outcome
     //      mapping and the `queued`/`parked` split are `firmware_ui_invite.h`'s (pure, natively driven), the seal
@@ -4918,16 +4986,17 @@ private:
         if (window_active(s.now_ms)) return;
         enter_provision(Provision::invite_closed);
     }
-    // ================================================ §UI-16 K7 ([[B245]]) — THE ROSTER GRANT'S **ENTRY**, AND ONLY
-    // ★★★★ **THIS FUNCTION OPENS A DOOR; IT DOES NOT BUILD A ROOM.** Everything past it is the LANDED N5/N6 chain,
-    //      reached verbatim and byte-for-byte: the side-effect-free preflight (`invite_grant_preflight` — the
+    // ================================================ §UI-16 K7 / [[B250]] — THE ROSTER GRANT'S ENTRY + RETURN CONTEXT
+    // ★★★★ The grant decisions, screens, words and send path are the landed N5/N6 chain: the side-effect-free
+    //      preflight (`invite_grant_preflight` — the
     //      GRANT'S OWN BAR, reused), the `NEED PUBKEY` / `REQUEST PUBKEY` / `WAITING FOR PUBKEY` ceremony
     //      (`invite_need_pubkey_gesture`), the REJECT-default confirmation with the full `0x%08lX` hash
     //      (`invite_confirm_gesture`), the ONE forward to `Node::team_key_grant_send` on `Plane::TEAM`
     //      (`run_invite_grant` -> `invite_grant_perform`), the eleven-arm outcome mapping and the `{dst, ctr}`
     //      `send_aired` correlation. ⛔ NO new screen, lexeme, send path, state machine or outcome word is added by
-    //      §K7, and ⛔ nothing in `src/firmware_ui_invite.h` is touched by it at all — which is what makes "the
-    //      invite window is byte-identical" (§K7 pin 3) a DIFF, not an argument.
+    //      §K7, and ⛔ nothing in `src/firmware_ui_invite.h` is touched by it. [[B250]] adds only the explicit
+    //      parent authority and landing: **invite-origin behaviour is byte-identical**, while roster exits return
+    //      to the entered TEAM list instead of pretending they came from an invitation window.
     // ★★★★ **WHY THE TOP-LEVEL SCREEN MOVES, STATED BECAUSE IT IS THE OTHER HALF OF THE PLACEMENT DECISION.** The
     //      chain's four screens are `Provision` arms, and the provisioning sub-view is dispatched in exactly ONE
     //      place — `draw_settings_screen` (`src/firmware_ui.cpp`), i.e. only while `Screen::settings` is up — while
@@ -4952,6 +5021,7 @@ private:
         const uint32_t target = _st.compose_grant_hash;
         if (target == 0) return;
         const uint8_t peer = _st.compose_peer;               // read BEFORE the sub-view is retired
+        _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together
         close_compose();
         // ★ THE SCREEN MOVES FIRST, THEN THE LIST VIEW IS RETIRED THROUGH ITS OWN PRIMITIVES (U1) — the entered
         //   TEAM list may not outlive the screen, and the pick may not survive as something a later press acts on.
@@ -4971,6 +5041,41 @@ private:
         //   enables an airtime-and-secret action ([[B48]]'s class).
         enter_provision(invite_grant_preflight(_invite_dev, target)
                       ? Provision::invite_confirm : Provision::invite_need_pubkey);
+    }
+
+    // ★★★★ [[B250]] — THE ONE CALLER-AWARE LANDING. Copy and consume the complete context before any
+    //      transition primitive can clear it. Invitation-origin resume/cancel returns to its list and terminal ack
+    //      to its menu; roster-origin exits all return to the entered TEAM roster. `none` fails closed to the menu
+    //      with no device call and never guesses a parent from another field.
+    void leave_grant_chain(GrantExit how, const UiSnapshot& s) {
+        const GrantReturn back = _grant_return;
+        clear_grant_return();
+        switch (back.origin) {
+            case GrantOrigin::none:
+                enter_provision(Provision::menu);
+                return;
+            case GrantOrigin::invite_window:
+                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);
+                return;
+            case GrantOrigin::team_roster:
+                return_to_team_roster(back.team_local_id, s);
+                return;
+        }
+    }
+
+    // Re-enter by the saved TEAM-plane identity, never by the stale cursor and never by row zero. The existing B64
+    // authority follows a reordered row or raises TEAMMATE GONE and invalidates the pick when it disappeared.
+    void return_to_team_roster(uint8_t team_local_id, const UiSnapshot& s) {
+        _st.screen = Screen::team;
+        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)
+        _st.list_view = ListView::interactive;
+        _st.compose = Compose::none;
+        _st.cursor = 0;
+        _team_sel_id = team_local_id;
+        _team_sel_valid = true;
+        _st.team_pick_gone = false;
+        _st.dirty = true;
+        sync_team_cursor(s);
     }
 
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
@@ -5272,9 +5377,9 @@ private:
         if (g != Gesture::double_press) return;
         switch (compose_row_kind(_st.cursor, list, grant)) {
             case ComposeRow::back:  close_compose(); return;                                                 // `back`
-            // ★★★★ §UI-16 K7 — THE ACT. It performs NO grant and maps NO outcome: it OPENS the landed N5/N6 chain,
-            //      whose preflight, ceremony, confirmation, one send forward and eleven-arm outcome mapping are
-            //      reached VERBATIM (see `run_roster_grant`). ⛔ Nothing is transmitted by this press.
+            // ★★★★ §UI-16 K7 / [[B250]] — THE ACT. It performs NO grant and maps NO outcome: it opens the
+            //      shared preflight, ceremony, confirmation, one send forward and eleven-arm outcome mapping, while
+            //      binding TEAM as the explicit return parent (see `run_roster_grant`). ⛔ Nothing transmits here.
             case ComposeRow::grant: run_roster_grant(s); return;
             case ComposeRow::text:  break;
         }

@@ -236,6 +236,14 @@ pure headers, which **removes both new warnings** and unlocks the `probe_firmwar
 > plus RadioLib's five native-USB diagnostics. The six live pins are therefore 178 / 178 / 174 / 183 / 183 / 179 for
 > `heltec_v3` / `heltec_mobile` / `gateway_heltec` / `heltec_v4` / `heltec_v4_mobile` /
 > `gateway_heltec_v4`, respectively.
+> ★ **B161 RE-PIN 2026-08-27 — ONE WARNING REMOVED, CONTROLLED A/B:** type-13 canonicalization braced the old
+> one-line hosted-name copy loop in `node_hashlocate.cpp`, removing its real `-Wmisleading-indentation` diagnostic.
+> Clean isolated `gateway_heltec` is **174 → 173**; the line-number-normalized warning multiset diff contains exactly
+> that one removed warning, with **326 objects unchanged** and **zero `-Wswitch`**. The same TU is compiled in all six
+> derived OLED environments, so their live pins move uniformly by −1: **177 / 177 / 173 / 182 / 182 / 178** for
+> `heltec_v3` / `heltec_mobile` / `gateway_heltec` / `heltec_v4` / `heltec_v4_mobile` /
+> `gateway_heltec_v4`. This is a warning removal, not a relaxed ceiling; `tools/warning_census.sh` was updated in the
+> same edit as this B87 record.
 ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
 238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
 **no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).

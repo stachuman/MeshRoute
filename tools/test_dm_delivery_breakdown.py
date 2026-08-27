@@ -1670,7 +1670,7 @@ def corpus_gate():
         check(t["logical_deleg_reattributed_samelayer"] == 4
               and t["logical_deleg_reattributed_xl"] == 10,
               f"★ MATCH COUNTS on the corpus: 4 same-layer + 10 cross-layer re-attributions — the exact "
-              f"count of `deleg_ack_put` (4) and `mobile_delegate_xl` (10) emits in the stream "
+              f"count of `deleg_originated` (4) and `mobile_delegate_xl` (10) emits in the stream "
               f"(got {t['logical_deleg_reattributed_samelayer']} + "
               f"{t['logical_deleg_reattributed_xl']})")
         check(all(t[k] == 0 for k in T.LOGICAL_REFUSAL_KEYS),
@@ -1700,14 +1700,14 @@ def corpus_gate():
 # path, and it is the reason `s27` scored 1 while all 15 of its configured DMs physically arrived.
 # ★ THE FIRMWARE ALREADY NAMES THE LINK (verified at the producers, V1 — an earlier draft of this work claimed
 #   it did not, from `tx_enqueue`'s field list alone, without looking for a sibling emit):
-#     · `deleg_ack_put{mobile_hash, ctr_h, ctr_m}` — `lib/core/node_hashlocate.cpp:1788`, fired at `:2052`/`:1712`
+#     · `deleg_originated{mobile_hash, ctr_h, ctr_m}` — emitted beside the home's outward origination
 #     · `mobile_delegate_xl{home, ctr, dst_hash}`  — `lib/core/node_mac.cpp:813`
 def _deleg_same_events(mobile_slot, mobile_hash_dec, home_slot, home_id, target_id, ctr_m, ctr_h, t_wrap,
                        t_reorig, recipient_slot, payload, lease=254):
     """One SAME-LAYER delegated origination, in the exact shape the firmware emits.
 
     ⚠ THE TWO EMITS AT `t_reorig` SHARE THEIR MILLISECOND ON PURPOSE — they are produced in one call chain with
-    no clock advance between them (verified on `s27`: all four `deleg_ack_put` share their `tx_enqueue`'s exact
+    no clock advance between them (verified on `s27`: all four `deleg_originated` share their `tx_enqueue`'s exact
     timestamp), and that exact match is what tells a delegated re-origination from the home's OWN send at the
     same `ctr`."""
     return [
@@ -1715,7 +1715,7 @@ def _deleg_same_events(mobile_slot, mobile_hash_dec, home_slot, home_id, target_
         emit(mobile_slot, t_wrap, "tx_enqueue", origin=home_id, dst=home_id, ctr=ctr_m),
         # the RE-ORIGINATION, at the HOME, plus the emit that names the delegating mobile
         emit(home_slot, t_reorig, "tx_enqueue", origin=home_id, dst=target_id, ctr=ctr_h),
-        emit(home_slot, t_reorig, "deleg_ack_put", mobile_hash=mobile_hash_dec, ctr_h=ctr_h, ctr_m=ctr_m),
+        emit(home_slot, t_reorig, "deleg_originated", mobile_hash=mobile_hash_dec, ctr_h=ctr_h, ctr_m=ctr_m),
         emit(recipient_slot, t_reorig + 5000, "delivered", origin=home_id, dst=lease, ctr=ctr_h,
              payload=payload)]
 
@@ -1723,7 +1723,7 @@ def _deleg_same_events(mobile_slot, mobile_hash_dec, home_slot, home_id, target_
 def test_18_delegated_origination_is_attributed_to_the_mobile():
     """★★★★ [[B185]] — a delegated DM is credited to the SENDING MOBILE, not to its home; the home's OWN send at
     the same `ctr` is NOT stolen; and the wrapper leg is excluded as transport rather than counted as a DM."""
-    print("\n[18] [[B185]] delegated originations: same-layer via deleg_ack_put")
+    print("\n[18] [[B185]] delegated originations: same-layer via deleg_originated")
     M1H = 0x2716EFCD
     nodes = [_node("H1", 101, "0x44070011", host_mobiles=True),      # slot 0 — M1's home
              _node("H2", 104, "0x44070014", host_mobiles=True),      # slot 1 — M2's home
@@ -1766,14 +1766,14 @@ def test_18_delegated_origination_is_attributed_to_the_mobile():
 
         # ★★ MUTATION CONTROL 1 — the emit removed. This is the pre-[[B185]] state exactly: the delivery is
         #    attributed to the HOME, so a false home-origin row appears and the mobile's pair reads 0.
-        ev_no = [e for e in ev if e.get("emit_type") != "deleg_ack_put"]
+        ev_no = [e for e in ev if e.get("emit_type") != "deleg_originated"]
         p_no = write_stream(ev_no)
         try:
             g = {f"{r['origin']} -> {r['dst']}": (r["sent"], r["arrived"])
                  for r in _dm_json(cfg_path, p_no)["summary"]}
             tn = _dm_json(cfg_path, p_no)["totals"]
             check(g.get("M1(0) -> M2(0)") == (1, 0) and tn["logical_deleg_reattributed_samelayer"] == 0,
-                  f"★★ CONTROL: without `deleg_ack_put` the mobile's pair reads "
+                  f"★★ CONTROL: without `deleg_originated` the mobile's pair reads "
                   f"{g.get('M1(0) -> M2(0)')} — RED, the pre-[[B185]] defect reproduced")
         finally:
             os.unlink(p_no)
@@ -1935,6 +1935,76 @@ def test_20_the_corpus_gate_refuses_rather_than_skips():
 
 
 # ==================================================================================================
+def test_21_b251_mobile_and_home_counter_namespaces_do_not_alias():
+    """B251: an older home ctrH may equal the next mobile ctrM without stealing that next send.
+
+    This pins the exact s22 shape: ctrM=1 translates to ctrH=2, then the same mobile legitimately
+    originates ctrM=2 and the home translates it to ctrH=3. Both original records and both outward
+    deliveries must survive. A key-only join on (home,dst,counter) reports only one of the two.
+    """
+    print("\n[21] [[B251]] mobile ctrM and home ctrH remain separate identity namespaces")
+    mobile_hash = 0x11112220
+    nodes = [_node("H", 17, "0x17001700", host_mobiles=True),
+             _node("D", 30, "0x30003000"),
+             _node("M", 0, "0x11112220", is_mobile=True)]
+    cmds = [{"at_ms": 10000, "node": "M", "command": "send_e2e 30 first"},
+            {"at_ms": 20000, "node": "M", "command": "send_e2e 30 second"}]
+    ev = _adopt(2, 0, 17, mobile_hash, lease=254, t=1000)
+
+    def translated_send(t, ctr_m, ctr_h, payload):
+        accepted = t + 900
+        return [emit(2, t, "tx_enqueue", origin=17, dst=30, ctr=ctr_m),
+                emit(0, accepted, "data_rx", origin=17, dst=30, ctr=ctr_m, ctr_lo=ctr_m,
+                     **{"from": 254}),
+                emit(0, accepted, "mobile_ctr_translated", mobile_hash=mobile_hash, dst=30,
+                     ctr_m=ctr_m, ctr_h=ctr_h),
+                emit(2, accepted + 100, "ack_rx", origin=17, dst=30, ctr=ctr_m,
+                     **{"from": 17}),
+                emit(1, t + 2400, "data_rx", origin=17, dst=30, ctr=ctr_h, ctr_lo=ctr_h,
+                     **{"from": 17}),
+                emit(1, t + 2500, "delivered", origin=17, dst=30, ctr=ctr_h,
+                     payload=payload)]
+
+    # Load-bearing overlap: the first outward ctrH is the second send's ctrM.
+    ev += translated_send(10000, ctr_m=1, ctr_h=2, payload="first")
+    ev += translated_send(20000, ctr_m=2, ctr_h=3, payload="second")
+    cfg_path, ev_path = _mk_cfg(nodes, cmds), write_stream(ev)
+    try:
+        p = _dm_json(cfg_path, ev_path)
+        row = _row(p, "M(0) -> D(30)")
+        check(row is not None and (row["sent"], row["arrived"]) == (2, 2),
+              f"both sends survive ctrH/next-ctrM overlap: M -> D = "
+              f"{None if row is None else (row['sent'], row['arrived'])} (expected 2/2)")
+        t = p["totals"]
+        check(t["logical_mobile_ctr_correlated"] == 2,
+              f"both outward deliveries use explicit translation evidence "
+              f"(got {t['logical_mobile_ctr_correlated']}, expected 2)")
+        check(t["logical_mobile_ctr_refused_ambiguous"] == 0
+              and t["logical_mobile_ctr_unmatched"] == 0,
+              f"the determinate fixture has no B251 refusal/unmatched evidence "
+              f"(ambiguous={t['logical_mobile_ctr_refused_ambiguous']}, "
+              f"unmatched={t['logical_mobile_ctr_unmatched']})")
+
+        # CONTROL: without the firmware's translation evidence both outward deliveries occur before a
+        # matching original wire record can claim them, so the pair remains 0/2 rather than 2/2.
+        no_translation = [e for e in ev if e.get("emit_type") != "mobile_ctr_translated"]
+        control_path = write_stream(no_translation)
+        try:
+            pc = _dm_json(cfg_path, control_path)
+            rc = _row(pc, "M(0) -> D(30)")
+            check(rc is not None and (rc["sent"], rc["arrived"]) == (2, 0)
+                  and pc["totals"]["logical_mobile_ctr_correlated"] == 0,
+                  f"★★ CONTROL: deleting translation evidence turns RED at "
+                  f"{None if rc is None else (rc['sent'], rc['arrived'])}, correlated="
+                  f"{pc['totals']['logical_mobile_ctr_correlated']} (expected 2/0 and 0)")
+        finally:
+            os.unlink(control_path)
+    finally:
+        os.unlink(cfg_path)
+        os.unlink(ev_path)
+
+
+# ==================================================================================================
 def run_suite(name, fns):
     """Run a group of cases and record ITS OWN counts. ★ The two suites are never merged into one total:
     that merging is exactly how "185 checks, 0 failed" could have meant "2 checks ran"."""
@@ -1965,6 +2035,7 @@ SYNTHETIC_CASES = (
     test_18_delegated_origination_is_attributed_to_the_mobile,
     test_19_delegated_xl_and_its_refusal,
     test_20_the_corpus_gate_refuses_rather_than_skips,
+    test_21_b251_mobile_and_home_counter_namespaces_do_not_alias,
 )
 CORPUS_CASES = (corpus_gate,)
 

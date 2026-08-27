@@ -5883,9 +5883,11 @@ int main() {
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
                         CHK("P24k7c ★★★★ THE CORRELATED EDGE PROMOTES IT TO KEY SENT — [[B245]] closed on the panel",
                             body_row_is(0, mrui::kInviteKeySent) && body_row_is(1, fullA));
+                        const int before_ack = grant_seam().calls;
                         t17 = see(double_press(t17 + 500));
-                        CHK("P24k7c the verdict is terminal, exactly as N6's is",
-                            body_row_is(0, ">CREATE TEAM") && grant_seam().calls == gc0 + 1);
+                        CHK("P24k7c B250 result -> entered TEAM, no second call",
+                            rail_boxed_slot() == kSlotTeam && body_row(0) != nullptr && body_row(0)[0] == '>' &&
+                            grant_seam().calls == before_ack && before_ack == gc0 + 1);
                     }
 
                     // ---- (d) THE CEREMONY ARM: a member with NO cached pubkey reaches N5's screens, unchanged ---
@@ -5904,7 +5906,8 @@ int main() {
                         char fullC[mrui::kMemberHashCap];
                         mrui::ui_fmt_member_hash_full(fullC, sizeof fullC, hashC);
                         const int gc1 = grant_seam().calls;
-                        t17 = open_highlighted(t17 + 500, ">BACK");     // leave PROVISION -> the SETTINGS menu
+                        // [[B250]] P24k7c left the roster ENTERED. `enter_list` first closes that list through the
+                        // shared list-leave helper, then re-enters it against this replacement member.
                         t17 = enter_list(t17 + 500, kSlotTeam);
                         seat(150, hashC, nullptr);                      // refreshed — see the note at the fixture
                         dirty_the_model(t17 + 100); t17 = see(t17 + 200);
@@ -5931,10 +5934,11 @@ int main() {
                             strstr(g_c.page_text, "WAITING FOR KEY") == nullptr);
                         CHK("P24k7d ⛔ ...and no key was granted anywhere along the way",
                             grant_seam().calls == gc1);
-                        t17 = see(double_press(t17 + 500));             // either press returns to the window list
-                        t17 = walk_to(t17 + 500, ">BACK");
-                        t17 = see(double_press(t17 + 500));
-                        CHK("P24k7d the ceremony's way out lands on the PROVISION menu", body_row_is(0, ">CREATE TEAM"));
+                        const int before_wait_exit = grant_seam().calls;
+                        t17 = see(double_press(t17 + 500));             // either press returns to the roster parent
+                        CHK("P24k7d B250 wait exit -> entered TEAM, no grant",
+                            rail_boxed_slot() == kSlotTeam && body_row(0) != nullptr && body_row(0)[0] == '>' &&
+                            grant_seam().calls == before_wait_exit);
                     }
 
                     // ---- (f) THE **SELF** ROW OFFERS NOTHING, at the identity the CORE refuses on -------------
