@@ -3,8 +3,9 @@
 **Status:** ✅ **CLOSED / COMBINED B251–B161 QG PASS — FINAL BOOKKEEPING COMPLETED 2026-08-27.** The approved
 canonical wrapping is implemented and mutation-covered. The required 36-row gate exposed the hosted-mobile/home
 counter collision recorded historically in §11; B251 corrected that boundary, restored all 36 scenarios and has now
-passed independent QG. B112 remains a separate, non-blocking first-hop-ACK issue. B157 and B153 are now ready for
-explicit re-evaluation; neither closes by implication.
+passed independent QG. B112 remains a separate, non-blocking first-hop-ACK issue. The subsequent final current-tree
+audit has **closed B157**, and the owner's one-time acceptance of the B182 **757/1,041** result closes B153. That
+acceptance is not a permanent absolute delivery floor.
 
 **Owner ruling:** normalize DATA types **1, 2, 8 and 13** onto the existing standard plaintext-unicast inner envelope by adding its one-byte canonical `origin`; keep type 5 unchanged; do not change RTS or CTS lengths; do not add a legacy/raw compatibility parser. After this correction, re-run the hybrid-RTS safety and system gates before closing B157 and B153.
 
@@ -519,7 +520,8 @@ This was not fixed by restoring the raw typed-answer origin, comparing only a co
 `payload_len` as though a length were unique identity. B251 therefore introduced the reviewed home-counter boundary
 that distinguishes logical originators which legitimately share the same routed origin and independent counters. Its
 corrected gate is now green and independent QG has passed, so this implementation hold is lifted and B251 is closed.
-B161's final closure bookkeeping is complete. B157 and B153 remain open and are ready for explicit re-evaluation.
+B161's final closure bookkeeping is complete. The subsequent parent-design audit closes B157; the owner's one-time
+acceptance of **757/1,041** then closes B153 without establishing a permanent floor.
 B112's broader first-hop-ACK contract remains separately open and does not block B251.
 
 <!-- Author: OpenAI Codex -->

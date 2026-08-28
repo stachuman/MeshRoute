@@ -1,5 +1,20 @@
 # MeshRoute durable decisions
 
+- **Deterministic board measurement (B138 closed; B206 corrected S2 awaiting QG, 2026-08-28):** build identity has one device-TU authority. Actionable
+  RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
+  `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms
+  per measured ABI; ordinary `.pio/` must remain untouched. The lock does not cover source-mutating batteries, which
+  remain operationally exclusive. Manifests must bind CC, CXX and LINK independently and an external literal test
+  inventory must redden every omitted comparison. A normal `pio run` size line is informational; B246 board-ABI
+  struct visibility and B253 untracked-source provenance remain separate.
+- **Hybrid RTS closure authority (B157/B153, 2026-08-27):** B157 is closed on complete flight identity plus the
+  restored exact implicit-forward credit. B163 has no separate implementation: B182 supersedes its time-windowed
+  alias proposal with configured-logical identity plus separate wire correlation and fail-loud ambiguity. The old
+  732/733 absolute delivery floor was frozen before B182 and is not a current gate. The owner accepts 757/1041 once
+  to close B153; this is not a permanent floor. Current comparison baseline: raw 760; s06 110/148, s07 84/207, s22
+  8/8, s27 15/15; residue census `1/11/44/3`; the 44 unresolved logical destinations are B252 measurement debt.
+  Future movement in delivery, decisive rows, airtime, duplicates or residue needs explicit attribution. See
+  `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md`.
 - **Hosted-mobile counter boundary (B251, 2026-08-27; closed, independent QG passed):** a qualifying plaintext
   static/global transit keeps the mobile counter on the mobile-home hop and forwards once under a newly allocated home
   counter. Direct by-id transit admits the outward queue and any correlation before its hop ACK. Hash-wrapper transit

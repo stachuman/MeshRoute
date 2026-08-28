@@ -23,7 +23,7 @@
                                        //   records — PURE; this file only binds the store, the gate and a Print
 
 #ifndef GIT_REV
-#define GIT_REV "nogit"        // fallback only (mirrors fw_main.cpp) — print_banner reads it
+#define GIT_REV "nogit"        // fallback for an env which does not run tools/git_rev.py
 // ⛔ CORRECTED (§B213, 2026-08-18): this comment said `git_rev.py` injects -DGIT_REV "on the nRF52 base env only", and
 //   that the fallback is what "keeps the ESP32 envs compiling". BOTH became false and the second was misleading — it
 //   read as though ESP32 images were MEANT to report `nogit`. The script now runs on ALL THREE base envs:
@@ -32,6 +32,12 @@
 #endif
 
 namespace mrfw {
+
+// §B138: ONE device-image authority for both the USB banner and BLE `version`. Keeping the literal in this
+// universal TU prevents separately compiled callers from acquiring different compile-time clock values and defeating
+// linker string merging. These arrays have external read-only linkage through firmware_commands.h.
+const char kBuildStamp[]  = __DATE__ " " __TIME__;
+const char kGitRevision[] = GIT_REV;
 
 // ---- the /mrpeers address book: the I/O half (§AB1, spec 2026-07-29 §2.4) --------------------------------------
 // ★ ONE 1160-B SCRATCH RECORD, STATIC, SHARED BY BOTH USERS BELOW — and `static` here is a HARD requirement, not
@@ -503,7 +509,7 @@ const char* board_name() {
 // from the old boot prints so setup() and the `version` command share one source. (spec 2026-06-24 §6)
 void print_banner(Print& out) {
     char buf[160];
-    mrfault::format_version_banner(buf, sizeof buf, __DATE__ " " __TIME__, GIT_REV, board_name());
+    mrfault::format_version_banner(buf, sizeof buf, kBuildStamp, kGitRevision, board_name());
     out.println(buf);
     mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, buf, sizeof buf);
     out.println(buf);

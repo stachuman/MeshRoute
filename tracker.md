@@ -36,8 +36,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 -  reviewed and ready - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
-  canonical typed-answer origin passed combined QG and are closed. Re-evaluate B157/B153 next. B112 remains separately
-  open and does not block B251. Fix B166 NAV under-reservation later;
+  canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
+  owner's one-time acceptance of B182's 757/1041 closes B153 without establishing a permanent floor. B163 is
+  superseded, not a live dependency; B252 retains the 44 unresolved-destination measurement debt. B112 remains
+  separately open and does not block B251. Fix B166 NAV under-reservation later;
   treat B158 as a separate MeshRoute-native jitter redesign.
 
 - 2026-08-05-channel-app-code-draft.md — design-only and unimplemented. Refresh against the new DATA-type namespace
@@ -58,15 +60,17 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   Bookkeeping closure — close B209, B207, B196, B164 and B193 from their existing
   QG/metal evidence; no further implementation expected.
 
-  B206 → B138 → B205 — restore trustworthy build/measurement gates before the next
-  large core and wire transition.
+  `2026-08-27-b206-b138-deterministic-board-measurement-design.md` — S1 passed and B138
+  is closed. Corrected S2 records CC/CXX/LINK independently, rejects all 61 individually
+  mutated qualification fields, and repeats exactly on both approved ABI pairs. B206
+  awaits QG recheck. B253, B205 and B246 remain separate.
 
   B20/B21 → B159 → B35 — resolve silent-loss, duplicate-delivery and plane-correctness
   defects. B159 is a prerequisite for the custody design unless that design adds its
   own explicit idempotence mechanism.
 
-  Re-evaluate B157 → re-evaluate B153 — B251/B161 are closed; finish the hybrid-RTS disposition before changing the
-  DATA namespace and terminal-custody paths.
+  B252 measurement debt — later classify the 44 unresolved logical destinations under B182 authority; preserve the
+  `1/11/44/3` fail-loud baseline and do not fold this non-blocking work into a routing/protocol change.
 
   2026-08-23-internal-data-and-custody-outcome-design.md — next major arc. Finalize
   the review, settle B159 and B134 dependencies, unpark B59, then implement slices A–H

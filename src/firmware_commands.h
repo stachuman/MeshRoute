@@ -65,6 +65,8 @@ uint16_t      peer_store_restore();                  // setup(): re-install the 
 // §3 exports reached by the STAYING fw_main callers (setup / service_console / ble_dispatch_line / mesh_service_once):
 bool dispatch(const char* line, size_t len, Print& out);            // the console verb-router
 void print_banner(Print& out);                                      // setup() + `version`
+extern const char kBuildStamp[];                                    // one device-image build timestamp authority
+extern const char kGitRevision[];                                   // one device-image Git-revision authority
 void print_rf_diagnostics(Print& out);                              // setup() + USB `status`; no structured/BLE contract
 void print_identity(const mrnv::IdBlob& idb);                       // setup()
 void print_sf_list(Print& out, uint16_t bitmap);                    // §B95: takes its sink — setup() + mesh_service_once() pass mrcon, dump_cfg passes `out`

@@ -97,10 +97,6 @@ using mrfw::handle_lock;
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifndef GIT_REV
-#define GIT_REV "nogit"      // tools/git_rev.py injects -DGIT_REV at build; this fallback keeps every env compiling
-#endif
-
 // Persistent fault log (spec 2026-06-24). The boot-capture loads/records/persists into g_fault_log on BOTH HW platforms
 // (MRFAULT_HW = nRF52 [.noinit + WDT + HardFault] OR ESP32 [RTC scratch + esp_task_wdt + esp_reset_reason]). On a
 // native/unknown build the calls are #if MRFAULT_HW-guarded out (and fw_main isn't compiled there anyway).
@@ -440,7 +436,8 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 7 && !strncmp(line, "version", 7)) {         // build/git/board + last reset — on demand, no reset
         return (size_t)snprintf(out, cap,
             "{\"ev\":\"version\",\"fw\":\"v0.1\",\"built\":\"%s\",\"git\":\"%s\",\"board\":\"%s\",\"reset\":\"%s\"}\n",
-            __DATE__ " " __TIME__, GIT_REV, board_name(), g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
+            mrfw::kBuildStamp, mrfw::kGitRevision, board_name(),
+            g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
     }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) {  // clear routes+inbox, keep join, go dormant (companion/harness can issue it)
         handle_prep_restart(mrcon);

@@ -622,6 +622,29 @@ to the UI-14 device binding and [[B193]]. §UI-13 proves the logic against a cou
 or LittleFS write, no wear, no reset-during-write. **A green suite says the logic is right, never that the storage
 is.**
 
+### 1.23 [[B153]] — accept `757/1041` once and close; do not create a permanent floor · ✅ **OWNER-RULED 2026-08-27**
+
+★★★ **THE RULING, IN REPORTED FORM (the owner's exact message is held, but no quotation is needed). The owner ruled:**
+1. **Accept the current post-B182 result `757/1041` as satisfying B153, and close B153 after B157.**
+2. This is a **one-time closure acceptance**, ⛔ **not a permanent absolute delivery floor**. The historical
+   `≥732`/`≥733` figures remain non-authoritative.
+3. Every future comparison must use **B182 authority**. A change in overall delivery, the decisive
+   `s06`/`s07`/`s22`/`s27` rows, DM or all-frame airtime, duplicate delivery, or fail-loud residue census requires
+   explicit causal attribution rather than automatic re-anchoring.
+4. Record the ordered residue census **`1/11/44/3`** as the current observation baseline: one legacy wire-alias
+   conflict / 11 ambiguous logical destinations / 44 unresolved logical destinations / three shared wire keys.
+5. Register the **44 unresolved logical destinations** as separate, non-blocking measurement debt for later
+   classification ([[B252]]). That debt does not reopen B153 and authorises no routing or protocol change.
+
+★★ **THE ACCEPTED COMPARISON VECTOR:** B182 unique configured deliveries **757/1041**, raw cross-check **760**;
+`s06` **110/148**, `s07` **84/207**, `s22` **8/8**, `s27` **15/15**; DM airtime **5,827,745 ms / 23,593 frames**;
+all-frame airtime **16,332,103 ms / 71,917 frames**; duplicate deliveries **1** under the historical key and **0**
+when payload identity is included; residue **`1/11/44/3`**. These are comparison observations, not automatic anchors.
+
+ⓘ **Supersedes §1.18's pending state, not its history.** §1.18 correctly froze the old floor until B182 landed. B182
+has now landed, the current tree was re-measured, and this ruling disposes B153 without reviving the old floor or
+inventing a new permanent one.
+
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
 
@@ -635,7 +658,7 @@ is.**
 | **B116** | **PARKED** — see §1.7 | Gap is real; the replacement design is the owner's. |
 | **Task 8** | ✅ **BENCH-READY 2026-08-06 — awaiting the owner's run; no firmware owed.** ⛔ **This row used to read *"next"*; corrected in place (§3 rule 3).** Task 8 turned out to have **no implementation component left**: its Step-1 render landed with Tasks 1–7 and the §B115/§B117 slices (all eight arms verified in `src/firmware_ui.cpp`'s `draw_emergency`), so **Task 8 IS its bench matrix**. All **nine** owner validation cases now have an entry with exact panel/console text and explicit failure shapes — three script entries and one guide entry were newly written ([[B122]]). ⚠ Its `⛔ Gated on B38/B39/B40` banner was **stale and said Task 8 was blocked**; fact-only corrected ([[B121]]). | Run bench guide **H8-01…H8-10**; script **8.4 / 8.10 / 8.15 / 8.18 / 8.23–8.27** is the acceptance residue. ⚠ Every `REPLY` line is marked **PROVISIONAL** — the firmware *infers* a reply from any live-alarm same-team channel post, and **B118** (unbuilt, authentication floor **unruled**) is what replaces the inference. |
 | **§MH-S5b's delivery cost** — [[B178]] | ✅ **RULED AND LANDED 2026-08-11 (§1.15 + §MH-S5b-ii): option (ii). ⛔ This row previously read *"owner decision OWED … no approval of any figure or option is claimed"*; corrected in place (§3 rule 3), and the description below is kept as the record of what was priced.** Trigger 1 is **DEFERRED**; trigger 2 + items 2 and 3 landed at **737 / `s06` 110 / `s07` 83**, `s27` green, `lus` `1c0c63cb`. ⚠ **What is STILL OPEN is the REFINED trigger 1, sequenced AFTER [[B177]]** — and the interim limitation (a weak but consistently responding home is never canvassed) is **recorded, not repaired**. ⓘ **Two NEW measurements from the landing, recorded not acted on:** dropping **item 2** would score **739 with all 36 rows green** (⛔ refused — it is a correctness term the ruling preserves, and it would void the §0 hazard control), and **item 3 is NO LONGER byte-inert** (it moves `s27`), so §MH-S5b's *"footprint is zero"* was a property of that arm, not of item 3. ⓘ Historical description follows. (was: **NEW 2026-08-11, owner decision OWED. ⛔ No approval of any figure or option is claimed.** §8.3's trigger 1 (a searching probe when the home's reported quality is weak or critical — a trigger the spec itself permits) is measured to cost **6 unique deliveries, all inside `s07`**: 734 → **728** overall, `s06` **110** unchanged, total PHY airtime **−0.51 %**. Per-item in-tree A/B attributes the whole −6 to that trigger: trigger 2 alone measures **737** (above the anchor), item 2 alone **734**, and item 3 is **byte-inert on all 36 rows in both contexts tested**. ⚠ **The arm that scores highest (739) is INADMISSIBLE** — it disables trigger 1 while keeping the verified-echo requirement, and `s27` then returns **3 scenario assertion failures** because M5's re-home never happens. ⇒ five corpus rows moved and are attributed; **the `^### 36/36 corpus` table was NOT edited.**) ⓘ **END of the historical description.** | ✅ **Option (ii) TAKEN and landed.** ⛔ The *"a candidate is audible"* narrowing was **refused as too broad**; the refined form and its acceptance criteria live in [[B178]], **after [[B177]]**. ⚠ `≥733` is met but was already conditional on [[B163]]. |
-| **The `≥733` delivery floor** — [[B179]] | ⛔⛔ **NEW 2026-08-11, owner decision OWED. ⛔ No approval of 732 is claimed.** §B177-FIX implements ruling §1.16 in full and delivery lands at **732 / `s06` 110 / `s07` 78** (raw 757, `lus` `316b9cb1`) — **below `≥733`**, which was already conditional on [[B163]]. In-tree A/B attributes the whole −5 and the single moved corpus row (`s07`, `e73be070`/107963 → `b3b7ce31`/107989) to the **beacon removal**; the selected-arm half is **byte-identical to the pre-slice tree on all 36 streams** and delivery-neutral. ⛔ **The beacon touch was NOT restored to recover the 5 — the brief named that an owner decision.** ★ What the loss is *not*: hosted-mobile service — **zero DM deliveries reach a mobile in `s07` in EITHER arm** — it is **15 changed static↔static pair rows netting −5** after the presence plane quiets (`presence_roster_tx` 185→148) and DM airtime rises (667 393→670 107 ms). ⓘ My churn-loop hypothesis was **refuted at the stream** (`presence_epoch_mismatch` = 0 in both arms). | Three options priced in [[B179]], ⛔ **none taken and none recommended**: accept-and-re-anchor · treat the 5 as a `s07` artefact pending [[B163]] · recover it *without* a hash-only registry refresh (undesigned, unmeasured, a new slice). |
+| **The historical `≥733` delivery floor** — [[B179]] | ✅ **RESOLVED BY §1.17, THEN FROZEN BY §1.18; §1.23 NOW GOVERNS B153 CLOSURE.** Historical pre-ruling evidence: §B177-FIX landed at **732 / `s06` 110 / `s07` 78** (raw 757, `lus` `316b9cb1`), with the −5 and the sole moved row attributed to beacon-authority removal; the selected-arm half was 36/36 byte-identical and delivery-neutral. The beacon touch was not restored. | The owner took option (i) in §1.17, then froze that floor as non-authoritative in §1.18. §1.23 accepts the B182 `757/1041` result once for B153 closure and creates no permanent floor. |
 | Docs debt | — | The B64 ruling is not yet recorded in spec §5 (§R1/§R2 set that precedent); **`docs/2026-08-04-oled-handover.md` has three stacked `STATUS` headers — the newest is authoritative.** |
 
 ---

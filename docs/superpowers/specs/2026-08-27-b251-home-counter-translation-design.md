@@ -1,7 +1,10 @@
 # B251 — Home counter translation for hosted-mobile plaintext transit
 
-**Status:** ✅ CLOSED / INDEPENDENT QG PASS / UNCOMMITTED (2026-08-27)  
-**Closure effect:** B161 is closed; B157/B153 are ready for explicit re-evaluation. B112 remains separate.  
+**Status:** ✅ CLOSED / INDEPENDENT QG PASS (2026-08-27)
+
+**Closure effect:** B161, B157 and B153 are closed. B153 closes on the owner's one-time acceptance of the B182
+`757/1041` result, not on a permanent absolute floor. B112 remains separate.
+
 **Scope:** one corrective core slice. No RTS/CTS/DATA layout change.
 
 ## 1. Problem and invariant
@@ -214,5 +217,5 @@ Measured coder gate:
 - corpus anchor table untouched.
 
 Independent QG passed and B251 is closed. The named two-real-mobile metal residue remains scheduled but does not block
-this disposition. B161's final closure bookkeeping is complete; B157/B153 are ready for re-evaluation. No commit was
-made.
+this disposition. B161's final closure bookkeeping is complete; the later final audit closes B157, and the owner's
+one-time B182 acceptance closes B153. No commit was made for this slice when this historical result was recorded.

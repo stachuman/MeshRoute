@@ -1,6 +1,10 @@
 # Hybrid RTS flight identity — design specification · 2026-08-08
 
-**Status: FULLY OWNER-RULED — the 10/11-B RTS core AND §2.3's terminal-CTS amendment.** ✅ **§2.3 was CONFIRMED by the owner 2026-08-09**, verbatim in `docs/2026-08-05-owner-rulings-ledger.md` **§1.10**; ⛔ the former status line (*"QA SAFETY AMENDMENT AWAITING OWNER CONFIRMATION"*) is WITHDRAWN. ⚠ The ruling's second half is easy to lose: **a mismatch MAY be billed as physical airtime but must change nothing else** — no liveness, timer, routing, pending-state or app-facing effect.
+**Status: IMPLEMENTED / B157 CLOSED / B153 CLOSED BY ONE-TIME OWNER ACCEPTANCE.** The 10/11-B RTS core and §2.3's
+terminal-CTS amendment are fully owner-ruled. ✅ **§2.3 was CONFIRMED by the owner 2026-08-09**, verbatim in
+`docs/2026-08-05-owner-rulings-ledger.md` **§1.10**; ⛔ the former status line (*"QA SAFETY AMENDMENT AWAITING OWNER
+CONFIRMATION"*) is WITHDRAWN. ⚠ The ruling's second half is easy to lose: **a mismatch MAY be billed as physical
+airtime but must change nothing else** — no liveness, timer, routing, pending-state or app-facing effect.
 ⛔ **The sentence that stood here — *"Coding must not start until the owner accepts or replaces §2.3 conditional
 terminal-CTS correlation"* — is WITHDRAWN as of 2026-08-09: that acceptance ARRIVED** (ledger §1.10, verbatim), so
 the sentence contradicted the status line directly above it. ✅ **Coding is unblocked and S1/S2/S2b/S2c/S2d have
@@ -8,12 +12,13 @@ landed.** This
 supersedes the no-growth conclusion recorded by B153/B157. It does not erase that investigation: the deletion was locally safe, but its
 system-level interaction cost was measured later and changed the decision.
 
-⛔ **2026-08-27 B251 SUPERSESSION / CLOSURE HOLD:** B161's approved canonical typed-answer implementation exposed a
-second identity alias in the required corpus. A type-8 answer from home 17 and a later hosted-mobile DM forwarded by
-that same home can both present `(from=17, dst=30, GLOBAL, origin=17, ctr=1)` to the completed-flight cache, despite
-being different flights. The receiver returned a false terminal CTS and discarded the DM (`s22`, 8 → 7 unique
-deliveries, one assertion failure). See the B161 spec §11. Therefore B161, B157 and B153 remain open; do not cite the
-old cumulative gate as proving universal identity safety.
+✅ **2026-08-27 B251 HOLD LIFTED / FINAL CLOSURE AUDIT:** the collision exposed by B161 is retained as historical
+evidence in the B161 and B251 specifications, but it is no longer a live hold. B251 makes the home a counter boundary
+for qualifying hosted-mobile plaintext transit; B161 and B251 are closed after independent QG, and the regenerated
+corpus restores `s22` to **8/8** deliveries with zero assertions. The final audit below closes **B157** after proving
+the exact implicit-forward identity end to end. The owner subsequently accepted the B182 result **757/1,041** as a
+**one-time B153 closure disposition**, not as a permanent absolute floor. The retired `≥732`/`≥733` figures remain
+non-authoritative and must not be adopted by implication.
 
 **Scope:** unicast DATA/DM RTS identity and the two optimisations that consume it. This is a protocol/MAC change,
 not a routing-policy tuning slice and not the B159 long-horizon DATA dedup fix.
@@ -418,32 +423,80 @@ full-width comparison is removed.
 
 ### System gate
 
-The final comparison must report, not merely re-anchor. Its acceptance floor is deliberately conjunctive and no
-⛔⛔ **CORRECTED 2026-08-09 BY [[B162]] — `732` IS RETIRED AND UNREPRODUCIBLE; THE FLOOR IS `≥733` OVERALL AND `≥104` IN `s06`** (the `s06` half was already right). The published per-row column was wrong on **10 of 36 rows, in both directions, from −4 to +9** — ⛔ NOT a constant offset, so nothing here may be patched by adding a difference. Authoritative ladder, one tool revision, one run set: **BASE 733 · DELETE 707 · S1 690 · S2 724 · CURRENT 719**. See `simulation/BASELINE.md` §B162.
+The final comparison must report, not merely re-anchor. This gate has three metric eras which must not be mixed:
 
-existing comparison arm satisfies it: BASE supplies **733/104** deliveries but leaves `s27` red; DELETE makes
-`s27` green but supplies only **707/85**. HYBRID must beat both relevant halves rather than choosing one as its
-baseline:
+- B162 retired the original `732` as unreproducible and measured the historical one-tool ladder
+  **BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · S4 734**, with `s06` BASE 104 / S4 110;
+- the owner later selected **`≥732` overall / `≥104` in `s06` provisionally**, then explicitly froze that absolute
+  floor pending B182 because the tool conflated configured logical identity with leased wire identity;
+- B182 now supplies the two-layer authority and must be rerun on the current streams. It expressly did **not** select
+  a replacement floor. Therefore neither historical number is a current pass/fail threshold.
+
+**B163 is superseded, not pending.** Its proposed time-windowed leased-id alias map is replaced by B182's explicit
+configured-send identity plus separate wire-correlation authority, with ambiguous evidence refused and reported
+rather than guessed. No separate B163 implementation or dependency remains. That disposition repairs the metric;
+it does not authorise an acceptance floor.
+
+The current gate therefore requires:
 
 - all 36 scenarios and assertion failures;
-- ⚠⚠ **`≥733` IS A CONDITIONAL FLOOR: [[B163]] IS OPEN** (§B162 (12), re-confirmed by §B162 (17)-(20)). Two mobiles in
-  `s07_seattle_mobile_meshroute` genuinely wear the same **leased** wire id at different times, so the alias refusal is
-  **correct** and **`s07`'s figure may be short on every arm by an amount that is not derivable** without a
-  time-windowed alias map. ⇒ **the total's uncertainty is one-sided and concentrated in one row**: report `s07`
-  separately, and treat neither a pass nor a near-miss at `733` as settled until B163 is resolved. ⛔ Do not resolve it
-  by picking one of its readings.
-- unique deliveries overall and for `s06`, with target **at least 733 overall and 104 in `s06`** — measured by
-  `dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`, which is THE authority; the raw
-  `delivered` event count is a CROSS-CHECK and is never the figure of record — unless the owner
-  explicitly accepts a diagnosed delta;
+- B182-authoritative unique deliveries overall and for `s06` and `s07`, with every refused/ambiguous residue printed;
+  the raw `delivered` event count remains a cross-check, never the figure of record;
 - `s27` at zero failures with both previously lost messages delivered;
 - DM and all-frame airtime against both pre-B153 base and the current no-growth implementation;
 - collision census by plaintext/encrypted domain;
 - duplicate application deliveries (must not worsen the pre-B153 count; B159 remains a separate fix);
-- native, s18, every board environment, warning census, flash/RAM, `sizeof(Node)`, and layout/reorder checks.
+- native, s18, the current owner-approved board gate, warning census, flash/RAM, `sizeof(Node)`, and layout/reorder
+  checks;
+- an explicit owner disposition of the post-B182 delivery result before B153 closes.
+
+That final condition is now met by owner ruling §1.23: **757/1,041 is accepted for this B153 closure only.** It does
+not create a reusable numerical floor.
 
 The s18 hash and stream anchors are expected to move. Record exact before/after values and causally attribute each
 slice; never normalize a failed assertion into a new baseline.
+
+### 2026-08-27 final B157 → B153 closure audit
+
+The audit ran on the current B251/B161 tree without production edits. Native is **2,240 cases / 96,469 assertions /
+0 failures**; the focused hybrid set is **47 / 10,768 / 0**; the B161 and B251 mutation batteries are respectively
+**15 RED / 0 unusable** and **13 RED / 0 unusable**. The regenerated corpus is **36/36 with zero assertion failures**;
+`s18` is exact at **`9868cad3` / 269,905 / 0**, `s22` is **8/8**, and `s27` is **15/15**. The delivery analyzer's
+synthetic/corpus controls are **194/194**.
+
+The current B182 authority reports **757 / 1,041** unique configured deliveries; raw delivered events are **760**.
+The decisive rows are `s06` **110/148**, `s07` **84/207**, `s22` **8/8**, and `s27` **15/15**. It reports zero
+unresolved configured sends and zero malformed records. Its fail-loud residues are one legacy wire-alias conflict,
+11 ambiguous logical destinations, 44 unresolved logical destinations, and three shared wire keys; none is silently
+assigned. Positive controls bind **757** deliveries from configured logical identity, **166** from direct wire
+identity, ten last-mile and ten hosted-mobile-counter correlations, four same-layer plus ten cross-layer delegated
+correlations, and exclude five transport wrappers. The ordered residue census **`1/11/44/3`** is the current
+observation baseline. The 44 unresolved logical destinations are registered separately as non-blocking measurement
+debt [[B252]] for later classification.
+
+Hybrid physical safety also remains demonstrated. Current DM airtime is **5,827,745 ms / 23,593 frames** and
+all-frame airtime is **16,332,103 ms / 71,917 frames**: respectively **55,941 ms (0.951%)** and **44,074 ms
+(0.269%)** below historical BASE, and **593,752 ms (9.247%)** and **731,494 ms (4.287%)** below DELETE. The wire census
+is RTS `{9:279, 10:7885, 11:2, 43:572}` and CTS `{4:4672, 6:155}`, with no retired 7-byte unicast RTS. The old tuple
+still aliases **176** times across **3,874** distinct tuples; the canonical plaintext identity has zero aliases across
+**7,885** frames / **308** tails. The encrypted corpus sample is only **2** frames / **2** tails, so its safety rests
+on the native known-answer/keyed-identity tests, not a statistically weak observed zero. Duplicate application
+deliveries are **1** by the historical key versus **12** pre-B153, and **0** when payload identity is included; B159
+remains separate. All **211** `send_failed` events are E2E-ACK timeouts.
+
+Warning census passes at `173/178/177/177/182/182`, with zero `-Wswitch`. The owner-approved board tail passes in
+order: `heltec_mobile` **218,916 RAM / 1,329,228 flash**, then `gateway` **196,196 RAM / 503,220 flash**.
+`sizeof(Node)` remains **222,008**, `sizeof(TxOutcome)` and `sizeof(DelegAck)` remain **24**, and no timer, wire, NV or
+RAM layout changed. Thirteen streams differ from the owner-anchored table; all are already attributed to B161, B251
+or the separately documented UI-14 emit movement, and the anchor table is not edited.
+
+**Disposition, in order:** **B157 is CLOSED** because the restored implicit-forward path is keyed by the complete
+flight identity and every positive, mismatch, plane/domain, stored-flight and mutation control is green/red as
+required. **B153 is CLOSED** by the owner's one-time acceptance of this measured **757 / 1,041** result. This is not a
+permanent floor. Every future comparison must use B182 authority and explicitly attribute any movement in overall
+delivery, `s06`/`s07`/`s22`/`s27`, DM or all-frame airtime, duplicate delivery, or the **`1/11/44/3`** fail-loud
+residue census; none may be automatically re-anchored. B112, B252, routing, jitter, NAV and B159 DATA de-duplication
+remain separate and unchanged.
 
 ---
 
