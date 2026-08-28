@@ -1,12 +1,13 @@
 # MeshRoute durable decisions
 
-- **Deterministic board measurement (B138 closed; B206 corrected S2 awaiting QG, 2026-08-28):** build identity has one device-TU authority. Actionable
+- **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms
   per measured ABI; ordinary `.pio/` must remain untouched. The lock does not cover source-mutating batteries, which
   remain operationally exclusive. Manifests must bind CC, CXX and LINK independently and an external literal test
-  inventory must redden every omitted comparison. A normal `pio run` size line is informational; B246 board-ABI
-  struct visibility and B253 untracked-source provenance remain separate.
+  inventory must redden every omitted comparison. A normal `pio run` size line is informational. B253 is the next
+  separately reviewed slice (untracked-source provenance + fail-loud Git); B246 board-ABI struct visibility remains
+  separate.
 - **Hybrid RTS closure authority (B157/B153, 2026-08-27):** B157 is closed on complete flight identity plus the
   restored exact implicit-forward credit. B163 has no separate implementation: B182 supersedes its time-windowed
   alias proposal with configured-logical identity plus separate wire correlation and fail-loud ambiguity. The old

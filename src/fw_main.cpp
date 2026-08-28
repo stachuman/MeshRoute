@@ -142,9 +142,19 @@ enum CanaryWhere : uint8_t { CW_loop_top = 0, CW_poll_rx = 1, CW_tx_done = 2, CW
     #include <nrf_soc.h>                  // sd_softdevice_is_enabled / sd_app_evt_wait
   #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     #include <esp_sleep.h>
-    #include <esp_ota_ops.h>             // esp_ota_mark_app_valid_cancel_rollback
     #include <driver/rtc_io.h>           // rtc_gpio_is_valid_gpio
   #endif
+#endif
+
+// [[B205]] OTA rollback-confirm header. ⛔ DELIBERATELY OUTSIDE the light-sleep block above and guarded by the
+// EXACT condition of its ONE consumer (`esp_ota_mark_app_valid_cancel_rollback()` in setup()): OTA rollback has
+// nothing to do with power saving, and while this include sat inside `#if !defined(MR_NO_POWERSAVE)` the
+// documented busy-spin A/B arm (`-DMR_NO_POWERSAVE`, see board_sleep_until()) dropped the declaration while
+// keeping the call — `error: 'esp_ota_mark_app_valid_cancel_rollback' was not declared in this scope` on every
+// ESP32 env. Keep this guard identical to the consumer's `#if`; ⛔ do not add `BOARD_HELTEC_V3` here unless the
+// call site gains it too (an include the call site cannot use is the defect, mirrored).
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+  #include <esp_ota_ops.h>               // esp_ota_mark_app_valid_cancel_rollback
 #endif
 
 namespace P = meshroute::protocol;

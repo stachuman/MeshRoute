@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # B206/B138 deterministic board-measurement design
 
-*2026-08-28. Status: S1 PASSED / B138 CLOSED — S2 CORRECTED AND SELF-GATED / B206 AWAITING QG RECHECK. Scope: repair the board RAM/flash comparison
+*2026-08-28. Status: S1/S2 INDEPENDENT QG PASSED — B138 AND B206 CLOSED. Scope: repair the board RAM/flash comparison
 instrument before the internal-DATA/custody wire arc. This changes no protocol, frame,
 routing, NV or product behaviour.*
 
@@ -284,16 +284,16 @@ all eight section sizes, and `firmware.bin` SHA-256
 `2779186623d87eaf13f1ce27a906f7cd7bd687c171d1fd0cb66d4fa681fef487`.
 Normal `.pio/` remained exact across all four corrected arms: 7738 entries and SHA-256
 `b91f5dc77218cd149bcf16d85971961890f729abbe4b78907a6a1be071d84c70`.
-B206 remains open until independent QG accepts this corrected result.
+Independent QG accepted this corrected result on 2026-08-28; B206 is closed.
 
 ## 5. Closure and follow-on
 
 - **B138 closes with S1** as the two-TU timestamp/literal-merging defect.
-- **B206 closes only after corrected S2** passes exact repeatability on both ABIs and QG
-  accepts the result. The schema-1 measurements are genuine but insufficient to close the
-  row. A future controlled mismatch opens a newly isolated mechanism rather than reviving
-  a generic noise allowance.
-- Retire the blanket “under ~32 B is noise” workaround on closure. Historical notes stay
+- **B206 closed on 2026-08-28:** corrected S2 passed exact repeatability on both ABIs and
+  independent QG accepted the result. The schema-1 measurements remain genuine historical
+  evidence but were insufficient for closure. A future controlled mismatch opens a newly
+  isolated mechanism rather than reviving a generic noise allowance.
+- The blanket “under ~32 B is noise” workaround is retired. Historical notes stay
   historical and are not rewritten.
 - Fix **B253** normal-build provenance separately, then **B205**.
 - **B246 is complementary, not superseded:** B206/B138 qualify deterministic image-level

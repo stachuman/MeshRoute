@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
-"""Structural and linked-image checks for the single build-identity authority (§B206/B138 slice S1).
+"""Structural and linked-image checks for the single build-identity authority (§B206/B138 slice S1, §B253).
 
 WHY THIS EXISTS
     `src/fw_main.cpp` and `src/firmware_commands.cpp` each used to expand `__DATE__ " " __TIME__` and read
@@ -19,7 +19,15 @@ WHY THIS EXISTS
    is a control that never ran (`tools/probe_board_ui/run.sh`, QA 2026-08-04). Nothing under the real `src/` or
    `lib/` is ever written: every mutation is applied to a throwaway copy.
 
-USAGE:  tools/probe_build_identity.py                         # source checks + negative controls
+    §B253 ADDS THE HOOK-COVERAGE HALF. `src/firmware_commands.cpp`'s `#ifndef GIT_REV` fallback is what an
+    environment reaches when `pre:tools/git_rev.py` is MISSING from it — and that hole has now been found THREE times
+    ([[B200]] heltec_v3, [[B213]] xiao_esp32s3, and the original xiao_sx1262-only spelling), each time only after a
+    metal banner read `nogit`. Since B253 the hook itself aborts a build whose provenance is unusable, so the one
+    remaining way a board image can still be unidentifiable is an environment that never runs the hook at all.
+    ⇒ the coverage check below is DERIVED from `pio project config --json-output` (effective config, inheritance
+    resolved), never from a hand-written list of today's 13 names: adding an environment must make it EVALUATED.
+
+USAGE:  tools/probe_build_identity.py                         # source + hook-coverage checks + negative controls
         tools/probe_build_identity.py --elf <firmware.elf>    # + exactly-one-linked-stamp, with its own control
         tools/probe_build_identity.py --no-neg                # checks only -- NOT a gate, use only while iterating
 """
@@ -27,8 +35,11 @@ USAGE:  tools/probe_build_identity.py                         # source checks + 
 from __future__ import annotations
 
 import argparse
+import copy
+import json
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -107,6 +118,96 @@ def check_source(root: Path = ROOT) -> int:
                       fw_main, re.DOTALL) is not None,
             "the BLE version formatter must consume the shared authority")
     return 13
+
+
+# ---- §B253: every board environment runs the provenance hook, exactly once -------------------------------------
+GIT_REV_HOOK = "pre:tools/git_rev.py"
+# `native` is the ONE environment that legitimately carries no provenance: it links no board image, and its
+# compilation reaches the C++ `#ifndef GIT_REV` fallback by design. Spelled here as the exception, so a NEW name is
+# treated as a board environment and must carry the hook until somebody deliberately widens this set.
+NON_BOARD_ENVIRONMENTS = {"native"}
+
+
+def effective_config(root: Path = ROOT) -> list:
+    """PlatformIO's EFFECTIVE configuration (`extends`/inheritance already applied) — the only honest source for
+    'which environments exist'. `platformio.ini` text is not: three of the four base envs acquired the hook through
+    inheritance, and a hand-parsed ini would have to re-implement that resolution."""
+    completed = subprocess.run(["pio", "project", "config", "--json-output"],
+                               cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    require(completed.returncode == 0,
+            f"`pio project config --json-output` failed with exit {completed.returncode}: "
+            f"{completed.stderr.decode('utf-8', 'replace')[:300]}")
+    return json.loads(completed.stdout.decode("utf-8"))
+
+
+def environment_scripts(config: list) -> dict[str, list[str]]:
+    return {section[len("env:"):]: list(dict(options).get("extra_scripts", []))
+            for section, options in config if section.startswith("env:")}
+
+
+def check_environment_coverage(config: list) -> int:
+    """One check per effective environment. `config` is a PARAMETER so a control can mutate the DERIVED structure —
+    mutating a separately hand-written list would prove nothing about the real configuration."""
+    scripts = environment_scripts(config)
+    require(bool(scripts), "no env:* sections in the effective PlatformIO configuration")
+    for name in sorted(NON_BOARD_ENVIRONMENTS):
+        require(name in scripts, f"the exempt environment '{name}' is absent — is the exemption still real?")
+    for name, entries in sorted(scripts.items()):
+        count = entries.count(GIT_REV_HOOK)
+        if name in NON_BOARD_ENVIRONMENTS:
+            require(count == 0, f"env:{name} is exempt from build provenance but runs {GIT_REV_HOOK} ({count}x)")
+        else:
+            require(count == 1,
+                    f"env:{name} must run {GIT_REV_HOOK} exactly once (found {count}x) — a board image that skips "
+                    f"the hook falls back to `nogit` and cannot be identified from its own banner")
+    return len(scripts)
+
+
+def _with_scripts(config: list, environment: str, transform) -> list:
+    """Return a deep copy of the derived config with `env:<environment>`'s extra_scripts rewritten."""
+    mutated = copy.deepcopy(config)
+    for section in mutated:
+        if section[0] == f"env:{environment}":
+            for option in section[1]:
+                if option[0] == "extra_scripts":
+                    option[1] = transform(list(option[1]))
+                    return mutated
+            section[1].append(["extra_scripts", transform([])])
+            return mutated
+    raise AssertionError(f"env:{environment} absent from the derived configuration")
+
+
+def coverage_controls(config: list) -> list[tuple[str, list]]:
+    """The four §3.4 mutations, each applied to the DERIVED configuration."""
+    board = next(name for name in sorted(environment_scripts(config)) if name not in NON_BOARD_ENVIRONMENTS)
+    future = copy.deepcopy(config)
+    future.append(["env:future_board", [["platform", "espressif32"], ["board", "synthetic"]]])
+    return [
+        (f"the hook is removed from the parsed env:{board}",
+         _with_scripts(config, board, lambda entries: [e for e in entries if e != GIT_REV_HOOK])),
+        ("a synthetic future board environment carries no hook", future),
+        ("the hook is added to env:native",
+         _with_scripts(config, "native", lambda entries: [*entries, GIT_REV_HOOK])),
+        (f"the hook is duplicated in env:{board}",
+         _with_scripts(config, board, lambda entries: [*entries, GIT_REV_HOOK])),
+    ]
+
+
+def run_coverage_controls(config: list) -> tuple[int, int]:
+    red = 0
+    controls = coverage_controls(config)
+    for name, mutated in controls:
+        if mutated == config:
+            print(f"  UNUSABLE (mutation did not change the configuration): {name}")
+            continue
+        try:
+            check_environment_coverage(mutated)
+        except ProbeFailure as exc:
+            print(f"  RED: {name}\n       -> {exc}")
+            red += 1
+        else:
+            print(f"  ⛔ GREEN (control did not fire): {name}")
+    return red, len(controls)
 
 
 # A build stamp as GCC spells it: `MMM D YYYY HH:MM:SS`, with __DATE__'s two spaces before a single-digit day.
@@ -211,6 +312,11 @@ def main() -> None:
 
     try:
         checks = check_source()
+        config = effective_config()
+        environments = check_environment_coverage(config)
+        checks += environments
+        print(f"  hook coverage: {environments} effective environments "
+              f"({environments - len(NON_BOARD_ENVIRONMENTS)} board x1, {len(NON_BOARD_ENVIRONMENTS)} exempt x0)")
         if args.elf is not None:
             checks += check_elf(args.elf.resolve())
     except ProbeFailure as exc:
@@ -220,9 +326,13 @@ def main() -> None:
         print(f"PASS: build identity ({checks} checks, CONTROLS SKIPPED -- not a gate)")
         return
 
-    print(f"negative controls ({len(CONTROLS)} source" + (" + 1 ELF" if args.elf is not None else "") + "):")
+    print(f"negative controls ({len(CONTROLS)} source + 4 coverage"
+          + (" + 1 ELF" if args.elf is not None else "") + "):")
     red, unusable = run_controls()
     expected = len(CONTROLS)
+    coverage_red, coverage_expected = run_coverage_controls(config)
+    red += coverage_red
+    expected += coverage_expected
     elf_red = run_elf_control(args.elf.resolve()) if args.elf is not None else None
     if elf_red is not None:
         red += int(elf_red)

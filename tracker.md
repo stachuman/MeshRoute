@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-08-17**
+Last refreshed: **2026-08-28**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -60,10 +60,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   Bookkeeping closure — close B209, B207, B196, B164 and B193 from their existing
   QG/metal evidence; no further implementation expected.
 
-  `2026-08-27-b206-b138-deterministic-board-measurement-design.md` — S1 passed and B138
-  is closed. Corrected S2 records CC/CXX/LINK independently, rejects all 61 individually
-  mutated qualification fields, and repeats exactly on both approved ABI pairs. B206
-  awaits QG recheck. B253, B205 and B246 remain separate.
+  `2026-08-27-b206-b138-deterministic-board-measurement-design.md` — B138 and B206 are
+  closed after independent QG. Next: independently review, then implement
+  `2026-08-27-b253-untracked-build-provenance-design.md`; follow with B205. B246 remains
+  separate.
 
   B20/B21 → B159 → B35 — resolve silent-loss, duplicate-delivery and plane-correctness
   defects. B159 is a prerequisite for the custody design unless that design adds its

@@ -23,12 +23,12 @@
                                        //   records — PURE; this file only binds the store, the gate and a Print
 
 #ifndef GIT_REV
-#define GIT_REV "nogit"        // fallback for an env which does not run tools/git_rev.py
-// ⛔ CORRECTED (§B213, 2026-08-18): this comment said `git_rev.py` injects -DGIT_REV "on the nRF52 base env only", and
-//   that the fallback is what "keeps the ESP32 envs compiling". BOTH became false and the second was misleading — it
-//   read as though ESP32 images were MEANT to report `nogit`. The script now runs on ALL THREE base envs:
-//   xiao_sx1262 (platformio.ini:108), heltec_v3 (:299) and xiao_esp32s3 (:344) — the last added by §B213 after a
-//   metal banner read `nogit`. ⇒ this fallback is now reached by NO shipped env; it exists so a stray env still compiles.
+#define GIT_REV "nogit"        // native / ad-hoc compilation ONLY — no board env can reach this any more
+// ⛔ CORRECTED TWICE: §B213 (2026-08-18) killed "the nRF52 base env only" (§B200 heltec_v3 + §B213 xiao_esp32s3 had
+//   both shipped `nogit` banners); §B253 (2026-08-28) kills "it exists so a stray env still compiles" — git_rev.py
+//   now ABORTS a board build whose Git provenance is unusable and emits this sentinel on NO arm, and
+//   probe_build_identity.py derives every env from `pio project config`, RED unless each non-native runs it once.
+// ⚠ EDIT LINE-COUNT-NEUTRALLY: a 9-line growth here moved __LINE__ and the heltec_mobile payload at IDENTICAL size.
 #endif
 
 namespace mrfw {

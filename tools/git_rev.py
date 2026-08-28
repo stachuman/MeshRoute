@@ -3,9 +3,16 @@
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #
 # PlatformIO PRE-build hook (extra_scripts = pre:tools/git_rev.py): inject -DGIT_REV='"<short-sha>[-dirty]"' so the
-# `version` banner reports the exact source the image was built from. Defaults to "nogit" if git is unavailable
-# (firmware_commands.cpp's fallback covers an env without this script too). The deterministic board-measurement
-# runner may supply one narrowly validated fixed revision; ordinary builds retain the Git-derived path below.
+# `version` banner reports the exact source the image was built from.
+#
+# ★ §B253 (2026-08-28) — TWO CORRECTIONS, both owner-ruled in the design's §0:
+#   1. `-dirty` describes the WHOLE non-ignored worktree. The old discriminator was `git diff --quiet HEAD`, which is
+#      blind to UNTRACKED paths: an untracked .cpp/.h/variant selected by a board build changed the image while the
+#      banner still read the clean short id. One porcelain query now answers staged + unstaged + untracked at once.
+#   2. An ordinary board build REQUIRES usable Git provenance: every failure arm ABORTS with one bounded diagnostic.
+#      `nogit` is no longer produced here — a silently unidentifiable image is exactly the failure §B200/§B213 cost us.
+# The ONE exception is the deterministic board-measurement runner's narrowly validated MESHROUTE_GIT_REV_OVERRIDE
+# (§B206 S2, unchanged below): it bypasses Git entirely and logs `source=override`.
 import os
 import json
 from pathlib import Path
@@ -16,19 +23,65 @@ import subprocess
 
 Import("env")   # noqa: F821  (PlatformIO injects `env` / `Import` into the script's globals)
 
+# Short ids Git may emit: core.abbrev scales with repository size, so pin the SHAPE (ASCII hex) and a generous
+# length window rather than today's 7. Only the revision is ever decoded (§2.1); path bytes never are.
+_SHORT_REVISION = re.compile(r"[0-9a-f]{4,40}")
 
-def _git_rev():
-    try:
-        sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
-                                      stderr=subprocess.DEVNULL).decode().strip()
-        if not sha:
-            return "nogit"
-        # working tree differs from HEAD (the user commits separately; uncommitted work => -dirty) — accurate provenance
-        dirty = subprocess.call(["git", "diff", "--quiet", "HEAD", "--ignore-submodules"],
-                                stderr=subprocess.DEVNULL) != 0
-        return sha + ("-dirty" if dirty else "")
-    except Exception:
-        return "nogit"
+
+class GitRevisionError(Exception):
+    """Ordinary-path Git provenance is unusable — the board build must not continue with an invented revision."""
+
+
+def _run_git(args, cwd):
+    """The default command seam: argument vector, NO shell, explicit working directory.
+
+    Tests inject a substitute with the same contract (`(args, cwd) -> completed`, `.returncode` + bytes `.stdout`)
+    so §3's matrices exercise THIS function's command construction and decision, never a test-only copy of it."""
+    return subprocess.run(["git", *args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _detail(completed):
+    """One bounded, path-free excerpt of git's own complaint (stderr only — porcelain stdout is never printed)."""
+    first = completed.stderr.split(b"\n", 1)[0] if completed.stderr else b""
+    return first.decode("utf-8", "replace")[:200]
+
+
+def git_revision(project_dir, runner=_run_git):
+    """THE ordinary-path authority: `<short-sha>` or `<short-sha>-dirty` for the worktree containing `project_dir`.
+
+    `project_dir` is PlatformIO's explicit `$PROJECT_DIR`, never the process's incidental CWD — a build invoked from
+    elsewhere must not stamp a different tree's revision. Raises GitRevisionError on every unusable arm."""
+    def git(args, cwd):
+        try:
+            return runner(args, cwd)
+        except OSError as exc:                      # git absent, or the directory itself is gone
+            raise GitRevisionError("cannot run `git %s` in %s: %s" % (args[0], cwd, exc.__class__.__name__)) from exc
+
+    top = git(["rev-parse", "--show-toplevel"], project_dir)
+    if top.returncode != 0:
+        raise GitRevisionError("%s is not inside a Git worktree (%s)" % (project_dir, _detail(top)))
+    # os.fsdecode, not .decode(): a repository path may itself carry non-UTF-8 bytes and must still round-trip to cwd.
+    root = os.fsdecode(top.stdout.strip())
+    if not root:
+        raise GitRevisionError("git returned an empty worktree root for %s" % project_dir)
+
+    head = git(["rev-parse", "--short", "HEAD"], root)
+    if head.returncode != 0:                        # unborn branch / empty repository / broken HEAD (detached is fine)
+        raise GitRevisionError("cannot resolve HEAD in %s (%s)" % (root, _detail(head)))
+    revision = head.stdout.decode("ascii", "replace").strip()
+    if not _SHORT_REVISION.fullmatch(revision):
+        raise GitRevisionError("git produced a malformed short revision (%d chars) in %s" % (len(revision), root))
+
+    # ONE query for staged + unstaged + untracked. `normal` is enough: an untracked DIRECTORY marks the tree dirty
+    # without enumerating its children. Submodule dirtiness stays excluded (design §0 rule 4, the pre-B253 decision).
+    status = git(["status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all"], root)
+    if status.returncode != 0:
+        raise GitRevisionError("git status failed with exit %d in %s (%s)"
+                               % (status.returncode, root, _detail(status)))
+    # ★ stdout stays BYTES and only empty-vs-non-empty is tested: Git permits path bytes that are not valid UTF-8, and
+    #   such a path must make the image `-dirty`, never fail an otherwise valid build. Filenames are never listed —
+    #   they may be sensitive and an unbounded list would drown the build log.
+    return revision + ("-dirty" if status.stdout else "")
 
 
 def _validated_override(value):
@@ -102,7 +155,22 @@ def _write_measurement_compiler_state(target_value, pio_env, source_nodes, targe
 
 
 override = os.environ.get("MESHROUTE_GIT_REV_OVERRIDE")
-rev = _validated_override(override) if override is not None else _git_rev()
+if override is not None:
+    # §B206 S2's ONE explicit seam, its validator untouched: no Git is invoked on this arm, and a malformed value
+    # still fails loud through the validator rather than degrading to a Git-derived or invented revision.
+    rev = _validated_override(override)
+    rev_source = "override"
+else:
+    try:
+        rev = git_revision(str(env.subst("$PROJECT_DIR")))
+    except GitRevisionError as exc:
+        # One bounded diagnosis instead of a traceback: SCons would otherwise surface the Python frames first.
+        raise SystemExit(
+            "git_rev.py: ABORT — board build provenance is unusable: %s\n"
+            "  A board image must be identifiable from its own banner (§B253). Build from a Git worktree with a\n"
+            "  resolvable HEAD, or set a validated MESHROUTE_GIT_REV_OVERRIDE (the deterministic measurement seam)."
+            % exc)
+    rev_source = "git"
 env.Append(CPPDEFINES=[("GIT_REV", env.StringifyMacro(rev))])   # StringifyMacro -> a quoted C string literal
 compiler_state_target = os.environ.get("MESHROUTE_MEASURE_COMPILER_STATE")
 if compiler_state_target is not None:
@@ -110,4 +178,5 @@ if compiler_state_target is not None:
         _write_measurement_compiler_state(compiler_state_target, env, source, target)
 
     env.AddPostAction("$PROGPATH", _record_measurement_compiler_state)
-print("git_rev.py: GIT_REV = %s" % rev)
+# `source=` makes an accidentally inherited override visible in EVERY board log, where a bare revision would not be.
+print("git_rev.py: GIT_REV = %s (source=%s)" % (rev, rev_source))

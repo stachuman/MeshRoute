@@ -1,10 +1,11 @@
 <!-- Author: OpenAI Codex -->
 # B253 untracked-build provenance design
 
-*2026-08-27. Status: PREPARED FOR REVIEW — do not dispatch until B206 S2 has
-landed, because both slices own `tools/git_rev.py`. Scope: make ordinary board
-build provenance fail closed and include non-ignored untracked files. No protocol,
-frame, routing, NV or product behaviour changes.*
+*2026-08-28. Status: ✅ IMPLEMENTED AND QG-PASSED 2026-08-28 (37/37 tests; probe 27 checks / 12 controls RED; both deterministic ABI pairs exact; the real GIT_DIR abort proven in a board build; historical payload/measurement fields exact). The four §0 rulings were owner-confirmed before dispatch. B206 S1/S2 has passed independent QG and
+is closed, so its one override seam and deterministic runner are now prerequisites,
+not pending work. Scope: make ordinary board-build provenance fail closed and
+include non-ignored untracked files. No protocol, frame, routing, NV or product
+behaviour changes.*
 
 ## 0. Recommended owner rulings
 
@@ -18,11 +19,18 @@ Approve these rules:
    silently produce `nogit`.
 3. **Reuse B206 S2's one explicit override.** A valid
    `MESHROUTE_GIT_REV_OVERRIDE` bypasses Git for the deterministic measurement
-   runner (and deliberate archive/release tooling). Do not add another override
-   or silently fall back to it.
+   runner. Do not broaden it into a general release/archive interface, add another
+   override, or silently fall back to it.
 4. Preserve the existing decision to ignore submodule dirtiness. Ignored files
    remain outside this revision marker; a future build must not consume an
    ignored generated source without separately defining its provenance.
+
+ⓘ **Expected consequence in THIS repository's workflow (owner-confirmed 2026-08-28):** uncommitted
+plan/spec/brief files are the normal between-commit state of this tree, so under rule 1 virtually every
+mid-arc build will carry `-dirty`. That is correct provenance, ⛔ not a regression to file; committing before
+flashing is what yields a clean banner. The owner also confirmed rule 3's tightened charter deliberately:
+a git-less source-archive build has NO path and fails — a future tarball/release build needs its own ruling,
+never a quiet override reuse.
 
 The full-worktree rule is intentionally conservative. The current implementation
 already marks a build dirty for an edited tracked document, even if that document
@@ -57,22 +65,28 @@ commit id.
 
 ### 1.2 Hook coverage is currently complete
 
-The effective `pio project config --json-output` configuration shows all 13 board
-environments consuming `pre:tools/git_rev.py` exactly once. `native` intentionally
-uses only `pre:tools/ccache_native.py` and relies on the C++ fallback because it is
-not a provenance-bearing board image.
+The effective `pio project config --json-output` configuration on 2026-08-28 has
+14 `env:*` sections: all 13 non-native board environments consume
+`pre:tools/git_rev.py` exactly once; `native` consumes it zero times and uses only
+`pre:tools/ccache_native.py`. Native relies on the C++ fallback because it is not a
+provenance-bearing board image.
 
 This is current evidence, not a permanent assumption. The structural probe must
 derive the environment list from effective PlatformIO configuration and keep this
 property pinned when environments are added or inheritance changes.
 
-### 1.3 B206 S2 establishes the override seam
+### 1.3 B206 S2 established the override seam
 
-The in-progress B206 S2 slice adds the validated environment variable
+The closed B206 S2 slice added the validated environment variable
 `MESHROUTE_GIT_REV_OVERRIDE`, accepting 7–40 lowercase hexadecimal digits with an
-optional `-dirty`. B253 consumes that exact seam after S2 lands. It must not edit
-the validation language opportunistically or change deterministic measurement
-manifests.
+optional `-dirty`. B253 consumes that exact seam. It must not edit the validation
+language opportunistically or weaken the deterministic measurement manifests.
+
+B206's corrected schema-2 qualification passed independent QG with 18/18 controls
+and exact repeated builds on `gateway` and `heltec_mobile`. B253 must keep those
+controls green. It cannot, however, reproduce the old manifest files byte-for-byte:
+the manifests record a source-tree hash, and this slice deliberately changes
+`tools/git_rev.py`. The correct invariant is specified in §4.
 
 ### 1.4 Explicit non-goals
 
@@ -94,8 +108,8 @@ only prevents one known false-clean class.
 
 Keep `tools/git_rev.py` as the single PlatformIO adapter. Its ordinary path shall:
 
-1. resolve the repository from PlatformIO's explicit project directory, not the
-   process's incidental current working directory;
+1. start from PlatformIO's explicit `$PROJECT_DIR`, not the process's incidental
+   current working directory, and resolve the containing Git worktree root;
 2. obtain and validate the short `HEAD` id;
 3. run one fail-loud porcelain-status query equivalent to:
 
@@ -115,6 +129,13 @@ sensitive and an unbounded list would make build output noisy.
 dirty without paying to enumerate every child. Git-standard ignores remain in
 force.
 
+Treat porcelain stdout as **bytes** and test only empty versus non-empty. Do not
+decode filenames: Git permits path bytes which are not valid UTF-8, and such a path
+must make the image dirty rather than make an otherwise valid build fail. Only the
+short revision is decoded and validated as ASCII hexadecimal. The two subprocess
+calls are one authority even though Git exposes revision and status separately; do
+not add a second dirty predicate elsewhere.
+
 ### 2.2 Fail-loud normal builds
 
 On the ordinary Git-derived path, all of these abort the PlatformIO build with one
@@ -124,7 +145,7 @@ bounded diagnostic:
 - project directory is not inside a Git worktree;
 - `HEAD` cannot be resolved (including an empty repository);
 - revision is empty or malformed;
-- porcelain status exits non-zero or cannot be decoded.
+- porcelain status exits non-zero.
 
 Do not return `nogit` from any of these arms. Detached `HEAD` is valid and must
 work. Do not print a Python traceback as the primary diagnosis if the SCons hook
@@ -145,15 +166,20 @@ When `MESHROUTE_GIT_REV_OVERRIDE` is present:
 - inject the exact validated value; and
 - preserve S2's fail-loud behavior for empty or malformed values.
 
-When it is absent, print `source=git`. This makes an accidentally inherited
+When it is absent, print `source=git`. Keep the line bounded and preserve the
+revision value already printed by the hook. This makes an accidentally inherited
 override visible in every board log. B253 does not authorize a weaker or broader
 override grammar.
 
 ### 2.4 Testable seam
 
-The Git resolution logic must be testable without compiling a board. Either keep a
-small pure helper importable by the hook or execute the real hook through a fake
-PlatformIO environment; do not copy its Git rules into a test-only implementation.
+The Git resolution logic must be testable without compiling a board. Keep one
+function in the real hook which takes the explicit project directory and an
+injectable subprocess runner (or an equivalently narrow command seam). The existing
+`runpy` + fake-PlatformIO harness may load that real function under a valid override
+and call it against temporary repositories. Do not copy its Git rules into a
+test-only implementation or introduce a second helper module unless review proves
+the in-file seam unworkable.
 
 Tests may create temporary Git repositories. They must exercise the production
 command construction and dirty decision, not merely test a separately written
@@ -198,6 +224,7 @@ Required fail-loud cases:
 - not a repository;
 - repository without a commit;
 - failed status command;
+- empty or malformed Git-derived revision;
 - empty override;
 - malformed override.
 
@@ -207,6 +234,10 @@ Required override controls:
 - Git is demonstrably not invoked on that arm;
 - removing the override returns to Git-derived state;
 - log source is `override` vs `git` correctly.
+
+Also inject porcelain output containing invalid UTF-8 bytes. It must be classified
+as dirty without decoding or printing the path. This is a synthetic subprocess
+control and therefore works on hosts whose filesystem cannot create that filename.
 
 ### 3.4 PlatformIO structural coverage
 
@@ -222,6 +253,11 @@ Extend the existing build-identity probe to derive effective environments from
 A hard-coded list of today's 13 names is not sufficient on its own: adding a new
 environment must make the derived coverage check evaluate it.
 
+Controls must remove the hook from one parsed board environment, add a synthetic
+future board environment without it, add it to native, and duplicate it in one
+board environment. Each must turn the coverage check RED. Mutating only a separate
+hand-written list is not a valid control.
+
 ## 4. Slices and gates
 
 ### P0 — evidence (complete)
@@ -230,10 +266,11 @@ Record §1.1 and the effective-environment census. No production or tool change.
 
 ### P1 — provenance correction
 
-Files expected after B206 S2 lands:
+Expected files:
 
 - `tools/git_rev.py`;
-- the existing build-identity probe and/or one focused provenance test;
+- `tools/test_measure_board.py` and `tools/probe_build_identity.py` (or one focused
+  provenance test if review demonstrates a cleaner ownership boundary);
 - the C++ fallback comment only if needed for truthfulness;
 - B253 register/design/baseline documentation.
 
@@ -241,14 +278,22 @@ No `lib/core`, frame, protocol, NV or simulator source changes.
 
 Gate:
 
-1. §3's complete test/control matrix;
-2. existing build-identity probe still green;
+1. §3's complete test/control matrix, including every mutation RED and zero
+   unusable controls;
+2. B206's 18/18 measurement controls and the build-identity probe's 9/9 controls
+   still green/RED as appropriate;
 3. native suite unchanged;
 4. simulator rebuild reports no relevant compile action and s18 remains exact;
-5. B206 deterministic runner with its fixed override reproduces its qualified
-   `gateway` and `heltec_mobile` manifests exactly;
+5. run B206's deterministic runner twice for each approved ABI. Each environment's
+   two **new** schema-2 manifests must compare exactly. Against B206's historical
+   qualification, the source snapshot is expected to move because this slice
+   changes the hook/tests/docs; the fixed identity, compiler state, RAM, flash,
+   sections, object count and flashed-payload hash must remain equal. Do not claim
+   the whole historical manifest is byte-identical;
 6. one ordinary `gateway` build and one ordinary `heltec_mobile` build succeed and
-   contain exactly one Git revision/stamp authority;
+   contain exactly one Git revision/stamp authority. Explicitly remove
+   `MESHROUTE_GIT_REV_OVERRIDE` from these two build environments and require the
+   log to say `source=git`;
 7. only the owner-approved two board environments are built; no all-environment
    census is required;
 8. `git diff --check` clean.
@@ -264,14 +309,15 @@ B253 closes only when:
 - the untracked-file reproduction turns from false-clean to dirty;
 - all ordinary Git failure arms abort rather than issuing `nogit`;
 - all effective board environments remain covered by the hook;
-- B206's explicit override and deterministic manifests remain unchanged; and
+- B206's explicit override semantics remain unchanged, each new two-run ABI pair
+  is exact, and the historical payload/measurement fields remain equal; and
 - no second dirty/build-graph authority was introduced.
 
 Sequence:
 
-1. finish and independently gate B206 S2;
-2. rebase this design on the landed override spelling if it changed;
-3. implement and gate B253;
+1. B206 S1/S2: **complete and independently QG-passed 2026-08-28**;
+2. independently review and obtain the §0 owner rulings for this design;
+3. implement and gate B253 as one slice;
 4. implement the separate B205 build fix;
 5. only then use deterministic board deltas as acceptance evidence for the
    internal-DATA/custody arc.
