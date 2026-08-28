@@ -461,6 +461,11 @@ struct DualLayerTestAccess {
     }
     static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
+    static uint32_t pending_flight_gen(Node& n)                                              // [[B159]]: the live flight identity
+                    { return n._active->_pending_tx ? n._active->_pending_tx->flight_gen : 0u; }
+    static void     rts_timeout(Node& n)                    { n.on_timer(Node::kRtsTimeoutTimerId); } // [[B159]]: expire the CTS wait -> the doorstep hold / cascade
+    static bool     gw_deadline(Node& n, uint64_t enq, uint64_t start)                       // [[B159]]: the deadline predicate itself
+                    { return n.gateway_deadline_expired(enq, start, /*origin=*/1, /*dst=*/9, /*ctr=*/1); }
     // Slice 4c.1 bridge accessors
     static void     bind_on_leaf(Node& n, uint8_t leaf, uint8_t node_id, uint32_t key) {
         auto& L = n._layers[leaf];
@@ -7217,4 +7222,214 @@ TEST_CASE("§B161 relay — type-2 snoop reads ui.body and forwarding preserves 
     CHECK(A::static_binding(relay,88,0x88776655u));
     const PendingTx* pt=A::pending(relay);CHECK(pt!=nullptr);
     if(pt){CHECK(pt->inner_len==il);bool same=true;for(uint8_t i=0;i<il;++i)if(pt->inner[i]!=inner[i])same=false;CHECK(same);}
+}
+
+// =============================================================================
+// §B159 CORRECTION (2026-08-28) — THE GATEWAY GIVE-UP MUST BE A REAL SENDER DEADLINE.
+//
+// The first cut of [[B159]] sized the receiver's `_seen_origins` retention from `gateway_send_giveup_ms` on the
+// strength of `completed_flight_cache_ttl_ms`'s claim that "nothing can legitimately re-arrive after it". QG
+// disproved that claim from the code, and this is the PRODUCTION-PATH test that pins the disproof:
+//   · `gateway_doorstep_hold` tested `age >= giveup` on ENTRY and then armed `now + backoff` (node_cascade.cpp),
+//   · `become_free` re-picks on `next_attempt_ms <= now` alone — no age test (node_mac.cpp:899),
+//   · `issue_send`'s window arm re-queues with ANOTHER full defer — no age test (node_mac.cpp:1116).
+// ⇒ a hold entered at age 149 999 ms armed a LEGITIMATE retry past the bound, and with configurable gateway
+//   periods the composition had no fixed upper margin.
+//
+// ⛔ THIS DRIVES THE REAL SCHEDULER — origination, the RTS timeout, the doorstep hold, the queue drain and
+//    issue_send — and asserts on ACTUAL RADIO TRANSMISSIONS AND THEIR TIMES. It never injects a duplicate, which is
+//    exactly what made the first cut's `M2` pin the chosen constant instead of the true horizon.
+// =============================================================================
+namespace {
+class B159GwHal : public StubHal {                       // StubHal + a timestamp on every real transmission
+public:
+    std::vector<uint64_t> tx_times;
+    uint64_t busy_until = 0;                            // scriptable LBT carrier sense
+    uint64_t channel_busy_until() override { return busy_until; }
+    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
+        tx_times.push_back(_now);
+        return StubHal::tx(b, n, p);
+    }
+    uint64_t last_tx_time() const { return tx_times.empty() ? 0 : tx_times.back(); }
+};
+}  // namespace
+
+TEST_CASE("§B159 deadline — no gateway-held attempt may START at or after the give-up bound") {
+    B159GwHal hal; Node node(hal, /*id=*/1, 0xB159);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.n_layers = 1;
+    CHECK(node.on_init(cfg));
+    // A gateway at id 9 that we reach DIRECTLY (next == dst == the doorstep hop) and whose schedule we know, so
+    // gateway_schedule_defer_ms() is non-zero while it is away on its other leaf — the production hold condition.
+    DualLayerTestAccess::add_direct_neighbor(node, /*dest=*/9);
+    DualLayerTestAccess::store_gw_sched_nibble(node, /*gw_node=*/9, /*leafA=*/1, /*leafB=*/0, /*nib=*/0);
+    CHECK(DualLayerTestAccess::gw_defer(node, 9) > 0);          // it really is away -> a real window defer
+
+    hal._now = 1000;
+    const uint64_t enqueued_at = hal._now;
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 9; c.u.send.flags = 0;
+    static const char kBody[] = "b159-deadline";
+    c.body = reinterpret_cast<const uint8_t*>(kBody); c.body_len = static_cast<uint8_t>(sizeof kBody - 1);
+    node.on_command(c);
+
+    const uint64_t deadline = enqueued_at + protocol::gateway_send_giveup_ms;
+    // Drive the REAL scheduler up to the boundary: every step lets the CTS wait expire (-> the doorstep hold)
+    // and then services the queue exactly as the timer wheel would.
+    for (uint64_t t = 1000; t + 2500 < deadline; t += 2500) {
+        hal._now = t;
+        DualLayerTestAccess::rts_timeout(node);                  // CTS never comes -> doorstep hold / cascade
+        DualLayerTestAccess::pump(node);                         // become_free: drain whatever is now ready
+    }
+    // ★★ THE EDGE, AND IT IS THE WHOLE POINT: a CTS timeout ONE MILLISECOND INSIDE the bound. The pre-fix hold
+    // passed its entry test here (age 149 999 < 150 000) and armed `now + backoff` — a start BEYOND the bound that
+    // nothing downstream re-checked. Stepping on a round grid never lands here, which is exactly why the first cut's
+    // injected-duplicate tests could not see it.
+    hal._now = deadline - 1;
+    DualLayerTestAccess::rts_timeout(node);
+    // Now let the queue drain exactly as the timer wheel would, well past the bound.
+    for (uint64_t t = deadline; t <= deadline + 60000; t += 500) {
+        hal._now = t;
+        DualLayerTestAccess::pump(node);
+        DualLayerTestAccess::rts_timeout(node);
+    }
+
+    // ★ THE ASSERTION THE FIRST CUT NEVER MADE: nothing went on air at or after the bound.
+    uint64_t latest = 0; size_t past = 0;
+    for (uint64_t t : hal.tx_times) { if (t > latest) latest = t; if (t >= deadline) ++past; }
+    CHECK(past == 0);
+    CHECK(latest < deadline);
+    // C2 — the flight is given up LOUDLY through the existing shape, never silently dropped.
+    CHECK(hal.count("send_giveup") >= 1);
+}
+
+// The deadline's EDGE, pinned directly on the predicate because the scheduler cannot be driven to attempt a start
+// at exactly the bound (a doorstep backoff is floored at 200 ms, so the armed start always overshoots it). The
+// bound is EXCLUSIVE: a start at `enqueue + gateway_send_giveup_ms` is already too late, because the DATA it would
+// carry lands one MAC exchange beyond it and the receiver's retention is sized from exactly this instant.
+TEST_CASE("§B159 deadline edge — the give-up bound is exclusive: a start AT it is already expired") {
+    B159GwHal hal; Node node(hal, /*id=*/1, 0xB159);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.n_layers = 1;
+    CHECK(node.on_init(cfg));
+    const uint64_t enq = 1000;
+    const uint64_t bound = enq + protocol::gateway_send_giveup_ms;
+    CHECK_FALSE(DualLayerTestAccess::gw_deadline(node, enq, bound - 1));   // one ms inside -> may still start
+    CHECK(DualLayerTestAccess::gw_deadline(node, enq, bound));             // ★ AT the bound -> expired (`<=` here = the defect)
+    CHECK(DualLayerTestAccess::gw_deadline(node, enq, bound + 1));         // and beyond it, obviously
+}
+
+// ★★★ [[B159]] BLOCKER 1 — THE DEADLINE MUST HOLD AT THE RTS **HAL ADMISSION**, NOT MERELY AT `issue_send`.
+// ⛔ HAL admission is NOT the physical air start (`Hal::tx()` only ENQUEUES on a device) — the terminal
+//    authority is `DeviceHal::pump_tx()`, pinned in test_device_hal.cpp. These cover the admission layer.
+// The previous cut bounded `issue_send`, which runs BEFORE `tx_initiating`. Between acceptance and air the RTS can
+// be DUTY-deferred into `_rts_duty_defer` — a wait this firmware's own note prices at "~1h" — and
+// `rts_duty_defer_fire` then handed the frame to the HAL with no deadline test at all. A stub HAL that transmits
+// synchronously can never observe that, which is precisely why the earlier production test passed over it.
+// ⓘ The RTS reaches the HAL from exactly TWO places, and this is not an assumption: `retry_slot_of` returns -1 for
+//   FrameTag::rts (node_mac.cpp), so an RTS is NOT retry-stash-eligible and `retry_stashed` can never re-air one.
+//   The two are `lbt_complete` (immediate + LBT-deferred) and `rts_duty_defer_fire` (duty-deferred); both guard now.
+TEST_CASE("§B159 handoff — a DUTY-deferred RTS carried across the deadline is cancelled LOUDLY, never aired") {
+    B159GwHal hal; Node node(hal, /*id=*/1, 0xB159);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.n_layers = 1;
+    cfg.duty_cycle = 0.01; cfg.duty_cycle_window_ms = 3600000;      // a real, enabled duty budget (36 000 ms)
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::add_direct_neighbor(node, /*dest=*/9);
+    DualLayerTestAccess::store_gw_sched_nibble(node, /*gw_node=*/9, /*leafA=*/0, /*leafB=*/1, /*nib=*/0);
+
+    hal._now = 1000;
+    const uint64_t enqueued_at = hal._now;
+    const uint64_t deadline = enqueued_at + protocol::gateway_send_giveup_ms;
+    hal._airtime_used_ms = 36000;                                   // AT budget -> every RTS duty-defers
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 9; c.u.send.flags = 0;
+    static const char kBody[] = "b159-duty";
+    c.body = reinterpret_cast<const uint8_t*>(kBody); c.body_len = static_cast<uint8_t>(sizeof kBody - 1);
+    node.on_command(c);
+    DualLayerTestAccess::pump(node);
+    CHECK(hal.count("duty_cycle_blocked") >= 1);                    // the RTS really is parked in _rts_duty_defer
+    const size_t tx_before = hal.tx_times.size();
+
+    // The duty wait elapses LONG past the give-up bound, and by then there is budget again — so nothing but the
+    // deadline can stop this frame from airing.
+    hal._now = deadline + 120000;
+    hal._airtime_used_ms = 0;
+    node.on_timer(/*kRtsDutyDeferTimerId=*/31);
+
+    CHECK(hal.tx_times.size() == tx_before);                        // ★ nothing aired past the bound
+    for (uint64_t t : hal.tx_times) CHECK(t < deadline);
+    CHECK(hal.count("send_giveup") >= 1);                           // C2 — cancelled LOUDLY, not silently dropped
+}
+
+// The same bound at the OTHER handoff, driven through the REAL LBT defer ring rather than by calling
+// `lbt_complete` directly. ⚠ AN EARLIER CUT OF THIS TEST DID call it directly with fabricated bytes through a
+// friend helper: that proved the guard INSIDE lbt_complete but nothing about the LBT scheduling/re-entry path, so
+// it is replaced here. `tx_initiating` stashes the real frame in a `DeferredLbt` slot when the channel is busy, and
+// `test_fire_lbt_defer` is the production re-entry (node.cpp's kLbtDeferTimerId arm) with the STORED bytes + kind.
+TEST_CASE("§B159 handoff — an LBT-deferred RTS re-entering past the deadline is cancelled, never aired") {
+    B159GwHal hal; Node node(hal, /*id=*/1, 0xB159);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.n_layers = 1; cfg.lbt_enabled = true;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::add_direct_neighbor(node, /*dest=*/9);
+    DualLayerTestAccess::store_gw_sched_nibble(node, /*gw_node=*/9, /*leafA=*/0, /*leafB=*/1, /*nib=*/0);
+    hal._now = 1000;
+    const uint64_t deadline = 1000 + protocol::gateway_send_giveup_ms;
+    hal.busy_until = deadline + 200000;                  // the channel is busy well past the bound -> a REAL defer
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 9; c.u.send.flags = 0;
+    static const char kBody[] = "b159-lbt";
+    c.body = reinterpret_cast<const uint8_t*>(kBody); c.body_len = static_cast<uint8_t>(sizeof kBody - 1);
+    node.on_command(c);
+    DualLayerTestAccess::pump(node);
+    const size_t tx_before = hal.tx_times.size();
+    CHECK(tx_before == 0);                               // nothing aired: the RTS really is stashed in a defer slot
+
+    hal._now = deadline + 90000;                         // the channel clears LONG after the bound
+    hal.busy_until = 0;
+    node.test_fire_lbt_defer(0);                         // the production re-entry, with the STORED frame
+    CHECK(hal.tx_times.size() == tx_before);             // ★ the late completion did NOT air
+    for (uint64_t t : hal.tx_times) CHECK(t < deadline);
+}
+
+
+
+// ★★★ [[B159]] — THE EXPIRY→GIVE-UP MAPPING, AND THE CORRELATION THAT MAKES IT EXACTLY ONE.
+// The HAL reports a physical-start expiry through the EXISTING TX outcome ring with the `expired` kind (a status
+// on the established completion path, not a forked notification channel — the HAL must not reach into Node state).
+// The Node maps it to the SAME loud terminal give-up an age-expired doorstep hold produces. What must be proven is
+// the arithmetic of it: ONE failure for the matching flight, ZERO for a superseded one — never a generic tx-fail
+// that re-enters retry, never two.
+TEST_CASE("§B159 expiry mapping — a matching seq gives up ONCE, loudly; a superseded seq does nothing") {
+    B159GwHal hal; Node node(hal, /*id=*/1, 0xB159);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.n_layers = 1;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::add_direct_neighbor(node, /*dest=*/9);
+    DualLayerTestAccess::store_gw_sched_nibble(node, /*gw_node=*/9, /*leafA=*/0, /*leafB=*/1, /*nib=*/0);
+    hal._now = 1000;
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 9; c.u.send.flags = 0;
+    static const char kBody[] = "b159-map";
+    c.body = reinterpret_cast<const uint8_t*>(kBody); c.body_len = static_cast<uint8_t>(sizeof kBody - 1);
+    node.on_command(c);
+    DualLayerTestAccess::pump(node);
+    const uint32_t live_gen = DualLayerTestAccess::pending_flight_gen(node);
+    CHECK(live_gen != 0);                                          // there really is a flight to correlate against
+
+    // (a) a SUPERSEDED flight's expiry: reported, but it must not fail the live flight.
+    const int giveup_before = hal.count("send_giveup");
+    node.on_tx_complete(TxOutcome{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,
+                                   /*tag=*/1, /*seq=*/live_gen + 999u, /*sf=*/7, /*busy_until_ms=*/0 });
+    CHECK(hal.count("send_giveup") == giveup_before);               // ★ ZERO — wrong flight, no failure
+    CHECK(hal.count("tx_expired") == 1);                            // but it IS reported
+    CHECK(DualLayerTestAccess::pending_flight_gen(node) == live_gen);  // the live flight is untouched
+
+    // (b) the MATCHING flight's expiry: exactly one loud terminal give-up.
+    node.on_tx_complete(TxOutcome{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,
+                                   /*tag=*/1, /*seq=*/live_gen, /*sf=*/7, /*busy_until_ms=*/0 });
+    CHECK(hal.count("send_giveup") == giveup_before + 1);            // ★ EXACTLY ONE
+    CHECK(DualLayerTestAccess::pending_flight_gen(node) == 0);       // and the flight is gone, not retrying
+
+    // (c) a repeat of the same expiry cannot add a second failure (the flight no longer exists).
+    node.on_tx_complete(TxOutcome{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,
+                                   /*tag=*/1, /*seq=*/live_gen, /*sf=*/7, /*busy_until_ms=*/0 });
+    CHECK(hal.count("send_giveup") == giveup_before + 1);            // ★ STILL exactly one, never two
 }

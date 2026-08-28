@@ -26,8 +26,20 @@
 
 namespace mrfw {
 
+// ★★ [[B255]] — OWNER-RULED (b), 2026-08-28: **THE WHOLE `/mrui` CONSOLE SURFACE IS `MR_FEAT_OLED`-GATED.** A
+// headless build cannot select a preset, and the one live catalog cost it 1132 B of `.bss` for a panel it does not
+// have (QG's linked `gateway` ELF: `preset_catalog()::cat` at exactly 0x46c). ⇒ off `MR_FEAT_OLED` `preset_catalog()`
+// and `handle_ui()` are ABSENT (the `firmware_config.h` idiom for a compiled-out verb family — ⛔ NO inline stub for
+// either: a stub needs an inert ANSWER, a `PresetCatalog&` has none, and one returning a reference would
+// re-instantiate the very 1132 B the ruling reclaims), while `preset_boot_restore_console()` DOES get an inert
+// inline stub, for the structural reason written at that `#else` below.
+// ⛔ THE PURE UNITS STAY UNGATED (`src/firmware_ui_presets.h`, `src/firmware_ui_preset_verbs.h`, the `'MRU1'` record
+//    in `device_nv.h`): the native suite compiles all three unchanged. Only the INSTANTIATION and the console
+//    surfacing are compiled out, so every `MR_FEAT_OLED=1` env keeps the feature exactly as it was.
+#if MR_FEAT_OLED
 class PresetCatalog;       // §UI-10/11 P2 — src/firmware_ui_presets.h. Forward-declared, ⛔ not included: this
                            // header is pulled into every device TU and the catalog is needed by two of them.
+#endif   // MR_FEAT_OLED
 
 // ★★★ §UI-10/11 P2 — THE `busy` FACT'S SEAM, and it is a SEAM rather than a direct read for one hard reason: the
 // UI model (`s_model`, `src/firmware_ui.cpp`) is FILE-LOCAL and its TU is compiled only where `MR_FEAT_OLED=1`
@@ -109,12 +121,25 @@ meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispa
 //   generation into the record BEFORE the save (P1's `commit`), so a frozen frame's sealed generation stops
 //   comparing equal the moment a change lands — which is §3.2.3's modal-close trigger AND its stale-`SendReq`
 //   refusal, from ONE fact and with ⛔ no new hook.
+// ⓘ [[B255]]: gated with the forward declaration above — the ruling and its reasons are recorded there.
+#if MR_FEAT_OLED
 PresetCatalog& preset_catalog();
 // setup(): load `/mrui` through the four-state read and print the ruled diagnostic line for the two fault states
 // (`ok`/`absent` print NOTHING). ⛔ ZERO writes on every arm. Same shape and same reason as peer_store_restore().
 void preset_boot_restore_console();
 // `ui preset list|set|clear|reset` — dispatched from BOTH transports through the ONE `dispatch(line,len,Print&)`.
 void handle_ui(const char* args, size_t len, Print& out);
+#else
+// ★★ [[B255]] — THE ONE STUBBED ARM, AND IT IS STUBBED FOR A STRUCTURAL REASON RATHER THAN FOR SYMMETRY.
+// `preset_boot_restore_console()` is the only one of the three called from `fw_main.cpp`, which is board/runtime
+// glue: `lib/hal/mr_ui.h`'s standing rule is that `fw_main` must never learn a panel exists, and
+// `tools/probe_board_ui/run.sh` W24 enforces it file-wide as an executable check. ⇒ the gate is HERE, in the
+// feature's own header, exactly as `ui_emergency_active()`'s is a few lines up — ⛔ never an `#if` at the call site.
+// ⓘ An empty inline body costs NOTHING: the call inlines away, no catalog is constructed, `/mrui` is never read and
+//   no line is printed. `preset_catalog()` and `handle_ui()` need no stub — their only callers (the OLED TU and the
+//   `dispatch()` arm in `firmware_commands.cpp`) are compiled out with them.
+inline void preset_boot_restore_console() {}
+#endif   // MR_FEAT_OLED
 
 struct ExecResult {
     bool                         ok        = false;                                  // false => the line did not parse

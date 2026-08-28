@@ -389,3 +389,64 @@ TEST_CASE("DeviceHal — a real Node runs over the device backend: a beacon time
     if (!radio.txs.empty()) CHECK(radio.txs[0].sf == 7);   // on the routing SF
     CHECK(hal.airtime_used_ms(3600000) > 0);            // and the device ledger recorded its airtime
 }
+
+// =============================================================================
+// §B159 — THE PHYSICAL-START DEADLINE. `tx()` only ENQUEUES; the frame's real RF start happens later in
+// `pump_tx()`, behind up to kTxQCap-1 other frames. One queued max-length frame at the slowest legal PHY
+// (SF12/BW7800/CR8/255 B) is ~229 s of airtime, so a Node-side guard before `Hal::tx()` bounds ADMISSION only.
+// These pin the terminal authority: a frame whose deadline passed while it waited must be refused WITHOUT
+// `start_transmit` ever being called, and must report ONE correlated `expired` outcome.
+// =============================================================================
+TEST_CASE("§B159 pump_tx — a frame ACCEPTED before its deadline but still QUEUED past it never starts") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(/*sf=*/8, 125000, 5, 16, 14, 100);
+    clk.now = 1000;
+    const uint8_t frame[16] = { 0xB1 };
+    TxParams p; p.sf = 8; p.tag = 1; p.seq = 4242;
+    p.deadline_ms = 5000;                                        // accepted now (1000), deadline at 5000
+    CHECK(hal.tx(frame, sizeof frame, p) == TxResult::ok);       // ENQUEUED, not aired
+    CHECK(radio.txs.empty());
+
+    clk.now = 5000;                                                // the deadline arrives while it is still queued
+    tx_pass(hal);
+    CHECK(radio.txs.empty());                                    // ★ start_transmit was NEVER called
+    TxOutcome o{};
+    CHECK(hal.pop_tx_outcome(o));
+    CHECK(o.kind == TxOutcomeKind::expired);
+    CHECK(o.seq == 4242u);                                       // correlated by the SENDING SITE's stamp
+    CHECK(o.tag == 1u);
+    CHECK_FALSE(hal.pop_tx_outcome(o));                          // EXACTLY ONE outcome, never two
+    tx_pass(hal);                                                // the queue really is drained, not stuck
+    CHECK(radio.txs.empty());
+    CHECK_FALSE(hal.pop_tx_outcome(o));
+}
+
+// C2 — the sentinel. Everything except a gateway-bound RTS carries deadline_ms == 0 and must be untouched,
+// however old it is. An over-correction here would silently stop ordinary traffic.
+TEST_CASE("§B159 pump_tx — deadline_ms == 0 is the NO-DEADLINE sentinel: ordinary frames never expire") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(/*sf=*/8, 125000, 5, 16, 14, 100);
+    clk.now = 1000;
+    const uint8_t frame[16] = { 0xC2 };
+    TxParams p; p.sf = 8; p.tag = 3; p.seq = 77;                 // p.deadline_ms defaults to 0
+    CHECK(p.deadline_ms == 0u);
+    CHECK(hal.tx(frame, sizeof frame, p) == TxResult::ok);
+    clk.now = 1000 + 86400000ull;                                  // a day later — still must fly
+    tx_pass(hal);
+    CHECK(radio.txs.size() == 1);                                // ★ aired normally
+    TxOutcome o{};
+    while (hal.pop_tx_outcome(o)) CHECK(o.kind != TxOutcomeKind::expired);
+}
+
+// A frame still INSIDE its deadline flies normally — the boundary is exclusive on the late side only.
+TEST_CASE("§B159 pump_tx — a frame one millisecond inside its deadline still starts") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(/*sf=*/8, 125000, 5, 16, 14, 100);
+    clk.now = 1000;
+    const uint8_t frame[16] = { 0xD3 };
+    TxParams p; p.sf = 8; p.tag = 1; p.seq = 9; p.deadline_ms = 5000;
+    CHECK(hal.tx(frame, sizeof frame, p) == TxResult::ok);
+    clk.now = 4999;
+    tx_pass(hal);
+    CHECK(radio.txs.size() == 1);                                // aired
+}

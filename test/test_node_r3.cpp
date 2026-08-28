@@ -7105,12 +7105,23 @@ struct OrigLoc {
     std::vector<uint8_t> frame;  // the aired bytes (so a receiver can be driven with them)
     uint8_t plen = 0;            // inner + MAC length, for the receiver's RTS
     uint16_t ctr = 0;
+    // ★ §B20/B21 (2026-08-28) — the four observations the length matrix needs, and NOTHING above moved. Every
+    // pre-existing case reads the same fields it always did; these are additions the boundary cases read.
+    CmdCode  code = CmdCode::queued;   // the SYNCHRONOUS answer `on_command` handed the app
+    uint8_t  qn = 0;                   // ...and the tx-queue depth it reported (was a slot burned?)
+    int      tx_calls = 0;             // every HAL tx ATTEMPT — RTS included, so "nothing aired" is measured, not inferred
+    bool     pack_failed = false;      // the `_hal.log("DATA pack failed")` line = the TX-time refusal that pushes nothing
+    bool     next_send_aired = false;  // a FOLLOW-UP 2-B DM on the same node flew => the first send left no wedged flight
 };
 // Drive a REAL app-DM origination (node 1 -> node 2) all the way to the DATA frame and read the outcome OFF THE WIRE.
 // `want_loc` sets DATA_FLAG_LOCATION in the command flags word exactly as console_parse's `-l` does — no signature
 // change anywhere. `sealed` installs a crypto identity + the recipient's authoritative pubkey + e2e_dm, which is the
 // ONLY configuration in which a location may travel.
-static OrigLoc originate_dm_loc(bool want_loc, int32_t lat, int32_t lon, bool sealed, uint8_t body_len = 2) {
+// ★ §B20/B21: `want_ack` sets DATA_FLAG_E2E_ACK_REQ (console `-a`) and `bind_key` withholds the beacon's
+// key_hash32, which is the ONLY public way to reach a DM with no DST_HASH (the flag is auto-set from the binding).
+// Both default to today's values, so every pre-existing call site is unchanged.
+static OrigLoc originate_dm_loc(bool want_loc, int32_t lat, int32_t lon, bool sealed, uint8_t body_len = 2,
+                                bool want_ack = false, bool bind_key = true) {
     uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
     Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
     TestHal hal; Node node(hal, /*id=*/1, idA.key_hash32);
@@ -7123,30 +7134,62 @@ static OrigLoc originate_dm_loc(bool want_loc, int32_t lat, int32_t lon, bool se
     }
     // One beacon from node 2 carrying idB's key gives BOTH a direct route to 2 AND the authoritative id_bind
     // (2 -> idB.key_hash32) that DST_HASH — and hence the seal — requires.
+    // ★ §B20/B21: `bind_key = false` swaps that for a beacon from a THIRD node advertising a route TO 2. The route
+    //   still exists, so the send reaches exactly the same code; what is missing is the id->hash binding for 2, and
+    //   that is the ONLY public way to make `key_hash_of_id(2, dh)` fail with a small body — the DST_HASH fit-check
+    //   only drops the flag from body_len 237 up. ⛔ Zeroing the beacon's own `key_hash32` does NOT work and the
+    //   attempt is recorded so it is not retried: `id_bind_set` has no zero guard (node_hashlocate.cpp:79), so a
+    //   0-hash beacon BINDS 2 -> 0, DST_HASH is set with a zero hash, and the failure then comes from the SEAL's
+    //   `no_pubkey` arm instead of the guard's — a different site, which is why a mutation of the guard's push
+    //   stayed green against the first version of this knob.
     std::array<uint8_t, 64> bb{};
-    beacon_entry be{}; be.dest = 2; be.next = 2; be.score_bucket = 14; be.hops = 1;
-    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = idB.key_hash32;
+    beacon_entry be{}; be.score_bucket = 14;
+    be.dest = 2; be.next = bind_key ? uint8_t{2} : uint8_t{3}; be.hops = bind_key ? uint8_t{1} : uint8_t{2};
+    beacon_in bin{}; bin.leaf_id = 0;
+    bin.src = bind_key ? uint8_t{2} : uint8_t{3};
+    bin.key_hash32 = bind_key ? idB.key_hash32 : 0x33333333u;   // the relay's own key, never 2's
     bin.entries = std::span<const beacon_entry>(&be, 1);
-    RxMeta m{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    RxMeta m{ 12.0f, -70.0f, 0, static_cast<int8_t>(bind_key ? 2 : 3) };
     node.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), m);
 
     const std::string text(body_len, 'x');
     Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 2;
-    c.u.send.flags = static_cast<uint8_t>(want_loc ? DATA_FLAG_LOCATION : 0);   // == what `send 2 "…" -l` emits
+    c.u.send.flags = static_cast<uint8_t>((want_loc ? DATA_FLAG_LOCATION : 0)
+                                          | (want_ack ? DATA_FLAG_E2E_ACK_REQ : 0));   // == `send 2 "…" -l -a`
     c.body = reinterpret_cast<const uint8_t*>(text.data()); c.body_len = body_len;
-    (void)node.on_command(c);
+    const CmdResult cr = node.on_command(c);
     std::array<uint8_t, 8> cb{};
-    RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
-    hal._now = 100; node.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb), bob);
+    const uint8_t next_hop = bind_key ? uint8_t{2} : uint8_t{3};   // the CTS must come from the ROUTE's next hop
+    RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(next_hop) };
+    hal._now = 100; node.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/next_hop, /*data_sf=*/12, cb), bob);
     node.on_timer(kCtsToDataGapTimerId);                      // CTS->DATA gap -> DATA tx
 
     OrigLoc r{};
+    r.code = cr.code; r.qn = cr.queue_depth;
+    r.tx_calls = hal.tx_calls;
+    r.pack_failed = hal.logged("DATA pack failed");
     { Push pu{}; while (node.next_push(pu)) if (pu.kind == PushKind::send_failed) { r.failed = true; r.reason = pu.reason; break; } }
-    const TxFrame* dataf = nullptr;
-    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
-    if (!dataf) return r;                                     // ★ NOTHING AIRED — what a refusal must produce
+    // ⚠ COPY the DATA bytes out BEFORE the wedge probe below sends again — the probe appends to `hal.tx_frames`,
+    // which reallocates, so a pointer into the vector would dangle.
+    std::vector<uint8_t> data_bytes;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) data_bytes = f.bytes;
+    // ★ THE WEDGE PROBE: a second, unambiguously-legal 2-B DM on the SAME node. If the first send left a flight
+    // pending with nothing to re-fire it, this one never reaches the air — which is how a silent length refusal
+    // costs the operator more than the one message he typed.
+    {
+        const size_t before = hal.tx_frames.size();
+        const uint8_t two[2] = { 'o', 'k' };
+        Command c2{}; c2.kind = CmdKind::send; c2.u.send.dst_id = 2; c2.body = two; c2.body_len = 2;
+        hal._now = 200; (void)node.on_command(c2);
+        std::array<uint8_t, 8> cb2{};
+        hal._now = 300; node.on_recv(cb2.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/next_hop, /*data_sf=*/12, cb2), bob);
+        node.on_timer(kCtsToDataGapTimerId);
+        for (size_t i = before; i < hal.tx_frames.size(); ++i)
+            if (!hal.tx_frames[i].bytes.empty() && (hal.tx_frames[i].bytes[0] >> 4) == 0x3) r.next_send_aired = true;
+    }
+    if (data_bytes.empty()) return r;                         // ★ NOTHING AIRED — what a refusal must produce
     r.aired = true;
-    r.frame.assign(dataf->bytes.begin(), dataf->bytes.end());
+    r.frame = data_bytes;
     // The leak's signature: are the 6 PACKED location bytes sitting verbatim in the aired frame?
     if (lat != 0 || lon != 0) {
         uint8_t loc6[6]; pack_loc6(lat, lon, std::span<uint8_t>(loc6, 6));
@@ -7270,6 +7313,278 @@ TEST_CASE("§loc-per-send — an ORDINARY DM (no `-l`) never sets LOCATION, seal
     CHECK(originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true).aired);
 }
 
+
+// -----------------------------------------------------------------------------
+// ★★ §B20/B21 — THE DM LENGTH BOUNDARY (register rows [[B20]] / [[B21]], 2026-08-28)
+//
+// The two rows are ONE sweep and TWO causes, and the cases below keep them apart:
+//   [[B20]] a CRYPTED DM of body_len 215-216 (209-210 with `-l`) SEALED FINE and then vanished. The seal was
+//           handed `sizeof item.inner` == protocol::max_payload_bytes_hard_cap (241) as its cap — a constant that
+//           subtracts data_inner_overhead 6, i.e. a **4-byte** MAC — while a CRYPTED frame's trailer is **8**. So
+//           the sender admitted an inner pack_data could not carry, queued it, aired the RTS, and then dropped the
+//           DATA at TX time (`dlen == 0`) with NO send_failed and NO flight teardown.
+//   [[B21]] from body_len 237 the DST_HASH fit-check `4 + 1 + body_len <= 241` dropped the flag FOR SIZE, so the
+//           sealed path's `!(flags & DATA_FLAG_DST_HASH)` guard fired and reported `e2e_no_pubkey` — for a key the
+//           node HELD — and returned without pushing anything at all.
+// The fix is one length authority: `data_inner_cap()`/`data_frame_len()` (frame_codec.h) are pack_data's own
+// arithmetic, the seal is sized from them, and the DST_HASH guard splits on `dh` and pushes on both arms.
+// ⇒ EVERY length now lands exactly one of two honest outcomes: it airs, or it refuses loud with the true reason.
+// -----------------------------------------------------------------------------
+namespace {
+// The carrier shapes reachable from the PUBLIC `send` command, with the LARGEST body each one airs.
+// ⓘ The plaintext caps are 239 because a plaintext trailer is 4 B: such a frame tops out at 8 + 240 + 4 = 252,
+//   so the FRAME bound is never the binding one and `dm_max_body_bytes` (239, the inner[] buffer guard in
+//   on_command) refuses first. The CRYPTED caps are the ones the frame bound sets: inner <= 239 and
+//   inner = 4 (aad) + 1 (origin) + 4 (SOURCE_HASH) + [6 (LOCATION)] + body + 16 (tag).
+struct DmVariant { const char* name; bool loc; bool sealed; bool ack; bool bind; int cap; };
+constexpr DmVariant kDmVariants[] = {
+    { "plaintext, no DST_HASH", false, false, false, false, 239 },
+    { "plaintext + DST_HASH",   false, false, false, true,  239 },
+    { "plaintext + `-a`",       false, false, true,  true,  239 },
+    { "CRYPTED",                false, true,  false, true,  214 },
+    { "CRYPTED + `-a`",         false, true,  true,  true,  214 },
+    { "CRYPTED + `-l`",         true,  true,  false, true,  208 },
+};
+}  // namespace
+
+// ★ THE AUTHORITY ITSELF. If these drift, every case below is measuring a formula that no longer describes the
+//   frame — so they are pinned against pack_data's REAL output, not against hand-copied numbers.
+TEST_CASE("§B20 — data_frame_len/data_inner_cap ARE pack_data's arithmetic (not a parallel cap table)") {
+    // The overhead terms, read off the formula: 8-B header, +1 iff a TYPE byte, +4 or +8 trailer.
+    CHECK(data_inner_cap(/*flags=*/0, /*type=*/0) == 255 - 8 - 4);                        // 243
+    CHECK(data_inner_cap(DATA_FLAG_CRYPTED, /*type=*/0) == 255 - 8 - 8);                  // 239 — the B20 bound
+    CHECK(data_inner_cap(/*flags=*/0, DATA_TYPE_MOBILE_SEND) == 255 - 8 - 1 - 4);         // 242
+    CHECK(data_inner_cap(DATA_FLAG_CRYPTED, DATA_TYPE_MOBILE_SEND) == 255 - 8 - 1 - 8);   // 238 — a TYPED sealed DM
+    // ★ THE CRYPTED DELTA IS EXACTLY 4 — the gap between the 4-B MAC baked into max_payload_bytes_hard_cap and
+    //   the 8-B nonce-seed trailer. That difference IS B20, expressed as one subtraction.
+    CHECK(data_inner_cap(/*flags=*/0, /*type=*/0) - data_inner_cap(DATA_FLAG_CRYPTED, /*type=*/0) == 4);
+    // ...and the inverse round-trips: an inner AT the cap builds a frame of exactly lora_max_frame_bytes.
+    CHECK(data_frame_len(DATA_FLAG_CRYPTED, 0, data_inner_cap(DATA_FLAG_CRYPTED, 0)) == protocol::lora_max_frame_bytes);
+    CHECK(data_frame_len(0, DATA_TYPE_MOBILE_SEND, data_inner_cap(0, DATA_TYPE_MOBILE_SEND)) == protocol::lora_max_frame_bytes);
+
+    // ★★ AND THE REAL PACKER AGREES, both sides, for a CRYPTED frame — this is the assertion that makes the
+    //    constants above evidence rather than restatement.
+    std::array<uint8_t, protocol::lora_max_frame_bytes> out{};
+    std::array<uint8_t, 255> inner{};
+    const uint8_t seed8[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    const uint8_t cflags = static_cast<uint8_t>(DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH);
+    for (size_t n : { data_inner_cap(cflags, 0), data_inner_cap(cflags, 0) + 1 }) {
+        data_in din{}; din.flags = cflags; din.next = 2; din.dst = 2; din.ctr = 7;
+        din.inner = std::span<const uint8_t>(inner.data(), n);
+        din.mac   = std::span<const uint8_t>(seed8, 8);
+        const size_t got = pack_data(din, std::span<uint8_t>(out.data(), out.size()));
+        if (n == data_inner_cap(cflags, 0)) CHECK(got == protocol::lora_max_frame_bytes);   // exactly fits
+        else                                CHECK(got == 0);                               // one byte over -> refused
+    }
+}
+
+// ★★★ THE MATRIX. Every carrier shape × every body length across the boundary, with the demand the register rows
+//     make: NOTHING may be accepted-but-never-aired, and every refusal must carry the TRUE condition. The old tree
+//     failed this at 15 cells (6 in B20's bands, 9 in B21's).
+TEST_CASE("§B20/B21 — every body length lands exactly ONE of two honest outcomes, for every carrier shape") {
+    for (const DmVariant& v : kDmVariants) {
+        CAPTURE(v.name);
+        for (int b = 200; b <= 239; ++b) {
+            CAPTURE(b);
+            const OrigLoc r = originate_dm_loc(v.loc, 523000000, 134050000, v.sealed,
+                                               static_cast<uint8_t>(b), v.ack, v.bind);
+            CHECK(r.code == CmdCode::queued);              // the synchronous answer is unchanged: the shape-blind
+                                                           // dm_max_body_bytes guard admits all of 200..239
+            if (b <= v.cap) {
+                CHECK(r.aired);                            // AIRS
+                CHECK(r.crypted == v.sealed);
+                CHECK_FALSE(r.failed);                     // ...and says nothing failed
+            } else {
+                CHECK_FALSE(r.aired);                      // REFUSES
+                CHECK(r.failed);                           // ...LOUDLY (this is the whole of B20/B21)
+                CHECK(r.reason == SendFailReason::too_large);   // ...with the TRUE condition
+                CHECK(r.tx_calls == 0);                    // ★ and BEFORE any airtime: not even the RTS went out
+                CHECK(r.qn == 0);                          // ...and no tx-queue slot was burned
+            }
+            // ⛔ THE SILENT CLASS, ASSERTED AWAY EVERYWHERE: `pack_failed` is the TX-time `dlen == 0` bail, the one
+            //    path that used to drop a DM with nothing pushed. No length may reach it from an origination.
+            CHECK_FALSE(r.pack_failed);
+        }
+    }
+}
+
+// ★★ [[B20]] — THE FLIPPED REPRODUCTION. Pre-fix these two lengths were `aired=0 failed=0 tx_calls=1
+//    pack_failed=1`: accepted, RTS aired (real airtime burned), DATA silently dropped, app told nothing, and the
+//    flight left pending with nothing to re-fire it. The same-length CONTROL one byte below is what makes the
+//    assertion attributable to the CAP and not to the body being large.
+TEST_CASE("§B20 — a sealed DM in the 215-216 band refuses `too_large`; NOTHING airs and nothing is queued") {
+    for (uint8_t body : { uint8_t{215}, uint8_t{216} }) {
+        CAPTURE(body);
+        const OrigLoc r = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true, body);
+        CHECK_FALSE(r.aired);
+        CHECK(r.failed);
+        CHECK(r.reason == SendFailReason::too_large);
+        CHECK(r.tx_calls == 0);        // ★ the pre-fix signature was 1 — the RTS for a DATA that never followed
+        CHECK_FALSE(r.pack_failed);    // ★ the pre-fix signature was true — the TX-time silent drop
+        CHECK(r.qn == 0);
+    }
+    // ★ THE CONTROL, one byte below the cap: identical shape, still flies, still sealed.
+    const OrigLoc ok = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true, /*body=*/214);
+    CHECK(ok.aired); CHECK(ok.crypted); CHECK_FALSE(ok.failed); CHECK(ok.tx_calls == 2);   // RTS + DATA
+    // ★ AND THE `-l` TWIN, whose 6 sealed bytes move the whole boundary down by exactly 6 (208 / 209-210).
+    CHECK(originate_dm_loc(/*want_loc=*/true, 523000000, 134050000, /*sealed=*/true, 208).aired);
+    for (uint8_t body : { uint8_t{209}, uint8_t{210} }) {
+        const OrigLoc r = originate_dm_loc(/*want_loc=*/true, 523000000, 134050000, /*sealed=*/true, body);
+        CHECK_FALSE(r.aired); CHECK(r.failed); CHECK(r.reason == SendFailReason::too_large);
+        CHECK(r.tx_calls == 0); CHECK_FALSE(r.pack_failed);
+    }
+}
+
+// ★★ [[B21]] — THE FLIPPED REPRODUCTION, AND IT IS A DIFFERENT CAUSE AT A DIFFERENT SITE. Pre-fix, body_len 237-239
+//    emitted `e2e_no_pubkey` (about a key the node HELD and had just looked up) and pushed NOTHING. The distinction
+//    the row demands is preserved below: the same guard still answers `no_pubkey` when the key genuinely is missing.
+TEST_CASE("§B21 — an oversized sealed DM reports `too_large`, not `no_pubkey`, and it PUSHES") {
+    for (uint8_t body : { uint8_t{237}, uint8_t{238}, uint8_t{239} }) {
+        CAPTURE(body);
+        const OrigLoc r = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true, body);
+        CHECK_FALSE(r.aired);
+        CHECK(r.failed);                                   // ★ pre-fix: NO push at all
+        CHECK(r.reason == SendFailReason::too_large);       // ★ pre-fix: the operator was sent after a key he had
+        CHECK(r.reason != SendFailReason::no_pubkey);
+        CHECK(r.tx_calls == 0);
+        CHECK(r.qn == 0);
+    }
+}
+
+// ★★ [[B21]]'s OTHER ARM, kept truthful — the distinction is the point of the fix, not a side effect. With the
+//    id->hash binding withheld the node cannot name the recipient's key, so `no_pubkey` IS the true condition and
+//    the remedy (`reqpubkey` / a QR scan) is the right one to advertise. What changed is that it now PUSHES.
+TEST_CASE("§B21 — a sealed DM to an id we hold no binding for still reports `no_pubkey`, and now pushes it") {
+    const OrigLoc r = originate_dm_loc(/*want_loc=*/false, 0, 0, /*sealed=*/true, /*body=*/8,
+                                       /*want_ack=*/false, /*bind_key=*/false);
+    CHECK_FALSE(r.aired);                                   // never cleartext
+    CHECK(r.failed);                                        // ★ pre-fix: silent
+    CHECK(r.reason == SendFailReason::no_pubkey);
+    CHECK(r.reason != SendFailReason::too_large);           // ★ and NOT the size verdict — the body is 8 bytes
+    CHECK(r.tx_calls == 0);
+    // ★ CONTROL: the identical send WITH the binding flies, so the refusal is attributable to the missing binding.
+    const OrigLoc ctl = originate_dm_loc(/*want_loc=*/false, 0, 0, /*sealed=*/true, /*body=*/8);
+    CHECK(ctl.aired); CHECK(ctl.crypted); CHECK_FALSE(ctl.failed);
+}
+
+// ★★ END-TO-END AT THE CAP. A refusal boundary is only honest if the last ACCEPTED length actually DELIVERS — a cap
+//    that airs a frame the peer cannot open would be the same defect one layer down. Drives the real receive path.
+TEST_CASE("§B20 — a sealed DM AT the cap (214 B) delivers: the peer opens the full body") {
+    const OrigLoc r = originate_dm_loc(/*want_loc=*/false, 0, 0, /*sealed=*/true, /*body=*/214);
+    CHECK(r.aired); CHECK(r.crypted); CHECK_FALSE(r.failed);
+    CHECK(r.frame.size() == protocol::lora_max_frame_bytes);   // ★ exactly full — the cap is the frame's, not a guess
+
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts_for_frame(/*src=*/1, /*next=*/2, /*dst=*/2,
+                                     static_cast<uint8_t>(r.ctr & 0x0F), r.plen, rb, r.frame.data(), r.frame.size()), from1);
+    halB._now = 2000; B.on_recv(r.frame.data(), r.frame.size(), from1);
+    B.on_timer(kPostAckTimerId);
+    Push pu{}; bool got = false;
+    while (B.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) {
+        CHECK(pu.enc);                       // delivered SEALED
+        CHECK(pu.body_len == 214);           // ★ the WHOLE body — no silent truncation at the boundary
+        bool all_x = true; for (uint8_t i = 0; i < pu.body_len; ++i) if (pu.body[i] != 'x') all_x = false;
+        CHECK(all_x);
+    }
+}
+
+// ★★★ §B20 — THE TX-TIME BACKSTOP ITSELF, AND ITS RECOVERY. The preflight above means no ORIGINATION can reach
+//     `pack_data`'s refusal any more, so proving the `dlen == 0` teardown needs a flight the preflight never saw:
+//     a **RELAYED** one. `forward_item_from_post_ack` (node_mac_rx.cpp:54-58) copies the received `pa.flags`
+//     VERBATIM into the forwarded TxItem, and nothing on the receive path rejects the byte-1 combination
+//     `CRYPTED` **without** `DST_HASH` — a combination our own origination path cannot build (enqueue_data tests
+//     DST_HASH *before* it ORs CRYPTED in) but a foreign or corrupt neighbour can put on the air. `pack_data`'s
+//     SECOND refusal arm then fires at TX time (frame_codec.cpp:900, "the per-DM nonce derives from the CLEARTEXT
+//     dst_key_hash32, so it MUST be present").
+// ⓘ WHY THIS ARM AND NOT ANOTHER, stated so the choice is auditable: of pack_data's four refusals, `addr_len > 1`
+//   is unreachable (do_data_tx computes `din.addr_len` as 0 or 1), the trailer-size mismatch is unreachable (the
+//   mac span is chosen from the same `CRYPTED` bit pack_data reads), and the LENGTH arm is the one the preflight
+//   now owns. This is the only arm a real received frame can still drive — ★ NO TEST SEAM IS USED, and the frame
+//   is built by the production packer and then byte-1-flipped, exactly as a hostile sender would emit it.
+TEST_CASE("§B20 — a TX-time pack refusal on a RELAYED frame tears the flight down: the node's NEXT DM still airs") {
+    TestHal hal; Node node(hal, 1, 0xABCD);                      // node 1 is the RELAY
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t, 64> bb{};
+    RxMeta m7{ 12.0f, -70.0f, 0, static_cast<int8_t>(7) };
+    node.on_recv(bb.data(), mk_beacon_route(7, 5, 9, 1, 14, bb), m7);   // route to 5 via 7
+
+    // The unbuildable-by-us frame: packed CRYPTED|DST_HASH (so the packer will emit it), then byte 1's DST_HASH
+    // bit cleared. The inner keeps its 4-B hash prefix, which a relay never reads — the inner is opaque to it.
+    std::array<uint8_t, 64> inner{}; for (auto& b : inner) b = 0x5A;
+    const uint8_t seed8[8] = { 9, 8, 7, 6, 5, 4, 3, 2 };
+    std::array<uint8_t, protocol::lora_max_frame_bytes> frame{};
+    data_in din{}; din.addr_len = 0;
+    din.flags = static_cast<uint8_t>(DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH);
+    din.next = 1; din.dst = 5; din.ctr = 3; din.hops_remaining = 5; din.committed_hops = 1;
+    din.inner = std::span<const uint8_t>(inner.data(), 24);
+    din.mac   = std::span<const uint8_t>(seed8, 8);
+    const size_t fl = pack_data(din, std::span<uint8_t>(frame.data(), frame.size()));
+    CHECK(fl > 0);                                               // the packer accepts the LEGAL combination...
+    frame[1] = static_cast<uint8_t>(frame[1] & ~DATA_FLAG_DST_HASH);   // ...and now it is the illegal one
+    { data_in bad = din; bad.flags = frame[1];                   // ★ and the packer REFUSES it — the arm, pinned
+      std::array<uint8_t, protocol::lora_max_frame_bytes> t{};
+      CHECK(pack_data(bad, std::span<uint8_t>(t.data(), t.size())) == 0); }
+
+    std::array<uint8_t, 16> rb{};
+    RxMeta m2{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 1000;
+    node.on_recv(rb.data(), mk_rts_for_frame(/*src=*/2, /*next=*/1, /*dst=*/5, /*ctr_lo=*/3,
+                                             static_cast<uint8_t>(fl - 8), rb, frame.data(), fl), m2);
+    hal._now = 1100; node.on_recv(frame.data(), fl, m2);          // accepted + ACKed: nothing here inspects the pair
+    CHECK(hal.count("ack_tx") == 1);
+    node.on_timer(kPostAckTimerId);                              // -> forward TxItem -> issue_send -> RTS to 7
+
+    // ★★★ THE FIXTURE'S LOAD-BEARING ORDERING, AND IT IS NOT ARBITRARY. The node's own next DM is queued WHILE the
+    //     doomed forward is still in flight, so it sits in `_tx_queue` un-started (enqueue_data's own
+    //     `become_free()` early-returns on a busy `_pending_tx`, node_mac.cpp:892). That is the realistic shape —
+    //     a relay with its own traffic behind the frame it cannot pack — and it is the ONLY shape in which the two
+    //     halves of the teardown are separately observable:
+    //       · without `_pending_tx.reset()` the flight is never released, so `become_free()` early-returns;
+    //       · without `become_free()` the flight IS released but NOTHING PUMPS THE QUEUE, so the waiting DM is not
+    //         started either — `become_free()` is the queue-drain pump (node_mac.cpp:891-909), not a MAC release.
+    // ⚠ Queueing the DM *after* the failure instead would make the second half INERT (the new send pumps itself),
+    //   which is exactly how the first version of this case let a `become_free()` mutation pass. Recorded so it is
+    //   not "simplified" back.
+    hal._now = 1150;
+    CHECK(send_cmd(node, /*dst=*/5, "ok").code == CmdCode::queued);
+    CHECK(node.test_tx_queue_n() == 1);                           // queued and WAITING, not started
+    const int rts_before  = hal.count("rts_tx");
+    const int data_before = hal.count("data_tx");
+
+    std::array<uint8_t, 8> cb{};
+    hal._now = 1200; node.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/7, /*data_sf=*/7, cb), m7);
+    node.on_timer(kCtsToDataGapTimerId);                         // -> do_data_tx -> pack_data == 0 -> THE BACKSTOP
+    CHECK(hal.logged("DATA pack failed"));                       // ★ it really is the TX-time refusal firing
+    CHECK(hal.count("data_pack_failed") == 1);                   // ...and it says so loudly
+    CHECK(hal.count("data_tx") == data_before);                  // nothing aired for the doomed forward
+
+    // ★★★ THE RECOVERY ASSERTIONS — THE WHOLE POINT of the teardown, and what makes B07/B08 measurable.
+    CHECK(node.test_tx_queue_n() == 0);                          // the waiting DM was DRAINED by become_free()
+    CHECK(hal.count("rts_tx") == rts_before + 1);                // ...and its own flight actually started
+    std::array<uint8_t, 8> cb2{};
+    hal._now = 1300; node.on_recv(cb2.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/7, /*data_sf=*/7, cb2), m7);
+    node.on_timer(kCtsToDataGapTimerId);
+    CHECK(hal.count("data_tx") == data_before + 1);               // ★ THE NEXT TRANSMISSION HAPPENED
+    const TxFrame* aired = hal.last_tx("DATA");
+    CHECK(aired != nullptr);
+    if (aired) { auto pd = parse_data(std::span<const uint8_t>(aired->bytes.data(), aired->bytes.size()));
+                 CHECK(pd.has_value());
+                 if (pd) { CHECK(pd->dst == 5); CHECK_FALSE(pd->crypted); } }   // OUR plaintext DM, not the corpse
+}
 
 // ★ `send_layer -l` REFUSES. NEITHER cross-layer builder can carry a position: enqueue_cross_layer masks the flag off
 // and packs lat/lon = 0, and the sealed substitute (DATA_TYPE_SEALED_RELAY) has no flags word on the wire for the
@@ -10343,4 +10658,162 @@ TEST_CASE("§B251 encryption boundary — consistently rewriting an ordinary CRY
     const auto changed_result = receive(changed.data(), changed_n);
     CHECK(valid_result.first == 1); CHECK(valid_result.second == 0);
     CHECK(changed_result.first == 0); CHECK(changed_result.second >= 1);
+}
+
+// =============================================================================
+// §B159 — DE-DUPLICATION VS THE RETRY HORIZON.
+//
+// The DATA application-dedup is `_seen_origins` (node_mac_rx.cpp:1353/:1479), retained for
+// `seen_origin_ttl_ms`. It is the SOLE authority for "deliver or not" — `record_dm`/the
+// msg_recv push append unconditionally (inbox.cpp:160), so a dedup miss IS a second
+// application delivery, not merely a cache miss.
+//
+// The retry horizons that can outlive it (all re-sending the SAME flight identity):
+//   · cascade requeue          — `cascade_requeue_total_max_ms` = 60 000 ms (node_cascade.cpp:214)
+//   · gateway doorstep hold    — `gateway_send_giveup_ms`      = 150 000 ms (node_cascade.cpp:426)
+// The completed-flight cache (`completed_flight_cache_ttl_ms` = 150 000) shields a retry only when
+// the IMMEDIATE SENDER is unchanged; a cascade to an ALTERNATE next hop reaches the destination via
+// a different `from`, so that cache cannot match and `_seen_origins` is all that stands between the
+// retry and a second delivery.
+//
+// ⇒ the invariant these pin: retention >= the longest retry horizon.
+// =============================================================================
+
+// The reproduction. Delivered once at t0 via prev-hop 2; the sender's ACK is lost, it cascades to an
+// alternate next hop and the SAME flight arrives via prev-hop 3 at t0+31 s — inside the 60 s cascade
+// horizon but past the retired 30 s retention. RED before the fix: TWO `delivered` for one message.
+TEST_CASE("§B159 repro (time) — a cascaded retry inside the retry horizon must NOT deliver twice") {
+    TestHal hal; Node node(hal, /*id=*/5, 0xABCD);                      // self == the destination
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};                    // the cascade alternate
+    hal._now = 1000; { const size_t rn = mk_rts(2,5,5,3,10,rb,0,/*origin=*/7,/*ctr=*/3); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, m2); }
+    node.on_timer(kPostAckTimerId);
+    CHECK(delivered_payloads(hal).size() == 1);                          // the legitimate first delivery
+    // t0 + 31 s: past seen_origin_ttl_ms(30 s), well inside cascade_requeue_total_max_ms(60 s).
+    const uint64_t retry_at = 1100 + 31000;
+    hal._now = retry_at;        { const size_t rn = mk_rts(3,5,5,3,10,rb,0,7,3); node.on_recv(rb.data(), rn, m3); }
+    hal._now = retry_at + 100;  { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, m3); }
+    node.on_timer(kPostAckTimerId);
+    CHECK(delivered_payloads(hal).size() == 1);                          // ★ THE DEFECT: 2 before the fix
+    CHECK(hal.count("dup_drop") >= 1);                                   // suppressed, and ACCOUNTED for
+}
+
+// The same shape reached WITHOUT a cascade: the gateway doorstep hold retries to the SAME next hop for
+// up to gateway_send_giveup_ms(150 s), and the completed-flight cache normally answers that with a
+// terminal CTS — but it holds only `cap_completed_flights`(12) slots per layer, so 12 later flights
+// evict the entry and the retry falls through to DATA, where `_seen_origins` alone adjudicates.
+TEST_CASE("§B159 repro (cache-evicted, same prev-hop) — a doorstep retry must NOT deliver twice") {
+    TestHal hal; Node node(hal, /*id=*/5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,5,5,3,10,rb,0,/*origin=*/7,/*ctr=*/3); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, m2); }
+    node.on_timer(kPostAckTimerId);
+    CHECK(delivered_payloads(hal).size() == 1);
+    // Evict the completed-flight entry with cap_completed_flights fresher flights from the same sender.
+    for (uint16_t k = 0; k < protocol::cap_completed_flights; ++k) {
+        const uint16_t c = static_cast<uint16_t>(100 + k);
+        hal._now = 2000 + 10 * k; { const size_t rn = mk_rts(2,5,5,static_cast<uint8_t>(c & 0x0f),10,rb,0,7,c); node.on_recv(rb.data(), rn, m2); }
+        hal._now = 2005 + 10 * k; { const size_t dn = mk_data(5,5,c,7,"filler",db); node.on_recv(db.data(), dn, m2); }
+        node.on_timer(kPostAckTimerId);
+    }
+    CHECK(node.completed_flight_find(2, 5, false, rts_flight_identity_plain(7, 3), 2500) == nullptr);   // evicted
+    const size_t before = delivered_payloads(hal).size();
+    const uint64_t retry_at = 1100 + 31000;                              // inside the 150 s doorstep horizon
+    hal._now = retry_at;       { const size_t rn = mk_rts(2,5,5,3,10,rb,0,7,3); node.on_recv(rb.data(), rn, m2); }
+    hal._now = retry_at + 100; { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, m2); }
+    node.on_timer(kPostAckTimerId);
+    CHECK(delivered_payloads(hal).size() == before);                     // ★ THE DEFECT: before+1 pre-fix
+}
+
+// The retention boundary, driven from BOTH sides. `record_seen_origin` stores `expiry = now + ttl` and
+// `live_dup` is `expiry > now`, so `t_record + ttl - 1` is the last suppressed instant and `t_record + ttl`
+// is the first delivering one. Prev-hop 3 (not 2) so the completed-flight cache cannot answer the RTS and
+// the DATA really reaches the dedup — otherwise the assertion is vacuous.
+static size_t b159_deliver_twice(TestHal& hal, Node& node, uint64_t first_ms, uint64_t retry_ms, uint8_t retry_from) {
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    RxMeta mr{8.0f,-80.0f,0,static_cast<int8_t>(retry_from)};
+    hal._now = first_ms - 100; { const size_t rn = mk_rts(2,5,5,3,10,rb,0,/*origin=*/7,/*ctr=*/3); node.on_recv(rb.data(), rn, m2); }
+    hal._now = first_ms;       { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, m2); }
+    node.on_timer(kPostAckTimerId);
+    hal._now = retry_ms - 100; { const size_t rn = mk_rts(retry_from,5,5,3,10,rb,0,7,3); node.on_recv(rb.data(), rn, mr); }
+    hal._now = retry_ms;       { const size_t dn = mk_data(5,5,3,7,"once",db); node.on_recv(db.data(), dn, mr); }
+    node.on_timer(kPostAckTimerId);
+    return delivered_payloads(hal).size();
+}
+static Node* b159_dest(TestHal& hal) {
+    Node* n = new Node(hal, /*id=*/5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; n->on_init(cfg);
+    return n;
+}
+
+TEST_CASE("§B159 boundary — retention-1 SUPPRESSES, retention exactly DELIVERS (a genuinely new flight)") {
+    const uint64_t t0 = 1100;
+    const uint64_t ttl = protocol::seen_origin_ttl_ms;
+    {   // retention - 1 ms: still live -> the retry is a duplicate, ONE delivery
+        TestHal hal; Node* n = b159_dest(hal);
+        CHECK(b159_deliver_twice(hal, *n, t0, t0 + ttl - 1, /*from=*/3) == 1);
+        CHECK(hal.count("dup_drop") >= 1);                    // suppressed AND accounted for
+        delete n;
+    }
+    {   // exactly at the retention: expired -> C2, a genuinely-new flight reusing the identity DELIVERS
+        TestHal hal; Node* n = b159_dest(hal);
+        CHECK(b159_deliver_twice(hal, *n, t0, t0 + ttl, /*from=*/3) == 2);
+        delete n;
+    }
+}
+
+// Every retry horizon is now INSIDE the retention — the invariant the fix establishes, driven at each
+// horizon's own worst case rather than at a round number.
+TEST_CASE("§B159 horizons — a retry at the cascade AND the gateway-doorstep worst case is suppressed") {
+    const uint64_t t0 = 1100;
+    const uint32_t cascade_worst = protocol::cascade_requeue_total_max_ms       // 60 s ...
+                                 + protocol::cascade_requeue_backoff_cap_ms;   // ... + one held backoff
+    {   TestHal hal; Node* n = b159_dest(hal);
+        CHECK(b159_deliver_twice(hal, *n, t0, t0 + cascade_worst, /*from=*/3) == 1); delete n; }
+    {   TestHal hal; Node* n = b159_dest(hal);   // the doorstep giveup bound — the longest horizon there is
+        CHECK(b159_deliver_twice(hal, *n, t0, t0 + protocol::gateway_send_giveup_ms - 1, /*from=*/3) == 1); delete n; }
+}
+
+// The derivation itself, so a future edit cannot silently re-open [[B159]] by re-spelling a side as a literal.
+// ⚠ CORRECTED after QG rejected the first cut: retention is NOT simply the give-up value. The give-up bounds the
+// START of an attempt (enforced by `gateway_deadline_expired`); the DATA lands one MAC exchange later, so the
+// receiver must retain for the bound PLUS that exchange. Pinning equality with the give-up — which is what the
+// first cut asserted here — pins a constant rather than the horizon, and would go green again on the defect.
+TEST_CASE("§B159 derivation — retention = the enforced sender deadline + one measured MAC exchange") {
+    CHECK(protocol::seen_origin_ttl_ms == protocol::gateway_send_giveup_ms + protocol::mac_exchange_margin_ms);
+    CHECK(protocol::seen_origin_ttl_ms >  protocol::gateway_send_giveup_ms);         // strictly — the margin is real
+    CHECK(protocol::seen_origin_ttl_ms >  protocol::completed_flight_cache_ttl_ms);  // and exceeds the RTS-level cache
+    // Every retry horizon the row was opened against sits strictly inside the retention.
+    CHECK(protocol::seen_origin_ttl_ms >= protocol::cascade_requeue_total_max_ms
+                                        + protocol::cascade_requeue_backoff_cap_ms);
+    // The margin must cover a whole MAC exchange with real headroom over the corpus-measured worst (5 062 ms).
+    CHECK(protocol::mac_exchange_margin_ms >= 5062 * 2);
+    CHECK(protocol::cap_seen_origins == 256);      // UNCHANGED by B159 — the cap bounds RAM, the ttl does not
+}
+
+// The PRUNE is what stops the raised retention from turning into permanent capacity pressure: expired keys
+// must actually LEAVE the map, or a `cap_seen_origins`-full table would start roll-evicting LIVE entries and
+// re-open [[B159]] through the capacity door instead of the time one. `record_seen_origin` prunes on every
+// record (node_mac_rx.cpp:999) — this pins that it frees the slots rather than merely reading around them.
+// ⓘ This is also the B239 audit's answer for this deadline: the comparison is `expiry > now` on uint64 ms
+// (no 2^31 wrap revival is reachable) AND the entry has a real clearing term. Both, not either.
+TEST_CASE("§B159 retention hygiene — expired keys are PRUNED, so a late key evicts nothing live") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    const uint64_t t0 = 1000;
+    for (uint16_t i = 0; i < protocol::cap_seen_origins; ++i)
+        node.record_seen_origin(0x51590000ull + i, /*from=*/2, t0);
+    CHECK(node.seen_origin_count() == protocol::cap_seen_origins);      // a full table of live entries
+    // One millisecond past the retention every one of them is expired; the next record must reclaim them all.
+    const uint64_t late = t0 + protocol::seen_origin_ttl_ms + 1;
+    node.record_seen_origin(0x51590000ull + protocol::cap_seen_origins, /*from=*/3, late);
+    CHECK(node.seen_origin_count() == 1);                               // pruned — NOT cap_seen_origins + 1, NOT rolled
+    CHECK(node.seen_origin_live(0x51590000ull + protocol::cap_seen_origins, late));
+    CHECK_FALSE(node.seen_origin_live(0x51590000ull, late));            // and the expired ones are really gone
 }

@@ -24,6 +24,8 @@ TxResult DeviceHal::tx(const uint8_t* bytes, size_t len, const TxParams& p) {
     e.pw  = p.power_dbm    >= -126 ? p.power_dbm    : _def_power;
     e.tag = p.tag;
     e.seq = p.seq;
+    e.deadline_ms = p.deadline_ms;   // [[B159]]: 0 = no deadline; carried to the physical-start check in pump_tx
+
     e.len = static_cast<uint16_t>(len);
     for (size_t i = 0; i < len; ++i) e.buf[i] = bytes[i];
     _txq_count++;
@@ -53,6 +55,23 @@ void DeviceHal::pump_tx() {
     if (_radio.tx_busy()) return;                                         // a TX is still on air
     if (_txq_count == 0) return;
     TxQEntry& e = _txq[_txq_head];
+    // ★★★ [[B159]] — **THE PHYSICAL-START DEADLINE, AND THIS IS THE TERMINAL AUTHORITY.** `tx()` above only
+    // ENQUEUES; the frame can then wait behind up to kTxQCap-1 others, and ONE queued max-length frame at the
+    // slowest legal PHY (SF12/BW7800/CR8/255 B) is ~229 s of airtime. So a Node-side guard before `Hal::tx()`
+    // bounds ADMISSION only — an RTS admitted at age 149 s could still physically start well past the bound.
+    // ⛔ 0 = the "no deadline" sentinel: every frame but a gateway-bound RTS carries it and is untouched here (C2).
+    // ⛔ The refusal does NOT call `start_transmit` — nothing airs — and reports through the EXISTING outcome ring
+    //    with the `expired` kind, echoing the seq/tag the SENDING SITE stamped so the Node can correlate it to
+    //    exactly one flight. HAL-side code must not reach into Node state (C3), which is why this is a status on
+    //    the established completion path rather than a new notification channel.
+    if (e.deadline_ms != 0 && _clock.now_ms() >= e.deadline_ms) {
+        const TxOutcome expired{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,
+                                 e.tag, e.seq, e.sf, 0 };
+        _txq_head = static_cast<uint8_t>((_txq_head + 1) % kTxQCap);   // drop it: the frame never flies
+        _txq_count--;
+        push_tx_outcome(expired);
+        return;
+    }
     const TxResult r = _radio.start_transmit(e.buf, e.len, e.sf, e.bw, e.cr, e.pw, e.pre);
     if (r == TxResult::ok) {
         _inflight = InflightTx{ e.seq, e.tag, e.sf };

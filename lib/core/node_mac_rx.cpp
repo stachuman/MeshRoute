@@ -512,8 +512,14 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // `ctr`, or the whole 8-B cleartext nonce-seed for a CRYPTED flight. Fresh DATA -> ACK + deliver/forward +
     // record. Same message, SAME prev-hop (the real lost-ACK case) -> ACK only, and it RETURNS BEFORE
     // `_post_ack` is set, so there is no second delivery and no second forward. Same message, DIFFERENT
-    // prev-hop -> the existing LOOP_DUP NACK. ⓘ Its TTL is `seen_origin_ttl_ms` = 30 s, THREE TIMES the 10 s
-    // window this gate had, so the replacement is strictly MORE durable, not less.
+    // prev-hop -> the existing LOOP_DUP NACK. ⓘ Its TTL is `seen_origin_ttl_ms`, so the replacement is strictly
+    // MORE durable than the 10 s window this gate had.
+    // ⚠ THIS LINE READ "= 30 s, THREE TIMES the 10 s window" until [[B159]] (2026-08-28), and the arithmetic was
+    // right while the CONCLUSION was wrong: 30 s beat the retired 10 s gate but sat FAR BELOW the retry horizons
+    // that actually reach this dedup (cascade 80 s, gateway doorstep 150 s), so a retry arriving in between
+    // delivered to the app a SECOND time. The TTL is now DERIVED from the longest of those horizons — see
+    // `seen_origin_ttl_ms` in protocol_constants.h, declared beside `completed_flight_cache_ttl_ms` because both
+    // answer the same retry question. ⛔ Never re-spell it as a literal.
     // ⓘ COST, so nobody re-adds the bit as an "optimization": successful traffic is UNCHANGED
     // (RTS -> CTS -> DATA -> ACK, 7-B RTS). Only lost-ACK recovery pays, and it pays ONE redundant DATA —
     // after an ACK was actually lost — instead of every hop of every message risking a wrong terminal answer.

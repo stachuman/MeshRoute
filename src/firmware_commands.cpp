@@ -19,8 +19,10 @@
 #include "frame_trace.h"       // g_mr_trace_on (handle_debug)
 #include "sched_send.h"        // mrsched::Schedule (handle_testsched/teststatus + g_sched)
 #include "device_rng.h"        // mrrng::fill (do_regen)
+#if MR_FEAT_OLED   // ★ [[B255]] the include (see the gated binding block below; the header itself stays ungated)
 #include "firmware_ui_preset_verbs.h"  // §UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON
                                        //   records — PURE; this file only binds the store, the gate and a Print
+#endif   // MR_FEAT_OLED
 
 #ifndef GIT_REV
 #define GIT_REV "nogit"        // native / ad-hoc compilation ONLY — no board env can reach this any more
@@ -113,6 +115,18 @@ uint16_t peer_store_restore() {
 }
 
 // ================================================================ §UI-10/11 slice P2 — THE `/mrui` CATALOG BINDING
+// ★★★★ [[B255]] — **THE WHOLE BINDING IS `MR_FEAT_OLED`-GATED (owner ruling (b), 2026-08-28).** The one live catalog
+//      is the `static mrfw::PresetCatalog cat` below, and QG measured it in the linked `gateway` ELF as
+//      `preset_catalog()::cat` in `.bss` at exactly **0x46c = 1132 B** — paid by a headless board for a panel it does
+//      not have. The ruling: *"a headless gateway cannot select these presets, and a uniform-but-unusable command
+//      surface is not worth 1.1 KB on the tightest board; `gateway_heltec*` retains the feature (OLED enabled)"*.
+// ⛔ THE GATE IS SOURCE-SIDE AND NOTHING ELSE MOVED: no `platformio.ini` flag, no change to the pure units, no
+//    change to the `'MRU1'` record. Every `MR_FEAT_OLED=1` env compiles byte-for-byte what it compiled before.
+// ⓘ `/mrui` INTERPLAY, VERIFIED AND ⛔ NEEDING NO CODE: `mrnv::save_ui_presets` has exactly ONE caller — the
+//    `DeviceUiPresetStore::save` override inside this guard — so a gated build NEVER creates the record; and
+//    `mrnv::kSlotUi` lives in the `"mr"` namespace / InternalFS root, so `factory_erase()` (`Preferences::clear()`
+//    on ESP32, `InternalFS.format()` on nRF52) already takes any stale one. See `device_nv.h`'s kSlotUi ledger.
+#if MR_FEAT_OLED   // ★ [[B255]] the catalog binding: the ONE instance, its adapters and the two entry points
 // ★★ THIN ON PURPOSE, for the fourth time in this arc and for the same MEASURED reason (§B115): this TU is compiled
 //    by NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a console
 //    verb or a boot. ⇒ every DECISION — the grammar, the three records' bytes, the six reason spellings, the stable
@@ -179,6 +193,7 @@ void handle_ui(const char* args, size_t len, Print& out) {
                   "loc=<on|off> \"<text>\" | ui preset clear <dm1..dm8|channel1..channel8> | ui preset reset "
                   "<emergency|dm1..dm8|channel1..channel8|all>"));
 }
+#endif   // MR_FEAT_OLED — [[B255]]: end of the /mrui catalog binding
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + mirror it to /mrpeers + the ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
@@ -442,6 +457,10 @@ static void dump_cfg(Print& out) {
     //   · the WARNING is `preset_boot_line`'s exact owner-approved text (U1 — ⛔ never re-worded here), printed
     //     only for the two fault states and only while it is still TRUE: a successful mutation rewrites the
     //     complete canonical record, so `PresetDiag` clears the `invalid` diagnosis on the first `ok` verdict.
+    // ⓘ [[B255]]: gated with the catalog it reads. Off `MR_FEAT_OLED` there is no catalog to report a generation,
+    //   an active count or a save count FOR, and no boot read to have produced a diagnosis — so the two lines are
+    //   ABSENT rather than reporting zeros about a store this build never touches (C2: a zero would be a lie).
+#if MR_FEAT_OLED   // ★ [[B255]] the `status` surface
     {
         const mrfw::PresetCatalog& pc = preset_catalog();
         out.print(F("  presets: generation="));   out.print(pc.generation());
@@ -451,6 +470,7 @@ static void dump_cfg(Print& out) {
         const char* pl = s_preset_diag.line();
         if (pl) out.println(pl);
     }
+#endif   // MR_FEAT_OLED
     out.print(F("  ble   : ble_mode=")); out.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     out.print(F(" ble_period="));       out.print(g_ble_period_min);
     out.print(F(" ble_pin="));          out.println(g_ble_pin);
@@ -1016,6 +1036,11 @@ static void dump_help(Print& out) {
     // supervisor's. ⚠ This dump is already larger than the console stage, so its TAIL is dropped as WHOLE lines
     // with a loud `!! CONSOLE_DROP lines=N` (see the block above dump_help) — these five lines sit early, before
     // the groups that were already being dropped, and the drop stays loud rather than garbled.
+    // ⓘ [[B255]]: gated WITH the verb, and the trailing blank line is INSIDE the guard so a headless dump keeps its
+    //   one-blank-between-groups shape. Help that advertises a verb this build refuses is the "uniform but unusable
+    //   surface" the ruling rejected; a gated build simply has no `ui` family, exactly as it has no `mobile` family
+    //   off `MR_FEAT_MOBILE`. ⓘ It also shortens a dump that already overflows the console stage.
+#if MR_FEAT_OLED   // ★ [[B255]] the `help` group
     out.println(F("UI PRESETS   (the OLED compose catalog: 17 stable slots — 1 emergency + 8 dm + 8 channel; NDJSON out)"));
     out.println(F("  ui preset list                                 all 17 records incl. DISABLED, then ui_presets_end"));
     out.println(F("  ui preset set <emergency|dmN|channelN> loc=<on|off> \"<text>\"   text = 1..17 printable ASCII, no \" \\ CR LF"));
@@ -1025,6 +1050,7 @@ static void dump_help(Print& out) {
     out.println(F("    While an emergency is ACTIVE every mutating verb answers `busy` — including a no-op: an alarm's"));
     out.println(F("    retry series must never have its body or its location policy changed halfway through."));
     out.println(F(""));
+#endif   // MR_FEAT_OLED — [[B255]]
     out.println(F("DIAGNOSTICS"));
     out.println(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
     out.println(F("  sleep [on|off] | debug [on|off] | regen | reboot | ota"));
@@ -1212,7 +1238,20 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     // §UI-10/11 P2 — the OLED preset catalog's administrative family. ⓘ ONE arm for the whole `ui …` namespace, so a
     // future `ui` sub-verb needs no second dispatch line; the sub-verb parse (and the refusal for an unknown one) is
     // the pure unit's. ⛔ It shadows nothing: no other verb in this router begins `ui`.
+    // ★★ [[B255]] — **THE GATED-OUT ANSWER IS THIS ROUTER'S OWN ESTABLISHED ONE, AND ⛔ NOT A NEW LEXEME.** Off
+    //    `MR_FEAT_OLED` the arm is ABSENT, so a `ui …` line falls through `dispatch()`'s `return false` to the
+    //    caller's UNSUPPORTED-VERB answer — `> parse error` on USB (`fw_main.cpp` service_console) and
+    //    `{"err":"parse","msg":"unknown_cmd"}` over BLE (ble_dispatch_line's write_err, console_json.cpp:414). That is
+    //    EXACTLY how `mobile ` behaves off `MR_FEAT_MOBILE` and `password`/`unlock`/`lock` off `MR_FEAT_REMOTE_MGMT`
+    //    — two precedents inside this very function — and `help` no longer advertises the family either, so the two
+    //    surfaces agree. ⛔ LOUD, NEVER SILENT: the console names the refusal on both transports.
+    // ⛔ THE `> err gateway_build (…)` SHAPE 15 LINES UP WAS CONSIDERED AND REJECTED: its lexeme names a
+    //    `MR_N_LAYERS >= 2` build, and the `MR_FEAT_OLED=0` set is NOT that set — `xiao_sx1262`, `production`,
+    //    `xiao_mobile`, `xiao_esp32s3*` are ordinary normal-node builds with no panel. Reusing that token here would
+    //    have been a false statement, and coining a new one was forbidden.
+#if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm
     if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
+#endif   // MR_FEAT_OLED
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "nameof", 6)) { handle_nameof(line + 6, len - 6, out); return true; }   // §1.3 peer name by hash

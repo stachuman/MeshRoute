@@ -893,6 +893,12 @@ void setup() {
     // the four-state read, the compiled-defaults fallback and the two owner-approved diagnostic lines all live in
     // `src/firmware_ui_preset_verbs.h` + `src/firmware_ui_presets.h`, which the native suite drives. A VALID or
     // ABSENT store prints NOTHING here — an ordinary first boot is not a fault. ⛔ Zero writes on every arm.
+    // ★★ [[B255]] (owner ruling (b), 2026-08-28) — THE CALL IS UNCONDITIONAL AND ⛔ THAT IS DELIBERATE. The catalog,
+    //   its boot read and the `ui preset` verbs are compiled out on a panel-less profile, but the GATE lives in
+    //   `firmware_commands.h`, which supplies an INERT INLINE STUB there — the `ui_emergency_active()` idiom in that
+    //   same header, and `lib/hal/mr_ui.h`'s standing rule: `fw_main` is board/runtime glue and must not acquire a
+    //   display dependency (`tools/probe_board_ui/run.sh` W24 pins that, file-wide, as an executable rule). ⇒ off the
+    //   panel profile this line inlines to NOTHING: no catalog, no `/mrui` read, no console output, no `.bss`.
     mrfw::preset_boot_restore_console();
 #if defined(MRINBOX_QSPI_READY)
     mrcon.println(F("  inbox     = QSPI (durable)"));

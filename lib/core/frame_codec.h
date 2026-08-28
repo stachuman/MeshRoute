@@ -709,6 +709,34 @@ enum DataFlag : uint8_t {
 // Read from the cleartext byte-1 flags BEFORE the trailer, so a relay sizes the frame without decrypting.
 inline constexpr size_t data_mac_len(uint8_t flags) { return (flags & DATA_FLAG_CRYPTED) ? 8 : 4; }
 
+// ★★ §B20/B21 (2026-08-28) — **THE ONE DATA LENGTH AUTHORITY.** A DATA frame is EXACTLY four terms:
+//   the 8-B header · the TYPE byte iff APP (i.e. `type != 0`, which is what pack_data derives APP from) ·
+//   the inner · the trailer `data_mac_len()` picks (4-B MAC, or the 8-B nonce-seed under CRYPTED).
+// `pack_data` refuses on this expression, so anything that sizes an inner from it is asking the packer's own
+// question rather than a parallel copy of it. ⛔ NEVER hand-write a cap beside this; ask the formula.
+// ⚠ SCOPE, STATED NARROWLY ON PURPOSE: today the ONE consumer is `enqueue_data`'s sealed-DM preflight
+// (node_mac.cpp) — the only origination whose inner length is variable AND whose trailer is the 8-B one.
+// This is NOT yet a claim that every originator consults it: the plaintext and cross-layer builders still bound
+// themselves by `TxItem.inner[]` (241), which is the stricter answer for their 4-B-trailer frames, and the
+// fixed-size builders do not size anything. ⇒ read this as the authority a new variable-length carrier MUST use,
+// not as a description of what all existing ones already do.
+// ⓘ WHY IT EXISTS (register [[B20]]): the sender used to size a SEALED inner against the constant
+// `protocol::max_payload_bytes_hard_cap` (241 = 255 − 8 − `data_inner_overhead` 6), which bakes in the **4-B**
+// MAC. A CRYPTED frame's trailer is **8**, so a sealed 215-216-B body passed the sender's check, was sealed,
+// and was then dropped by pack_data at TX time with NOTHING reported to the app. 241 is the `TxItem.inner[]`
+// BUFFER bound — a different question from "what fits on the air", and it is the laxer of the two for a
+// CRYPTED frame. Both must hold; the stricter one governs.
+inline constexpr size_t data_frame_len(uint8_t flags, uint8_t type, size_t inner_len) {
+    return DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + inner_len + data_mac_len(flags);
+}
+// The inverse: the largest inner a DATA frame OF THIS SHAPE can carry within `frame_cap` bytes (0 when the
+// overhead alone already exceeds it). Same terms, same order — read it beside data_frame_len.
+inline constexpr size_t data_inner_cap(uint8_t flags, uint8_t type,
+                                       size_t frame_cap = protocol::lora_max_frame_bytes) {
+    const size_t overhead = DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + data_mac_len(flags);
+    return frame_cap > overhead ? frame_cap - overhead : size_t{0};
+}
+
 // byte-8 TYPE (enum, present IFF APP=1): mutually-exclusive message kinds. 0 is reserved/invalid (never on
 // the wire — APP=0 means no TYPE byte). AUTHORITATIVE is folded into the H_ANSWER code (1 vs 2); E2E_IS_ACK
 // became the E2E_ACK type. The H_ANSWER inner is cleartext so relays cache-on-pass.

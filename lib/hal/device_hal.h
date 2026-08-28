@@ -118,10 +118,27 @@ private:
     struct TxQEntry {
         uint8_t buf[255]; uint16_t len; int16_t sf; int32_t bw; int8_t cr; int16_t pre; int8_t pw;
         uint16_t tag; uint32_t seq;
+        // [[B159]]: the absolute air deadline carried from TxParams; 0 = no deadline (the sentinel).
+        uint64_t deadline_ms;
     };
-    static_assert(sizeof(TxQEntry) == 276, "TxQEntry tag uses tail padding; seq is the intentional +4-byte cost");
-    static_assert(offsetof(TxQEntry, tag) == 270 && offsetof(TxQEntry, seq) == 272,
+    static_assert(sizeof(TxQEntry) == 288, "TxQEntry layout drifted — [[B159]]'s deadline_ms makes it 8-aligned");
+    static_assert(offsetof(TxQEntry, tag) == 270 && offsetof(TxQEntry, seq) == 272
+                  && offsetof(TxQEntry, deadline_ms) == 280,
                   "TxQEntry identity layout drifted — remeasure every board ABI before accepting RAM movement");
+    // ★★ [[B159]] RAM ATTRIBUTION, MEASURED ON BOTH ABIs AND NOT INFERRED — and the two do NOT agree, which is
+    // exactly the D2 lesson (native's 8-byte alignment structurally hides a board padding shift):
+    //     `sizeof(DeviceHal)`  native x86-64 4304 -> 4400 (**+96**)   ARM (gateway) 4272 -> 4376 (**+104**)
+    // The +96 is this array and nothing else: TxQEntry 276 -> 288 (+12) x kTxQCap(8), and it is IDENTICAL on both
+    // ABIs — the two static_asserts above are compiled by every board toolchain, so a passing board build IS the
+    // cross-ABI proof that TxQEntry is 288 with `deadline_ms` at 280 there too.
+    // ⇒ THE EXTRA **+8 IS ARM-ONLY PADDING INSIDE DeviceHal**: `deadline_ms` raises TxQEntry's alignment from 4 to
+    //   8, so `_txq` must start on an 8-aligned offset and opens 8 bytes of pad ahead of it on ARM — a hole that
+    //   does NOT open on x86-64, where the preceding members already left that offset 8-aligned. The whole slice's
+    //   board cost is therefore ONE symbol: `g_hal` 4272 -> 4376, confirmed by an nm symbol diff of the gateway ELF
+    //   in which it is the ONLY changed object (+104 B, total symbol delta +104 B).
+    // ⛔ NO `sizeof(DeviceHal)` static_assert is added, deliberately: the value is ABI-DEPENDENT (4400 vs 4376), so
+    //   one literal cannot pin it, and an ABI-conditional assert would be a fragile new failure mode for no gain —
+    //   the load-bearing invariant (TxQEntry's size + identity offsets) is already pinned on every toolchain above.
     static constexpr uint8_t kTxQCap = 8;
     TxQEntry _txq[kTxQCap];
     uint8_t  _txq_head  = 0;        // ring read index

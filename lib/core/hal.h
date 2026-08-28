@@ -41,6 +41,16 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
     //    NEW flight — a reconstructed fact, i.e. a FALSE CONFIRMATION on the one surface this identity exists to
     //    make honest. 0 = "no flight" and is what a caller with no identity must pass DELIBERATELY.
     uint32_t    seq   = 0;
+    // ★★★ [[B159]] 2026-08-28 — THE ABSOLUTE AIR DEADLINE FOR THIS FRAME, carried to the physical start.
+    // ⛔ **0 IS THE SENTINEL AND MEANS "NO DEADLINE"** — every frame except a gateway-bound RTS passes 0 and is
+    //    therefore untouched by the check in `DeviceHal::pump_tx` (C2: ordinary traffic can never accidentally
+    //    expire). Only `Node::rts_air_deadline_ms()` ever produces a non-zero value.
+    // ⓘ WHY IT MUST TRAVEL THIS FAR: a Node-side guard runs before `Hal::tx()`, but on a device `tx()` only
+    //   ENQUEUES — the physical start happens later in `pump_tx()`, behind up to `kTxQCap` other frames, and one
+    //   queued max-length frame at the slowest legal PHY is ~229 s. So the Node guard bounds ADMISSION and this
+    //   field bounds the ACTUAL RF START. Both are required; neither substitutes for the other.
+    // ⛔ Absolute ms, uint64 — NOT a relative or 32-bit value: a u32 ms deadline wraps at 49.7 days ([[B239]]).
+    uint64_t    deadline_ms = 0;
     const char* label = nullptr;  // static-literal telemetry (e.g. "RTS"); device may ignore
     const char* info  = nullptr;  // static-literal telemetry; device may ignore
 };
@@ -68,7 +78,11 @@ struct BusyInfo { BusyReason reason; uint16_t tag; int16_t sf; uint64_t busy_unt
 // ⛔ `unknown` IS A THIRD STATE, NOT A SYNONYM: the transmit was STARTED and its completion was never observed —
 //    it may have aired in whole, in part, or not at all. Collapsing it into `aired` or `failed` is a binary test
 //    over a ternary domain, which is the defect this enum exists to prevent.
-enum class TxOutcomeKind : uint8_t { aired, refused, failed, unknown };
+// [[B159]]: `expired` = the frame reached the physical-start check AFTER its TxParams::deadline_ms and was
+// refused WITHOUT `start_transmit` being called. It is a TERMINAL outcome for the correlated flight — the Node
+// maps it to the same loud give-up an age-expired gateway hold produces — and is deliberately NOT `failed`,
+// which means "the attempt failed, a MAC retry may still follow" and would re-enter retry instead of ending it.
+enum class TxOutcomeKind : uint8_t { aired, refused, failed, unknown, expired };
 
 struct TxOutcome {
     TxOutcomeKind kind;

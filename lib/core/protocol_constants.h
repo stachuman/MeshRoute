@@ -309,7 +309,9 @@ inline constexpr uint8_t  nack_reason_loop_dup   = 3;          // same flight vi
 inline constexpr uint16_t nack_busy_quantum_ms   = 16;         // busy_for_ms = payload*16 (dv:2280)
 inline constexpr uint16_t nack_wait_threshold_ms = 2000;       // <= -> wait-same-hop, > -> requeue (dv:10656)
 inline constexpr uint16_t last_acked_ttl_ms = 10000;
-inline constexpr uint32_t seen_origin_ttl_ms = 30000;
+// NOTE: `seen_origin_ttl_ms` — the DATA application-dedup retention — is DECLARED in the Gateway-scheduling
+// section below, beside `completed_flight_cache_ttl_ms`, because [[B159]] made it derive from
+// `gateway_send_giveup_ms` and a constexpr must see its base first (the `e2e_ack_deadline_*` precedent).
 
 // ---- Hop budget (§7.6) -----------------------------------------------------
 inline constexpr uint8_t hop_budget_slack       = 3;
@@ -646,7 +648,102 @@ inline constexpr uint32_t gateway_doorstep_retry_jitter_ms = 2000;
 // ⛔ DO NOT re-spell this as a bare 150000: it must MOVE WITH its base. `gateway_send_giveup_ms` is the bound at
 //    which the flight is GIVEN UP rather than requeued, so nothing can legitimately re-arrive after it. A
 //    `send_giveup.age_ms` observed beyond 150 s is a LATE CALLBACK, not another requeue, and grants no extension.
+// ⚠⚠ **THE SENTENCE "nothing can legitimately re-arrive after it" WAS FALSE WHEN WRITTEN, AND IS KEPT ABOVE
+//    DELIBERATELY SO THE CORRECTION IS VISIBLE RATHER THAN QUIETLY EDITED AWAY.** [[B159]] (2026-08-28) traced the
+//    disproof on the production scheduler: `gateway_doorstep_hold` tested the age on ENTRY and then armed
+//    `now + backoff`, while `become_free` (node_mac.cpp) re-picks on `next_attempt_ms <= now` with no age test and
+//    `issue_send`'s window arm re-queues with ANOTHER full defer — so a hold entered at age 149 999 ms armed a
+//    LEGITIMATE retry past the bound. MEASURED on the production path (test_dual_layer.cpp, "§B159 deadline"): a real
+//    RTS at **158 000 ms** against a 151 000 ms bound. ⇒ the give-up is NOW a true deadline, and only BECAUSE it is
+//    enforced is the quoted sentence true today. ⛔ It is an invariant the code MAINTAINS, never one the constant
+//    grants by itself.
+// ⚠ AND THE FIRST ENFORCEMENT WAS ITSELF INSUFFICIENT — recorded because it is the same error one level down. It
+//    bounded `issue_send`, i.e. when an attempt was ACCEPTED. An RTS can be LBT- or DUTY-deferred AFTER that point
+//    ("~1h", by `lbt_complete`'s own note) and `rts_duty_defer_fire` aired it unchecked; measured pre-fix, a real
+//    RTS aired at **271 000 ms** against the same 151 000 ms bound. ⇒ enforcement now lives at the **RTS HAL
+//    HANDOFF** (`Node::rts_handoff_deadline_cancel`, node_cascade.cpp), called at the only two places an RTS
+//    reaches the HAL — `lbt_complete` and `rts_duty_defer_fire` (an RTS is not retry-stash-eligible, node_mac.cpp).
+//    The acceptance-time check was then DELETED as unmutatable redundancy, by the same test that condemned two
+//    earlier prospective checks.
+// ⚠⚠ AND THAT WAS STILL NOT THE AIR START — the third correction, recorded because the pattern is the lesson: each
+//    cut moved the check nearer the radio and each time "nearer" was mistaken for "at". `Hal::tx()` on a device only
+//    ENQUEUES (device_hal.cpp): the frame waits in a `kTxQCap`-deep ring and the physical start happens later in
+//    `pump_tx()`. ONE queued max-length frame at the slowest legal PHY is ~229 s, so a Node-side handoff guard
+//    bounds ADMISSION, not air. ⇒ **THE DEFINITION IS LAYERED, AND BOTH LAYERS ARE REQUIRED:**
+//      · ADMISSION GUARD — `Node::rts_handoff_deadline_cancel`, at the two places an RTS reaches `Hal::tx()`.
+//        It ends the flight early and loudly, and keeps the Node's own state machine honest.
+//      · PHYSICAL-START GUARD (**the terminal authority**) — `TxParams::deadline_ms` travels with the frame and
+//        `DeviceHal::pump_tx` refuses it immediately before `start_transmit`, reporting `TxOutcomeKind::expired`
+//        on the existing outcome ring; the Node maps that to the SAME loud give-up, correlated by `seq`.
+//    ⇒ **"start" means the ACTUAL RF START**, and it is the pump_tx check that makes that true.
 inline constexpr uint32_t completed_flight_cache_ttl_ms = gateway_send_giveup_ms;   // 150 000 ms
+// ★★★ [[B159]] (2026-08-28) — THE DATA APPLICATION-DEDUP RETENTION. `_seen_origins` (node_mac_rx.cpp) is the SOLE
+// authority for "deliver or not": `Inbox::record_dm` and the `msg_recv` push append UNCONDITIONALLY
+// (inbox.cpp:160-162), so a dedup MISS is a second APPLICATION delivery, not merely a cache miss.
+// ⇒ THE INVARIANT: retention >= the longest interval over which the SAME flight identity can legitimately arrive
+//   TWICE at the same hop. That interval is NOT a constant one can read off a give-up value — it is whatever the
+//   SENDER's scheduler actually permits, which is why the first cut of this fix was rejected: it derived the
+//   retention from `gateway_send_giveup_ms` while that value was only a timeout-ENTRY test, not a deadline.
+// ⇒ IT IS NOW A REAL DEADLINE, and the two halves must be read together:
+//   (a) THE SENDER BOUND, IN TWO LAYERS. (i) ADMISSION: `Node::rts_handoff_deadline_cancel` (node_cascade.cpp)
+//       cancels a gateway-bound RTS at the only two places an RTS reaches `Hal::tx()` — `lbt_complete` (immediate
+//       + LBT-deferred) and `rts_duty_defer_fire` (duty-deferred); same-hop retries re-enter the same guard.
+//       (ii) PHYSICAL START, the terminal authority: `TxParams::deadline_ms` rides the frame into the HAL's TX
+//       ring and `DeviceHal::pump_tx` refuses it immediately before `start_transmit`. ⇒ **no RTS AIRS at/after
+//       the bound**, whatever queueing happened in between. Both cancels ride the loud give-up shape (C2).
+//   (b) THE START->ARRIVAL MARGIN — the deadline bounds a START, but the DATA it carries lands one MAC exchange
+//       later, so the receiver must retain for the bound PLUS that exchange. `mac_exchange_margin_ms` below.
+//   Retention therefore covers `first arrival .. last arrival` in full: the first arrival is at or after the
+//   sender's enqueue, and the last is at most one exchange past the bound measured from that same enqueue.
+//   ⛔ Both horizons the row was opened against sit inside it: cascade requeue (`cascade_requeue_total_max_ms` 60 s
+//   + one held `requeue_backoff_ms` <= 20 s = 80 s) and the gateway doorstep hold (150 s).
+// ★ WAS 30 000 ms, AND THE DEFECT WAS ALREADY IN THE MEASURED RECORD: §HYBRID-RTS-S0 (quoted above) traced ONE
+//   flight re-arriving at ONE hop **147 658 ms** after its earlier completion — 4.9x the retired retention. The 30 s
+//   value covered the DIRECTLY measurable exact-retry set (which topped out at 18 971 ms) and nothing beyond it.
+// ⛔ THE CAP IS **NOT** RAISED WITH IT, AND THAT IS MEASURED, NOT ASSUMED: `cap_seen_origins`(256) bounds the live
+//   set, so `sizeof(Node)` and the heap ceiling are UNCHANGED by this line — the map is capped, not TTL-sized.
+//   AND THE SATURATION IS RE-MEASURED AT THE **ACTUAL** RETENTION, not extrapolated from the old one: replaying the
+//   full 36-stream corpus and counting concurrent live keys per node gives **8** at 30 s, **22** at 150 s and
+//   **46** at 450 s — i.e. **18 % of the 256 cap** at the value this constant now takes. (The 150 s figure
+//   independently reproduces §HYBRID-RTS-S0's 23, which is what calibrates the method.) And the degradation is MONOTONE even if that were exceeded:
+//   `record_seen_origin` evicts the OLDEST (min-expiry) entry, so retention under saturation is
+//   `min(ttl, the last cap_seen_origins flights)` — raising the ttl can only widen it, never narrow it.
+// ⓘ B239 AUDIT (a clearing term or a window bound, for every deadline): this needs NEITHER. The comparison is
+//   `expiry_ms > now_ms` on **uint64 ms** — no 2^31 wrap revival is reachable — and the entry HAS a clearing term
+//   regardless: `record_seen_origin` prunes every expired key on each record. ⛔ This slice adds NO new
+//   `now < deadline` comparison to the dedup path; only the constant feeding the existing one.
+// ⚠ KNOWN COST, recorded rather than discovered later: a longer retention widens the window in which a REUSED
+//   `(origin,dst,ctr)` is mistaken for a duplicate. That is [[B258]]'s subject (the corpus's one observed
+//   same-key/different-payload pair); this line takes the window from 30 s to 180 s and B258 must be read with
+//   that in mind: the window is now **30 s -> 450 s (15x)**, not the 180 s an earlier cut of this fix implied.
+//   It is accepted here because a missed duplicate delivers a message twice, while B258's shape needs a 16-bit
+//   counter to wrap inside the window.
+// ★★★ THE START->ARRIVAL MARGIN, DERIVED FROM THE **SUPPORTED PHY ENVELOPE** — NOT from a corpus observation.
+// ⚠⚠ **THIS CONSTANT WAS 30 000 ms AND THAT VALUE WAS WRONG; the disproof is kept visible rather than edited away.**
+//    30 000 covered the worst gap OBSERVED in the 36-stream corpus (5 062 ms `rts_rx -> data_rx`, s15_three_layer).
+//    An observation over the corpus's PHYs is not a bound over the PHYs the FIRMWARE ACCEPTS, and the gap is three
+//    orders of magnitude: `is_valid_bw_hz` (node.cpp) admits **7 800 Hz**, the SF gate admits **12**, the CR gate
+//    admits **8**, and `lora_max_frame_bytes` is **255**.
+// ⇒ THE ENVELOPE CORNER, computed with `airtime_ms()` AS THE ONE AUTHORITY (U1 — never a parallel formula, and the
+//   deliberate SX126x SF5/SF6 framing case is untouched), at SF12 / BW 7 800 Hz / CR 4/8 / preamble_sym 16:
+//        RTS (11 B, the crypted unicast width) =  27 437 ms
+//        CTS ( 7 B, the terminal width)        =  23 236 ms
+//        cts_to_data_gap_ms                    =       5 ms
+//        DATA (255 B = lora_max_frame_bytes)   = 229 087 ms
+//        ------------------------------------------------
+//        one complete exchange                 = 279 765 ms
+//   ⓘ ONE exchange is the right unit, and that is a consequence of the [[B159]] blocker-1 correction: no RTS can
+//     physically START past the bound (`DeviceHal::pump_tx()` is the terminal authority; `rts_handoff_deadline_cancel`
+//     is the earlier admission guard), and same-hop RTS retries pass both — so no retry can BEGIN past the bound and
+//     the margin need not price a retry chain. ⚠ WITHDRAWN: this note used to call the HAL HANDOFF the actual start.
+//     Before that correction this term would have had to cover 3 x RTS as well (334 639 ms).
+// ⛔ The pin is VERIFIED, not asserted: `test_protocol_constants.cpp` recomputes this corner from `airtime_ms()`
+//    and fails if the pin stops covering it — so a future PHY widening (a new legal BW, a larger frame) breaks the
+//    build here instead of silently re-opening [[B159]].
+// ⓘ Not constexpr because `airtime_ms()` is a runtime function (airtime.h); making it constexpr is a separate,
+//   wider change and is deliberately NOT smuggled into this fix (C1).
+inline constexpr uint32_t mac_exchange_margin_ms = 300000;   // >= 279 765 (the envelope corner) with ~7% headroom
+inline constexpr uint32_t seen_origin_ttl_ms = gateway_send_giveup_ms + mac_exchange_margin_ms;   // 450 000 ms — [[B159]]; was 30 000
 // ★★★ THE ENTRY CAP, AND IT IS **MEASURED, NOT PICKED** — a FIXED PER-LAYER ARRAY (no heap, no per-peer dynamic
 // structure); a full table prunes the expired entries first and then evicts the OLDEST (min-expiry) —
 // `record_seen_origin`'s policy verbatim (U1).

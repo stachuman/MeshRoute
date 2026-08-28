@@ -920,6 +920,10 @@ TEST_CASE("ui16-grant-words: no arm prints a COMPLETION word, and every one fits
 }
 
 TEST_CASE("ui16-grant-size: the verdict carrier costs 8 bytes, offsetof-proved") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     // ⚠ MEASURED, not reasoned (D2's standing warning about native alignment applies to the BOARD figure; what is
     //   pinned here is that no padding hole opens inside the carrier).
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);

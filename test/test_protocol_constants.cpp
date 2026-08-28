@@ -8,6 +8,7 @@
 #include "doctest.h"
 
 #include "protocol_constants.h"
+#include "airtime.h"   // [[B159]]: the ONE airtime authority the margin derivation recomputes from
 
 namespace P = meshroute::protocol;
 
@@ -225,4 +226,32 @@ TEST_CASE("P-BUDGET — hash-locate patience budget derivation + invariants (202
     CHECK(P::hash_locate_giveup_ms < P::mobile_home_cache_ttl_ms);
     // Refloods reuse the ONE parked entry (no per-retry slot) -> the bounded ring is not enlarged.
     CHECK(P::cap_parked_sends >= 1);
+}
+
+// ★★★ [[B159]] — THE START->ARRIVAL MARGIN IS A **BOUND OVER THE SUPPORTED PHY ENVELOPE**, RECOMPUTED HERE.
+// The first cut pinned 30 000 ms from a corpus observation (worst `rts_rx -> data_rx` = 5 062 ms). That is an
+// observation over the PHYs the CORPUS happens to use, not a bound over the PHYs the FIRMWARE ACCEPTS — and the
+// firmware accepts SF12 / BW 7 800 Hz / CR 4/8 / 255-byte frames, where one exchange is ~280 SECONDS.
+// ⛔ This recomputes the corner from `airtime_ms()` — the ONE airtime authority (U1) — so a future PHY widening
+//    (a new legal bandwidth, a larger `lora_max_frame_bytes`, a longer preamble) FAILS THE BUILD's test run here
+//    instead of silently re-opening [[B159]] by making the receiver's retention too short again.
+TEST_CASE("§B159 — mac_exchange_margin_ms covers one MAC exchange at the WORST supported PHY") {
+    // The full legal SX1262 bandwidth set (node.cpp is_valid_bw_hz), the full SF and CR gates (node.cpp).
+    const uint32_t bws[] = { 7800, 10400, 15600, 20800, 31250, 41700, 62500, 125000, 250000, 500000 };
+    uint32_t worst_exchange = 0; uint8_t wsf = 0, wcr = 0; uint32_t wbw = 0;
+    for (uint8_t sf = 5; sf <= 12; ++sf)
+        for (uint32_t bw : bws)
+            for (uint8_t cr = 5; cr <= 8; ++cr) {
+                // RTS (crypted unicast width) + CTS (terminal width) + the fixed gap + a MAXIMUM DATA frame.
+                const uint32_t ex = meshroute::airtime_ms(sf, bw, cr, P::preamble_sym, 11)
+                                  + meshroute::airtime_ms(sf, bw, cr, P::preamble_sym, 7)
+                                  + P::cts_to_data_gap_ms
+                                  + meshroute::airtime_ms(sf, bw, cr, P::preamble_sym, P::lora_max_frame_bytes);
+                if (ex > worst_exchange) { worst_exchange = ex; wsf = sf; wbw = bw; wcr = cr; }
+            }
+    CHECK(wsf == 12); CHECK(wbw == 7800u); CHECK(wcr == 8);           // the corner is where the derivation says
+    CHECK(worst_exchange == 279765u);                                  // and it is EXACTLY the pinned derivation
+    CHECK(P::mac_exchange_margin_ms >= worst_exchange);         // ★ THE BOUND THE RETENTION RESTS ON
+    // And the retention as a whole covers the enforced sender deadline plus that exchange.
+    CHECK(P::seen_origin_ttl_ms >= P::gateway_send_giveup_ms + worst_exchange);
 }

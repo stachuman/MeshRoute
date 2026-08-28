@@ -232,15 +232,18 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     //     an unsealed-layout gate here would test after_origin + 4 + 6 + body <= 241 ⇒ body <= 226, i.e. it could only
     //     ever fire ABOVE 226 — 16 bytes past where the seal has already refused. It can never be reached.
     // And it must NOT be "fixed" by re-deriving the sealed bound here: that would fork a SECOND copy of the seal's size
-    // arithmetic (U1) purely to improve an error string, and the honest bound is not even 241 — see the two
-    // PRE-EXISTING silent bands the same sweep exposed, both reported to QA and deliberately NOT touched (C1):
-    //   (a) body_len 215-216 unsealed-flag / 209-210 with `-l`: e2e_seal_inner SUCCEEDS (inner <= 241) but the assembled
-    //       CRYPTED frame is 8 (hdr) + inner + 8 (nonce-seed trailer) > lora_max_frame_bytes, so pack_data refuses at TX
-    //       time and NO send_failed is pushed at all. Root cause: max_payload_bytes_hard_cap subtracts
-    //       data_inner_overhead = 6 (a 4-byte MAC), but a CRYPTED frame's trailer is 8 — so the cap is 2 B too generous
-    //       for a sealed DM.
-    //   (b) body_len >= 237: the DST_HASH fit-check above drops the flag, so the `!(item.flags & DATA_FLAG_DST_HASH)`
-    //       branch below emits `e2e_no_pubkey` and returns WITHOUT push_send_failed — also silent to the app.
+    // arithmetic (U1) purely to improve an error string. ⓘ THE MEASURED NUMBERS ABOVE (208 / 214) ARE THE **FIXED**
+    // ONES. They were written when the cap handed to e2e_seal_inner was 241 and two silent bands sat just above them;
+    // both are CLOSED as of 2026-08-28 and the sweep now shows exactly two outcomes per length, air or a loud refusal:
+    //   (a) [[B20]] body_len 215-216 (209-210 with `-l`) — e2e_seal_inner USED to succeed (inner <= 241) while the
+    //       assembled CRYPTED frame, 8 (hdr) + inner + 8 (nonce-seed trailer), exceeded lora_max_frame_bytes, so
+    //       pack_data refused at TX time and NO send_failed was pushed at all. Root cause: max_payload_bytes_hard_cap
+    //       subtracts data_inner_overhead = 6 (a 4-byte MAC) while a CRYPTED trailer is 8, so the cap was 2 B too
+    //       generous for a sealed DM. FIXED at the seal call below by passing `data_inner_cap(item.flags, type)` —
+    //       the packer's own bound — instead of the buffer's size; the band now refuses `too_large` like 217 does.
+    //   (b) [[B21]] body_len 237-239 — the DST_HASH fit-check above drops the flag for SIZE, so the
+    //       `!(item.flags & DATA_FLAG_DST_HASH)` branch below fired. It emitted `e2e_no_pubkey` (a key we HELD) and
+    //       returned WITHOUT push_send_failed. FIXED at that branch: it now splits on `dh` and pushes on both arms.
     // ⚠ A seal can also fail for non-size reasons (no_pubkey / no_identity / bad_rng). Those refuse loud on their own and
     // report the SEAL cause — NOT this rule — which is what the operator needs to chase.
     if (flags & DATA_FLAG_LOCATION) {
@@ -270,13 +273,50 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     }
     if (will_seal) {   // §loc-per-send: `app_dm && want_crypt`, named once above so the LOCATION gate tests the SAME condition (U1)
         if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
-            MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
+            // ★★ §B21 (2026-08-28) — **TWO DIFFERENT CONDITIONS LAND HERE AND THE ARM REPORTED ONE OF THEM FOR
+            // BOTH, ASYNCHRONOUSLY REPORTING NEITHER.** `dh` (:180) is written by the lookup at :183 BEFORE the
+            // size term is evaluated (`&&` short-circuits left-to-right), so it distinguishes them exactly:
+            //   · dh == 0 — the lookup FAILED: we hold no key for `dst`. `no_pubkey` is TRUE; the remedy is
+            //               `reqpubkey`/a QR scan. This is the arm the old emit named.
+            //   · dh != 0 — the lookup SUCCEEDED and the **fit** term `4 + 1 + body_len <= 241` failed, i.e. from
+            //               body_len 237 up the DST_HASH flag was dropped for SIZE. The key is fine; the body is
+            //               too big. Reporting `no_pubkey` sent the operator after a key he already had.
+            // ⓘ NO deliverable message is lost by refusing the second arm rather than "keeping the flag": with
+            // DST_HASH forced on, the seal's own inner would be 4+1+4+body+16 = 262 at body 237 against a cap of
+            // 239, so `too_large` is what the seal would have answered one step later anyway. The arm is a
+            // SHORTCUT to the same true verdict, not a substitute for a send that could have flown.
+            // ★ AND BOTH ARMS NOW **PUSH**. Neither did: this `return ctr` was the only refusal in the whole seal
+            // block without a `push_send_failed`, so its sibling `SealOutcome::no_pubkey` twenty lines below
+            // reported to the app while this one did not. That silence was the second half of B21.
+            const bool key_known = (dh != 0);
+            if (key_known) {
+                MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
+                push_send_failed(SendFailReason::too_large, dst, ctr);
+            } else {
+                MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
+                push_send_failed(SendFailReason::no_pubkey, dst, ctr);
+            }
             return ctr;                                                    // not enqueued (fail loud, no cleartext)
         }
         item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+ the per-send LOCATION, validated above) already decided
         uint8_t seed[8];
         SealOutcome oc = SealOutcome::ok;
-        const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, item.origin, ctr,
+        // ★★ §B20 (2026-08-28) — **THE CAP IS THE FRAME'S, NOT THE BUFFER'S.** This argument was
+        // `sizeof item.inner` (== protocol::max_payload_bytes_hard_cap, 241), a constant derived from the 4-B MAC.
+        // The flag ORed in one line above makes this frame CRYPTED, whose trailer is **8**, so pack_data can carry
+        // only `data_inner_cap(item.flags, type)` — 239, or 238 once a TYPE byte is emitted. Those 2 (or 3) bytes
+        // WERE register [[B20]]: the seal accepted a 215/216-B body, pack_data refused it at TX time
+        // (node_mac.cpp's `dlen == 0` bail), and the app was told NOTHING — the send simply vanished after the RTS
+        // had already burned airtime. Asking the packer's own formula refuses at the EXACT carrier boundary for
+        // EVERY shape (typed/untyped, located or not) instead of at one hand-written number, and the refusal is
+        // the seal's existing loud one: SealOutcome::too_large -> send_failed{too_large}, nothing enqueued.
+        // ⓘ BOTH bounds are kept and the STRICTER wins: `data_inner_cap` is "what fits on the air",
+        // `sizeof item.inner` is "what fits in the carrier's buffer". They answer different questions; today the
+        // frame bound is the tighter one for a CRYPTED DM and the buffer bound is the tighter one if the frame
+        // budget ever grows. Neither may be dropped for being redundant right now.
+        const size_t frame_cap = data_inner_cap(item.flags, type);
+        const size_t seal_cap  = frame_cap < sizeof item.inner ? frame_cap : sizeof item.inner;
+        const size_t n = e2e_seal_inner(item.inner, seal_cap, seed, item.flags, dh, item.origin, ctr,
                                         _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len, oc);   // §mobile: item.origin (stamp_origin) = home_id for a registered mobile so the SEALED inner origin is the ROUTABLE home, not our node_id (== _node_id for a static node -> byte-identical). The reverse-ack routes to this origin.
         if (n == 0) {                                                      // seal failed -> FAIL LOUD distinctly, NEVER cleartext
             switch (oc) {
@@ -1072,6 +1112,13 @@ void Node::issue_send(const TxItem& item) {
     // max() against any backoff already on the item (ack-warn / self-cap) — never shorten an existing hold. NOT for
     // channel gossip (is_channel_m is fire-and-forget; a gateway skips channels anyway). issue_send's ONLY caller is
     // become_free, which just removed this item, so the queue always has room to re-add it.
+    // ⓘ [[B159]]: an acceptance-time deadline check STOOD HERE and was REMOVED, deliberately and by measurement.
+    // It bounded when an attempt was ACCEPTED, not when a frame was AIRED — QG showed an RTS can be LBT- or
+    // DUTY-deferred after passing it and air far beyond the bound. The enforcement therefore moved to where the
+    // frame actually meets the HAL (`rts_handoff_deadline_cancel`, node_cascade.cpp), and once it was there this
+    // check became unmutatable redundancy: deleting it left the ENTIRE native suite green, the same test that
+    // condemned the two earlier prospective checks. Keeping a check no mutation can kill is how a codebase
+    // accumulates reassuring dead guards, so it is gone rather than demoted to a "cheap early refusal".
     if (!item.is_channel_m) {
         if (const uint32_t defer = gateway_schedule_defer_ms(first); defer > 0) {
             // NOTE (Wave-4): the s15 cross-layer window-livelock (a sender phase-locking into a never-opening window
@@ -1409,6 +1456,12 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
             MR_EMIT("rts_tx_cancelled_stale", EF_S("reason", "pending_tx_changed"));
             return true;                                              // §TX1: a deliberate CANCEL of a dead flight — nothing was rejected, nothing to report
         }
+        // ★★ [[B159]]: THE ADMISSION BOUND. This is the immediate AND the LBT-deferred RTS path, so a frame that
+        // waited out a busy channel is re-judged before it is handed to the HAL. ⚠ NOT the air start: `Hal::tx()`
+        // only ENQUEUES on a device — `DeviceHal::pump_tx`'s deadline check is the terminal authority.
+        if (rts_handoff_deadline_cancel(completion_gen))
+            return true;                                              // §TX1: a deliberate CANCEL — given up loudly, nothing rejected
+
         // Cleanup #A (redo): duty pre-check the RTS (the #2 slot<0 residual). Over budget -> defer in the DEDICATED
         // _rts_duty_defer slot (NOT the shared LBT ring — that reuse was net-worse, review wgvbtirmu) + arm the
         // re-check timer + return (NOT handed; start_rts_timeout armed on the eventual send by rts_duty_defer_fire).
@@ -1550,11 +1603,16 @@ void Node::rts_duty_defer_fire() {
         (void)_hal.after(wait, kRtsDutyDeferTimerId);
         return;
     }
+    // ★★ [[B159]]: THE HANDOFF BOUND ON THE DUTY-DEFERRED PATH — the one the previous cut missed entirely. The
+    // wait above is priced at "~1h" by this function's own design note, so without this test an RTS accepted at
+    // age 149 s could air arbitrarily late. Checked AFTER the re-defer arm, so a still-blocked frame is re-armed
+    // rather than cancelled, and only a frame about to REACH the HAL is judged.
+    if (rts_handoff_deadline_cancel(d.flight_gen)) { d.pending = false; return; }
     d.pending = false;
     // §T1: identity = `RtsDutyDefer::flight_gen` — the value STORED IN THIS CARRIER at defer time, which is also
     // what the staleness guard eleven lines above compared. ⛔ Not `_pending_tx->flight_gen`: they are equal here
     // only because that guard just proved it, and depending on that equality is how a derived identity sneaks in.
-    TxParams p = tx_params_of(static_cast<uint16_t>(FrameTag::rts), d.sf, d.flight_gen);
+    TxParams p = tx_params_of(static_cast<uint16_t>(FrameTag::rts), d.sf, d.flight_gen, rts_air_deadline_ms());
     const TxResult tr = _hal.tx(d.buf, d.len, p);
     if (tr != TxResult::ok)
         MR_EMIT("tx_hal_rejected", EF_S("label", "RTS"), EF_I("result", static_cast<uint8_t>(tr)),
@@ -1647,12 +1705,13 @@ const char* Node::label_of_frame(FrameTag t) {
 //    from the tag through `label_of_frame` — the same pointer the three tag-driven sites already used and, for
 //    `rts_duty_defer_fire`/`tx_flood`, the same "RTS"/"BCN" text their literals carried. The identity is internal
 //    metadata only and never changes the bytes handed to the radio.
-TxParams Node::tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq) {
+TxParams Node::tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq, uint64_t deadline_ms) {
     TxParams p;
     p.sf    = sf;
     p.label = label_of_frame(frame_tag_of(tag));
     p.tag   = tag;
     p.seq   = flight_seq;
+    p.deadline_ms = deadline_ms;   // [[B159]]: 0 = no deadline (every frame but a gateway-bound RTS)
     return p;
 }
 // ★★★ §B186a — THE FOUR MOBILE TX IDENTITIES, encoded into `TxParams::tag`'s HIGH byte. See the contract at the
@@ -1862,7 +1921,9 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
     // flight onto them would attribute an unrelated frame's completion to it. ⓘ Same read as the stash write at
     // the top of this function (`s.flight_gen`), deliberately — one flight, one identity.
     const uint32_t flight_seq = (tag == FrameTag::data && _active->_pending_tx) ? _active->_pending_tx->flight_gen : 0u;
-    TxParams p = tx_params_of(tx_tag_of(tag, op), sf, flight_seq);   // op == none ⇒ the pre-slice tag value, bit for bit
+    // [[B159]]: an RTS carries the air deadline to the physical start; every other tag gets the 0 sentinel.
+    TxParams p = tx_params_of(tx_tag_of(tag, op), sf, flight_seq,
+                              tag == FrameTag::rts ? rts_air_deadline_ms() : 0u);   // op == none ⇒ the pre-slice tag value, bit for bit
     // ★★★ §tx-admission TX1 (2026-08-01): the TxResult was DISCARDED here and this returned `true // handed`
     // unconditionally. `DeviceHal::tx` answers `busy` when its 8-entry outbound ring is full — it bumps `txq_drops`
     // and **does not retain the frame** — and `too_long` past the SX1262 length register. For a `slot < 0` frame
@@ -2068,7 +2129,28 @@ void Node::do_data_tx() {
                                                : std::span<const uint8_t>(mac, 4);             // else the 4-B(-zero) MAC
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
-    if (dlen == 0) { _hal.log("DATA pack failed"); return; }
+    if (dlen == 0) {
+        // ★★ §B20 (2026-08-28) — **THIS BAIL USED TO LOG AND LEAVE.** No push, no teardown: the flight stayed
+        // `_pending_tx` with `awaiting_ack` false and nothing armed to re-fire it, while the RTS this flight had
+        // ALREADY aired had burned real airtime. That was the visible half of register [[B20]] — a send that
+        // "disappeared" and took the node's MAC with it.
+        // ⓘ IT IS NOW UNREACHABLE FROM AN ORIGINATION: enqueue_data sizes the seal against `data_inner_cap`, the
+        //   packer's own bound, so no same-layer DM can be built too long for its own frame any more. It stays as
+        //   the C2 backstop for every other producer (forwarders, the XL builders) and now matches its two
+        //   siblings in this function: report, tear the flight down, become free.
+        // ⛔ NO `push_send_failed` HERE, DELIBERATELY, and this is the one candidate the slice reports rather
+        //   than invents: pack_data has FOUR refusals (addr_len > 1 · CRYPTED without DST_HASH · a wrong-sized
+        //   trailer · the length) and only the last is `too_large`, so pushing `too_large` would re-commit
+        //   exactly B21's defect — a confident, wrong condition — for the other three. No existing
+        //   `SendFailReason` is true for "the frame could not be built"; the honest surface until one is ruled is
+        //   the loud telemetry + operator log below. There is no app-facing silence left on the B20 path itself,
+        //   because the send is now refused `too_large` before anything airs.
+        _hal.log("DATA pack failed");
+        MR_EMIT("data_pack_failed", EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
+                EF_I("inner_len", pt.inner_len), EF_I("flags", pt.flags), EF_I("type", pt.type));
+        _active->_pending_tx.reset(); become_free();
+        return;
+    }
     // ★★★ §hybrid-rts S4b (2026-08-09) — the three-way disposition is kept in `disp` and the legacy two-way
     // `handed` derived from it, so the two questions ("was it admitted?" vs "was it not deferred?") stay distinct.
     // ⓘ §hybrid-rts S4d (2026-08-10) — **THE ORIGINAL WORDING HERE IS CORRECTED, NOT DELETED.** It read *"THE

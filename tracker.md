@@ -6,25 +6,18 @@ This file records only project-level status. Implementation detail belongs in th
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Marked as implemented
-- `2026-07-31-onboard-oled-ui-design.md` / `2026-07-31-onboard-oled-ui-phase-a.md` — UI-14, TX-completion T3 and
-  the status/navigation redesign are implemented. Finish the B196 sleep correction and QG, then run refreshed R1-R6
-  plus Parts 19-25 metal qualification before UI-15/UI-16 provisioning.
-  2026-07-31-onboard-oled-ui-design.md / 2026-07-31-onboard-oled-ui-phase-a.md — Phase A implementation complete and metal-tested; subsequent UI-15/UI-16/UI-17 and
-  preset work are maintained in their dedicated specifications. Remaining defects and optional hardware qualification are tracked separately.
+- `2026-07-31-onboard-oled-ui-design.md` / `2026-07-31-onboard-oled-ui-phase-a.md` — Phase A is implemented and
+  metal-tested. UI-15/UI-16/UI-17 and configurable presets subsequently landed under their dedicated specs;
+  remaining defects and optional hardware checks are tracked separately.
 
-- `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — port and qualify Heltec V4 hardware.
+- `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — V4 implementation slices landed; remaining
+  hardware qualification is tracked separately.
 
 
 ## Ongoing
-  1. B159 contradicts a design premise. The design says existing DATA dedup prevents repeated delivery (docs/superpowers/specs/2026-08-23-internal-data-and-custody-
-     outcome-design.md:876), while B159 records that dedup can expire inside the retry horizon. Either fix B159 first or explicitly design custody-record idempotence
-     without relying on transport dedup.
-
-  2. B134 needs an explicit product ruling. Custody outcomes can be implemented with the existing store abstraction, but on Heltec they will remain RAM-only and
-     disappear on reboot. If persistent custody history on Heltec is required now, B134 must precede custody Slice C/G. Otherwise record that limitation and defer
-     B134.
-
--  fault reason and internal data : `2026-08-23-internal-data-and-custody-outcome-design.md`
+- `2026-08-23-internal-data-and-custody-outcome-design.md` — next major arc. Preparation order: adopt B246's
+  board-ABI size probe; fix B20/B21; fix B159 transport deduplication; implement B134 durable Heltec inbox;
+  then finalize and execute custody slices A-H.
 
 ## Backlog — priority order
 - GPS: 2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md - to be reviewed
@@ -55,31 +48,24 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-  B250 — finish and land the roster-grant return-context fix.
+- B246 — add the cheap standing Xtensa/board-ABI `sizeof` probe before the custody arc changes structures.
 
-  Bookkeeping closure — close B209, B207, B196, B164 and B193 from their existing
-  QG/metal evidence; no further implementation expected.
+- B20/B21 — resolve the high-severity DATA packing/failure-reporting defects before renumbering DATA types.
 
-  `2026-08-27-b206-b138-deterministic-board-measurement-design.md` — B138 and B206 are
-  closed after independent QG. Next: independently review, then implement
-  `2026-08-27-b253-untracked-build-provenance-design.md`; follow with B205. B246 remains
-  separate.
+- B159 — fix transport deduplication across the full retry horizon before relying on it for custody-outcome
+  idempotence.
 
-  B20/B21 → B159 → B35 — resolve silent-loss, duplicate-delivery and plane-correctness
-  defects. B159 is a prerequisite for the custody design unless that design adds its
-  own explicit idempotence mechanism.
+- B134 — provide durable Heltec inbox storage before custody adds durable outcome records and migrates the store.
 
-  B252 measurement debt — later classify the 44 unresolved logical destinations under B182 authority; preserve the
+- `2026-08-23-internal-data-and-custody-outcome-design.md` — finalize the reviewed design, unpark B59 and implement
+  slices A-H with separate gates and attribution.
+
+- B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
+
+- B252 measurement debt — later classify the 44 unresolved logical destinations under B182 authority; preserve the
   `1/11/44/3` fail-loud baseline and do not fold this non-blocking work into a routing/protocol change.
 
-  2026-08-23-internal-data-and-custody-outcome-design.md — next major arc. Finalize
-  the review, settle B159 and B134 dependencies, unpark B59, then implement slices A–H
-  with separate gates and attribution.
-
-  B151 → B178 → B186b — resume mobile-home reliability after the custody arc.
-
-  B134 — move before custody Slice C/G if Heltec custody records must survive reboot;
-  otherwise retain as product backlog. Then O4 and remaining product/UI work.
+- B151 → B178 → B186b — resume mobile-home reliability after the custody arc.
 
 
 
@@ -88,6 +74,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 10. `2026-07-14-t1000e-feasibility.md` — revisit T1000E feasibility after the current Heltec work.
 
 ## Done — implementation
+
+- `2026-08-27-b206-b138-deterministic-board-measurement-design.md`,
+  `2026-08-27-b253-untracked-build-provenance-design.md` and B205 — gate-reliability arc complete and QG-closed;
+  deterministic board-delta evidence is certified. B246 remains a separate next-step guard.
 
 -  2026-08-20-status-screen-redesign-note - change of initial screen content
 

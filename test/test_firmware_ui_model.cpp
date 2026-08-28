@@ -7674,6 +7674,10 @@ TEST_CASE("ui16-reqpubkey-refused: no seam and a refusal both STAY at NEED PUBKE
 }
 
 TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserves the packed invite layout") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     CHECK(sizeof(mrui::InviteWindow) == 104u);
     CHECK(offsetof(mrui::InviteWindow, hash) == 0u);
     CHECK(offsetof(mrui::InviteWindow, handled) == 32u);
@@ -8614,6 +8618,10 @@ TEST_CASE("b250-emergency: pre-emption clears either caller and each fresh flow 
 }
 
 TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and the published identity costs ZERO") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     // ★★ MEASURED, ⛔ NOT REASONED (the padding-placement rule, a fifteenth time), and every placement is
     //    `offsetof`-proved rather than asserted in prose.
     // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the SHAPE, not the flash cost.
@@ -8924,6 +8932,10 @@ TEST_CASE("ui16-K4: the three result rows are TOTAL over the whole UiProvOutcome
 }
 
 TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both land in EXISTING padding") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     // ★★ MEASURED, ⛔ NOT REASONED (the `nearby`/`invite` placement rule, a third time), and the placement is proved
     //    by `offsetof` rather than asserted in prose: this slice adds `UiProvAnswer::saved_key` (1 B) and
     //    `UiState::saved_key_team` (4 B), and BOTH land in padding the structs already carried.
@@ -9363,6 +9375,10 @@ TEST_CASE("ui16-k6-lexemes: the SEVEN K6 words are declared ONCE, fit the rail, 
 }
 
 TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, and NO landed field moved") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     // ★★ MEASURED, ⛔ NOT REASONED, and every placement is `offsetof`-proved rather than asserted in prose.
     // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the SHAPE, not the flash cost.
     // ---- the METADATA carrier: two facts per record, and ⛔ no room for a key ------------------------------------
@@ -9873,6 +9889,10 @@ TEST_CASE("ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index 
 
 // ★★ THE RESOURCE MEASUREMENT, `offsetof`-proved (spec §5). ⚠ Native alignment hides the BOARD figure (D2).
 TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and ZERO of UiState") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     CHECK(sizeof(mrui::ComposeSlot) == 20u);               // 18 char + slot + loc, alignof 1, no padding
     CHECK(sizeof(mrui::ComposeList) == 161u);              // 8 x 20 + the count
     CHECK(offsetof(mrui::ComposeSlot, text) == 0u);

@@ -1543,6 +1543,17 @@ CmdResult Node::on_command(const Command& c) {
                 return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                      // no data SF (empty sf_list): refuse — no silent fallback
                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
+            // ★★ §B20/B21 (2026-08-28) — **WHICH CHECK OWNS WHAT.** This one owns MEMORY SAFETY and nothing else:
+            // `dm_max_body_bytes` (239) is `TxItem.inner[]`'s size minus a conservative prefix, so a body past it
+            // would overrun the carrier. It is deliberately SHAPE-BLIND — it cannot know whether the DM will be
+            // sealed, typed, or carry a location, and those decide the real carrier bound. It is therefore the
+            // LAXER of the two bounds for a CRYPTED DM (239 vs a true 214) and it must NOT be tightened here:
+            // making it shape-aware would fork a second copy of enqueue_data's flag decisions (U1).
+            // The CARRIER bound is owned by the packers — `data_inner_cap()`/`data_frame_len()` in frame_codec.h —
+            // and enforced where the shape is finally known (enqueue_data's seal cap, and pack_data itself).
+            // ⇒ the laxer check can still ADMIT a body the carrier will not take, but it can no longer let one
+            // DISAPPEAR: the carrier's refusal is loud (`send_failed{too_large}`) and fires before anything airs.
+            // That split is the reconciliation, and it is why this line is unchanged.
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             const Plane plane = static_cast<Plane>(c.u.send.plane);   // Wave 2 HARD SPLIT: 0=AUTO (companion/sim) / 1=TEAM (`-t`) / 2=GLOBAL (plain `send`)
@@ -2312,6 +2323,28 @@ void Node::on_tx_complete(const TxOutcome& info) {
         case TxOutcomeKind::unknown:
             MR_EMIT("tx_unknown", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf));
             return;
+        // ★★★ [[B159]] — THE PHYSICAL-START EXPIRY, AND IT IS THE ONE ATTEMPT OUTCOME THAT IS **TERMINAL**.
+        // The HAL refused to start this frame because its `TxParams::deadline_ms` had passed (device_hal.cpp's
+        // pump_tx); nothing aired. Unlike `failed`/`unknown` — which mean "this attempt died, a MAC retry may still
+        // follow" and deliberately touch no protocol state — an expiry means the flight's gateway patience is SPENT,
+        // so re-entering retry would be exactly the silent-late-delivery behaviour [[B159]] exists to forbid.
+        // ⇒ it maps to the SAME loud give-up an age-expired doorstep hold produces (U1: `giveup_flight` +
+        //   `send_giveup{gateway_unreachable_timeout}`), producing EXACTLY ONE terminal failure.
+        // ⛔ CORRELATED BY `seq`, WHICH IS THE SENDING SITE'S OWN STAMP AND IS NEVER RE-DERIVED (see TxParams::seq):
+        //    a non-matching seq is a SUPERSEDED flight whose RTS expired after the flight moved on — it is reported
+        //    to telemetry and does NOTHING else, so it can neither fail the CURRENT flight (a wrong-flight failure)
+        //    nor add a second failure for one already given up. Zero or one, never two.
+        case TxOutcomeKind::expired: {
+            MR_EMIT("tx_expired", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf));
+            if (info.seq == 0 || !_active->_pending_tx
+                || _active->_pending_tx->flight_gen != info.seq) return;   // superseded/unowned: report only
+            const uint8_t  dst = _active->_pending_tx->dst;
+            const uint16_t ctr = _active->_pending_tx->ctr;
+            MR_EMIT("send_giveup", EF_I("origin", _active->_pending_tx->origin), EF_I("dst", dst), EF_I("ctr", ctr),
+                    EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", 0));
+            giveup_flight(SendFailReason::gateway_unreachable, dst, ctr);
+            return;
+        }
         case TxOutcomeKind::refused:
             break;
     }

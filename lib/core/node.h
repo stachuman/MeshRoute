@@ -2227,6 +2227,26 @@ private:
     // Gateway-doorstep hold (Lua gateway_doorstep_hold@6351): an RTS/ACK timeout to a known gateway —
     // patient window-aware requeue instead of the generic cascade. Returns true if consumed.
     bool     gateway_doorstep_hold();
+    // [[B159]]: the gateway give-up deadline predicate — true (and emits the existing send_giveup shape) when an
+    // attempt starting at `start_ms` would begin at/after `enqueue + gateway_send_giveup_ms`. The bound is
+    // EXCLUSIVE (a start exactly AT it is already expired), because the DATA it would carry lands one MAC exchange
+    // later and the receiver's `seen_origin_ttl_ms` is sized from precisely this instant.
+    // ⚠ WITHDRAWN CLAIM (this line read "ENFORCED AT ONE SITE: `issue_send`'s start boundary, against the ACTUAL
+    //   start"): that check was REMOVED, and `Hal::tx()` was never the air start anyway — on a device it only
+    //   ENQUEUES. ⇒ THE ENFORCEMENT IS LAYERED: this predicate and `rts_handoff_deadline_cancel` are EARLY
+    //   ADMISSION/CANCELLATION guards; the TERMINAL PHYSICAL-START AUTHORITY is `DeviceHal::pump_tx()`, immediately
+    //   before `start_transmit()`. The entry test inside `gateway_doorstep_hold` is pre-existing behaviour.
+    // ⛔ It does NOT itself drop the flight — the caller runs its own give-up ritual (giveup_flight / push_send_failed)
+    // because the two call contexts hold different state (a live PendingTx vs a queued TxItem).
+    bool     gateway_deadline_expired(uint64_t enqueue_time_ms, uint64_t start_ms,
+                                      uint8_t origin, uint8_t dst, uint16_t ctr);
+    // [[B159]] blocker-1: the RTS HAL-handoff guard. Called immediately before each of the TWO places an RTS
+    // frame reaches the HAL (lbt_complete's RTS branch, rts_duty_defer_fire), so an LBT or duty deferral cannot
+    // carry a frame across the bound. true => the flight was given up LOUDLY and the caller must not transmit.
+    bool     rts_handoff_deadline_cancel(uint32_t flight_gen);
+    // [[B159]]: the absolute air deadline to stamp on an RTS TxParams, or 0 when the flight is not
+    // gateway-bound. The HAL enforces it at the physical start; this is the only producer of a non-zero one.
+    uint64_t rts_air_deadline_ms() const;
     // ---- Multi-hop gateway discovery (2026-06-14, type-4 BCN TLV): the originator's gateway SELECTION half ------
     void     ingest_bridged_layer(uint8_t gw_id, uint8_t dest_leaf);   // last-write-wins (one row per gw_id)
     void     prune_aged_bridged_layers(uint64_t now);                  // invalidate rows older than bridged_layers_ttl_ms
@@ -2403,7 +2423,8 @@ private:
     // ⛔⛔ `flight_seq` IS AN ARGUMENT AND THIS FUNCTION DERIVES NOTHING. It must never read `_pending_tx` (it is
     //    `static` so that it cannot): `retry_stashed` transmits with NO pre-transmit flight guard, so its frame may
     //    belong to a SUPERSEDED flight, and a derived identity would confirm the WRONG one. See hal.h's TxParams::seq.
-    static TxParams tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq);
+    static TxParams tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq,
+                                uint64_t deadline_ms = 0);   // [[B159]]: 0 = the no-deadline sentinel
     // §B186a decoders/derivations. `frame_tag_of` is the ONE place the mobile-op high byte is masked off, so the
     // retry/label/giveup paths keep seeing the pre-slice values; `mobile_op_of_kind` derives the op from the kind
     // the SENDING SITE chose, which is what makes the identity captured-at-the-act rather than reconstructed.

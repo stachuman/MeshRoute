@@ -883,6 +883,10 @@ TEST_CASE("ui10-p1-words: every enum arm is worded, distinct, and swept BY CONST
 
 // ============================================================================== §5 — THE RESOURCE / STACK GATE
 TEST_CASE("ui10-p1-resources: the catalog's residency is MEASURED, and ⛔ no full record rides a stack") {
+    // ⓘ HOST ABI ONLY. The BOARD half of these pins lives in `tools/probe_board_abi.py` ([[B246]] standing
+    //   check): run it with `--struct <T>` when a slice quotes a struct SIZE here, and in full at the gate.
+    //   ⛔ It measures `sizeof`/`alignof` per ABI ONLY — a RAM figure still needs an instance count, whose
+    //   authority is the per-board `RAM_used` diff (D2), never a `sizeof` from either side.
     // ★★★ THE OWNER-RULED STACK GATE (spec §5). The service holds THREE records — the LIVE catalog plus TWO scratch
     //     (the candidate it composes and the record it read, which are exactly the two the byte-identical compare is
     //     between). ⇒ 1116 B RESIDENT and ⛔ ZERO bytes of catalog on any stack, on any path.

@@ -30,6 +30,85 @@ void Node::giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr) {
     become_free();
 }
 
+// ★★★ [[B159]] correction (2026-08-28) — THE GATEWAY GIVE-UP IS A REAL SENDER DEADLINE, NOT A TIMEOUT-ENTRY TEST.
+// ⛔ THE DEFECT THIS CLOSES, and it disproves what `completed_flight_cache_ttl_ms`'s own note asserts ("nothing can
+//    legitimately re-arrive after it"): `gateway_doorstep_hold` tested `age >= gateway_send_giveup_ms` and THEN
+//    scheduled `now + backoff`, so a hold entered at age 149 999 ms armed a perfectly legitimate retry BEYOND the
+//    bound. Nothing downstream re-checked: `become_free` (node_mac.cpp:899) picks purely on `next_attempt_ms <= now`,
+//    and `issue_send`'s gateway-window arm (node_mac.cpp:1116) re-queues with ANOTHER full window defer. With
+//    operator-configurable gateway periods that composition has NO fixed upper margin ⇒ the retry horizon was
+//    UNBOUNDED, and any receiver-side retention "derived" from 150 s was pinning a constant, not a horizon.
+// ⇒ WHAT THE DEADLINE BOUNDS, stated exactly because the receiver's retention is sized from it: **the START of a
+//   gateway-bound attempt**. No RTS may BEGIN at or after `enqueue_time_ms + gateway_send_giveup_ms`. The DATA it
+//   carries still arrives one MAC exchange later, so the receiver retention is that bound PLUS a margin covering one
+//   exchange — see `seen_origin_ttl_ms` in protocol_constants.h, where the margin is named and measured.
+// ⓘ THE EARLY **ADMISSION** GUARD — `rts_handoff_deadline_cancel` below; NOT the air start. ⚠ AN EARLIER CUT
+//   ENFORCED IT AT `issue_send`'s dequeue/start boundary and that was NOT ENOUGH: it bounded ACCEPTANCE, and an RTS
+//   can be LBT- or DUTY-deferred after acceptance and air far later (measured: 271 000 ms against a 151 000 ms
+//   bound). That check has been deleted — with the handoff guard present, removing it left the entire native suite
+//   green, i.e. it was redundancy no mutation could kill. Two earlier prospective checks at the ARMING sites went
+//   the same way for the same measured reason. ⛔ A check nothing can kill is not a safeguard; keep the invariant
+//   at the seam where the frame actually meets the HAL, and keep it in ONE function.
+//   ⚠ `start_ms` is the ADMISSION instant, NOT the air start — `Hal::tx()` only ENQUEUES on a device, so the
+//   TERMINAL bound is `DeviceHal::pump_tx`'s check against `TxParams::deadline_ms` (produced by
+//   `rts_air_deadline_ms`). This guard is the admission layer of that pair; the parameter stays explicit so a
+//   deadline test rather than a hidden clock read.
+// C2: expiry is REFUSED LOUDLY through the EXISTING give-up shape (`send_giveup{gateway_unreachable_timeout}` +
+// `giveup_flight(gateway_unreachable)`) — byte-for-byte what an age-expired hold already emitted — never a silent drop.
+bool Node::gateway_deadline_expired(uint64_t enqueue_time_ms, uint64_t start_ms,
+                                    uint8_t origin, uint8_t dst, uint16_t ctr) {
+    const uint64_t enq = enqueue_time_ms ? enqueue_time_ms : start_ms;
+    const uint64_t age = start_ms - enq;
+    if (age < protocol::gateway_send_giveup_ms) return false;
+    MR_EMIT("send_giveup", EF_I("origin", origin), EF_I("dst", dst), EF_I("ctr", ctr),
+            EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", static_cast<int64_t>(age)));
+    return true;
+}
+
+// ★★★ [[B159]] BLOCKER-1 CORRECTION (2026-08-28) — THE RTS **HAL-ADMISSION** GUARD (an EARLY cancellation).
+// ⛔ THIS IS NOT THE PHYSICAL AIR START, and an earlier version of this banner said it was — WITHDRAWN. `Hal::tx()`
+//    only ENQUEUES on a device; the TERMINAL PHYSICAL-START AUTHORITY is `DeviceHal::pump_tx()`, immediately before
+//    `start_transmit()`, against the `TxParams::deadline_ms` this flight stamps (see `rts_air_deadline_ms`).
+// ⛔ WHAT THE PREVIOUS CUT GOT WRONG, and it is the same class of error twice: `issue_send`'s boundary ran BEFORE
+//    `tx_initiating`, so it bounded when an attempt was ACCEPTED, not when a frame was AIRED. Between the two the
+//    RTS can be LBT-deferred, or DUTY-deferred — `lbt_complete` parks it in `_rts_duty_defer` and the code's own
+//    comment prices that wait at "~1h" (node_mac.cpp) — and `rts_duty_defer_fire` then called `_hal.tx` with NO
+//    deadline test. An attempt accepted at age 149 s could therefore still AIR long past the bound, and a stub HAL
+//    that transmits synchronously can never see it.
+// ⇒ THE TIGHTENED DEFINITION, and every derivation downstream depends on it: **"start" now means the ACTUAL AIR
+//   START of an RTS.** This predicate is called immediately before each of the TWO places an RTS frame reaches the
+//   HAL — `lbt_complete`'s RTS branch (the immediate and LBT-deferred path) and `rts_duty_defer_fire` (the
+//   duty-deferred path) — so no NODE-SIDE LBT/duty deferral carries a frame past it (device-queue delay is NOT).
+// ⓘ Same-hop RTS RETRIES re-enter `tx_initiating` and are therefore guarded too. That is what lets the receiver's
+//   margin price ONE exchange (RTS+CTS+gap+DATA) instead of a whole retry chain — see `seen_origin_ttl_ms`.
+// C2: a late attempt is CANCELLED LOUDLY through the same give-up shape, never a silent non-transmit.
+// [[B159]]: the ABSOLUTE air deadline for the CURRENT flight's RTS, or 0 ("no deadline") when the flight is not
+// gateway-bound. Same rule and same scope as `rts_handoff_deadline_cancel` below — one rule, expressed once (U1) —
+// but delivered as a VALUE that travels with the frame, because the HAL cannot ask the Node anything (C3).
+uint64_t Node::rts_air_deadline_ms() const {
+    if (!_active->_pending_tx) return 0;
+    const PendingTx& pt = *_active->_pending_tx;
+    if (find_gw_schedule(pt.next) == nullptr) return 0;
+    const uint64_t enq = pt.enqueue_time_ms ? pt.enqueue_time_ms : _hal.now();
+    return enq + protocol::gateway_send_giveup_ms;
+}
+
+bool Node::rts_handoff_deadline_cancel(uint32_t flight_gen) {
+    if (!_active->_pending_tx) return false;
+    PendingTx& pt = *_active->_pending_tx;
+    if (pt.flight_gen != flight_gen) return false;          // a stale completion: the caller's own guard owns it
+    // ⛔ THE SCOPE IS DELIBERATE AND NOT REMOVABLE REDUNDANCY, although no mutation can kill it (battery `b159dl`
+    // B09 reports it unusable, and that verdict is RECORDED rather than engineered away). The reason it has no
+    // behavioural signature today is measured: a NON-gateway flight is capped by `try_cascade_requeue` at
+    // `cascade_requeue_total_max_ms`(60 s) + one `requeue_backoff_ms`(<=20 s) = 80 s, so it can never reach this
+    // 150 s bound to be judged by it. The guard encodes WHICH patience governs WHICH flight; without it a later
+    // widening of the cascade cap past 150 s would let a *gateway* constant silently kill ordinary flights.
+    if (find_gw_schedule(pt.next) == nullptr) return false;
+    if (!gateway_deadline_expired(pt.enqueue_time_ms, _hal.now(), pt.origin, pt.dst, pt.ctr)) return false;
+    giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);
+    return true;
+}
+
 bool Node::alt_tried(const PendingTx& pt, uint8_t hop) const {
     for (uint8_t i = 0; i < pt.alts_tried_n; ++i) if (pt.alts_tried[i] == hop) return true;
     return false;
@@ -422,10 +501,10 @@ bool Node::gateway_doorstep_hold() {
     if (!gs || !gs->valid) return false;                             // no known schedule for this gateway
     const uint64_t now = _hal.now();
     const uint64_t enq = pt.enqueue_time_ms ? pt.enqueue_time_ms : now;
-    const uint64_t age = now - enq;
-    if (age >= protocol::gateway_send_giveup_ms) {
-        MR_EMIT("send_giveup", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
-                EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", static_cast<int64_t>(age)));
+    // The ENTRY test (pre-existing behaviour, unchanged): a hold entered past the bound gives up here. It is NOT
+    // what bounds the horizon. ⚠ WITHDRAWN: this line used to name `issue_send`'s start boundary as the bound —
+    // that check was removed, and the TERMINAL authority is `DeviceHal::pump_tx()` before `start_transmit()`.
+    if (gateway_deadline_expired(enq, now, pt.origin, pt.dst, pt.ctr)) {
         giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);   // §3-A.5: was reason=none (telemetry-only)
         return true;
     }
@@ -439,7 +518,9 @@ bool Node::gateway_doorstep_hold() {
     it.next_attempt_ms = now + backoff;
     MR_EMIT("gateway_hold_requeue", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
             EF_I("wait_ms", wait), EF_I("jitter_ms", jitter), EF_I("backoff_ms", backoff),
-            EF_I("age_ms", static_cast<int64_t>(age)));
+            EF_I("age_ms", static_cast<int64_t>(now - enq)));   // ⛔ inlined, NOT a local: a variable used only
+            // inside MR_EMIT is stripped on every device build and warns -Wunused-variable ([[B169]] class) —
+            // invisible to native AND the corpus, caught only by the warning census.
     if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
     _active->_pending_tx.reset();
     become_free();

@@ -901,6 +901,11 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     const size_t mac_len = data_mac_len(in.flags);                // 8-B nonce-seed under CRYPTED, else the 4-B MAC
     const bool mac_zero = in.mac.empty();
     if (!mac_zero && in.mac.size() != mac_len) return 0;
+    // ★ §B20 (2026-08-28) — the length refusal, stated in the SHARED formula instead of only falling out of the
+    // Writer's bound. BEHAVIOUR-IDENTICAL (the Writer refuses the same frames, and the s18 keystone proves it):
+    // what it buys is that `data_frame_len` is now demonstrably THE packer's own arithmetic, so an originator
+    // preflighting on `data_inner_cap` is asking this function's question and not a parallel copy of it.
+    if (data_frame_len(in.flags, in.type, in.inner.size()) > out.size()) return 0;
 
     const uint8_t hr = in.hops_remaining > 31 ? 31 : in.hops_remaining;   // saturate (matches Lua math.min)
     const uint8_t ch = in.committed_hops > 7  ? 7  : in.committed_hops;

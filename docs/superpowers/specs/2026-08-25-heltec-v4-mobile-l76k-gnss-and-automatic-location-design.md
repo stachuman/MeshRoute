@@ -652,7 +652,7 @@ The existing 6-byte `pack_loc6` representation is unchanged.
 
 For a normal direct sealed DM in the current 255-byte frame, location reduces the exact body cap by 6 bytes: from
 214 to 208 bytes. Do not continue relying on the generic 239-byte command cap; direct seal preflight must use the
-actual carrier formula.
+actual carrier formula. *(Landed 2026-08-28 by §B20/B21: the formula authority is `data_inner_cap()` / `data_frame_len()` in `lib/core/frame_codec.h` — the packer's own arithmetic, now enforced at the seal preflight; GPS-2 consumes it rather than restating a cap.)*
 
 For a sealed team channel, the existing inner helper remains the authority. A located post adds 10 bytes relative
 to a text-only post: 4-byte authenticated source hash plus 6-byte location. Current exact text caps are 173 bytes
