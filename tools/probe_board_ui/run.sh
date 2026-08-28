@@ -1255,22 +1255,31 @@ DISPATCH_SIG='bool dispatch(const char* line, size_t len, Print& out) {'
 SETUP_SIG='void setup() {'
 BLE_SIG='static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t cap) {'
 UI_ARM="if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }"
+# ★★★★ RE-ANCHORED 2026-08-28 BY THE [[B255]] SLICE (owner ruling (b)), AND THE RE-ANCHOR IS THE POINT, not an
+#      accommodation: the arm is now compiled ONLY where a panel exists, so the LIVE form this probe must pin is the
+#      GUARDED one. Pinning the bare arm would have gone on passing after somebody un-gated it and handed every
+#      headless board its 1132 B of `.bss` back — i.e. the check would have survived the regression it now exists to
+#      catch. ⓘ `fn_flat` strips `//` comments FIRST, so the marker on the `#if` line is invisible here and the
+#      anchor is the directive itself. ⓘ `#endif` must be the NEXT line: an arm that drifted out of the guard while
+#      the guard stayed open would otherwise still match.
+UI_ARM_GUARDED="#if MR_FEAT_OLED $UI_ARM #endif"
 
 # ★★★ W49 — THE LIVE ARM, AND IT IS PINNED WITH ITS OFFSETS. A substring check would pass a mis-sliced call, so the
 #     whole arm is matched: the `len == 2` bare form, the space at index 2, the two-byte `strncmp`, AND the
 #     `line + 2 / len - 2` slice `handle_ui` is handed. ⓘ `line + 2` is what makes the sub-verb parse see `preset …`
 #     rather than `ui preset …` — an off-by-two here answers the usage line to EVERY well-formed verb.
-echo "  W49 counts: $(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$CMD_CPP") arm line(s) in $(basename "$CMD_CPP") (required 1), $(fn_flat "$CMD_CPP" "$DISPATCH_SIG" | grep -cF "$UI_ARM") inside dispatch() (required 1)"
+echo "  W49 counts: $(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$CMD_CPP") arm line(s) in $(basename "$CMD_CPP") (required 1), $(fn_flat "$CMD_CPP" "$DISPATCH_SIG" | grep -cF "$UI_ARM_GUARDED") guarded arm(s) inside dispatch() (required 1)"
 w49() {
   [ "$(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$1")" = 1 ] || return 1
-  fn_flat "$1" "$DISPATCH_SIG" | grep -qF "$UI_ARM"
+  fn_flat "$1" "$DISPATCH_SIG" | grep -qF "$UI_ARM_GUARDED"
 }
-wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice (both transports, no fork)" \
+wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate" \
      w49 '/handle_ui(line + 2, len - 2, out); return true;/d' \
          's@handle_ui(line + 2, len - 2, out)@handle_ui(line, len, out)@' \
          's@{ handle_ui(line + 2, len - 2, out); return true; }@{ return true; }@' \
          's@ \&\& !strncmp(line, "ui", 2))@ \&\& !strncmp(line, "ui", 1))@' \
-         '/handle_ui(line + 2, len - 2, out); return true;/d; s@^static void dump_help(Print\& out) {$@&\n    if ((len == 2 || (len > 2 \&\& line[2] == '"'"' '"'"')) \&\& !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }@'
+         '/handle_ui(line + 2, len - 2, out); return true;/d; s@^static void dump_help(Print\& out) {$@&\n    if ((len == 2 || (len > 2 \&\& line[2] == '"'"' '"'"')) \&\& !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }@' \
+         's@^#if MR_FEAT_OLED   // ★ \[\[B255\]\] the `ui` dispatch arm$@//&@'
 
 # ★★★ W50 — THE BOOT LOAD. Without this call the catalog is never read: the node runs the COMPILED DEFAULTS for ever
 #     while `/mrui` holds the wearer's phrases, and ⛔ neither ruled diagnostic line is ever printed — a corrupt
@@ -1278,6 +1287,12 @@ wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len
 #     and every battery entry stays green, because none of them boots anything.
 # ★ Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves
 #   the catalog correct and the WARNING gone — half the property, which is why a deletion-only control is not enough.
+# ⚠⚠ **CONSIDERED FOR RE-ANCHORING BY [[B255]] AND DELIBERATELY LEFT ALONE, WHICH IS ITSELF THE FINDING.** The
+#    B255 gate compiles the boot restore out on a panel-less profile, and the first cut of that slice put an
+#    `#if MR_FEAT_OLED` around THIS CALL — which turned **W24 RED**: `fw_main.cpp` may not name the flag anywhere,
+#    because `lib/hal/mr_ui.h`'s rule is that the glue must never learn a panel exists. ⇒ the gate moved into
+#    `firmware_commands.h` as an INERT INLINE STUB (the `ui_emergency_active()` idiom), the call stayed
+#    unconditional, and this check is UNCHANGED — W24 caught the wrong shape before any board build did.
 echo "  W50 counts: $(grep -cF 'mrfw::preset_boot_restore_console();' "$FW_MAIN") boot-restore call(s) in $(basename "$FW_MAIN") (required 1), $(fn_flat "$FW_MAIN" "$SETUP_SIG" | grep -cF 'mrfw::preset_boot_restore_console();') inside setup() (required 1)"
 w50() {
   [ "$(grep -cF 'mrfw::preset_boot_restore_console();' "$1")" = 1 ] || return 1
@@ -1351,6 +1366,52 @@ w53() {
 wchk_in "$FW_UI" "W53 DeviceInvite binds B249's request exactly once to Node::schedule_triggered_beacon" \
      w53 '/void request_team_announcement() override { g_node.schedule_triggered_beacon(); }/d' \
          's/g_node\.schedule_triggered_beacon()/g_node.team_dad_fire()/'
+
+# ================================================================================================ W54
+# ★★★★ W54 — **[[B255]]'s GATE, PINNED WHERE IT LIVES, AND IT IS THE ONLY INSTRUMENT THAT CAN SEE IT.** The owner
+#      ruled (b) on 2026-08-28: the `/mrui` catalog, its boot restore, its `status`/`help` surfacing and the
+#      `ui preset` verb are compiled out off `MR_FEAT_OLED`, because a headless board cannot select a preset and QG
+#      measured the one live instance in the linked `gateway` ELF at `preset_catalog()::cat` = **1132 B of `.bss`**.
+# ⛔⛔ **THERE IS NO NATIVE CASE FOR THIS, AND THAT IS STRUCTURAL, NOT AN OMISSION** (§B115): every one of these five
+#      sites lives in `src/firmware_commands.cpp`, a TU compiled by NEITHER the native suite (`test_build_src = no`)
+#      NOR the simulator. The PURE units the gate does *not* touch (`firmware_ui_presets.h`,
+#      `firmware_ui_preset_verbs.h`, `device_nv.h`'s `'MRU1'`) stay natively driven exactly as before — which is
+#      precisely why a native case here would have measured the ungated half and called it the gate.
+# ⓘ W49 pins the `ui` ARM's guard and W50 the BOOT CALL's; this check is the other five sites, in one place, so a
+#   half-landed gate (say, the verb gated but the 1132-B instance still constructed for `status`) cannot pass.
+# ★ THE EXTRACTION IS NESTING-AWARE and refuses to be vacuous: an empty guarded-region extraction (a renamed flag,
+#   a restructured file) returns RED rather than passing over an absence — the [[B217]] shape this probe exists to
+#   avoid, and the same reason `sleep_fn_code`'s first clause exists at W46.
+oled_guarded() {   # every line of $1 that sits INSIDE a `#if MR_FEAT_OLED` region
+  awk '
+    !d && /^#if MR_FEAT_OLED/         { d = 1; next }
+    d  && /^#[ \t]*(if|ifdef|ifndef)/ { d++; print; next }
+    d  && /^#[ \t]*endif/             { d--; if (d == 0) next; print; next }
+    d                                 { print }
+  ' "$1"
+}
+echo "  W54 counts: $(oled_guarded "$CMD_CPP" | wc -l) line(s) of $(basename "$CMD_CPP") inside a MR_FEAT_OLED region (required > 0), $(grep -cF 'static mrfw::PresetCatalog cat(st, gate);' "$CMD_CPP") live catalog instance(s) (required 1)"
+w54() {
+  local g token
+  g=$(oled_guarded "$1")
+  [ -n "$g" ] || return 1
+  for token in \
+      '#include "firmware_ui_preset_verbs.h"' \
+      'static mrfw::PresetCatalog cat(st, gate);' \
+      'void preset_boot_restore_console() {' \
+      'void handle_ui(const char* args, size_t len, Print& out) {' \
+      'const mrfw::PresetCatalog& pc = preset_catalog();' \
+      'out.println(F("UI PRESETS'; do
+    [ "$(grep -cF "$token" "$1")" = 1 ] || return 1
+    printf '%s\n' "$g" | grep -qF "$token" || return 1
+  done
+}
+wchk_in "$CMD_CPP" "W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status, help) is MR_FEAT_OLED-gated" \
+     w54 's@^#if MR_FEAT_OLED   // ★ \[\[B255\]\] the include@//&@' \
+         's@^#if MR_FEAT_OLED   // ★ \[\[B255\]\] the catalog binding@//&@' \
+         's@^#if MR_FEAT_OLED   // ★ \[\[B255\]\] the `status` surface$@//&@' \
+         's@^#if MR_FEAT_OLED   // ★ \[\[B255\]\] the `help` group$@//&@' \
+         '/    static mrfw::PresetCatalog cat(st, gate);/d'
 
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"

@@ -234,6 +234,28 @@ TARGET_SRC = {
     # each slice can be re-proved independently even though two targets share the same production files.
     "b251rx":       "lib/core/node_mac_rx.cpp",
     "b251hash":     "lib/core/node_hashlocate.cpp",
+    # ★★ ADDED 2026-08-28 BY §B20/B21, and for the reason every target above it was added: the slice's decisions —
+    #    WHICH bound sizes a sealed inner, WHICH of the two bounds wins when they disagree, WHICH of the two
+    #    conditions the DST_HASH guard is looking at, and WHETHER each arm reports at all — are each a ruled
+    #    decision a mutation must reach ON ITS OWN, and a battery is per-SOURCE-FILE. Kept separate from
+    #    `b161mac`/`grantadmit` (same production file) so this slice can be re-proved independently.
+    # ⚠ TWO targets because the LENGTH AUTHORITY and its CONSUMER genuinely live in two files: `frame_codec.h`
+    #   owns the formula (what a DATA frame costs, what an inner may be), `node_mac.cpp` owns the decision to ask
+    #   it. A mutation of the formula and a mutation of the asking are different defects and must not share entries.
+    "b20mac":       "lib/core/node_mac.cpp",     # §B20/B21 — the seal's cap + the DST_HASH guard's two conditions
+    "b20codec":     "lib/core/frame_codec.h",    # §B20 — data_frame_len/data_inner_cap, the one length authority
+    # ★★ ADDED 2026-08-28 BY [[B159]] (the dedup-vs-retry-horizon correction round). FOUR targets because the
+    #    slice's decisions genuinely live in four files and a battery is per-SOURCE-FILE: the RETENTION derivation
+    #    (`protocol_constants.h`), the DEADLINE PREDICATE and its doorstep call site (`node_cascade.cpp`), the two
+    #    scheduler call sites that made the horizon unbounded (`node_mac.cpp`), and the DEDUP MECHANISM the
+    #    retention feeds (`node_mac_rx.cpp`). Kept separate from `b251rx`/`b20mac` (same production files) so this
+    #    slice can be re-proved independently, exactly as those entries were.
+    "b159const":    "lib/core/protocol_constants.h",   # [[B159]] — retention = enforced deadline + measured margin
+    "b159dl":       "lib/core/node_cascade.cpp",       # [[B159]] — gateway_deadline_expired + the doorstep call
+    "b159mac":      "lib/core/node_mac.cpp",           # [[B159]] — the start boundary + the window-defer arm
+    "b159rx":       "lib/core/node_mac_rx.cpp",        # [[B159]] — the _seen_origins dedup the retention feeds
+    "b159hal":      "lib/hal/device_hal.cpp",          # [[B159]] — the PHYSICAL-START deadline in pump_tx
+    "b159map":      "lib/core/node.cpp",               # [[B159]] — the expired->terminal give-up mapping
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -356,7 +378,79 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2240, 96469     # ★★ CROSS-CHECK RE-SYNCED 2026-08-27 by **[[B251 QG correction]]** — the hosted-mobile
+PIN_CASES, PIN_ASSERTS = 2262, 97982     # ★★ CROSS-CHECK RE-SYNCED 2026-08-28 by **[[B159]]** (the dedup-vs-retry-
+                                         # horizon correction rounds), ON TOP OF §B20/B21's re-sync recorded below
+                                         # and WITHOUT disturbing it: **2247 / 97916 -> 2262 / 97982 = +15 cases /
+                                         # +66 assertions**, ⛔ with no existing case edited except [[B159]]'s own
+                                         # derivation case (its first cut asserted retention == the give-up value;
+                                         # QG disproved that, so the case now pins deadline + margin). DERIVED:
+                                         #   +6 / 21 in `test/test_node_r3.cpp` — the two repros (time, and
+                                         #     cache-evicted same-prev-hop), the retention boundary driven both
+                                         #     sides, both retry horizons, the corrected derivation (7), and the
+                                         #     prune/occupancy hygiene case (4).
+                                         #   ⓘ A VERBATIM DUPLICATE of the duty-deferred handoff case (same
+                                         #     TEST_CASE name, a leftover of a comment sweep) was REMOVED at
+                                         #     closure; it had inflated this line by +1 case / +4 assertions.
+                                         #   +3 / 13 in `test/test_dual_layer.cpp` — the PRODUCTION-PATH deadline
+                                         #     case (drives origination -> RTS timeout -> doorstep hold -> queue
+                                         #     drain, asserting on REAL transmission TIMES, not an injected
+                                         #     duplicate); the deadline EDGE on the predicate; and the TWO HAL-
+                                         #     handoff cases (a DUTY-deferred and an LBT-deferred RTS each carried
+                                         #     across the bound must be cancelled loudly, never aired).
+                                         #   +3 / 15 in `test/test_device_hal.cpp` — the PHYSICAL-START deadline
+                                         #     in `DeviceHal::pump_tx`: a frame accepted before its deadline but
+                                         #     still QUEUED past it is refused WITHOUT start_transmit and reports
+                                         #     exactly one correlated `expired`; the 0 sentinel never expires
+                                         #     ordinary traffic; a frame inside its deadline still flies.
+                                         #   +1 /  8 in `test/test_dual_layer.cpp` — the expiry->give-up mapping:
+                                         #     ZERO failures for a superseded seq, EXACTLY ONE for the matching
+                                         #     flight, and still one on a repeat.
+                                         #   +1 /  6 in `test/test_protocol_constants.cpp` — the start->arrival
+                                         #     margin recomputed from `airtime_ms()` at the worst SUPPORTED PHY
+                                         #     (SF12/BW7800/CR8/255 B = 279 765 ms), so a PHY widening breaks the
+                                         #     build instead of silently re-opening [[B159]].
+                                         # ⓘ SUPERSEDED NOTE, kept because its arithmetic is still the basis of
+                                         #   the 2247 / 97916 figure this line builds on:
+                                         # §B20/B21 (the silent DM length
+                                         # boundary): **2240 / 96469 -> 2247 / 97916 = +7 cases / +1447 assertions**,
+                                         # all in `test/test_node_r3.cpp`, ⛔ with no existing case edited. DERIVED —
+                                         # the figure below is the arithmetic, not a copy of the runner's output, and
+                                         # the two agree:
+                                         #   +1 /    9 — `§B20 — data_frame_len/data_inner_cap ARE pack_data's
+                                         #               arithmetic`: 4 shape rows + the CRYPTED delta + 2 round-trips
+                                         #               (7) and the real-packer both-sides loop (2).
+                                         #   +1 / 1362 — `§B20/B21 — every body length lands exactly ONE of two
+                                         #               honest outcomes`: 6 carrier shapes x 40 lengths. An AIRING
+                                         #               length asserts 5 (code, aired, crypted, not-failed,
+                                         #               not-pack-failed); a REFUSING one asserts 7 (code, not-aired,
+                                         #               failed, reason, tx_calls, queue depth, not-pack-failed).
+                                         #               3 plaintext shapes cap at 239 -> 40x5 = 200 each = 600;
+                                         #               CRYPTED and CRYPTED+`-a` cap at 214 -> 15x5 + 25x7 = 250
+                                         #               each = 500; CRYPTED+`-l` caps at 208 -> 9x5 + 31x7 = 262.
+                                         #               600 + 500 + 262 = 1362. ✓
+                                         #   +1 /   27 — `§B20 — a sealed DM in the 215-216 band refuses too_large`:
+                                         #               2 lengths x 6 + the 214-B control (4) + the `-l` twin
+                                         #               (1 + 2x5 = 11).
+                                         #   +1 /   18 — `§B21 — an oversized sealed DM reports too_large`: 3 lengths
+                                         #               x 6.
+                                         #   +1 /    8 — `§B21 — ...still reports no_pubkey, and now pushes it`:
+                                         #               5 on the unbound arm + 3 on the bound control.
+                                         #   +1 /    8 — `§B20 — a sealed DM AT the cap (214 B) delivers`: 4 on the
+                                         #               origination (aired, crypted, not-failed, frame == 255 B) and
+                                         #               4 on the peer's open (got, enc, body_len, body bytes).
+                                         #   +1 /   15 — `§B20 — a TX-time pack refusal on a RELAYED frame tears
+                                         #               the flight down`: the packer accepts the legal pair and
+                                         #               refuses the flipped one (2), the ACK (1), the own DM
+                                         #               queued-and-waiting (2), the backstop firing loudly with
+                                         #               nothing aired (3), and the RECOVERY — queue drained, its
+                                         #               RTS started, `data_tx` incremented, a frame present,
+                                         #               parseable, dst 5, not CRYPTED (7).
+                                         #   9 + 1362 + 27 + 18 + 8 + 8 + 15 = 1447. ✓
+                                         # Thirteen B20/B21 mutations live under `b20mac` (8) and `b20codec` (5);
+                                         # b20mac's B07/B08 are the two teardown halves, and the follow-up DM in
+                                         # the relayed-backstop case is the ONLY assertion that measures them.
+                                         # Superseded [[B251 QG correction]] pin follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2240, 96469 — the hosted-mobile
                                          # counter boundary adds twelve cases / 424 assertions: exact s22 collision,
                                          # two-mobile receive identity, retry, queue/ring admission, reverse-key
                                          # destination/hash/layer separation, no-live-eviction, static/team/encrypted
@@ -5886,9 +5980,193 @@ MUTS_UIPRESETVERBS = [
   '        case PresetVerdict::refused:\n            preset_emit_record(cat, static_cast<uint8_t>(slot), out);\n            return;\n        case PresetVerdict::nv_failed:'),
 ]
 
-MUTS_BY_TARGET = {"teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
+# ===== §B20/B21 — lib/core/node_mac.cpp: the seal's CAP and the DST_HASH guard's TWO conditions ==================
+# ★★★ EVERY ENTRY IS A TEMPTING WRONG FIX, NOT A DELETION. B01 is the pre-2026-08-28 tree verbatim ("241 is the
+#     carrier's size, what else would you pass?"); B02/B03 are the two ways a reviewer "simplifies" the two-bound
+#     reconciliation; B04 is B21's original diagnosis restored ("no DST_HASH means no pubkey — it says so right
+#     there"); B05/B06 are the two halves of the silence the row named, each removed on its own so neither can hide
+#     behind the other.
+MUTS_B20MAC = [
+ ("B01 ★★★ [[B20]] VERBATIM: the seal is sized by the BUFFER again (241, a 4-B-MAC constant) instead of the frame — "
+  "the 215-216 band is admitted, queued, its RTS airs, and the DATA is dropped at TX time with nothing pushed",
+  "        const size_t frame_cap = data_inner_cap(item.flags, type);\n"
+  "        const size_t seal_cap  = frame_cap < sizeof item.inner ? frame_cap : sizeof item.inner;",
+  "        const size_t seal_cap  = sizeof item.inner;"),
+ ("B02 ★★ the carrier boundary is OFF BY ONE — exactly one body length (the cap+1) still disappears, which is the "
+  "hardest shape to notice and the reason both sides of every cap are asserted",
+  "        const size_t seal_cap  = frame_cap < sizeof item.inner ? frame_cap : sizeof item.inner;",
+  "        const size_t seal_cap  = frame_cap + 1 < sizeof item.inner ? frame_cap + 1 : sizeof item.inner;"),
+ ("B03 ★★★ THE TWO BOUNDS ARE RECONCILED THE WRONG WAY — the LAXER one wins, so the buffer's 241 re-admits what the "
+  "carrier will drop. The brief's named failure: a laxer check re-admitting past the carrier cap",
+  "        const size_t seal_cap  = frame_cap < sizeof item.inner ? frame_cap : sizeof item.inner;",
+  "        const size_t seal_cap  = frame_cap > sizeof item.inner ? frame_cap : sizeof item.inner;"),
+ ("B04 ★★★ [[B21]]'s WRONG CONDITION RESTORED: the guard stops distinguishing 'no key' from 'the key did not fit', "
+  "so an oversized sealed DM sends the operator after a key he already holds",
+  "            const bool key_known = (dh != 0);",
+  "            const bool key_known = false;"),
+ ("B05 ★★ [[B21]]'s SILENCE, HALF ONE: the size arm emits but no longer PUSHES — the app is told nothing, which is "
+  "exactly the 'no send_failed' the register row names",
+  "                push_send_failed(SendFailReason::too_large, dst, ctr);\n"
+  "            } else {",
+  "            } else {"),
+ ("B06 ★★ [[B21]]'s SILENCE, HALF TWO: the genuinely-keyless arm emits but no longer PUSHES — the sibling defect, "
+  "removed separately so neither half can pass on the other's assertion",
+  "                push_send_failed(SendFailReason::no_pubkey, dst, ctr);\n"
+  "            }\n"
+  "            return ctr;",
+  "            }\n"
+  "            return ctr;"),
+ # ⚠ B07/B08 attack the RECOVERY, not the refusal, and they are the entries B01-B06 could NOT reach: B01/C03 do go
+ #   RED, but on EARLIER airtime/pack assertions, so their RED never proved that a failed pack RELEASES the node for
+ #   its next transmission. The measuring assertion is the follow-up DM in the relayed-backstop case; without it both
+ #   of these would be inert, which is exactly why that case exists.
+ ("B07 ★★★ THE FAILED FLIGHT IS NEVER RELEASED: `_pending_tx` still holds the frame pack_data refused, so nothing "
+  "re-fires it and the node's NEXT DM never reaches the air — the pre-2026-08-28 wedge, half one",
+  "        _active->_pending_tx.reset(); become_free();\n"
+  "        return;",
+  "        become_free();\n"
+  "        return;"),
+ ("B08 ★★★ THE QUEUE IS NEVER PUMPED: the flight IS released, but `become_free()` is the DRAIN (node_mac.cpp:891), "
+  "so a DM already waiting behind the doomed forward is never started — the same wedge, other half",
+  "        _active->_pending_tx.reset(); become_free();\n"
+  "        return;",
+  "        _active->_pending_tx.reset();\n"
+  "        return;"),
+]
+
+# ===== §B20 — lib/core/frame_codec.h: THE ONE LENGTH AUTHORITY ====================================================
+# ★★ These attack the FORMULA rather than its consumer. C01 is B20's root cause reproduced AT the authority (the
+#    4-B MAC assumed for every frame); C02/C05 drop a term each; C03 is the "cap = the frame budget, the header is
+#    someone else's problem" simplification, which is precisely the shape that burns a queue slot and real RTS
+#    airtime on a frame that can never air.
+MUTS_B20CODEC = [
+ ("C01 ★★★ [[B20]]'s ROOT CAUSE, AT THE AUTHORITY: the trailer is assumed to be the 4-B MAC for every frame, so a "
+  "CRYPTED inner cap reads 243 instead of 239 and the two silent bytes come back",
+  "    const size_t overhead = DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + data_mac_len(flags);",
+  "    const size_t overhead = DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + DATA_MAC_LEN;"),
+ ("C02 ★★ the TYPE byte is forgotten in the inner cap, so a TYPED sealed DM (MOBILE_SEND, the team key grant) is "
+  "given one byte more than its frame can carry — the same defect one byte narrower",
+  "    const size_t overhead = DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + data_mac_len(flags);",
+  "    const size_t overhead = DATA_HDR_LEN + data_mac_len(flags);"),
+ ("C03 ★★★ the cap becomes the WHOLE FRAME BUDGET (the overhead is computed and ignored) — every length is admitted, "
+  "a tx-queue slot is burned and the RTS airs for a DATA that pack_data then refuses",
+  "    return frame_cap > overhead ? frame_cap - overhead : size_t{0};",
+  "    return frame_cap > overhead ? frame_cap : size_t{0};"),
+ ("C04 ★★ data_frame_len forgets the TYPE byte, so the packer's refusal and the sender's preflight DRIFT — the exact "
+  "two-copies-of-the-arithmetic failure this helper exists to make impossible",
+  "    return DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + inner_len + data_mac_len(flags);",
+  "    return DATA_HDR_LEN + inner_len + data_mac_len(flags);"),
+ ("C05 ★★ data_frame_len's trailer collapses to the 4-B MAC — the frame length it reports for a CRYPTED DATA is 4 B "
+  "short, so it stops describing the frame pack_data actually writes",
+  "    return DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + inner_len + data_mac_len(flags);",
+  "    return DATA_HDR_LEN + (type != 0 ? size_t{1} : size_t{0}) + inner_len + DATA_MAC_LEN;"),
+]
+
+
+# ★★★ [[B159]] — DE-DUPLICATION VS THE RETRY HORIZON (2026-08-28, correction round).
+# The row: "DATA de-duplication can expire inside the retry horizon and deliver a retry twice". The fix has TWO
+# halves and each must be independently reachable by a mutation: the SENDER's give-up is now a real deadline (so the
+# horizon is bounded at all), and the RECEIVER's retention is that bound plus one measured MAC exchange.
+MUTS_B159CONST = [
+ ("B01 the retention reverts to the retired 30 s — the [[B159]] defect verbatim",
+  "inline constexpr uint32_t seen_origin_ttl_ms = gateway_send_giveup_ms + mac_exchange_margin_ms;",
+  "inline constexpr uint32_t seen_origin_ttl_ms = 30000;"),
+ ("B02 the start->arrival margin is dropped (the REJECTED first cut: retention == the give-up value)",
+  "inline constexpr uint32_t seen_origin_ttl_ms = gateway_send_giveup_ms + mac_exchange_margin_ms;",
+  "inline constexpr uint32_t seen_origin_ttl_ms = gateway_send_giveup_ms;"),
+ ("B03 the margin drops below ONE EXCHANGE AT THE WORST SUPPORTED PHY (SF12/BW7800/CR8/255B = 279 765 ms)",
+  "inline constexpr uint32_t mac_exchange_margin_ms = 300000;",
+  "inline constexpr uint32_t mac_exchange_margin_ms = 279764;"),
+ ("B03b the margin reverts to the REJECTED corpus-observation value (30 s covers 5 062 ms, not the envelope)",
+  "inline constexpr uint32_t mac_exchange_margin_ms = 300000;",
+  "inline constexpr uint32_t mac_exchange_margin_ms = 30000;"),
+]
+
+MUTS_B159DL = [
+ ("B04 the deadline predicate never fires — the give-up returns to a pure timeout-ENTRY test",
+  "    if (age < protocol::gateway_send_giveup_ms) return false;",
+  "    return false;\n    if (age < protocol::gateway_send_giveup_ms) return false;"),
+ ("B05 the deadline is off by one — an air start exactly AT the bound is admitted",
+  "    if (age < protocol::gateway_send_giveup_ms) return false;",
+  "    if (age <= protocol::gateway_send_giveup_ms) return false;"),
+ ("B08 the handoff guard never cancels — a late RTS is judged and then aired anyway",
+  "    giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);\n    return true;\n}",
+  "    giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);\n    return false;\n}"),
+ # ⓘ B09 IS EXPECTED-UNUSABLE, for the reason recorded at the guard: a non-gateway flight is capped at
+ # cascade_requeue_total_max_ms(60 s) + one requeue_backoff_ms(<=20 s) = 80 s, so it can never reach the 150 s
+ # bound and the scope guard has no reachable behavioural difference. It still encodes which patience governs
+ # which flight and must NOT be deleted. Kept as a standing record rather than closed by weakening the code.
+ ("B09 the handoff guard stops scoping to a scheduled gateway — it would police every flight",
+  "    if (find_gw_schedule(pt.next) == nullptr) return false;",
+  "    if (false) return false;"),
+]
+
+MUTS_B159MAC = [
+ ("B06 the RTS HAL handoff on the DUTY-deferred path stops testing the deadline (the blocker-1 defect verbatim)",
+  "    if (rts_handoff_deadline_cancel(d.flight_gen)) { d.pending = false; return; }\n",
+  ""),
+ ("B07 the RTS HAL handoff on the immediate/LBT-deferred path stops testing the deadline",
+  "        if (rts_handoff_deadline_cancel(completion_gen))\n"
+  "            return true;                                              // §TX1: a deliberate CANCEL — given up loudly, nothing rejected\n",
+  ""),
+]
+
+MUTS_B159RX = [
+ ("B09 the dedup ignores expiry — a genuinely-new flight reusing the identity is SUPPRESSED (over-correction)",
+  "    const bool live_dup = (so != _active->_seen_origins.end() && so->second > nowm);",
+  "    const bool live_dup = (so != _active->_seen_origins.end());"),
+ ("B10 the expiry PRUNE is removed — the clearing term the B239 audit rests on",
+  "    for (auto it = _active->_seen_origins.begin(); it != _active->_seen_origins.end(); )\n"
+  "        { if (it->second <= now_ms) { _active->_seen_origin_from.erase(it->first); "
+  "it = _active->_seen_origins.erase(it); } else ++it; }\n",
+  ""),
+ ("B11 capacity pressure REFUSES the new key instead of rolling the oldest",
+  "        _active->_seen_origin_from.erase(oldest->first);\n"
+  "        _active->_seen_origins.erase(oldest);",
+  "        return;"),
+]
+
+
+# ★★★ [[B159]] blocker-1 round 4 — the DEVICE-BOUNDARY decision logic. `lib/hal` is NOT compiled by the simulator
+# but IS compiled and linked by the native suite (`.pio/build/native/lib*/hal/device_hal.o` — verified, not assumed),
+# so this logic is genuinely host-testable and needs no pure-logic-header extraction.
+MUTS_B159HAL = [
+ ("B12 the PHYSICAL-START deadline check is dropped — a queued frame airs past its deadline (the blocker verbatim)",
+  "    if (e.deadline_ms != 0 && _clock.now_ms() >= e.deadline_ms) {",
+  "    if (false) {"),
+ ("B13 the NO-DEADLINE sentinel is ignored — ordinary traffic expires too (C2 over-correction)",
+  "    if (e.deadline_ms != 0 && _clock.now_ms() >= e.deadline_ms) {",
+  "    if (_clock.now_ms() >= e.deadline_ms) {"),
+ ("B14 the expiry still calls start_transmit — the frame airs anyway and the outcome lies",
+  "        _txq_head = static_cast<uint8_t>((_txq_head + 1) % kTxQCap);   // drop it: the frame never flies\n"
+  "        _txq_count--;\n"
+  "        push_tx_outcome(expired);\n"
+  "        return;",
+  "        push_tx_outcome(expired);"),
+ ("B15 the expiry outcome drops the sending site's flight identity — correlation becomes impossible",
+  "        const TxOutcome expired{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,\n"
+  "                                 e.tag, e.seq, e.sf, 0 };",
+  "        const TxOutcome expired{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,\n"
+  "                                 e.tag, 0, e.sf, 0 };"),
+]
+
+MUTS_B159MAP = [
+ ("B16 the expiry is mapped to a NON-TERMINAL outcome — the flight re-enters retry instead of ending",
+  "            giveup_flight(SendFailReason::gateway_unreachable, dst, ctr);\n            return;",
+  "            return;"),
+ ("B17 the wrong-flight guard is dropped — a SUPERSEDED flight's expiry fails the LIVE flight",
+  "            if (info.seq == 0 || !_active->_pending_tx\n"
+  "                || _active->_pending_tx->flight_gen != info.seq) return;   // superseded/unowned: report only",
+  "            if (!_active->_pending_tx) return;"),
+]
+
+MUTS_BY_TARGET = {"b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,
+                  "teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
                   "b161hash": MUTS_B161HASH, "b161rx": MUTS_B161RX, "b161mac": MUTS_B161MAC,
                   "b251rx": MUTS_B251RX, "b251hash": MUTS_B251HASH,
+                  "b159const": MUTS_B159CONST, "b159dl": MUTS_B159DL,
+                  "b159mac": MUTS_B159MAC, "b159rx": MUTS_B159RX,
+                  "b159hal": MUTS_B159HAL, "b159map": MUTS_B159MAP,
                   "uipresets": MUTS_UIPRESETS, "uipresetverbs": MUTS_UIPRESETVERBS,
                   "model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,

@@ -115,11 +115,19 @@ them "for extra safety": the comparison is the full identity or nothing.
 
 **The DATA-level dedup remains the sole authority for delivery**, independently of either optimisation: keyed on the
 canonical `(origin, dst, ctr)` — all 16 bits — or on the whole 8-byte cleartext nonce-seed for a `CRYPTED` flight,
-with a **30 s** TTL. Fresh DATA → ACK, deliver/forward, record. Same message, same prev-hop (the real lost-ACK case)
-→ **ACK only**, returning before the deliver/forward step. Same message, different prev-hop → `LOOP_DUP` NACK.
+with a TTL **derived from the enforced retry horizon**: `seen_origin_ttl_ms = gateway_send_giveup_ms (150 s) +
+mac_exchange_margin_ms (300 s)` = **450 s**, where the margin is a legal-PHY-envelope bound (one worst-case MAC
+exchange at SF12/BW 7.8 kHz/CR8 with a 255-B frame = 279 765 ms by `airtime_ms()`, pinned by a recomputing test).
+The horizon is REAL, not assumed: no gateway-bound RTS may *physically start* at or after `enqueue +
+gateway_send_giveup_ms` — Node-side admission guards cancel early, and `DeviceHal::pump_tx()` (immediately before
+`start_transmit()`) is the terminal physical-start authority; a queued-past-deadline RTS is refused loudly
+(`send_giveup{gateway_unreachable_timeout}`, correlated to exactly its own flight). Fresh DATA → ACK,
+deliver/forward, record. Same message, same prev-hop (the real lost-ACK case) → **ACK only**, returning before the
+deliver/forward step. Same message, different prev-hop → `LOOP_DUP` NACK.
 **Duplicate suppression is narrowed, never disabled** — that is what stops a lost ACK from delivering twice.
-⚠ [[B159]] (a retried DATA arriving later than `seen_origin_ttl_ms` delivered twice) is **pre-existing and open**;
-it is not fixed by any of the above.
+✅ [[B159]] (a retried DATA arriving later than `seen_origin_ttl_ms` delivered twice) is **CLOSED 2026-08-28** by
+the retention/deadline pair above. ⚠ Residual, separate: identity *reuse* within the 450 s retention is [[B258]]
+(same `ctr`, different payload — suppressed as a duplicate).
 
 **The airtime trade, measured on the corpus rather than argued.** The 3 identity bytes are **not** free in general
 and **are** free at many PHYs — at 22 of 36 scenarios' PHY `airtime(10) == airtime(7)` because the bytes fall in the
