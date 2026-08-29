@@ -256,6 +256,26 @@ TARGET_SRC = {
     "b159rx":       "lib/core/node_mac_rx.cpp",        # [[B159]] — the _seen_origins dedup the retention feeds
     "b159hal":      "lib/hal/device_hal.cpp",          # [[B159]] — the PHYSICAL-START deadline in pump_tx
     "b159map":      "lib/core/node.cpp",               # [[B159]] — the expired->terminal give-up mapping
+    # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
+    #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
+    # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
+    #    includes it (the env carries `-I src`) — its ESP32 arm compiles out off-Arduino while all five DECISIONS,
+    #    and the `SegmentStoreOver` template that composes them, stay host-reachable. That is exactly why the
+    #    store is a template: the battery attacks the SHIPPED class, not a lookalike.
+    # ⚠ THREE targets and not one: the seam's own decisions, the two behaviours the REUSED `lib/core` ring logic
+    #   had to gain to become a device store, and the platform-neutral delete contract this slice CLAIMS holds
+    #   unchanged across the new backend. Kept separate from every other target on the same files.
+    "b134seam":     "src/device_inbox_fs_esp32.h",     # [[B134]] — the five seam decisions + the shared mount
+    "b134store":    "lib/core/segmented_inbox_store.h",# [[B134]] — wipe() and the read-cursor wear coalescing
+    "b134inbox":    "lib/core/inbox.cpp",              # [[B134]] — the tombstone contract, re-proved on the new backend
+    # ⓘ ADDED 2026-08-29 (QG round 2): the RAM store gained a REAL `wipe()`, because inheriting the base's
+    #   successful no-op was the same data-retention lie in miniature — `prep-restart` HALTS without rebooting,
+    #   so between the verb and the power cycle a "cleared" inbox still streamed every record.
+    "b134ram":      "lib/core/fixed_inbox_store.h",   # [[B134]] — the volatile ring's wipe contract
+    # ⓘ ADDED 2026-08-29 (QG round 7): `handle_mark_read` lives in a TU neither the native suite nor the simulator
+    #   compiles (§B115), so the bool -> lexeme decision it makes was hoisted into `console_json.h` — where a
+    #   battery CAN reach it. The target exists so "the ack can only ever say success" is a reddenable claim.
+    "b134ack":      "lib/console/console_json.h",    # [[B134]] — the mark_read ack's result mapping
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -378,7 +398,61 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2262, 97982     # ★★ CROSS-CHECK RE-SYNCED 2026-08-28 by **[[B159]]** (the dedup-vs-retry-
+PIN_CASES, PIN_ASSERTS = 2314, 98383     # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **[[B134]]** (the durable
+                                         # ⛔ THE PREVIOUS VALUE WAS **WRONG, NOT MERELY STALE**: it read
+                                         #   `2307, 98306` while the clean tree measured `2307, 98308`. Two
+                                         #   assertions were added (the wipe-an-already-empty-store control) AFTER
+                                         #   the figure was written, and the round-6 report CLAIMED the pin had
+                                         #   been re-synced when it had not. ⓘ The cross-check is a cross-check
+                                         #   precisely so a wrong figure prints a banner instead of zeroing a
+                                         #   battery — it did its job; the report's claim was the defect.
+                                         # ESP32/Heltec inbox), ON TOP OF [[B159]]'s re-sync recorded below and
+                                         # WITHOUT disturbing it: **2262 / 97982 -> 2314 / 98383 = +52 cases /
+                                         # +401 assertions**, ⛔ with NO existing case edited except one
+                                         # EXPECTATION that was simply wrong on first writing (see below).
+                                         # ⓘ TWO ROUNDS. The first landed the backend (+16 / +98, detailed
+                                         #   below). The QG round then added **+10 cases / +44 assertions** for
+                                         #   three PERSISTENCE FAILURE PATHS the first fault model could not
+                                         #   reach — all three of the "reported success without durable success"
+                                         #   class. It is **+14 cases / +65 assertions**, and THREE of those
+                                         #   cases (§B134b/2b, /4b, /4c) exist because the battery said so: their
+                                         #   mutations came back FAIL ("the suite still passes; nothing measures
+                                         #   this"), which is the runner doing its job — an entry that cannot go
+                                         #   RED is a property nothing was measuring.
+                                         #     +9 / 49 in `test/test_segmented_inbox_store.cpp` (§B134b/1..6) —
+                                         #       a rotation whose meta save fails REFUSES the append; the refusal
+                                         #       RECOVERS on a later successful save; a tombstone under that
+                                         #       failure reports io_error and the message stays visible ACROSS a
+                                         #       reboot; begin() fails loud when the baseline will not persist
+                                         #       (and on_init then disables the inbox); a roll onto a segment
+                                         #       that will not erase is refused; and wipe() reports failure in
+                                         #       BOTH its arms while still erasing everything it can.
+                                         #     +5 / 16 in `test/test_device_inbox_fs_esp32.cpp` — a COMPLETE
+                                         #       write whose SYNC failed, a failed CLOSE, that fault sealed
+                                         #       end-to-end through the real store, the mount's folder arm in
+                                         #       both directions, and a segment the filesystem will not remove
+                                         #       making `wipe()` report failure THROUGH the seam.
+                                         # DERIVED:
+                                         #   +14 / 75 in the NEW `test/test_device_inbox_fs_esp32.cpp` — D1 the
+                                         #     segment path incl. the three no-overrun forms (1), D2 the mount
+                                         #     policy in all four arms incl. the ONE-mount-attempt vacuity
+                                         #     control and the shared-mount/both-stores-told case (4), D3 the
+                                         #     append verdict incl. the reports-n-but-commits-less tear (4), D4
+                                         #     the whole-segment read (1), D5 the meta length (1), and the three
+                                         #     END-TO-END cases through the real store over a fake flash: the
+                                         #     record+tombstone reboot survival with an UNCHANGED epoch, the
+                                         #     partly-committed append sealed across the seam, and §10.1's
+                                         #     format-bumps-epoch/preserves-next_seq (3).
+                                         #   +2 / 23 in `test/test_segmented_inbox_store.cpp` — the two
+                                         #     behaviours the reused ring logic gained: `wipe()` (records gone,
+                                         #     ring position reset, next_seq preserved, next boot bumps once)
+                                         #     and the read-cursor wear coalescing driven both ways.
+                                         #   ⓘ ONE assertion in the new file was CORRECTED BEFORE CLOSURE rather
+                                         #     than the code: it expected `persisted_next_seq() == 4` after three
+                                         #     records and a delete. A tombstone takes a seq of its OWN
+                                         #     (`inbox.h`), so 5 is right and the test was wrong.
+                                         # ---- the [[B159]] re-sync this one sits on top of ----
+                                         # PIN was 2262, 97982 — ★★ RE-SYNCED 2026-08-28 by **[[B159]]** (the dedup-vs-retry-
                                          # horizon correction rounds), ON TOP OF §B20/B21's re-sync recorded below
                                          # and WITHOUT disturbing it: **2247 / 97916 -> 2262 / 97982 = +15 cases /
                                          # +66 assertions**, ⛔ with no existing case edited except [[B159]]'s own
@@ -1260,9 +1334,9 @@ PIN_CASES, PIN_ASSERTS = 2262, 97982     # ★★ CROSS-CHECK RE-SYNCED 2026-08-
                                          # `src/firmware_ui.cpp` is compiled by neither the native suite nor the
                                          # simulator (§B115), so the draw-site swap moves NO native count at all.
                                          # DERIVED, not merely observed — the one case, term by term:
-                                         #   `chrome-icons: the 24x24 MeshRoute mark decodes to the INTERIM `MR`…`
+                                         #   `chrome-icons: the 24x24 MeshRoute mark decodes to the final logo_3…`
                                          #   24 the ASCII-art decode, one CHECK per pixel ROW (the picture IS the
-                                         #      specification, and the interim asset's successor re-points here)
+                                         #      specification; the final asset re-pointed this same case)
                                          #    3 stride_of(24)==3, byte_count_of(24,24)==sizeof, sizeof==72
                                          #    5 negative controls for the decoder on BOTH asymmetric axes
                                          #    2 ⛔ not a mis-copied 7-px strip glyph (vs kIconStatus/kIconBattery)
@@ -3748,98 +3822,104 @@ MUTS_ICONS = [
   "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x00, 0x00 };"),
  # --- §UI-17 S6, the 24x24 STATUS mark. ★★ THE SAME THREE AUTHORING ERRORS ONE SIZE UP, and the size is the point:
  #     this is the FIRST 3-byte-stride asset in the tree, so a mirror, an MSB-first byte and a wrong width each
- #     produce a PICTURE rather than a compile error. ⛔ The asset is INTERIM (owner ruling 2026-08-22) — when the
- #     final artwork lands, RE-POINT these two tables at it; ⛔ never drop them, or the swap ships unmeasured.
- ("I05 the MARK is authored MIRRORED (the R comes first and both letters are reversed)",
+ #     produce a PICTURE rather than a compile error. These tables pin the owner-supplied final `logo_3.png` art;
+ #     never drop them, or a later asset swap can ship mirrored or in the wrong bit order.
+ ("I05 the final MARK is authored MIRRORED (left and right exchange places)",
   "inline constexpr uint8_t kMarkMeshRoute[72] = {\n"
   "    0x00, 0x00, 0x00,\n"
   "    0x00, 0x00, 0x00,\n"
-  "    0x00, 0x00, 0x00,\n"
-  "    0x03, 0xE6, 0x3F,\n"
-  "    0x07, 0xE7, 0x7F,\n"
-  "    0x8F, 0x67, 0x60,\n"
-  "    0xDB, 0x66, 0x60,\n"
-  "    0x73, 0x66, 0x60,\n"
-  "    0x23, 0x66, 0x60,\n"
-  "    0x03, 0x66, 0x60,\n"
-  "    0x03, 0xE6, 0x7F,\n"
-  "    0x03, 0xE6, 0x3F,\n"
-  "    0x03, 0x66, 0x06,\n"
-  "    0x03, 0x66, 0x0C,\n"
-  "    0x03, 0x66, 0x0C,\n"
-  "    0x03, 0x66, 0x18,\n"
-  "    0x03, 0x66, 0x30,\n"
-  "    0x03, 0x66, 0x60,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x00, 0x00, 0x00,\n"
-  "    0x00, 0x00, 0x00,\n"
+  "    0x18, 0x00, 0x3F,\n"
+  "    0x38, 0x80, 0x21,\n"
+  "    0x68, 0xC0, 0x20,\n"
+  "    0xC8, 0x60, 0x20,\n"
+  "    0x88, 0x31, 0x20,\n"
+  "    0x08, 0x1B, 0x20,\n"
+  "    0x08, 0x0E, 0x20,\n"
+  "    0x08, 0x04, 0x20,\n"
+  "    0x08, 0x00, 0x20,\n"
+  "    0x08, 0xF0, 0x3F,\n"
+  "    0x08, 0x60, 0x00,\n"
+  "    0x08, 0xC0, 0x00,\n"
+  "    0x08, 0x80, 0x01,\n"
+  "    0x08, 0x00, 0x03,\n"
+  "    0x08, 0x00, 0x06,\n"
+  "    0x08, 0x00, 0x0C,\n"
+  "    0x1C, 0x00, 0x38,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x1C, 0x00, 0x38,\n"
   "    0x00, 0x00, 0x00,\n"
   "};",
   "inline constexpr uint8_t kMarkMeshRoute[72] = {\n"
   "    0x00, 0x00, 0x00,\n"
   "    0x00, 0x00, 0x00,\n"
-  "    0x00, 0x00, 0x00,\n"
-  "    0xFC, 0x67, 0xC0,\n"
-  "    0xFE, 0xE7, 0xE0,\n"
-  "    0x06, 0xE6, 0xF1,\n"
-  "    0x06, 0x66, 0xDB,\n"
-  "    0x06, 0x66, 0xCE,\n"
-  "    0x06, 0x66, 0xC4,\n"
-  "    0x06, 0x66, 0xC0,\n"
-  "    0xFE, 0x67, 0xC0,\n"
-  "    0xFC, 0x67, 0xC0,\n"
-  "    0x60, 0x66, 0xC0,\n"
-  "    0x30, 0x66, 0xC0,\n"
-  "    0x30, 0x66, 0xC0,\n"
-  "    0x18, 0x66, 0xC0,\n"
-  "    0x0C, 0x66, 0xC0,\n"
-  "    0x06, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x00, 0x00, 0x00,\n"
-  "    0x00, 0x00, 0x00,\n"
+  "    0xFC, 0x00, 0x18,\n"
+  "    0x84, 0x01, 0x1C,\n"
+  "    0x04, 0x03, 0x16,\n"
+  "    0x04, 0x06, 0x13,\n"
+  "    0x04, 0x8C, 0x11,\n"
+  "    0x04, 0xD8, 0x10,\n"
+  "    0x04, 0x70, 0x10,\n"
+  "    0x04, 0x20, 0x10,\n"
+  "    0x04, 0x00, 0x10,\n"
+  "    0xFC, 0x0F, 0x10,\n"
+  "    0x00, 0x06, 0x10,\n"
+  "    0x00, 0x03, 0x10,\n"
+  "    0x80, 0x01, 0x10,\n"
+  "    0xC0, 0x00, 0x10,\n"
+  "    0x60, 0x00, 0x10,\n"
+  "    0x30, 0x00, 0x10,\n"
+  "    0x1C, 0x00, 0x38,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x1C, 0x00, 0x38,\n"
   "    0x00, 0x00, 0x00,\n"
   "};"),
  ("I06 the MARK is authored MSB-first (every byte bit-reversed — the V4-port hazard §8.1 names, at stride 3)",
-  "    0x03, 0xE6, 0x3F,\n"
-  "    0x07, 0xE7, 0x7F,\n"
-  "    0x8F, 0x67, 0x60,\n"
-  "    0xDB, 0x66, 0x60,\n"
-  "    0x73, 0x66, 0x60,\n"
-  "    0x23, 0x66, 0x60,\n"
-  "    0x03, 0x66, 0x60,\n"
-  "    0x03, 0xE6, 0x7F,\n"
-  "    0x03, 0xE6, 0x3F,\n"
-  "    0x03, 0x66, 0x06,\n"
-  "    0x03, 0x66, 0x0C,\n"
-  "    0x03, 0x66, 0x0C,\n"
-  "    0x03, 0x66, 0x18,\n"
-  "    0x03, 0x66, 0x30,\n"
-  "    0x03, 0x66, 0x60,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,\n"
-  "    0x03, 0x66, 0xC0,",
-  "    0xC0, 0x67, 0xFC,\n"
-  "    0xE0, 0xE7, 0xFE,\n"
-  "    0xF1, 0xE6, 0x06,\n"
-  "    0xDB, 0x66, 0x06,\n"
-  "    0xCE, 0x66, 0x06,\n"
-  "    0xC4, 0x66, 0x06,\n"
-  "    0xC0, 0x66, 0x06,\n"
-  "    0xC0, 0x67, 0xFE,\n"
-  "    0xC0, 0x67, 0xFC,\n"
-  "    0xC0, 0x66, 0x60,\n"
-  "    0xC0, 0x66, 0x30,\n"
-  "    0xC0, 0x66, 0x30,\n"
-  "    0xC0, 0x66, 0x18,\n"
-  "    0xC0, 0x66, 0x0C,\n"
-  "    0xC0, 0x66, 0x06,\n"
-  "    0xC0, 0x66, 0x03,\n"
-  "    0xC0, 0x66, 0x03,\n"
-  "    0xC0, 0x66, 0x03,"),
+  "    0x18, 0x00, 0x3F,\n"
+  "    0x38, 0x80, 0x21,\n"
+  "    0x68, 0xC0, 0x20,\n"
+  "    0xC8, 0x60, 0x20,\n"
+  "    0x88, 0x31, 0x20,\n"
+  "    0x08, 0x1B, 0x20,\n"
+  "    0x08, 0x0E, 0x20,\n"
+  "    0x08, 0x04, 0x20,\n"
+  "    0x08, 0x00, 0x20,\n"
+  "    0x08, 0xF0, 0x3F,\n"
+  "    0x08, 0x60, 0x00,\n"
+  "    0x08, 0xC0, 0x00,\n"
+  "    0x08, 0x80, 0x01,\n"
+  "    0x08, 0x00, 0x03,\n"
+  "    0x08, 0x00, 0x06,\n"
+  "    0x08, 0x00, 0x0C,\n"
+  "    0x1C, 0x00, 0x38,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x22, 0x00, 0x44,\n"
+  "    0x1C, 0x00, 0x38,",
+  "    0x18, 0x00, 0xFC,\n"
+  "    0x1C, 0x01, 0x84,\n"
+  "    0x16, 0x03, 0x04,\n"
+  "    0x13, 0x06, 0x04,\n"
+  "    0x11, 0x8C, 0x04,\n"
+  "    0x10, 0xD8, 0x04,\n"
+  "    0x10, 0x70, 0x04,\n"
+  "    0x10, 0x20, 0x04,\n"
+  "    0x10, 0x00, 0x04,\n"
+  "    0x10, 0x0F, 0xFC,\n"
+  "    0x10, 0x06, 0x00,\n"
+  "    0x10, 0x03, 0x00,\n"
+  "    0x10, 0x01, 0x80,\n"
+  "    0x10, 0x00, 0xC0,\n"
+  "    0x10, 0x00, 0x60,\n"
+  "    0x10, 0x00, 0x30,\n"
+  "    0x38, 0x00, 0x1C,\n"
+  "    0x44, 0x00, 0x22,\n"
+  "    0x44, 0x00, 0x22,\n"
+  "    0x44, 0x00, 0x22,\n"
+  "    0x38, 0x00, 0x1C,"),
  ("I07 the MARK is declared 8 px wide, so its rows stop being 3 bytes (I03's smear, one asset up)",
   "inline constexpr uint8_t kMarkW = 24;", "inline constexpr uint8_t kMarkW = 8;"),
  # --- §CHROME-5's duty gauge. ★★ THE ARTWORK IS PART OF THE CONTRACT HERE IN A WAY NO OTHER ASSET'S IS: the FILL
@@ -6160,7 +6240,399 @@ MUTS_B159MAP = [
   "            if (!_active->_pending_tx) return;"),
 ]
 
-MUTS_BY_TARGET = {"b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,
+# ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox). THREE targets because the slice's decisions
+#    genuinely live in three files and a battery is per-SOURCE-FILE: the SEAM's own five decisions
+#    (`src/device_inbox_fs_esp32.h` — the path, the mount policy, the append verdict, the segment read, the meta
+#    length), the two behaviours the REUSED ring logic had to gain to be a device store
+#    (`lib/core/segmented_inbox_store.h` — `wipe()` and the read-cursor coalescing), and the platform-neutral
+#    DELETE CONTRACT that must hold UNCHANGED across the new backend (`lib/core/inbox.cpp`).
+# ⚠ The third target re-attacks already-shipped [[B133]]/[[B135]] rulings ON PURPOSE: "the tombstone contract is
+#   backend-neutral" is a CLAIM of this slice, and a claim with no controlled mutation is the [[B217]] shape.
+#   Kept separate from any other target on the same file so it can be re-proved independently.
+MUTS_B134SEAM = [
+ ("F01 ★★★ the torn-write guard drops its COMMIT term — 'w == n is surely enough'. It is not: `File::write` is "
+  "fwrite into a 4 KiB stdio buffer and `File::close` returns void, so w==n is a verdict about RAM",
+  "    return w == static_cast<size_t>(n) && synced && after == before + n && closed;",
+  "    return w == static_cast<size_t>(n) && synced && closed;"),
+ ("F02 ★★ the guard accepts ANY progress (`w > 0`) — the classic short-write-is-fine slip; a 3-of-273-byte "
+  "record then reports success and the next append is consumed as its body",
+  "    return w == static_cast<size_t>(n) && synced && after == before + n && closed;",
+  "    return w > 0 && synced && closed;"),
+ ("F03 ★★★ the commit is dropped — the growth check then measures the BUFFER, not the medium, so the guard is "
+  "still there and still proves nothing (the shape of an instrument that cannot fail)",
+  "    const bool     synced = fs.sync();                 // fflush + fsync, BOTH results checked\n"
+  "    const uint32_t after  = fs.size();                 // re-stat: the COMMITTED length, not the buffered one",
+  "    const bool     synced = true;\n"
+  "    const uint32_t after  = fs.size();"),
+ # ★★★ THE QG BLOCKER-2/3 ENTRIES (2026-08-28).
+ ("F11 ★★★ THE BLOCKER-2 VERBATIM: the SYNC RESULT is dropped from the verdict — a COMPLETE write whose fsync "
+  "failed then reports success, which is precisely what `fs::File` does (flush() discards fflush+fsync, close() "
+  "returns void) and precisely why this adapter went to POSIX",
+  "    return w == static_cast<size_t>(n) && synced && after == before + n && closed;",
+  "    return w == static_cast<size_t>(n) && after == before + n && closed;"),
+ # ⛔ THERE IS NO ENTRY FOR `LfsIo::sync()` ITSELF, AND THE ABSENCE IS DELIBERATE + STATED. Its nine one-line POSIX
+ #   forwards sit inside `#if defined(ARDUINO) && ESP32`, so NO host gate compiles them — the same reality split
+ #   `device_nv.h`'s platform arms have always had. A mutation there comes back "the suite still passes", which
+ #   would be an instrument reporting on code it never ran. ⇒ what IS attacked here is D3's USE of the result
+ #   (F11), which is host-reachable and reddens; that the ESP32 `sync()` really drives `fsync` is M2 bench residue.
+ ("F13 ★★ the CLOSE result is dropped — `fclose` still flushes and can still fail on the part the sync did not "
+  "cover, and a leaked failure there is the same tear one call later",
+  "    return w == static_cast<size_t>(n) && synced && after == before + n && closed;",
+  "    return w == static_cast<size_t>(n) && synced && after == before + n;"),
+ ("F14 ★★★ the seam's erase always claims success — `wipe()` above it then reports a cleared inbox for a "
+  "destructive verb while the records are still on the partition",
+  "        IoT io; return io.remove(p);",
+  "        IoT io; io.remove(p); return true;"),
+ # ⓘ AND FOR THE SAME REASON THERE IS NO ENTRY INSIDE `LfsIo::any_under` ITSELF (its ENOENT-vs-error mapping).
+ #   Two were written, both came back "the suite still passes", and both were REMOVED rather than kept as decoration:
+ #   that body is ESP32-only. What IS host-reachable — and what F16 below attacks — is the seam's FORWARD of the
+ #   inspection verdict, which is where a swallowed `*ok` would actually reach `begin()`.
+ # ★★★ THE QG ROUND-4 ENTRIES — D7, the last classifier that could route corrupt storage onto the fresh path.
+ ("F21 ★★★ THE ROUND-4 BLOCKER VERBATIM: an NVS LOOKUP ERROR becomes `absent` — corrupt or unreadable metadata "
+  "enters the fresh path exactly as it did through `Preferences::isKey()`, which is `getType()` collapsing "
+  "NOT_FOUND and every other NVS error into one PT_INVALID",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
+ ("F22 ★★★ the ONE absence widens to 'anything that is not OK' — every medium fault is then a first boot, which "
+  "is the isKey() conflation restored one layer up",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;\n"
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
+ ("F23 ★★ the OTHER direction: NOT_FOUND is classified as an error, so a genuinely first-boot node (nvs.h:31 — a "
+  "READONLY open of a never-written namespace answers NOT_FOUND) refuses to mount its inbox for ever",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::error;"),
+ ("F24 ★★ a PRESENT key of the wrong length is called `loaded` — a half-populated Meta then reaches the ring "
+  "arithmetic whose seg_count divides and whose head_seg bounds the walk",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    return meshroute::MetaLoad::loaded;"),
+ ("F25 ★★ ...or `absent`, which is the same wrong-length blob taken as a reason to start over",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::absent;"),
+ ("F18 ★★★ QG ROUND 3: an ITERATION ERROR is read as a clean END OF DIRECTORY — a walk that died partway then "
+  "reports 'this store holds no records' over a live history",
+  "        if (!w.next(&have, &size)) { err = true; break; }           // ⛔ an ERROR is never a clean end",
+  "        if (!w.next(&have, &size)) break;"),
+ ("F19 ★★ the iteration error is DETECTED but not reported — `ok` stays true, so the caller still reads the "
+  "unanswerable walk as an authoritative 'empty'",
+  "    if (err) { if (ok) *ok = false; return false; }\n"
+  "    return found;",
+  "    return found;"),
+ ("F20 ★★★ an `opendir` failure keeps `ok` true regardless of cause — the ENOENT-only rule collapses and any FS "
+  "error over a live store becomes 'no records'",
+  "    if (!w.open(&absent)) { if (ok) *ok = absent; return false; }   // ⛔ only a real absence keeps `ok` true",
+  "    if (!w.open(&absent)) return false;"),
+ ("F16 ★★★ QG ROUND 2: the seam SWALLOWS the inspection verdict — the backend says 'I could not answer' and the "
+  "store is told 'no records', which hands begin() straight to the silent re-initialise path over a live history",
+  "    bool any_segments(bool* ok) const override { IoT io; return io.any_under(_dir, ok); }",
+  "    bool any_segments(bool* ok) const override {\n"
+  "        if (ok) *ok = true;\n"
+  "        IoT io; bool ignored = true; return io.any_under(_dir, &ignored);\n"
+  "    }"),
+ ("F15 ★★ a failed record-folder create no longer fails the mount — every append afterwards fails at `fopen` for "
+  "a reason nothing at boot names",
+  "        IoT io;\n"
+  "        return io.ensure_dir(_dir);",
+  "        IoT io;\n"
+  "        io.ensure_dir(_dir);\n"
+  "        return true;"),
+ ("F04 ★★ the mount formats on the FIRST attempt — 'formatOnFail is the recovery, just pass true' silently "
+  "reformats a recoverable filesystem and can never report that it did",
+  "    if (fs.mount(/*format_on_fail=*/false)) { r.mounted = true; return r; }   // clean mount -> nothing was erased\n"
+  "    r.mounted   = fs.mount(/*format_on_fail=*/true);                          // corrupt/blank -> format + remount\n"
+  "    r.formatted = r.mounted;                                                  // ONLY a successful reformat wiped records",
+  "    r.mounted   = fs.mount(/*format_on_fail=*/true);\n"
+  "    r.formatted = false;"),
+ ("F05 ★★★ EPOCH PERSISTENCE DROPPED at the source: a real format is never REPORTED, so §10.1 never bumps and "
+  "the companion keeps its cursors into a history that no longer exists",
+  "    r.formatted = r.mounted;                                                  // ONLY a successful reformat wiped records",
+  "    r.formatted = false;"),
+ ("F06 ★★ the over-correction: a FAILED format is reported as a wipe — an unmountable store bumps the epoch and "
+  "makes every companion re-pull for nothing",
+  "    r.formatted = r.mounted;                                                  // ONLY a successful reformat wiped records",
+  "    r.formatted = true;"),
+ ("F07 ★★ only the FIRST store learns the mount had to format — the second store's epoch never bumps, so half "
+  "the wiped history is silently re-read against stale cursors",
+  "        if (formatted) *formatted = _once->formatted;",
+  "        if (formatted) *formatted = false;"),
+ ("F08 ★★ the meta length verdict accepts a SHORT read — a half-populated Meta reaches the ring arithmetic whose "
+  "seg_count divides and whose head_seg bounds the walk",
+  "inline bool meta_len_ok(int got, uint16_t want) { return got == static_cast<int>(want); }",
+  "inline bool meta_len_ok(int got, uint16_t want) { (void)want; return got > 0; }"),
+ ("F09 ★ the whole-segment read stops clamping to cap — a segment larger than the 4 KiB scratch overruns it",
+  "    if (sz > cap) sz = cap;",
+  "    (void)cap;"),
+ ("F10 ★ the path formatter's zero-capacity guard is removed ('cap is never 0') — it then writes a terminator "
+  "into a buffer it was told it may not touch",
+  "    if (!out || cap == 0) return;\n"
+  "    size_t p = 0;",
+  "    if (!out) return;\n"
+  "    size_t p = 0;"),
+]
+
+MUTS_B134STORE = [
+ ("G01 ★★★ wipe() reverts to the base NO-OP — `factory_reset confirm` and `prep-restart` leave the ENTIRE "
+  "durable history on the medium, which is the exact state [[B134]] exists to end",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) ok = false;\n"
+  "        _meta.head_seg = _meta.tail_seg = 0;",
+  "        _meta.head_seg = _meta.tail_seg = 0;"),
+ ("G02 ★★ wipe() erases the records but leaves the ring bookkeeping stale (its nRF52 twin's shape) — the store "
+  "resumes at a head that describes bytes that no longer exist",
+  "        _meta.head_seg = _meta.tail_seg = 0;\n"
+  "        _meta.seg_count = ring_segs();\n"
+  "        _total = 0; _count = 0; _head_sealed = false;",
+  "        _head_sealed = false;"),
+ # ⓘ G03 (the original "wear-coalescing removed" entry) WAS RETIRED IN QG ROUND 7, not lost: its anchor was the
+ #   one-line `set_read_cursor` that round 7 replaced, and its content is now **G40** against the current form.
+ #   Recorded rather than silently renumbered, so the battery's history stays auditable.
+ ("G04 ★★ wipe() also resets next_seq — 'a wipe means start over' makes a wiped store REUSE sequences the "
+  "companion has already filed, which no epoch bump can repair",
+  "        _total = 0; _count = 0; _head_sealed = false;",
+  "        _total = 0; _count = 0; _head_sealed = false; _meta.next_seq = 1;"),
+ # ★★★ THE QG BLOCKER-1/3 ENTRIES (2026-08-28). Each one restores, at match count 1, exactly the line the QG round
+ #     found — a metadata or erase result being DISCARDED. Every one of them is a "reported success without durable
+ #     success", which is why they are written as the ORIGINAL bare call rather than as a deletion.
+ ("G05 ★★★ THE BLOCKER VERBATIM: the ROTATION's save_meta() result is discarded again — the head moves, the record "
+  "is written and `append` returns TRUE while the persisted meta still points at the OLD head, so a reboot loses an "
+  "ACKNOWLEDGED record and a tombstone written this way lets the deleted message COME BACK",
+  "        if (!save_meta()) { _meta_dirty = true; return false; }",
+  "        save_meta();"),
+ ("G06 ★★★ the RETRY-BEFORE-WRITE latch is dropped — after one failed save the store keeps accepting records under "
+  "a topology the medium does not have, and never re-persists it either",
+  "    if (_meta_dirty) { if (!save_meta()) return false; _meta_dirty = false; }",
+  "    _meta_dirty = false;"),
+ ("G07 ★★ the retry is attempted but its RESULT is ignored — 'we tried, carry on': the append proceeds under the "
+  "same unpersisted topology it was supposed to refuse",
+  "    if (_meta_dirty) { if (!save_meta()) return false; _meta_dirty = false; }",
+  "    if (_meta_dirty) { save_meta(); _meta_dirty = false; }"),
+ ("G08 ★★★ begin()'s FRESH-baseline save goes back to persisting nothing — the store runs with no topology, epoch "
+  "or high-water on the medium, and a reboot inside the first seq batch REUSES sequences over a live log",
+  "        if (!save_meta()) { _fault = SegMountFault::meta_unwritable; return false; }\n"
+  "    } else if (!version_ok) {",
+  "    } else if (!version_ok) {"),
+ ("G09 ★★ begin()'s §10.1 epoch-bump save is unchecked — the records were wiped, the bump never reaches the "
+  "medium, and the companion keeps its cursors against a history that no longer exists",
+  "        //    its cursors against a history that no longer exists and silently never re-pulls. Fail the mount.\n"
+  "        if (!save_meta()) { _fault = SegMountFault::meta_unwritable; return false; }\n"
+  "    }",
+  "        save_meta();\n"
+  "    }"),
+ ("G10 ★★ the ROLL's target-segment erase is unchecked — stale lapped bytes survive into the new head and "
+  "read_since parses them as frames (the §B135 mis-parse arriving from the other end)",
+  "        if (!_records->seg_erase(next_head)) { _meta_dirty = true; return false; }",
+  "        _records->seg_erase(next_head);"),
+ ("G11 ★★★ wipe() ignores every erase result — `prep-restart` and `factory_reset` report a cleared inbox over "
+  "records that are still RECOVERABLE on flash (a data-retention lie, the worst direction)",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) ok = false;",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) _records->seg_erase(i);"),
+ ("G12 ★★ wipe() ignores the metadata half — the segments went but the topology saying so did not, and the verb "
+  "still claims success",
+  "        if (!save_meta()) { _meta_dirty = true; ok = false; }\n"
+  "        return ok;",
+  "        save_meta();\n"
+  "        return ok;"),
+ ("G13 ★★ wipe() STOPS at the first failing segment — same `false`, but strictly MORE recoverable history left "
+  "behind, which is the opposite of what a destructive verb owes",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) ok = false;",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) return false;"),
+ # ★★★ THE QG ROUND-2 ENTRIES — the boot-recovery discriminator. Every one is "invalid metadata over a LIVE log
+ #     silently becomes a fresh store", which hides records AND reuses sequences in one step.
+ ("G15 ★★★ THE ROUND-2 BLOCKER VERBATIM: the fresh-vs-corrupted DISCRIMINATOR is dropped — missing/invalid "
+  "metadata over EXISTING records re-initialises again, so head/tail reset to 0/0 hides every segment past the "
+  "first and next_seq resets to 1 over a log the companion has already filed",
+  "        if (have_records && !formatted) { _fault = SegMountFault::meta_lost_over_records; return false; }",
+  "        (void)have_records;"),
+ ("G16 ★★★ the INSPECTION FAILURE is mapped onto 'no records' — the other door into the same silent re-init: a "
+  "records store that could not ANSWER is treated as one that answered 'empty'",
+  "    if (!insp_ok) { _fault = SegMountFault::records_uninspectable; return false; }",
+  "    (void)insp_ok;"),
+ ("G17 ★★ the discriminator is inverted by trusting `formatted` alone — a store that mounted CLEANLY over live "
+  "records is re-initialised because nothing had to be formatted",
+  "        if (have_records && !formatted) { _fault = SegMountFault::meta_lost_over_records; return false; }",
+  "        if (have_records && formatted) { _fault = SegMountFault::meta_lost_over_records; return false; }"),
+ ("G18 ★★ the discriminator REFUSES EVERY torn meta, records or not — first boot and every post-format boot then "
+  "come up with a dead inbox, which is the 19.7 reflash-wipes-once expectation broken from the safe side",
+  "        if (have_records && !formatted) { _fault = SegMountFault::meta_lost_over_records; return false; }",
+  "        { _fault = SegMountFault::meta_lost_over_records; return false; }"),
+ # ★★★ THE QG ROUND-3 ENTRIES — CORRUPT IS NOT ABSENT, and the discriminator is attacked in BOTH directions.
+ ("G19 ★★★ THE ROUND-3 BLOCKER VERBATIM: a CORRUPT meta is read back as ABSENT — so corrupt metadata over an "
+  "EMPTY record store is 'first boot' again, which is exactly the post-prep-restart state where the meta is the "
+  "only thing still holding the sequence high-water and the epoch",
+  "    const MetaLoad ml = load_meta();\n"
+  "    if (ml == MetaLoad::error) { _fault = SegMountFault::meta_corrupt; return false; }\n"
+  "    const bool had_meta   = (ml == MetaLoad::loaded);",
+  "    const MetaLoad ml = load_meta();\n"
+  "    const bool had_meta   = (ml == MetaLoad::loaded);"),
+ ("G20 ★★ the OTHER direction: a genuinely ABSENT meta is treated as corrupt, so FIRST BOOT refuses to mount and "
+  "every freshly flashed node comes up with a dead inbox (19.7 broken from the safe side)",
+  "    if (ml == MetaLoad::error) { _fault = SegMountFault::meta_corrupt; return false; }",
+  "    if (ml != MetaLoad::loaded) { _fault = SegMountFault::meta_corrupt; return false; }"),
+ ("G21 ★★★ `load_meta` stops classifying a STRUCTURALLY IMPOSSIBLE blob as an error and calls it absent again — "
+  "the same conflation one layer down, where a torn seg_count/head/tail becomes 'we must be fresh'",
+  "        if (_meta.magic != kMagic || _meta.seg_count != ring_segs()\n"
+  "            || _meta.head_seg >= _meta.seg_count || _meta.tail_seg >= _meta.seg_count) return MetaLoad::error;",
+  "        if (_meta.magic != kMagic || _meta.seg_count != ring_segs()\n"
+  "            || _meta.head_seg >= _meta.seg_count || _meta.tail_seg >= _meta.seg_count) return MetaLoad::absent;"),
+ # ★★★ THE QG ROUND-5 ENTRIES — the acknowledged-empty marker. Each attacks one of the four transitions.
+ ("G23 ★★★ THE ROUND-5 BLOCKER VERBATIM: the §10.1 detect goes back to guarding on `next_seq > 1`, which says "
+  "'this store once had traffic' and stays true for ever — so every reboot of an empty store bumps the epoch "
+  "again (2, 3, 4...) and the companion re-pulls an unchanged empty inbox on each one",
+  "    if (version_ok && records_empty && _meta.records_state == kRecordsNonEmpty) {",
+  "    if (version_ok && records_empty && _meta.next_seq > 1) {"),
+ ("G24 ★★★ the detect stops RECORDING the acknowledgement — it bumps correctly once but never marks the store "
+  "empty, so the very next boot detects the same loss again: the ratchet restored one line lower",
+  "        _meta.records_state = kRecordsEmpty;               // ★ acknowledged — the next boot must NOT bump again",
+  "        ;"),
+ ("G25 ★★★ the EMPTY -> NON_EMPTY transition's save is unchecked — a record is acknowledged under a marker that "
+  "never reached the medium, so the next boot reads it as an external loss and bumps for nothing",
+  "        if (!save_meta()) { _meta.records_state = kRecordsEmpty; _meta_dirty = true; return false; }",
+  "        save_meta();"),
+ ("G26 ★★ ...or the transition is not persisted AT ALL — the marker lives only in RAM, so every boot after a "
+  "wipe re-detects the first append's records as a loss",
+  "        _meta.records_state = kRecordsAppendPending;\n"
+  "        if (!save_meta()) { _meta.records_state = kRecordsEmpty; _meta_dirty = true; return false; }",
+  "        _meta.records_state = kRecordsAppendPending;"),
+ ("G27 ★★★ the WIPE transition's bump+mark is dropped — a deliberate wipe stops telling the companion anything, "
+  "and the §10.1 arm then has to re-derive it on the next boot (which is the ratchet again)",
+  "        if (had_history) _meta.epoch += 1;",
+  "        (void)had_history;"),
+ ("G28 ★★ the wipe bumps UNCONDITIONALLY — wiping an already-empty store destroyed no history but still tells "
+  "every companion to drop its cursors and re-pull",
+  "        if (had_history) _meta.epoch += 1;",
+  "        _meta.epoch += 1;"),
+ ("G29 ★★★ THE EXTERNAL-LOSS ARM IS DROPPED ENTIRELY — §10.1 goes dead, so a records wipe outside this store is "
+  "never announced and the companion reads its cursors against a history that no longer exists",
+  "    if (version_ok && records_empty && _meta.records_state == kRecordsNonEmpty) {",
+  "    if (false) {"),
+ # ★★★ THE QG ROUND-7 ENTRIES — the durable read-cursor's "success that isn't".
+ ("G37 ★★★ THE ROUND-7 BLOCKER VERBATIM: the save result is discarded, so `mark_read` reports success over a "
+  "cursor that never reached the medium",
+  "        if (save_meta()) { _meta_dirty = false; return true; }\n"
+  "        _meta.read_cursor = prev;                                    // RAM must never out-run the medium\n"
+  "        _meta_dirty = true;\n"
+  "        return false;",
+  "        save_meta();\n"
+  "        return true;"),
+ ("G38 ★★★ the failed value is RETAINED in RAM — the cursor then LOOKS persisted, and the retry with the same "
+  "value is swallowed by the coalescing, so the medium can never be repaired",
+  "        _meta.read_cursor = prev;                                    // RAM must never out-run the medium",
+  "        ;"),
+ ("G39 ★★★ the coalescing stops consulting the dirty latch — a repeat of the same cursor short-circuits to "
+  "success even while the store knows its metadata did not persist",
+  "        if (seq == _meta.read_cursor && !_meta_dirty) return true;   // genuinely nothing to write",
+  "        if (seq == _meta.read_cursor) return true;"),
+ ("G40 ★★ the wear guard is removed instead of being made dirty-aware — every mark_read in a pull session "
+  "rewrites the meta blob again, which is the churn the coalescing exists to stop",
+  "        if (seq == _meta.read_cursor && !_meta_dirty) return true;   // genuinely nothing to write",
+  "        ;"),
+ ("G41 ★★ `set_next_seq` keeps the un-persisted high-water in RAM — `persisted_next_seq()` then reports a value "
+  "that is not on the medium, which is the same over-claim one field along",
+  "        _meta.next_seq = prev;\n"
+  "        _meta_dirty = true;\n"
+  "        return false;",
+  "        return false;"),
+ # ★★★ THE QG ROUND-6 ENTRIES — `append_pending` and the marker's range check.
+ ("G30 ★★★ THE ROUND-6 GAP VERBATIM: the pending state is dropped and the marker goes straight to `non_empty` "
+  "before any bytes are written — a first append whose record write then lands NOTHING leaves that claim over an "
+  "empty medium, and the next boot bumps the epoch for a message that never existed",
+  "        _meta.records_state = kRecordsAppendPending;\n"
+  "        if (!save_meta()) { _meta.records_state = kRecordsEmpty; _meta_dirty = true; return false; }",
+  "        _meta.records_state = kRecordsNonEmpty;\n"
+  "        if (!save_meta()) { _meta.records_state = kRecordsEmpty; _meta_dirty = true; return false; }"),
+ ("G31 ★★★ pending resolves to `non_empty` REGARDLESS of the medium — 'an append was attempted, so there must be "
+  "something there': the resolve stops looking and the false-wipe bump comes straight back",
+  "        _meta.records_state = records_empty ? kRecordsEmpty : kRecordsNonEmpty;",
+  "        _meta.records_state = kRecordsNonEmpty;"),
+ ("G32 ★★ ...or to `empty` regardless — the opposite guess, which DISARMS §10.1 for a store whose records really "
+  "did land and then really were lost",
+  "        _meta.records_state = records_empty ? kRecordsEmpty : kRecordsNonEmpty;",
+  "        _meta.records_state = kRecordsEmpty;"),
+ ("G33 ★★★ the pending RESOLUTION bumps the epoch — resolving a bookkeeping question is reported to the companion "
+  "as a wipe, so every interrupted append costs a full re-pull",
+  "    if (version_ok && _meta.records_state == kRecordsAppendPending) {\n"
+  "        _meta.records_state = records_empty ? kRecordsEmpty : kRecordsNonEmpty;",
+  "    if (version_ok && _meta.records_state == kRecordsAppendPending) {\n"
+  "        _meta.epoch += 1;\n"
+  "        _meta.records_state = records_empty ? kRecordsEmpty : kRecordsNonEmpty;"),
+ ("G34 ★★★ the records_state RANGE CHECK is removed — a corrupt marker value falls through every arm that tests "
+  "it, so the store mounts with fault=0 over a partition it cannot classify and §10.1 is bypassed entirely",
+  "        if (_meta.records_state > kRecordsStateMax) return MetaLoad::error;",
+  "        ;"),
+ ("G35 ★★ the range check REFUSES A VALID VALUE (`pending` becomes out of range) — every store caught mid-append "
+  "then refuses to mount for ever, which is the guard broken from the safe side",
+  "        if (_meta.records_state > kRecordsStateMax) return MetaLoad::error;",
+  "        if (_meta.records_state >= kRecordsStateMax) return MetaLoad::error;"),
+ ("G36 ★★ the wipe's pending arm stops consulting the medium and treats pending as history — an append that "
+  "never landed then makes a wipe announce a loss that did not happen",
+  "                              || (_meta.records_state == kRecordsAppendPending && _total_before_erase > 0);",
+  "                              || (_meta.records_state == kRecordsAppendPending);"),
+ ("G14 ★ the EVICTION path charges back bytes it never erased — `_total` under-counts the medium, so the byte cap "
+  "stops capping and the partition fills past its ring",
+  "        if (!_records->seg_erase(_meta.tail_seg)) { _meta_dirty = true; break; }\n"
+  "        _total -= (tsz <= _total ? tsz : _total);",
+  "        _records->seg_erase(_meta.tail_seg);\n"
+  "        _total -= (tsz <= _total ? tsz : _total);"),
+]
+
+MUTS_B134ACK = [
+ ("A01 ★★★ the ack's result mapping becomes UNCONDITIONAL SUCCESS — the exact shape the verb had before QG round "
+  "7: a cursor the store refused to persist is reported to the companion as marked",
+  'inline const char* inbox_mark_result(bool persisted) { return persisted ? "marked" : "io_error"; }',
+  'inline const char* inbox_mark_result(bool persisted) { (void)persisted; return "marked"; }'),
+ ("A02 ★★ the mapping is INVERTED — a persisted cursor reports io_error, so a working node looks broken and the "
+  "companion retries for ever",
+  'inline const char* inbox_mark_result(bool persisted) { return persisted ? "marked" : "io_error"; }',
+  'inline const char* inbox_mark_result(bool persisted) { return persisted ? "io_error" : "marked"; }'),
+]
+
+MUTS_B134RAM = [
+ ("R01 ★★★ wipe() drops back to the base's successful NO-OP — `prep-restart` HALTS but does NOT reboot, so the "
+  "console reports a cleared inbox while `pull_inbox` still streams every record until the operator cuts power",
+  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
+  "    // (inherits the base no-op)"),
+ ("R02 ★★ wipe() empties the ring but leaves the READ CURSOR pointing at records that no longer exist — the "
+  "unread badge then counts against a history that was just destroyed",
+  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
+  "    bool wipe() override { _head = 0; _count = 0; return true; }"),
+ ("R03 ★★ wipe() also re-rolls the storage epoch — it announces a wipe to the companion that the imminent reboot "
+  "makes moot, forcing a full re-pull for nothing",
+  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
+  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; _epoch += 1; return true; }"),
+]
+
+MUTS_B134INBOX = [
+ ("H01 ★★★ TOMBSTONE CAP IGNORED — erase() writes a marker past the bound pull()'s fixed pre-pass array can "
+  "hold, so a deleted message becomes visible again: the one outcome §3.5 forbids",
+  "    if (s.tombs >= protocol::inbox_max_tombstones) return InboxEraseResult::io_error;",
+  "    (void)s.tombs;"),
+ ("H02 ★★ a REPEAT delete reports `erased` instead of not_found — the modal shows success and appends a second "
+  "marker against the cap for a record that was already gone",
+  "    if (!s.live || s.tombstoned) return InboxEraseResult::not_found;",
+  "    if (!s.live) return InboxEraseResult::not_found;"),
+ ("H03 ★★★ the verdict stops asking whether the append LANDED — a torn tombstone reports `erased` while the "
+  "message is still in every future pull ('a success that isn't', across the NEW backend this time)",
+  "    return appended ? InboxEraseResult::erased : InboxEraseResult::io_error;",
+  "    return InboxEraseResult::erased;"),
+ ("H04 ★★★ BOTH mounts stop running: the `||` short-circuit is restored, so a DM failure means the CHANNEL store "
+  "never attempts its mount and two corrupted keys report 5/0 — a diagnostic that UNDER-STATES the damage",
+  "    const bool dm_ok = _dm->begin();\n"
+  "    const bool ch_ok = _chan->begin();\n"
+  "    if (!dm_ok || !ch_ok) {",
+  "    if (!_dm->begin() || !_chan->begin()) {"),
+ ("H05 ★★★ `mark_read` DISCARDS the store's verdict again — the verb above it then acks success for a cursor the "
+  "store refused to persist, and an unwired inbox reports success too",
+  "    if (!enabled()) return false;                                 // an unwired inbox persisted nothing\n"
+  "    InboxStore* s = (kind == InboxKind::dm) ? _dm : _chan;\n"
+  "    return s->set_read_cursor(seq);                               // ⛔ the verdict is RELAYED, never discarded",
+  "    if (!enabled()) return true;\n"
+  "    InboxStore* s = (kind == InboxKind::dm) ? _dm : _chan;\n"
+  "    s->set_read_cursor(seq);\n"
+  "    return true;"),
+]
+
+MUTS_BY_TARGET = {"b134seam": MUTS_B134SEAM, "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
+                  "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,
+                  "b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,
                   "teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
                   "b161hash": MUTS_B161HASH, "b161rx": MUTS_B161RX, "b161mac": MUTS_B161MAC,
                   "b251rx": MUTS_B251RX, "b251hash": MUTS_B251HASH,

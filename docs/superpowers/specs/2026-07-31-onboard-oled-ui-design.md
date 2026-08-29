@@ -1134,15 +1134,24 @@ entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation
 > to `InboxStore`** — `erase()` is composed from `read_since` + `append`, so no backend can be missed or silently
 > default to a no-op. The record format is **unchanged** (the marker is `type = 0xFE`, not a `DataType`), so **no
 > store-format version bump was taken**. Console: `del_msg <dm|chan> <seq>`. Register [[B133]].
-> ⚠ **[[B134]] — ⛔ DO NOT ACT ON THE NEXT SENTENCE WITHOUT THE SHARPENING DIRECTLY BELOW IT; read as-is it produced a
+> ✅ **[[B134]] CLOSED 2026-08-29 — THE TWO SUPERSEDED BLOCKS BELOW DESCRIBED THE VOLATILE ERA AND ARE KEPT AS THE
+> RECORD.** Every ESP32 target now mounts the durable `meshroute::SegmentedInboxStore` (the host-tested lib/core
+> logic) over a LittleFS-records + NVS-meta seam (`src/device_inbox_fs_esp32.h`, the `default_8MB.csv` 1.5 MB
+> `spiffs` partition). Records, §3.5 tombstones, `next_seq` and the §10.1 epoch all survive a power cycle; the
+> per-boot random epoch is gone (`MRINBOX_DURABLE`). AS-BUILT: the durable backend is now TWO backends over ONE
+> contract — nRF52 keeps `DeviceInboxStore` (⚠ with its own defects now registered as [[B260]]), ESP32 reuses the
+> segmented logic through an injected FS seam; `wipe()`, read-cursor/`next_seq` rollback+latch, the three-state
+> `records_state` marker (meta v4) and the transition-driven epoch were added to that shared logic under [[B134]]'s
+> eight QG rounds. Cross-reboot behaviour is bench Parts 11.4 (inverted) + 19.1 step 6 + 19.5-19.14.
+> ⚠ ~~**[[B134]] — ⛔ DO NOT ACT ON THE NEXT SENTENCE WITHOUT THE SHARPENING DIRECTLY BELOW IT; read as-is it produced a
 > bench step that could only pass vacuously:** on every ESP32 target — `heltec_v3` included — the inbox is a **volatile
 > RAM ring**, so on the panel's own board the delete is durable only until the next power cycle. Slice B must not imply
-> otherwise.
-> ⛔ **SHARPENED 2026-08-13 (slice B), because the sentence above is true and still reads as the WRONG THING — it misled a
+> otherwise.~~
+> ⛔ ~~**SHARPENED 2026-08-13 (slice B), because the sentence above is true and still reads as the WRONG THING — it misled a
 > reader into writing a bench step that could only pass vacuously: *"durable only until the next power cycle"* does NOT
 > mean the message returns.** A reboot takes the record, its tombstone **and the whole inbox** with it
 > (`persisted_next_seq()` = 0, a fresh `storage_epoch` every boot). ⇒ **within the runtime: deletion is real. Across a
-> reboot: there is no history to have deleted from.** Nothing comes back, and nothing cross-reboot is testable here.
+> reboot: there is no history to have deleted from.** Nothing comes back, and nothing cross-reboot is testable here.~~
 
 
 > ⛔ **SUPERSEDED 2026-08-07 — the paragraph immediately below is the ORIGINAL REQUIREMENT text and its present
@@ -1164,13 +1173,17 @@ must prove all of the following before UI-7D is complete:
 - after power loss at any mutation point, the target record is either still present or absent; every other previously
   valid record remains readable and in its original order;
 - successful deletion survives reboot, creates only a hole in that kind's sequence space, and never reuses a sequence;
-  ⛔⛔ **PLATFORM-QUALIFIED 2026-08-13 (§UI-7D slice B), because the unqualified sentence invites a VACUOUS pass:** this
+  ✅ **QUALIFICATION RETIRED 2026-08-29 ([[B134]] closed): this criterion is now REQUIRED OF, AND DISCHARGED BY, BOTH
+  durable backends** — the ESP32 targets mount the segmented store over LittleFS/NVS, so the criterion is live and
+  metal-testable on the panel's own board (bench 19.1 step 6). The `n/a, volatile store` instruction is retired — recording
+  it now would be a vacuous pass in the opposite direction.
+  ⛔⛔ ~~**PLATFORM-QUALIFIED 2026-08-13 (§UI-7D slice B), because the unqualified sentence invites a VACUOUS pass:** this
   criterion is **REQUIRED OF A DURABLE BACKEND** (nRF52 + QSPI `DeviceInboxStore`) and is **UNTESTABLE ON THE CURRENT
   HELTEC/ESP32 BACKEND**, where `FixedInboxStore` is a RAM ring — a reboot destroys the record, its tombstone and the
   entire history alike ([[B134]]). ⇒ on ESP32 the honest statement is *"deletion is real and `pull()`-verified WITHIN the
   runtime"*; *"it is still deleted after a reboot"* is true there only because **everything** is gone, so it must be
   recorded `n/a, volatile store` rather than as a pass (bench Part 19.1 step 6). The native cases discharge this criterion
-  against the **segmented** store, which is where it has meaning.
+  against the **segmented** store, which is where it has meaning.~~
 - `next_seq`, read cursor and storage epoch keep their meanings. A one-record delete is not a store wipe and must not
   make the companion reset both cursors;
 - `pull_inbox` and OLED browsing omit the deleted record; a failed delete omits nothing;

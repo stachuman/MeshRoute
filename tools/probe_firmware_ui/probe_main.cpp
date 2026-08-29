@@ -170,7 +170,16 @@
                                 //   than "a bitmap appeared". ⓘ Pure and Arduino-free, which is why a probe may
                                 //   include it without dragging the model in.
 #include "inbox.h"              // §UI-7D slice B: the REAL Inbox is what these cases delete out of
-#include "fixed_inbox_store.h"  //   ...backed by the same heap-free RAM ring the ESP32 board itself runs ([[B134]])
+#include "fixed_inbox_store.h"  //   ...backed by a heap-free RAM ring. ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28:
+                                //   this line used to say *"the same ring the ESP32 board itself runs"*. It is no
+                                //   longer the same — every ESP32 target now mounts the DURABLE
+                                //   `SegmentedInboxStore` over LittleFS/NVS (`src/device_inbox_fs_esp32.h`). The
+                                //   RAM ring is kept HERE on purpose and the substitution is sound: these checks
+                                //   drive `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call
+                                //   against a REAL `meshroute::Inbox`, and every one of those is defined by the
+                                //   backend-neutral `InboxStore` contract. The DURABILITY of a particular backend
+                                //   is measured where it lives — `test/test_device_inbox_fs_esp32.cpp` and
+                                //   `test/test_segmented_inbox_store.cpp` — never by this panel probe.
 #include "firmware_ui_prov.h"   // ★★★★ §UI-15 slice 5 / [[B225]]: the REAL team-create adapter's three DEVICE seams
                                 //   (`prov_service` / `prov_device_facts` / `prov_note_persisted_team_local_id`) are
                                 //   FAKED below, so what the child-enabled arm drives is the SHIPPED adapter over a
@@ -1556,11 +1565,14 @@ int main() {
     //     opened FIRST, while its same-numbered DM is still live: `pull()` streams the DM block before the channel block,
     //     so a `seq`-only lookup is INDISTINGUISHABLE from a correct one whenever the target is a DM. Ordering the
     //     phases this way is what makes that control able to fail at all.
-    // ⚠ [[B134]] IS RESPECTED IN THE WORDING: the store here is the same volatile RAM ring the ESP32 board runs, so what
-    //   is measured is that the record is gone from every future pull IN THIS RUNTIME. ⛔ No power-loss claim is made or
-    //   available — and ⛔⛔ a cross-reboot check would be VACUOUS rather than merely absent: on that store a reboot
-    //   destroys the record, its tombstone and the whole history alike, so "still deleted" would pass for the wrong
-    //   reason. That is why nothing here simulates one.
+    // ⛔ [[B134]] CLOSED 2026-08-28 — THE NOTE HERE USED TO SAY *"the store here is the same volatile RAM ring the
+    //   ESP32 board runs … a cross-reboot check would be VACUOUS."* Half of that has stopped being true: ESP32 now
+    //   runs the durable `SegmentedInboxStore` over LittleFS/NVS, so it is NO LONGER the same store.
+    // ⚠ THE RAM RING STAYS HERE ON PURPOSE, AND THE OTHER HALF OF THE NOTE STILL HOLDS: what these phases measure is
+    //   `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call against a REAL `meshroute::Inbox` —
+    //   all defined by the BACKEND-NEUTRAL `InboxStore` contract, which is precisely why the substitution is sound.
+    //   ⛔ Still no power-loss claim is made here, and a cross-reboot check still does not belong in a PANEL probe:
+    //   durability is measured where it lives (`test/test_device_inbox_fs_esp32.cpp`).
     g_probe_dm_store.set_epoch(1); g_probe_ch_store.set_epoch(1);
     g_node.inbox().on_init(&g_probe_dm_store, &g_probe_ch_store);
     CHK("P6 the probe's real inbox is wired", g_node.inbox().enabled());

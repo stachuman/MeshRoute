@@ -1900,8 +1900,9 @@ rule, the 42-character paging, the 2 s cadence, all three `Inbox::erase` outcome
 by the native suite (32 mutations, all RED), and the whole device half — the `(kind, seq)` lookup over the real
 `pull()`, the in-callback body copy, the one `erase()` call and the panel's strings — is measured against a REAL
 `meshroute::Inbox` by `tools/probe_firmware_ui/` (13 controls for this slice, all RED). ⇒ **only three things here are
-beyond every automated gate: the real SSD1306's 21 columns, real wall-clock paging, and the fact that the ESP32 store
-is RAM.**
+beyond every automated gate: the real SSD1306's 21 columns, real wall-clock paging, and (since [[B134]] closed
+2026-08-29 — this line used to end "the fact that the ESP32 store is RAM") the durable store's real-flash behaviour
+in 19.5-19.14.**
 
 ### 19.1 — ★★ THE DELETE IS REAL — AND SINCE [[B134]] IT SURVIVES THE REBOOT ON EVERY BOARD
 
@@ -1972,6 +1973,82 @@ its outcome. It is natively asserted (the modal stays open, says `DELETE FAILED`
 present) and mutation-proven in both directions.
 ⛔ **No step for the unread counters.** That a completed detail frame does not clear them is a pure-model property with
 its own native case; the panel gives it no separate surface.
+
+### 19.5 — [[B134]] partition capacity at a full ring (the one number that could only be derived)
+
+Fill the DM store past its 512 KiB cap (`testsend` in a loop, or `armrun`), then read the FS occupancy
+(`LittleFS.usedBytes()` / `totalBytes()`, or the boot banner if it grows a usage field). Expected: **< ~1.3 MB of the
+1.5 MB `spiffs` partition** (the derivation said 62-84 % at a full 162-segment ring). ⛔ Above ~1.4 MB appends will
+start failing (seal → roll → drop-oldest — degraded, not corrupt); the fix is then ESP32-specific caps at the
+`fw_main.cpp` construction site — **an owner ruling, not a coder's**.
+
+### 19.6 — [[B134]] flash wear + the radio-critical interval (soak)
+
+Sustained DM soak ≥ 40 min with the radio active. Expected: no jump-to-0x0, no watchdog, `status` heap stable (the
+per-open `VFSImpl::open` malloc + 4 KiB stdio buffer is the nRF52 heap-churn shape on a new platform). ⛔ Watch for
+missed CTS→DATA windows: a 4 KB LittleFS sector erase is tens of ms against `cts_to_data_gap_ms = 5`, and the append
+runs on the deliver path. Any airtime anomaly recorded here is the input to whether a deferred-write queue is owed as
+its own slice.
+
+### 19.7 — [[B134]] reflash wipes once — and only once (+ the one-time v3-meta refusal)
+
+After flashing a new image onto a blank/erased node: first boot prints `epoch=1` and `pull_inbox` is empty (the
+`spiffs` partition formats on first mount — expected, exactly once). The second boot prints the **same** `epoch` and
+retains anything sent in between. ⛔ A new `epoch` every boot means the durable arm was not selected.
+ⓘ **One-time expectation on the FIRST flash of the B134-final build over a pre-B134-final one**: that boot reports
+`enabled=0, mount_fault=6/6` (the v3 meta blob is refused as `meta_corrupt`) and needs one `factory_reset confirm`.
+Expected, once, on that flash only.
+
+### 19.8 — [[B134]] the two destructive verbs really destroy
+
+`prep-restart` then power-cycle: `pull_inbox 0 0` empty and `epoch` **+1** (the bump happens AT the wipe, so it is
+already visible before the power cycle). `factory_reset confirm` then reboot: empty inbox and `epoch=1` (the `"mr"`
+NVS namespace clear took the meta too).
+
+### 19.9 — [[B134]] the destructive verbs cannot lie
+
+Wear-testing the failure is impractical; verify the SUCCESS path is conditional. With records present:
+`prep-restart` → the single success line and **no `WARN`**; power-cycle → empty + `epoch` +1. Then
+`factory_reset confirm` → no `WARN` lines; reboot → empty, `epoch=1`. ⛔ If
+`WARN: inbox erase incomplete (messages may remain on flash)` appears on a healthy partition, the erase path or
+`LittleFS.begin` is failing and the store is not durable.
+
+### 19.10 — [[B134]] the sync really reaches the medium (the one line no host gate compiles)
+
+`LfsIo::sync()`'s `fsync` is inside the ESP32-only arm. Send a DM, then **cut power within 1 s** (a real power
+removal, not a reset). On reboot `pull_inbox 0 0` must list that DM. ⛔ If a message sent seconds before a power cut
+is routinely missing, `fsync` is not committing — the durability claim is buffered, not durable.
+
+### 19.11 — [[B134]] the corrupted-metadata refusal — and that it never fires on a healthy node
+
+With messages stored, corrupt the inbox meta (NVS keys `ibm_dm`/`ibm_ch` in namespace `"mr"`) and reboot. Expected
+banner: `enabled=0, mount_fault=6/6` (**6 = `meta_corrupt`** — the meta was read and is wrong). A meta *deleted*
+rather than corrupted, over existing records, gives **5/5 = `meta_lost_over_records`**. ⛔ Both must show the SAME
+code on BOTH sides — a `5/0` or `6/0` means the dual-mount short-circuit is back. `pull_inbox 0 0` returns nothing;
+⛔ **the records are still on the partition** (the point). Recovery: `factory_reset confirm` → `enabled=1, epoch=1`.
+⛔ On a healthy boot `mount_fault` must not print at all — if it appears unprovoked, a working inbox is being refused.
+
+### 19.12 — [[B134]] the prep-restart epoch bump is exactly-once (the repeated-boot check)
+
+`prep-restart`, power-cycle: empty + `epoch` +1. **Then reboot twice more: `epoch` must NOT move.** ⛔ An epoch that
+climbs on quiet empty boots is the §10.1 ratchet (the round-6 blocker) — the companion would re-pull an unchanged
+empty inbox forever. ⛔ If `epoch` instead reads **1** after the power cycle, metadata was silently re-initialised —
+the refusal is not firing.
+
+### 19.13 — [[B134]] the NVS classifier (partition-level corruption)
+
+On a node with stored messages, corrupt the **NVS partition itself** (e.g. `esptool erase_region` over part of the
+`nvs` partition) and reboot. Expected: `enabled=0, mount_fault=6/6`. ⛔ **`enabled=1` with `epoch=1` is the failure
+signature** — a lookup error classified as absent, the store silently starting over (exactly what
+`Preferences::isKey()` used to do). Recovery: `factory_reset confirm`. ⓘ 19.7's blank-node arm is the complementary
+side: genuine `NOT_FOUND` must still mount fresh — the two steps together pin both classifier directions on metal.
+
+### 19.14 — [[B134]] the mark_read ack tells the truth
+
+`mark_read dm <seq>` on a healthy node → the ack carries `"result":"marked"`. On a node whose meta is corrupt
+(mount refused, 19.11's state) → `"result":"io_error"`. ⛔ Never a bare unconditional ack — that was the round-8
+"success that isn't". ⓘ The companion currently ignores this field ([[B261]]) — the firmware half is what this step
+pins.
 
 ## Part 20 — §UI-14: the SETTINGS screen, and the ONE thing no automated gate can reach — REAL `/mrcfg`
 
