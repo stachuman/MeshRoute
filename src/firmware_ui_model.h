@@ -3206,12 +3206,18 @@ public:
     }
     // ★★★ THE DELETE ANSWER — all three outcomes, and NONE of them may make a record LOOK deleted without the store
     //     having said so (spec §3.5: "a visual disappearance without durable success is forbidden").
-    // ⚠⚠ [[B134]], AND THE DIRECTION MATTERS: on every ESP32 target, `heltec_v3` included, the inbox is a VOLATILE RAM
-    //    ring. `erased` therefore means the tombstone was appended and the record is gone from every future `pull()` IN
-    //    THIS RUNTIME. ⛔ It is not a claim about surviving a power cycle — and ⛔⛔ that is NOT because the message would
-    //    come back: a reboot destroys the record, its tombstone AND THE WHOLE INBOX together
-    //    (`fixed_inbox_store.h`: `persisted_next_seq()` = 0, "seq restarts at 1 each boot"). ⇒ cross-reboot delete
-    //    durability is owed by a DURABLE backend and is not testable on this board at all.
+    // ⛔⛔ [[B134]] CLOSED 2026-08-28 — THE PARAGRAPH THAT USED TO STAND HERE IS NOW FALSE AND IS REPLACED, NOT
+    //    SOFTENED. It read: *"on every ESP32 target, `heltec_v3` included, the inbox is a VOLATILE RAM ring …
+    //    a reboot destroys the record, its tombstone AND THE WHOLE INBOX together … cross-reboot delete
+    //    durability is owed by a DURABLE backend and is not testable on this board at all."* Every ESP32 target
+    //    now mounts `meshroute::SegmentedInboxStore` over LittleFS records + NVS meta
+    //    (`src/device_inbox_fs_esp32.h`), so the record, its tombstone and the seq high-water all SURVIVE a power
+    //    cycle and the storage epoch no longer changes on every boot.
+    // ⇒ ⚠ WHAT THIS MODEL PROMISES IS STILL EXACTLY WHAT THE STORE SAID, AND NOT ONE STEP MORE: `erased` means the
+    //   tombstone was durably appended and the record is gone from every future `pull()`. That is now a
+    //   cross-reboot statement on ESP32 as well as on nRF52 — but it remains the STORE's claim, relayed. This
+    //   model must never render a disappearance the store did not report (spec §3.5), whichever backend is under
+    //   it; the durability of the backend is not this unit's business and must not become an assumption here.
     void on_inbox_erased(InboxKind kind, uint32_t seq, InboxEraseResult r) {
         if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;
         clear_inbox_request();

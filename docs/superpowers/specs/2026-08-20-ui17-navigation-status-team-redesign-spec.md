@@ -673,6 +673,10 @@ is dispatchable as written.
 
 ### S6 — Artwork: the real mark replaces the placeholder
 
+**Final artwork landed 2026-08-29:** owner-supplied `logo_3.png`, already 24x24 with a binary alpha mask,
+converted directly to the existing 72-byte LSB-first bitmap. The reserved geometry and every text row remained
+unchanged; the full row-art test and mirror/bit-order mutations were re-pointed rather than relaxed.
+
 - **Scope.** ONE asset in `src/firmware_ui_icons.h` (24x24 = 72 B, or the accepted 16x16 = 32 B centred inside
   the reserved slot), `draw_bitmap` instead of `draw_rect`. **⛔ No geometry moves and no text moves** — that is
   the whole point of reserving the slot.

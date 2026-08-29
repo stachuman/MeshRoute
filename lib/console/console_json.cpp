@@ -575,10 +575,11 @@ size_t write_inbox_end(char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq
     j.ch('}');
     return j.finish();
 }
-size_t write_inbox_marked(char* buf, size_t cap, const char* kind, uint32_t seq) {
+size_t write_inbox_marked(char* buf, size_t cap, const char* kind, uint32_t seq, const char* result) {
     JsonBuf j(buf, cap);
     j.lit("{\"ack\":\"mark_read\",\"kind\":"); j.str(kind, std::strlen(kind));
-    j.lit(",\"seq\":"); j.u32(seq);
+    j.lit(",\"seq\":");    j.u32(seq);
+    j.lit(",\"result\":"); j.str(result, std::strlen(result));   // marked | io_error — never a bool
     j.ch('}');
     return j.finish();
 }

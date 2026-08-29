@@ -17,8 +17,46 @@
 // REALITY SPLIT (like device_nv): I compile-verify this under both board envs; the on-metal QSPI bring-up +
 // flash read/write/wear + format-on-dirty are **BENCH-VERIFIED BY THE USER** — the QSPI primitives are the
 // `qspi_*` seam below, marked [BENCH]. The segmented-log + meta + epoch LOGIC is platform-neutral and the
-// part to review. ESP32 (Heltec): a LittleFS-data-partition backend is the NEXT slice — for now its qspi_*
-// return failure, so begin() fails and Inbox stays disabled on Heltec (record_* inert) until it lands.
+// part to review.
+// ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: this header used to end *"ESP32 (Heltec): a LittleFS-data-partition
+//    backend is the NEXT slice — for now its qspi_* return failure, so begin() fails and Inbox stays disabled on
+//    Heltec"*. THAT SLICE HAS LANDED, and ⛔ NOT IN THIS FILE: ESP32 mounts `meshroute::SegmentedInboxStore`
+//    (lib/core — the host-tested twin of the logic below) over the LittleFS/NVS seam in
+//    `src/device_inbox_fs_esp32.h`, so this class is now nRF52-ONLY and its `#else` arm below is dead on every
+//    board this tree builds. It is kept because the class must still compile wherever the header is included.
+// ⚠⚠ THE TWIN RULE BINDS AND IT NOW POINTS AT THREE REAL, UNFIXED DELTAS — ⛔ LISTED HERE, NOT SILENTLY REPAIRED.
+//   `lib/core/segmented_inbox_store.h` gained all three with [[B134]]; this file has only what the SHARED CONTRACT
+//   forced (the `bool` on `wipe()` / `qspi_seg_erase`). Fixing the LOGIC here is a behaviour change on the nRF52
+//   path, which is a different slice under a different register row (C1) — and the ruled [[B134]] board pair does
+//   not gate this store's behaviour, so it could not be measured in that slice either.
+//     ★★ (1) THE SERIOUS ONE — every `save_meta()` result is IGNORED. `append()`'s ROTATION save (`:~220`) moves
+//        the head, writes the record and returns TRUE; if that save did not reach InternalFS the next boot walks a
+//        ring that excludes the new head, so an ACKNOWLEDGED record is GONE — and for a §3.5 TOMBSTONE that means
+//        the UI reported the deletion and the message COMES BACK. QG reproduced exactly this shape on the shared
+//        store, where it is now checked + latched + retried (`_meta_dirty`). The same holds for the eviction save
+//        (`:~239`), for `begin()`'s upgrade/§10.1 saves, and for `begin()`'s fresh branch, which persists NOTHING
+//        (a reboot inside the first `kSeqPersistBatch` appends restores `next_seq = 1` over a log that already
+//        holds those seqs — duplicate sequences in one store).
+//     ★ (2) `append()`'s two `qspi_seg_erase` calls are unchecked, so a roll can write behind stale lapped bytes
+//        that `read_since` then parses as frames.
+//     ⓘ (3) `wipe()` (above) erases the segments and clears the seal but does NOT reset head/tail/_total — safe
+//        only because both of its callers reboot immediately, which is a dependency on the caller, not a property
+//        of the store.
+//     ★★ (4) THE §10.1 EPOCH RATCHET (`:178`): `if (version_ok && records_empty && _meta.next_seq > 1)` bumps the
+//        epoch on EVERY boot of an empty store, because `next_seq > 1` only says "this store once had traffic"
+//        and nothing records that the current empty state was already acknowledged. QG measured 2, 3, 4 on
+//        consecutive boots of the shared store. ⇒ after a `prep-restart` an nRF52 node tells its companion the
+//        inbox was newly wiped on every single power cycle, so the app re-pulls an unchanged empty inbox for
+//        ever. Fixed in `lib/core/segmented_inbox_store.h` by the persisted `records_state` marker (the wipe
+//        transition bumps once; empty boots are stable; a genuine external loss still bumps exactly once).
+//     ★★ (5) `set_read_cursor` IS THE SAME "SUCCESS THAT ISN'T" the shared store carried until [[B134]] QG round
+//        7: it assigns `_meta.read_cursor` BEFORE `save_meta()`, so a failed InternalFS write leaves the NEW value
+//        in RAM — and the caller's retry with the same value then hits this file's own change-detect
+//        (`if (seq == _meta.read_cursor) return true;`) and reports success WITHOUT attempting a save. The retry
+//        that should repair the medium is exactly the one the wear optimisation eats, so it can never be
+//        repaired. ⓘ `set_next_seq` has the same RAM-first shape without the change-detect, so after a failed
+//        save it over-reports `persisted_next_seq()`. Both are fixed in `lib/core/segmented_inbox_store.h` by
+//        rollback plus a dirty-aware coalescing check; neither is fixed HERE (C1).
 #pragma once
 #include "inbox.h"
 #include <stdint.h>
@@ -76,8 +114,15 @@ public:
     uint16_t count() const override { return _count; }
     uint32_t storage_epoch() const override { return _meta.epoch; }
     // factory_reset (§5): drop EVERY record segment (the QSPI records). The InternalFS meta is removed by
-    // mrnv::factory_erase(); together they leave the inbox truly empty. Best-effort (idempotent erase).
-    void wipe() override { for (uint16_t i = 0; i < ring_segs(); ++i) qspi_seg_erase(i); _head_sealed = false; }   // §B135: the tear went with the segments
+    // mrnv::factory_erase(); together they leave the inbox truly empty.
+    // ⛔ RETURNS bool SINCE 2026-08-28 — FORCED BY THE SHARED `InboxStore::wipe()` CONTRACT CHANGE ([[B134]] QG
+    //    blocker 3), and DELIBERATELY NOTHING MORE (C1). Every segment is attempted, then the verdict is reported.
+    bool wipe() override {
+        bool ok = true;
+        for (uint16_t i = 0; i < ring_segs(); ++i) if (!qspi_seg_erase(i)) ok = false;
+        _head_sealed = false;   // §B135: the tear went with the segments
+        return ok;
+    }
 
 private:
     // ---- meta (InternalFS) ----
@@ -92,7 +137,9 @@ private:
     bool            qspi_seg_size(uint16_t idx, uint32_t* size) const;      // file size; false if absent
     bool            qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t n);
     uint32_t        qspi_seg_read(uint16_t idx, uint8_t* out, uint32_t cap) const;  // read whole segment; bytes read
-    void            qspi_seg_erase(uint16_t idx);                           // remove/empty the segment
+    // ⛔ bool since 2026-08-28 — forced by the `ISegmentStore::seg_erase` / `InboxStore::wipe` contract change
+    //    ([[B134]] QG blocker 3). Contract: TRUE iff the segment is EMPTY afterwards (already-absent counts).
+    bool            qspi_seg_erase(uint16_t idx);                           // remove/empty the segment
     bool            qspi_any_segments() const;                              // does the dir hold ANY record bytes?
 
     const char* _dir;
@@ -300,7 +347,7 @@ inline bool     DeviceInboxStore::qspi_mount(bool*) { return false; }           
 inline bool     DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
 inline bool     DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
 inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
-inline void     DeviceInboxStore::qspi_seg_erase(uint16_t) {}
+inline bool     DeviceInboxStore::qspi_seg_erase(uint16_t) { return false; }   // no records backend -> nothing can be proven erased
 inline bool     DeviceInboxStore::qspi_any_segments() const { return false; }
 #else
 // ---- REAL QSPI records backend: File ops on the `QSPIFlash` (CustomLFS) instance, MIRRORING load_meta/save_meta
@@ -369,9 +416,11 @@ inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t idx, uint8_t* out, uint
     const int r = f.read(out, sz);
     f.close(); return r > 0 ? static_cast<uint32_t>(r) : 0;
 }
-inline void DeviceInboxStore::qspi_seg_erase(uint16_t idx) {
+inline bool DeviceInboxStore::qspi_seg_erase(uint16_t idx) {
     char p[40]; seg_path(idx, p, sizeof p);
-    QSPIFlash.remove(p);                                            // remove = empty (the next append re-creates it)
+    // remove = empty (the next append re-creates it). ★ Adafruit's `remove()` answers plain `false` for an ABSENT
+    // file as well as for a real failure, so the "empty afterwards" contract is settled with `exists()`.
+    return QSPIFlash.remove(p) || !QSPIFlash.exists(p);
 }
 inline bool DeviceInboxStore::qspi_any_segments() const {
     for (uint16_t i = 0; i < ring_segs(); ++i) {                    // any ring segment with bytes? (§10.1 wipe-detect)
@@ -389,7 +438,7 @@ inline bool DeviceInboxStore::qspi_mount(bool*) { return false; }
 inline bool DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
 inline bool DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
 inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
-inline void DeviceInboxStore::qspi_seg_erase(uint16_t) {}
+inline bool DeviceInboxStore::qspi_seg_erase(uint16_t) { return false; }   // no records backend -> nothing can be proven erased
 inline bool DeviceInboxStore::qspi_any_segments() const { return false; }
 inline bool DeviceInboxStore::load_meta() { return false; }
 inline bool DeviceInboxStore::save_meta() { return false; }

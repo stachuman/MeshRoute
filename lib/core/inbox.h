@@ -97,9 +97,15 @@ public:
     // reads it; a changed epoch ⇒ the node's history was wiped ⇒ the app resets its cursors to 0 and
     // re-pulls (dedup by stable message identity makes that non-duplicating). 0 = no durable epoch.
     virtual uint32_t storage_epoch() const = 0;
-    // factory_reset (§5): drop ALL persisted records. Default no-op — a RAM-only store (FixedInboxStore) is cleared by
-    // the reboot that follows; a persistent store (DeviceInboxStore on QSPI) overrides to erase the record segments.
-    virtual void     wipe() {}
+    // factory_reset (§5) / `prep-restart`: drop ALL persisted records, and ★ REPORT WHETHER THAT HAPPENED.
+    // ⛔ THE RETURN TYPE WAS `void` UNTIL 2026-08-28 ([[B134]] QG blocker 3) AND THAT WAS A DATA-RETENTION LIE IN
+    //    THE WORST DIRECTION: every erase result was discarded, so `prep-restart` printed *"inbox cleared"* and
+    //    `factory_reset confirm` carried on while records stayed RECOVERABLE on flash. For a DESTRUCTIVE verb the
+    //    honest failure direction is to say it failed — a user who is told the history is gone will act as if it is.
+    // Contract: `true` iff, after this call, the store holds no recoverable records AND the bookkeeping that says so
+    // is persisted. A store with nothing persistent (FixedInboxStore, a RAM ring cleared by the reboot that follows)
+    // trivially satisfies that, which is why the default is `true` and not a silent no-op success.
+    virtual bool     wipe() { return true; }
 };
 
 // ---- the inbox logic (lib/core; platform-neutral) -------------------------------------------------
@@ -162,7 +168,11 @@ public:
     // §10.1: the node's inbox storage epoch (the companion's wipe-detector). DM + channel share the device's
     // data store, so they bump together; the DM store's value is canonical. 0 when disabled.
     uint32_t storage_epoch()   const { return enabled() ? _dm->storage_epoch() : 0; }
-    void     mark_read(InboxKind kind, uint32_t seq);
+    // ⛔ RETURNS THE PERSISTENCE VERDICT since 2026-08-29 ([[B134]] QG round 7). It was `void`, so a store that
+    // could not persist the cursor was indistinguishable from one that did, and `mark_read` acked success over a
+    // durable cursor that never moved. `false` = the cursor is NOT on the medium (and an unwired inbox is false,
+    // never a silent success — the same rule `erase` follows).
+    bool     mark_read(InboxKind kind, uint32_t seq);
 
     // Force-persist both next-seq counters NOW (the "/ on a timer" half of §6's batched persist). The backend
     // should call this on a periodic timer and/or before a planned reboot, to bound how far the persisted

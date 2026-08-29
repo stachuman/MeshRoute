@@ -25,7 +25,9 @@
 #include "fw_context_pure.h"      // §B105: DeviceHal + Node, AND the `g_hal` / `g_node` externs — the ONE declaration
 #include "identity.h"             // meshroute::Identity
 #include "device_inbox_store.h"   // mrinbox::DeviceInboxStore (nRF52 QSPIFLASH=1 => the LIVE QSPI/LittleFS backend)
-#include "fixed_inbox_store.h"    // meshroute::FixedInboxStore (the ESP32 RAM-ring fallback)
+#include "device_inbox_fs_esp32.h"  // [[B134]] mrinboxfs::Esp32SegmentStore/Esp32NvsMetaStore (=> MRINBOX_ESP32_LITTLEFS)
+#include "segmented_inbox_store.h"  // meshroute::SegmentedInboxStore — the REUSED ring logic the ESP32 seam hosts
+#include "fixed_inbox_store.h"    // meshroute::FixedInboxStore (the RAM-ring fallback for a board with NEITHER backend)
 #include "fault_log.h"            // mrfault::FaultLog / FaultRecord
 #include "sched_send.h"           // mrsched::Schedule
 
@@ -47,15 +49,27 @@ extern meshroute::Sx1262Radio  g_iradio;
 //   1:1 rule and they are NOT declared twice: that header IS their declaration, so a feature TU can reach them
 //   without `<RadioLib.h>`. Their definitions still live in fw_main.cpp beside the rest of this block.
 
-// Inbox stores — guard MUST match the fw_main.cpp definitions: the durable QSPI/LittleFS DeviceInboxStore backend
-// (nRF52, QSPIFLASH=1 => MRINBOX_QSPI_READY, the LIVE backend there) vs the FixedInboxStore RAM ring (ESP32 fallback).
+// Inbox stores — guard MUST match the fw_main.cpp definitions. THREE arms, in order of durability:
+//   1. MRINBOX_QSPI_READY      (nRF52 + QSPIFLASH=1) -> mrinbox::DeviceInboxStore, records on the external QSPI
+//   2. MRINBOX_ESP32_LITTLEFS  (ESP32, [[B134]])     -> meshroute::SegmentedInboxStore over the LittleFS/NVS seam
+//   3. neither                                       -> meshroute::FixedInboxStore, a VOLATILE RAM ring
+// ★ `MRINBOX_DURABLE` is derived ONCE, here, and is what every boot-semantics consumer keys on (the per-boot
+//   random epoch, the banner). Before [[B134]] those consumers keyed on MRINBOX_QSPI_READY directly, which
+//   silently meant "nRF52" as well as "durable" — two facts one macro could not keep separate once a second
+//   durable platform existed.
 // device_inbox_store.h's member defs are `inline`, so it is safe to include across TUs (fw_main + firmware_remote via here).
 #ifndef MR_RAM_INBOX_SLOTS
-#define MR_RAM_INBOX_SLOTS 32           // ESP32 RAM inbox depth per store (~8.5 KB/store at 272-B slots)
+#define MR_RAM_INBOX_SLOTS 32           // RAM inbox depth per store (~8.5 KB/store at 272-B slots) — arm 3 only
+#endif
+#if defined(MRINBOX_QSPI_READY) || defined(MRINBOX_ESP32_LITTLEFS)
+#define MRINBOX_DURABLE 1
 #endif
 #if defined(MRINBOX_QSPI_READY)
 extern mrinbox::DeviceInboxStore g_inbox_dm;
 extern mrinbox::DeviceInboxStore g_inbox_ch;
+#elif defined(MRINBOX_ESP32_LITTLEFS)
+extern meshroute::SegmentedInboxStore g_inbox_dm;
+extern meshroute::SegmentedInboxStore g_inbox_ch;
 #else
 extern meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_dm;
 extern meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;

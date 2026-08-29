@@ -30,7 +30,9 @@
 #include "console_parse.h"
 #include "device_nv.h"
 #include "device_inbox_store.h"
-#include "fixed_inbox_store.h"   // the interim VOLATILE RAM inbox (until the durable QSPI records backend lands)
+#include "device_inbox_fs_esp32.h"   // [[B134]] the ESP32 LittleFS/NVS seam (=> MRINBOX_ESP32_LITTLEFS)
+#include "segmented_inbox_store.h"   // the REUSED durable ring logic the ESP32 seam hosts
+#include "fixed_inbox_store.h"   // the VOLATILE RAM inbox — now only for a board with NEITHER durable backend
 #include "device_rng.h"
 #include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
@@ -175,15 +177,24 @@ meshroute::ArduinoClock g_clock;
 meshroute::Sx1262Radio  g_iradio(g_radio, meshroute::board_rf_instance());
 meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
-// Inbox stores. On nRF52 (QSPIFLASH=1 -> MRINBOX_QSPI_READY) the durable QSPI/LittleFS DeviceInboxStore records
-// backend IS the live inbox (its on-metal begin()/flash behaviour is USER-BENCH-VERIFY-PENDING; if begin() fails the
-// inbox goes disabled, not to RAM). On ESP32 the records backend is a later slice, so we install the interim volatile
-// FixedInboxStore RAM ring (bounded; record-on-delivery + pull_inbox WORK, session-scoped, lost on reboot — the
-// per-boot epoch set in setup makes the app re-pull). The durable-vs-RAM choice below tracks MRINBOX_QSPI_READY.
-// MR_RAM_INBOX_SLOTS + the guard now live in fw_context.h (so the extern decls match); definitions below (extern in fw_context.h).
+// Inbox stores — the THREE arms fw_context.h declares (see the guard block there; MRINBOX_DURABLE is derived
+// from the first two). On nRF52 (QSPIFLASH=1 -> MRINBOX_QSPI_READY) the durable QSPI/LittleFS DeviceInboxStore
+// records backend IS the live inbox. ★ [[B134]] 2026-08-28: ESP32 is now durable TOO — the SAME segmented ring
+// logic (lib/core/segmented_inbox_store.h, host-tested) over the LittleFS records / NVS meta seam in
+// src/device_inbox_fs_esp32.h. On EITHER durable board a failed begin() leaves the inbox DISABLED, not degraded
+// to RAM (fail loud, C2). The volatile FixedInboxStore ring remains only for a board with neither backend.
+// ⛔ The two ESP32 stores are constructed with the SAME segment size as nRF52 (protocol::inbox_segment_bytes ==
+//    the store's own read scratch — begin() refuses anything larger rather than truncate reads).
+// MR_RAM_INBOX_SLOTS + the guards live in fw_context.h (so the extern decls match); definitions below.
 #if defined(MRINBOX_QSPI_READY)
 mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
 mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
+#elif defined(MRINBOX_ESP32_LITTLEFS)
+mrinboxfs::MountOnce          g_inbox_mount;            // ONE LittleFS mount shared by both record stores
+mrinboxfs::Esp32SegmentStore  g_inbox_dm_recs(g_inbox_mount, mrinboxfs::kDirDm), g_inbox_ch_recs(g_inbox_mount, mrinboxfs::kDirCh);
+mrinboxfs::Esp32NvsMetaStore  g_inbox_dm_meta(mrinboxfs::kMetaKeyDm), g_inbox_ch_meta(mrinboxfs::kMetaKeyCh);
+meshroute::SegmentedInboxStore g_inbox_dm(g_inbox_dm_recs, g_inbox_dm_meta, meshroute::protocol::inbox_dm_store_bytes,   meshroute::protocol::inbox_segment_bytes);
+meshroute::SegmentedInboxStore g_inbox_ch(g_inbox_ch_recs, g_inbox_ch_meta, meshroute::protocol::inbox_chan_store_bytes, meshroute::protocol::inbox_segment_bytes);
 #else
 meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_dm;
 meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
@@ -378,9 +389,26 @@ static void handle_crashtest(const char* args, Print& out) {
 // everyone converges from true zero. spec 2026-06-24.
 static void handle_prep_restart(Print& out) {
     g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
-    g_inbox_dm.wipe(); g_inbox_ch.wipe();         // QSPI inbox RECORDS (no-op on the RAM/ESP32 store); the boot epoch bumps -> companion re-syncs
+    // Drop the durable inbox RECORDS. ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: this line used to say
+    // *"(no-op on the RAM/ESP32 store); the boot epoch bumps"*. Both halves have stopped being true on ESP32 —
+    // wipe() is now a REAL segment erase there (SegmentedInboxStore::wipe), and the epoch no longer bumps
+    // because the boot re-randomises it but because the NEXT boot's §10.1 detect sees empty records against a
+    // meta that still remembers next_seq > 1. On the RAM arm it is still the reboot that clears the ring.
+    // ⛔ [[B134]] QG blocker 3: the result is CHECKED and the success line is CONDITIONAL. `wipe()` used to return
+    //    `void`, so this verb printed "inbox cleared" unconditionally — over records that may still be on flash.
+    // ⚠ Both stores are wiped before the verdict is read: a partial erase must still erase what it can.
+    // ★ THE FAILURE WORDING IS RULED (2026-08-29) AND APPLIED VERBATIM. It says "MAY remain", not "remain",
+    //   because the two failure halves are not the same fact: every segment can erase cleanly and the METADATA
+    //   save still fail, so "messages remain on flash" would itself be an overclaim — the honest report of a
+    //   partial destructive operation is that it did not finish, not a promise about what survived.
+    const bool inbox_dm_ok = g_inbox_dm.wipe(), inbox_ch_ok = g_inbox_ch.wipe();
     g_halted = true;                              // the loop now skips the operating block (dormant) but stays console-responsive
-    out.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+    if (inbox_dm_ok && inbox_ch_ok) {
+        out.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+    } else {
+        out.println(F("> prep-restart WARN: inbox erase incomplete (messages may remain on flash)"));
+        out.println(F("> prep-restart — routes cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+    }
 }
 
 // OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
@@ -875,10 +903,16 @@ void setup() {
     else { g_node.restore_channel_ctr(nv.channel_ctr);          // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
            g_node.restore_peer_ctr_floor(nv.channel_ctr);       // D7: seed the per-peer FLOOR from the same leased high-water so DM ctrs also resume above the pre-reboot value (no re-mint -> no silent companion dedup)
            g_ctr_lease = nv.channel_ctr; }                      // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
-    // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
+    // Install the inbox stores so record-on-delivery + pull_inbox work. With the VOLATILE RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
     // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).
-#if !defined(MRINBOX_QSPI_READY)
+    // ⛔ THE GUARD IS `MRINBOX_DURABLE`, NOT `MRINBOX_QSPI_READY` ([[B134]], 2026-08-28) — AND THAT IS THE WHOLE
+    //    BOOT-SEMANTICS CHANGE OF THIS SLICE, NOT A TIDY-UP. A durable store's epoch is a PERSISTED §10.1 fact
+    //    that bumps only when the records were actually wiped; re-randomising it every boot would tell the
+    //    companion its whole history had been destroyed on every single power cycle, so it would drop its
+    //    cursors and re-pull the entire ring — the exact opposite of what durability buys. `set_epoch` exists
+    //    only on FixedInboxStore, so this also has to compile out, not merely be skipped.
+#if !defined(MRINBOX_DURABLE)
     uint32_t boot_epoch = 0; mrrng::fill(reinterpret_cast<uint8_t*>(&boot_epoch), sizeof boot_epoch);
     g_inbox_dm.set_epoch(boot_epoch); g_inbox_ch.set_epoch(boot_epoch);
 #endif
@@ -900,11 +934,32 @@ void setup() {
     //   display dependency (`tools/probe_board_ui/run.sh` W24 pins that, file-wide, as an executable rule). ⇒ off the
     //   panel profile this line inlines to NOTHING: no catalog, no `/mrui` read, no console output, no `.bss`.
     mrfw::preset_boot_restore_console();
+    // ★ THE BANNER IS THE BENCH'S ONLY WAY TO TELL THE THREE BACKENDS APART, so each arm names its OWN medium
+    //   and says whether history survives a power cycle. `enabled()` is reported too: a durable store whose
+    //   begin() FAILED leaves the inbox disabled, and a line that said "durable" while record_* was inert would
+    //   be exactly the success-that-isn't this project keeps re-finding.
 #if defined(MRINBOX_QSPI_READY)
-    mrcon.println(F("  inbox     = QSPI (durable)"));
+    mrcon.print(F("  inbox     = QSPI/LittleFS records + InternalFS meta (durable), enabled="));
+    mrcon.println(g_node.inbox().enabled() ? 1 : 0);
+#elif defined(MRINBOX_ESP32_LITTLEFS)
+    mrcon.print(F("  inbox     = LittleFS records + NVS meta (durable), epoch="));
+    mrcon.print(g_node.inbox().storage_epoch());
+    mrcon.print(F(", enabled="));
+    mrcon.print(g_node.inbox().enabled() ? 1 : 0);
+    // ★ [[B134]] QG round 2: `enabled=0` alone cannot tell a corrupted PARTITION from corrupted METADATA over a
+    //   LIVE history, and those want opposite operator responses — reflash vs. an explicit `factory_reset confirm`
+    //   taken knowing it destroys the history. `mount_fault` is the §10.1-style detect reporting WHICH happened.
+    //   ⓘ Printed as the enum's value (SegMountFault, lib/core/segmented_inbox_store.h); 5 = meta_lost_over_records.
+    if (!g_node.inbox().enabled()) {
+        mrcon.print(F(", mount_fault="));
+        mrcon.print(static_cast<int>(g_inbox_dm.mount_fault()));
+        mrcon.print('/');
+        mrcon.print(static_cast<int>(g_inbox_ch.mount_fault()));
+    }
+    mrcon.println();
 #else
     mrcon.print(F("  inbox     = RAM volatile, ")); mrcon.print(MR_RAM_INBOX_SLOTS);
-    mrcon.println(F(" msgs/store (interim — lost on reboot; durable QSPI store is a bench-TODO)"));
+    mrcon.println(F(" msgs/store (no durable backend on this board — lost on reboot)"));
 #endif
     // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state machine.
     // A node that rebooted WITH a persisted id skips this — it already owns it (restored above). BUT a freshly-flashed

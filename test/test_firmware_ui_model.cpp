@@ -2162,8 +2162,12 @@ TEST_CASE("ui7-B66: `back, don't send` is the derived LAST row of every compose 
 //     sequence spaces are INDEPENDENT and `Inbox::pull()` hands records oldest-first while the per-kind budget keeps the
 //     NEWEST, so ONE arriving message renumbers every retained row. [[B133]] was this exact pair at another site.
 // ⚠ A case that only drives a STATIC list proves nothing about that, so the identity cases below all MOVE the rows.
-// ⚠ [[B134]]: on the panel's own board (ESP32) the inbox is a volatile RAM ring. Nothing here asserts, or may assert,
-//   survival across a power cycle — `erased` means the tombstone was appended within this runtime.
+// ⓘ [[B134]] CLOSED 2026-08-28: this note used to say *"on the panel's own board (ESP32) the inbox is a volatile RAM
+//   ring"*, which is no longer true — ESP32 mounts the durable `SegmentedInboxStore` over LittleFS/NVS. ⛔ THE RULE
+//   THE NOTE CARRIED IS UNCHANGED AND STILL BINDS HERE: nothing in this file asserts, or may assert, survival across
+//   a power cycle. This is the PURE MODEL; durability is the store's property and is measured at the store
+//   (`test/test_device_inbox_fs_esp32.cpp`, `test/test_segmented_inbox_store.cpp`). A model case that "proved"
+//   durability would be measuring its own fake.
 
 // ⓘ `to_inbox` MOVED to the top of this file with §UI-17 S1 — the early cases need the same prefix now, and a
 //   second copy here would be the parallel helper U1 forbids. See it for what the prefix is.

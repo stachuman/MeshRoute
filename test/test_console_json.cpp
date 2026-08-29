@@ -231,8 +231,15 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     n = write_inbox_end(b, sizeof b, 42, 7, 3, 15, 987654ull);
     CHECK(std::string(b, n) == "{\"ev\":\"inbox_end\",\"dm_seq\":42,\"chan_seq\":7,\"epoch\":3,\"count\":15,\"now_ms\":987654}\n");
 
-    n = write_inbox_marked(b, sizeof b, "dm", 42);
-    CHECK(std::string(b, n) == "{\"ack\":\"mark_read\",\"kind\":\"dm\",\"seq\":42}\n");
+    // ⛔ THE ACK CARRIES A `result` SINCE [[B134]] QG round 7 — `write_inbox_deleted`'s field reused verbatim.
+    //    This case used to pin the RESULT-LESS form, i.e. an ack that could only ever say success.
+    n = write_inbox_marked(b, sizeof b, "dm", 42, inbox_mark_result(true));
+    CHECK(std::string(b, n) == "{\"ack\":\"mark_read\",\"kind\":\"dm\",\"seq\":42,\"result\":\"marked\"}\n");
+    n = write_inbox_marked(b, sizeof b, "chan", 7, inbox_mark_result(false));
+    CHECK(std::string(b, n) == "{\"ack\":\"mark_read\",\"kind\":\"chan\",\"seq\":7,\"result\":\"io_error\"}\n");
+    // ★ THE DECISION ITSELF, pinned where a battery can reach it (handle_mark_read's TU is §B115-invisible).
+    CHECK(std::string(inbox_mark_result(true))  == "marked");
+    CHECK(std::string(inbox_mark_result(false)) == "io_error");
 }
 
 TEST_CASE("write_err / write_log / write_ready / write_status") {

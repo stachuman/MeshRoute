@@ -615,10 +615,14 @@ void ui_open_inbox_detail(const mrui::InboxReq& rq, uint32_t now_ms) {
 // ★★ ⛔ THE ONE PLACE A RECORD IS DELETED, and the outcome is passed through VERBATIM. `Inbox::erase` distinguishes
 //    three states and the panel renders each differently; collapsing them to a bool is exactly what §3.5 forbids —
 //    `not_found` is neither a success nor a storage failure.
-// ⚠ [[B134]]: on `heltec_v3` the inbox is a volatile RAM ring, so `erased` means the tombstone was appended and the
-//   record is gone from every future `pull()` IN THIS RUNTIME. ⛔ It is not a claim about surviving a power cycle — and
-//   ⛔⛔ not because the record would return: a reboot takes it, its tombstone and the ENTIRE history together, so there
-//   is nothing cross-reboot to test on this board (spec §6.2's criterion is platform-qualified for exactly that).
+// ⛔ [[B134]] CLOSED 2026-08-28 — THE NOTE THAT STOOD HERE IS FALSE AND IS REPLACED, NOT SOFTENED. It read: *"on
+//   `heltec_v3` the inbox is a volatile RAM ring … a reboot takes it, its tombstone and the ENTIRE history together,
+//   so there is nothing cross-reboot to test on this board."* Every ESP32 target now mounts the durable
+//   `SegmentedInboxStore` over LittleFS records + NVS meta (`src/device_inbox_fs_esp32.h`), so spec §6.2's
+//   delete-survives-reboot criterion IS live on the panel's own board and its platform qualification is retired.
+// ⚠ WHAT THIS FUNCTION PROMISES IS UNCHANGED, and deliberately so: it passes the store's own three-way verdict
+//   through verbatim. A durable backend makes `erased` a stronger fact; it does not make this line entitled to
+//   assert one the store did not report.
 void ui_erase_inbox_record(const mrui::InboxReq& rq) {
     s_model.on_inbox_erased(rq.kind, rq.seq, g_node.inbox().erase(rq.kind, rq.seq));
 }
@@ -986,8 +990,8 @@ void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s)
 // ★★★ THE SLOT WAS RESERVED SO THE ARTWORK COULD LAND WITHOUT MOVING A PIXEL OF TEXT, AND IT HAS (S6, 2026-08-22).
 //     S3 drew a `draw_rect` placeholder; S6 replaced it with the native 24x24 monochrome XBM `icons::kMarkMeshRoute`
 //     (72 B of `.rodata`, RAM 0) at THESE FOUR NUMBERS, unchanged — no geometry and no text moved. ⛔ NO RUNTIME
-//     SCALING, ever. ⓘ The asset itself is INTERIM by owner ruling 2026-08-22; the final mark is a pure byte swap
-//     inside `firmware_ui_icons.h` and touches nothing in this file.
+//     SCALING, ever. ★ The final owner-supplied mark landed 2026-08-29 as the promised pure byte swap inside
+//     `firmware_ui_icons.h`; nothing in this file moved.
 // ★★ AND THE TEXT ORIGIN IS THE SLOT's CONSEQUENCE, not an independent number: rows 0-2 clear the mark at `x = 40`
 //    and therefore have 88 px = **14** columns, while rows 3-4 sit below it and keep the body's own 19 at `kBodyX`.
 //    ⛔ The two column budgets are `mrui::kStatusNarrowCols` / `kStatusWideCols` — declared beside the strings they
@@ -1329,8 +1333,8 @@ void draw_rail(const mrui::UiChrome& c) {
 //   row 4  x=12, <=19  `-89.123,-179.123`                              16   (`RESTART NEEDED` is 14)
 void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
     // §2.1's reserved slot, now carrying the ARTWORK (§UI-17 S6). ⛔ The four numbers are unchanged from S3's
-    // placeholder — that is the whole point of having reserved the slot — and the asset is INTERIM (owner ruling
-    // 2026-08-22): the final mark replaces `kMarkMeshRoute`'s 72 bytes and NOTHING here.
+    // placeholder — that is the whole point of having reserved the slot. The final 2026-08-29 mark replaced only
+    // `kMarkMeshRoute`'s 72 bytes; nothing here moved.
     mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);
     char l[kLineCap];
     mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);

@@ -137,35 +137,34 @@ TEST_CASE("chrome-icons: every glyph is 7 px high, and the four SETTINGS badge v
 //      glyphs above and for the same reason, with one addition that only this asset has: it is the FIRST 3-BYTE-
 //      STRIDE asset in the tree, so a decoder or an authoring pass that assumed the battery's stride of 2 — or the
 //      other fourteen assets' stride of 1 — produces a picture, not a compile error.
-// ★★ THE ART IS THE SPECIFICATION, and it is pinned in FULL rather than by sampled pixels: the asset is INTERIM
-//    (owner ruling 2026-08-22) and the final mark arrives as a byte swap, so this case is exactly the thing that
-//    tells whoever performs that swap what the bytes are supposed to draw. ⛔ Re-point it to the new picture; ⛔
-//    never relax it to "some ink somewhere", which every mirror, flip and bit-reversal would satisfy.
-TEST_CASE("chrome-icons: the 24x24 MeshRoute mark decodes to the INTERIM `MR` letterform, stride 3") {
+// ★★ THE ART IS THE SPECIFICATION, pinned in FULL rather than by sampled pixels. This is the owner-supplied final
+//    `logo_3.png` alpha silhouette; never relax it to "some ink somewhere", which every mirror, flip and
+//    bit-reversal would satisfy.
+TEST_CASE("chrome-icons: the 24x24 MeshRoute mark decodes to the final logo_3 artwork, stride 3") {
     static const char* kMarkArt[24] = {
         "........................",
         "........................",
-        "........................",
-        "##.......##..#########..",
-        "###.....###..##########.",
-        "####...####..##......##.",
-        "##.##.##.##..##......##.",
-        "##..###..##..##......##.",
-        "##...#...##..##......##.",
-        "##.......##..##......##.",
-        "##.......##..##########.",
-        "##.......##..#########..",
-        "##.......##..##..##.....",
-        "##.......##..##...##....",
-        "##.......##..##...##....",
-        "##.......##..##....##...",
-        "##.......##..##.....##..",
-        "##.......##..##......##.",
-        "##.......##..##.......##",
-        "##.......##..##.......##",
-        "##.......##..##.......##",
-        "........................",
-        "........................",
+        "...##...........######..",
+        "...###.........##....#..",
+        "...#.##.......##.....#..",
+        "...#..##.....##......#..",
+        "...#...##...##.......#..",
+        "...#....##.##........#..",
+        "...#.....###.........#..",
+        "...#......#..........#..",
+        "...#.................#..",
+        "...#........##########..",
+        "...#.........##.........",
+        "...#..........##........",
+        "...#...........##.......",
+        "...#............##......",
+        "...#.............##.....",
+        "...#..............##....",
+        "..###..............###..",
+        ".#...#............#...#.",
+        ".#...#............#...#.",
+        ".#...#............#...#.",
+        "..###..............###..",
         "........................",
     };
     char row[32];
@@ -180,11 +179,11 @@ TEST_CASE("chrome-icons: the 24x24 MeshRoute mark decodes to the INTERIM `MR` le
     CHECK(sizeof icons::kMarkMeshRoute == 72u);
     // NEGATIVE CONTROLS FOR THE DECODER ITSELF, on the two axes the letterform is asymmetric about — without these
     // the row comparison above could pass against a decoder that agreed with a mirrored asset.
-    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 3,  0) == true);   // the M's stem, top-left
-    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 3, 23) == false);  // …and the R's bowl stops short of it
-    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20, 23) == true);  // the R's leg foot, bottom-RIGHT
-    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20, 13) == true);  // …and the R's stem beside it
-    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20,  5) == false); // the M is hollow at the bottom
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 2,  2) == false);  // horizontal asymmetry, left
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 2, 21) == true);   // ...and its mirrored right point
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 6,  7) == true);   // vertical asymmetry, upper diagonal
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 17, 7) == false);  // ...and its vertically mirrored point
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 11, 12) == true);  // central horizontal stroke
     // …and the mark is not one of the 7-px glyphs by accident: it must differ from every one of them in its first
     // seven bytes, which is all a mistaken copy-paste of a strip asset would leave behind.
     CHECK(std::memcmp(icons::kMarkMeshRoute, icons::kIconStatus, icons::kIconH) != 0);

@@ -928,6 +928,31 @@ struct PreferencesSlot {
         if (e == ESP_OK) { nvs_close(h); return false; }   // it opened on the retry — the namespace exists
         return e == ESP_ERR_NVS_NOT_FOUND;
     }
+    // ★★ THE RAW, GENUINELY THREE-VALUED BLOB LOOKUP ([[B134]] QG round 4). ⛔ `isKey()` CANNOT SERVE THIS AND
+    //    THAT IS MEASURED, not suspected: it is `getType()`, which tries TEN typed `nvs_get_*` reads and falls
+    //    through to `PT_INVALID` for `ESP_ERR_NVS_NOT_FOUND` **and every other NVS error alike**
+    //    (`Preferences.cpp:302-350` in the pinned core) — so "this key was never written" and "this storage is
+    //    corrupt" arrive as ONE `false`, and the corrupt case then enters the fresh path.
+    //    `nvs_get_blob` reports them separately, and its documented set is the authority (`nvs.h:485-492`):
+    //      ESP_OK · ESP_FAIL ("internal error; most likely due to corrupted NVS partition") ·
+    //      ESP_ERR_NVS_NOT_FOUND · ESP_ERR_NVS_INVALID_HANDLE · ESP_ERR_NVS_INVALID_NAME · ..._INVALID_LENGTH.
+    // ⓘ A `nvs_open` failure is returned AS ITS OWN CODE, deliberately: `NOT_FOUND` from the open means the
+    //   namespace has never been written (nvs.h:31 says so explicitly for NVS_READONLY), which is the same real
+    //   absence as a missing key — while any other open error is a medium fault and must stay one.
+    // ⛔ READONLY, ALWAYS — the same rule as ns_absent above.
+    // Returns the raw `esp_err_t` as an int; `*got` is the byte count on ESP_OK, 0 otherwise. The CLASSIFICATION
+    // of that code is not made here — see `mrinboxfs::classify_blob_lookup`, which is host-reachable.
+    int get_blob_raw(const char* ns, const char* key, void* dst, size_t cap, size_t* got) {
+        if (got) *got = 0;
+        nvs_handle_t h = 0;
+        const esp_err_t e = nvs_open(ns, NVS_READONLY, &h);
+        if (e != ESP_OK) return static_cast<int>(e);
+        size_t len = cap;
+        const esp_err_t r = nvs_get_blob(h, key, dst, &len);
+        nvs_close(h);
+        if (got && r == ESP_OK) *got = len;
+        return static_cast<int>(r);
+    }
 };
 inline int read_slot(const Slot& s, void* dst, size_t len, SlotIo* io = nullptr) {
     PreferencesSlot nvs;
@@ -942,8 +967,13 @@ inline bool write_slot(const Slot& s, const void* src, size_t len) {
 }
 // `factory_reset confirm`: erase ALL persisted NV. Config + identity + peers all live as keys in the single
 // "mr" Preferences/NVS namespace -> clear() wipes them in one shot (NOT a full nvs_flash_erase, so other
-// partitions/OTA state are untouched). The inbox records backend is the [BENCH-TODO] stub here (disabled),
-// so there is no separate inbox store to wipe.
+// partitions/OTA state are untouched).
+// ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: the last sentence used to read *"the inbox records backend is the
+//    [BENCH-TODO] stub here (disabled), so there is no separate inbox store to wipe"*. ESP32 now has a DURABLE
+//    inbox. Nothing changes in this function and that is the point: the inbox META are two keys (`ibm_dm` /
+//    `ibm_ch`, src/device_inbox_fs_esp32.h) in this same "mr" namespace, so the one clear() below already takes
+//    them — while the inbox RECORDS live on the SEPARATE `spiffs` LittleFS partition and are taken by the
+//    stores' own wipe() in the command (firmware_commands.cpp), exactly as on nRF52.
 inline bool factory_erase() {
     Preferences p;
     if (!p.begin("mr", /*readOnly=*/false)) return false;

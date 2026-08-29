@@ -1243,11 +1243,14 @@ landed behind that header and was swallowed by it — physically stored and perm
 
 ### 11.4 — the board control, so 11.1 cannot pass on the wrong hardware
 
-On a **Heltec / ESP32** node: receive two DMs, `pull_inbox 0 0` (two lines), power-cycle, `pull_inbox 0 0`.
-**Expected: ZERO lines** and a **changed `epoch`** — the RAM ring is volatile by design.
-⛔ If the ESP32 node still shows its messages after a power cycle, then either the durable store is now wired on
-ESP32 (a real change — say so) or the node did not actually reset; **either way 11.1's result on any board is void
-until this control behaves.**
+⛔ **CORRECTED IN PLACE 2026-08-29 ([[B134]] closed): the expectation is INVERTED.** This step used to read:
+*"power-cycle, `pull_inbox 0 0` → ZERO lines and a changed `epoch` — the RAM ring is volatile by design; if the
+ESP32 node still shows its messages, either the durable store is now wired on ESP32 (a real change — say so) or the
+node did not reset."* **The durable store IS now wired on ESP32** — its own escape clause fired. Current control:
+on a **Heltec / ESP32** node, receive two DMs, `pull_inbox 0 0` (two lines), power-cycle, `pull_inbox 0 0` →
+**the SAME two lines with their original `seq`s and an UNCHANGED `epoch`**. ⛔ ZERO lines after a power cycle is now
+the FAILURE signature (mount failed — check `enabled=0`/`mount_fault=` in the boot banner). 11.1's nRF52 result
+still needs its own board; this control now pins that BOTH platforms are durable, not that they differ.
 
 ## Part 12 — §MH-S1 the mobile-attachment ADMISSION boundary (2026-08-07)
 
@@ -1900,10 +1903,16 @@ by the native suite (32 mutations, all RED), and the whole device half — the `
 beyond every automated gate: the real SSD1306's 21 columns, real wall-clock paging, and the fact that the ESP32 store
 is RAM.**
 
-### 19.1 — ★★ THE DELETE IS REAL *WITHIN THE RUNTIME*; ACROSS A REBOOT THERE IS NOTHING LEFT TO TEST ([[B134]])
+### 19.1 — ★★ THE DELETE IS REAL — AND SINCE [[B134]] IT SURVIVES THE REBOOT ON EVERY BOARD
 
-⛔ **This is the step that exists because the automated gates CANNOT reach it: the panel's store is a volatile RAM
-ring on `heltec_v3`, so the firmware's `erased` means "gone from every future pull IN THIS RUNTIME" and nothing more.**
+⛔⛔ **SUPERSEDED IN PLACE 2026-08-29 ([[B134]] closed): this step's title read "THE DELETE IS REAL *WITHIN THE
+RUNTIME*; ACROSS A REBOOT THERE IS NOTHING LEFT TO TEST", and the two ⛔ blocks below it correctly described the
+volatile `FixedInboxStore` era. That era is OVER — every ESP32 target now mounts the durable segmented store
+(LittleFS records + NVS meta), so the delete-survives-reboot criterion (spec §6.2) is live ON THIS BOARD and step 6
+tests it for real. The superseded blocks are KEPT below as the record of why the first draft got it backwards.**
+
+⛔ ~~This is the step that exists because the automated gates CANNOT reach it: the panel's store is a volatile RAM
+ring on `heltec_v3`, so the firmware's `erased` means "gone from every future pull IN THIS RUNTIME" and nothing more.~~
 
 ⛔⛔ **AND READ THE NEXT SENTENCE BEFORE STEP 6, BECAUSE THE FIRST DRAFT OF THIS PART GOT IT BACKWARDS AND WROTE A
 STEP THAT COULD ONLY PASS VACUOUSLY.** On ESP32 the backing store is `FixedInboxStore` — a RAM ring
@@ -1926,12 +1935,14 @@ instrument-that-cannot-fail class this arc has 23 recorded instances of — reac
 4. **Short press** → the marker moves to `delete`. **Double press** → the modal closes to the list.
 5. `pull_inbox`: that record — and **only** that record — is gone. ★ **If the DM and channel stores both held that
    `seq`, the other one MUST still be listed.** That is the one thing this step is really for.
-6. ⛔⛔ **DO NOT "verify the delete survived a reboot" HERE — there is nothing to survive.** What you may check, and
-   only as the [[B134]] product fact, is Part 11.4's control: power-cycle, `pull_inbox 0 0` → **ZERO lines and a CHANGED
-   `epoch`**, because the whole RAM ring went with the power. ⛔ If any message at all survives, the durable store has
-   been wired on ESP32 (a real change — say so) or the node did not reset, and **steps 1-5 are void until this
-   behaves**. ★ **The delete-survives-reboot criterion (spec §6.2) is owed by a DURABLE backend — nRF52 + QSPI — and
-   is UNTESTABLE on this board.** ⇒ record "n/a, volatile store" against it rather than a pass.
+6. ⛔ **REPLACED 2026-08-29 ([[B134]]) — the retired step 6 read "DO NOT verify the delete survived a reboot — there
+   is nothing to survive … record 'n/a, volatile store'"; that is now the OPPOSITE of correct.** After steps 1-5
+   deleted exactly one record: **power-cycle the board.** Expected at boot, exactly:
+   `  inbox     = LittleFS records + NVS meta (durable), epoch=<n>, enabled=1`
+   Then `pull_inbox 0 0`: the surviving records **still listed with their original `seq`s**, the deleted one
+   **absent**, and `epoch` **unchanged from before the power cut**. ⛔ A changed `epoch` on an ordinary reboot means
+   the §10.1 detect is misfiring; ⛔ zero lines means the mount failed (`enabled=0` — a real regression, not the old
+   expected volatility). ★ This is spec §6.2's delete-survives-reboot criterion, live on the panel's own board.
 
 ### 19.2 — the panel's own 21 columns, and the 2 s page turn on real time
 

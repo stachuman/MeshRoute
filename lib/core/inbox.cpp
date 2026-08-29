@@ -134,7 +134,16 @@ constexpr uint8_t kSeqPersistBatch = 8;   // persist next-seq every K appends (�
 void Inbox::on_init(InboxStore* dm, InboxStore* chan) {
     _dm = dm; _chan = chan;
     if (!enabled()) return;                                       // optional feature: no stores -> inert
-    if (!_dm->begin() || !_chan->begin()) {                       // a mount/format failure -> stay DISABLED, not half-broken
+    // ⛔⛔ BOTH MOUNTS RUN, UNCONDITIONALLY, AND THE `||` SHORT-CIRCUIT IS THE BUG THIS REPLACES ([[B134]] QG
+    //    round 3). `!_dm->begin() || !_chan->begin()` skipped the CHANNEL mount whenever the DM one failed, so
+    //    the channel store never even attempted to mount: its `mount_fault()` stayed `none` and two corrupted
+    //    keys reported `5/0` instead of `5/5`. The diagnostic then UNDER-STATES the damage — an operator reads
+    //    "the DM store is corrupt" and reflashes expecting to keep their channel history, which is not there.
+    // ⇒ evaluate both, THEN combine. The disable is unchanged and still all-or-nothing: a half-mounted inbox
+    //   would record into one store and silently drop the other.
+    const bool dm_ok = _dm->begin();
+    const bool ch_ok = _chan->begin();
+    if (!dm_ok || !ch_ok) {                                       // a mount/format failure -> stay DISABLED, not half-broken
         _dm = _chan = nullptr;                                    // enabled() stays false; the backend can log + retry
         return;
     }
@@ -238,10 +247,10 @@ InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq) {
     return appended ? InboxEraseResult::erased : InboxEraseResult::io_error;
 }
 
-void Inbox::mark_read(InboxKind kind, uint32_t seq) {
-    if (!enabled()) return;
+bool Inbox::mark_read(InboxKind kind, uint32_t seq) {
+    if (!enabled()) return false;                                 // an unwired inbox persisted nothing
     InboxStore* s = (kind == InboxKind::dm) ? _dm : _chan;
-    s->set_read_cursor(seq);
+    return s->set_read_cursor(seq);                               // ⛔ the verdict is RELAYED, never discarded
 }
 
 void Inbox::flush() {

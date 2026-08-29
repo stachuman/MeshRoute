@@ -340,7 +340,13 @@ size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, 
                            uint32_t team_id = 0);   // §S5: "team_id":"…" emitted only when non-zero (omit-when-0, same rule as the live channel_recv)
 size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count,
                            uint64_t now_ms);
-size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq);
+// ⛔ `result` ADDED 2026-08-29 ([[B134]] QG round 7), and it is `write_inbox_deleted`'s field reused verbatim
+// rather than a new lexeme: "marked" | "io_error", never a bool. `mark_read` used to ack unconditionally, so a
+// cursor that never reached the medium was reported to the companion as marked.
+size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq, const char* result);
+// ★ THE DECISION, hoisted so a battery can reach it: `handle_mark_read` lives in a TU neither the native suite
+//   nor the simulator compiles (§B115), so the bool -> lexeme mapping is pinned HERE, where it is host-testable.
+inline const char* inbox_mark_result(bool persisted) { return persisted ? "marked" : "io_error"; }
 // §3.5 durable single-record delete ack. `result` is the InboxEraseResult name — "erased" | "not_found" | "io_error"
 // — spelled by the CALLER (this file stays free of inbox.h). ★ THREE outcomes, never a boolean: the UI shows a
 // different thing for each, and `not_found` is neither a success nor a storage failure.

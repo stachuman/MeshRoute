@@ -65,8 +65,13 @@ void handle_mark_read(const char* args, Print& out) {
         if (n) out.write(eb, n); return;                  // fail loud on a bad kind
     }
     const uint32_t seq = strtoul(args, nullptr, 10);
-    g_node.inbox().mark_read(kind, seq);
-    char ab[64]; const size_t n = meshroute::console::write_inbox_marked(ab, sizeof ab, kstr, seq);
+    // ⛔ THE VERDICT IS RELAYED ([[B134]] QG round 7). This used to call `mark_read` and ack unconditionally, so a
+    //    cursor the store could not persist was reported to the companion as marked — and because the durable
+    //    cursor had not moved, the app's unread badge silently disagreed with the node across every reboot.
+    //    The result vocabulary is `del_msg`'s, reused: "marked" | "io_error", never a bool.
+    const bool persisted = g_node.inbox().mark_read(kind, seq);
+    char ab[80]; const size_t n = meshroute::console::write_inbox_marked(
+        ab, sizeof ab, kstr, seq, meshroute::console::inbox_mark_result(persisted));
     if (n) out.write(ab, n);
 }
 
