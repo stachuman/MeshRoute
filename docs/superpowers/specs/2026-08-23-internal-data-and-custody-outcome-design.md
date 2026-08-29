@@ -42,6 +42,10 @@ The following decisions are settled for this design.
 11. The previous-hop loop guard remains unchanged.
 12. Automatic reconstruction or retransmission of the discarded payload is outside this
     design, including the authoritative pubkey answer from the original B59 incident.
+13. The DATA/custody arc touches core code which predates the project's current quality
+    discipline. Before renumbering or changing behavior, a bounded characterization and
+    audit slice must map the live DATA paths and report every discovered defect or false
+    claim. Findings are not silently absorbed into a larger implementation slice.
 
 ## 1. Current state and problem
 
@@ -440,7 +444,7 @@ This is the targeted inbox-only operation. It does not replace `prep-restart` or
 
 ### 7.6 Inbox-store migration
 
-The semantic record version changes from 3 to 4 in every persistent inbox-store
+The semantic record version changes from 4 to 5 in every persistent inbox-store
 implementation. Although the serialized header layout is unchanged, old E2E-ACK records
 contain numeric type 3, which becomes `DATA_TYPE_SEALED_RELAY` after renumbering and must
 never be reinterpreted.
@@ -449,7 +453,7 @@ On version mismatch, preserve the existing upgrade discipline:
 
 - erase record segments;
 - retain `next_seq` so a sequence is never reused;
-- set version 4;
+- set version 5;
 - reset the read cursor;
 - increment the storage epoch; and
 - avoid a second epoch increment in empty-store detection.
@@ -887,6 +891,67 @@ ring or timer.
 
 The implementation plan must preserve attribution and C1. A suitable order is:
 
+### Slice A0 — existing DATA-path characterization and quality audit
+
+This is a bounded audit of the core surface this arc will change, not a general firmware
+review and not a cleanup bundle. Before changing any numeric DATA type or behavior:
+
+- derive an exhaustive matrix of every live DATA type and its producers, origination
+  paths, relay/unwrap paths, addressed consumers, persistence policy, generic and
+  type-specific outcomes, and active tests;
+- trace admission, queueing, routing, retries, hop custody, HAL refusal and terminal
+  cleanup far enough to identify which component owns each success or failure result;
+- locate raw numeric type comparisons, duplicated type lists, unknown-type fallthrough,
+  behavior asserted only by comments, and feature-gated paths missing from native or the
+  simulator;
+- add behavior-preserving characterization tests for load-bearing current behavior and
+  mutation-check them so a green instrument demonstrably distinguishes its claim;
+- record the current wire-sensitive corpus and board-gate baseline before Slice A changes
+  it; and
+- publish the matrix and findings in the design/ledger before implementation proceeds.
+
+Every finding receives one explicit disposition:
+
+1. **blocker** — reproduce it and fix it in its own reviewed slice before Slice A;
+2. **adjacent correctness defect** — register it with evidence, severity, dependency and
+   a concrete close-by rather than expanding the active slice;
+3. **quality or observability debt** — register the missing truth/control and the gate
+   which would close it;
+4. **false or stale active documentation** — correct it in the slice which establishes
+   the replacement truth; or
+5. **verified existing behavior** — retain it as characterization, with its authority
+   named, so a later review does not reopen it from intuition.
+
+C1 applies throughout: A0 may add tests, probes and documentation, but it does not change
+production behavior. A production defect discovered by A0 is either a blocker slice or a
+separately ordered register item.
+
+> **A0 dispatch operationalization (supervisor, 2026-08-29 — merged from the reviewed dispatch brief so this
+> spec is the one A0 document):**
+> - **Where the matrix lands:** a NEW coder-authored evidence file
+>   `docs/superpowers/evidence/2026-08-29-custody-a0-matrix.md` (the UI-16 N1-evidence precedent). The
+>   maintained docs (register, this spec, bench, BASELINE) stay supervisor-landed from drafted text in the
+>   coder's report.
+> - **Standing context the audit must absorb (V1 against the tree, not these notes):** the DATA flags byte and
+>   `q_opcode` are EXHAUSTED and `0x01` is aliased LIVE as `MS_ENCLOSED_TYPE` on the homed-mobile path — the
+>   matrix carries the flags/TYPE-byte interaction per type, with `data_frame_len`/`data_inner_cap`
+>   (`lib/core/frame_codec.h`, §B20/B21) as the one length authority; the §B159 physical-start
+>   deadline/`TxOutcomeKind::expired` machinery and the §B134/§B260 inbox chain are fresh seams the ownership
+>   trace crosses — their in-source ledgers are current authority.
+> - **Gate constants:** native baseline 2333/98448/0 + the characterization cases with the PIN derivation
+>   written (RUN the binary — the wrapper lies); new `a0*` targets in the isolated mutation harness
+>   (`tools/probe_ui_model_mutations.py`, scratch trees), each RED at match count exactly 1, the existing
+>   865+ anchors verified unbroken; an unmeasurable mutation is REMOVED and its absence documented, never
+>   kept as decoration.
+> - **C1 enforcement at the diff:** `git diff` shows ZERO production-source changes — tests/probes/evidence
+>   only; the sole exception is V1's fix-drifted-comments duty, line-count-neutral (§B254) and listed.
+>   Corpus: the 0-build-action proof + the s18 tripwire, keystone read from `simulation/BASELINE.md`. Boards:
+>   only the baseline-RECORDING run (the ruled pair via the certified runner) — ⚠ §B262: the `heltec_mobile`
+>   payload hash is same-path-only; record RAM/flash/objects/symbols across trees.
+> - **Coder prohibitions (standing):** no `git commit`/`add`/`checkout`, no maintained docs, no `tracker.md`,
+>   no `platformio.ini`, no parallel-session files, no pollers, never pipe the battery runner, no device
+>   contact. Metal residue: none expected (an audit) — state so or draft the exception.
+
 ### Slice A — namespace transition
 
 - add the range/trait authority and exact enum assignments;
@@ -894,7 +959,7 @@ The implementation plan must preserve attribution and C1. A suitable order is:
 - reserve `APP_MESSAGE = 0x05` without implementing app codes;
 - remove numeric literals and update active contracts;
 - leave `protocol::wire_version` unchanged and pin that owner ruling;
-- bump persistent inbox-store semantic version 3 → 4 and prove the wipe/epoch/high-water
+- bump persistent inbox-store semantic version 4 → 5 and prove the wipe/epoch/high-water
   transition; and
 - re-anchor wire-sensitive simulator baselines separately from B59 behavior.
 
@@ -967,6 +1032,26 @@ No slice adds automatic payload retry.
 
 ## 18. Required verification
 
+### 18.0 Characterization and audit gate
+
+1. The A0 matrix is source-derived and exhaustive against the allocated `DataType` set;
+   a count/sentinel or equivalent control fails if a new type is added without a row.
+2. Every row names its real producer, receiver/consumer, relay treatment, persistence
+   decision, outcome owner and executable coverage, including feature-gated absence.
+3. Searches for raw semantic literals and duplicate policy lists are controlled: a zero
+   result is accepted only when a mutation/reintroduced known instance makes the search
+   fail.
+4. Every new characterization test has at least one mutation or equivalent negative
+   control proving it can fail for the behavior it claims.
+5. A0 changes no production behavior. Any production diff is removed or dispatched as a
+   separately reviewed blocker slice.
+6. The current native, simulator/corpus, warning and ruled board baselines are recorded
+   with reproducible tool authority; pre-existing red or uncovered paths are reported,
+   never normalized.
+7. Each finding is written to the maintained bug register or explicitly classified as
+   verified behavior/document correction. No finding disappears into prose or a later
+   slice's untracked scope.
+
 ### 18.1 Namespace and migration
 
 1. Static assertions pin every new numeric value and all range boundaries.
@@ -977,7 +1062,7 @@ No slice adds automatic payload retry.
 5. Every live DATA type round-trips through `pack_data`/`parse_data` at its new value.
 6. `protocol::wire_version` remains exactly unchanged, with a control that fails if it is
    bumped during this transition.
-7. Persistent store version 3 → 4 wipes records, retains `next_seq`, resets read cursor,
+7. Persistent store version 4 → 5 wipes records, retains `next_seq`, resets read cursor,
    increments epoch once and does not double-increment on empty detection.
 8. An old stored type-3 E2E receipt cannot reappear as a sealed-relay/application record.
 9. Volatile inbox behavior remains boot/session scoped.
@@ -1071,9 +1156,24 @@ from B59. Board builds run sequentially per the current gate; warning census mus
 free of new warnings and `-Wswitch`. Any Node/member change requires `sizeof(Node)`,
 `sizeof(Push)` and per-board RAM evidence. `git diff --check` must be clean.
 
+Documentation is part of each slice's gate, not an end-of-arc cleanup. A slice cannot pass
+while an active statement about the behavior or bytes it changed remains stale:
+
+- `docs/frames.md` owns exact wire facts — numeric assignments, flags, byte layouts,
+  lengths and offsets;
+- `docs/protocol.md` owns lifecycle semantics — origination, forwarding, consumption,
+  persistence, failure and outcome behavior; and
+- this design and the bug register own rationale, findings, deferred scope and closure
+  evidence.
+
+Slice A must update the complete DATA-number table in `docs/frames.md` and the namespace,
+mixed-firmware/reflash ruling and migration behavior in `docs/protocol.md` in the same
+slice. Later slices update those documents only for the behavior or wire format they
+actually land. Historical fenced text may remain; an active false claim may not.
+
 ## 19. Documentation obligations
 
-When implementation lands:
+As each implementation slice lands:
 
 - update `docs/protocol.md` with internal DATA behavior and custody semantics;
 - keep `docs/frames.md` limited to the new numeric assignments and the 24-byte wire

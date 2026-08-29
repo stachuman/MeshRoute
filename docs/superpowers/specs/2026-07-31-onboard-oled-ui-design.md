@@ -1138,9 +1138,11 @@ entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation
 > RECORD.** Every ESP32 target now mounts the durable `meshroute::SegmentedInboxStore` (the host-tested lib/core
 > logic) over a LittleFS-records + NVS-meta seam (`src/device_inbox_fs_esp32.h`, the `default_8MB.csv` 1.5 MB
 > `spiffs` partition). Records, §3.5 tombstones, `next_seq` and the §10.1 epoch all survive a power cycle; the
-> per-boot random epoch is gone (`MRINBOX_DURABLE`). AS-BUILT: the durable backend is now TWO backends over ONE
-> contract — nRF52 keeps `DeviceInboxStore` (⚠ with its own defects now registered as [[B260]]), ESP32 reuses the
-> segmented logic through an injected FS seam; `wipe()`, read-cursor/`next_seq` rollback+latch, the three-state
+> per-boot random epoch is gone (`MRINBOX_DURABLE`). AS-BUILT (updated 2026-08-29 — [[B260]] retired the twin; this
+> line briefly read "nRF52 keeps `DeviceInboxStore` (⚠ with its own defects now registered as [[B260]])"): BOTH
+> platforms now run the ONE shared `SegmentedInboxStore` — ESP32 through the LittleFS/NVS seam, nRF52 through its
+> sibling seam `src/device_inbox_fs_nrf52.h` (QSPI/CustomLFS records + InternalFS meta), with the common decision
+> logic in `src/device_inbox_seam.h`; `wipe()`, read-cursor/`next_seq` rollback+latch, the three-state
 > `records_state` marker (meta v4) and the transition-driven epoch were added to that shared logic under [[B134]]'s
 > eight QG rounds. Cross-reboot behaviour is bench Parts 11.4 (inverted) + 19.1 step 6 + 19.5-19.14.
 > ⚠ ~~**[[B134]] — ⛔ DO NOT ACT ON THE NEXT SENTENCE WITHOUT THE SHARPENING DIRECTLY BELOW IT; read as-is it produced a

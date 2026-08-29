@@ -265,7 +265,19 @@ TARGET_SRC = {
     # ⚠ THREE targets and not one: the seam's own decisions, the two behaviours the REUSED `lib/core` ring logic
     #   had to gain to become a device store, and the platform-neutral delete contract this slice CLAIMS holds
     #   unchanged across the new backend. Kept separate from every other target on the same files.
-    "b134seam":     "src/device_inbox_fs_esp32.h",     # [[B134]] — the five seam decisions + the shared mount
+    # ⛔ RE-AIMED 2026-08-29 BY [[B260]], NOT REWRITTEN. `SegmentStoreOver` + D1..D6 moved VERBATIM out of
+    #   `src/device_inbox_fs_esp32.h` into `src/device_inbox_seam.h` when the nRF52 twin was retired onto the same
+    #   seam (two platforms, so the shared half stopped belonging to either file). The entries below are UNCHANGED;
+    #   only the file they are applied to moved with them — which is what keeps [[B134]]'s eight rounds MEASURED
+    #   across the move instead of re-asserted. `b134nvs` is the ESP32-only residue that stayed behind (D7).
+    "b134seam":     "src/device_inbox_seam.h",         # [[B134]] — the six shared seam decisions + the shared mount
+    "b134nvs":      "src/device_inbox_fs_esp32.h",     # [[B134]] — D7, the NVS blob lookup's esp_err_t classifier
+    # ★★ ADDED 2026-08-29 BY [[B260]] (retiring the hand-maintained nRF52 inbox twin). ONE new target, and only
+    #    one, because the retirement means the nRF52 path adds exactly TWO decisions of its own — the InternalFS
+    #    meta load's three-valued verdict (N1) and its checked commit (N2) — while every other property it now has
+    #    is the SHARED code `b134seam`/`b134store`/`b134inbox` already attack. ⓘ That is the measurement of the
+    #    slice: a platform that used to need its own copy of the ring now needs two classifiers.
+    "b260":         "src/device_inbox_fs_nrf52.h",     # [[B260]] — N1 the meta verdict, N2 the meta commit
     "b134store":    "lib/core/segmented_inbox_store.h",# [[B134]] — wipe() and the read-cursor wear coalescing
     "b134inbox":    "lib/core/inbox.cpp",              # [[B134]] — the tombstone contract, re-proved on the new backend
     # ⓘ ADDED 2026-08-29 (QG round 2): the RAM store gained a REAL `wipe()`, because inheriting the base's
@@ -398,7 +410,42 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2314, 98383     # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **[[B134]]** (the durable
+PIN_CASES, PIN_ASSERTS = 2333, 98448     # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **[[B260]]** (retiring the
+                                         # hand-maintained nRF52 inbox twin), ON TOP OF [[B134]]'s re-sync
+                                         # recorded below and WITHOUT disturbing it: **2314 / 98383 -> 2333 /
+                                         # 98448 = +19 cases / +65 assertions**, ⛔ with NO existing case edited
+                                         # and NO existing case removed — the slice DELETES a source file
+                                         # (`src/device_inbox_store.h`) that no host test ever compiled, so
+                                         # nothing it carried was being measured to begin with.
+                                         # DERIVED — all of it in the NEW `test/test_device_inbox_fs_nrf52.cpp`:
+                                         #   +9 / 24 for N1, the InternalFS meta load's THREE-VALUED verdict —
+                                         #     a backend refusal is never `absent` (and the ORDER that makes
+                                         #     that true), the one real absence, the exact-length `loaded`, the
+                                         #     ★ MIGRATION verdict (the retired twin's 24-byte v6 blob under
+                                         #     the shared 28-byte v4 Meta = `error`), the over-length prefix
+                                         #     hazard, a negative CTZ rc, and the SIX-arm composition with
+                                         #     `mrnv::fs_read_slot` that proves the [[B218]] branch order and
+                                         #     N1 compose (mount fail / metadata error / open fail / NOENT /
+                                         #     short / long).
+                                         #   +8 / 17 for N2, the checked meta COMMIT — a clean save, the
+                                         #     ★★ COMPLETE-write-whose-SYNC-FAILED fault that a void
+                                         #     `File::flush()`/`close()` cannot report, a short write, a write
+                                         #     that REPORTS n while committing less, a ★★★ STALE blob of the
+                                         #     RIGHT LENGTH (the one fault only `w == n` sees — this case exists
+                                         #     BECAUSE the battery said N10 measured nothing), an over-long
+                                         #     file, a failed close, a failed open, and the truncate proof.
+                                         #   +2 / 24 END-TO-END through the REAL `SegmentedInboxStore` over the
+                                         #     fake flash: the ★★★ DESTRUCTIVE MIGRATION (a node carrying the
+                                         #     twin's meta refuses to mount with `meta_corrupt`, and the store
+                                         #     is measured asking for exactly 28 bytes) and its RECOVERY (fresh
+                                         #     mount, baseline PERSISTED before begin() returns, high-water and
+                                         #     epoch surviving a power cut).
+                                         #   ⓘ Plus the two defect-⑤/① regressions driven through the nRF52
+                                         #     seam (an uncommittable meta REFUSES the append and then
+                                         #     recovers; `set_read_cursor` rolls back and stays repairable),
+                                         #     counted in the figures above.
+                                         # ---- the [[B134]] re-sync this one sits on top of ----
+                                         # PIN was 2314, 98383 — ★★ RE-SYNCED 2026-08-29 by **[[B134]]** (the durable
                                          # ⛔ THE PREVIOUS VALUE WAS **WRONG, NOT MERELY STALE**: it read
                                          #   `2307, 98306` while the clean tree measured `2307, 98308`. Two
                                          #   assertions were added (the wipe-an-already-empty-store control) AFTER
@@ -6240,15 +6287,42 @@ MUTS_B159MAP = [
   "            if (!_active->_pending_tx) return;"),
 ]
 
-# ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox). THREE targets because the slice's decisions
-#    genuinely live in three files and a battery is per-SOURCE-FILE: the SEAM's own five decisions
-#    (`src/device_inbox_fs_esp32.h` — the path, the mount policy, the append verdict, the segment read, the meta
-#    length), the two behaviours the REUSED ring logic had to gain to be a device store
-#    (`lib/core/segmented_inbox_store.h` — `wipe()` and the read-cursor coalescing), and the platform-neutral
-#    DELETE CONTRACT that must hold UNCHANGED across the new backend (`lib/core/inbox.cpp`).
+# ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox). Targets are per-SOURCE-FILE because a
+#    battery is: the SEAM's own decisions (the path, the mount policy, the append verdict, the segment read, the
+#    meta length — now `src/device_inbox_seam.h`, see the re-aim note in TARGET_SRC), the NVS classifier that
+#    stayed ESP32-only (`src/device_inbox_fs_esp32.h`), the two behaviours the REUSED ring logic had to gain to
+#    be a device store (`lib/core/segmented_inbox_store.h` — `wipe()` and the read-cursor coalescing), and the
+#    platform-neutral DELETE CONTRACT that must hold UNCHANGED across the new backend (`lib/core/inbox.cpp`).
 # ⚠ The third target re-attacks already-shipped [[B133]]/[[B135]] rulings ON PURPOSE: "the tombstone contract is
 #   backend-neutral" is a CLAIM of this slice, and a claim with no controlled mutation is the [[B217]] shape.
 #   Kept separate from any other target on the same file so it can be re-proved independently.
+# ★★ SPLIT OUT OF `MUTS_B134SEAM` 2026-08-29 BY [[B260]] — the entries are VERBATIM, only their FILE changed.
+#    D7 is the one [[B134]] decision that did NOT move to `device_inbox_seam.h`, because an `esp_err_t` is not a
+#    fact any other platform has. Its four arms stay aimed at `src/device_inbox_fs_esp32.h`, where they still are.
+MUTS_B134NVS = [
+ ("F21 ★★★ THE ROUND-4 BLOCKER VERBATIM: an NVS LOOKUP ERROR becomes `absent` — corrupt or unreadable metadata "
+  "enters the fresh path exactly as it did through `Preferences::isKey()`, which is `getType()` collapsing "
+  "NOT_FOUND and every other NVS error into one PT_INVALID",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
+ ("F22 ★★★ the ONE absence widens to 'anything that is not OK' — every medium fault is then a first boot, which "
+  "is the isKey() conflation restored one layer up",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;\n"
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
+  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
+ ("F23 ★★ the OTHER direction: NOT_FOUND is classified as an error, so a genuinely first-boot node (nvs.h:31 — a "
+  "READONLY open of a never-written namespace answers NOT_FOUND) refuses to mount its inbox for ever",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;",
+  "    if (err == kNvsNotFound) return meshroute::MetaLoad::error;"),
+ ("F24 ★★ a PRESENT key of the wrong length is called `loaded` — a half-populated Meta then reaches the ring "
+  "arithmetic whose seg_count divides and whose head_seg bounds the walk",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    return meshroute::MetaLoad::loaded;"),
+ ("F25 ★★ ...or `absent`, which is the same wrong-length blob taken as a reason to start over",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::absent;"),
+]
+
 MUTS_B134SEAM = [
  ("F01 ★★★ the torn-write guard drops its COMMIT term — 'w == n is surely enough'. It is not: `File::write` is "
   "fwrite into a 4 KiB stdio buffer and `File::close` returns void, so w==n is a verdict about RAM",
@@ -6287,28 +6361,6 @@ MUTS_B134SEAM = [
  #   Two were written, both came back "the suite still passes", and both were REMOVED rather than kept as decoration:
  #   that body is ESP32-only. What IS host-reachable — and what F16 below attacks — is the seam's FORWARD of the
  #   inspection verdict, which is where a swallowed `*ok` would actually reach `begin()`.
- # ★★★ THE QG ROUND-4 ENTRIES — D7, the last classifier that could route corrupt storage onto the fresh path.
- ("F21 ★★★ THE ROUND-4 BLOCKER VERBATIM: an NVS LOOKUP ERROR becomes `absent` — corrupt or unreadable metadata "
-  "enters the fresh path exactly as it did through `Preferences::isKey()`, which is `getType()` collapsing "
-  "NOT_FOUND and every other NVS error into one PT_INVALID",
-  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
-  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
- ("F22 ★★★ the ONE absence widens to 'anything that is not OK' — every medium fault is then a first boot, which "
-  "is the isKey() conflation restored one layer up",
-  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;\n"
-  "    if (err != kNvsOk)       return meshroute::MetaLoad::error;",
-  "    if (err != kNvsOk)       return meshroute::MetaLoad::absent;"),
- ("F23 ★★ the OTHER direction: NOT_FOUND is classified as an error, so a genuinely first-boot node (nvs.h:31 — a "
-  "READONLY open of a never-written namespace answers NOT_FOUND) refuses to mount its inbox for ever",
-  "    if (err == kNvsNotFound) return meshroute::MetaLoad::absent;",
-  "    if (err == kNvsNotFound) return meshroute::MetaLoad::error;"),
- ("F24 ★★ a PRESENT key of the wrong length is called `loaded` — a half-populated Meta then reaches the ring "
-  "arithmetic whose seg_count divides and whose head_seg bounds the walk",
-  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
-  "    return meshroute::MetaLoad::loaded;"),
- ("F25 ★★ ...or `absent`, which is the same wrong-length blob taken as a reason to start over",
-  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
-  "    return meta_len_ok(got, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::absent;"),
  ("F18 ★★★ QG ROUND 3: an ITERATION ERROR is read as a clean END OF DIRECTORY — a walk that died partway then "
   "reports 'this store holds no records' over a live history",
   "        if (!w.next(&have, &size)) { err = true; break; }           // ⛔ an ERROR is never a clean end",
@@ -6368,6 +6420,99 @@ MUTS_B134SEAM = [
   "    size_t p = 0;",
   "    if (!out) return;\n"
   "    size_t p = 0;"),
+]
+
+# ★★ ADDED 2026-08-29 BY [[B260]] (retiring the hand-maintained nRF52 inbox twin). ⓘ THE SIZE OF THIS LIST IS
+#    ITSELF THE SLICE'S MEASUREMENT: the retired `src/device_inbox_store.h` held a whole second ring — begin,
+#    append, read_since, the eviction, the §10.1 detect — every line of which would have needed its own entries
+#    here. After the retirement the nRF52 path decides exactly TWO things of its own, and everything else it now
+#    does is attacked by `b134seam` / `b134store` / `b134inbox` on the SHARED code it runs.
+# ⛔ THERE ARE NO ENTRIES INSIDE `QspiIo`, `QspiDirWalk` OR `InternalFsWriteIo`, AND THE ABSENCE IS DELIBERATE +
+#    STATED (the `LfsIo` precedent). Those bodies sit inside `#if defined(ARDUINO) && nRF52 && QSPIFLASH`, so no
+#    host gate compiles them; a mutation there comes back "the suite still passes", which is an instrument
+#    reporting on code it never ran. What IS attacked is the DECISIONS they feed — N1's classification and N2's
+#    verdict — both host-reachable and both reddening. That the adapters really call `lfs_file_sync` /
+#    `lfs_dir_read` / `lfs_remove` on real QSPI is M2 bench residue, not a battery claim.
+MUTS_B260 = [
+ # ---- N1: the InternalFS meta load's three-valued verdict ----
+ ("N01 \u2605\u2605\u2605 THE ROW'S \u2462 VERBATIM, ONE LAYER DOWN: a BACKEND REFUSAL becomes `absent` \u2014 a mount that failed, "
+  "a metadata error or an open that failed on a file that EXISTS all enter begin()'s fresh path, which "
+  "re-initialises over a live QSPI history: head/tail to 0/0 hides every other segment while it is physically "
+  "present, and next_seq to 1 reuses sequences the companion has already filed",
+  "    if (io.backend_failed) return meshroute::MetaLoad::error;    // \u26d4 FIRST: a refusal is never an absence",
+  "    if (io.backend_failed) return meshroute::MetaLoad::absent;"),
+ ("N02 \u2605\u2605\u2605 the refusal check is DROPPED ENTIRELY \u2014 `fs_read_slot` answers kSlotAbsent for a failed mount AND "
+  "for a first boot alike, so removing this line is exactly the [[B218]] conflation restored",
+  "    if (io.backend_failed) return meshroute::MetaLoad::error;    // \u26d4 FIRST: a refusal is never an absence\n"
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::absent;",
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::absent;"),
+ ("N03 \u2605\u2605 the ORDER is inverted \u2014 the absent sentinel is tested BEFORE the refusal, so every backend failure "
+  "is still read as a fresh device even though the check is right there",
+  "    if (io.backend_failed) return meshroute::MetaLoad::error;    // \u26d4 FIRST: a refusal is never an absence\n"
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::absent;",
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::absent;\n"
+  "    if (io.backend_failed) return meshroute::MetaLoad::error;"),
+ ("N04 \u2605\u2605 an OVER-LENGTH meta file is accepted \u2014 the read takes a valid PREFIX of a longer blob and "
+  "presents it as the whole record, which the length alone can never show",
+  "    if (io.oversize) return meshroute::MetaLoad::error;          // a valid PREFIX is not a valid record",
+  "    (void)io;"),
+ ("N05 \u2605\u2605\u2605 THE MIGRATION HOLE: a WRONG-LENGTH read is called `loaded` \u2014 the retired twin's 24-byte v6 blob "
+  "is then interpreted as the shared store's 28-byte v4 Meta, so `records_state` and four bytes of `epoch` are "
+  "whatever the stack left behind, and the store mounts on them",
+  "    return mrinboxfs::meta_len_ok(n, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    (void)want; return meshroute::MetaLoad::loaded;"),
+ ("N06 \u2605\u2605\u2605 ...or `absent`, which is the same stale blob taken as a REASON TO START OVER \u2014 the silent "
+  "re-initialise the whole three-valued load exists to prevent, arriving through the migration door",
+  "    return mrinboxfs::meta_len_ok(n, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::error;",
+  "    return mrinboxfs::meta_len_ok(n, want) ? meshroute::MetaLoad::loaded : meshroute::MetaLoad::absent;"),
+ ("N07 \u2605\u2605 a genuine first boot is called an ERROR \u2014 the other direction, and it is not harmless: a "
+  "freshly-flashed node would refuse to mount its inbox for ever",
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::absent;",
+  "    if (n == mrnv::kSlotAbsent) return meshroute::MetaLoad::error;"),
+ # ---- N2: the checked meta commit ----
+ ("N08 \u2605\u2605\u2605 THE ROW'S \u2460 AT ITS SOURCE: the SYNC RESULT is dropped from the meta save's verdict \u2014 a complete "
+  "write whose commit failed then reports success, so every `save_meta()` the shared store CHECKS becomes a "
+  "checked lie, and a rotation acknowledges a record the next boot cannot reach",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    return w == static_cast<size_t>(n) && after == n && closed;"),
+ ("N09 \u2605\u2605\u2605 the meta save always succeeds \u2014 the twin's behaviour restored wholesale; the store's checks all "
+  "pass and nothing is ever actually persisted-and-verified",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    (void)w; (void)synced; (void)after; (void)closed; return true;"),
+ ("N10 \u2605\u2605 the guard accepts ANY progress (`w > 0`) \u2014 a partially written 28-byte Meta is a half-populated "
+  "struct whose seg_count divides and whose head_seg bounds a ring walk on the next boot",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    return w > 0 && synced && after == n && closed;"),
+ ("N11 \u2605\u2605 the MEDIUM-SIDE length term is dropped \u2014 a write that RETURNS n while committing less then "
+  "reports a durable save, which is the fault a return value alone can never see",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    return w == static_cast<size_t>(n) && synced && closed;"),
+ ("N12 \u2605\u2605 the length term is loosened to `>=` \u2014 an overwrite that APPENDED instead of truncating passes, and "
+  "the next boot reads a valid PREFIX of a stale blob as the live metadata (N1's `oversize` arm, one boot later)",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    return w == static_cast<size_t>(n) && synced && after >= n && closed;"),
+ ("N13 \u2605 the CLOSE result is dropped \u2014 the close still flushes and can still fail on what the sync did not "
+  "cover, and a leaked failure there is the same lost write one call later",
+  "    return w == static_cast<size_t>(n) && synced && after == n && closed;",
+  "    return w == static_cast<size_t>(n) && synced && after == n;"),
+ ("N14 \u2605\u2605 the commit is skipped and the length re-read anyway \u2014 the growth term then measures the same "
+  "unsynced state it measured before, so the guard is still there and still proves nothing",
+  "    const bool     synced = fs.sync();\n"
+  "    const uint32_t after  = fs.size();     // re-stat: the COMMITTED length, not the in-RAM one",
+  "    const bool     synced = true;\n"
+  "    const uint32_t after  = fs.size();"),
+ # ---- MetaStoreOver: the composition itself ----
+ ("N15 \u2605\u2605\u2605 the meta store SWALLOWS the backend's verdict \u2014 `SlotIo` is collected and then classified as if "
+  "it were clean, so the four facts `fs_read_slot` separates are conflated again at the one seam that consumes "
+  "them (the [[B221]] shape: a shim signature that erases the distinction)",
+  "        const int n = mrnv::fs_read_slot(fs, _path, blob, len, &io);\n"
+  "        return classify_meta_read(n, io, len);",
+  "        const int n = mrnv::fs_read_slot(fs, _path, blob, len, &io);\n"
+  "        return classify_meta_read(n, mrnv::SlotIo{}, len);"),
+ ("N16 \u2605\u2605 the meta store stops asking for the backend facts at all (`io = nullptr`), which is the pre-[[B218]] "
+  "call shape \u2014 no lookup, no size question, and a metadata error indistinguishable from a fresh device",
+  "        const int n = mrnv::fs_read_slot(fs, _path, blob, len, &io);",
+  "        const int n = mrnv::fs_read_slot(fs, _path, blob, len, nullptr);"),
 ]
 
 MUTS_B134STORE = [
@@ -6630,7 +6775,8 @@ MUTS_B134INBOX = [
   "    return true;"),
 ]
 
-MUTS_BY_TARGET = {"b134seam": MUTS_B134SEAM, "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
+MUTS_BY_TARGET = {"b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
+                  "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,
                   "b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,
                   "teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,

@@ -10,8 +10,10 @@
 // ★★ THE CLASS UNDER TEST IS THE SHIPPED ONE. `SegmentStoreOver<IoT>` is a template precisely so this file can
 //    substitute a fake IO for `LfsIo` and still exercise the production `ISegmentStore` — not a host lookalike
 //    that agrees with it only while somebody keeps them agreeing (the twin trap `src/device_inbox_store.h`
-//    records about itself). Only `LfsIo` — nine one-line forwards to `LittleFS`/`Preferences` — stays
-//    bench-only, which is where the reality split belongs.
+//    recorded about itself before [[B260]] DELETED it). Only `LfsIo` — nine one-line forwards to
+//    `LittleFS`/`Preferences` — stays bench-only, which is where the reality split belongs.
+// ⓘ [[B260]] 2026-08-29: D1..D6, `MountOnce` and `SegmentStoreOver` moved VERBATIM to `device_inbox_seam.h`
+//   (shared with the nRF52 sibling seam) and are pinned from here unchanged; D7 below stayed ESP32-only.
 // NB: test_airtime.cpp provides main(); -fno-exceptions => CHECK only.
 #include "doctest.h"
 

@@ -22,8 +22,8 @@
 //                neither. next_seq is preserved from meta -> seq never reuses; the companion sees the bumped
 //                epoch and re-syncs from 0 (INBOX_SYNC_CONTRACT.md).
 //
-// This supersedes the Arduino-gated logic in src/device_inbox_store.h: that same begin/append/read_since,
-// extracted so it runs on the host. The device QSPI/InternalFS backends (the two interfaces) are the thin HAL.
+// This SUPERSEDED the Arduino-gated logic in `src/device_inbox_store.h` — that same begin/append/read_since,
+// extracted so it runs on the host. ⛔ [[B260]] 2026-08-29 DELETED that file; nRF52 now runs THIS class.
 //
 // ★★★ MISSING/INVALID METADATA OVER EXISTING RECORDS = FAIL LOUD, NOT RECONSTRUCTION — the ruled choice
 //     ([[B134]] QG round 2), recorded here because the alternative is the obvious one and somebody will propose it.
@@ -137,8 +137,8 @@ public:
         return false;
     }
     uint32_t read_cursor() const override { return _meta.read_cursor; }
-    // ★ CHANGE-DETECT (InternalFS self-heal Part 3, and the twin at src/device_inbox_store.h:75 has always had
-    // it): a `mark_read` to the SAME cursor must not rewrite the meta store. An app/companion fires mark_read at
+    // ★ CHANGE-DETECT (InternalFS self-heal Part 3, which the nRF52 twin — DELETED by [[B260]] — always had
+    // too): a `mark_read` to the SAME cursor must not rewrite the meta store. An app/companion fires mark_read at
     // its OWN cadence during a pull session, so a no-op rewrite is pure write churn — flash wear plus a widened
     // reset-during-write window, on a tree this project has already been BRICKED by once. A REAL advance still
     // persists immediately (it is user/app-commanded). ⓘ Added 2026-08-28 with [[B134]] because this is now a
@@ -171,9 +171,9 @@ public:
     // `InboxStore::wipe()` is a no-op, which was CORRECT while this logic had no device instance (a RAM store is
     // cleared by the reboot that follows) and is WRONG the moment ESP32 mounts it on real flash — `factory_reset
     // confirm` and `prep-restart` would both have left the whole history on the medium.
-    // ⛔ AND IT RESETS THE BOOKKEEPING, WHICH ITS nRF52 TWIN DOES NOT (src/device_inbox_store.h:80 erases the
-    // segments and clears the seal only). That twin gets away with it because BOTH callers reboot immediately —
-    // which is an unstated dependency on the caller, not a property of the store (C2). Here the ring head/tail,
+    // ⛔ AND IT RESETS THE BOOKKEEPING, WHICH THE RETIRED nRF52 TWIN DID NOT (it erased the segments and cleared
+    // the seal only). That twin got away with it because BOTH callers rebooted immediately — an unstated
+    // dependency on the caller, not a property of the store (C2). ⓘ [[B260]] deleted it. Here the ring head/tail,
     // the live-byte total and the seal are all put back to the empty state they now describe, so a wiped store is
     // immediately usable. ⛔ CORRECTED 2026-08-29 ([[B134]] QG round 7): this used to end *"and the NEXT boot's
     // §10.1 detect (records empty + next_seq > 1) bumps the epoch exactly once"*. That is the RETIRED ratchet —
@@ -271,7 +271,7 @@ private:
     // A torn /mri_* meta with seg_count==0 hard-faults the `% seg_count` below (DBZ), and head_seg>=seg_count makes
     // the `i == head_seg` ring walk never terminate (infinite boot loop). Reject those -> begin() re-inits fresh meta.
     // MAGIC + STRUCTURE only (NOT version): begin() needs the prior _meta (incl. version) to detect a record-format
-    // UPGRADE and wipe+re-epoch the records while preserving next_seq (§S5, mirrors src/device_inbox_store.h). The
+    // UPGRADE and wipe+re-epoch the records while preserving next_seq (§S5; the retired nRF52 twin mirrored it). The
     // structural checks stay — a torn meta (seg_count==0 / head|tail out of range) must still be rejected as fresh.
     // ⛔ THREE-VALUED since [[B134]] QG round 3. A structurally impossible record is `error`, NOT `absent`: the
     //    blob WAS there, so something wrote or corrupted it, and "start over" is never the right reading of that.
@@ -317,7 +317,7 @@ private:
     inline static uint8_t s_scratch[kScratchBytes];
 };
 
-// ---- the segmented-log logic (ported verbatim from device_inbox_store.h; the seams are now the interfaces) ----
+// ---- the segmented-log logic (ported verbatim from the retired twin; the seams are now the interfaces) -------
 inline bool SegmentedInboxStore::begin() {
     // A segment can't exceed the read scratch (read_since loads a whole segment into it). Fail LOUD rather than
     // silently truncate reads — the inbox stays disabled, visible at boot, instead of dropping records past 4 KB.
@@ -380,7 +380,7 @@ inline bool SegmentedInboxStore::begin() {
         //   VALID record, so next_seq/epoch are trustworthy and are carried across the wipe. Nothing is guessed.
         for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) { _fault = SegMountFault::records_unmountable; return false; }
         _meta.version   = kVersion;                            //  KEEP next_seq (survives on the meta store) so seq never reuses, and BUMP
-        _meta.epoch    += 1;                                   //  the epoch so the companion sees the wipe + re-pulls cleanly (mirrors device_inbox_store.h).
+        _meta.epoch    += 1;                                   //  the epoch so the companion sees the wipe + re-pulls cleanly (the retired twin mirrored it).
         _meta.head_seg  = _meta.tail_seg = 0;
         _meta.seg_count = ring_segs();
         _meta.read_cursor = 0;

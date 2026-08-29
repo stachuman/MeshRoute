@@ -4,7 +4,7 @@
 // The INBOX / companion-sync cluster extracted from fw_main.cpp (cleanup 2026-07-14, codebase-review triage
 // "split firmware by responsibility"). The `pull_inbox`/`mark_read` verbs stream the persistent inbox as NDJSON to
 // a transport sink (USB mrcon OR a BLE LineSink) — one handler serves both consoles. Unblocked by the
-// device_inbox_store.h inline fix (fw_context.h now includes that header safely across TUs).
+// inline device inbox-store headers ([[B260]]: `device_inbox_fs_{nrf52,esp32}.h`; the old twin is DELETED).
 //
 // The shared NDJSON scratch (s_inbox_jb) and the BLE LineSink callback (ble_sink) are NOT inbox-private — they are
 // used by routes/status/cfg/live-push too, so they stay in fw_main/fw_context. This cluster is just the inbox verbs

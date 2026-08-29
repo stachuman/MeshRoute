@@ -4,9 +4,9 @@
 // A heap-free, fixed-capacity InboxStore — a VOLATILE RAM ring of `Slots` fixed-size record slots with
 // drop-oldest eviction at capacity.
 // ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: this used to call itself *"the INTERIM on-device inbox … until the
-//    durable QSPI/LittleFS records backend (src/device_inbox_store.h, Phase 2) is bench-wired"*. Both durable
-//    backends are now wired — nRF52/QSPI (`src/device_inbox_store.h`) and ESP32/LittleFS
-//    (`src/device_inbox_fs_esp32.h` over `segmented_inbox_store.h`) — so NO board environment in this tree
+//    durable QSPI/LittleFS records backend (`src/device_inbox_store.h`, Phase 2) is bench-wired"*. Both durable
+//    backends are now wired, and since [[B260]] BOTH are `segmented_inbox_store.h` behind a platform seam —
+//    nRF52/QSPI (`src/device_inbox_fs_nrf52.h`) and ESP32/LittleFS (`src/device_inbox_fs_esp32.h`) — so no env
 //    selects this store any more. It remains the arm-3 fallback for a board with NEITHER backend, and it is
 //    still exercised natively (test/test_fixed_inbox_store.cpp). The test RamInboxStore (test/) uses
 // std::deque/std::vector; this one honours the InboxStore "no heap / no exceptions" contract so it runs on

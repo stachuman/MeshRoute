@@ -10390,7 +10390,7 @@ Step 0.1 is *"`git mv` only — no content edits"*. Measured against the tree, *
 | `src/device_nv.h` | 528 | nRF52 LittleFS `:353` · ESP32 NVS `:430` · **no-backend/host `:462`** | included by **6 files incl. the native `test/test_device_nv.cpp`**; its header comment records that the policy was hoisted **above** `#if defined(ARDUINO)` (the NV1 cleanup) *so a host test could reach it* |
 | `src/device_rng.h` | 85 | nRF52 · ESP32 · else | included by 5 files |
 | `src/device_ble.h` | 205 | nRF52 impl + **inert stubs** for ESP32/native | the stub arm is the documented pattern (`CODE_GUIDELINES` "inert stubs so callers stay stable") |
-| `src/device_inbox_store.h` | 366 | nRF52+QSPI · else | |
+| ~~`src/device_inbox_store.h`~~ | ~~366~~ | ~~nRF52+QSPI · else~~ | **DELETED 2026-08-29 ([[B260]]): the hand-maintained twin retired — nRF52 now runs the shared `SegmentedInboxStore` via `src/device_inbox_fs_nrf52.h` + `src/device_inbox_seam.h`** |
 | ★★ `src/device_fault.h` | 254 | nRF52 `:29` · ESP32 `:183` — **and it DEFINES `MRFAULT_HW`/`MRFAULT_ESP32`** | **single-TU** (only `fw_main.cpp` includes it) and `fw_main.cpp` has **6** `MRFAULT_*`-guarded sites. Moving any of them into a `platform/*` TU **green-compiles the `#else`** — the silent regression `CODE_GUIDELINES` already names |
 | `src/fw_main.cpp` | 1422 | ~29 arch sites | interleaved *inside* functions (`fw_reboot`, `do_ota`): extraction, not relocation |
 | `lib/hal/device_radio.h` | 340 | 1 nRF52 site, nested in `MR_RADIO_CANARY` | and it is sim-compiled ⇒ any move is s18-live |

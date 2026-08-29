@@ -3,7 +3,8 @@
 //
 // Native tests for the DURABLE inbox store LOGIC (lib/core/segmented_inbox_store.h) against the RAM fakes
 // (test/fake_inbox_storage.h). This is the FIRST host verification of the segmented-log / framing / restore /
-// §10.1 wipe-detect logic (it lived Arduino-gated in src/device_inbox_store.h and never ran on the host).
+// §10.1 wipe-detect logic (it lived Arduino-gated in src/device_inbox_store.h and never ran on the host —
+// ⛔ [[B260]] 2026-08-29 DELETED that twin, so this logic is now the ONLY copy, on every durable platform).
 // Covers: append + read_since (oldest-first + since-filter), reboot-restore (§6), drop-oldest eviction,
 // the §10.1 records-wipe epoch bump, a full wipe, segment rolls, and torn-record crash-safety (§14).
 // The store is an OPAQUE seq'd byte log (Inbox owns the 24-B record format) — so the test payloads are plain
@@ -395,9 +396,10 @@ TEST_CASE("SegmentedInboxStore: [[B134]] wipe() drops every record AND resets th
     // ⛔ The base `InboxStore::wipe()` is a no-op, which was right while this logic had no device instance (a RAM
     //    store is cleared by the reboot that follows) and is WRONG the moment ESP32 mounts it on real flash:
     //    `factory_reset confirm` and `prep-restart` both call wipe() and would otherwise have left the entire
-    //    history on the medium. ⚠ Its nRF52 twin (src/device_inbox_store.h:80) erases the segments and clears the
-    //    seal only, getting away with the stale head/tail/_total because BOTH callers reboot immediately — an
-    //    unstated dependency on the caller (C2), which is why this one puts the bookkeeping back too.
+    //    history on the medium. ⚠ The RETIRED nRF52 twin erased the segments and cleared the seal only, getting
+    //    away with the stale head/tail/_total because BOTH callers reboot immediately — an unstated dependency
+    //    on the caller (C2), which is why this one puts the bookkeeping back too. ⓘ [[B260]] deleted that twin,
+    //    so this case now covers nRF52 as well as ESP32.
     FakeSegmentStore recs; FakeMetaStore meta;
     SegmentedInboxStore s(recs, meta, /*cap*/4096, /*seg*/32);
     CHECK(s.begin());
@@ -439,7 +441,7 @@ TEST_CASE("SegmentedInboxStore: [[B134]] wipe() drops every record AND resets th
 }
 
 TEST_CASE("SegmentedInboxStore: [[B134]] set_read_cursor to the SAME value writes NOTHING (wear), a real advance persists") {
-    // InternalFS self-heal Part 3, and the twin at src/device_inbox_store.h has always had it: a companion fires
+    // InternalFS self-heal Part 3, which the RETIRED nRF52 twin always had too ([[B260]]): a companion fires
     // mark_read at its own cadence during a pull session, so a no-op rewrite is pure flash wear plus a widened
     // reset-during-write window — on a tree that has already been bricked by NV corruption once.
     FakeSegmentStore recs; FakeMetaStore meta;

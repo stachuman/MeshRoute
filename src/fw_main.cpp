@@ -29,7 +29,7 @@
 #include "command.h"
 #include "console_parse.h"
 #include "device_nv.h"
-#include "device_inbox_store.h"
+#include "device_inbox_fs_nrf52.h"   // [[B260]] the nRF52 QSPI/InternalFS seam (=> MRINBOX_QSPI_READY)
 #include "device_inbox_fs_esp32.h"   // [[B134]] the ESP32 LittleFS/NVS seam (=> MRINBOX_ESP32_LITTLEFS)
 #include "segmented_inbox_store.h"   // the REUSED durable ring logic the ESP32 seam hosts
 #include "fixed_inbox_store.h"   // the VOLATILE RAM inbox — now only for a board with NEITHER durable backend
@@ -178,17 +178,22 @@ meshroute::Sx1262Radio  g_iradio(g_radio, meshroute::board_rf_instance());
 meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
 // Inbox stores — the THREE arms fw_context.h declares (see the guard block there; MRINBOX_DURABLE is derived
-// from the first two). On nRF52 (QSPIFLASH=1 -> MRINBOX_QSPI_READY) the durable QSPI/LittleFS DeviceInboxStore
-// records backend IS the live inbox. ★ [[B134]] 2026-08-28: ESP32 is now durable TOO — the SAME segmented ring
-// logic (lib/core/segmented_inbox_store.h, host-tested) over the LittleFS records / NVS meta seam in
-// src/device_inbox_fs_esp32.h. On EITHER durable board a failed begin() leaves the inbox DISABLED, not degraded
-// to RAM (fail loud, C2). The volatile FixedInboxStore ring remains only for a board with neither backend.
-// ⛔ The two ESP32 stores are constructed with the SAME segment size as nRF52 (protocol::inbox_segment_bytes ==
-//    the store's own read scratch — begin() refuses anything larger rather than truncate reads).
+// from the first two). ★★ [[B260]] 2026-08-29: BOTH durable arms now construct the SAME
+// `meshroute::SegmentedInboxStore` (lib/core, host-tested) and differ ONLY in the two backends they inject —
+// nRF52 the external-QSPI records + on-chip InternalFS meta (src/device_inbox_fs_nrf52.h), ESP32 the LittleFS
+// records + NVS meta (src/device_inbox_fs_esp32.h). The nRF52 arm used to construct `mrinbox::DeviceInboxStore`,
+// a hand-maintained twin of that ring logic which had drifted into five durable-ack defects; it is DELETED.
+// On EITHER durable board a failed begin() leaves the inbox DISABLED, not degraded to RAM (fail loud, C2). The
+// volatile FixedInboxStore ring remains only for a board with neither backend.
+// ⛔ Both durable arms pass the SAME segment size (protocol::inbox_segment_bytes == the store's own read
+//    scratch — begin() refuses anything larger rather than truncate reads).
 // MR_RAM_INBOX_SLOTS + the guards live in fw_context.h (so the extern decls match); definitions below.
 #if defined(MRINBOX_QSPI_READY)
-mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
-mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
+mrinboxfs::MountOnce           g_inbox_mount;          // ONE QSPI mount shared by both record stores
+mrinboxnrf::Nrf52SegmentStore  g_inbox_dm_recs(g_inbox_mount, mrinboxfs::kDirDm), g_inbox_ch_recs(g_inbox_mount, mrinboxfs::kDirCh);
+mrinboxnrf::InternalFsMetaStore g_inbox_dm_meta(mrinboxnrf::kMetaPathDm), g_inbox_ch_meta(mrinboxnrf::kMetaPathCh);
+meshroute::SegmentedInboxStore g_inbox_dm(g_inbox_dm_recs, g_inbox_dm_meta, meshroute::protocol::inbox_dm_store_bytes,   meshroute::protocol::inbox_segment_bytes);
+meshroute::SegmentedInboxStore g_inbox_ch(g_inbox_ch_recs, g_inbox_ch_meta, meshroute::protocol::inbox_chan_store_bytes, meshroute::protocol::inbox_segment_bytes);
 #elif defined(MRINBOX_ESP32_LITTLEFS)
 mrinboxfs::MountOnce          g_inbox_mount;            // ONE LittleFS mount shared by both record stores
 mrinboxfs::Esp32SegmentStore  g_inbox_dm_recs(g_inbox_mount, mrinboxfs::kDirDm), g_inbox_ch_recs(g_inbox_mount, mrinboxfs::kDirCh);
@@ -938,18 +943,28 @@ void setup() {
     //   and says whether history survives a power cycle. `enabled()` is reported too: a durable store whose
     //   begin() FAILED leaves the inbox disabled, and a line that said "durable" while record_* was inert would
     //   be exactly the success-that-isn't this project keeps re-finding.
-#if defined(MRINBOX_QSPI_READY)
-    mrcon.print(F("  inbox     = QSPI/LittleFS records + InternalFS meta (durable), enabled="));
-    mrcon.println(g_node.inbox().enabled() ? 1 : 0);
-#elif defined(MRINBOX_ESP32_LITTLEFS)
+#if defined(MRINBOX_DURABLE)
+    // ★★ [[B260]] 2026-08-29 — ONE BLOCK FOR BOTH DURABLE BOARDS, AND THAT IS THE DIAGNOSTIC HALF OF THE SLICE.
+    //    nRF52 used to print `enabled=` and NOTHING ELSE, so on the platform whose store had five durable-ack
+    //    defects, EVERY refusal was operationally invisible: `meta_corrupt`, `meta_lost_over_records` and an
+    //    unanswerable records inspection all looked identical to a board with no QSPI fitted. Both boards now
+    //    report the same three facts, because both now run the same store and owe the same answers.
+    //    ⓘ Only the MEDIUM name differs — it is the one thing that is genuinely per-platform.
+  #if defined(MRINBOX_QSPI_READY)
+    mrcon.print(F("  inbox     = QSPI/LittleFS records + InternalFS meta (durable), epoch="));
+  #else
     mrcon.print(F("  inbox     = LittleFS records + NVS meta (durable), epoch="));
+  #endif
     mrcon.print(g_node.inbox().storage_epoch());
     mrcon.print(F(", enabled="));
     mrcon.print(g_node.inbox().enabled() ? 1 : 0);
     // ★ [[B134]] QG round 2: `enabled=0` alone cannot tell a corrupted PARTITION from corrupted METADATA over a
     //   LIVE history, and those want opposite operator responses — reflash vs. an explicit `factory_reset confirm`
     //   taken knowing it destroys the history. `mount_fault` is the §10.1-style detect reporting WHICH happened.
-    //   ⓘ Printed as the enum's value (SegMountFault, lib/core/segmented_inbox_store.h); 5 = meta_lost_over_records.
+    //   ⓘ Printed as the enum's value (SegMountFault, lib/core/segmented_inbox_store.h); 5 = meta_lost_over_records,
+    //   6 = meta_corrupt — which is what an nRF52 node that still carries the RETIRED twin's 24-byte v6 meta
+    //   prints on its FIRST boot of this build (the deliberate, destructive [[B260]] migration; the way out is
+    //   `factory_reset confirm`, which also erases config, identity, peers and team state).
     if (!g_node.inbox().enabled()) {
         mrcon.print(F(", mount_fault="));
         mrcon.print(static_cast<int>(g_inbox_dm.mount_fault()));

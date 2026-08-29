@@ -1152,11 +1152,16 @@ natively gated by 30 assertions) and **11.5** covers **torn-write recovery on a 
 reset** ([[B135]] — pre-existing since 2026-06-12, natively gated by 6 cases against a RAM fake with a **mid-frame**
 fault injector, but *"the seal survived actual flash"* is unreachable from any host gate).
 
-⛔⛔ **11.1 MUST BE RUN ON AN nRF52 (QSPI) NODE — `xiao_sx1262`, `gateway` or `production`. RUNNING IT ON A HELTEC /
+⛔ **CORRECTED IN PLACE 2026-08-29 ([[B134]]+[[B260]]): the struck block below is DOUBLY false now** — every ESP32
+target mounts the durable segmented store ([[B134]]), and the nRF52 side no longer uses `DeviceInboxStore` at all
+([[B260]] retired the twin onto the same shared `SegmentedInboxStore` via `src/device_inbox_fs_nrf52.h`). 11.1 may
+now be run on EITHER platform — both are durable, tombstones survive reboots on both — though its original nRF52/QSPI
+target remains the canonical board. 11.4 (inverted) is still the ESP32 control.
+⛔⛔ ~~**11.1 MUST BE RUN ON AN nRF52 (QSPI) NODE — `xiao_sx1262`, `gateway` or `production`. RUNNING IT ON A HELTEC /
 ESP32 NODE PASSES FOR THE WRONG REASON.** `src/fw_main.cpp:168-179`: only `QSPIFLASH=1` wires the durable
 `DeviceInboxStore`; every ESP32 target uses the **volatile** `FixedInboxStore<32>` RAM ring, which loses the *entire*
 inbox at reboot. *"The deleted message is gone after a reboot"* is therefore **vacuously true** on a Heltec, and would
-prove nothing about the tombstone. 11.4 is the control that catches this being run on the wrong board.
+prove nothing about the tombstone. 11.4 is the control that catches this being run on the wrong board.~~
 
 ### 11.1 — a delete SURVIVES A REBOOT ★★ the whole point of the slice (nRF52 / QSPI only)
 
@@ -2042,6 +2047,25 @@ On a node with stored messages, corrupt the **NVS partition itself** (e.g. `espt
 signature** — a lookup error classified as absent, the store silently starting over (exactly what
 `Preferences::isKey()` used to do). Recovery: `factory_reset confirm`. ⓘ 19.7's blank-node arm is the complementary
 side: genuine `NOT_FOUND` must still mount fresh — the two steps together pin both classifier directions on metal.
+
+### 19.1n-19.7n — [[B260]] the nRF52 mirror set (QSPI faults are host-unreachable; the twin is retired)
+
+Run on an nRF52 node (`xiao_sx1262`/`gateway`/`production`). These close B260's METAL-PENDING half.
+1. **19.1n one-time migration refusal** — flash this build onto a node with an existing inbox. Expect
+   `mount_fault=6/6`, `enabled=0`, `pull_inbox` inert. ⚠⚠ **Recovery is `factory_reset confirm`, which formats
+   InternalFS ENTIRELY — config, identity, peers, team state, join profiles and UI presets all go; the node returns
+   with a FRESH IDENTITY and must be RE-JOINED.** Accepted once under M3; expected exactly once, on this flash.
+2. **19.2n post-reset fresh mount** — after that reset: `epoch=1, enabled=1`, no `mount_fault` printed.
+3. **19.3n exactly-once epoch** — `prep-restart`, then three power cycles: the epoch bumps **once** and holds.
+   ⛔ 2→3→4 across quiet boots is the retired ratchet.
+4. **19.4n fsync power-cut** — cut power mid-`testsend` burst. No acknowledged record lost, no tombstoned message
+   returning, `pull_inbox` parseable from the tear onward.
+5. **19.5n corrupted-meta refusal, one-sided** — corrupt `/mri_dm` only. Expect `mount_fault=6/0` — the DM side
+   refuses while the channel store still mounts, and the inbox is fully disabled.
+6. **19.6n destructive verbs** — `factory_reset confirm` / `prep-restart` on a full ring succeed with no `WARN`;
+   a failing erase must print `WARN: inbox erase incomplete (messages may remain on flash)`.
+7. **19.7n mark_read ack** — `{"result":"marked"}` on a healthy node, `io_error` under a refused mount; the read
+   cursor survives a reboot.
 
 ### 19.14 — [[B134]] the mark_read ack tells the truth
 
