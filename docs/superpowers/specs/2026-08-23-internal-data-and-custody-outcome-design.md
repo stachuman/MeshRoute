@@ -938,15 +938,30 @@ separately ordered register item.
 >   (`lib/core/frame_codec.h`, §B20/B21) as the one length authority; the §B159 physical-start
 >   deadline/`TxOutcomeKind::expired` machinery and the §B134/§B260 inbox chain are fresh seams the ownership
 >   trace crosses — their in-source ledgers are current authority.
-> - **Gate constants:** native baseline 2333/98448/0 + the characterization cases with the PIN derivation
->   written (RUN the binary — the wrapper lies); new `a0*` targets in the isolated mutation harness
->   (`tools/probe_ui_model_mutations.py`, scratch trees), each RED at match count exactly 1, the existing
->   865+ anchors verified unbroken; an unmeasurable mutation is REMOVED and its absence documented, never
->   kept as decoration.
-> - **C1 enforcement at the diff:** `git diff` shows ZERO production-source changes — tests/probes/evidence
->   only; the sole exception is V1's fix-drifted-comments duty, line-count-neutral (§B254) and listed.
->   Corpus: the 0-build-action proof + the s18 tripwire, keystone read from `simulation/BASELINE.md`. Boards:
->   only the baseline-RECORDING run (the ruled pair via the certified runner) — ⚠ §B262: the `heltec_mobile`
+> - **Gate figures (corrected 2026-08-29, QG A0-design review — B217's count-as-gate mistake is not
+>   reintroduced):** the clean run DERIVES its own current native count by RUNNING the binary (the wrapper
+>   lies); **2333/98448/0 is a baseline CROSS-CHECK, not the pass authority** — a divergence is investigated
+>   and explained, never pinned to. The characterization additions then receive a WRITTEN derivation
+>   (base + delta = final). Mutations: new `a0*` targets in the isolated harness
+>   (`tools/probe_ui_model_mutations.py`, scratch trees), each RED at match count exactly 1; the pre-A0
+>   anchor population is DERIVED by the mechanical anchor check (not quoted from this note — the last
+>   measured figure was 865, which is likewise a cross-check), verified unbroken, and the A0 additions
+>   counted separately. An unmeasurable mutation is REMOVED and its absence documented, never kept as
+>   decoration.
+> - **C1 enforcement at the diff (corrected 2026-08-29, QG A0-design review — the working tree carries other
+>   slices' uncommitted production changes, so a raw diff against HEAD cannot prove A0's contribution):**
+>   EITHER the owner commits the completed B260 package before dispatch (then `git diff` shows zero
+>   production-source changes, the clean form), OR the coder captures an explicit A0 STARTING SNAPSHOT
+>   (per-file hashes of every production source at dispatch time, recorded in the evidence file) and proves
+>   every production file byte-identical to that snapshot at the end. Tests/probes/evidence only; the sole
+>   exception is V1's fix-drifted-comments duty, line-count-neutral (§B254) and listed.
+> - **The corpus baseline is the COMPLETE current record (corrected 2026-08-29, QG A0-design review — the
+>   earlier wording accidentally weakened §17-A0's own requirement to a tripwire):** Slice A will renumber
+>   nearly every typed frame, so A0 records ALL current scenarios via the canonical analyzer — per-scenario
+>   hashes, event counts, assertion failures, and the existing movers — into the evidence file as the
+>   pre-Slice-A baseline. The s18 keystone (read from `simulation/BASELINE.md`) remains the keystone, NOT
+>   the whole baseline; the 0-build-action inertness proof still applies to A0's own diff. Boards: the
+>   baseline-RECORDING run only (the ruled pair via the certified runner) — ⚠ §B262: the `heltec_mobile`
 >   payload hash is same-path-only; record RAM/flash/objects/symbols across trees.
 > - **Coder prohibitions (standing):** no `git commit`/`add`/`checkout`, no maintained docs, no `tracker.md`,
 >   no `platformio.ini`, no parallel-session files, no pollers, never pipe the battery runner, no device
@@ -1034,8 +1049,15 @@ No slice adds automatic payload retry.
 
 ### 18.0 Characterization and audit gate
 
-1. The A0 matrix is source-derived and exhaustive against the allocated `DataType` set;
-   a count/sentinel or equivalent control fails if a new type is added without a row.
+1. The A0 matrix is source-derived and exhaustive against the FULL DATA universe, not only the allocated
+   `DataType` enum (corrected 2026-08-29, QG A0-design review — the enum alone omits live rows). The matrix
+   must distinguish and separately carry: **outer wire types** (the enum's emitted values) · **untyped DATA**
+   (type 0, no TYPE byte — the ordinary DM) · **enclosed-only markers** (`DATA_TYPE_CHANNEL_POST` and any
+   value that rides only inside an enclosure, never as an outer TYPE byte) · **allocated-but-not-emitted
+   types** (reserved rows, with that status stated) · **representative unknown typed values** and their
+   current fall-through behavior · and the **`0xFE` tombstone as an explicitly NON-WIRE exclusion** (a store
+   marker, never a DataType). The structural control parses the enum AND requires the named special rows —
+   it fails if a new type is added without a row or any named special row is missing.
 2. Every row names its real producer, receiver/consumer, relay treatment, persistence
    decision, outcome owner and executable coverage, including feature-gated absence.
 3. Searches for raw semantic literals and duplicate policy lists are controlled: a zero
