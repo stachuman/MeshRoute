@@ -81,7 +81,12 @@ The following are code facts, not inherited assumptions from an older design:
 - `protocol::lora_max_frame_bytes = 255`, the C++ DATA header is 8 bytes, and the hard inner payload cap is
   241 bytes (`lib/core/protocol_constants.h`).
 - The supported normal-DM body ceiling is the deliberately conservative `dm_max_body_bytes = 239`.
-- `DATA_TYPE_REMOTE_CMD = 6` and `DATA_TYPE_REMOTE_RESP = 7` already carry remote request/response bodies
+- `DATA_TYPE_REMOTE_CMD = 0xA0` and `DATA_TYPE_REMOTE_RESP = 0xA1` already carry remote request/response bodies
+  (⛔ corrected 2026-08-29: ordinals 6/7 were RETIRED by the §CUSTODY-A namespace transition — the values now sit
+  in the internal range's administration/security block `0xA0..`. Reusability is unchanged; no third DATA type is
+  needed. Both are protocol-internal (`0x80..0xBF`), so `data_type_traits()` reports them
+  `internal=true, generic_send_lifecycle=false` — the RPC's own response/timeout contract is the only outcome they
+  carry, and no generic `send_acked`/`send_failed` may be raised for them.)
   (`lib/core/frame_codec.h`, `lib/core/node_mac.cpp`). They are reusable; no third DATA type is needed.
 - A current sealed request body costs 35 bytes before command text:
   `[sealed_flag 1][rand8 8][nonce_ctr 2][node_hash 4][replay_counter 4][tag 16]`. Under the supported
@@ -738,7 +743,7 @@ The v2 slot-15 `status` and `routes` path is a newly specified clear RPC envelop
 semantics. It is not retention of the old clear `rcmd` parser. No decoder accepts legacy request/response
 bodies, and there is no compatibility fallback from failed v2 authentication.
 
-This changes the bodies of DATA types 6/7. MeshRoute is not deployed, so compatibility is not a deployment
+This changes the bodies of DATA types `0xA0`/`0xA1` (corrected 2026-08-29 — were 6/7 pre-§CUSTODY-A). MeshRoute is not deployed, so compatibility is not a deployment
 constraint. Attribution still matters: the v2 codec/global-wire-version change receives its own slice and
 anchor work before dispatcher semantics (C4/M3). Durable `docs/frames.md` and `docs/protocol.md` change
 only with approved implementation. Once this design is ratified, the July challenge-response document is

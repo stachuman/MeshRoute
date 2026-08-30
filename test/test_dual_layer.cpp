@@ -220,7 +220,7 @@ struct DualLayerTestAccess {
     static void     drive_post_ack_deliver(Node& n, uint8_t origin, uint32_t dst_hash) {
         n.test_drive_deliver_for_hash(origin, dst_hash);
     }
-    static void     drive_post_ack_intro(Node& n, uint8_t origin, uint32_t src_hash, const uint8_t* body, uint8_t body_len) {   // §S2: a received INTRO (type 15) addressed to US: inner = [dst_hash 4][origin][source_hash 4][body...]
+    static void     drive_post_ack_intro(Node& n, uint8_t origin, uint32_t src_hash, const uint8_t* body, uint8_t body_len) {   // §S2: a received DATA_TYPE_INTRO addressed to US: inner = [dst_hash 4][origin][source_hash 4][body...]
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = n._node_id;
         pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_INTRO;
@@ -4302,7 +4302,7 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
 }
 
 TEST_CASE("§S6 — a home caches a hosted mobile's key from the PROBE's HAS_PUBKEY block (hash-verified); rejects an inconsistent key + a non-hosted M") {
-    // §S6 A.4: key custody rides the presence probe (RETIRES the TYPE-12 push). presence_ingest_probe caches ed_pub on
+    // §S6 A.4: key custody rides the presence probe (RETIRES the MOBILE_PUBKEY_PUSH). presence_ingest_probe caches ed_pub on
     // the hosted mobile's registry entry iff ed_pub[:4] LE == key_hash32 (self-consistency), then schedules a roster whose
     // has_key bit confirms custody. Same self-check + host-gating the old push handler had.
     const RxMeta m8{8.0f, -80.0f, 0, static_cast<int8_t>(-1)};
@@ -4352,7 +4352,7 @@ TEST_CASE("§S6 — a home caches a hosted mobile's key from the PROBE's HAS_PUB
 TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its LIVE mobile with a MOBILE_H_ANSWER_PUBKEY; silent without the key") {
     StubHal hal; Node home(hal, 30, 0x3030u);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
-    // ★ the home is CRYPTO-READY with its OWN key -> if Fix 7 didn't precede the owner branch, a live proxy (node_id==_node_id) would fall into it and leak the HOME's key (TYPE 5). The TYPE-13 + mobile-ed assertions below catch that reordering regression.
+    // ★ the home is CRYPTO-READY with its OWN key -> if Fix 7 didn't precede the owner branch, a live proxy (node_id==_node_id) would fall into it and leak the HOME's key (as a DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY). The DATA_TYPE_MOBILE_H_ANSWER_PUBKEY + mobile-ed assertions below catch that reordering regression.
     uint8_t hxs[32]; for (int i=0;i<32;++i) hxs[i]=static_cast<uint8_t>(0x80+i);
     uint8_t hed[32] = {}; hed[0]=0x30; hed[1]=0x30; for (int i=4;i<32;++i) hed[i]=static_cast<uint8_t>(0xC0);   // home ed_pub[:4]==0x3030 (the home's key), distinct from the mobile's
     home.set_crypto_identity(hxs, hed);
@@ -4451,7 +4451,7 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     hal.emits.clear();
     mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
-    CHECK_FALSE(hal.saw_emit("mobile_pubkey_push"));   // ★ §S6: the TYPE-12 push is RETIRED — no push on adopt
+    CHECK_FALSE(hal.saw_emit("mobile_pubkey_push"));   // ★ §S6: the MOBILE_PUBKEY_PUSH is RETIRED — no push on adopt
     // §S6 A.4: the key now rides the FIRST presence probe (HAS_PUBKEY). Firing the probe timer emits a probe.
     hal.emits.clear();
     mob.on_timer(78 /*kPresenceProbeTimerId*/);
@@ -7002,7 +7002,7 @@ TEST_CASE("★ §B132/1b — a GATEWAY emits NO mobile OFFER with EITHER leaf ac
 // B161 — canonical typed hash-answer origin/body envelope.
 // ============================================================================
 
-TEST_CASE("§B161 producer — types 1/2/8 stamp GLOBAL and TEAM origins; RTS/CTS constants and DATA lengths stay canonical") {
+TEST_CASE("§B161 producer — H_ANSWER/AUTHORITATIVE_H_ANSWER/MOBILE_H_ANSWER stamp GLOBAL and TEAM origins; RTS/CTS constants and DATA lengths stay canonical") {
     using A = DualLayerTestAccess;
     struct Shape { bool verifiable; bool mobile; uint8_t type; uint8_t body_len; uint8_t data_len; };
     const Shape shapes[] = {
@@ -7066,7 +7066,7 @@ TEST_CASE("§B161 producer — types 1/2/8 stamp GLOBAL and TEAM origins; RTS/CT
     CHECK(pack_cts(terminal, cbuf) == 6);
 }
 
-TEST_CASE("§B161 producer — type 13 is reachable on GLOBAL and TEAM planes with N=0/N=32 and keeps its complete name tail") {
+TEST_CASE("§B161 producer — MOBILE_H_ANSWER_PUBKEY is reachable on GLOBAL and TEAM planes with N=0/N=32 and keeps its complete name tail") {
     using A = DualLayerTestAccess;
     for (bool team : {false, true}) for (uint8_t name_len : {uint8_t(0), uint8_t(32)}) {
         StubHal hal; Node home(hal, /*node_id=*/30, /*key=*/0x3030u);
@@ -7115,7 +7115,7 @@ TEST_CASE("§B161 producer — type 13 is reachable on GLOBAL and TEAM planes wi
     }
 }
 
-TEST_CASE("§B161 positive control — production type 5 retains its existing one-envelope bytes and name tail") {
+TEST_CASE("§B161 positive control — production AUTHORITATIVE_H_ANSWER_PUBKEY retains its existing one-envelope bytes and name tail") {
     using A=DualLayerTestAccess;
     StubHal h; Node n(h,30,0x3030u); NodeConfig c;c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(n.on_init(c));
     n.set_name("T",1);                                               // explicit one-byte name makes the established tail exact
@@ -7182,7 +7182,7 @@ TEST_CASE("§B161 consume — canonical bodies preserve type semantics and TEAM/
       CHECK(name[0]=='M'); CHECK(name[2]=='b'); CHECK(n.mobile_home_find(0x13121110u)==77); CHECK(n.id_bind_count()==before); }
 }
 
-TEST_CASE("§B161 malformed — every legacy raw answer and an inconsistent type-13 key have zero semantic effects") {
+TEST_CASE("§B161 malformed — every legacy raw answer and an inconsistent MOBILE_H_ANSWER_PUBKEY key have zero semantic effects") {
     using A = DualLayerTestAccess;
     auto fresh_cfg=[](){ NodeConfig c; c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4; return c; };
     hash_bind_inner hb{}; hb.target_layer=7;hb.node_id=77;hb.key_hash32=0x11223344u;hb.epoch=9;
@@ -7211,7 +7211,7 @@ TEST_CASE("§B161 malformed — every legacy raw answer and an inconsistent type
       uint8_t got[32]{}; CHECK_FALSE(n.peer_key_find(0x11223344u,got)); CHECK(n.mobile_home_find(0x11223344u)==-1); }
 }
 
-TEST_CASE("§B161 relay — type-2 snoop reads ui.body and forwarding preserves the complete canonical inner verbatim") {
+TEST_CASE("§B161 relay — the AUTHORITATIVE_H_ANSWER snoop reads ui.body and forwarding preserves the complete canonical inner verbatim") {
     using A=DualLayerTestAccess;
     StubHal h; Node relay(h,5,0x5050u); NodeConfig c;c.routing_sf=8;c.allowed_sf_bitmap=(1u<<8);c.leaf_id=4;CHECK(relay.on_init(c));
     A::learn_neighbor(relay,/*final dst=*/77);

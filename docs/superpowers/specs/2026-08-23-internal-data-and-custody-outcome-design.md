@@ -893,6 +893,19 @@ The implementation plan must preserve attribution and C1. A suitable order is:
 
 ### Slice A0 — existing DATA-path characterization and quality audit
 
+> ✅ **A0 COMPLETE — QG PASS 2026-08-29 (two rounds; the round-2 corrections: the §A0-4c positive arm proving
+> the flag is the reply authority · the positional SPECIAL-ROW checker binding · the CHANNEL_POST
+> enclosed-vs-outer split with outer 18's fall-through tested).** The full artifact is
+> `docs/superpowers/evidence/2026-08-29-custody-a0-matrix.md` (matrix · ownership trace · census · the
+> complete pre-Slice-A corpus baseline incl. the 15 pre-existing movers · board/warning baselines). Gate:
+> native 2343/98966/0 · mutations 8/8 RED (`a0mac`/`a0rx`/`a0codec`) · `tools/check_a0_matrix.py` PASS,
+> selftest 7/7 RED · C1 zero production changes · s18 keystone exact. **Findings registered:
+> [[B263]]** (transit give-up pushes a foreign-{dst,ctr} send_failed — Slice E's close-by) · **[[B264]]**
+> (if-chain blind to new DataTypes — half-closed by the checker, runtime half = Slice B) · **[[B265]]**
+> (the `type == 3` literal — THIS slice's close-by) · **[[B266]]** (three uncovered arms) · **[[B267]]**
+> (types 1/13/16/19 have zero corpus reach — Slice A's renumbering of them is proven by native only, and
+> Slice A's report must say so). No blockers; A0-F1 = [[B263]] routed to Slice E.
+
 This is a bounded audit of the core surface this arc will change, not a general firmware
 review and not a cleanup bundle. Before changing any numeric DATA type or behavior:
 
@@ -969,6 +982,20 @@ separately ordered register item.
 
 ### Slice A — namespace transition
 
+> ✅ **SLICE A COMPLETE — QG PASS 2026-08-29 (four rounds: the base landing · the layout-deriving corpus
+> comparator + the 90-edit ordinal-prose sweep · the event-anchored telemetry scoping micro-round) — AND THE
+> RE-ANCHOR RULED AND LANDED** ("Re-anchor ruling: APPROVED"): all 36 `simulation/BASELINE.md` rows updated from
+> the instrument-verified §10 proposal; the s18 keystone is now **`b7aeaeeb` / 269905 / 0** (`9868cad3`
+> historical). Semantic-neutral by proof: 1339 TYPE bytes across 19 streams, 17 byte-identical, ordered
+> event-by-event with 6 comparator controls. Landed: the §5.2 assignments (20 members; `0x81` left to Slice F) ·
+> the §6 trait authority (0 bytes, no consumer wired) · the exact range predicate · `wire_version` unchanged w/
+> failing-static_assert control · store v4→v5 · the literal removals (eight sites — see [[B265]]'s corrected
+> count — + the standing `check_data_type_literals.py`) · the six comment-correction sites · docs: frames.md
+> table (+ the two previously-MISSING rows `MOBILE_SEND`/`TEAM_KEY_GRANT` filled), protocol.md §2.4
+> (reflash-together ruling), both active-contract corrections, bench Part 49. Native 2351/100374/0; mutations
+> 8 new RED + 167 across touched targets; boards gateway +112 / heltec +48 flash, RAM identical. ⚠ Residual
+> blind spot recorded: `frame_trace.h` is Arduino-only — no host gate sees a reverted case label; the
+> structural search is its only gate (the [[B264]] class, one file along). |
 - add the range/trait authority and exact enum assignments;
 - renumber every current type;
 - reserve `APP_MESSAGE = 0x05` without implementing app codes;

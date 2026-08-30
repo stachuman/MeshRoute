@@ -73,13 +73,21 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                         Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr);
                         if(d->app) {
                             Serial.print(F(" app=")); Serial.print(d->type); 
+                            // ⛔ SYMBOLIC CASE LABELS, NEVER NUMERIC ([[B265]], §CUSTODY-A 2026-08-29). These read
+                            // `case 1:`..`case 5:` — the pre-transition ordinals — and a switch label is exactly the
+                            // shape no gate can see go wrong: after the renumbering each stale label would still
+                            // COMPILE, simply never fire for its type and instead fire for whatever now owns that
+                            // number (3 = SEALED_RELAY would have printed "E2E_ACK"). ⚠ This header is
+                            // `#if defined(ARDUINO)`, so neither the native suite nor the simulator compiles it;
+                            // the standing control is the structural search `tools/check_data_type_literals.py`.
+                            // ⓘ The arm set is UNCHANGED (these five types only) — adding names is a separate change.
                             switch(d->type) {
-                                case 1: Serial.print(F("H_ANSWER"));break;
-                                case 2: Serial.print(F("AUTHORITATIVE_H_ANSWER"));break;
-                                case 3: Serial.print(F("E2E_ACK"));break;
-                                case 4: Serial.print(F("DATA_TYPE_H_ANSWER_PUBKEY"));break;
-                                case 5: Serial.print(F("DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY"));break;
-                                
+                                case DATA_TYPE_H_ANSWER: Serial.print(F("H_ANSWER"));break;
+                                case DATA_TYPE_AUTHORITATIVE_H_ANSWER: Serial.print(F("AUTHORITATIVE_H_ANSWER"));break;
+                                case DATA_TYPE_E2E_ACK: Serial.print(F("E2E_ACK"));break;
+                                case DATA_TYPE_H_ANSWER_PUBKEY: Serial.print(F("DATA_TYPE_H_ANSWER_PUBKEY"));break;
+                                case DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY: Serial.print(F("DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY"));break;
+                                default: break;
                             }
                         }
                         Serial.print(F(" flag="));

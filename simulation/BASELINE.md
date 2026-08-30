@@ -10433,43 +10433,54 @@ NOT reinstate beacon authority, and do NOT open a recovery slice solely to regai
   dependency is superseded by B182. The owner has accepted `757/1041` once for B153 closure; future comparisons remain
   governed by B182 authority plus explicit attribution, not automatic re-anchoring.
 
+★★★ **RE-ANCHORED 2026-08-29 ON THE §CUSTODY-A RULING ("Re-anchor ruling: APPROVED … Update all 36 rows; the s18
+keystone becomes b7aeaeeb / 269905 / 0") — THE SECOND FULL-TABLE RULING, AND THE SAME RULE STANDS: ⛔ NO AGENT MAY
+EDIT THIS TABLE AGAIN WITHOUT A NEW ONE.** All 36 rows replaced from the measured, instrument-verified proposal
+(`docs/superpowers/evidence/2026-08-29-custody-a0-matrix.md` §10). **This is a SEMANTIC-NEUTRAL namespace re-anchor:**
+the §CUSTODY-A DATA-type renumbering moved the TYPE byte in 1339 frames across 19 streams (per-stream, per-type
+attribution in §10); 17 streams are byte-identical; and the ordered event-by-event comparator
+(`tools/compare_corpus_semantics.py`, 6 controls) proved event order, counts, timestamps and every non-TYPE field
+UNCHANGED on all 36. The former keystone `9868cad3` and every pre-A hash are HISTORICAL ONLY. ⓘ The "pre-A" column
+this replaced was A0's *measured* record — 15 rows of the previous table were already stale from the attributed
+B159/B134/B251/B260 era (see §10's warning), so this ruling also retires that accumulated drift in one attributed act.
+
 ```
-s06_seattle_lifecycle                        e7bd0f08 lus: 65835 events emitted, 0 assertion failure(s)
-s07_seattle_mobile_meshroute                 b3b7ce31 lus: 107989 events emitted, 0 assertion failure(s)
+s06_seattle_lifecycle                        aa2380be lus: 65835 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                 57d608bc lus: 109837 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway                        71120178 lus: 2266 events emitted, 0 assertion failure(s)
-s09_two_layer_gateway_metal                  17d1418f lus: 2345 events emitted, 0 assertion failure(s)
+s09_two_layer_gateway_metal                  c0fc1168 lus: 2345 events emitted, 0 assertion failure(s)
 s10_two_layer_separation                     c44c0b39 lus: 2266 events emitted, 0 assertion failure(s)
-s15_three_layer                              b53c6f47 lus: 52293 events emitted, 0 assertion failure(s)
-s15_three_layer_metal                        304e558b lus: 51232 events emitted, 0 assertion failure(s)
-s16_dense_gateway                            cfd86c16 lus: 24397 events emitted, 0 assertion failure(s)
+s15_three_layer                              0b546cf5 lus: 52441 events emitted, 0 assertion failure(s)
+s15_three_layer_metal                        8bbff735 lus: 51819 events emitted, 0 assertion failure(s)
+s16_dense_gateway                            5d9a7186 lus: 23902 events emitted, 0 assertion failure(s)
 s17_metro                                    42e69427 lus: 1181179 events emitted, 0 assertion failure(s)
-s18_meshroute                                9868cad3 lus: 269905 events emitted, 0 assertion failure(s)
+s18_meshroute                                b7aeaeeb lus: 269905 events emitted, 0 assertion failure(s)
 s19_singlelayer_multihop_chain               c669b1ef lus: 1065 events emitted, 0 assertion failure(s)
 s20_random_mesh                              db240065 lus: 40566 events emitted, 0 assertion failure(s)
 s21_leaf_config_divergence                   d7db6a04 lus: 390 events emitted, 0 assertion failure(s)
-s21_mobile_dm_milestone_meshroute            f3f950ad lus: 680 events emitted, 0 assertion failure(s)
+s21_mobile_dm_milestone_meshroute            1c5db032 lus: 680 events emitted, 0 assertion failure(s)
 s22_leaf_config_join                         baadfbed lus: 215 events emitted, 0 assertion failure(s)
-s22_mobile_team_meshroute                    ea03873f lus: 1822 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                    e2f8f5a1 lus: 1830 events emitted, 0 assertion failure(s)
 s23_leaf_config_epoch_write                  0cd16bd5 lus: 219 events emitted, 0 assertion failure(s)
 s23_mobile_team_multihop_meshroute           568c684f lus: 924 events emitted, 0 assertion failure(s)
-s24_static_and_team_multihop_meshroute       6f9d78e4 lus: 1583 events emitted, 0 assertion failure(s)
-s25_two_team_separation_meshroute            6ca24694 lus: 792 events emitted, 0 assertion failure(s)
-s26_team_reroute_meshroute                   2ab37318 lus: 1045 events emitted, 0 assertion failure(s)
-s27_cross_layer_mobiles_meshroute            a7d5cc86 lus: 9205 events emitted, 0 assertion failure(s)
-s28_mixed_team_channels_meshroute            19136ba5 lus: 3856 events emitted, 0 assertion failure(s)
-s29_mixed_leaf_team_meshroute                d3af0db6 lus: 2020 events emitted, 0 assertion failure(s)
-s30_team_dad_mediation_meshroute             02a7d4d0 lus: 1034 events emitted, 0 assertion failure(s)
+s24_static_and_team_multihop_meshroute       74fec485 lus: 1583 events emitted, 0 assertion failure(s)
+s25_two_team_separation_meshroute            700d3437 lus: 792 events emitted, 0 assertion failure(s)
+s26_team_reroute_meshroute                   86010f57 lus: 1045 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute            721de4b7 lus: 9410 events emitted, 0 assertion failure(s)
+s28_mixed_team_channels_meshroute            9a3b4cac lus: 3865 events emitted, 0 assertion failure(s)
+s29_mixed_leaf_team_meshroute                bb534a88 lus: 2025 events emitted, 0 assertion failure(s)
+s30_team_dad_mediation_meshroute             4a1de37d lus: 1034 events emitted, 0 assertion failure(s)
 s31_dual_carrier_gateway                     4eafb125 lus: 2300 events emitted, 0 assertion failure(s)
 s32_dual_cr_gateway                          9574f5dd lus: 2266 events emitted, 0 assertion failure(s)
 s33_mixed_cr_channel_overhear                814ef421 lus: 2845 events emitted, 0 assertion failure(s)
-s34_team_switch_clears_plane                 2dcd78e9 lus: 921 events emitted, 0 assertion failure(s)
+s34_team_switch_clears_plane                 61ecb33e lus: 921 events emitted, 0 assertion failure(s)
 s35a_cochannel_isolation_meshroute           bda1713b lus: 2356 events emitted, 0 assertion failure(s)
 s35b_cochannel_isolation_control_meshroute   7dbc19ae lus: 1063 events emitted, 0 assertion failure(s)
 s36_reprovision_purges_carriers              76d02e58 lus: 472 events emitted, 0 assertion failure(s)
-s37_team_homed_origin_meshroute              d836ce20 lus: 750 events emitted, 0 assertion failure(s)
-s38_team_origin_learn_meshroute              1d0bb046 lus: 526 events emitted, 0 assertion failure(s)
-sim_9node_base                               c7d74ddd lus: 4959 events emitted, 0 assertion failure(s)
-twin_9node_dm                                ca698d79 lus: 13221 events emitted, 0 assertion failure(s)
+s37_team_homed_origin_meshroute              18f4b4aa lus: 751 events emitted, 0 assertion failure(s)
+s38_team_origin_learn_meshroute              626cf1ff lus: 526 events emitted, 0 assertion failure(s)
+sim_9node_base                               f729db96 lus: 4959 events emitted, 0 assertion failure(s)
+twin_9node_dm                                2e038758 lus: 14645 events emitted, 0 assertion failure(s)
 ```
 
 ### What a corrected Phase 0 needs (report only — spec/plan NOT edited, per instruction)

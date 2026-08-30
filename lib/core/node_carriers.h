@@ -174,7 +174,7 @@ struct NodeConfig {
     // IMPLICIT seal automatically. A node WITHOUT the key posts plaintext exactly as before (unchanged), and
     // keyholders still read it — a plaintext flavor is always openable.
     // ⚠ INERT ACROSS THE WHOLE SIM CORPUS BY CONSTRUCTION: no scenario can hold a team content key (every establish
-    // path — mint / adopt / adopt_priv / NV load / the sealed TYPE-19 grant — is reachable only from `src/`, which
+    // path — mint / adopt / adopt_priv / NV load / the sealed DATA_TYPE_TEAM_KEY_GRANT — is reachable only from `src/`, which
     // the simulator does not build). That is WHY flipping this default to ON moved 0 of 36 streams.
     // ★ OPT-OUT IS THE CONFIG TOGGLE ONLY (`cfg set team_channel_crypt 0`), open decision O2: a per-send
     // "air this one in clear" flag is a footgun on a privacy feature. PERSISTED (device_nv v24) — an operator

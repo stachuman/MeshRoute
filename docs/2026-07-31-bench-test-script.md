@@ -3609,3 +3609,26 @@ global network. Arrange/reset M1 and M2 so their next plaintext E2E-ACK-requesti
 2. ☐ Both mobiles receive their own E2E ACK carrying their original equal `ctrM`; no ACK crosses between M1/M2.
 3. ☐ On H, `status` contains exactly `ctrrefuse=0` under this ordinary two-flight load. Any non-zero value requires
    preserving the full serial/RF timing trace; do not hide it by extending a retry or ring limit.
+
+## Part 49 — §CUSTODY-A: the one-time v5 inbox migration on first boot after the fleet reflash (2026-08-29)
+
+⛔ **THE RESIDUE ONLY.** The namespace, the trait authority, the round-trips and the v4→v5
+wipe/retain/cursor/epoch-once/acknowledged-empty transition are all host-gated (`test_data_type_namespace.cpp`, the
+two `test_segmented_inbox_store.cpp` cases, `--target=sliceAcodec/sliceAinbox/sliceAstore/sliceAjson`,
+`tools/check_data_type_literals.py`). **Metal proves only the real-flash migration.** ⚠ **THE WHOLE TEST FLEET MUST
+BE REFLASHED TOGETHER** — old and new firmware disagree on every typed frame, so a mixed fleet will mis-deliver, not
+merely fail to interoperate (`docs/protocol.md` §2.4). Setup: one `heltec_mobile` carrying a pre-§CUSTODY-A build
+with at least one stored DM **and** one stored E2E-ACK receipt (`send -a` to a peer that acks), confirmed by
+`pull_inbox 0 0` before the flash.
+
+1. ☐ Record the pre-flash state: `pull_inbox 0 0` shows the DM **and** an `"type":"e2e_ack"` receipt; note the
+   reported `epoch` and newest `seq`.
+2. ☐ Flash the new build (do **not** `factory_reset`). First boot: the inbox mounts, no `mount_fault` line, and
+   `pull_inbox 0 0` returns **nothing** — the records were wiped by the semantic migration. ⛔ A returned record,
+   and especially one rendering as `"type":3`, is the failure this part exists to catch.
+3. ☐ The reported `epoch` is **exactly the pre-flash value + 1**, and the next new message takes a `seq`
+   **greater than** the pre-flash newest — a sequence is never reused.
+4. ☐ **Power-cycle twice more.** `epoch` must **not** move and the inbox must stay empty. ⛔ A climbing epoch on
+   quiet boots is the §10.1 ratchet (19.12's failure, arriving through the migration path).
+5. ☐ Send a fresh `send -a` DM and let it ack: `pull_inbox 0 0` shows the new receipt still rendering as
+   `"type":"e2e_ack"` — the companion's semantic string is unchanged even though the underlying byte moved 3 → 0x80.

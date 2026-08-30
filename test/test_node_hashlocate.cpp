@@ -351,7 +351,7 @@ TEST_CASE("L7 — a forged H ttl=255 is clamped to flood_hop_max on forward") {
 }
 
 // R4 (review): a relay must PRESERVE want_pubkey across an H forward. Otherwise a MULTI-HOP WANT_PUBKEY E2E bootstrap
-// reaches the owner with want_pubkey=0 -> the owner answers a plain hash-bind (no ed_pub) instead of the TYPE-5 pubkey
+// reaches the owner with want_pubkey=0 -> the owner answers a plain hash-bind (no ed_pub) instead of the AUTHORITATIVE_H_ANSWER_PUBKEY
 // -> the requester never caches the recipient's ed_pub -> e2e_seal_inner keeps returning no-pubkey. One-hop works; the
 // forward dropped the flag (fwd.want_pubkey defaulted false). The forwarded frame must carry want_pubkey=true.
 TEST_CASE("R4 handle_h — a forwarded WANT_PUBKEY query PRESERVES the flag (multi-hop E2E bootstrap)") {
@@ -1412,7 +1412,7 @@ TEST_CASE("L10 — an all-zero ECDH shared secret is REJECTED at seal AND open (
 }
 
 // =============================================================================
-// Phase 1 §6 — the over-the-air pubkey wire: WANT_PUBKEY query -> owner TYPE-5 answer -> cache.
+// Phase 1 §6 — the over-the-air pubkey wire: WANT_PUBKEY query -> owner AUTHORITATIVE_H_ANSWER_PUBKEY -> cache.
 // =============================================================================
 TEST_CASE("e2e pubkey wire — on_hash_bind_pubkey caches the owner's ed_pub (authoritative)") {
     TestHal hal; Node node(hal, 5, 0xABCD);
@@ -1477,14 +1477,14 @@ TEST_CASE("§2 reqpubkey without a crypto identity -> fail loud (h_want_pubkey_n
 
 // §2 MUTUAL — the WANT_PUBKEY owner CACHES the requester's key (from the H's appended pubkey) BEFORE answering, so it
 // can decrypt the requester's future sealed DMs (the exchange provisions BOTH directions in one round, no QR/2nd req).
-TEST_CASE("§2 handle_h — a WANT_PUBKEY owner CACHES the requester's key + answers TYPE-5") {
+TEST_CASE("§2 handle_h — a WANT_PUBKEY owner CACHES the requester's key + answers AUTHORITATIVE_H_ANSWER_PUBKEY") {
     TestHal hal;
     uint8_t oseed[32], rseed[32]; for (int i = 0; i < 32; ++i) { oseed[i] = uint8_t(i + 1); rseed[i] = uint8_t(200 - i); }
     Identity owner_id{}, req_id{}; identity_from_seed(owner_id, oseed); identity_from_seed(req_id, rseed);
     Node owner(hal, /*id=*/5, owner_id.key_hash32);                  // owner is authoritative for its OWN hash
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     owner.on_init(cfg);
-    owner.set_crypto_identity(owner_id.x_secret, owner_id.ed_pub);   // crypto_ready so it can answer TYPE-5
+    owner.set_crypto_identity(owner_id.x_secret, owner_id.ed_pub);   // crypto_ready so it can answer AUTHORITATIVE_H_ANSWER_PUBKEY
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
     std::array<uint8_t, 40> q{};                                     // a WANT_PUBKEY H for the owner's hash, carrying the requester's pubkey
@@ -1502,7 +1502,7 @@ TEST_CASE("§2 handle_h — a WANT_PUBKEY owner CACHES the requester's key + ans
     while (owner.next_push(pu)) if (pu.kind == PushKind::peer_key_cached && pu.sender_hash == req_id.key_hash32) { pushed = true; break; }
     CHECK(pushed);
     CHECK(find_ev(hal.events, "peer_key_cached") != nullptr);        // the §7-aligned telemetry (hash + node)
-    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") != nullptr);   // and it answers TYPE-5 (its own pubkey back)
+    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") != nullptr);   // and it answers AUTHORITATIVE_H_ANSWER_PUBKEY (its own pubkey back)
 }
 
 // §2 review#1 — the WANT_PUBKEY answer is gated on OWN-HASH (node_id==_node_id), NOT just `authoritative`. A non-owner
@@ -1528,7 +1528,7 @@ TEST_CASE("§2 review#1 — a non-owner cache-holder does NOT answer a SOFT WANT
     holder.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
     uint8_t out[32]; Node::PeerKeyConf pc{};
     CHECK_FALSE(holder.peer_key_find(req_id.key_hash32, out, &pc));  // did NOT cache the requester (we're not the owner)
-    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") == nullptr);   // and did NOT send a wrong-key TYPE-5
+    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") == nullptr);   // and did NOT send a wrong-key AUTHORITATIVE_H_ANSWER_PUBKEY
 }
 
 // §2 review#14 — a WANT_PUBKEY H is its OWN flood-dedup variant: a prior plain HARD H for the same (origin,hash) must
@@ -1759,7 +1759,7 @@ TEST_CASE("§AB2 peer_key_cached push — carries the STORED confidence (and a p
         return seen;
     };
     uint8_t conf = 0xFF;
-    // 1. An owner's TYPE-5 answer caches AUTHORITATIVE -> the push must say so. This is the row the app may seal to,
+    // 1. An owner's AUTHORITATIVE_H_ANSWER_PUBKEY caches AUTHORITATIVE -> the push must say so. This is the row the app may seal to,
     //    and before AB2 it was indistinguishable from `overheard`. ★ It is also != the field's 0 default, which is what
     //    makes this a real read of the table rather than a constant.
     node.on_hash_bind_pubkey(inner, static_cast<uint8_t>(n));
@@ -1810,10 +1810,10 @@ TEST_CASE("§S3 part2 — the HOME proxy-answer caches the requester key AND for
     uint8_t out[32]; Node::PeerKeyConf conf{};
     CHECK(home.peer_key_find(S.key_hash32, out, &conf));
     CHECK(conf == Node::PeerKeyConf::authoritative);
-    // (b) it answered the requester (TYPE-13) AND forwarded the requester's key to the mobile (TYPE-16)
+    // (b) it answered the requester (MOBILE_H_ANSWER_PUBKEY) AND forwarded the requester's key to the mobile (MOBILE_KEY_FORWARD)
     CHECK(find_ev(hal.events, "mobile_pubkey_answer_tx") != nullptr);
     CHECK(find_ev(hal.events, "mobile_key_forward_tx")   != nullptr);
-    // (c) wire golden: the queued TYPE-16 item -> addr_len=1, dst=local_id, inner = [origin][S.ed_pub 32][name_len=0]
+    // (c) wire golden: the queued MOBILE_KEY_FORWARD item -> addr_len=1, dst=local_id, inner = [origin][S.ed_pub 32][name_len=0]
     int fwd = -1;
     for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i) if (home.test_tx_type(i) == DATA_TYPE_MOBILE_KEY_FORWARD) { fwd = i; break; }
     CHECK(fwd >= 0);

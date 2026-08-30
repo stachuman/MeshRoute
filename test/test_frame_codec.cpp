@@ -1621,7 +1621,7 @@ TEST_CASE("DATA — golden APP frame (TYPE byte at offset 8; inner_off 9)") {
     const uint8_t inner[] = {0x09, 0x05, 0x00};
     const uint8_t mac[]   = {0, 0, 0, 0};
     data_in in{};
-    in.addr_len = 0; in.flags = 0; in.type = DATA_TYPE_E2E_ACK;   // 3
+    in.addr_len = 0; in.flags = 0; in.type = DATA_TYPE_E2E_ACK;   // 0x80 since §CUSTODY-A (was ordinal 3)
     in.next = 0x0B; in.dst = 0x0C;
     in.hops_remaining = 10; in.committed_hops = 2; in.prev_fwd_rt_hops = 3;
     in.ctr = 0x1234; in.inner = inner; in.mac = mac;
@@ -1629,7 +1629,7 @@ TEST_CASE("DATA — golden APP frame (TYPE byte at offset 8; inner_off 9)") {
     size_t n = pack_data(in, buf);
     CHECK(n == 16);   // 8 header + 1 TYPE + 3 inner + 4 MAC
     const uint8_t ex[] = {0x30, 0x80, 0x0B, 0x0C, 0x52, 0x03, 0x34, 0x12,
-                          0x03, 0x09, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00};
+                          0x80, 0x09, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00};   // byte 8 = TYPE (E2E_ACK: 3 -> 0x80, §CUSTODY-A)
     for (int i = 0; i < 16; ++i) CHECK(buf[i] == ex[i]);
 
     std::span<const uint8_t> fr(buf.data(), n);
@@ -2242,7 +2242,7 @@ TEST_CASE("§1c parse_unicast_inner — CRYPTED stops at dst_hash; origin is SEA
     }
 }
 
-TEST_CASE("hash-bind PUBKEY inner (DATA TYPE 5) — 34-B round-trip; <34 rejected") {
+TEST_CASE("hash-bind PUBKEY inner (DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) — 34-B round-trip; <34 rejected") {
     hash_bind_pubkey_inner in{}; in.target_layer = 5; in.node_id = 42;
     for (int i = 0; i < 32; ++i) in.ed_pub[i] = static_cast<uint8_t>(0x10 + i);
     uint8_t buf[40] = {};
@@ -2597,7 +2597,11 @@ TEST_CASE("§mobile 4a — hash_bind_inner: mobile variant packs the epoch (7 B)
     for (int i=0;i<6;i++) CHECK(nb[i]==mb[i]);               // ★ the 6-B prefix is identical (normal answer untouched)
 }
 
-TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; type 5 stays byte-identical") {
+TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; the pubkey answer keeps its envelope") {
+    // ⓘ RE-ANCHORED 2026-08-29 (§CUSTODY-A): only byte 8 (the TYPE) moved in every golden below —
+    //   H_ANSWER 1->0x88, AUTHORITATIVE_H_ANSWER 2->0x89, MOBILE_H_ANSWER 8->0x90,
+    //   MOBILE_H_ANSWER_PUBKEY 13->0x95, AUTHORITATIVE_H_ANSWER_PUBKEY 5->0x8B. Every other byte, the
+    //   frame lengths and the inner bodies are untouched, which is precisely what these goldens now pin.
     // Fixed DATA header shared by every golden below. The golden arrays pin the COMPLETE frame, including the
     // APP/type byte and four-byte plaintext trailer; the helper only centralises the standard envelope construction.
     auto check_frame = [](uint8_t type, std::span<const uint8_t> body, std::span<const uint8_t> expected) {
@@ -2631,20 +2635,20 @@ TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; type 5
     };
 
     const std::array<uint8_t, 6> hash_body = {0x07, 0x08, 0x44, 0x33, 0x22, 0x11};
-    const std::array<uint8_t, 20> type1 = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x01, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
+    const std::array<uint8_t, 20> g_h_answer = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x88, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
     };
-    const std::array<uint8_t, 20> type2 = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x02, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
+    const std::array<uint8_t, 20> g_auth_h_answer = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x89, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11, 0,0,0,0
     };
-    check_frame(DATA_TYPE_H_ANSWER, hash_body, type1);
-    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER, hash_body, type2);
+    check_frame(DATA_TYPE_H_ANSWER, hash_body, g_h_answer);
+    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER, hash_body, g_auth_h_answer);
 
     const std::array<uint8_t, 7> mobile_body = {0x07,0x08,0x44,0x33,0x22,0x11,0x09};
-    const std::array<uint8_t, 21> type8 = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x08, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11,0x09, 0,0,0,0
+    const std::array<uint8_t, 21> g_mobile_h_answer = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x90, 0x2A,0x07,0x08,0x44,0x33,0x22,0x11,0x09, 0,0,0,0
     };
-    check_frame(DATA_TYPE_MOBILE_H_ANSWER, mobile_body, type8);
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER, mobile_body, g_mobile_h_answer);
 
     std::array<uint8_t, 40> mobile_key_body{};
     mobile_key_body[0]=0x07; mobile_key_body[1]=0x08;
@@ -2652,21 +2656,21 @@ TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; type 5
     mobile_key_body[6]=0x09;
     for (uint8_t i=0; i<32; ++i) mobile_key_body[7+i]=static_cast<uint8_t>(0x10+i);
     mobile_key_body[39]=0;
-    const std::array<uint8_t, 54> type13_empty = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x0D, 0x2A,
+    const std::array<uint8_t, 54> g_mobile_h_answer_pubkey_empty = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x95, 0x2A,
         0x07,0x08,0x10,0x11,0x12,0x13,0x09,
         0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
         0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
         0x00, 0,0,0,0
     };
-    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_body, type13_empty);
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_body, g_mobile_h_answer_pubkey_empty);
 
     std::array<uint8_t, 72> mobile_key_name_body{};
     for (size_t i=0; i<mobile_key_body.size(); ++i) mobile_key_name_body[i]=mobile_key_body[i];
     mobile_key_name_body[39]=32;
     for (uint8_t i=0; i<32; ++i) mobile_key_name_body[40+i]=static_cast<uint8_t>(0xA0+i);
-    const std::array<uint8_t, 86> type13_name32 = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x0D, 0x2A,
+    const std::array<uint8_t, 86> g_mobile_h_answer_pubkey_name32 = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x95, 0x2A,
         0x07,0x08,0x10,0x11,0x12,0x13,0x09,
         0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
         0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
@@ -2675,20 +2679,21 @@ TEST_CASE("§B161 — typed hash answers have exact canonical DATA bytes; type 5
         0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF,
         0,0,0,0
     };
-    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_name_body, type13_name32);
+    check_frame(DATA_TYPE_MOBILE_H_ANSWER_PUBKEY, mobile_key_name_body, g_mobile_h_answer_pubkey_name32);
 
-    // Type 5 already used the standard envelope before B161. Its complete N=0 bytes are the positive control.
+    // The authoritative pubkey answer (ordinal 5 -> 0x8B) already used the standard envelope before B161.
+    // Its complete N=0 bytes are the positive control.
     std::array<uint8_t, 35> type5_body{};
     type5_body[0]=0x07; type5_body[1]=0x08;
     for (uint8_t i=0; i<32; ++i) type5_body[2+i]=static_cast<uint8_t>(0x10+i);
     type5_body[34]=0;
-    const std::array<uint8_t, 49> type5 = {
-        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x05, 0x2A,0x07,0x08,
+    const std::array<uint8_t, 49> g_auth_h_answer_pubkey = {
+        0x30,0x80,0x0B,0x0C,0x52,0x03,0x34,0x12,0x8B, 0x2A,0x07,0x08,
         0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
         0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
         0x00, 0,0,0,0
     };
-    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, type5_body, type5);
+    check_frame(DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, type5_body, g_auth_h_answer_pubkey);
 }
 
 TEST_CASE("§mobile 5a — LayerRecord codec round-trips (with a name, and name-less)") {

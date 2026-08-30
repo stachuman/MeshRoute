@@ -248,7 +248,7 @@ size_t write_team_key_export(char* buf, size_t cap, uint32_t team_id, const uint
 // same verb family). Its reasons: "no_team" · "no_key" · "no_identity" · "no_pubkey" · "self" · "delegated" ·
 // "too_large" · "bad_target". Two of them overlap `exportkey`'s by design: both verbs answer the same two questions.
 size_t write_team_key_err   (char* buf, size_t cap, const char* reason);
-// §team-ch-key (T-K3): `team grantkey <0xhash> [name="…"]` ACCEPTED — the sealed TYPE-19 grant is on its way. A
+// §team-ch-key (T-K3): `team grantkey <0xhash> [name="…"]` ACCEPTED — the sealed DATA_TYPE_TEAM_KEY_GRANT is on its way. A
 // DISTINCT success event (never `team_key_err` with a happy reason), carrying the correlation handle the app needs:
 //   `hash` = the target's key_hash32 (decimal u32, matching team_key_export's convention and peer_name's `hash`)
 //   `ctr`  = the DM ctr, or 0 when the send PARKED behind a hash resolve — the ordinary send-by-hash semantics
@@ -333,7 +333,7 @@ size_t write_peer_name_err(char* buf, size_t cap, const char* reason);
 size_t write_inbox_dm     (char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
                            uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len,
                            bool enc = false,    // §8b: "enc":true when the DM was delivered sealed; omitted (=false) otherwise
-                           uint8_t type = 0,    // the frame DATA_TYPE: 0 = a normal DM (field omitted); 3 (DATA_TYPE_E2E_ACK) -> "type":"e2e_ack" (a receipt)
+                           uint8_t type = 0,    // the frame DATA_TYPE (frame_codec.h): 0 = a normal DM (field omitted); DATA_TYPE_E2E_ACK -> "type":"e2e_ack" (a receipt); any other non-zero -> the numeric. ⛔ Named, never numeric ([[B265]]) — the value moved in the §CUSTODY-A namespace transition.
                            uint8_t origin_layer = 0);   // §GapA-durable: "origin_layer":N when the DM crossed layers; omitted (=0) for same-layer
 size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint8_t channel_id,
                            uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len,

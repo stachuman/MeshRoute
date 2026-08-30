@@ -515,7 +515,7 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //   byte 7   : H flags — bit 0 = HARD (skip the id_bind cache; resolve own-hash only -> reach the OWNER for
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
 enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
-                       H_FLAG_WANT_PUBKEY = 0x02,     // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
+                       H_FLAG_WANT_PUBKEY = 0x02,     // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY)
                        H_FLAG_TEAM = 0x04,            // §mobile-team: a teammate's locate -> appends team_id (4 B); a registered mobile answers ONLY a same-team query (else the home proxies)
                        H_FLAG_MOBILE_REQ = 0x08,      // §mobile: the requester (origin) is a MOBILE/team member -> its origin is a LOCAL id, not a global identity. The owner-answerer MUST NOT id_bind it (a WANT_PUBKEY seal-back caches by hash + routes via home/_rt_team, never the static id-plane). Backward-compat rsv bit (old senders 0, old receivers ignore).
                        H_FLAG_BY_ID = 0x10 };         // ★ §id-hash S4a (spec 2026-08-01 §4): bytes 2-5 are a ZERO-EXTENDED id, not a hash — "who owns id N?". 0x20/0x40/0x80 remain free.
@@ -531,7 +531,7 @@ inline constexpr bool h_by_id_key_canonical(uint32_t query_key32) { return query
 // §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
 // the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
 // §name: WITH the pubkey, a WANT_PUBKEY H also appends the requester's [name_len u8][name…] (iff name_len>0), AFTER the
-// team_id — so the owner caches hash->name too, symmetric to the TYPE-5/12/13 pubkey ANSWER frames. Optional/trailing:
+// team_id — so the owner caches hash->name too, symmetric to the AUTHORITATIVE_H_ANSWER_PUBKEY / MOBILE_PUBKEY_PUSH / MOBILE_H_ANSWER_PUBKEY ANSWER frames. Optional/trailing:
 // an old WANT_PUBKEY H (or one with no name) carries none -> name_len parses 0.
 // ★ §id-hash S4a — HONEST IN-MEMORY NAMING (spec §4). The field is `query_key32` because bytes 2-5 hold two
 // different things; `query_hash()` / `query_id()` name which one, and each answers 0 in the wrong mode — 0 is the
@@ -656,7 +656,7 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 //   byte 4     : hops_remaining(7..3, 5-bit 0..31) | committed_hops(2..0, 3-bit 0..7)
 //   byte 5     : prev_fwd_rt_hops (soft hop-gradient)
 //   bytes 6-7  : ctr (16-bit, LITTLE-endian)
-//   byte 8     : TYPE (present IFF flags & APP; enum DataType 1..255 — see DataType)
+//   byte 8     : TYPE (present IFF flags & APP; enum DataType — a RANGE contract, see DataType)
 //   bytes 8/9..: inner  (OPAQUE ciphertext slot, n bytes — crypto is a behaviour layer)
 //   last 4     : MAC    (OPAQUE 4-byte trailer)
 // bytes 2-7 are the FIXED routing header relays read regardless of APP; the TYPE byte sits where the old
@@ -678,8 +678,9 @@ inline constexpr size_t DATA_HDR_LEN     = 8;
 inline constexpr size_t DATA_HDR_MAX_LEN = DATA_HDR_LEN + 1;   // 9
 inline constexpr size_t DATA_MAC_LEN     = 4;
 // byte-1 FLAGS (full byte): combinable modifiers. APP gates a TYPE byte at offset 8. CROSS_LAYER (inner
-// layer-path), CRYPTED (sealed inner), E2E_ACK_REQ, LOCATION, SOURCE_HASH, DST_HASH are all LIVE;
-// PRIORITY is decoded-only. The inner layout is read from these flags (no payload-flags byte).
+// layer-path), CRYPTED (sealed inner), E2E_ACK_REQ, LOCATION, SOURCE_HASH, DST_HASH are all LIVE; so is 0x01,
+// but as DATA_FLAG_MS_ENCLOSED_TYPE, NOT as a priority (see the alias below). The inner layout is read from
+// these flags (no payload-flags byte).
 enum DataFlag : uint8_t {
     DATA_FLAG_APP         = 0x80,    // a TYPE byte (DataType) follows the 8-B header
     DATA_FLAG_CROSS_LAYER = 0x40,    // LIVE: the inner carries a cross-layer layer-path (full-byte ids, between dst_hash and origin)
@@ -695,12 +696,20 @@ enum DataFlag : uint8_t {
                                      // sender identity (default-on for app DMs); the E2E-ack also reads it. Sealed
                                      // under CRYPTED.
     DATA_FLAG_DST_HASH    = 0x02,    // the inner carries the recipient's key_hash32 (L2c verify-on-delivery)
-    DATA_FLAG_PRIORITY    = 0x01,    // decoded-only (no behaviour wired yet)
+    DATA_FLAG_PRIORITY    = 0x01,    // ⛔ THE NAME IS HISTORICAL AND THE BIT IS LIVE — see the alias below.
+                                     // CORRECTED 2026-08-29 (A0-F9): this said "decoded-only (no behaviour wired
+                                     // yet)" while THREE origination paths set it (node_channel.cpp:811,
+                                     // node_hashlocate.cpp:1742, :1754) and TWO receive paths branch on it
+                                     // (node_mac_rx.cpp:1581, :1638). ⇒ no PRIORITY semantics are wired, and
+                                     // this is NOT a spare codepoint.
     // §S2 same-layer delegated INTRO discriminator (spec §3b). The XL MOBILE_SEND wrapper always carries a 1-B
     // enclosed-type body prefix (keyed off has_cross_layer); the SAME-LAYER wrapper carries NONE (byte-identity,
-    // S1). When a same-layer wrapper must carry an enclosed type (a delegated INTRO), it borrows the PRIORITY bit
-    // (decode-only, NEVER set by any origination path -> a plain type-0 wrapper leaves it clear = byte-identical)
-    // as "enclosed-type byte present": wrapper body = [enclosed_type:1][payload]. The home strips both on unwrap.
+    // S1). When a same-layer wrapper must carry an enclosed type (a delegated INTRO), it borrows the 0x01 bit as
+    // "enclosed-type byte present": wrapper body = [enclosed_type:1][payload]. The home strips both on unwrap.
+    // ⛔ CORRECTED 2026-08-29 (A0-F9): this used to justify the borrow as "decode-only, NEVER set by any
+    // origination path" — already false when written, since THIS mechanism is one of the three origination paths
+    // that set it. The byte-identity claim survives (a plain type-0 wrapper still leaves the bit clear); the
+    // "spare bit" claim does not, and must not be offered again as free space.
     DATA_FLAG_MS_ENCLOSED_TYPE = DATA_FLAG_PRIORITY,   // alias (0x01): same-layer MOBILE_SEND wrapper enclosed-type marker
 };
 
@@ -737,31 +746,160 @@ inline constexpr size_t data_inner_cap(uint8_t flags, uint8_t type,
     return frame_cap > overhead ? frame_cap - overhead : size_t{0};
 }
 
-// byte-8 TYPE (enum, present IFF APP=1): mutually-exclusive message kinds. 0 is reserved/invalid (never on
-// the wire — APP=0 means no TYPE byte). AUTHORITATIVE is folded into the H_ANSWER code (1 vs 2); E2E_IS_ACK
-// became the E2E_ACK type. The H_ANSWER inner is cleartext so relays cache-on-pass.
+// byte-8 TYPE (enum, present IFF APP=1): mutually-exclusive message kinds. 0 = the ordinary untyped DM and is
+// never emitted as a TYPE byte (APP=0 means the byte is absent). ⚠ That is a property of `pack_data`, NOT a
+// receive guard: `parse_data` reads byte 8 whenever APP is set, so APP=1 with a 0x00 TYPE parses as type 0 with
+// the inner already offset past the byte (test §A0-3b). The H_ANSWER inner is cleartext so relays cache-on-pass.
+//
+// ★★ §CUSTODY-A (2026-08-29) — THE NAMESPACE. Numbers are no longer allocation order; they are a RANGE
+//    contract (design `2026-08-23-internal-data-and-custody-outcome-design.md` §5.1/§5.2):
+//        0x00        the ordinary untyped DM — no TYPE byte is emitted
+//        0x01..0x7F  application-bearing DATA types and envelopes
+//        0x80..0xBF  protocol-internal DATA
+//        0xC0..0xFD  reserved; not valid for origination
+//        0xFE        inbox-store tombstone ONLY (inbox.h) — never a wire DataType
+//        0xFF        invalid/reserved
+//    The gaps inside 0x80..0xBF are DELIBERATE: they leave blocks for core outcomes (0x80..), hash/key
+//    discovery (0x88..), mobility (0x90..) and administration/security (0xA0..) so a new member APPENDS
+//    inside its block instead of renumbering an existing one. ⛔ Subrange position is a convenience for
+//    readers, NOT a second behaviour authority — `data_type_traits()` below is the ONE authority, and the
+//    range predicate is the EXACT bounded form `data_type_is_internal()`, never `t & 0x80`.
+//    ⓘ These numbers are WIRE CONTRACT: after this transition, old and new firmware disagree on every typed
+//      frame, so the whole fleet reflashes together (M3 — MeshRoute is unshipped, so that is free).
+//      `protocol::wire_version` is deliberately UNCHANGED by owner ruling (§5.3); see the control in
+//      `test/test_data_type_namespace.cpp`.
 enum DataType : uint8_t {
-    DATA_TYPE_H_ANSWER               = 1,   // canonical plaintext-unicast inner; body = hash-bind answer [target_layer][node_id][key_hash32 LE] (6 B)
-    DATA_TYPE_AUTHORITATIVE_H_ANSWER = 2,   // same canonical envelope/body; the answer is the owner's (authoritative)
-    DATA_TYPE_E2E_ACK                = 3,   // normal-unicast inner; body = the acked ctr (2 B LE)
-    DATA_TYPE_H_ANSWER_PUBKEY               = 4,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
-    DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: canonical plaintext-unicast inner; body = [target_layer][node_id][ed_pub 32][name_len][name]. Already canonical before B161.
-    DATA_TYPE_REMOTE_CMD             = 6,   // OTA remote diagnostics (2026-06-24): inner body = a console-style query keyword
-    DATA_TYPE_REMOTE_RESP            = 7,   //   its response text. Plain inner, cleartext (honest-net diagnostic; E2E-seal is a later option).
-    // (TYPE 6 was CONFIG_ANSWER, removed 2026-06-22 — leaf config now rides the C control frame cmd 0xB; reused here.)
-    DATA_TYPE_MOBILE_H_ANSWER        = 8,   // §mobile 4a: canonical plaintext-unicast inner; body = [target_layer][home][mobile_hash LE][epoch] (7 B). Distinct TYPE -> cache M->home, NEVER id_bind, freshest epoch wins.
-    DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8][new_home_layer:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
-    DATA_TYPE_MOBILE_LAYER_QUERY     = 10,  // §mobile 5a: a mobile asks a gateway "list the layers you bridge" (SOURCE_HASH=M). Empty body.
-    DATA_TYPE_MOBILE_LAYER_ANSWER    = 11,  // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
-    DATA_TYPE_MOBILE_PUBKEY_PUSH     = 12,  // §mobile hash-locate Part 2 (Fix 6): a mobile pushes its ed_pub[32] to its home (1-hop DM, SOURCE_HASH=M) so the home can answer WANT_PUBKEY locates on its behalf. Re-sent on re-home. Body = ed_pub[32].
-    DATA_TYPE_MOBILE_H_ANSWER_PUBKEY = 13,  // §mobile hash-locate Part 2 (Fix 7): canonical plaintext-unicast inner; body = mobile hash-bind[7] + ed_pub[32] + name_len[1] + name[0..32]. Cache peer_key(M)+mobile_home(M->home), NEVER id_bind the local id.
-    DATA_TYPE_MOBILE_SEND            = 14,   // §mobile delegated hash-locate (2026-07-11): a registered mobile asks its HOME to send the enclosed PLAINTEXT payload to DST_HASH (the target). dst=home_id, SOURCE_HASH=mobile_hash. The home re-originates via send_by_hash (resolve/park) stamping source_hash=mobile_hash so the target's E2E-ack routes back to the mobile. A mobile NEVER hash-locates on the static plane (origin=local id -> RREQ storm). Home-only (_mobile_reg_n>0) -> static-inert.
-    DATA_TYPE_INTRO                  = 15,   // §S2 first-contact pubkey attach: a NORMAL plaintext app DM whose inner BODY is prefixed [ed_pub 32][name_len u8][name <=32] before the message text. Requires SOURCE_HASH; the ADDRESSED recipient verifies ed_pub[:4]==source_hash (peerkey self-consistency), peer_key_set(authoritative)+name (fires peer_key_cached), STRIPS the prefix, and delivers the remainder as a plain DM (inbox + msg_recv, enc absent, dedup (sender_hash,ctr) unchanged). Ride rule (D1): a plaintext hash-addressed send attaches INTRO iff we hold no peer_confirmed(dst) (no SEALED frame opened from dst yet) AND we have a crypto identity. s18-inert: no identity -> never attached, never received.
-    DATA_TYPE_MOBILE_KEY_FORWARD     = 16,   // §S3 part2: a HOME forwards a WANT_PUBKEY requester's key to its hosted mobile (1-hop last-mile, addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. The mobile caches it (self-consistency-checked) -> closes the recipient-side decrypt gap for the reqpubkey path (the mobile can now open the requester's sealed DM). Mobile-only consume; a static never sees it.
-    DATA_TYPE_SEALED_RELAY           = 17,   // §S4 encrypted cross-layer / delegated-sealed: a PLAINTEXT-framed DM (cleartext DST_HASH + SOURCE_HASH) whose BODY = [seal_ctr 2 LE][seed8 8][ciphertext‖tag]. The sender SEALED its text to DST_HASH under ITS OWN identity (source_hash) BEFORE the frame's MAC ctr existed (a mobile delegating to its home; or a static crossing a layer where the bridge re-issues the ctr), so the nonce ctr is CARRIED (seal_ctr) rather than the frame ctr — the frame ctr stays the originator/home's for MAC dedup. Routes/bridges/last-miles EXACTLY like any typed plaintext DM (no CRYPTED-frame changes; the crypto core stays SAME-LAYER-only). Recipient: directed open (source_hash in clear -> the sender's key, no trial), verify the SEALED source_hash == the clear source_hash (anti-spoof), IGNORE the sealed origin byte, deliver as a normal DM (enc=1). s18-inert (no identities -> no seals -> never emitted).
-    DATA_TYPE_CHANNEL_POST           = 18,   // §S7 T-B: an ENCLOSED-type marker (never a wire frame type) — a registered mobile delegates a GLOBAL/leaf channel post to its home. Rides a PLAINTEXT MOBILE_SEND wrapper (SOURCE_HASH=mobile, DST_HASH=mobile's own hash [placeholder, unused], DATA_FLAG_MS_ENCLOSED_TYPE) whose BODY = [DATA_TYPE_CHANNEL_POST][channel_id u8][text]. The home strips it + re-originates via do_send_channel under ITS OWN origin/ctr (anti-spam bills the home, deliberate). A mobile can't originate a leaf flood on the static plane (empty _rt), so the home posts. s18-inert (no mobiles -> never emitted).
-    DATA_TYPE_TEAM_KEY_GRANT         = 19,   // §team-ch-key T-K3 (spec 2026-07-26 §2.3): a keyholder GRANTS the team CONTENT keypair to a vetted teammate. BODY = [team_id u32 LE][name_len u8][team_name <= 32][tkpriv 32] = 37..69 B. ★ tkpub is NOT on the wire (a deliberate divergence from the spec's 5-field body): the receiver re-derives it from tkpriv via the SAME team_channel_key_derive T-K1 stores through, so a pub/priv mismatch is structurally impossible instead of something a cross-check must catch — and it saves 32 B of airtime on the SF6/BW125 links this is used over. ★★ MUST TRAVEL SEALED, enforced STRUCTURALLY at the three places the invariant could break, not at the caller: enqueue_data refuses a non-CRYPTED type-19 origination, enqueue_cross_layer refuses type-19 outright (e2e_seal_inner is same-layer-only, so an XL type-19 could only be cleartext), and send_by_hash refuses to DELEGATE it (the MOBILE_SEND wrapper's single enclosed-type slot is already spent on DATA_TYPE_SEALED_RELAY, so the 19 would be silently LOST and 37 raw key bytes would land in the peer's inbox as text). ⇒ v1 transports = same-layer CRYPTED, team-plane CRYPTED (leaf-exempt, so an off-grid member on another leaf nibble IS reachable), and a home's CRYPTED last-mile to a hosted mobile. Receipt: a type-19 that arrived UNSEALED is dropped loud (a plaintext grant is a bug or an attack); consumed, NEVER inbox'd or delivered as a DM. s18-inert (no identities -> no seals -> never emitted).
+    // ---- 0x01..0x7F — application-bearing types and envelopes -------------------------------------------
+    DATA_TYPE_INTRO                         = 0x01,   // §S2 first-contact pubkey attach: a NORMAL plaintext app DM whose inner BODY is prefixed [ed_pub 32][name_len u8][name <=32] before the message text. Requires SOURCE_HASH; the ADDRESSED recipient verifies ed_pub[:4]==source_hash (peerkey self-consistency), peer_key_set(authoritative)+name (fires peer_key_cached), STRIPS the prefix, and delivers the remainder as a plain DM (inbox + msg_recv, enc absent, dedup (sender_hash,ctr) unchanged). Ride rule (D1): a plaintext hash-addressed send attaches INTRO iff we hold no peer_confirmed(dst) (no SEALED frame opened from dst yet) AND we have a crypto identity. s18-inert: no identity -> never attached, never received.
+    DATA_TYPE_MOBILE_SEND                   = 0x02,   // §mobile delegated hash-locate (2026-07-11): a registered mobile asks its HOME to send the enclosed PLAINTEXT payload to DST_HASH (the target). dst=home_id, SOURCE_HASH=mobile_hash. The home re-originates via send_by_hash (resolve/park) stamping source_hash=mobile_hash so the target's E2E-ack routes back to the mobile. A mobile NEVER hash-locates on the static plane (origin=local id -> RREQ storm). Home-only (_mobile_reg_n>0) -> static-inert.
+    DATA_TYPE_SEALED_RELAY                  = 0x03,   // §S4 encrypted cross-layer / delegated-sealed: a PLAINTEXT-framed DM (cleartext DST_HASH + SOURCE_HASH) whose BODY = [seal_ctr 2 LE][seed8 8][ciphertext‖tag]. The sender SEALED its text to DST_HASH under ITS OWN identity (source_hash) BEFORE the frame's MAC ctr existed (a mobile delegating to its home; or a static crossing a layer where the bridge re-issues the ctr), so the nonce ctr is CARRIED (seal_ctr) rather than the frame ctr — the frame ctr stays the originator/home's for MAC dedup. Routes/bridges/last-miles EXACTLY like any typed plaintext DM (no CRYPTED-frame changes; the crypto core stays SAME-LAYER-only). Recipient: directed open (source_hash in clear -> the sender's key, no trial), verify the SEALED source_hash == the clear source_hash (anti-spoof), IGNORE the sealed origin byte, deliver as a normal DM (enc=1). s18-inert (no identities -> no seals -> never emitted).
+    DATA_TYPE_CHANNEL_POST                  = 0x04,   // §S7 T-B: an ENCLOSED-type marker — a registered mobile delegates a GLOBAL/leaf channel post to its home. Rides a PLAINTEXT MOBILE_SEND wrapper (SOURCE_HASH=mobile, DST_HASH=mobile's own hash [placeholder, unused], DATA_FLAG_MS_ENCLOSED_TYPE) whose BODY = [DATA_TYPE_CHANNEL_POST][channel_id u8][text]. ⚠ "enclosed-type marker" describes the ORIGINATION set and is NOT an enforced invariant (A0-F4): nothing rejects this value as an OUTER TYPE byte — an outer one has no `pa.type` arm at all and falls through to ordinary DM delivery (node_mac_rx.cpp:1936), and a crafted wrapper whose body is exactly [0x04] re-originates with type=0x04 (node_mac_rx.cpp:1639/:1646, XL :1597/:1611). The enclosed-type allow-list that would enforce it is Slice B's. The home strips it + re-originates via do_send_channel under ITS OWN origin/ctr (anti-spam bills the home, deliberate). A mobile can't originate a leaf flood on the static plane (empty _rt), so the home posts. s18-inert (no mobiles -> never emitted).
+    // ★ RESERVED, UNIMPLEMENTED: the separate channel/app-code design owns its behaviour (docs/superpowers/specs/2026-08-05-channel-app-code-draft.md). The NUMBER is claimed here so that design
+    //   appends into the application block instead of renumbering it; nothing produces or consumes it, and `data_type_traits()` reports it `known = false`
+    //   on purpose — reserving a number is not knowing the type, so it takes the application range's UNKNOWN behaviour until the app-code design lands.
+    DATA_TYPE_APP_MESSAGE                   = 0x05,   // application envelope — RESERVED ONLY (see above); ⛔ no producer, no consumer, no trait knowledge
+
+    // ---- 0x80..0xBF — protocol-internal DATA ------------------------------------------------------------
+    //   0x80.. core outcomes · 0x88.. hash/key discovery · 0x90.. mobility · 0xA0.. administration/security.
+    //   ⛔ 0x81 is DELIBERATELY ABSENT: it is the forward reservation for DATA_TYPE_CUSTODY_FAILURE, added by
+    //      the custody-codec slice (design §5.2/§17-F). Until then it is an UNALLOCATED internal value.
+    DATA_TYPE_E2E_ACK                       = 0x80,   // normal-unicast inner; body = the acked ctr (2 B LE)
+    DATA_TYPE_H_ANSWER                      = 0x88,   // canonical plaintext-unicast inner; body = hash-bind answer [target_layer][node_id][key_hash32 LE] (6 B)
+    DATA_TYPE_AUTHORITATIVE_H_ANSWER        = 0x89,   // same canonical envelope/body; the answer is the owner's (authoritative)
+    DATA_TYPE_H_ANSWER_PUBKEY               = 0x8A,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
+    DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 0x8B,   // E2E §6: canonical plaintext-unicast inner; body = [target_layer][node_id][ed_pub 32][name_len][name]. Already canonical before B161.
+    DATA_TYPE_MOBILE_H_ANSWER               = 0x90,   // §mobile 4a: canonical plaintext-unicast inner; body = [target_layer][home][mobile_hash LE][epoch] (7 B). Distinct TYPE -> cache M->home, NEVER id_bind, freshest epoch wins.
+    DATA_TYPE_MOBILE_BREADCRUMB             = 0x91,   // §mobile 4b: the NEW home tells the mobile's OLD home "it re-homed here" (node_join.cpp:1235, the D10 replacement — ⛔ there is NO mobile-side producer; the older wording said the moved mobile sends it, A0-F12); body [new_home_id:u8][new_epoch:u8][new_home_layer:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
+    DATA_TYPE_MOBILE_LAYER_QUERY            = 0x92,   // §mobile 5a: a mobile asks a gateway "list the layers you bridge" (SOURCE_HASH=M). Empty body.
+    DATA_TYPE_MOBILE_LAYER_ANSWER           = 0x93,   // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
+    DATA_TYPE_MOBILE_PUBKEY_PUSH            = 0x94,   // §mobile hash-locate Part 2 (Fix 6) — ⛔ RETIRED (A0-F10), ALLOCATED BUT NEVER EMITTED: ZERO producers and ZERO consumers in the tree; its addressed handler was deleted (node_mac_rx.cpp:1766-1768) and key custody now rides the presence probe's HAS_PUBKEY block (node_join.cpp:798). The number is HELD, not reused, so an old build's stray frame can never be read as something else. Historically: a mobile pushed its ed_pub[32] to its home (1-hop DM, SOURCE_HASH=M); body = ed_pub[32].
+    DATA_TYPE_MOBILE_H_ANSWER_PUBKEY        = 0x95,   // §mobile hash-locate Part 2 (Fix 7): canonical plaintext-unicast inner; body = mobile hash-bind[7] + ed_pub[32] + name_len[1] + name[0..32]. Cache peer_key(M)+mobile_home(M->home), NEVER id_bind the local id.
+    DATA_TYPE_MOBILE_KEY_FORWARD            = 0x96,   // §S3 part2: a HOME forwards a WANT_PUBKEY requester's key to its hosted mobile (1-hop last-mile, addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. The mobile caches it (self-consistency-checked) -> closes the recipient-side decrypt gap for the reqpubkey path (the mobile can now open the requester's sealed DM). Mobile-only consume — ⚠ an ADDRESSING CONVENTION, NOT ENFORCED (A0-F11): the consuming fork is gated on `is_mobile` AND `#if MR_FEAT_MOBILE` (node_mac_rx.cpp:1790-1799), so on a static / gateway / MR_FEAT_MOBILE=0 build an addressed one falls through to the deliver tail and the 32-B requester key lands in the inbox as message text. Slice B's fail-closed internal-range arm is what will actually enforce it.
+    DATA_TYPE_REMOTE_CMD                    = 0xA0,   // OTA remote diagnostics (2026-06-24): inner body = a console-style query keyword
+    DATA_TYPE_REMOTE_RESP                   = 0xA1,   //   its response text. Plain inner, cleartext (honest-net diagnostic; E2E-seal is a later option).
+    // (ⓘ HISTORY: these two were ordinals 6/7 before the §CUSTODY-A namespace transition, and ordinal 6 was CONFIG_ANSWER
+    //  before that — removed 2026-06-22, leaf config rides the C control frame cmd 0xB. Ordinals 6/7 are now UNALLOCATED
+    //  application-range values; nothing translates them, by ruling §5.3.)
+    DATA_TYPE_TEAM_KEY_GRANT                = 0xA2,   // §team-ch-key T-K3 (spec 2026-07-26 §2.3): a keyholder GRANTS the team CONTENT keypair to a vetted teammate. BODY = [team_id u32 LE][name_len u8][team_name <= 32][tkpriv 32] = 37..69 B. ★ tkpub is NOT on the wire (a deliberate divergence from the spec's 5-field body): the receiver re-derives it from tkpriv via the SAME team_channel_key_derive T-K1 stores through, so a pub/priv mismatch is structurally impossible instead of something a cross-check must catch — and it saves 32 B of airtime on the SF6/BW125 links this is used over. ★★ MUST TRAVEL SEALED, enforced STRUCTURALLY at the three places the invariant could break, not at the caller: enqueue_data refuses a non-CRYPTED TEAM_KEY_GRANT origination, enqueue_cross_layer refuses one outright (e2e_seal_inner is same-layer-only, so an XL TEAM_KEY_GRANT could only be cleartext), and send_by_hash refuses to DELEGATE it (the MOBILE_SEND wrapper's single enclosed-type slot is already spent on DATA_TYPE_SEALED_RELAY, so the grant would be silently LOST and 37 raw key bytes would land in the peer's inbox as text). ⇒ v1 transports = same-layer CRYPTED, team-plane CRYPTED (leaf-exempt, so an off-grid member on another leaf nibble IS reachable), and a home's CRYPTED last-mile to a hosted mobile. Receipt: a TEAM_KEY_GRANT that arrived UNSEALED is dropped loud (a plaintext grant is a bug or an attack); consumed, NEVER inbox'd or delivered as a DM. s18-inert (no identities -> no seals -> never emitted).
 };
+
+// ★★★ §CUSTODY-A — THE RANGE PREDICATE, IN ITS EXACT BOUNDED FORM (design §5.1).
+// ⛔⛔ NEVER `t & 0x80`. The high-bit test is the tempting one-liner and it is WRONG: it admits the whole
+//     reserved `0xC0..0xFD` block, the inbox-only `0xFE` tombstone and the invalid `0xFF` as "protocol-internal
+//     DATA". Those are not internal types; they are values no origination may use, and Slice B's fail-closed
+//     internal arm must not adopt them. The bound is closed at BOTH ends, deliberately.
+inline constexpr uint8_t data_type_app_lo      = 0x01;   // application range, inclusive
+inline constexpr uint8_t data_type_app_hi      = 0x7F;
+inline constexpr uint8_t data_type_internal_lo = 0x80;   // protocol-internal range, inclusive
+inline constexpr uint8_t data_type_internal_hi = 0xBF;
+constexpr bool data_type_is_internal(uint8_t t) {
+    return t >= data_type_internal_lo && t <= data_type_internal_hi;
+}
+// The application range is likewise CLOSED — 0x00 (the untyped DM) is not in it, and neither is anything
+// above 0x7F. `data_type_is_internal` and this are complements only INSIDE 0x01..0xBF; 0x00 and 0xC0..0xFF
+// are outside both, which is the fact the reserved rows depend on.
+constexpr bool data_type_is_application(uint8_t t) {
+    return t >= data_type_app_lo && t <= data_type_app_hi;
+}
+
+// ★★★ §CUSTODY-A — THE ONE DATA-TYPE TRAIT AUTHORITY (design §6.1).
+// One constexpr, no-RAM answer per type. It exists so the MAC, the inbox, the JSON encoder and the UI stop
+// keeping parallel exact-type lists (§6.1: "there must not be parallel lists"); §3.2 of the A0 matrix counts
+// six such duplications today, two of which are the hand-copied DM-floor exemption written out twice.
+//
+// ⛔⛔ SLICE-A SCOPE, STATED SO IT IS NOT OVER-READ: this authority LANDS here and is proved by a table-driven
+//     native test (`test/test_data_type_namespace.cpp`). ⛔ NOTHING CONSUMES IT YET. Replacing the duplicated
+//     lists and wiring the fail-closed unknown-internal arm is Slice B's behaviour change, kept out of this
+//     slice on purpose so the namespace transition's corpus movement stays attributable (C1).
+//
+// THE FIELDS, and what each does NOT mean:
+//   known                   — this exact value is an ALLOCATED, UNDERSTOOD type. ★ Reserving a number is NOT
+//                             knowing the type: `APP_MESSAGE` (0x05, reserved for the app-code design),
+//                             `H_ANSWER_PUBKEY` (0x8A, never emitted) and the RETIRED `MOBILE_PUBKEY_PUSH`
+//                             (0x94) are all `known = false` and therefore take their RANGE's unknown
+//                             behaviour, which is the safe direction in both ranges.
+//   internal                — exactly `data_type_is_internal(t)`. ⛔ §6.3: this is NOT a custody-report
+//                             exclusion, NOT sealing, NOT trust, NOT priority and NOT an airtime exemption.
+//   application_bearing     — carries logical user/application intent (§6.4), so the envelope types keep the
+//                             user pacing and outcome of the logical send even though they are unwrapped.
+//   generic_send_lifecycle  — may emit the generic send_blocked/send_acked/send_failed/send_aired family
+//                             (§6.2(5)). Internal types may not; their protocol-specific results are
+//                             untouched (§6.2(6)).
+//   persistent_outcome      — is written to inbox storage as a durable internal OUTCOME record (§7.1).
+//                             ★ EXACT MEMBERSHIP AT SLICE A = { E2E_ACK }. CUSTODY_FAILURE joins it when the
+//                             custody-codec slice adds 0x81. ⛔ This trait is about INTERNAL outcome records
+//                             only — ordinary application-message inbox persistence is `record_dm`'s path and
+//                             is not this flag's subject.
+struct DataTypeTraits {
+    bool known;
+    bool internal;
+    bool application_bearing;
+    bool generic_send_lifecycle;
+    bool persistent_outcome;
+};
+
+constexpr DataTypeTraits data_type_traits(uint8_t t) {
+    switch (t) {
+        // 0x00 — the ordinary untyped DM. Known, application-bearing, full generic lifecycle.
+        case 0x00:
+            return DataTypeTraits{ true,  false, true,  true,  false };
+        // 0x01..0x04 — the KNOWN application envelopes/markers (§6.4). 0x05 APP_MESSAGE is deliberately NOT
+        // here: it is a reservation, so it falls to the unknown-application arm below.
+        case DATA_TYPE_INTRO:
+        case DATA_TYPE_MOBILE_SEND:
+        case DATA_TYPE_SEALED_RELAY:
+        case DATA_TYPE_CHANNEL_POST:
+            return DataTypeTraits{ true,  false, true,  true,  false };
+        // 0x80 — the one durable internal OUTCOME today.
+        case DATA_TYPE_E2E_ACK:
+            return DataTypeTraits{ true,  true,  false, false, true  };
+        // the KNOWN internal types with a live consumer. ⛔ 0x8A and 0x94 are NOT here (see below).
+        case DATA_TYPE_H_ANSWER:
+        case DATA_TYPE_AUTHORITATIVE_H_ANSWER:
+        case DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY:
+        case DATA_TYPE_MOBILE_H_ANSWER:
+        case DATA_TYPE_MOBILE_BREADCRUMB:
+        case DATA_TYPE_MOBILE_LAYER_QUERY:
+        case DATA_TYPE_MOBILE_LAYER_ANSWER:
+        case DATA_TYPE_MOBILE_H_ANSWER_PUBKEY:
+        case DATA_TYPE_MOBILE_KEY_FORWARD:
+        case DATA_TYPE_REMOTE_CMD:
+        case DATA_TYPE_REMOTE_RESP:
+        case DATA_TYPE_TEAM_KEY_GRANT:
+            return DataTypeTraits{ true,  true,  false, false, false };
+        default:
+            break;
+    }
+    // ⛔ EVERYTHING ELSE FALLS TO ITS RANGE, and that is the whole design: a value nobody has taught this
+    //    authority about must behave like an unknown of its range, never like a neighbour that happens to
+    //    share a subrange. `APP_MESSAGE` (0x05), the reserved `0x8A`, the retired `0x94` and the forward-
+    //    reserved `0x81` all arrive here — each `known = false`, each taking its range's rule.
+    if (data_type_is_application(t)) return DataTypeTraits{ false, false, true,  true,  false };
+    if (data_type_is_internal(t))    return DataTypeTraits{ false, true,  false, false, false };
+    // 0xC0..0xFD reserved · 0xFE the inbox-store tombstone (never a wire DataType) · 0xFF invalid.
+    // Outside both ranges: not internal, and NOT application-bearing either — no origination may use them.
+    return DataTypeTraits{ false, false, false, false, false };
+}
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).
 // Wire: [layer_id u8][freq_khz u32 LE][sf u8][bw_hz u32 LE][name_len u8][name … name_len]. freq_khz = MHz×1000.
@@ -939,7 +1077,7 @@ struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_has
 size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out, bool mobile = false);  // 6; 7 if mobile (+epoch); 0 on short buf
 std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: < 6 B; reads a 7th epoch byte when present (mobile)
 
-// Hash-bind PUBKEY answer BODY prefix (E2E §6, DATA TYPE 5): [target_layer 1][node_id 1][ed_pub 32] = 34 B.
+// Hash-bind PUBKEY answer BODY prefix (E2E §6, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 0x8B): [target_layer 1][node_id 1][ed_pub 32] = 34 B.
 // Its producer appends [name_len][name] and the standard enqueue path supplies the canonical unicast envelope.
 // The key_hash32 is DROPPED (== ed_pub[:4]; the cacher derives + verifies it). CLEARTEXT so relays cache-on-pass.
 struct hash_bind_pubkey_inner { uint8_t target_layer; uint8_t node_id; uint8_t ed_pub[32]; };

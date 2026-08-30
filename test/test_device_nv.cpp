@@ -303,7 +303,7 @@ TEST_CASE("device_nv/AB1: the name is MUTABLE and refreshed; an EMPTY name keeps
 }
 
 TEST_CASE("device_nv/AB1: `unchanged` IS THE FLASH-WEAR GUARD — a byte-identical re-cache reports no write") {
-    // v2 made EVERY on-air key-learn a write candidate, and a TYPE-5 cache-on-pass flood can re-learn the same key
+    // v2 made EVERY on-air key-learn a write candidate, and an AUTHORITATIVE_H_ANSWER_PUBKEY cache-on-pass flood can re-learn the same key
     // repeatedly. Without this the store would take one whole-blob flash write per re-learn. The guard is a
     // whole-RECORD byte compare, which is only valid because peer_rec_merge zeroes the name tail AND _pad.
     PeerBlob b{}; peers_blob_init(b);

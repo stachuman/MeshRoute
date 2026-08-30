@@ -1020,7 +1020,7 @@ inline bool save(const Blob& b) {
     // read-before-write to them would be a real behaviour change (an extra flash read per save) smuggled inside a
     // refactor. This is a deliberate asymmetry, NOT missed dedup.
     // ⚠ /mrpeers IS NOW HAMMERABLE and is guarded DIFFERENTLY: §AB1 made every on-air key-learn a write candidate
-    // (a TYPE-5 cache-on-pass flood can re-cache the same key repeatedly), so the dedup lives one level down in
+    // (an AUTHORITATIVE_H_ANSWER_PUBKEY cache-on-pass flood can re-cache the same key repeatedly), so the dedup lives one level down in
     // mrnv::peer_rec_put, which returns `unchanged` on a byte-identical record and the caller then does not call
     // save_peers at all. That is CHEAPER than this whole-blob memcmp — no second 1160-B buffer, and no extra read.
     // No existing/unreadable record (the load fails) => always write (first provision).

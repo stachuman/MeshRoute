@@ -57,8 +57,13 @@ inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes 
 //   Why the `type` byte and not a new header field: the record layout is UNCHANGED, so every already-stored record
 //   stays parseable and NO store-format version bump is needed. That is not contorting the encoding to dodge a bump
 //   (M3 — a bump would be free); it is that a bump here would WIPE the on-node history to buy nothing.
-//   Why 0xFE and not 0xFF: `type` holds a frame DataType (frame_codec.h:574 — 1..19 allocated, sequentially, from 1),
-//   so the top of the space is the farthest from that allocator; 0xFF is skipped because it is the ERASED-FLASH byte
+//   Why 0xFE and not 0xFF: `type` holds a frame DataType, and since the §CUSTODY-A namespace transition the whole
+//   DataType space is bounded ABOVE by the protocol-internal range's top, `data_type_internal_hi` = 0xBF
+//   (frame_codec.h). ⇒ 0xFE cannot collide with any DataType STRUCTURALLY, not merely by staying ahead of a
+//   sequential allocator — a static_assert in test/test_data_type_namespace.cpp pins that ordering. ⛔ CORRECTED
+//   2026-08-29: this used to read "1..19 allocated, sequentially, from 1", which stopped being true with the
+//   transition (values are a RANGE contract now, and 0x05/0x8A/0x94 are allocated-but-not-live). 0xFF is skipped
+//   because it is the ERASED-FLASH byte
 //   and a value that a blank region could decode into is a bad discriminator, even though the segment framing
 //   ([u16 framed_len], rejected when < 6 or past the segment) already stops a blank region from parsing at all.
 inline constexpr uint8_t inbox_rec_type_tombstone = 0xFE;

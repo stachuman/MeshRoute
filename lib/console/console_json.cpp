@@ -1,6 +1,7 @@
 // MeshRoute — lib/console/console_json.cpp
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #include "console_json.h"
+#include "frame_codec.h"   // MESHROUTE_NS::DATA_TYPE_E2E_ACK — the ONE authority for the DM `type` byte ([[B265]])
 #include <cstdio>
 #include <cstring>
 
@@ -140,7 +141,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::mobile_reg:    return "mobile_reg";         // §S2: mobile registration change (registered/home-lost)
         case PushKind::team_reg:      return "team_reg";           // §S2: team-DAD id adopted/re-picked
         case PushKind::join_adopted:  return "join_adopted";       // a DAD/join adopt landed (id may have changed)
-        case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed TYPE-19 DM (already adopted)
+        case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed DATA_TYPE_TEAM_KEY_GRANT DM (already adopted)
         case PushKind::team_channel_no_key: return "team_channel_no_key";   // §chan-crypt CL2a: a CRYPTED team channel post arrived and we cannot read it (no key, or a stale one) -> the app prompts for a grant. Rate-limited node-side.
         case PushKind::send_aired:    return "send_aired";          // §T3: a locally-originated DM/channel post physically left the radio (TxDone). NOT an ack and NOT terminal — the send-level outcome still follows.
     }
@@ -534,9 +535,14 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8
                       uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc, uint8_t type, uint8_t origin_layer) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_dm\"");
-    // The DATA_TYPE rides right after "ev". 0 = normal DM -> OMITTED (common case; wire-unchanged). 3 = DATA_TYPE_E2E_ACK
-    // (frame_codec.h) -> a receipt -> "e2e_ack"; any other non-zero -> the numeric (never drop the distinction silently).
-    if (type == 3)      j.lit(",\"type\":\"e2e_ack\"");
+    // The DATA_TYPE rides right after "ev". 0 = normal DM -> OMITTED (common case; wire-unchanged);
+    // DATA_TYPE_E2E_ACK -> a receipt -> "e2e_ack"; any other non-zero -> the numeric (never drop the distinction
+    // silently). ⛔ THE COMPARISON IS SYMBOLIC, NOT NUMERIC ([[B265]], closed 2026-08-29 by §CUSTODY-A): this read
+    // `type == 3` while nothing bound the 3 to the enum, and the namespace transition made 3 mean
+    // DATA_TYPE_SEALED_RELAY — an E2E receipt would have rendered as "type":128 and a sealed relay as a receipt.
+    // ⓘ `frame_codec.h` was already reachable here transitively (console_json.h -> node.h -> frame_codec.h); the
+    //   include at the top of this TU just says so. The "keep this file free of inbox.h" rule is about INBOX types and is unaffected.
+    if (type == MESHROUTE_NS::DATA_TYPE_E2E_ACK) j.lit(",\"type\":\"e2e_ack\"");
     else if (type != 0) { j.lit(",\"type\":"); j.u32(type); }
     j.lit(",\"seq\":");         j.u32(seq);
     j.lit(",\"origin\":");      j.u32(origin);

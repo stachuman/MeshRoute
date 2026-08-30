@@ -32,7 +32,7 @@
 //   GRANT ITSELF** — the one forward to `Node::team_key_grant_send` on `Plane::TEAM`, the EIGHT-arm outcome mapping
 //   and the `{dst, ctr}` `send_aired` correlation (the bottom block of this file).
 //   ⛔ WHAT IS STILL NOT HERE, by scope: the RECEIVING half. This node never learns that its grant was READ — there
-//   is no e2e ack on a type-19 — and the joiner's own durable `TEAM KEY RECEIVED` note is K3/K4's.
+//   is no e2e ack on a DATA_TYPE_TEAM_KEY_GRANT — and the joiner's own durable `TEAM KEY RECEIVED` note is K3/K4's.
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -508,7 +508,7 @@ inline const char* invite_confirm_label(bool grant) { return grant ? kInviteGran
 //     returns an EXPLICIT dispatch outcome and this mapper reads it: `parked` is shown ⛔ ONLY for the explicitly
 //     STORED park (S-37's own rule), and the admission refusal gets its own word, `GRANT QUEUE FULL` (S-38), which
 //     ⛔ may never be collapsed into `GRANT FAILED` — that word belongs to the CORRELATED in-flight failure.
-// ⛔⛔ AND THERE IS **NO E2E ACK ON A GRANT** (`lib/core/node_mac_rx.cpp` consumes the type-19 as control traffic and
+// ⛔⛔ AND THERE IS **NO E2E ACK ON A GRANT** (`lib/core/node_mac_rx.cpp` consumes the DATA_TYPE_TEAM_KEY_GRANT as control traffic and
 //     answers nothing), so ⛔ NO arm here may print `JOIN COMPLETE` (S-32), `KEY RECEIVED`, or any other completion
 //     word: this node cannot know that the grant was received, and the joiner's own `TEAM KEY RECEIVED` (S-25) is a
 //     different node's screen, reached from its own push.

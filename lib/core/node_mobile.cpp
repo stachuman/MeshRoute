@@ -303,7 +303,7 @@ void Node::mobile_claim_adopt() {
     // §S6/D10: the mobile-sent breadcrumb is RETIRED — the NEW home now originates the old-home notify (it survives a
     // mobile that sleeps right after adopting, and it holds the mesh/XL route). last_home rides the j_discover +3 B block
     // (packed in mobile_discover_fire from the captured old_home). §S6 A.4: the E2E key rides the FIRST probe's HAS_PUBKEY
-    // block (RETIRES the TYPE-12 push + its race); the roster's has_key bit confirms custody. (void)old_home below.
+    // block (RETIRES the DATA_TYPE_MOBILE_PUBKEY_PUSH push + its race); the roster's has_key bit confirms custody. (void)old_home below.
     (void)old_home;
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));

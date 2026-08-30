@@ -104,14 +104,20 @@ would be misread as an app code.
 
 | transport | envelope-presence carrier | where the envelope sits | v1 validation |
 |---|---|---|---|
-| ordinary DM | new `DATA_TYPE_APP_MESSAGE = 21` | DM body | code must be `1..127` |
+| ordinary DM | `DATA_TYPE_APP_MESSAGE = 0x05` (RESERVED by §CUSTODY-A Slice A, 2026-08-29 — the enum member exists with no behaviour; was "new … = 21") | DM body | code must be `1..127` |
 | plaintext channel M | new `channel_flavor_app = 0x20` | M body | code must be `128..255` |
 | sealed channel M | new `channel_inner_flag_app = 0x08` | after the existing sealed-inner fixed fields, in the current text/body region | code must be `128..255`; outer `channel_flavor_app` must be clear |
 
-`21` is proposed deliberately: live `DataType` values occupy `1..19`, and the parked B59 notice spec reserves `20`
-for `DATA_TYPE_CUSTODY_FAILURE`. **`DATA_TYPE_APP_MESSAGE` is only a transport wrapper.** It never means app code 21,
-and it is not exposed to users as the application operation. `DATA_FLAG_APP` remains derived from non-zero
-`DataType`, exactly as today.
+⛔ **CORRECTED 2026-08-29 (§CUSTODY-A) — the withdrawn paragraph read:** *"`21` is proposed deliberately: live
+`DataType` values occupy `1..19`, and the parked B59 notice spec reserves `20` for `DATA_TYPE_CUSTODY_FAILURE`."*
+**`0x05` is ALLOCATED, not proposed.** The namespace transition put application-bearing types in `0x01..0x7F` and
+reserved `0x05` for this design, so the app-code work appends behaviour to an existing member rather than claiming
+a number. `DATA_TYPE_CUSTODY_FAILURE` is likewise reserved at `0x81`, not 20. **`DATA_TYPE_APP_MESSAGE` is only a
+transport wrapper** — it never means app code 5, and it is not exposed to users as the application operation.
+Until this design lands it is `known = false` in `data_type_traits()`, so it takes the application range's unknown
+behaviour; implementing it means adding it to the known-application set in the same slice. `DATA_FLAG_APP` remains
+derived from a non-zero `DataType`, exactly as today. (`DATA_TYPE_SEALED_RELAY` is now `0x03`; the enclosed-type
+field it must carry per the section below is `0` or `0x05`.)
 
 ★ The sealed channel's inner bit is authenticated because it is in the AEAD plaintext. The outer bit is correct for
 plaintext because there is no stronger authenticity to preserve there. A sealed frame with the outer app bit set, or

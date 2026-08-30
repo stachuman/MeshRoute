@@ -255,7 +255,18 @@ private:
     //    flash that first carries this build. That is recorded in the report and the bench script, not left for
     //    an operator to discover. ⓘ The `!version_ok` branch below still serves a SAME-SIZE version change (a
     //    record-format bump that does not grow Meta), which is what it was written for.
-    static constexpr uint16_t kVersion     = 4;            // v3 (2026-07-19 §GapA-durable): record header gained origin_layer. v2 (§S5): +team_id. Old-format records unparseable -> begin() wipes + bumps epoch on a version mismatch.
+    // ★★ v5 (2026-08-29, §CUSTODY-A) — A **SEMANTIC** BUMP AT AN UNCHANGED LAYOUT, which is exactly the case the
+    //    `!version_ok` branch below was written for, so it rides the LANDED upgrade path with no new code:
+    //    every serialized field keeps its offset and width; what changed is what the `type` BYTE MEANS. A v4
+    //    store's E2E-ACK receipts carry numeric type 3, and after the DATA-namespace transition 3 is
+    //    `DATA_TYPE_SEALED_RELAY` — an application record. ⛔ Reading those bytes forward would silently
+    //    reclassify every stored receipt as a sealed user message (and, one layer up, the companion's
+    //    `"type":"e2e_ack"` row would become `"type":3`). The wipe is what makes that IMPOSSIBLE rather than
+    //    merely unlikely: no v4 record survives to be reinterpreted. Cost is one inbox history on the flash
+    //    that first carries this build — M3 (unshipped) makes that affordable, and it is in the bench script.
+    //    ⓘ NOT a Meta LENGTH change (contrast v4, which grew the struct): a v4 blob still loads, so `_meta`
+    //      carries a TRUSTWORTHY next_seq/epoch across the wipe and nothing is guessed.
+    static constexpr uint16_t kVersion     = 5;            // v4 (2026-08-29 [[B134]]): Meta gained records_state (struct GREW). v3 (2026-07-19 §GapA-durable): record header gained origin_layer. v2 (§S5): +team_id. Old-format records unparseable -> begin() wipes + bumps epoch on a version mismatch.
     // read_since loads a WHOLE segment into this scratch, so a segment must be <= it (begin() guards _seg).
     // Tied to protocol::inbox_segment_bytes so the segment size and the scratch are ONE value — a larger
     // segment would silently truncate the read (drop every record past the scratch). .bss, single-threaded.

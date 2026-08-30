@@ -356,7 +356,7 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     else {                                                          // cache full -> evict the least-recently-seen NON-PINNED
         // §1: a PINNED entry (QR-scanned, NV-backed) is NEVER evicted. Evict the oldest NON-pinned; if EVERY slot is
         // pinned, REFUSE the insert (fail loud: peer_key_full) rather than drop a scanned key.
-        // [R5: eviction is otherwise pure LRU with no authoritative floor — a TYPE-5 cache-on-pass flood can churn the
+        // [R5: eviction is otherwise pure LRU with no authoritative floor — a DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY cache-on-pass flood can churn the
         // non-pinned entries (a sustained-flood availability DoS within the documented TOFU/not-MITM model: the next
         // seal fails the authoritative gate -> the DM is REFUSED, never cleartext, and self-heals on a re-request). A
         // recency/usage floor protecting hot keys is a FUTURE decision — it trades against the cache-on-pass feature.]
@@ -1051,7 +1051,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ★★★ §id-hash S4a / spec §3-D3 — A BY_ID QUERY IS ANSWERED BY THE OWNER ONLY, AND NEVER FROM A CACHE.
     // The principle: **a cached answer is allowed exactly when the answer is SELF-VERIFYING.** hash->pubkey is
     // (`peer_key_set` recomputes `key_hash32_of(ed_pub)` and refuses a mismatch), which is what makes cache-on-pass
-    // sound for the TYPE-5 path. id->hash is NOT, so a third party relaying its guess is pure attack surface for
+    // sound for the DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY path. id->hash is NOT, so a third party relaying its guess is pure attack surface for
     // nothing — it cannot be checked at the receiver and it would out-race the owner's real answer. Hence: no
     // `_id_bind` / `_team_keys` consult on this branch at all, only a SELF-match, and the self-match is on the
     // plane's OWN id — `team_local_id()` for a team-scoped locate, `_node_id` for a static one (spec §3-D3
@@ -1139,7 +1139,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
             if (!req_zero && requester_hash != 0                       // review#15: never cache a zero/degenerate requester key
                 && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative,
-                                reinterpret_cast<const char*>(h.name), h.name_len)) {   // §name: cache hash->name too (WITH the pubkey), symmetric to the TYPE-5 answer
+                                reinterpret_cast<const char*>(h.name), h.name_len)) {   // §name: cache hash->name too (WITH the pubkey), symmetric to the AUTHORITATIVE_H_ANSWER_PUBKEY answer
                 // review#3: the ADDRESSING half (seal-back w/o waiting for a beacon). §mobile: a MOBILE/TEAM requester's
                 // origin (h.mobile_req, or a team_scoped locate) is a LOCAL id -> do NOT id_bind it into the global plane;
                 // the KEY half (peer_key_set, hash-keyed) still runs, and the seal-back routes by hash via home / _rt_team.
@@ -1249,7 +1249,7 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     become_free();                                               // kick the queue to route the answer home
 }
 
-// E2E §6: the owner answers a WANT_PUBKEY query with its ed_pub — a routed DATA TYPE 5 (cleartext; cache-on-pass).
+// E2E §6: the owner answers a WANT_PUBKEY query with its ed_pub — a routed DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY (0x8B; cleartext, cache-on-pass).
 // Wave 2: built as a STANDARD DM (enqueue_data -> [dst_hash?][origin][body]) not a raw inner, so a MOBILE requester's
 // answer can carry dst_hash=the mobile -> route to origin (=the mobile's HOME) -> the home last-mile-forwards it
 // (do_post_ack). dst_hash==0 (a static requester) -> a plain [origin][body] DM to to_origin. The consumer reads ui->body.
@@ -1266,7 +1266,7 @@ void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_laye
                        /*override_source_hash=*/0, /*addr_len=*/0, /*plane=*/team_scoped ? Plane::TEAM : Plane::AUTO);   // §F-TR-2: team-scoped WANT_PUBKEY answer routes on _rt_team
 }
 
-// E2E §6: a DATA TYPE 5 (delivered to us OR relayed-through) -> cache the owner's ed_pub AUTHORITATIVE. The pubkey is
+// E2E §6: a DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY (delivered to us OR relayed-through) -> cache the owner's ed_pub AUTHORITATIVE. The pubkey is
 // immutable + hash-verifiable, so cache-on-pass can't decay it (peer_key_set re-verifies ed_pub[:4] == key_hash32).
 void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
     auto o = parse_hash_bind_pubkey_inner(std::span<const uint8_t>(inner, inner_len));
@@ -1376,8 +1376,8 @@ const uint8_t* Node::host_mobile_ed_pub(uint32_t key_hash32) const {
 
 // §mobile hash-locate Part 2 (Fix 7) / B161: a WANT_PUBKEY answer for a hosted mobile — canonical unicast inner
 // `[origin][body]`, where BODY = the mobile hash_bind (7 B: home routing + epoch) ‖ ed_pub[32] ‖ name_len ‖ name,
-// TYPE 13. Distinct from the owner's TYPE-5 answer: the sender must learn BOTH the mobile's key AND that it routes via
-// the HOME (not to the local id). The H-query's plane is explicit so stamp_origin chooses the same namespace as types 1/2/8.
+// DATA_TYPE_MOBILE_H_ANSWER_PUBKEY (0x95). Distinct from the owner's AUTHORITATIVE_H_ANSWER_PUBKEY answer: the sender must learn BOTH the mobile's key AND that it routes via
+// the HOME (not to the local id). The H-query's plane is explicit so stamp_origin chooses the same namespace as H_ANSWER / AUTHORITATIVE_H_ANSWER / MOBILE_H_ANSWER.
 void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id,
                                      uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32], bool team_scoped) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;
@@ -1604,7 +1604,7 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 // destination it RESOLVED AT SEND TIME. ⛔ NOTHING ELSE MOVED: no branch changed, no drop became a retry, no emit
 // was added or reordered, and `nullptr` (every pre-existing caller) is byte-for-byte the previous function.
 // ⓘ AN ARM THAT LEAVES IT AT `Admit::none` IS SAYING SOMETHING TRUE — *"no admission point was reached"* — and every
-//   such arm has already called `push_send_failed`. The cross-layer arm is deliberately among them: a type-19 is
+//   such arm has already called `push_send_failed`. The cross-layer arm is deliberately among them: a TEAM_KEY_GRANT is
 //   REFUSED inside `enqueue_cross_layer` (node_mac.cpp, §team-ch-key T-K3), and exposing that arm's own handle is
 //   ruled a separate behaviour change by the `return 0` note at its site (C1).
 uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch) {
@@ -1708,7 +1708,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active) {
         // §team-ch-key T-K3 (C2): a TEAM KEY GRANT cannot be DELEGATED in v1. Both arms below spend the MOBILE_SEND
         // wrapper's SINGLE enclosed-type byte — the sealed arm on DATA_TYPE_SEALED_RELAY, the plaintext arm on `itype`
-        // — so a type-19 either loses its TYPE (the home re-originates a plain sealed DM and the recipient files 37
+        // — so a TEAM_KEY_GRANT either loses its TYPE (the home re-originates a plain sealed DM and the recipient files 37
         // raw private-key bytes as inbox TEXT) or, on the plaintext arm, airs the key in the clear. Neither is
         // acceptable, and there is no third slot: giving SEALED_RELAY an inner type byte changes an already-landed
         // frame's body format, which is its own slice. REFUSE loud. team_key_grant_send pre-checks this same shape so
@@ -1720,7 +1720,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         }
         // §S4 delegated SEALED (fixes the §1b-3 TODAY-broken path): seal the body to the target HERE — only the mobile
         // holds the ECDH pair — and wrap the sealed blob under a PLAINTEXT MOBILE_SEND (enclosed_type=SEALED_RELAY). The
-        // home re-originates the type-17 relay WITHOUT re-sealing. CRITICAL: the wrapper is PLAINTEXT (CryptIntent::off);
+        // home re-originates the SEALED_RELAY WITHOUT re-sealing. CRITICAL: the wrapper is PLAINTEXT (CryptIntent::off);
         // the old code passed `crypt` into the wrapper do_send, which sealed the WRAPPER to the target so the home could
         // never read source_hash -> the frame fell through to deliver -> e2e_open_no_key SILENT DROP at the home.
         const bool want_crypt = (crypt == CryptIntent::on) ? true : (crypt == CryptIntent::off) ? false : _cfg.e2e_dm;
@@ -2036,7 +2036,7 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t query_key32, bool hard, bool 
     in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.
     if (want_pubkey) {
         for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
-        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors the TYPE-5/12/13 answer frames)
+        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors the AUTHORITATIVE_H_ANSWER_PUBKEY / MOBILE_PUBKEY_PUSH / MOBILE_H_ANSWER_PUBKEY answer frames)
     }
     // §mobile 6.2 Fix 5 / Wave 2: a team-scoped locate answers directly on the team plane. TEAM (explicit `-t`) forces it +
     // sets origin=team_local_id so the owner's answer routes back via _rt_team (a static node_id origin is unroutable on the

@@ -668,7 +668,7 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     // wider), so a flags byte on the plain path would change every existing post on the wire and buy nothing.
     // ⚠ `with_location` WITHOUT `crypt` IS IGNORED, not honoured: Node::on_command already refuses that combination
     // (ruling O6) and this is the structural backstop making "a position never travels in clear" true even if a future
-    // caller forgets — the same defence-in-depth shape node_mac.cpp's TYPE-19 guard uses.
+    // caller forgets — the same defence-in-depth shape node_mac.cpp's DATA_TYPE_TEAM_KEY_GRANT guard uses.
     if (crypt) {
         // bit0 ⟺ there IS text; bit1 ⟺ `-l`; bit2 ⟺ bit1 (§chan-crypt CL2c — a located post ALWAYS names its sender,
         // and that rule lives inside channel_inner_flags so no call site can forget it). `flags == 0` is UNREACHABLE

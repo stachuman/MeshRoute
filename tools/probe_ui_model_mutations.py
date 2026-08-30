@@ -256,6 +256,38 @@ TARGET_SRC = {
     "b159rx":       "lib/core/node_mac_rx.cpp",        # [[B159]] — the _seen_origins dedup the retention feeds
     "b159hal":      "lib/hal/device_hal.cpp",          # [[B159]] — the PHYSICAL-START deadline in pump_tx
     "b159map":      "lib/core/node.cpp",               # [[B159]] — the expired->terminal give-up mapping
+    # ★★★ ADDED 2026-08-29 BY §A0 (the custody spec's characterization + audit slice), for the reason every target
+    #    above it was added, and with one extra constraint this slice does NOT share with them: **A0 changes no
+    #    production code at all** (C1 — the slice IS the no-change). So these three targets exist purely to prove
+    #    that `test/test_data_type_audit_a0.cpp`'s characterization can FAIL for the behaviour it claims — i.e.
+    #    that the pins are instruments and not decoration. Spec §18.0.4.
+    # ⚠ THE MUTATED LINES ARE EXACTLY THE ONES SLICES A/B WILL REWRITE. When those slices land, these entries go
+    #   VACUOUS (match count 0) BY DESIGN — that is the transition being visible, not the battery rotting. Re-anchor
+    #   them onto the trait authority in the slice that introduces it; do not delete them silently.
+    "a0mac":        "lib/core/node_mac.cpp",           # §A0 — the TWO hand-copied own-DM-floor exemption lists
+    "a0rx":         "lib/core/node_mac_rx.cpp",        # §A0 — the addressed if-chain's MISSING default arm
+    "a0codec":      "lib/core/frame_codec.cpp",        # §A0 — the codec's total permissiveness about the TYPE byte
+    # ★★ ADDED 2026-08-29 BY **§CUSTODY-A** (the DATA-namespace transition). Four targets, one decision each:
+    #    the range/trait AUTHORITY, the one renumbered value a consumer names, the store's semantic version, and
+    #    the companion encoder's [[B265]] literal.
+    # ⛔⛔ TWO OF THE BRIEF'S CONTROLS ARE **DELIBERATELY ABSENT FROM THIS TABLE**, and their absence is the
+    #    stronger outcome rather than a gap — recorded here so it is never read as an omission:
+    #      · REVERTING AN ENUM MEMBER to its old ordinal (e.g. E2E_ACK 0x80 -> 3) does not COMPILE. §18.1.1's
+    #        static assertions in `test/test_data_type_namespace.cpp` refuse it, and `data_type_traits`'s own
+    #        switch refuses it a second time as a DUPLICATE CASE VALUE (3 is SEALED_RELAY now). A mutant that
+    #        cannot build is "unusable" to this battery — so the control lives at the COMPILER, where it is
+    #        absolute, and `sliceAinbox`/S05 below carries the runtime-measurable half (a CONSUMER reverting to
+    #        the literal 3).
+    #      · BUMPING `protocol::wire_version` likewise does not compile (§18.1.6's static_assert names the owner
+    #        ruling in its failure text). Same trade, same reason.
+    #      · A `frame_trace.h` CASE LABEL reverted to numeric compiles AND runs green everywhere: that header is
+    #        `#if defined(ARDUINO)`, so NEITHER native NOR the simulator ever sees it (the A0-F2 blindness class,
+    #        one file along). Its standing control is the structural search `tools/check_data_type_literals.py`,
+    #        whose `--selftest` reintroduces exactly that form and requires the search to reject it.
+    "sliceAcodec":  "lib/core/frame_codec.h",          # §CUSTODY-A — the range predicate + the ONE trait authority
+    "sliceAinbox":  "lib/core/inbox.cpp",              # §CUSTODY-A — the one production site that names E2E_ACK's value
+    "sliceAstore":  "lib/core/segmented_inbox_store.h",# §CUSTODY-A — the v4->v5 semantic bump and its wipe arm
+    "sliceAjson":   "lib/console/console_json.cpp",    # §CUSTODY-A — [[B265]]'s numeric literal, closed by this slice
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
     # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
@@ -410,7 +442,53 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2333, 98448     # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **[[B260]]** (retiring the
+PIN_CASES, PIN_ASSERTS = 2351, 100374    # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **§CUSTODY-A** (the
+                                         # DATA-namespace transition), ON TOP OF the §A0 re-sync recorded
+                                         # below and WITHOUT disturbing it. DERIVATION, written out:
+                                         #   base (§A0 clean)          2343 /  98966
+                                         #   §A0 cases RE-ANCHORED       +0 /     -1
+                                         #     · §A0-1  rewritten for the range contract   96 ->  81 (-15)
+                                         #     · §A0-1b kAllocatedTypes gained APP_MESSAGE 20 ->  21 (+1)
+                                         #     · §A0-4  0x80 left the unknown list (it is
+                                         #              E2E_ACK now); 0x81 + APP_MESSAGE
+                                         #              joined it: 10 -> 11 cases         130 -> 143 (+13)
+                                         #   test_data_type_namespace.cpp (NEW)  +6 cases / +1368 asserts
+                                         #     786 + 256 + 155 + 4 + 165 + 2 = 1368
+                                         #   test_segmented_inbox_store.cpp v4->v5  +2 cases / +41 asserts
+                                         #     (the CONTROL 10 + the upgrade 31)
+                                         #   => 2343 + 8 = 2351 · 98966 - 1 + 1368 + 41 = 100374 ✓
+                                         # ⓘ the §A0 note below is the PRIOR link in the chain, preserved:
+                                         # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **§A0** (the custody spec's
+                                         # characterization + audit slice), ON TOP OF the [[B260]] re-sync
+                                         # recorded immediately below and WITHOUT disturbing it:
+                                         # **2333 / 98448 -> 2343 / 98966 = +10 cases / +518 assertions**.
+                                         # ⓘ RE-SYNCED A SECOND TIME THE SAME DAY, assertions only
+                                         #   (98939 -> 98966, +27, cases UNCHANGED at 2343): the QG A0
+                                         #   review's blocker 1 rewrote §A0-4c in place — it gained a real
+                                         #   POSITIVE arm (an unknown type WITH E2E_ACK_REQ is delivered AND
+                                         #   acked) beside the retained flagless negative control — and the
+                                         #   matrix correction added outer type 18 to §A0-4's probes.
+                                         # ⛔ with NO existing case edited and NO existing case removed — A0 adds
+                                         # ONE new file (`test/test_data_type_audit_a0.cpp`) and changes zero
+                                         # production code (C1: the slice IS the no-change).
+                                         # DERIVED, all ten in that one new file:
+                                         #   §A0-1  the 19-member numbering pinned contiguous + member-by-member
+                                         #   §A0-1b the 0xFE tombstone collides with no allocated DataType
+                                         #   §A0-2  the DM floor's exempt set is EXACTLY three types (15 rows)
+                                         #   §A0-2b an exempt origination lays no stamp (the STAMP half alone)
+                                         #   §A0-2c with the floor ARMED, an exempt type still flies (the CHECK
+                                         #          half alone) — ★ ADDED BECAUSE MUTATION A01 MEASURED NOTHING
+                                         #          WITHOUT IT; see that entry's note in MUTS_A0MAC
+                                         #   §A0-3  pack/parse round-trip 14 type bytes incl. 0xFE / 0xFF
+                                         #   §A0-3b APP=1 with a 0x00 TYPE byte parses as type 0
+                                         #   §A0-4  an addressed UNKNOWN type is delivered as an ordinary DM
+                                         #   §A0-4b control — a CONSUMED type is not delivered
+                                         #   §A0-4c no E2E_ACK_REQ => no ack, whatever the type
+                                         # ⓘ The §A0-4* cases drive the REAL two-node RTS/CTS/DATA/ACK exchange
+                                         #   through the PUBLIC API only (`on_recv` + `on_timer`), because adding
+                                         #   a `friend` to `node.h` would have been the production edit C1 forbids.
+                                         # ⓘ THE PRE-A0 VALUE, retained for the chain:
+                                         # PIN_CASES, PIN_ASSERTS = 2333, 98448 — ★★ RE-SYNCED 2026-08-29 by **[[B260]]** (retiring the
                                          # hand-maintained nRF52 inbox twin), ON TOP OF [[B134]]'s re-sync
                                          # recorded below and WITHOUT disturbing it: **2314 / 98383 -> 2333 /
                                          # 98448 = +19 cases / +65 assertions**, ⛔ with NO existing case edited
@@ -6775,7 +6853,199 @@ MUTS_B134INBOX = [
   "    return true;"),
 ]
 
-MUTS_BY_TARGET = {"b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
+####################################################################################################################
+# §A0 — the custody spec's characterization + audit slice (2026-08-29).
+#
+# ★★★ WHAT THESE THREE BATTERIES EXIST TO PROVE, and it is NOT the usual thing: A0 lands ZERO production change,
+#     so there is no new behaviour to defend. What must be defended is the CLAIM that
+#     `test/test_data_type_audit_a0.cpp` measures the DATA surface it says it measures. A characterization pin that
+#     cannot fail is worse than none — it launders an assumption into an "assertion". Spec §18.0.4 requires a
+#     negative control per claim; these are those controls.
+# ⓘ ALL THREE COMPILE `lib/core`, so the whole native suite rebuilds behind each mutation — expect slow runs. That
+#   cost is the point: these are exactly the arms the corpus cannot see (s18 originates no typed answer at all).
+####################################################################################################################
+
+MUTS_A0MAC = [
+ # ⛔⛔ THE SUBJECT: the own-DM burst floor's exempt set is written out BY HAND, TWICE (node_mac.cpp:918-919 in
+ #     `become_free`, the CHECK half; :1147-1148 in `issue_send`, the STAMP half), with no shared symbol, helper or
+ #     table binding the two. A fourth exempt type must be added in both places or the halves silently disagree.
+ #     A01/A02 attack the CHECK list's membership; A03 attacks the STAMP list ALONE, which is the half §A0-2 is
+ #     structurally blind to and which §A0-2b exists to reach.
+ # ⛔⛔ A01 WAS UNUSABLE ON ITS FIRST RUN, AND THE FIX WAS TO THE TEST, NOT TO THIS ENTRY — recorded because the
+ #     reason is a structural property of the two-list design and will bite the same way again. Dropping a type
+ #     from the CHECK list is INVISIBLE to a same-type pair: the STAMP list still exempts that type, so the floor
+ #     never arms, so the CHECK half's `!exempt_type` term is never even reached. `§A0-2c` was added to supply the
+ #     observable arrangement (an ordinary DM arms the floor FIRST, then the exempt type must still fly), and this
+ #     entry went RED. ⇒ the battery found a hole in the characterization before any production change existed to
+ #     hide in it, which is the entire purpose of running controls on a no-change slice.
+ ("A01 ★★★ REMOTE_CMD IS DROPPED FROM THE CHECK LIST — a remote-admin command now self-throttles behind the 3 s "
+  "user-DM floor, which is the exact latency the MF9 exemption was added to remove",
+  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
+  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);",
+  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_E2E_ACK)\n"
+  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);"),
+ # ⓘ A02 IS SLICE B'S CHANGE APPLIED EARLY, ON PURPOSE. It widens the exempt set toward the future internal range
+ #   by adding ONE hash answer. If §A0-2's negative rows were decoration, this would pass — and Slice B would then
+ #   be able to widen the floor with no instrument registering it.
+ ("A02 ★★★ THE EXEMPT SET IS WIDENED TO A HASH ANSWER — the pre-transition boundary (\"exactly three types, and "
+  "the internal-to-be answers are NOT among them\") stops being pinned",
+  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
+  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);",
+  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
+  "                              || (pt.type == DATA_TYPE_REMOTE_RESP) || (pt.type == DATA_TYPE_H_ANSWER);"),
+ # ⛔⛔ A03 IS THE HALF-DIVERGENCE, and it is the whole reason §A0-2b was written. Dropping E2E_ACK from the STAMP
+ #     list alone leaves §A0-2 GREEN (it sends the same type twice, so the matching CHECK-side exemption masks it):
+ #     an own e2e-ack would silently arm the floor against the user's NEXT ordinary DM. Measured, not assumed —
+ #     this entry was RED only after §A0-2b was added.
+ ("A03 ★★★ E2E_ACK IS DROPPED FROM THE STAMP LIST ONLY — the two hand-copied halves diverge, and an own e2e-ack "
+  "starts arming the user-DM floor against the next real message",
+  "        const bool exempt_type = (item.type == DATA_TYPE_E2E_ACK) || (item.type == DATA_TYPE_REMOTE_CMD)",
+  "        const bool exempt_type = (item.type == DATA_TYPE_REMOTE_CMD) || (item.type == DATA_TYPE_REMOTE_CMD)"),
+]
+
+MUTS_A0RX = [
+ # ⛔⛔ THE SUBJECT: the addressed-consumer dispatch in `do_post_ack` (node_mac_rx.cpp:1551-1934) is a flat IF-CHAIN
+ #     with NO `else`/`default` arm, so an unknown type reaches the generic deliver tail and becomes user inbox
+ #     content + a `msg_recv` push. A04 installs the fail-closed guard Slice B is specified to add (§6.2(2)).
+ # ★ IT MUST REDDEN §A0-4 AND LEAVE §A0-4b GREEN: the consumed types return earlier and are untouched. INTRO and
+ #   SEALED_RELAY are exempted from the guard because they fall through DELIBERATELY (:1862 strips a prefix, :1901
+ #   sets crypted_ok) — mutating those would redden half the suite for an unrelated reason and prove nothing about
+ #   the unknown-type claim.
+ ("A04 ★★★ THE MISSING DEFAULT ARM IS INSTALLED (Slice B's fail-closed rule, applied early) — an addressed "
+  "unknown type is dropped instead of inboxed, so the pre-transition fall-through stops being pinned",
+  "            (void)team_key_grant_receive(dec_body, dec_body_len, dec_source_hash, pa.origin);   // emits/pushes its own outcome\n"
+  "            become_free(); return;\n"
+  "        }",
+  "            (void)team_key_grant_receive(dec_body, dec_body_len, dec_source_hash, pa.origin);   // emits/pushes its own outcome\n"
+  "            become_free(); return;\n"
+  "        }\n"
+  "        if (pa.type != 0 && pa.type != DATA_TYPE_INTRO && pa.type != DATA_TYPE_SEALED_RELAY) { become_free(); return; }"),
+ # ⓘ A05 ATTACKS THE CONTROL RATHER THAN THE CLAIM, which is what makes §A0-4b a control at all: if the E2E-ack arm
+ #   stopped returning, an ack WOULD reach the deliver tail — and §A0-4b is the only case that would notice.
+ # ⛔⛔ A06 IS THE CONTROL FOR [[A0-F3]] — THE AMPLIFICATION CLAIM — AND IT EXISTS BECAUSE THE QG A0 REVIEW FOUND
+ #     §A0-4c PROVING ITS OWN CONVERSE (blocker 1): the case carried the name "an unknown type carrying
+ #     E2E_ACK_REQ still earns an ACK" while its fixture sent WITHOUT the flag and asserted only that no ack
+ #     appeared. The case now has a real POSITIVE arm (the flag forged into the DATA in flight), and this entry is
+ #     what proves that arm can fail. ★ It gates the reply on a KNOWN type — the tempting "fix" that would make
+ #     the amplification quietly disappear and take the finding with it.
+ ("A08 ★★★ THE E2E-ACK REPLY IS GATED ON A KNOWN TYPE — an unknown addressed type stops earning an ACK, so the "
+  "amplification half of the unknown-type fall-through ([[A0-F3]]) stops being pinned",
+  "        if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {",
+  "        if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) && pa.type == 0) {"),
+ ("A05 ★★★ THE E2E-ACK ARM STOPS CONSUMING — the receipt falls through to the generic deliver, so an ack becomes "
+  "an ordinary inbox message and the \"consumed types are not delivered\" control stops being pinned",
+  "            MR_EMIT(\"e2e_ack_rx\", EF_I(\"from\", pa.origin), EF_I(\"ctr\", acked));  // KEEP for the sim analyzer (free on metal)\n"
+  "            become_free();\n"
+  "            return;",
+  "            MR_EMIT(\"e2e_ack_rx\", EF_I(\"from\", pa.origin), EF_I(\"ctr\", acked));  // KEEP for the sim analyzer (free on metal)\n"
+  "            (void)0;"),
+]
+
+MUTS_A0CODEC = [
+ # ⛔⛔ THE SUBJECT: `parse_data` copies frame[8] verbatim — no range check, no enum-membership check, no reserved-
+ #     value rejection (frame_codec.cpp:959). That total permissiveness is WHY an unknown type reaches the receive
+ #     path at all, so §A0-3 pins it directly.
+ ("A06 ★★★ parse_data GAINS AN ENUM-RANGE REJECT — every unknown/reserved TYPE byte stops parsing, so the "
+  "codec's measured permissiveness (the precondition for the whole fall-through finding) stops being pinned",
+  "        o.type      = frame[DATA_HDR_LEN];                        // byte 8",
+  "        o.type      = frame[DATA_HDR_LEN]; if (o.type > 19) return std::nullopt;   // byte 8"),
+ # ⓘ A07 attacks the OTHER half of §A0-3: that the APP bit is DERIVED and therefore always agrees with the type.
+ #   Expect it to redden broadly — every typed frame in the suite loses its TYPE byte. Breadth is not a defect in a
+ #   control; being unable to fail would be.
+ ("A07 ★★★ THE APP BIT STOPS BEING DERIVED FROM THE TYPE — pack_data emits no TYPE byte, so the flag and the type "
+  "can disagree and the \"APP <=> type != 0\" invariant stops being pinned",
+  "    const uint8_t flags = static_cast<uint8_t>(in.type != 0 ? (in.flags | DATA_FLAG_APP)",
+  "    const uint8_t flags = static_cast<uint8_t>(false ? (in.flags | DATA_FLAG_APP)"),
+]
+
+####################################################################################################################
+# §CUSTODY-A — the DATA-namespace transition (2026-08-29).
+#
+# ★★★ WHAT THESE FOUR BATTERIES DEFEND. The slice lands three things a green suite could otherwise be green
+#     WITHOUT: the EXACT bounded range predicate, the ONE trait authority (which has no production consumer yet,
+#     so the tests are its only caller), and a SEMANTIC store-version bump whose whole job is to make a stale
+#     record unreachable. Every one of those is a claim about something NOT happening, which is precisely the
+#     shape that rots into decoration if nothing proves it can fail.
+####################################################################################################################
+
+MUTS_SLICEACODEC = [
+ # ⛔⛔ THE SUBJECT: the design NAMES `t & 0x80` as the wrong form (§5.1) because it admits the reserved
+ #     0xC0..0xFD block, the inbox-only 0xFE tombstone and 0xFF as "protocol-internal DATA" — 64 values that no
+ #     origination may use and that Slice B's fail-closed internal arm must never adopt. This is that exact
+ #     tempting one-liner. It must redden the exhaustive 256-value sweep AND the trait table (the reserved rows
+ #     take their traits from this predicate).
+ ("S01 ★★★ THE RANGE PREDICATE DEGRADES TO THE HIGH-BIT TEST — 0xC0..0xFF start classifying as protocol-internal, "
+  "which is the exact form the design forbids by name",
+  "    return t >= data_type_internal_lo && t <= data_type_internal_hi;",
+  "    return (t & 0x80) != 0;"),
+ # ⓘ S02 attacks the rule the whole namespace hangs on: RESERVING A NUMBER IS NOT KNOWING THE TYPE. Making the
+ #   reservation `known` is the single most tempting "tidy-up" a later reader could apply, and it would silently
+ #   give an unimplemented app code the behaviour of an implemented one.
+ ("S02 ★★★ THE APP_MESSAGE RESERVATION IS TREATED AS KNOWN — an unimplemented application code stops taking the "
+  "unknown-application behaviour it is specified to take",
+  "        case DATA_TYPE_CHANNEL_POST:\n            return DataTypeTraits{ true,  false, true,  true,  false };",
+  "        case DATA_TYPE_CHANNEL_POST:\n        case DATA_TYPE_APP_MESSAGE:\n"
+  "            return DataTypeTraits{ true,  false, true,  true,  false };"),
+ # ⛔ S03 widens the ONE membership the design pins exactly (§7.1): {E2E_ACK} at Slice A. A second persistent
+ #   type would start writing internal control traffic into the user's durable inbox.
+ ("S03 ★★★ persistent_outcome WIDENS BEYOND {E2E_ACK} — a team-key grant would start being written to durable "
+  "inbox storage, which §7.1 pins as exactly one member at this slice",
+  "        case DATA_TYPE_TEAM_KEY_GRANT:\n            return DataTypeTraits{ true,  true,  false, false, false };",
+  "        case DATA_TYPE_TEAM_KEY_GRANT:\n            return DataTypeTraits{ true,  true,  false, false, true  };"),
+ # ⓘ S04 removes the internal-range FALLBACK, so an unallocated internal value (0x81, 0x87, 0xBF …) would report
+ #   itself application-bearing with a full generic send lifecycle — the opposite of the fail-closed direction
+ #   Slice B builds on. It is the arm that decides what an UNKNOWN internal type is, and nothing else reads it.
+ ("S04 ★★★ THE UNKNOWN-INTERNAL FALLBACK IS DROPPED — an unallocated internal value falls to the reserved row and "
+  "stops being classified internal at all, so Slice B would build its fail-closed arm on a lie",
+  "    if (data_type_is_internal(t))    return DataTypeTraits{ false, true,  false, false, false };",
+  "    if (false)                       return DataTypeTraits{ false, true,  false, false, false };"),
+]
+
+MUTS_SLICEAINBOX = [
+ # ⛔⛔ THE RUNTIME HALF OF "one renumbered value reverted to its old number". The enum member itself cannot be
+ #     reverted (it does not compile — see TARGET_SRC's note), but a CONSUMER can be, and this is the consumer
+ #     that decides what byte a durable E2E-ack receipt carries for ever. Reverting it writes the OLD 3 into new
+ #     stores, where 3 now means DATA_TYPE_SEALED_RELAY — the precise confusion the v4->v5 wipe exists to make
+ #     unreachable, reintroduced from the writing side instead of the reading side.
+ ("S05 ★★★ record_ack STAMPS THE OLD ORDINAL 3 — a durable receipt is written with the value that now means "
+  "SEALED_RELAY, so every stored ack becomes an application record",
+  "/*type*/ DATA_TYPE_E2E_ACK,",
+  "/*type*/ 3,"),
+]
+
+MUTS_SLICEASTORE = [
+ # ⛔⛔ S06 IS THE MIGRATION ITSELF. With the version left at 4, a v4 store's `version_ok` is TRUE, the upgrade
+ #     branch never runs, and the stored type-3 receipt survives into the new namespace as a SEALED_RELAY. That
+ #     is the §18.1.8 arm, and the CONTROL case beside it proves the hazard is real rather than theoretical.
+ ("S06 ★★★ THE SEMANTIC VERSION IS NOT BUMPED — a v4 store mounts as current, so its type-3 E2E receipts survive "
+  "and reappear as sealed-relay application records",
+  "    static constexpr uint16_t kVersion     = 5;",
+  "    static constexpr uint16_t kVersion     = 4;"),
+ # ⓘ S07 keeps the version bump but drops its WIPE. The epoch still advances and the companion still re-syncs —
+ #   so every count-shaped assertion still passes — while the unreadable old records stay on the medium. It is
+ #   the "looks migrated" failure, and only an assertion about the RECORDS can see it.
+ ("S07 ★★★ THE UPGRADE STOPS ERASING — the version and epoch move but the v4 records stay on the medium, so the "
+  "migration reports success over history it did not remove",
+  "        for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) { _fault = SegMountFault::records_unmountable; return false; }\n"
+  "        _meta.version   = kVersion;",
+  "        _meta.version   = kVersion;"),
+]
+
+MUTS_SLICEAJSON = [
+ # ⛔⛔ [[B265]] REINTRODUCED, verbatim in its original form. The companion would render an E2E receipt as
+ #   `"type":128` and a sealed-relay record as `"type":"e2e_ack"` — a swap, not a gap. ★ It must ALSO be
+ #   rejected by `tools/check_data_type_literals.py`, whose `--selftest` reintroduces this same form: the native
+ #   battery proves the BEHAVIOUR can fail, the structural search proves the SHAPE cannot come back unnoticed.
+ ("S08 ★★★ THE [[B265]] NUMERIC LITERAL COMES BACK — the companion encoder compares the DM type against 3 again, "
+  "which after the transition is SEALED_RELAY and not the receipt",
+  "    if (type == MESHROUTE_NS::DATA_TYPE_E2E_ACK) j.lit(\",\\\"type\\\":\\\"e2e_ack\\\"\");",
+  "    if (type == 3) j.lit(\",\\\"type\\\":\\\"e2e_ack\\\"\");"),
+]
+
+MUTS_BY_TARGET = {"a0mac": MUTS_A0MAC, "a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
+                  "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
+                  "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
+                  "b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
                   "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,
                   "b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,

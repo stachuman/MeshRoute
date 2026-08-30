@@ -263,7 +263,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // caller: team_key_grant_send already forces CryptIntent::on, but a future caller passing `def` on a node with
     // e2e_dm OFF would otherwise air the team's content key in the clear. Refuse the whole send — there is no
     // cleartext fallback for this type, ever. (The sibling refusals: enqueue_cross_layer, and send_by_hash's
-    // delegate branch. Together they make "a type-19 frame is always sealed" structural instead of conventional.)
+    // delegate branch. Together they make "a TEAM_KEY_GRANT frame is always sealed" structural instead of conventional.)
     if (type == DATA_TYPE_TEAM_KEY_GRANT && !want_crypt) {
         MR_EMIT("team_key_grant_refused", EF_I("dst", dst), EF_S("reason", "plaintext"));
         push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);
@@ -545,7 +545,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     // §team-ch-key T-K3 (C2): a TEAM KEY GRANT may NEVER ride a cross-layer frame in v1. This is not caution — it is
     // arithmetic on the existing crypto core: e2e_seal_inner REFUSES DATA_FLAG_CROSS_LAYER outright
     // (node_hashlocate.cpp:382, "v1: same-layer CRYPTED only"), and this function hard-sets CROSS_LAYER on every frame
-    // it builds, so a type-19 arriving here could only ever be CLEARTEXT — i.e. the team's private content key on the
+    // it builds, so a TEAM_KEY_GRANT arriving here could only ever be CLEARTEXT — i.e. the team's private content key on the
     // air in plain sight. The XL confidentiality substitute, DATA_TYPE_SEALED_RELAY, cannot help: it OCCUPIES the very
     // TYPE byte the grant needs (node.cpp:1304 sets etype = SEALED_RELAY), so a sealed XL grant has nowhere left to say
     // it is a grant. ⇒ REFUSE. ★ The reachable caller is send_by_hash's mobile_home_find cross-layer arm
@@ -557,7 +557,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
         return false;                                // fail loud, before next_ctr burns a counter
     }
     // ★★ §loc-per-send (2026-07-31, register B0): a CROSS-LAYER frame CANNOT carry a location, so a `-l` send that
-    // reaches here is REFUSED — never silently stripped. This is the SAME structural-choke-point idiom as the type-19
+    // reaches here is REFUSED — never silently stripped. This is the SAME structural-choke-point idiom as the TEAM_KEY_GRANT
     // guard above, and it exists because the alternative is failure mode (2) of the owner's ruling: "the app believes it
     // shared a position it did not." Two independent reasons XL cannot carry it, both verified at source, not assumed:
     //   (a) PLAINTEXT XL — the `item.flags` assignment below MASKS the caller's word down to
@@ -675,7 +675,7 @@ uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t tar
         // A TYPED send cannot also be a SEALED_RELAY: the frame has ONE type byte and the relay spends it (the same
         // arithmetic T-K3 recorded for the team key grant). REFUSE — never downgrade to cleartext, never strip the type.
         // The one type reachable here today is DATA_TYPE_TEAM_KEY_GRANT (team_key_grant_send forces CryptIntent::on);
-        // it was already refused one level down by enqueue_cross_layer's type-19 guard, which stays as the backstop for
+        // it was already refused one level down by enqueue_cross_layer's TEAM_KEY_GRANT guard, which stays as the backstop for
         // originate_layer_path. This guard generalises it to EVERY type, so a future typed+crypted XL send cannot leak.
         if (type != 0) {
             MR_EMIT("xl_send_unsealable", EF_I("type", type), EF_I("target_layer", target_layer),
@@ -1213,8 +1213,9 @@ void Node::tx_rts_retry() {
     // NOT `pt.origin`, AND THIS CORRECTION WAS FORCED BY MEASUREMENT.** S1 fed `pt.origin` here. The receiver can
     // only recompute from what the frame carries — `parse_unicast_inner(inner, flags)->origin`. Typed-answer frames
     // used to build a RAW inner with no `[origin]` prefix, so the originator's carrier said
-    // `_node_id` while the frame's first inner byte was `target_layer`. B161 now wraps types 1/2/8/13 in this same
-    // canonical envelope; type 5 already used it. Keeping the read frame-derived proves the RTS identity against the
+    // `_node_id` while the frame's first inner byte was `target_layer`. B161 now wraps H_ANSWER /
+    // AUTHORITATIVE_H_ANSWER / MOBILE_H_ANSWER / MOBILE_H_ANSWER_PUBKEY in this same canonical envelope;
+    // AUTHORITATIVE_H_ANSWER_PUBKEY already used it. Keeping the read frame-derived proves the RTS identity against the
     // bytes DATA will actually air, while native controls require it to equal `pt.origin`.
     // ⛔ AND THE FALLBACK IS `0`, DELIBERATELY, NOT the RTS `src`: `handle_data`'s `origin` local falls back to
     //    `from`, which PREFERS `meta.src_hint` — the simulator's PHY oracle, which carries a homed teammate's STATIC

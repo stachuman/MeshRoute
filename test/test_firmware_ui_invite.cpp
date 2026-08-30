@@ -1173,7 +1173,7 @@ TEST_CASE("ui16-grant-parkfull: a FULL PARKED RING is the same refusal — ⛔ n
     CHECK(strcmp(mrui::invite_grant_word(full.st), "GRANT PARKED") != 0);
     // ⛔⛔ **NO GRANT DATA WAS STORED OR QUEUED** — and that is the exact claim, ⛔ not "nothing aired" (QG
     //     correction, 2026-08-24). The TX queue depth answers ONLY the DM question: it is 0 because the sealed
-    //     type-19 was never built into a TxItem, which is what the refusal means.
+    //     TEAM_KEY_GRANT was never built into a TxItem, which is what the refusal means.
     CHECK(f.node->test_tx_queue_n() == 0);
 }
 

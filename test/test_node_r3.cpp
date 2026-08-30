@@ -1601,7 +1601,11 @@ TEST_CASE("S1 helper — txitem_from_pending preserves a typed frame's DataType 
 
 TEST_CASE("S1 helper — txitem_from_pending copies the full identity + hop-budget core") {
     PendingTx pt{};
-    pt.origin = 7; pt.dst = 21; pt.ctr = 0x9ABC; pt.ctr_lo = 12; pt.flags = 0x40; pt.type = 5;
+    // ⓘ 0x77 is DELIBERATELY an UNALLOCATED DataType (§CUSTODY-A): this case is about the carrier copy, so the
+    //   type must be an OPAQUE byte. It used to be `5`, which after the namespace transition is a real
+    //   allocated value again — an opaque fixture wearing a semantic number is how a reader starts believing
+    //   the helper cares which type it copies. (It does not; that is the claim.)
+    pt.origin = 7; pt.dst = 21; pt.ctr = 0x9ABC; pt.ctr_lo = 12; pt.flags = 0x40; pt.type = 0x77;
     pt.has_previous_hop = true; pt.previous_hop = 42;   // a relayed item -> is_forward + previous_hop
     pt.is_gw_relay = true;                              // a cross-layer relay keeps RTS_FLAG_RELAY on the requeue
     pt.fwd_remaining = 6; pt.fwd_committed = 2;         // the carried hop budget
@@ -1612,7 +1616,7 @@ TEST_CASE("S1 helper — txitem_from_pending copies the full identity + hop-budg
     const TxItem it = txitem_from_pending(pt);
 
     CHECK(it.origin == 7); CHECK(it.dst == 21); CHECK(it.ctr == 0x9ABC); CHECK(it.ctr_lo == 12);
-    CHECK(it.flags == 0x40); CHECK(it.type == 5);
+    CHECK(it.flags == 0x40); CHECK(it.type == 0x77);
     CHECK(it.is_forward == true); CHECK(it.previous_hop == 42);   // has_previous_hop -> is_forward
     CHECK(it.is_gw_relay == true);
     CHECK(it.fwd_remaining == 6); CHECK(it.fwd_committed == 2);
@@ -3329,7 +3333,7 @@ TEST_CASE("§team-parity T7 — a node with NO team plane (team_id == 0) is stil
 
 TEST_CASE("§team-parity T2 row 4b — a TYPED DATA (APP) teaches nothing: its inner is NOT the unicast layout, so ui->origin is a payload byte") {
     // !d.app is load-bearing, not caution. Measured in the corpus: 19 of 64 team DATA receptions are
-    // AUTHORITATIVE_H_ANSWER (type 2) frames whose parse_unicast_inner "origin" reads 0 — a hash-bind payload byte.
+    // AUTHORITATIVE_H_ANSWER frames whose parse_unicast_inner "origin" reads 0 — a hash-bind payload byte.
     const uint32_t TEAM = 0x06EF37AEu;
     TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
     std::array<uint8_t, 64> bb{};
@@ -10161,7 +10165,7 @@ TEST_CASE("§hybrid-rts S2 — a `(1,0)` frame naming a STATIC team member's tea
 // the static mesh. These cases use only normal command/on_recv/on_timer seams.
 // ============================================================================
 
-TEST_CASE("§B251 exact — the canonical home type-8 ctr 1 cannot swallow a later hosted-mobile ctrM 1; "
+TEST_CASE("§B251 exact — the canonical home MOBILE_H_ANSWER ctr 1 cannot swallow a later hosted-mobile ctrM 1; "
           "the returned E2E ACK is translated back to ctrM") {
     constexpr uint8_t HOME = 10, DEST = 30, MOBILE_LOCAL = 70;
     constexpr uint32_t HOME_HASH = 0x10101010u, DEST_HASH = 0x30303030u, MOBILE_HASH = 0x70707070u;
@@ -10179,7 +10183,7 @@ TEST_CASE("§B251 exact — the canonical home type-8 ctr 1 cannot swallow a lat
     dest.route_inject(HOME, HOME, 1, 100);
     CHECK(dest.test_id_bind_set(HOME, HOME_HASH, true));       // lets the E2E ACK attach DST_HASH=MOBILE_HASH
 
-    // Reproduce B251's first flight through the real type-8 producer: DEST asks for the hosted mobile's hash;
+    // Reproduce B251's first flight through the real MOBILE_H_ANSWER producer: DEST asks for the hosted mobile's hash;
     // HOME answers on ctr 1 with origin HOME, and DEST completes/caches that exact flight.
     h_in q{}; q.leaf_id = 0; q.origin = DEST; q.query_key32 = MOBILE_HASH; q.ttl = 4;
     std::array<uint8_t, 48> qwire{};

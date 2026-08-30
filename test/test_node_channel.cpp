@@ -2058,16 +2058,16 @@ TEST_CASE("§o3-key-lifetime — `create`/`join`/`leave` still PRESERVE the key 
 }
 
 
-// ================= §team-ch-key (T-K3, spec 2026-07-26 §2.3) — the SEALED key-grant DM (TYPE 19) ===============
+// ================= §team-ch-key (T-K3, spec 2026-07-26 §2.3) — the SEALED key-grant DM (DATA_TYPE_TEAM_KEY_GRANT = 0xA2) ===============
 // ★ THIS SUITE IS THE ENTIRE DETECTOR, same structural reason as T-K1's above: no scenario reaches a console verb,
-// and the simulator's `team` verb refuses `team new`, so no corpus stream can ever carry a TYPE-19 frame. Corpus
+// and the simulator's `team` verb refuses `team new`, so no corpus stream can ever carry a TEAM_KEY_GRANT frame. Corpus
 // byte-identity proves only that this slice stays INERT there. Correctness lives here.
 //
 // The suite deliberately splits into three layers, so a failure localises:
 //   (1) team_key_grant_receive() called DIRECTLY on a hand-built body — the parse/validate/adopt logic, exhaustively;
 //   (2) team_key_grant_send()'s pre-flight refusals — one case per operator-visible reason;
-//   (3) the FULL WIRE ROUND TRIP — A seals a real type-19 DATA frame, drives it into B over RTS+DATA, and B ends up
-//       holding A's key. Plus the two things only the wire can show: a PLAINTEXT type-19 is dropped, and a grant is
+//   (3) the FULL WIRE ROUND TRIP — A seals a real TEAM_KEY_GRANT DATA frame, drives it into B over RTS+DATA, and B ends up
+//       holding A's key. Plus the two things only the wire can show: a PLAINTEXT TEAM_KEY_GRANT is dropped, and a grant is
 //       never delivered as a DM (no msg_recv, no inbox).
 namespace {
 constexpr uint32_t kPostAckTimerId = 9;   // Node::kPostAckTimerId (private) — the receiver's deliver-after-ACK fire
@@ -2299,7 +2299,7 @@ TEST_CASE("§o3-key-lifetime — after a switch, `exportkey`/`grantkey` take the
     CHECK(n.team_channel_pub() == nullptr);                                       // ⇒ exportkey's `!pub` refusal — no zero-key export
 }
 
-TEST_CASE("§T-K3 send — the sealed grant is ACTUALLY sealed: CRYPTED + TYPE 19, and tkpriv is nowhere in the frame") {
+TEST_CASE("§T-K3 send — the sealed grant is ACTUALLY sealed: CRYPTED + TEAM_KEY_GRANT, and tkpriv is nowhere in the frame") {
     uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
     Identity A{}, B{}; identity_from_seed(A, sa); identity_from_seed(B, sb);
     TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
@@ -2350,7 +2350,7 @@ TEST_CASE("§B30 send — a sealed TEAM grant targets the freshest authoritative
 
 // ---- (3) the FULL WIRE ROUND TRIP + the two wire-only properties ---------------------------------------------
 namespace {
-// Seal `body` as a TYPE-19 DM A->B (origin 1, ctr 5) and pack the DATA frame. Mirrors test_node_r3's e2e_seal_AtoB.
+// Seal `body` as a TEAM_KEY_GRANT DM A->B (origin 1, ctr 5) and pack the DATA frame. Mirrors test_node_r3's e2e_seal_AtoB.
 static size_t seal_grant_frame(Node& A, const Identity& idA, const Identity& idB, uint8_t next, uint8_t dst,
                                uint8_t addr_len, const uint8_t* body, uint8_t blen,
                                uint8_t* frame, size_t cap, uint8_t* inner, size_t inner_cap, uint8_t seed[8]) {
@@ -2366,7 +2366,7 @@ static size_t seal_grant_frame(Node& A, const Identity& idA, const Identity& idB
 }
 }  // namespace
 
-TEST_CASE("§T-K3 WIRE — the acceptance story: A seals a TYPE-19 grant, B receives it and can now read the team") {
+TEST_CASE("§T-K3 WIRE — the acceptance story: A seals a TEAM_KEY_GRANT, B receives it and can now read the team") {
     // Two STATIC team members on one leaf — the plainest of the three v1 transports (same-layer CRYPTED). The team
     // plane variant is the next test; together they cover both `for_*_rts`/`for_me_dst` acceptance shapes.
     uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
@@ -2450,7 +2450,7 @@ TEST_CASE("§T-K3 WIRE — the TEAM-PLANE grant: addressed to the joiner's team_
     CHECK(halB.count("delivered") == 0);
 }
 
-TEST_CASE("§T-K3 WIRE — a PLAINTEXT TYPE-19 is DROPPED, never adopted and never delivered as a DM") {
+TEST_CASE("§T-K3 WIRE — a PLAINTEXT TEAM_KEY_GRANT is DROPPED, never adopted and never delivered as a DM") {
     // Requirement 1's receive half: a grant that arrived unsealed is a bug or an attack. It must not install a key
     // (an attacker would then own the team's content plane) and must not fall through to the inbox (37 raw key bytes).
     uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
@@ -2493,7 +2493,7 @@ TEST_CASE("§T-K3 WIRE — a PLAINTEXT TYPE-19 is DROPPED, never adopted and nev
 }
 
 // ---- the three STRUCTURAL send-side guards -------------------------------------------------------------------
-TEST_CASE("§T-K3 guard — enqueue_data REFUSES a non-CRYPTED TYPE-19 (no cleartext fallback, ever)") {
+TEST_CASE("§T-K3 guard — enqueue_data REFUSES a non-CRYPTED TEAM_KEY_GRANT (no cleartext fallback, ever)") {
     uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
     Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
     TkHal hal; Node n(hal, 2, idA.key_hash32); arm_granter(n, hal, idA, idB);
@@ -2515,8 +2515,8 @@ TEST_CASE("§T-K3 guard — enqueue_data REFUSES a non-CRYPTED TYPE-19 (no clear
     CHECK(n.test_tx_queue_n() == 1);
 }
 
-TEST_CASE("§T-K3 guard — enqueue_cross_layer REFUSES a TYPE-19 outright (an XL grant could only be CLEARTEXT)") {
-    // e2e_seal_inner refuses DATA_FLAG_CROSS_LAYER (v1 same-layer only) and this path hard-sets it, so a type-19
+TEST_CASE("§T-K3 guard — enqueue_cross_layer REFUSES a TEAM_KEY_GRANT outright (an XL grant could only be CLEARTEXT)") {
+    // e2e_seal_inner refuses DATA_FLAG_CROSS_LAYER (v1 same-layer only) and this path hard-sets it, so a TEAM_KEY_GRANT
     // arriving there could only ride in the clear. The sealed XL substitute (SEALED_RELAY) occupies the TYPE byte.
     uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
     Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
@@ -2651,7 +2651,7 @@ TEST_CASE("§chan-crypt — CryptIntent::off behaves exactly like `def` (there i
 
 // ============================ §chan-crypt CL2a — the SEALED team channel post ============================
 // The corpus is STRUCTURALLY BLIND to this whole slice: no simulator node can hold a team content key (every
-// establish path — mint / adopt / adopt_priv / NV load / the sealed TYPE-19 grant — is reachable only from `src/`,
+// establish path — mint / adopt / adopt_priv / NV load / the sealed TEAM_KEY_GRANT — is reachable only from `src/`,
 // which the sim does not build), so `team_channel_key_present()` is false for all 36 scenarios and nothing seals.
 // ⇒ these tests are the ONLY coverage of the crypto. They are written accordingly: KATs and negative cases, not
 // round-trips (a round-trip passes with both halves wrong in the same way — test_dm_crypto.cpp's own lesson).

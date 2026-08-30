@@ -278,7 +278,7 @@ public:
     // firmware_config.cpp would have had zero automated coverage — the T-K1/T-K1b lesson).
     // ★ DELIBERATELY NOT MR_FEAT_TEAM-gated, same reasoning as T-K1b's team_export_key: NodeConfig::team_id is ungated
     // and the team_channel_* accessors have #else stubs, so on a MR_FEAT_TEAM 0 build these compile unchanged and
-    // answer no_key / no_team BY CONSTRUCTION — ONE app-facing code path, and a stray type-19 can never be delivered
+    // answer no_key / no_team BY CONSTRUCTION — ONE app-facing code path, and a stray TEAM_KEY_GRANT can never be delivered
     // as a DM there either (C2: no silent success, no raw key bytes in an inbox).
     // ★★★★ §UI-16 N6b (2026-08-24) — THE SEND PATH'S OWN DISPATCH FACTS, RETURNED INSTEAD OF DISCARDED.
     //      ⛔ IT ADDS NO BEHAVIOUR: every field below is a value the dispatch already computed and threw away, and
@@ -296,7 +296,7 @@ public:
         enum class Admit : uint8_t {
             none = 0,   // ⛔ NO admission point was reached at all. Every path that produces it has ALREADY reported
                         //   the failure through `push_send_failed` (the joining gate, the mobile-no-home gate, the
-                        //   seal refusals, the type-19 delegate/cross-layer structural refusals, the TEAM plane with
+                        //   seal refusals, the TEAM_KEY_GRANT delegate/cross-layer structural refusals, the TEAM plane with
                         //   no routable team origin). ⓘ The ONE exception is arithmetic-unreachable and named at
                         //   `node_mac.cpp`'s `SealOutcome::cross_layer/ok` arm.
             queued,     // the TxItem was STORED in the TX queue — `ctr` is its origination handle, `dst` its address
@@ -337,7 +337,7 @@ public:
     };
     enum class TeamKeyGrantRx : uint8_t {
         adopted = 0,    // key installed (idempotent: a re-grant OVERWRITES — that is how re-keying lands)
-        not_sealed,     // the type-19 arrived UNSEALED -> drop loud (a plaintext grant is a bug or an attack)
+        not_sealed,     // the TEAM_KEY_GRANT arrived UNSEALED -> drop loud (a plaintext grant is a bug or an attack)
         bad_len,        // body shorter than the 37-B floor, or [4][1][name_len][32] does not account for it EXACTLY
         long_name,      // name_len > 32 (the codebase-wide name cap) -> malformed body, refuse rather than truncate
         no_team,        // we are not in a team, so no grant can match us
@@ -1289,7 +1289,7 @@ public:
     // plane, so its node_id is a TEAM LOCAL id and the static _id_bind write is SKIPPED (PostAck::team_plane).
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
-    void              on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len);   // E2E §6: a DATA TYPE 5 (delivered OR relayed-through) -> cache the ed_pub authoritative (verify ed_pub[:4]==hash)
+    void              on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len);   // E2E §6: a DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY (delivered OR relayed-through) -> cache the ed_pub authoritative (verify ed_pub[:4]==hash)
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -1471,9 +1471,9 @@ private:
     bool    pack_typed_answer_inner(TxItem& item, Plane plane, uint8_t dst,
                                     const uint8_t* body, uint8_t body_len);  // B161: stamp a plane-correct origin and wrap a bounded internal-answer BODY in the canonical plaintext-unicast envelope
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool binding_verifiable, bool mobile_proxy = false, uint8_t epoch = 0, bool team_scoped = false); // B: routed DATA(H_ANSWER body) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch; §F-TR-2: team_scoped -> route the answer on the TEAM plane (_rt_team + team RREQ), not AUTO (which falls to the static plane when the origin isn't yet a known team peer)
-    void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash = 0, bool team_scoped = false);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub). Wave 2: dst_hash!=0 (mobile requester) -> DST_HASH so the home last-miles it; §F-TR-2: team_scoped -> TEAM plane
+    void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash = 0, bool team_scoped = false);  // E2E §6: routed DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY (the owner's ed_pub). Wave 2: dst_hash!=0 (mobile requester) -> DST_HASH so the home last-miles it; §F-TR-2: team_scoped -> TEAM plane
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
-    void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32], bool team_scoped);  // §mobile Part 2 Fix 7 / B161: canonical DATA TYPE 13 BODY (home routing ‖ the mobile's ed_pub ‖ name) on the originating H-query's plane
+    void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32], bool team_scoped);  // §mobile Part 2 Fix 7 / B161: canonical DATA_TYPE_MOBILE_H_ANSWER_PUBKEY BODY (home routing ‖ the mobile's ed_pub ‖ name) on the originating H-query's plane
     uint32_t cache_want_pubkey_requester(const h_out& h);          // §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key (self-consistency + non-zero + the mobile/team id_bind gate), fire peer_key_cached. Returns the requester hash (0 = rejected). Used by the home proxy-answer branch + the mobile TX-free overhear cache.
     void    forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32], const char* name, uint8_t name_len);   // §S3 part2: 1-hop last-mile DATA_TYPE_MOBILE_KEY_FORWARD to a hosted mobile (dedup same-requester via _mobile_reg[].last_key_fwd_hash32)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
@@ -2496,7 +2496,7 @@ private:
     // team_channel_key_derive in identity.h for why that matters. The has-key flag lives in the IDENTITY
     // block above (it is free there and costs 8 B here — see the note at it).
     // ⚠ MARK OF WHAT IS *NOT* DONE:
-    //   · DONE — T-K3 reads them: team_key_grant_send seals _team_ch_priv into a TYPE-19 grant, and
+    //   · DONE — T-K3 reads them: team_key_grant_send seals _team_ch_priv into a DATA_TYPE_TEAM_KEY_GRANT, and
     //     team_key_grant_receive adopts one. So the pair has a producer AND a consumer.
     //   · ✅ RULED AND BUILT (§o3-key-lifetime, owner ruling 2026-07-31): set_team_id() DOES clear them now —
     //     the first of the two candidate fixes this note used to leave open (clear on switch), chosen over
@@ -2634,7 +2634,7 @@ private:
     // §mobile 3c: a mobile's stable hash -> its home_node id (sender-side proxy cache; id_bind can't hold it). No bijection.
     struct MobileHomeBinding { uint32_t mobile_hash; uint64_t last_seen_ms; uint8_t home_id; uint8_t epoch = 0; uint8_t home_layer = 0; };  // §mobile 4a epoch (freshest-proxy wins) + §5b home_layer (the home's full layer_id, for cross-layer routing)
     // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
-    // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
+    // so an AUTHORITATIVE_H_ANSWER_PUBKEY owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; char name[32]; uint8_t name_len; bool peer_confirmed; };   // §1.3: name rides with the key — IMMUTABLE key, MUTABLE name (refreshed on every pubkey message). §S2: peer_confirmed = we've OPENED a SEALED frame from this peer (they hold our key) -> stop attaching INTRO to plaintext sends toward them. Set on e2e_open_trial success ONLY (never on a plaintext receipt).
     // §AB2: peer_name_set / peer_key_set / push_peer_key_cached / on_command's peername refusal all size the name by
     // protocol::peer_name_max instead of the bare literal `32` they used to repeat. Pin the two together so widening

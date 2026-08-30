@@ -157,7 +157,7 @@ void Node::team_channel_key_clear() {
 }
 #endif   // MR_FEAT_TEAM (§team-ch-key)
 
-// ===================== §team-ch-key T-K3 — the SEALED team key-grant DM (TYPE 19) =====================
+// ===================== §team-ch-key T-K3 — the SEALED team key-grant DM (DATA_TYPE_TEAM_KEY_GRANT = 0xA2) =====================
 // Spec 2026-07-26 §2.3 + the owner's five requirements (2026-07-29): sealed-only · carries team_id · its own console
 // verb that FAILS if there is no pubkey or no receiver · format free to choose · an optional name parameter.
 //
@@ -174,7 +174,7 @@ constexpr uint8_t kGrantMinLen    = kGrantTeamIdLen + 1 + kGrantPrivLen;        
 
 // ORIGINATION. Pre-flights the refusals an operator/app can act on, then hands the sealed send to the ORDINARY
 // send-by-hash machinery (U1 — no parallel send path). CryptIntent::on is forced, never `def`: a node with e2e_dm
-// OFF must still not be able to air this in the clear, and enqueue_data's type-19 guard makes that structural.
+// OFF must still not be able to air this in the clear, and enqueue_data's TEAM_KEY_GRANT guard makes that structural.
 Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane, uint16_t* out_ctr, uint8_t* out_dst) {
     if (out_ctr) *out_ctr = 0;
     if (out_dst) *out_dst = 0;
@@ -201,7 +201,7 @@ Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char*
 #if MR_FEAT_MOBILE
     // PREDICT send_by_hash's delegate branch (node_hashlocate.cpp:1032) rather than discover it after the fact: a
     // REGISTERED mobile with neither an authoritative id_bind nor a team-cache hit would wrap the sealed body under a
-    // MOBILE_SEND whose enclosed-type slot is ALREADY DATA_TYPE_SEALED_RELAY — the 19 would be dropped and the peer
+    // MOBILE_SEND whose enclosed-type slot is ALREADY DATA_TYPE_SEALED_RELAY — the grant would be dropped and the peer
     // would receive 37 raw key bytes as inbox text. The structural refusal in send_by_hash catches it regardless
     // (belt-and-suspenders, the node_mac_rx.cpp:1196 idiom); this pre-check exists so the OPERATOR gets told which of
     // the two things to do (grant from the home's layer, or `-t` over the team plane) instead of a bare send_failed.
@@ -246,7 +246,7 @@ Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char*
     //      outcomes wore one word and the screen split them on the COUNTER — which is not an admission signal:
     //        · a FULL TX QUEUE dropped the frame and still returned a non-zero `ctr`  ⇒ `queued` was FALSE;
     //        · a FULL PARKED RING stored nothing and returned 0                        ⇒ "parked" was FALSE;
-    //        · a loud pre-admission refusal (the joining gate, a seal failure, the type-19 delegate/cross-layer
+    //        · a loud pre-admission refusal (the joining gate, a seal failure, the TEAM_KEY_GRANT delegate/cross-layer
     //          structural refusals, a TEAM plane with no routable team origin) also returned 0 ⇒ both were FALSE.
     //      Each of those facts was ALREADY computed one or two frames down; all this does is carry it up (C1: no
     //      branch moved, no drop became a retry, nothing new is emitted — the `team_key_grant_tx` emit above is

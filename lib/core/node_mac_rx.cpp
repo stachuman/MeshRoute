@@ -25,11 +25,12 @@ static uint8_t bucket_of_snr_2b(int snr_q4) {
     return 2;
 }
 
-// B161: types 1/2/8/13 are internal answers with fixed, type-owned BODY shapes inside the
+// B161: H_ANSWER / AUTHORITATIVE_H_ANSWER / MOBILE_H_ANSWER / MOBILE_H_ANSWER_PUBKEY are internal answers
+// with fixed, type-owned BODY shapes inside the
 // standard plaintext-unicast envelope. Merely parsing `[origin][body]` is not enough to
 // distinguish a legacy raw body: its first type byte can be consumed as a plausible origin.
-// Require the exact production body shape before any cache/store/drain side effect. Type 5
-// remains outside this classifier because its existing standard-DM body and optional DST_HASH
+// Require the exact production body shape before any cache/store/drain side effect.
+// AUTHORITATIVE_H_ANSWER_PUBKEY remains outside this classifier because its existing standard-DM body and optional DST_HASH
 // prefix are unchanged by B161.
 static bool canonical_typed_answer_body_valid(uint8_t type, std::span<const uint8_t> body) {
     switch (type) {
@@ -1763,9 +1764,14 @@ void Node::do_post_ack() {
                     }
             become_free(); return;   // consumed (routing info, NOT delivered/inbox'd); no match / non-host -> just drop
         }
-        // §S6: DATA_TYPE_MOBILE_PUBKEY_PUSH (TYPE 12) is RETIRED — key custody now rides the presence probe's HAS_PUBKEY
-        // block (presence_ingest_probe), confirmed by the roster's has_key bit. No mobile emits TYPE 12 any more; a stray
-        // one from an un-upgraded peer falls through to normal DM handling (harmless — the fleet reflashes together).
+        // §S6: DATA_TYPE_MOBILE_PUBKEY_PUSH (0x94, ordinal 12 before the §CUSTODY-A namespace transition) is RETIRED —
+        // key custody now rides the presence probe's HAS_PUBKEY block (presence_ingest_probe), confirmed by the roster's
+        // has_key bit. No mobile emits it any more, and its handler was deleted, so an addressed one has NO arm here.
+        // ⛔ CORRECTED 2026-08-29 (A0-F10b): this used to call that fall-through "harmless". IT IS NOT. There is no
+        // default arm in this dispatch, so the frame reaches the generic deliver tail below and its 32 RAW KEY BYTES are
+        // record_dm'd and msg_recv-pushed to the app AS MESSAGE TEXT (characterized by test §A0-4). The fleet reflashing
+        // together is why it is not reachable in practice — it is not why it would be safe. Slice B's fail-closed
+        // internal-range arm is what actually makes it a drop.
         if (pa.type == DATA_TYPE_MOBILE_LAYER_QUERY && _cfg.n_layers == 2 && ui && ui->has_source_hash) {   // §mobile 5a: a mobile asks THIS gateway for its bridged layers
             uint8_t body[protocol::max_payload_bytes_hard_cap]; uint8_t off = 1; body[0] = 0;   // [count][records…]
             uint8_t cnt = 0;
@@ -1805,7 +1811,7 @@ void Node::do_post_ack() {
             return;
         }
         if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: the owner's pubkey answer -> cache (routing/key info, NOT a DM)
-            if (ui) on_hash_bind_pubkey(ui->body.data(), static_cast<uint8_t>(ui->body.size()));   // Wave 2: TYPE 5 is now a standard DM -> the pubkey is the BODY (past [dst_hash?][origin])
+            if (ui) on_hash_bind_pubkey(ui->body.data(), static_cast<uint8_t>(ui->body.size()));   // Wave 2: AUTHORITATIVE_H_ANSWER_PUBKEY is now a standard DM -> the pubkey is the BODY (past [dst_hash?][origin])
             become_free();
             return;
         }
@@ -1853,7 +1859,7 @@ void Node::do_post_ack() {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
-        // §S2 INTRO (type 15): a PLAINTEXT first-contact DM addressed to US, body = [ed_pub 32][name_len][name][text].
+        // §S2 DATA_TYPE_INTRO (0x01): a PLAINTEXT first-contact DM addressed to US, body = [ed_pub 32][name_len][name][text].
         // Verify ed_pub[:4] == SOURCE_HASH (the peerkey self-consistency rule), cache the sender's key AUTHORITATIVE +
         // name (fires peer_key_cached), STRIP the prefix, and fall through to the NORMAL deliver (enc absent; dedup
         // (sender_hash,ctr) unchanged; the INTRO framing is transport detail). Malformed/inconsistent/short -> DROP
@@ -1892,7 +1898,7 @@ void Node::do_post_ack() {
         static uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
         uint32_t dec_origin = pa.origin;   // §1a: for CRYPTED the trial recovers origin (== cleartext now; from the seal at 1c)
         bool crypted_ok = false;
-        // §S4 SEALED_RELAY (type 17): a PLAINTEXT-framed DM whose BODY = [seal_ctr 2][seed8 8][ct‖tag], sealed to US by
+        // §S4 DATA_TYPE_SEALED_RELAY (0x03): a PLAINTEXT-framed DM whose BODY = [seal_ctr 2][seed8 8][ct‖tag], sealed to US by
         // the CLEAR SOURCE_HASH (a mobile delegating via its home, or a static crossing a layer). DIRECTED open (no trial:
         // the sender is named in the clear); e2e_open_relay verifies the SEALED source_hash == the clear one (anti-spoof)
         // and IGNORES the sealed origin byte (§1c layer-local garbage). Success -> crypted_ok + fall into the shared
@@ -1915,7 +1921,7 @@ void Node::do_post_ack() {
             }
             crypted_ok = true; (void)trial_sender;   // dec_source_hash (sealed, anti-spoof-verified) == trial_sender = the sender
         }
-        // §team-ch-key T-K3 (type 19): a teammate GRANTED us the team CONTENT keypair. Placed HERE — after BOTH open
+        // §team-ch-key T-K3 (DATA_TYPE_TEAM_KEY_GRANT = 0xA2): a teammate GRANTED us the team CONTENT keypair. Placed HERE — after BOTH open
         // paths, before the shared deliver — because the body is SEALED, so nothing above this point can read it.
         // ★ SEALED-ONLY IS ENFORCED ON RECEIPT TOO, not just at origination: a plaintext grant is either a bug in a
         // peer or an attacker feeding us a key we would then encrypt the team's traffic under, so refuse it loudly and

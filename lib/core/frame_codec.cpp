@@ -1199,7 +1199,7 @@ std::optional<LayerRecord> parse_layer_record(std::span<const uint8_t> in, size_
     return o;
 }
 
-// Hash-bind PUBKEY answer inner (E2E §6, TYPE 5): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).
+// Hash-bind PUBKEY answer inner (E2E §6, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 0x8B): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).
 size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out) {
     if (out.size() < 34) return 0;
     out[0] = in.target_layer; out[1] = in.node_id;

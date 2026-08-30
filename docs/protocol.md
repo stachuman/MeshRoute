@@ -284,6 +284,32 @@ The simulator still reports only its asynchronous `refused` path through the sam
 `Node::on_tx_complete()` entry. It does not synthesize hardware `aired`/`failed`/`unknown` events, so those
 three outcomes remain corpus-dark and are covered by the native DeviceHal tests.
 
+### 2.4 The DATA-type namespace, the reflash ruling and the inbox migration (§CUSTODY-A, 2026-08-29)
+
+The DATA TYPE byte is a **range contract**: `0x00` the untyped DM · `0x01..0x7F` application-bearing ·
+`0x80..0xBF` protocol-internal · `0xC0..0xFD` reserved · `0xFE` an inbox-store marker that is never a wire type ·
+`0xFF` invalid. Byte layout and the exact assignments live in `docs/frames.md`; classification is one authority,
+`data_type_traits()` (`frame_codec.h`), so the MAC, inbox, JSON and UI never keep parallel type lists. Membership
+of a range is **not** a licence: internal is not priority, not an airtime exemption, not sealing, not trust, and
+never a reason to suppress a custody report.
+
+⛔ **MIXED FIRMWARE IS NOT SUPPORTED ACROSS THIS TRANSITION — THE WHOLE FLEET REFLASHES TOGETHER.** Old and new
+firmware disagree on the meaning of **every typed frame**: an old node's E2E ACK (3) reads as a new node's
+`SEALED_RELAY`, an old `INTRO` (15) reads as an unallocated application type, and so on. **`protocol::wire_version`
+is deliberately NOT bumped** (owner ruling, pinned by a failing static_assert in `test_data_type_namespace.cpp`):
+the version field is not what makes this safe — reflashing together is. The bump was declined because it re-anchors
+all 36 simulator streams at once and would have made this renumbering unmeasurable; MeshRoute is unshipped, so
+reflashing the test fleet is free. A future `wire_version` change gets its own slice.
+
+**Persistent inbox migration, v4 → v5.** The serialized record layout is unchanged; only the *meaning* of the
+stored `type` byte moved. A v4 store's E2E-ACK receipts carry numeric 3, which now means `SEALED_RELAY` — an
+application record — so reading them forward would silently reclassify every stored receipt. The first boot after
+the flash therefore performs the standard same-length upgrade automatically: **records erased · `next_seq` retained
+(a sequence is never reused) · read cursor reset to 0 · storage epoch incremented exactly once · the store marked
+acknowledged-empty so later boots do not bump again.** The companion sees a new epoch and re-syncs from zero. No
+manual erase is required, and `device_nv.h`'s configuration version does not change. The volatile inbox needs no
+migration.
+
 ## 3. Beacons
 
 In **discovery** (first ~60 s, or route-starved) a node beacons fast + full-page and broadcasts `Q:REQ_SYNC` to pull

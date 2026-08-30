@@ -222,7 +222,7 @@ enum class PushKind : uint8_t {
     team_reg,      // §S2: team-DAD id adopted/re-picked. team_id = _cfg.team_id (hex string), dst=team_local_id.
     join_adopted,  // a static/DAD adopt landed (verb join/create, boot DAD, OR the heal re-adopt): dst=adopted node_id,
                    //   layer_id=leaf_id, ctr=claim_epoch. The app refreshes ready.id (an id change mid-session was silent).
-    team_key_received,  // §team-ch-key T-K3: a teammate GRANTED us the team CONTENT keypair over a sealed TYPE-19 DM
+    team_key_received,  // §team-ch-key T-K3: a teammate GRANTED us the team CONTENT keypair over a sealed DATA_TYPE_TEAM_KEY_GRANT DM
                         //   (the node has already ADOPTED it — this is a notification, not a request). team_id = the
                         //   granted team, sender_hash = the granter's key_hash32, origin = the granter's node id,
                         //   body = the optional team NAME the granter typed (empty -> the JSON omits it; NOT persisted).

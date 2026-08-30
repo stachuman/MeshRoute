@@ -12,6 +12,7 @@
 #include "doctest.h"
 
 #include "fake_inbox_storage.h"   // pulls in segmented_inbox_store.h
+#include "frame_codec.h"           // §CUSTODY-A: DATA_TYPE_E2E_ACK / DATA_TYPE_SEALED_RELAY — the v4->v5 hazard
 
 #include <cstdio>
 #include <cstring>
@@ -1207,4 +1208,145 @@ TEST_CASE("SegmentedInboxStore: begin() FAILS LOUD if seg_bytes exceeds the read
     FakeSegmentStore recs2; FakeMetaStore meta2;
     SegmentedInboxStore okp(recs2, meta2, /*cap*/1u << 20, /*seg*/4096);   // == the scratch -> allowed
     CHECK(okp.begin());
+}
+
+// ============================================================================================================
+// §CUSTODY-A (2026-08-29) — THE STORE-VERSION BUMP v4 -> v5, AND WHY IT IS NOT COSMETIC.
+//
+// ★★★ THIS IS A **SEMANTIC** VERSION BUMP AT AN UNCHANGED LAYOUT — the case the `!version_ok` upgrade branch
+//     was written for and has never actually been exercised by until now. Every serialized field keeps its
+//     offset and width; what changed is what the `type` BYTE MEANS. A v4 store's E2E-ACK receipts carry the
+//     numeric type 3, and after the DATA-namespace transition 3 is `DATA_TYPE_SEALED_RELAY` — an APPLICATION
+//     record carrying a sealed user payload. Reading a v4 store forward would therefore reclassify every stored
+//     delivery receipt as a sealed user message, silently, with no byte out of place to notice.
+// ⇒ the wipe is what makes that IMPOSSIBLE rather than merely unlikely, and the CONTROL arm below is what makes
+//   that claim measurable: run the identical stored record WITHOUT the bump and watch it come back as a
+//   SEALED_RELAY. A test that only asserts "after the bump the store is empty" cannot tell a working migration
+//   from an empty fixture.
+// ⓘ Meta layout (private to the store; documented at its `struct Meta`): magic@0 version@4 head@6 tail@8
+//   segs@10 next@12 cursor@16 epoch@20 records_state@24.
+// ============================================================================================================
+
+namespace {
+constexpr size_t kMetaVersionOff = 4;
+constexpr size_t kMetaRecordsStateOff = 24;
+constexpr uint8_t kRecStateEmpty = 0;      // SegmentedInboxStore::kRecordsEmpty (private; mirrored, and the
+constexpr uint8_t kRecStateNonEmpty = 1;   //   §B134 marker cases above already mirror it the same way)
+constexpr uint8_t kOldTypeE2eAck = 3;      // ★ the PRE-transition DATA_TYPE_E2E_ACK ordinal, as a v4 store holds it
+
+// One inbox record in the EXACT wire-of-the-store layout (lib/core/inbox.h): 32-B header, `type` at offset 25.
+// Written out here rather than reached through `Inbox::record_ack` on purpose — record_ack would stamp the NEW
+// 0x80, and the whole point of the fixture is a byte pattern only an OLD build could have produced.
+std::vector<uint8_t> v4_receipt_record(uint32_t seq, uint8_t origin, uint16_t acked_ctr, uint8_t type_byte) {
+    std::vector<uint8_t> r(32, 0);
+    auto w32 = [&](size_t off, uint32_t v) { for (int i = 0; i < 4; ++i) r[off + i] = uint8_t(v >> (8 * i)); };
+    w32(0, seq);
+    r[4] = 0;                       // InboxKind::dm
+    r[5] = origin;
+    r[6] = 0;                       // channel_id
+    w32(7, acked_ctr);              // msg_id = the acked ctr
+    w32(11, 0);                     // sender_hash
+    for (int i = 0; i < 8; ++i) r[15 + i] = 0;   // rx_time_ms
+    r[23] = 1;                      // layer_id
+    r[24] = 0;                      // enc
+    r[25] = type_byte;              // ★ THE BYTE THIS WHOLE CASE IS ABOUT
+    w32(26, 0);                     // team_id
+    r[30] = 0;                      // origin_layer
+    r[31] = 0;                      // body_len (a receipt has no body)
+    return r;
+}
+}  // namespace
+
+TEST_CASE("SegmentedInboxStore: §CUSTODY-A v4->v5 CONTROL — without the bump, a stored type-3 receipt REAPPEARS as a sealed-relay record") {
+    // ⛔ THE NEGATIVE CONTROL FOR THE MIGRATION. It asserts the hazard is REAL, so the wipe arm below is
+    //    measured rather than assumed. Nothing here is desired behaviour — it is the behaviour the bump removes.
+    CHECK(static_cast<uint8_t>(DATA_TYPE_SEALED_RELAY) == kOldTypeE2eAck);   // ★ the collision, stated
+    CHECK(static_cast<uint8_t>(DATA_TYPE_E2E_ACK) != kOldTypeE2eAck);        // ★ and the receipt's value moved away
+
+    FakeSegmentStore drecs, crecs; FakeMetaStore dmeta, cmeta;
+    {
+        SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+        CHECK(dm.begin()); CHECK(ch.begin());
+        const auto rec = v4_receipt_record(/*seq=*/1, /*origin=*/5, /*acked_ctr=*/55, kOldTypeE2eAck);
+        CHECK(dm.append(1, rec.data(), static_cast<uint16_t>(rec.size())));
+        CHECK(dm.set_next_seq(2));
+    }
+    // The store's version is ALREADY the current one, so this reboot is NOT an upgrade — exactly the situation
+    // a semantic bump that had been skipped would produce.
+    SegmentedInboxStore dm2(drecs, dmeta, 4096, 256), ch2(crecs, cmeta, 4096, 256);
+    Inbox ib; ib.on_init(&dm2, &ch2);
+    CHECK(ib.enabled());
+    struct Cap { int n = 0; uint8_t type = 0xAA; } cap;
+    ib.pull(0, 0, [](void* c, const InboxEntry& e) {
+        auto* k = static_cast<Cap*>(c); ++k->n; k->type = e.type; return true;
+    }, &cap);
+    CHECK(cap.n == 1);                                        // the old record survived...
+    CHECK(cap.type == kOldTypeE2eAck);                        // ...carrying the byte 3...
+    CHECK(cap.type == static_cast<uint8_t>(DATA_TYPE_SEALED_RELAY));   // ⛔ ...which now MEANS a sealed relay
+}
+
+TEST_CASE("SegmentedInboxStore: §CUSTODY-A v4->v5 upgrade wipes records, keeps next_seq, resets the cursor, bumps the epoch ONCE") {
+    FakeSegmentStore drecs, crecs; FakeMetaStore dmeta, cmeta;
+    // ---- boot 0: a v4-era store holding the receipt whose type byte is the OLD 3 ----
+    {
+        SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+        CHECK(dm.begin()); CHECK(ch.begin());
+        const auto rec = v4_receipt_record(/*seq=*/1, /*origin=*/5, /*acked_ctr=*/55, kOldTypeE2eAck);
+        CHECK(dm.append(1, rec.data(), static_cast<uint16_t>(rec.size())));
+        CHECK(dm.set_next_seq(9));                            // a high-water the upgrade must NOT reset
+        CHECK(dm.set_read_cursor(1));                         // a cursor the upgrade MUST reset
+        CHECK(dm.storage_epoch() == 1);
+    }
+    CHECK(drecs.any_segments(nullptr));                       // the old-format records really are on "flash"
+    CHECK(dmeta.peek_u8(kMetaRecordsStateOff) == kRecStateNonEmpty);
+    dmeta.poke_u16(kMetaVersionOff, 4);                       // ★ stamp the PRIOR semantic version (v4)
+    CHECK(dmeta.peek_u16(kMetaVersionOff) == 4);
+
+    // ---- boot 1: the upgrade fires ----
+    uint32_t epoch_after_upgrade = 0;
+    {
+        SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+        Inbox ib; ib.on_init(&dm, &ch);
+        CHECK(ib.enabled());
+        epoch_after_upgrade = dm.storage_epoch();
+        CHECK(epoch_after_upgrade == 2);                      // ★ bumped exactly once (1 -> 2)
+        CHECK(dm.persisted_next_seq() == 9);                  // ★ high-water RETAINED — a seq is never reused
+        CHECK(dm.read_cursor() == 0);                         // ★ cursor RESET (the companion re-syncs from 0)
+        CHECK_FALSE(drecs.any_segments(nullptr));             // ★ the v4 records are physically GONE
+        CHECK(dmeta.peek_u16(kMetaVersionOff) == 5);          // ★ and the new version is on the MEDIUM
+        // ★★ §18.1.8 — THE v4-ERA RECEIPT (stored type byte 3, the PRE-transition E2E_ACK ordinal) CANNOT REAPPEAR. Contrast the CONTROL case above, which pulled it
+        //    back as a SEALED_RELAY from the identical bytes.
+        int n = 0;
+        ib.pull(0, 0, [](void* c, const InboxEntry&) { ++*static_cast<int*>(c); return true; }, &n);
+        CHECK(n == 0);
+        // ⛔ THE B134 "NO SECOND INCREMENT ON EMPTY DETECTION" BULLET, satisfied by the marker rather than by
+        //    luck: the upgrade wipe leaves the store ACKNOWLEDGED-empty, so the §10.1 external-loss detect on
+        //    every later boot sees an already-accounted empty state and does nothing.
+        CHECK(dmeta.peek_u8(kMetaRecordsStateOff) == kRecStateEmpty);
+    }
+    // ---- boots 2 and 3: STABLE. This is the arm that would have caught the pre-B134 epoch ratchet. ----
+    for (int boot = 2; boot <= 3; ++boot) {
+        CAPTURE(boot);
+        SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+        Inbox ib; ib.on_init(&dm, &ch);
+        CHECK(ib.enabled());
+        CHECK(dm.storage_epoch() == epoch_after_upgrade);     // ★ ONE bump total, not one per boot
+        CHECK(dm.persisted_next_seq() == 9);
+        CHECK(dm.read_cursor() == 0);
+        CHECK(dmeta.peek_u8(kMetaRecordsStateOff) == kRecStateEmpty);
+    }
+    // ---- and the store is immediately USABLE: the next append takes seq 9, never 1 ----
+    {
+        SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+        Inbox ib; ib.on_init(&dm, &ch);
+        const uint32_t seq = ib.record_ack(/*from_origin=*/5, /*acked_ctr=*/55, /*layer_id=*/1, /*now_ms=*/1000);
+        CHECK(seq == 9);                                      // ★ continues the high-water; no reuse
+        struct Cap { int n = 0; uint8_t type = 0xAA; } cap;
+        ib.pull(0, 0, [](void* c, const InboxEntry& e) {
+            auto* k = static_cast<Cap*>(c); ++k->n; k->type = e.type; return true;
+        }, &cap);
+        CHECK(cap.n == 1);
+        CHECK(cap.type == static_cast<uint8_t>(DATA_TYPE_E2E_ACK));   // ★ a NEW receipt stores the NEW 0x80
+        CHECK(cap.type != kOldTypeE2eAck);
+    }
 }

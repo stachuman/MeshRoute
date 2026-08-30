@@ -695,7 +695,7 @@ void Node::mobile_reg_touch(uint8_t slot, int16_t snr_q4) {
 //   behaviour change in this slice's host half is the NEW call site.
 void Node::presence_refresh_hosted_row(uint8_t slot, const p_probe_out& p, int16_t snr_q4) {
     mobile_reg_touch(slot, snr_q4);                             // §3-D: last_heard_ms + seed-if-zero SNR EWMA (shared with the beacon path so the two can't drift)
-    if (p.has_pubkey) {                                         // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
+    if (p.has_pubkey) {                                         // §S6 A.4: key custody rides the probe (RETIRES DATA_TYPE_MOBILE_PUBKEY_PUSH) — self-consistency check ed_pub[:4]==hash
         const uint32_t pk_hash = key_hash32_of(p.ed_pub);       // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
         if (pk_hash == p.key_hash32) {
             for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[slot].ed_pub[k] = p.ed_pub[k];
