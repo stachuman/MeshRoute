@@ -554,9 +554,29 @@ uint32_t age_s_from(uint32_t now_ms, uint32_t then_ms) { return uint32_t(now_ms 
 //   is valid only for the duration of this callback (inbox.h:23-24). ⇒ copy-and-terminate, here, every time.
 // ⓘ `now64` is sampled ONCE, in the caller, and carried in the context: every row of one frame must be aged against
 //   the SAME instant, or a long pull could show two rows a second apart that arrived together.
+// ★★★★ §CUSTODY-C (design §7.4) — **THE ORDINARY-VIEW GATE, AND IT IS THE FIRST STATEMENT OF THIS CALLBACK.**
+//      An internal OUTCOME record (an E2E-ack receipt today; a custody-failure report when §17-F lands) is
+//      protocol machinery, not a message, so it is not a row, not a detail page and not part of `inbox_total`.
+// ⛔⛔ THE POSITION IS AS LOAD-BEARING AS THE PREDICATE, and it answers TWO different rules that a gate placed
+//     anywhere lower would answer only one of:
+//       ① §7 — *"the body … must never be passed through the ordinary text encoder or OLED byte sanitizer as if
+//         it were a message."* The `ui_display_byte` loop below is that sanitizer. E2E ACK is bodyless so the
+//         rule is vacuous TODAY, and it stops being vacuous the moment a custody record (a binary body) is
+//         stored — the gate has to already be above the loop when that happens, not be moved there later.
+//       ② §7.4 — *"Filtering occurs before any visible row budget or visible-total calculation."* `budget->add`
+//         is BOTH: it fills the per-kind ring AND takes the `inbox_total` count. Refusing after it would let a
+//         hidden record spend a visible row slot and inflate the mailbox figure — and, worse, push a NEWER
+//         application message off the panel behind records the operator cannot even see (§7.4's own words).
+// ⛔ ONE GATE, NOT TWO: `InboxRowBudget` deliberately does NOT re-classify. A second copy of this rule inside
+//    the budget would make THIS one un-reddenable by the probe's control (the budget would silently cover for a
+//    deleted call here), which is the exact way a redundant guard turns a measurement into decoration.
+// ⓘ `e.type` is the STORED record type: `record_dm` writes 0 for every ordinary message and `record_ack` writes
+//   the symbolic `DATA_TYPE_E2E_ACK` (inbox.cpp) — so the classification reads the record's own byte and never
+//   re-derives a type from `body_len`, `origin` or the absence of a body.
 struct InboxPullCtx { mrui::InboxRowBudget* budget; uint64_t now64; };
 bool inbox_row_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
     InboxPullCtx* c = static_cast<InboxPullCtx*>(vctx);
+    if (MESHROUTE_NS::inbox_record_is_internal(e.type)) return true;   // ★ hidden: no row, no total, no sanitizer
     mrui::InboxRow r{};
     // ★★★ §UI-7D slice B: THE ROW CARRIES THE IDENTITY PAIR, copied verbatim from the record. `kind` replaced the old
     //     `bool is_dm` (one kind authority — see InboxRow), and `seq` is what makes the row nameable at all: it is what
@@ -594,6 +614,16 @@ bool inbox_row_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
 struct InboxFindCtx { mrui::InboxKind kind; uint32_t seq; uint32_t now_ms; bool found; };
 bool inbox_detail_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
     InboxFindCtx* c = static_cast<InboxFindCtx*>(vctx);
+    // ★★★ §CUSTODY-C — THE DETAIL SEAM'S OWN GATE (design §7.4: *"the OLED inbox list/detail does the same"*), and
+    //     it is a SECOND SEAM rather than a second copy of one rule: the list decides what is offered as a ROW, this
+    //     decides what may be OPENED as a page, and each is reached by a different call path.
+    // ⓘ It is UNREACHABLE TODAY BY CONSTRUCTION and is written anyway, deliberately: `(kind, seq)` can only come
+    //   from a row the list published, and the list no longer publishes an internal record — so this arm is the
+    //   fail-closed floor under that argument, not a duplicate of it. If a future caller ever names a seq directly,
+    //   the modal answers `MESSAGE GONE` (the ordinary view HAS no such message) instead of rendering a receipt's
+    //   header — or a custody report's raw bytes — through the detail body's sanitizer (§7).
+    // ⛔ It must stay ABOVE the `found` latch: matching first and refusing after would report the record as opened.
+    if (MESHROUTE_NS::inbox_record_is_internal(e.type)) return true;
     // ★★★ BOTH HALVES OF THE PAIR. The DM and channel sequence spaces are independent, so matching `seq` alone would
     //     open — and then delete — the other store's record with the same number ([[B133]] was this exact pair).
     if (e.kind != c->kind || e.seq != c->seq) return true;
@@ -643,8 +673,12 @@ void fill_inbox_rows(mrui::UiSnapshot& s) {
     static mrui::InboxRowBudget budget;                   // reused: 8 rows is ~200 B, not a per-tick stack allocation
     budget.reset();
     InboxPullCtx ctx{ &budget, g_hal.now() };
-    const uint16_t visited = g_node.inbox().pull(/*dm_since=*/0, /*chan_since=*/0, inbox_row_cb, &ctx);
-    budget.publish(s, visited);
+    // ★ §CUSTODY-C: `pull()`'s return is the RAW visit count and it is DISCARDED here — design §7.4 forbids
+    //   publishing it as `inbox_total`, and `InboxRowBudget::publish` now takes no total at all, so the only
+    //   number that can reach the snapshot is the budget's own admitted count. The raw stream is still complete
+    //   and still reaches the companion verbatim through `pull_inbox` (inbox.h's ruling on `pull`).
+    (void)g_node.inbox().pull(/*dm_since=*/0, /*chan_since=*/0, inbox_row_cb, &ctx);
+    budget.publish(s);
 }
 
 mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
@@ -1433,8 +1467,13 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
 // ★ UI-7: the real rows (spec §6.1). BLOCK ORDER — every DM row, then every channel row — never chronological: the
 //   two seq spaces are independent and there is no shared clock to interleave on, so an interleaved list would be an
 //   ordering claim the data does not support.
-// ★ TRUNCATION IS STATED, never implied: `inbox_total` is what `pull` VISITED, so a screen showing 8 of 40 says so
-//   rather than presenting the cap as the whole mailbox (the same rule the TEAM screen's `T4/12` follows).
+// ★ TRUNCATION IS STATED, never implied: a screen showing 8 of 40 says so rather than presenting the cap as the
+//   whole mailbox (the same rule the TEAM screen's `T4/12` follows).
+// ⛔ CORRECTED 2026-08-30 (§CUSTODY-C): this line used to read *"`inbox_total` is what `pull` VISITED"*, which is
+//   exactly what design §7.4 now forbids. `inbox_total` is the count of records ADMITTED TO THE ORDINARY VIEW —
+//   `pull` still visits the internal outcome records, and they are subtracted before the budget, so a mailbox
+//   holding 3 DMs and 5 E2E receipts reads `INBOX 3/3`, never `3/8`. The denominator remains an honest mailbox
+//   size for what this screen is a view OF; the hidden records are reached through `pull_inbox` (inbox.h).
 // ★★★★ §UI-17 S1 — the same PASSIVE ↔ ENTERED split as `draw_team_screen`'s, one plane over. See it.
 void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     char l[kLineCap], age[kAgeCap];

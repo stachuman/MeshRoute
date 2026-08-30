@@ -2041,7 +2041,7 @@ TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget i
     InboxRowBudget b; UiSnapshot s{};
     for (uint8_t i = 0; i < 2; ++i) b.add(row(true, 0, i));       // 2 DMs arrive first, as pull() delivers them
     for (uint8_t i = 0; i < 20; ++i) b.add(row(false, 7, i));     // then a flood of channel traffic
-    b.publish(s, 22);
+    b.publish(s);
     CHECK(b.dm_count() == 2);                                     // ★ both DMs survive the flood
     CHECK(b.ch_count() == kInboxRowsPerKind);
     CHECK(s.inbox_shown == uint8_t(2 + kInboxRowsPerKind));
@@ -2056,7 +2056,7 @@ TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget i
 TEST_CASE("ui7-inbox: within a kind the NEWEST rows win, because pull() hands them oldest-first") {
     InboxRowBudget b; UiSnapshot s{};
     for (uint8_t i = 0; i < uint8_t(kInboxRowsPerKind + 3); ++i) b.add(row(true, 0, i));
-    b.publish(s, uint16_t(kInboxRowsPerKind + 3));
+    b.publish(s);
     CHECK(s.inbox_shown == kInboxRowsPerKind);
     // the three oldest (0, 1, 2) were displaced; 3 .. kInboxRowsPerKind+2 survive, newest at the TOP
     CHECK(s.inbox[0].rx_age_s == uint32_t(kInboxRowsPerKind + 2));
@@ -2075,7 +2075,7 @@ TEST_CASE("ui7-inbox B231: within each block the NEWEST row is at the TOP, and t
     InboxRowBudget b; UiSnapshot s{};
     for (uint32_t i = 1; i <= 3; ++i) b.add(row(true,  0, i, i));   // pull()'s order: the DM block, oldest-first...
     for (uint32_t i = 1; i <= 3; ++i) b.add(row(false, 7, i, i));   // ...then the channel block, oldest-first
-    b.publish(s, 6);
+    b.publish(s);
     CHECK(s.inbox_shown == 6);
     CHECK(s.inbox[0].kind == InboxKind::dm);       CHECK(s.inbox[0].seq == 3u);   // ★ the NEWEST DM is row 0
     CHECK(s.inbox[1].kind == InboxKind::dm);       CHECK(s.inbox[1].seq == 2u);
@@ -2091,21 +2091,27 @@ TEST_CASE("ui7-inbox B231: within each block the NEWEST row is at the TOP, and t
 TEST_CASE("ui7-inbox B231: one row, and an empty block, publish exactly what they hold") {
     InboxRowBudget b; UiSnapshot s{};
     b.add(row(true, 0, 9, 9));
-    b.publish(s, 1);
+    b.publish(s);
     CHECK(s.inbox_shown == 1);
     CHECK(s.inbox[0].kind == InboxKind::dm); CHECK(s.inbox[0].seq == 9u);
     CHECK(b.ch_count() == 0);
     InboxRowBudget b2; UiSnapshot s2{};
     b2.add(row(false, 7, 5, 5));
-    b2.publish(s2, 1);
+    b2.publish(s2);
     CHECK(s2.inbox_shown == 1);
     CHECK(s2.inbox[0].kind == InboxKind::channel); CHECK(s2.inbox[0].seq == 5u);
 }
 
-TEST_CASE("ui7-inbox: truncation is VISIBLE — total is what pull visited, not what fitted") {
+// ⛔ RENAMED 2026-08-30 BY §CUSTODY-C, AND THE OLD NAME IS RECORDED BECAUSE IT WAS A CLAIM, NOT A LABEL: it read
+//   *"total is what pull visited, not what fitted"*, and the first half stopped being true at this slice. `pull()`
+//   still VISITS internal outcome records; `inbox_total` no longer counts them (design §7.4 — it counts only records
+//   ADMITTED to the ordinary view). ★ The SECOND half — "not what fitted" — is what this case has always really
+//   measured and is unchanged: the total is taken BEFORE the ring cap, so a truncated list still reports the true
+//   size of what it is a view of. The §CUSTODY-C exclusion itself is measured in `test_custody_internal_c.cpp`.
+TEST_CASE("ui7-inbox: truncation is VISIBLE — total is what was ADMITTED, not what fitted") {
     InboxRowBudget b; UiSnapshot s{};
     for (uint8_t i = 0; i < 30; ++i) b.add(row(i % 2 == 0, 1, i));
-    b.publish(s, 30);
+    b.publish(s);
     CHECK(s.inbox_shown == kMaxInboxRows);
     CHECK(s.inbox_total == 30);                                   // ★ the cap is never presented as the mailbox
 }
@@ -2114,7 +2120,7 @@ TEST_CASE("ui7-inbox: reset() really empties it, so a frame cannot inherit the p
     InboxRowBudget b; UiSnapshot s{};
     for (uint8_t i = 0; i < 6; ++i) b.add(row(true, 0, i));
     b.reset();
-    b.publish(s, 0);
+    b.publish(s);
     CHECK(b.dm_count() == 0); CHECK(b.ch_count() == 0);
     CHECK(s.inbox_shown == 0); CHECK(s.inbox_total == 0);
 }
@@ -2775,7 +2781,7 @@ struct InboxTick {
         UiSnapshot s = snap(now_ms);
         InboxRowBudget b;
         for (uint8_t i = 0; i < n_store; ++i) b.add(store[i]);
-        b.publish(s, n_store);
+        b.publish(s);
         return s;
     }
     // `ui_service_inbox_request`, all of it: the pull-by-pair, its refusal, and the erase.

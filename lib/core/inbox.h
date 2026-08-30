@@ -12,6 +12,7 @@
 #define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
 #endif
 #include "protocol_constants.h"
+#include "frame_codec.h"   // §CUSTODY-C: `data_type_traits()` — the ONE authority the record `type` byte is read against
 #include <cstdint>
 
 namespace MESHROUTE_NS {
@@ -32,7 +33,7 @@ struct InboxEntry {
     uint32_t       sender_hash;  // DM: the sender's key_hash32 (the STABLE identity, when SOURCE_HASH was set); 0 if absent / channel
     uint8_t        layer_id;     // §2/Q13: the FULL 8-bit receiving layer id — disambiguates `origin` across a gateway's two leaves
     uint8_t        enc;          // §8b: 1 = this DM was delivered SEALED (DATA_FLAG_CRYPTED + a successful e2e_open); 0 = plaintext / channel
-    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). Room for H_ANSWER etc. later. ★ inbox_rec_type_tombstone (0xFE) is NOT a DataType — it marks a §3.5 DELETION marker (msg_id = the deleted record's seq, body_len 0); pull() never emits one.
+    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). ⛔ CORRECTED 2026-08-30 (§CUSTODY-C): this used to read "Room for H_ANSWER etc. later" and that direction is now RULED OUT — §7.1's opt-in set is exactly {E2E_ACK, CUSTODY_FAILURE} and §CUSTODY-B's fail-closed guard (node_mac_rx.cpp) drops every other internal type BEFORE record_dm, so no hash answer, mobility control or key forward can reach this field. What a reader asks of it is `inbox_record_is_internal()` below, never an exact-value list. ★ inbox_rec_type_tombstone (0xFE) is NOT a DataType — it marks a §3.5 DELETION marker (msg_id = the deleted record's seq, body_len 0); pull() never emits one.
     uint32_t       team_id;      // §S5: a channel message's team scoping (0 = a plain leaf channel / DM). Carries the ACTUAL id (not a flag) so post-team-switch history stays correctly labelled.
     uint8_t        origin_layer; // §GapA durable: the cross-layer SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer / non-XL). Durable twin of Push.origin_layer so a pulled record still yields the (layer_path, hash) reply address.
     uint64_t       rx_time_ms;
@@ -67,6 +68,35 @@ inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes 
 //   and a value that a blank region could decode into is a bad discriminator, even though the segment framing
 //   ([u16 framed_len], rejected when < 6 or past the segment) already stops a blank region from parsing at all.
 inline constexpr uint8_t inbox_rec_type_tombstone = 0xFE;
+
+// ★★★★ §CUSTODY-C (2026-08-30) — THE ONE CLASSIFICATION A READER ASKS OF A STORED RECORD (design §7.4).
+// A stored record is either an ordinary APPLICATION message (the thing a conversation view renders) or a
+// protocol-INTERNAL OUTCOME record (an E2E-ack receipt today; a custody-failure report when §17-F lands). Every
+// presentation seam that has to tell them apart asks THIS, so there is one answer and it cannot drift.
+//
+// ⛔⛔ THE PREDICATE IS `data_type_traits(t).internal`, ⛔ **NOT** `persistent_outcome`, and the distinction is
+//     load-bearing rather than stylistic:
+//       · `persistent_outcome` answers "may this type be WRITTEN to the store as a durable outcome record" — an
+//         OPT-IN whose membership is exactly `{E2E_ACK}` today (frame_codec.h). It is a WRITE authority.
+//       · `internal` answers "is this record protocol machinery rather than a user message" — a RANGE fact, true
+//         for the whole `0x80..0xBF` block including values this firmware has never heard of.
+//     Classifying a READ by `persistent_outcome` therefore FAILS OPEN: the forward-reserved `0x81`, the reserved
+//     `0x8A`, the retired `0x94` and anything a newer firmware writes are all `persistent_outcome == false`, so
+//     each would be presented to the operator AS ORDINARY MESSAGE TEXT — which is the §7 defect class ("never
+//     through the ordinary text encoder or the OLED byte sanitizer") arriving through the front door. `internal`
+//     fails CLOSED, and that is why a future CUSTODY_FAILURE needs no presentation change at all: it is already
+//     hidden by the range, before its codec exists.
+//
+// ⛔ IT IS NOT A STORAGE RULE. Nothing about what is written, evicted or erased consults this: an internal record
+//    ages out of the ring and answers `Inbox::erase` EXACTLY like a DM (§7.5 — "no deletion protection"), and
+//    `Inbox::pull()` streams it verbatim (§7.4 — pull is the raw authority and the diagnostic access). This is
+//    read-time PRESENTATION only, applied by the view, never by the store.
+//
+// ⓘ `0xFE` (the tombstone) is deliberately NOT internal by this predicate — it is outside the closed
+//   `0x80..0xBF` bound — and needs no arm here: `pull()` never emits a tombstone or its target to any reader.
+// ★ FIRMWARE-SIDE ONLY. The companion decodes SEMANTIC WIRE NAMES (`"type":"e2e_ack"`, console_json.cpp) and can
+//   never consult this C++ trait table; its own obligation is documented in `ios-companion/INBOX_SYNC_CONTRACT.md`.
+inline bool inbox_record_is_internal(uint8_t rec_type) { return data_type_traits(rec_type).internal; }
 
 // Inbox::erase outcome — THREE distinguishable states, because §3.5 renders each differently and a bool cannot say
 // which happened. ⛔ `not_found` must never be reported as success and never as failure: the UI shows MESSAGE GONE
@@ -146,6 +176,22 @@ public:
     // targets into a stack array of protocol::inbox_max_tombstones u32 = 128 B), then streams, skipping both the
     // tombstones themselves and every targeted record. Overflow is impossible by construction: erase() refuses at
     // the same cap. Cost = the store is scanned TWICE per pull; pull is a console/UI operation, never a MAC path.
+    //
+    // ★★★★ §CUSTODY-C — `pull()` IS THE **RAW** AUTHORITY AND STAYS RAW (design §7.4), AND THAT IS A RULING, NOT
+    //      AN OVERSIGHT. It streams internal OUTCOME records (an E2E-ack receipt; later a custody report) verbatim
+    //      alongside application messages. ⛔ **NEVER add an `inbox_record_is_internal` filter here or in the
+    //      `pull_inbox` verb built on it.** What that "tidy-up" would break, measured rather than argued:
+    //        · the companion marks an OFFLINE outgoing message DELIVERED by consuming the PULLED receipt
+    //          (`AppModel.importInboxEntry`: `if e.isReceipt { markDelivered(…); activeSync?.advance(with: e) }`) —
+    //          the live `send_e2e_acked` push only covers a message confirmed while it was connected;
+    //        · the DM cursor is advanced PER RECORD by that same line, and `inbox_end` does NOT advance it
+    //          (`handleInboxEnd` persists the epoch only) ⇒ a filtered receipt is never consumed, its delivery
+    //          confirmation is lost permanently, and no later pull can recover it;
+    //        · the bench oracle builds its delivery ledger from the same records (`tools/lab/reconcile.py`
+    //          `type == "e2e_ack"` -> `src_receipts`), so the filter would silently zero the measured ack rate.
+    //      ⇒ THE EXISTING RAW `pull_inbox` **IS** the diagnostic access §7.4/§14 promise — no new verb, no flag.
+    //      Filtering is the VIEW's job and lives at the view: `src/firmware_ui.cpp`'s OLED adapter is the one
+    //      seam in this tree that applies it.
     uint16_t pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const;
 
     // §3.5 / §6.2 DURABLE SINGLE-RECORD DELETE — the ONE entry point (U1); there is deliberately no per-store

@@ -2099,12 +2099,24 @@ struct UiInboxCounters {
 inline constexpr uint8_t kInboxRowsPerKind = uint8_t(kMaxInboxRows / 2);
 class InboxRowBudget {
 public:
-    void reset() { _n_dm = 0; _n_ch = 0; }
+    void reset() { _n_dm = 0; _n_ch = 0; _n_admitted = 0; }
     // Newest-wins: `pull` hands rows oldest-first, so once a ring is full each further row displaces the OLDEST it
     // holds. Shifting `kInboxRowsPerKind - 1` small structs is bounded and happens only past the cap.
     // ⓘ §UI-7D slice B: the ring is selected from `r.kind`, which is now the row's ONLY kind field. The predicate is
     //   deliberately written out at each use rather than cached in a second member — see InboxRow's block.
+    // ★★★★ §CUSTODY-C — `_n_admitted` COUNTS EVERY ROW OFFERED TO THIS BUDGET, **BEFORE** THE RING CAP, and it is
+    //      what `publish` reports as `inbox_total`. The count is taken here rather than passed in by the caller
+    //      because design §7.4 forbids exactly one thing at this seam — *"the OLED adapter must not publish the
+    //      raw record count returned by `Inbox::pull()` as `inbox_total`"* — and a parameter is precisely how that
+    //      defect gets written. ⛔ The gate that decides WHICH records are offered is the SEAM's
+    //      (`src/firmware_ui.cpp`'s pull callback, which must refuse an internal record before it touches the
+    //      body — §7's never-through-the-byte-sanitizer rule); this class counts what it is handed and never
+    //      classifies, so there is ONE gate and not two that can drift.
+    // ⓘ SATURATING, not wrapping: a store larger than 65 535 live records cannot exist (the byte cap bounds both
+    //   rings far below it), so this can only ever fire under a future backend — and a total that stops climbing
+    //   understates the mailbox, while a wrapped one would claim it is nearly empty.
     void add(const InboxRow& r) {
+        if (_n_admitted < UINT16_MAX) ++_n_admitted;
         const bool dm = (r.kind == InboxKind::dm);
         InboxRow* buf = dm ? _dm : _ch;
         uint8_t&  n   = dm ? _n_dm : _n_ch;
@@ -2112,8 +2124,15 @@ public:
         for (uint8_t i = 1; i < kInboxRowsPerKind; ++i) buf[i - 1] = buf[i];
         buf[kInboxRowsPerKind - 1] = r;
     }
-    // ★ THE ONE CONVERSION PATH into the snapshot (U2), like `UiInboxCounters::publish`. `total` is what `pull`
-    //   VISITED, so the screen can say the list is truncated instead of implying it is complete (spec §6.1).
+    // ★ THE ONE CONVERSION PATH into the snapshot (U2), like `UiInboxCounters::publish`. `inbox_total` says the
+    //   list is TRUNCATED instead of implying it is complete (spec §6.1).
+    // ⛔⛔ IT TOOK A `uint16_t total` PARAMETER UNTIL §CUSTODY-C, AND THE PARAMETER IS GONE ON PURPOSE — the one
+    //    value the caller had was `Inbox::pull()`'s RAW visit count, which design §7.4 forbids publishing here
+    //    ("it counts only application records admitted to the ordinary view"). Removing the parameter makes that
+    //    defect unrepresentable at this seam rather than merely tested-against: there is no longer a way to hand
+    //    this class a number, so a total that includes hidden internal records cannot be written. ⓘ Same trade the
+    //    §CUSTODY-A battery records for the enum ordinals — a control that lives in the type system beats one that
+    //    lives in a test.
     // ★★★ [[B231]] — OWNER RULED 2026-08-20: THE NEWEST MESSAGE IS AT THE TOP OF ITS BLOCK, so each ring is copied
     //     in REVERSE. `add()` stores in `pull()`'s order (oldest-first) and the retention is newest-wins, so a ring's
     //     LAST slot is its NEWEST row — which is why the newest message used to render at the BOTTOM. ⛔ The retention
@@ -2121,19 +2140,21 @@ public:
     // ⛔ THE BLOCK ORDER IS UNTOUCHED AND IS NOT WHAT THIS RULES ON — all DM rows, then all channel rows, never
     //    interleaved. The two seq spaces share no clock and spec §6.1 requires a stated reboot/uptime rule before any
     //    interleaving; newest-first WITHIN a block needs no such rule, and this is not a step toward one.
-    void publish(UiSnapshot& s, uint16_t total) const {
+    void publish(UiSnapshot& s) const {
         uint8_t k = 0;
         for (uint8_t i = _n_dm; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _dm[i - 1];
         for (uint8_t i = _n_ch; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _ch[i - 1];
         s.inbox_shown = k;
-        s.inbox_total = total;
+        s.inbox_total = _n_admitted;
     }
-    uint8_t dm_count() const { return _n_dm; }
-    uint8_t ch_count() const { return _n_ch; }
+    uint8_t  dm_count()    const { return _n_dm; }
+    uint8_t  ch_count()    const { return _n_ch; }
+    uint16_t admitted()    const { return _n_admitted; }   // the ordinary-view total, pre-cap (§7.4)
 private:
     InboxRow _dm[kInboxRowsPerKind] = {};
     InboxRow _ch[kInboxRowsPerKind] = {};
     uint8_t  _n_dm = 0, _n_ch = 0;
+    uint16_t _n_admitted = 0;      // §CUSTODY-C: rows OFFERED (= admitted to the ordinary view), before the ring cap
 };
 
 // ---------------------------------------------------------------------------------------------------- UI-3

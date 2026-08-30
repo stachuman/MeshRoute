@@ -545,6 +545,23 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     ("opening DELETED NOTHING") are what see it.
   ctl "C28 opening a record DELETES it (the switch arms crossed)" yes \
       's|        case mrui::InboxWhat::open:  ui_open_inbox_detail(rq, now_ms); break;|        case mrui::InboxWhat::open:  ui_erase_inbox_record(rq); break;|'
+  # ★★★★ CC1-CC3 — §CUSTODY-C (2026-08-30), THE ORDINARY-VIEW EXCLUSION. Design §7.4 rules TWO things about this
+  #   seam and each gets its own control, because a mutation that reddens one is silent about the other:
+  #     · WHETHER the gate exists at all (CC1) — the receipts come back as rows and in `inbox_total`;
+  #     · WHERE it sits relative to `budget->add` (CC2) — the gate still exists, still refuses, and the record has
+  #       ALREADY spent a row slot and been counted by the time it is asked. That is the *ordering* defect §7.4
+  #       names in as many words, it passes every "the predicate is right" assertion, and CC1 cannot see it.
+  #     · WHICH predicate (CC3) — the QG correction verbatim. `persistent_outcome` is the WRITE opt-in, so the
+  #       weakened gate still hides an E2E ACK (the one member) while showing every other internal record. ⚠ THE
+  #       PROBE'S FIXTURE IS E2E ACKS, so this mutant would stay GREEN here — the weakening is reddened where the
+  #       whole 0..255 range is in scope (`test/test_custody_internal_c.cpp` §CUSTODY-C/1c, and the isolated
+  #       harness's `sliceCinbox` battery). ⇒ ⛔ IT IS DELIBERATELY **NOT** A CONTROL IN THIS FILE: a control that
+  #       cannot redden its own instrument is reported VACUOUS and would be exactly the decoration this block's
+  #       header forbids. Recorded here so its absence is a decision and not an omission.
+  ctl "CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows)" yes \
+      's|    if (MESHROUTE_NS::inbox_record_is_internal(e.type)) return true;   // ★ hidden: no row, no total, no sanitizer|    ;|'
+  ctl "CC2 the gate is applied AFTER the budget (the row slot and the total are already spent)" yes \
+      's|    if (MESHROUTE_NS::inbox_record_is_internal(e.type)) return true;   // ★ hidden: no row, no total, no sanitizer|    ;|; s|^    c->budget->add(r);|    c->budget->add(r); if (MESHROUTE_NS::inbox_record_is_internal(e.type)) return true;|'
   ctl "C22 the tick never serves the inbox request (the modal cannot open)" yes \
       's|    ui_service_inbox_request(now_ms);|    ;|'
   ctl "C23 the body length is left for the model to measure (the strlen shape)" yes \

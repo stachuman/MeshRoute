@@ -1118,6 +1118,16 @@ uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
         case PK::join_refused:   case PK::send_blocked:   case PK::channel_sent:    case PK::mobile_reg:
         case PK::team_reg:       case PK::join_adopted:   case PK::team_key_received:
         case PK::team_channel_no_key: case PK::send_aired:
+        // ⛔⛔ [[B271]] — REPAIRED 2026-08-30 BY §CUSTODY-C, AND THE REPAIR IS RECORDED RATHER THAN QUIETLY MADE —
+        //    because the
+        //    mechanism above worked EXACTLY as designed and the obligation it created was skipped anyway.
+        //    [[B268]]/§CUSTODY-B (commit `6670626`) appended these two kinds to `lib/core/command.h`, updated the
+        //    TWIN copy in `test/test_firmware_ui_send.cpp` (:2359) — and left THIS one. ⇒ from that commit until
+        //    now `tools/probe_firmware_ui/run.sh` did not compile at all (`-Werror=switch`, both arms), so the ONE
+        //    instrument that covers `src/firmware_ui.cpp` has been unrunnable and every gate that claimed it was
+        //    green claimed something no build could have produced. ★ The sweep grows by two, which is the point of
+        //    the no-`default:` design; nothing else about this file's behaviour changes.
+        case PK::team_key_grant_aired: case PK::team_key_grant_failed:
             return uint8_t(uint8_t(k) + 1u);
     }
     return 0;
@@ -1779,6 +1789,57 @@ int main() {
     CHK("P6g a press returns to the rebuilt INBOX",        strstr(g_c.page_text, "INBOX") != nullptr &&
                                                            strstr(g_c.page_text, "evicted or deleted") == nullptr &&
                                                            strstr(g_c.page_text, ">back") == nullptr);
+
+    // ---- (g) ★★★★ §CUSTODY-C — INTERNAL OUTCOME RECORDS ARE NOT ON THE PANEL (design §7.4) ---------------------
+    // ★★★ WHAT ONLY THIS PROBE CAN SEE. The native suite proves the PREDICATE and the budget ARITHMETIC
+    //     (`test/test_custody_internal_c.cpp`), and it proves them against a MIRROR of this file's pull callback —
+    //     because `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator (§B115). What
+    //     nothing there can see is whether THIS FILE's real `inbox_row_cb` asks the gate at all, and whether it asks
+    //     it BEFORE `budget->add` (which is both the ring insert and the `inbox_total` count). Both are here.
+    // ★★ THE FIXTURE IS THE HONEST ONE: the receipts are written by the REAL `Inbox::record_ack`, i.e. the exact
+    //    call `node_mac_rx.cpp` makes when an E2E ACK lands — ⛔ not a hand-built record with a poked `type` byte.
+    // ⛔ AND THE RAW PULL IS THE CONTROL. `live_count()` goes THROUGH `Inbox::pull()`, so it is the diagnostic
+    //    stream: if it did not grow, the receipts were never stored and every "invisible" check below would be
+    //    vacuously green — the exact shape §18.0.3 forbids. The pair of numbers is the measurement.
+    {
+        // The header the panel is showing RIGHT NOW, captured rather than assumed: earlier phases delete records,
+        // so hard-coding `INBOX 3/3` here would rot the moment a deletion above it moves.
+        char before_hdr[24] = {};
+        if (const char* h = strstr(g_c.page_text, "INBOX ")) {
+            size_t i = 0; while (i + 1 < sizeof before_hdr && h[i] && h[i] != '\n') { before_hdr[i] = h[i]; ++i; }
+        }
+        CHK("P6i precondition: the INBOX header was captured", before_hdr[0] != '\0');
+        // ⚠ TWO receipts, not more, and the number is MEASURED rather than chosen for looks: the probe's DM store
+        //   is a `FixedInboxStore<8>` and by this point it holds three records plus the tombstones the phases above
+        //   appended. A larger burst would DROP-OLDEST, and the phase would then be measuring eviction (and would
+        //   starve every later phase of the records it opens) instead of the exclusion. Two is what fits.
+        const int live_before_acks = live_count();
+        for (uint16_t i = 1; i <= 2; ++i)
+            CHK("P6i an E2E-ack RECEIPT is recorded through the real record_ack",
+                g_node.inbox().record_ack(/*from_origin=*/48, /*acked_ctr=*/uint16_t(900 + i),
+                                          /*layer_id=*/0, /*now=*/2000) != 0);
+        CHK("P6i ★ the RAW pull DOES see BOTH — the fixture is real, not a no-op",
+            live_count() == live_before_acks + 2);
+
+        // ⚠ REPAINTED WITHOUT A PRESS, deliberately: `settle()` delivers a real short press, which on this screen
+        //   moves the cursor (or leaves the list), so the frame it produced would not be the same VIEW the header
+        //   was captured from. `dirty_the_model` + a throttle-clearing time step repaints the SAME view.
+        dirty_the_model(t + 500);
+        t += 700; paint(t);
+        // ① THE TOTAL DID NOT MOVE. `inbox_total` is drawn as the denominator of `INBOX shown/total`, so an
+        //    exclusion applied AFTER the budget shows up right here as a bigger number with no extra rows.
+        CHK("P6i ★★ the INBOX header is UNCHANGED — two receipts are not two more messages",
+            strstr(g_c.page_text, before_hdr) != nullptr);
+        // ② NO RECEIPT ROW. A receipt has origin 48 — the same origin as the fixture's DMs — so a row it produced
+        //    would render as an ordinary `DM ` preview with an EMPTY body, i.e. it cannot be told apart by origin.
+        //    The countable fact is therefore the ROW COUNT, taken from the header's numerator.
+        CHK("P6i ...and the panel still lists exactly what it listed before the receipts arrived",
+            strstr(g_c.page_text, before_hdr) != nullptr && strstr(g_c.page_text, "evicted") == nullptr);
+        // ③ ...AND THE RECEIPTS ARE STILL THERE, in the store, for the companion's `pull_inbox` (§7.4's ruling that
+        //    the raw pull stays raw). ⛔ Hidden is not deleted.
+        CHK("P6i ⛔ hidden is NOT deleted — the diagnostic stream still carries both",
+            live_count() == live_before_acks + 2);
+    }
 
     // ============================================================================================================ P7
     // ★★★★ §UI-14 — THE SETTINGS SCREEN, END TO END, THROUGH THE SHIPPED PATH. The native suite drives the pure model
@@ -5629,26 +5690,64 @@ int main() {
                     // ★★★ `GRANT QUEUED` IS ⛔ NOT `KEY SENT` (F-9, the headline), and only a CORRELATED TxDone
                     //     edge promotes it. The uncorrelated ones are driven FIRST, so the promotion below cannot
                     //     be mistaken for "any push repaints it".
+                    //
+                    // ⛔⛔ RE-ANCHORED 2026-08-30 BY [[B272]] (QG-RULED INTO §CUSTODY-C), AND THE MOVEMENT IS
+                    //    RECORDED RATHER THAN THE CHECKS QUIETLY REWRITTEN. These three sites injected the GENERIC
+                    //    `PushKind::send_aired` / `send_failed`, and until [[B268]] that was the truth. It is not any
+                    //    more: `DATA_TYPE_TEAM_KEY_GRANT` (0xA2) is protocol-internal with
+                    //    `generic_send_lifecycle = false`, so §CUSTODY-B SUPPRESSES the generic family for it
+                    //    entirely, and B268 replaced it with the protocol-specific
+                    //    `team_key_grant_aired` / `team_key_grant_failed` on the SAME `{dst, ctr}` correlation.
+                    //    `firmware_ui_invite.h:738-739` consumes exactly those two and nothing else.
+                    //    ⇒ the four checks below asserted a promotion no production push could ever cause, and this
+                    //    arm had been RED since commit `6670626`. ★ WHAT THEY MEASURE IS UNCHANGED — "only a
+                    //    CORRELATED airing edge promotes GRANT QUEUED to KEY SENT" — only the kind that carries it.
                     {
                         grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 4242);
                         CHK("P24b the admission says GRANT QUEUED — ⛔ never KEY SENT",
                             body_row_is(0, mrui::kInviteGrantQueued) &&
                             strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
                         MESHROUTE_NS::Push pu{};
-                        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = 90; pu.ctr = 4242;
+                        pu.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; pu.dst = 90; pu.ctr = 4242;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24b ⛔ a send_aired for a DIFFERENT dst does not promote it",
+                        CHK("P24b ⛔ a team_key_grant_aired for a DIFFERENT dst does not promote it",
                             body_row_is(0, mrui::kInviteGrantQueued));
                         pu.dst = 221; pu.ctr = 4243;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24b ⛔ a send_aired for a DIFFERENT ctr does not promote it",
+                        CHK("P24b ⛔ a team_key_grant_aired for a DIFFERENT ctr does not promote it",
                             body_row_is(0, mrui::kInviteGrantQueued));
+                        // ★★★★ [[B272]]'s NEGATIVE CONTROL, AND IT IS THE ONE THIS PHASE DID NOT HAVE: the two
+                        //      checks above vary the CORRELATION and hold the kind; this varies the KIND and holds
+                        //      the correlation EXACT. It is what turns [[B268]]'s "no generic push for the grant,
+                        //      ever" from a design sentence into a measured property at the panel layer — and it is
+                        //      precisely the regression that hid here for two commits, seen from the other side.
+                        // ⓘ BOTH generic kinds, because they promote to DIFFERENT rows: a generic `send_aired` that
+                        //   leaked through would say KEY SENT, a generic `send_failed` would say GRANT FAILED, and a
+                        //   control that drove only one would be green on half the defect.
+                        {
+                            MESHROUTE_NS::Push g{};
+                            g.kind = MESHROUTE_NS::PushKind::send_aired; g.dst = 221; g.ctr = 4242;
+                            mr_ui_on_push(g);
+                            dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                            CHK("P24b ★★★ [[B272]] an EXACTLY-CORRELATED **generic** send_aired does NOT promote the "
+                                "grant — the generic family is suppressed for 0xA2 and the panel must not honour it",
+                                body_row_is(0, mrui::kInviteGrantQueued) &&
+                                strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
+                            g.kind = MESHROUTE_NS::PushKind::send_failed;
+                            g.reason = MESHROUTE_NS::SendFailReason::no_route;
+                            mr_ui_on_push(g);
+                            dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                            CHK("P24b ★★★ [[B272]] ...nor does an EXACTLY-CORRELATED **generic** send_failed make it "
+                                "say GRANT FAILED",
+                                body_row_is(0, mrui::kInviteGrantQueued) &&
+                                strstr(g_c.page_text, mrui::kInviteGrantFailed) == nullptr);
+                        }
                         pu.dst = 221; pu.ctr = 4242;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24b ★★ the CORRELATED send_aired promotes it to KEY SENT",
+                        CHK("P24b ★★ the CORRELATED team_key_grant_aired promotes it to KEY SENT",
                             body_row_is(0, mrui::kInviteKeySent) && body_row_is(1, full));
                         t17 = see(double_press(t17 + 500));
                         CHK("P24b ...and the verdict is terminal in the same way", body_row_is(0, ">CREATE TEAM"));
@@ -5656,11 +5755,13 @@ int main() {
                     {
                         grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 4242);
                         MESHROUTE_NS::Push pu{};
-                        pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.dst = 221; pu.ctr = 4242;
+                        // ⓘ [[B268]]: the failure kind CARRIES a `SendFailReason` — that is the one field the
+                        //   protocol-specific pair added over a bare notification, so it is stamped here too.
+                        pu.kind = MESHROUTE_NS::PushKind::team_key_grant_failed; pu.dst = 221; pu.ctr = 4242;
                         pu.reason = MESHROUTE_NS::SendFailReason::no_route;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24b a CORRELATED failure says GRANT FAILED",
+                        CHK("P24b a CORRELATED team_key_grant_failed says GRANT FAILED",
                             body_row_is(0, mrui::kInviteGrantFailed) && body_row_is(1, full));
                         t17 = see(double_press(t17 + 500));
                         CHK("P24b ...and it too is terminal", body_row_is(0, ">CREATE TEAM"));
@@ -5742,7 +5843,23 @@ int main() {
                         //     push travels the WHOLE production chain (push ring -> `mr_ui_on_push` ->
                         //     `ui_route_send_push` -> the model) with ⛔ no hand-built push anywhere, and it
                         //     ⛔ neither promotes nor rewrites a verdict the operator has already read.
-                        bool aired_seen = false, real_fail = false;
+                        //
+                        // ⛔⛔ RE-ANCHORED AGAIN 2026-08-30 BY [[B272]], AND THE CLAIM ABOVE IS **WITHDRAWN AS
+                        //    FALSE** rather than softened — the sentence *"the core pushes `send_failed` for a grant
+                        //    it refused"* stopped being true at [[B268]] and the check has been RED ever since.
+                        //    ★ WHAT THE CORE ACTUALLY DOES NOW WAS **MEASURED**, not reasoned: this loop was
+                        //    instrumented to print every `{kind, dst, ctr}` it drained, and it printed **NOTHING**.
+                        //    ⇒ a grant refused SYNCHRONOUSLY (pre-admission — no carrier, no minted handle) emits
+                        //    ⛔ NO asynchronous push of ANY kind, and both halves of that are B268's design:
+                        //      · the GENERIC pair is suppressed for `0xA2` outright (`generic_send_lifecycle`
+                        //        false — §CUSTODY-B §6.2(5)); and
+                        //      · the protocol-specific `team_key_grant_failed` is emitted POST-ADMISSION only, by
+                        //        `Node::terminal_carrier_outcome` — and this grant never reached a carrier.
+                        //    ★ THE RE-ANCHORED PROPERTY IS STRONGER THAN THE ONE IT REPLACES, which is why it is
+                        //    worth keeping the phase at all: the synchronous verdict the operator is already
+                        //    reading is the ONLY report, so there is no second, later, differently-worded outcome
+                        //    that could overwrite or contradict it. `no_push_at_all` states that positively.
+                        bool aired_seen = false, real_fail = false, grant_push_seen = false, no_push_at_all = true;
                         grant_seam().passthrough = true;
                         grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 0);
                         grant_seam().passthrough = false;
@@ -5757,20 +5874,30 @@ int main() {
                             g_hal.pump_tx();
                             MESHROUTE_NS::Push pu{};
                             while (g_node.next_push(pu)) {
-                                if (pu.kind == MESHROUTE_NS::PushKind::send_aired) aired_seen = true;
-                                if (pu.kind == MESHROUTE_NS::PushKind::send_failed) real_fail = true;
+                                no_push_at_all = false;
+                                // the GENERIC family — suppressed for 0xA2 by §CUSTODY-B; neither may appear
+                                if (pu.kind == MESHROUTE_NS::PushKind::send_aired)  aired_seen = true;
+                                if (pu.kind == MESHROUTE_NS::PushKind::send_failed) real_fail  = true;
+                                // ...and the PROTOCOL-SPECIFIC pair, which is post-admission only ([[B268]])
+                                if (pu.kind == MESHROUTE_NS::PushKind::team_key_grant_aired ||
+                                    pu.kind == MESHROUTE_NS::PushKind::team_key_grant_failed) grant_push_seen = true;
                                 mr_ui_on_push(pu);
                             }
                         }
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24c2 ★★★ the CORE really pushed send_failed for the grant it refused, and the whole "
-                            "production chain carried it with NOTHING injected",
-                            real_fail);
-                        CHK("P24c2 ⛔ ...and it neither promoted nor rewrote the verdict already on the panel",
+                        CHK("P24c2 ★★★ [[B272]] a SYNCHRONOUSLY-refused grant emits NO asynchronous push at all — "
+                            "the synchronous verdict is the only report the operator will ever get",
+                            no_push_at_all && !grant_push_seen);
+                        CHK("P24c2 ⛔ ...and the verdict already on the panel is neither promoted nor rewritten",
                             body_row_is(0, mrui::kInviteGrantFailed) && body_row_is(1, full) &&
                             strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
-                        CHK("P24c2 ⓘ ...and ⛔ no send_aired is producible on this harness (no CTS, no RX path)",
-                            aired_seen == false);
+                        // ★★ THE GENERIC FAMILY IS THE ONE THIS PHASE MUST STILL PROVE ABSENT, and BOTH halves are
+                        //    named: §CUSTODY-B suppresses `send_aired` AND `send_failed` for `0xA2`, so an
+                        //    implementation that quietly re-enabled the generic lifecycle for the grant (the
+                        //    [[B268]] option (a) the owner REJECTED) reddens exactly here, in production traffic.
+                        CHK("P24c2 ⛔ ...and ⛔ NO generic send_aired / send_failed is produced for the grant "
+                            "(0xA2 has generic_send_lifecycle = false — the rejected option (a) reddens here)",
+                            aired_seen == false && real_fail == false);
                         t17 = see(double_press(t17 + 500));
                         CHK("P24c2 the failure verdict is terminal too", body_row_is(0, ">CREATE TEAM"));
                     }
@@ -5879,17 +6006,35 @@ int main() {
                         grant_seam().last_plane == mrui::kInviteGrantPlane);
 
                     // ---- (c) ...AND THE CORRELATED EDGE PROMOTES IT, through the REAL push entry point ---------
+                    // ⛔ RE-ANCHORED 2026-08-30 BY [[B272]], exactly as P24b's block was and for the same reason:
+                    //    the promoting edge is [[B268]]'s `team_key_grant_aired`, never the generic `send_aired`
+                    //    (suppressed for `0xA2`). The MEASUREMENT — "only the correlated airing edge promotes" — is
+                    //    unchanged; the kind that carries it moved.
                     {
                         MESHROUTE_NS::Push pu{};
-                        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = 91; pu.ctr = 7777;
+                        pu.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; pu.dst = 91; pu.ctr = 7777;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
-                        CHK("P24k7c ⛔ an UNCORRELATED send_aired (another dst) does not promote it",
+                        CHK("P24k7c ⛔ an UNCORRELATED team_key_grant_aired (another dst) does not promote it",
                             body_row_is(0, mrui::kInviteGrantQueued));
                         pu.dst = 90; pu.ctr = 7778;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
                         CHK("P24k7c ⛔ ...nor does one with another ctr", body_row_is(0, mrui::kInviteGrantQueued));
+                        // ★★★ [[B272]]'s NEGATIVE CONTROL on the ROSTER path too, and it is not a duplicate of
+                        //     P24b's: this slot was minted through a DIFFERENT door (the roster act, [[B245]]'s
+                        //     path) and carries its own `{dst, ctr}`. A generic push leaking into the promotion
+                        //     would have to be refused on BOTH doors, so both are driven.
+                        {
+                            MESHROUTE_NS::Push g{};
+                            g.kind = MESHROUTE_NS::PushKind::send_aired; g.dst = 90; g.ctr = 7777;
+                            mr_ui_on_push(g);
+                            dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                            CHK("P24k7c ★★★ [[B272]] an EXACTLY-CORRELATED **generic** send_aired does NOT promote "
+                                "the roster grant either",
+                                body_row_is(0, mrui::kInviteGrantQueued) &&
+                                strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
+                        }
                         pu.dst = 90; pu.ctr = 7777;
                         mr_ui_on_push(pu);
                         dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);

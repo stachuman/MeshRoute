@@ -317,6 +317,26 @@ TARGET_SRC = {
     #    TxDone attribution, and a battery is per-SOURCE-FILE. Without its own target the ruling's four
     #    required controls would have had nowhere to live.
     "sliceBnode":   "lib/core/node.cpp",               # [[B268]] — team_key_grant_aired + its correlation
+    # ★★ ADDED 2026-08-30 BY **§CUSTODY-C** (diagnostic inbox classification). FIVE targets, because a battery is
+    #    per-SOURCE-FILE and the slice's decisions genuinely live in five files: the CLASSIFICATION authority
+    #    (`inbox.h`), the RAW-BY-DESIGN pull and the un-protected erase (`inbox.cpp`), the ordinary-view TOTAL
+    #    (`firmware_ui_model.h`), the UNREAD router's scope (`firmware_ui_send.h`) and the slot ring's eviction
+    #    (`fixed_inbox_store.h`). Kept separate from `sliceAinbox`/`b134inbox`/`b134ram`/`uisend`/`model` — same
+    #    files, different slices — so each can be re-proved independently, exactly as those entries were.
+    # ⛔⛔ TWO OF THE BRIEF'S SIX MUTATIONS ARE **DELIBERATELY ABSENT FROM THIS TABLE**, and each absence is a
+    #    STRONGER outcome than an entry would have been. Recorded so neither reads as an omission:
+    #      · "THE EXCLUSION IS APPLIED AFTER THE BUDGET" — the gate lives in `src/firmware_ui.cpp`, which neither
+    #        the native suite nor the simulator compiles (§B115), so its control is
+    #        `tools/probe_firmware_ui/run.sh`'s **CC2** (measured RED, 3 checks). Same trade the `busy`
+    #        classification records one screen over.
+    #      · "`publish` IS HANDED THE RAW VISIT COUNT" — `InboxRowBudget::publish` no longer TAKES a total, so the
+    #        §7.4 defect is not expressible in the type system at all. A control at the compiler beats one in a
+    #        battery (the §CUSTODY-A enum-ordinal precedent, verbatim).
+    "sliceCinbox":  "lib/core/inbox.h",                # §CUSTODY-C — the ONE read-time classification predicate
+    "sliceCpull":   "lib/core/inbox.cpp",              # §CUSTODY-C — pull() stays RAW; erase() has no protection
+    "sliceCbudget": "src/firmware_ui_model.h",         # §CUSTODY-C — inbox_total = ADMITTED, taken before the cap
+    "sliceCsend":   "src/firmware_ui_send.h",          # §CUSTODY-C — the unread router's scope (§7.4's unread rule)
+    "sliceCram":    "lib/core/fixed_inbox_store.h",    # §CUSTODY-C — the slot ring's drop-oldest, with no pinning
     "sliceBchannel":"lib/core/node_channel.cpp",       # [[B268]] blocker-1 — the two reprovision-purge deaths
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
@@ -508,7 +528,32 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2376, 100740    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-B**, and the
+PIN_CASES, PIN_ASSERTS = 2389, 101117    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-C**, and the
+                                         # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
+                                         # rather than inferred from the totals: +13 cases / +377 assertions,
+                                         # ALL of them the new TU `test/test_custody_internal_c.cpp`, and
+                                         # ⛔ ZERO existing cases edited.
+                                         #   §CUSTODY-C/1   the four-value visibility matrix          11
+                                         #   §CUSTODY-C/1b  the 0..255 range sweep                   259
+                                         #   §CUSTODY-C/1c  `persistent_outcome` fails OPEN on 0x81    6
+                                         #   §CUSTODY-C/2   3 DMs + 5 receipts -> 3 rows, total 3      9
+                                         #   §CUSTODY-C/2b  the budget is spent on VISIBLE rows only   5
+                                         #   §CUSTODY-C/2c  receipts only -> an EMPTY ordinary view    4
+                                         #   §CUSTODY-C/2d  inbox_total is admitted, pre-cap           4
+                                         #   §CUSTODY-C/3   the raw pull carries them VERBATIM        11
+                                         #   §CUSTODY-C/3b  pull() is RAW BY DESIGN                    8
+                                         #   §CUSTODY-C/4   byte-cap eviction equality + control      16
+                                         #   §CUSTODY-C/4b  erase equality, both orders               10
+                                         #   §CUSTODY-C/4c  slot-ring eviction equality + control     13
+                                         #   §CUSTODY-C/5   the live fast-path PIN + unread scope     21
+                                         #   11+259+6+9+5+4+4+11+8+16+10+13+21 = 377. ✓
+                                         # ⓘ The slice ALSO edits 8 `InboxRowBudget::publish` call sites in
+                                         #   `test/test_firmware_ui_model.cpp` (the total parameter was removed
+                                         #   — see that class). Those are ARITY-ONLY: every asserted total is
+                                         #   numerically unchanged, which is why they contribute +0/+0 here.
+                                         #
+                                         # The superseded §CUSTODY-B sync follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2376, 100740 — ★★ RE-SYNCED 2026-08-30 by **§CUSTODY-B**, and the
                                          # DERIVATION IS RECORDED RATHER THAN THE NUMBER PASTED: a pristine
                                          # `git archive HEAD` build measured 2351/100374 (reproducing the
                                          # value below EXACTLY); the slice adds +11 cases / +220 assertions =
@@ -7292,12 +7337,103 @@ MUTS_SLICEBNODE = [
   ""),
 ]
 
+# ============================================================================== §CUSTODY-C — the read/presentation side
+MUTS_SLICECINBOX = [
+ # ⛔⛔ THE GATE ITSELF, AT THE AUTHORITY. Nothing is left to classify: every presentation seam asks this one
+ #     function, so `return false` is "no ordinary view ever hides anything" in a single edit — E2E receipts (and,
+ #     when §17-F lands, custody reports) come back as inbox rows, spend row slots and inflate `inbox_total`.
+ ("S06 ★★★★ THE CLASSIFICATION PREDICATE IS DROPPED — every internal outcome record becomes an ordinary message "
+  "again: rows on the panel, a bigger visible total, and a binary body through the byte sanitizer",
+  "inline bool inbox_record_is_internal(uint8_t rec_type) { return data_type_traits(rec_type).internal; }",
+  "inline bool inbox_record_is_internal(uint8_t) { return false; }"),
+ # ⛔⛔ THE QG BRIEF-REVIEW CORRECTION, VERBATIM AND AS A MUTATION. `persistent_outcome` is the WRITE opt-in
+ #     (membership exactly {E2E_ACK}), so the weakened predicate still hides today's ONE receipt — which is what
+ #     makes it so dangerous: an E2E-ack fixture stays green and every OTHER internal record starts rendering as
+ #     text. `0x81` is the number CUSTODY_FAILURE takes, so this mutant ships the §7 defect pre-installed.
+ ("S07 ★★★★ THE PREDICATE IS WEAKENED TO `persistent_outcome` — an 0x81-class record (and every reserved, "
+  "retired or future internal value) becomes VISIBLE as ordinary text, while today's E2E ack still hides",
+  "inline bool inbox_record_is_internal(uint8_t rec_type) { return data_type_traits(rec_type).internal; }",
+  "inline bool inbox_record_is_internal(uint8_t rec_type) { return data_type_traits(rec_type).persistent_outcome; }"),
+]
+
+MUTS_SLICECPULL = [
+ # ⛔⛔ THE OVER-CORRECTION THE SLICE EXISTS TO REFUSE, and the reason `pull()` carries a ruling instead of a
+ #     comment. It reads as the tidy way to "hide receipts everywhere" and it destroys the companion's OFFLINE
+ #     delivery confirmation: the app marks an outgoing message DELIVERED by consuming the PULLED receipt and
+ #     advances its DM cursor PER RECORD (`inbox_end` advances none), so a filtered receipt is never consumed and
+ #     the confirmation is lost for good. It also zeroes the bench oracle's ack ledger (`tools/lab/reconcile.py`).
+ # ⓘ MUTATED AT `pull_cb`, WHICH IS WHERE THE TIDY-UP WOULD ACTUALLY BE WRITTEN: right beside the tombstone
+ #   skip, in the same shape, one line down. That is what makes it plausible enough to be worth a control.
+ ("S08 ★★★★ `Inbox::pull()` FILTERS INTERNAL RECORDS — the diagnostic stream loses every E2E receipt, so an "
+  "offline-delivered message can never be confirmed and the DM cursor never advances past it",
+  "    if (e.type == inbox_rec_type_tombstone) return true;          // §3.5: the marker itself is never a message",
+  "    if (e.type == inbox_rec_type_tombstone) return true;          // §3.5: the marker itself is never a message\n"
+  "    if (inbox_record_is_internal(e.type)) return true;"),
+ # ⛔ DELETION PROTECTION, which §7.5 forbids in as many words ("An internal report has no deletion protection").
+ #    A guard here is the tempting "don't let the operator break the diagnostic trail" reflex, and it turns a
+ #    documented `del_msg dm <seq>` into a silent refusal that reports the record as never having existed.
+ ("S09 ★★★ `Inbox::erase` PROTECTS AN INTERNAL RECORD — `del_msg dm <seq>` on a receipt answers not_found, so a "
+  "record the diagnostic stream still shows can never be deleted",
+  "    if (!s.live || s.tombstoned) return InboxEraseResult::not_found;",
+  "    if (!s.live || s.tombstoned) return InboxEraseResult::not_found;\n"
+  "    { InboxEntry pe{}; bool prot = false; struct P { uint32_t seq; bool* hit; } pp{ seq, &prot };\n"
+  "      store->read_since(0, [](void* v, uint32_t sq, const uint8_t* r, uint16_t l) {\n"
+  "          auto* q = static_cast<P*>(v); InboxEntry ee{};\n"
+  "          if (sq == q->seq && deserialize(r, l, ee) && inbox_record_is_internal(ee.type)) *q->hit = true;\n"
+  "          return true; }, &pp);\n"
+  "      (void)pe; if (prot) return InboxEraseResult::not_found; }"),
+]
+
+MUTS_SLICECBUDGET = [
+ # ⛔ THE TRUNCATION LIE, REINTRODUCED FROM THE OTHER SIDE. §6.1 requires the panel to SAY it is truncated; taking
+ #    the admitted count only for rows that FIT makes `inbox_total` equal `inbox_shown` for ever, so a mailbox of
+ #    40 messages renders `INBOX 8/8` and the operator has no way to know 32 are off-screen.
+ ("S10 ★★★ THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP — `inbox_total` collapses onto `inbox_shown` "
+  "and a truncated list starts claiming it is the whole mailbox",
+  "        if (_n_admitted < UINT16_MAX) ++_n_admitted;\n"
+  "        const bool dm = (r.kind == InboxKind::dm);\n"
+  "        InboxRow* buf = dm ? _dm : _ch;\n"
+  "        uint8_t&  n   = dm ? _n_dm : _n_ch;\n"
+  "        if (n < kInboxRowsPerKind) { buf[n++] = r; return; }",
+  "        const bool dm = (r.kind == InboxKind::dm);\n"
+  "        InboxRow* buf = dm ? _dm : _ch;\n"
+  "        uint8_t&  n   = dm ? _n_dm : _n_ch;\n"
+  "        if (n < kInboxRowsPerKind) { if (_n_admitted < UINT16_MAX) ++_n_admitted; buf[n++] = r; return; }"),
+]
+
+MUTS_SLICECSEND = [
+ # ⛔⛔ THE UNREAD RULE (§7.4: "internal records do not increment the ordinary DM unread count"). The panel's
+ #     unread counter is driven by PUSH KIND, never by an inbox record, so the only way to break the rule is to
+ #     widen this arm — which is exactly the "the receipt is a DM-shaped thing, count it" reflex. The result is a
+ #     phantom in the unread bar the operator can never open, because no row exists for it.
+ ("S11 ★★★★ THE UNREAD ARM IS WIDENED TO `send_e2e_acked` — an E2E receipt increments the DM unread count, so the "
+  "status bar claims an unread message that the inbox list can never show",
+  "    if (pu.kind == PK::msg_recv) {",
+  "    if (pu.kind == PK::msg_recv || pu.kind == PK::send_e2e_acked) {"),
+]
+
+MUTS_SLICECRAM = [
+ # ⛔⛔ THE RESERVED SLOT §18.5.8 FORBIDS ("no reserved capacity exists"). Refusing to evict an internal record is
+ #     the plausible "don't lose the diagnostic trail" fix, and it is a DIFFERENT defect from a protected delete:
+ #     the ring silently stops accepting NEW MESSAGES once its oldest slot holds a receipt, so the user's inbox
+ #     goes read-only and nothing anywhere reports it.
+ ("S12 ★★★★ THE SLOT RING PINS AN INTERNAL RECORD — drop-oldest refuses to evict a receipt, so a full ring stops "
+  "accepting new messages instead of ageing the receipt out like any other record",
+  "        if (_count == Slots) _head = static_cast<uint16_t>((_head + 1) % Slots);   // full -> evict the oldest",
+  "        if (_count == Slots) { const Slot& oldest = _slot[_head];\n"
+  "            if (oldest.len > 25 && inbox_record_is_internal(oldest.bytes[25])) return false;\n"
+  "            _head = static_cast<uint16_t>((_head + 1) % Slots); }   // full -> evict the oldest"),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
                   "sliceBmac": MUTS_SLICEBMAC, "sliceBrx": MUTS_SLICEBRX,
                   "sliceBcascade": MUTS_SLICEBCASCADE, "sliceBnode": MUTS_SLICEBNODE,
                   "sliceBchannel": MUTS_SLICEBCHANNEL,
+                  "sliceCinbox": MUTS_SLICECINBOX, "sliceCpull": MUTS_SLICECPULL,
+                  "sliceCbudget": MUTS_SLICECBUDGET, "sliceCsend": MUTS_SLICECSEND,
+                  "sliceCram": MUTS_SLICECRAM,
                   "b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
                   "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,
