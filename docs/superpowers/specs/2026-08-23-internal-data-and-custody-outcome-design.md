@@ -1037,6 +1037,24 @@ own sub-slice before expanding semantics.
 
 ### Slice C — diagnostic inbox classification
 
+> ✅ **SLICE C COMPLETE — QG PASS 2026-08-30 (1 brief round + 2 impl rounds).** The two brief-review
+> corrections were load-bearing and are now landed doctrine: the presentation predicate is
+> **`data_type_traits(type).internal`** (`inbox_record_is_internal`, `inbox.h` — ⛔ never
+> `persistent_outcome`, which governs writes; the 0x80/0x81/0x94 visibility matrix proves CUSTODY_FAILURE
+> arrives pre-hidden with zero further presentation work), and **`pull_inbox` stays RAW** (the companion
+> marks offline messages DELIVERED from pulled receipts and advances its cursor by consuming them — raw pull
+> IS §7.4's diagnostic access; the OLED filters before its row budget and `inbox_total`, which counts
+> admitted records only; the budget's raw-total parameter was removed from the type system). The live
+> `send_e2e_acked` fast path pinned; eviction/erase equality proven both backends/both orders; the unread
+> counters proven push-kind-driven (structurally never counting records). Round 2 folded [[B272]] by QG
+> ruling (the UI probe's grant checks re-pointed to the B268 kinds; P24c2 re-anchored on a measurement — a
+> synchronously-refused grant emits NO async push; the generic-push-cannot-promote negative control on both
+> grant doors) and repaired [[B271]] (the probe was unbuildable since the B268 commit — its standing-gate
+> lesson stays open). Native 2389/101117/0; probe 433/868/433 all 0-failed, 223 controls; corpus 36/36
+> byte-identical (canonical-runner compare); gateway byte-identical incl. payload hash, heltec +104 flash
+> attributed. Docs landed: the INBOX_SYNC_CONTRACT raw-pull/decoder bullet · protocol.md §2.4's
+> classification paragraph · bench Part 51.
+
 - generalize internal-outcome record classification;
 - make E2E ACK use symbolic traits rather than literal 3;
 - exclude internal records from default companion/OLED inbox and unread presentation,

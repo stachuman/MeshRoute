@@ -3650,3 +3650,12 @@ and the terminal paths directly). **Metal proves only the real IRQ/timing edges.
    `GRANT FAILED ctr=<n> dst=<id>`. Host tests cover seven terminal paths; only metal exercises the real
    LBT/duty timing that picks between them. ⓘ The reason is in the push for the companion; ⛔ the OLED
    deliberately collapses every failure to `GRANT FAILED` (command.h:280).
+
+## Part 51 — §CUSTODY-C: an ack-holding inbox on real glass (2026-08-30)
+
+On a node that has received at least one E2E ack for a `-a` DM it sent: the OLED INBOX screen lists **only DMs
+and channel posts**, the header's denominator counts **only** those (`INBOX 3/3`, never `3/8`), and the
+status-bar unread count matches the visible rows. Then `pull_inbox 0 0` over USB must still stream every
+`{"ev":"inbox_dm","type":"e2e_ack",...}` record (⛔ the pulled stream is RAW by contract — a missing receipt
+means the companion loses offline delivery confirmation), and `del_msg dm <that seq>` must answer
+`{"ack":"del_msg",...,"result":"erased"}` — internal records have no special lifetime.

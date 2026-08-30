@@ -326,6 +326,16 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   console line `E2E-ACKED ctr=<X> from=<D>` (the connected/harness case). ⚠ **Rollout:** the contract change rides the
   same `pull_inbox`, so an **un-updated** companion would mis-show a receipt as an empty-body DM — coordinate the update.
 
+- **⛔ `pull_inbox` STAYS RAW (§CUSTODY-C, 2026-08-30).** The firmware hides internal outcome records from its *own*
+  OLED views only. The pulled stream is unchanged and still carries every `type:"e2e_ack"` record. **The decoder's
+  obligation:** consume the receipt → correlate it to the OUTBOX by `(origin, ctr)` / `(sender_hash, ctr)` →
+  **advance the DM cursor past it** → create **no** conversation row and **no** unread. This is what marks an
+  *offline* message DELIVERED; the live `e2e_acked` push only covers the connected case, and `inbox_end` advances no
+  cursor of its own. A firmware-side filter would lose that confirmation permanently. Classification is
+  firmware-side (`data_type_traits().internal`); the companion rides the semantic wire names and never sees the C++
+  trait table. (`AppModel.importInboxEntry`'s `isReceipt` arm already implements exactly this — verified 2026-08-30;
+  this bullet makes the obligation contractual rather than incidental.)
+
 ## Epoch & store-reset handling (FIRM)
 
 `seq` is monotonic only **within an epoch**. A flash wipe (bootloader re-flash erasing QSPI, or a

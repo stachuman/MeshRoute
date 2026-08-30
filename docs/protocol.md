@@ -331,6 +331,15 @@ rather than an exemption: the team-key grant emits `team_key_grant_aired` / `tea
 through one authority (`Node::terminal_carrier_outcome`), so an internal type's replacement outcome cannot exist at
 one terminal path and be missing at another.
 
+**Ordinary-view classification (§CUSTODY-C, 2026-08-30).** A stored inbox record is presented as a user message iff
+`data_type_traits(type).internal` is false (`inbox_record_is_internal`, `inbox.h`). The predicate is the **range**,
+⛔ not `persistent_outcome` — that trait governs what may be *written*, so classifying a read by it would render the
+reserved `0x81`, the retired `0x94` and anything newer firmware writes as ordinary text. The filter is a **view**
+rule: `Inbox::pull()` and `pull_inbox` remain raw and are the diagnostic access §7.4 promises; the OLED list/detail
+apply it **before** the row budget and before `inbox_total`, which counts admitted records only. Internal records
+never reach the byte sanitizer, never increment the unread count, and have no special lifetime — they age out of
+the ring and answer `del_msg dm <seq>` exactly like a DM. CUSTODY_FAILURE therefore arrives pre-hidden.
+
 ## 3. Beacons
 
 In **discovery** (first ~60 s, or route-starved) a node beacons fast + full-page and broadcasts `Q:REQ_SYNC` to pull
