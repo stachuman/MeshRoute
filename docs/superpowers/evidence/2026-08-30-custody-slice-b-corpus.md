@@ -218,6 +218,12 @@ assumed. ⇒ the §4 proposal below stands unaltered on the final tree, keystone
 ## 5. Reproducing this
 
 ```bash
+# ⓘ SUPERSEDED 2026-08-30 (§GATE-SPEED): the ad-hoc loop below is retired — the canonical runner is
+#   tools/run_corpus.py (--jobs=1 is the sequential arbiter; --require-anchors turns BASELINE disagreement
+#   into a refusal; every run self-validates: frozen-input snapshot, validated promotion, validated manifest):
+#     python3 tools/run_corpus.py --out before --jobs 8     # from a pristine HEAD tree
+#     python3 tools/run_corpus.py --out after  --jobs 8     # from the slice tree
+#   The historical loop, kept as the record of what produced THIS file's figures:
 # 1. the PRE-slice corpus, from a pristine HEAD (lus 7e69bd71)
 git archive HEAD | tar -x -C /tmp/head && ...                 # or: git worktree add --detach /tmp/wt HEAD
 for f in simulation/*.json; do b=$(basename $f .json); [ "$b" = topo_9node ] && continue

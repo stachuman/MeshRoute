@@ -856,6 +856,8 @@ the two computed slots 18 and 21) and 10 `mobile_delegate_xl.enclosed_type` tele
 **Reproduce:**
 
 ```bash
+# ⓘ SUPERSEDED 2026-08-30 (§GATE-SPEED): use `python3 tools/run_corpus.py --out <dir> --jobs 8` — the
+#   canonical, self-validating runner. The historical loop below is the record of this file's own figures.
 # 1. the PRE-slice corpus (from a tree without the namespace transition)
 for f in simulation/*.json; do b=$(basename $f .json); [ "$b" = topo_9node ] && continue
   ../lora-universal-simulator/build/orchestrator/lus -e meshroute "$f" before/$b.ndjson; done

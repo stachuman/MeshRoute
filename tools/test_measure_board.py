@@ -6,13 +6,16 @@ from __future__ import annotations
 import contextlib
 import copy
 import io
+import json
 import os
 import re
 import runpy
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -182,9 +185,10 @@ def qualification_manifest() -> dict:
         },
         "paths": {
             "project_root": "/repo",
-            "build_root": "/repo/.pio-measure/build",
-            "libdeps_root": "/repo/.pio-measure/libdeps",
-            "workspace_root": "/repo/.pio-measure/workspace",
+            "build_root": "/repo/.pio-measure/env/gateway/build",
+            "libdeps_root": "/repo/.pio-measure/env/gateway/libdeps",
+            "workspace_root": "/repo/.pio-measure/env/gateway/workspace",
+            "env_build_dir": "/repo/.pio-measure/env/gateway/build/gateway",
             "normal_pio_root": "/repo/.pio",
             "normal_pio_used": False,
         },
@@ -193,6 +197,9 @@ def qualification_manifest() -> dict:
             "flash_bytes": 2,
             "object_count": 3,
             "loadable_sections": {".text": 2},
+            "symbol_count": 5,
+            "symbol_size_total": 64,
+            "symbols_sha256": "symbols",
         },
         "artifacts": {"payload": {"filename": "firmware.hex", "bytes": 4, "sha256": "payload"}},
         "toolchain": {
@@ -233,12 +240,16 @@ EXPECTED_QUALIFICATION_FIELDS = (
     "paths.build_root",
     "paths.libdeps_root",
     "paths.workspace_root",
+    "paths.env_build_dir",
     "paths.normal_pio_root",
     "paths.normal_pio_used",
     "measurements.ram_bytes",
     "measurements.flash_bytes",
     "measurements.object_count",
     "measurements.loadable_sections",
+    "measurements.symbol_count",
+    "measurements.symbol_size_total",
+    "measurements.symbols_sha256",
     "artifacts.payload.filename",
     "artifacts.payload.bytes",
     "artifacts.payload.sha256",
@@ -309,10 +320,10 @@ class MeasureBoardTests(unittest.TestCase):
         self.assertEqual(probe_build_identity.check_source(), 13)
 
     def test_measurement_state_isolated_from_normal_pio(self) -> None:
-        environment = mb.measurement_environment()
-        self.assertEqual(environment["PLATFORMIO_BUILD_DIR"], str(mb.BUILD_ROOT))
-        self.assertEqual(environment["PLATFORMIO_LIBDEPS_DIR"], str(mb.LIBDEPS_ROOT))
-        self.assertEqual(environment["PLATFORMIO_WORKSPACE_DIR"], str(mb.WORKSPACE_ROOT))
+        environment = mb.measurement_environment("gateway")
+        self.assertEqual(environment["PLATFORMIO_BUILD_DIR"], str(mb.build_root("gateway")))
+        self.assertEqual(environment["PLATFORMIO_LIBDEPS_DIR"], str(mb.libdeps_root("gateway")))
+        self.assertEqual(environment["PLATFORMIO_WORKSPACE_DIR"], str(mb.workspace_root("gateway")))
         self.assertNotIn(str(mb.ROOT / ".pio"), {
             environment["PLATFORMIO_BUILD_DIR"],
             environment["PLATFORMIO_LIBDEPS_DIR"],
@@ -441,6 +452,198 @@ class MeasureBoardTests(unittest.TestCase):
             )
         self.assertEqual(completed.returncode, 2)
         self.assertIn("another measurement runner holds", completed.stdout)
+
+
+def process_alive(pid: int, marker: str) -> bool:
+    """PID-reuse-safe liveness: the pid must still exist AND still be the process we started."""
+    try:
+        return marker in Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return False
+
+
+def wait_for(predicate, timeout: float = 30.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return predicate()
+
+
+class RuledPairTests(unittest.TestCase):
+    """§GATE-SPEED 2026-08-30. The owner ruling relaxes D1's "boards sequentially" for the ruled pair ONLY on the
+    isolation and cleanup proven here. These are the controls that make `pair --jobs=2` an instrument rather than
+    a hope; each fails if the property it guards is removed."""
+
+    def test_ruled_pair_has_separate_stable_roots(self) -> None:
+        environments = sorted(mb.ENVIRONMENTS)
+        self.assertEqual(environments, ["gateway", "heltec_mobile"])
+        for getter in (mb.build_root, mb.libdeps_root, mb.workspace_root):
+            roots = [getter(name) for name in environments]
+            with self.subTest(getter=getter.__name__):
+                self.assertEqual(len(set(roots)), len(roots))     # separate
+                for root, name in zip(roots, environments):
+                    self.assertTrue(mb.path_within(root, mb.ENV_ROOT / name))
+                    self.assertFalse(mb.path_within(root, mb.ROOT / ".pio"))
+
+    def test_paths_do_not_depend_on_the_jobs_mode(self) -> None:
+        # ★ B262: heltec_mobile's payload hash is path-dependent, so the paths must be a pure function of the
+        #   environment name — never of the mode, the subcommand, or the output directory.
+        for name in sorted(mb.ENVIRONMENTS):
+            environment = mb.measurement_environment(name)
+            self.assertEqual(environment["PLATFORMIO_BUILD_DIR"], str(mb.build_root(name)))
+            self.assertEqual(environment["PLATFORMIO_LIBDEPS_DIR"], str(mb.libdeps_root(name)))
+            self.assertEqual(environment["PLATFORMIO_WORKSPACE_DIR"], str(mb.workspace_root(name)))
+
+    def test_board_environments_do_not_route_through_ccache(self) -> None:
+        # The docstring's ccache claim, pinned: only [env:native] attaches tools/ccache_native.py. If a board env
+        # ever gains it, the pair's concurrency question changes and this test says so.
+        text = (mb.ROOT / "platformio.ini").read_text(encoding="utf-8")
+        blocks = re.split(r"^\[", text, flags=re.MULTILINE)
+        carriers = [block.split("]", 1)[0] for block in blocks if "ccache_native.py" in block]
+        self.assertEqual(carriers, ["env:native"])
+
+    def test_pair_still_excludes_a_concurrent_invocation(self) -> None:
+        # ★ The relaxation is about the two BUILDS inside one invocation, never about two invocations. `pair` takes
+        #   the same single global lock `build` does, so a second runner is refused exactly as before.
+        with tempfile.TemporaryDirectory() as directory, mb.MeasurementLock():
+            completed = subprocess.run(
+                [sys.executable, str(mb.ROOT / "tools/measure_board.py"), "pair",
+                 "--jobs", "2", "--output", str(Path(directory) / "result")],
+                cwd=mb.ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("another measurement runner holds", completed.stdout)
+
+    def test_symbol_inventory_normalization_is_address_free_and_sorted(self) -> None:
+        # ★ The exact property set — name/type/bind/VIS/section-name/size — pinned on synthetic readelf -sW output
+        #   rather than a live ELF (no unit test should need a toolchain). Each control below is one field of that
+        #   set, or the one field deliberately outside it.
+        names = {2: ".text", 5: ".bss", 6: ".noinit"}
+
+        def rows(text: str) -> list[str]:
+            out = []
+            for match in mb.SYMBOL_RE.finditer(text):
+                size_text, kind, bind, vis, ndx, name = match.groups()
+                size = int(size_text, 16) if size_text.lower().startswith("0x") else int(size_text)
+                section = names.get(int(ndx), f"?{ndx}") if ndx.isdigit() else ndx
+                out.append(f"{name}\t{kind}\t{bind}\t{vis}\t{section}\t{size}")
+            return sorted(out)
+
+        base = ("     1: 20000010    24 OBJECT  LOCAL  DEFAULT    5 alpha\n"
+                "     2: 20000030   128 FUNC    GLOBAL DEFAULT    2 beta\n")
+        moved_address = ("     1: 2000f010    24 OBJECT  LOCAL  DEFAULT    5 alpha\n"
+                         "     2: 2000f030   128 FUNC    GLOBAL DEFAULT    2 beta\n")
+        resized = ("     1: 20000010    24 OBJECT  LOCAL  DEFAULT    5 alpha\n"
+                   "     2: 20000030   132 FUNC    GLOBAL DEFAULT    2 beta\n")
+        # ⛔ QG round 2 GAP 2: this exact pair produced an IDENTICAL fingerprint before visibility was included.
+        hidden = ("     1: 20000010    24 OBJECT  LOCAL  HIDDEN     5 alpha\n"
+                  "     2: 20000030   128 FUNC    GLOBAL DEFAULT    2 beta\n")
+        # ⛔ .bss -> .noinit: same name/type/bind/vis/size, and BOTH sections are NOBITS so loadable_sections
+        #   (which filters NOBITS) and the payload hash are structurally blind to it.
+        renoinit = ("     1: 20000010    24 OBJECT  LOCAL  DEFAULT    6 alpha\n"
+                    "     2: 20000030   128 FUNC    GLOBAL DEFAULT    2 beta\n")
+
+        self.assertEqual(rows(base), ["alpha\tOBJECT\tLOCAL\tDEFAULT\t.bss\t24",
+                                      "beta\tFUNC\tGLOBAL\tDEFAULT\t.text\t128"])
+        self.assertEqual(rows(base), rows(moved_address), "a pure ADDRESS shift must not move the inventory")
+        self.assertEqual(rows(base), rows("".join(reversed(base.splitlines(keepends=True)))),
+                         "readelf's emission order must not reach the fingerprint")
+        self.assertNotEqual(rows(base), rows(resized), "a SIZE change must move the inventory")
+        self.assertNotEqual(rows(base), rows(hidden), "a DEFAULT -> HIDDEN change must move the inventory")
+        self.assertNotEqual(rows(base), rows(renoinit),
+                            "a .bss -> .noinit move must move the inventory (nothing else sees it)")
+
+    def test_loadable_sections_is_blind_to_the_nobits_move_the_symbols_catch(self) -> None:
+        # The evidence behind including the section name: the historical measurement CANNOT see it, by design.
+        table = ("  [ 2] .text             PROGBITS        00000000 000100 000080 00  AX  0   0  4\n"
+                 "  [ 5] .bss              NOBITS          20000000 000200 000018 00  WA  0   0  4\n"
+                 "  [ 6] .noinit           NOBITS          20000100 000200 000018 00  WA  0   0  4\n")
+        loadable = {}
+        index_names = {}
+        for match in mb.SECTION_RE.finditer(table):
+            index, name, kind, size_hex, flags = match.groups()
+            index_names[int(index)] = name
+            if "A" in flags and kind != "NOBITS" and int(size_hex, 16):
+                loadable[name] = int(size_hex, 16)
+        self.assertEqual(sorted(index_names.values()), [".bss", ".noinit", ".text"])
+        self.assertEqual(sorted(loadable), [".text"],
+                         "both NOBITS sections must be absent from loadable_sections — that is the blind spot")
+
+    def test_symbol_inventory_reads_a_real_elf_if_one_has_been_measured(self) -> None:
+        # ⚠ A parser pinned only on synthetic text is a parser that has never met readelf. If a measured ELF is
+        #   present, require the inventory to be non-trivial; skip (loudly) when nothing has been measured yet.
+        candidates = sorted(mb.MEASURE_ROOT.glob("*/*/manifest.json")) + \
+            sorted(mb.MEASURE_ROOT.glob("*/manifest.json"))
+        for manifest_path in candidates:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            elf = manifest_path.parent / "firmware.elf"
+            if manifest.get("schema") != 2 or not elf.is_file():
+                continue
+            with tempfile.TemporaryDirectory() as scratch:
+                _, section_names = mb.loadable_sections(
+                    elf, manifest["toolchain"]["commands"], Path(scratch) / "sections.txt")
+                inventory = mb.symbol_inventory(
+                    elf, manifest["toolchain"]["commands"], section_names, Path(scratch) / "symbols.txt")
+            self.assertGreater(inventory["symbol_count"], 100,
+                               f"suspiciously few symbols parsed from {elf}")
+            self.assertGreater(inventory["symbol_size_total"], 0)
+            return
+        self.skipTest("no measured ELF under .pio-measure/ yet — run `measure_board.py pair` first")
+
+    def test_failing_step_cancels_and_reaps_its_sibling(self) -> None:
+        # ⚠ The verdict is the ELAPSED TIME, not only the liveness. The `finally` cleanup would eventually reap a
+        #   sibling that ran to completion, so a test that checked liveness alone would still pass with sibling
+        #   cancellation deleted — it would just take the sibling's full runtime. Measured: with the cancellation
+        #   removed this returns after the sibling's full sleep; with it, in about the failing step's own second.
+        sibling_sleep, allowed = 20.0, 8.0
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            pidfile = work / "sibling.pid"
+            marker = "measure-board-sibling-control"
+            sibling = [sys.executable, "-c",
+                       f"import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));"
+                       f"sys.stdout.write('{marker}\\n');sys.stdout.flush();time.sleep({sibling_sleep})",
+                       str(pidfile)]
+            failing = [sys.executable, "-c", "import time;time.sleep(1.0);raise SystemExit(9)"]
+            started = time.monotonic()
+            with self.assertRaisesRegex(mb.MeasureError, "failing step failed with exit 9"):
+                mb.run_group([(sibling, os.environ.copy(), work / "sibling.log", "sibling step"),
+                              (failing, os.environ.copy(), work / "failing.log", "failing step")], jobs=2)
+            elapsed = time.monotonic() - started
+            self.assertTrue(pidfile.is_file(), "the sibling never started, so nothing was cancelled")
+            self.assertLess(elapsed, allowed,
+                            f"the failing step did not cancel its sibling promptly ({elapsed:.1f}s elapsed; the "
+                            f"sibling's own runtime is {sibling_sleep}s)")
+            pid = int(pidfile.read_text())
+            self.assertFalse(process_alive(pid, marker), f"sibling {pid} survived the cancellation")
+
+    def test_interrupted_parent_kills_and_reaps_every_child(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            marker = "measure-board-sigint-control"
+            driver = (
+                "import os,pathlib,sys,time\n"
+                f"sys.path.insert(0, {str(mb.ROOT / 'tools')!r})\n"
+                "import measure_board as mb\n"
+                f"work = pathlib.Path({str(work)!r})\n"
+                "child = [sys.executable, '-c', \"import os,sys,time;"
+                "open(sys.argv[1],'w').write(str(os.getpid()));"
+                f"sys.stdout.write('{marker}\\\\n');sys.stdout.flush();time.sleep(300)\"]\n"
+                "specs = [(child + [str(work / ('c%d.pid' % i))], os.environ.copy(),\n"
+                "          work / ('c%d.log' % i), 'step %d' % i) for i in (0, 1)]\n"
+                "mb.run_group(specs, jobs=2)\n"
+            )
+            parent = subprocess.Popen([sys.executable, "-c", driver], cwd=mb.ROOT,
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertTrue(wait_for(lambda: len(list(work.glob("c*.pid"))) == 2),
+                            "the driver never spawned both children")
+            pids = [int(path.read_text()) for path in sorted(work.glob("c*.pid"))]
+            parent.send_signal(signal.SIGINT)
+            parent.communicate(timeout=60)
+            self.assertNotEqual(parent.returncode, 0)
+            survivors = [pid for pid in pids if wait_for(lambda p=pid: not process_alive(p, marker), 10.0) is False]
+            self.assertEqual(survivors, [], f"orphaned children survived the interrupted parent: {survivors}")
 
 
 class GitProvenanceTests(unittest.TestCase):

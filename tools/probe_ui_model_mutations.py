@@ -422,11 +422,47 @@ def _usable_cores():
         return os.cpu_count() or 1
 
 
-# ★ THE DEFAULT IS `min(usable cores - 2, 6)`, and the cap is deliberate rather than shy: each worker's `pio` build is
-#   ITSELF parallel, so the workers do not divide an idle machine between them — two cores are left for the session
-#   that launched the run, and 6 is the point past which this tree's 8-TU native build stops being the bottleneck.
-#   ⇒ raise it only on a MEASUREMENT, never on the core count alone.
-_WORKERS_DEFAULT = max(1, min(_usable_cores() - 2, 6))
+# ★ THE DEFAULT IS `min(usable cores - 2, 8)`, and the cap is deliberate rather than shy: each worker's `pio` build is
+#   ITSELF parallel, so the workers do not divide an idle machine between them, and two cores are left for the session
+#   that launched the run. ⇒ raise it only on a MEASUREMENT, never on the core count alone.
+#
+# ★★ RAISED 6 -> 8 ON 2026-08-30 BY §GATE-SPEED's MEASUREMENT, not by argument. `--target=model` (239 entries) on this
+#   24-usable-core host, all runs warm and back-to-back so the load is comparable:
+#       workers      1      2      4      6      8
+#       battery  693.4  355.0  202.5  185.4  135.0   s   (the mutate/build/run phase)
+#       copy       3.5    6.9   14.2   20.6   40.9   s   (rsync of one scratch tree per worker)
+#       TOTAL    696.9  361.9  216.7  206.0  175.9   s   -> 8 is 3.96x the serial reference, 6 is 3.38x
+#   ⚠ ONE SWEEP IS NOT ENOUGH TO SEPARATE 6 FROM 8 — the battery phase varies by ±20 % run to run (w=8 measured
+#     135.0 / 178.1 / 124.8 / 133.8 across four runs). So the 6-vs-8 decision rests on ALTERNATING PAIRS, where the
+#     drift cancels; both pairs agree, on both figures:
+#       pair A   battery 6:153.1  8:124.8  (-18.5 %)   TOTAL 6:175.0  8:156.9  (-10.3 %)
+#       pair B   battery 6:165.5  8:133.8  (-19.2 %)   TOTAL 6:187.3  8:173.2  ( -7.5 %)
+#   ⓘ The old cap's premise ("6 is the point past which the 8-TU native build stops being the bottleneck") did not
+#     survive contact — 8 wins both pairs even after paying for two more scratch-tree copies. The `copy` row is I/O
+#     and its 8-worker value was first measured on a cold page cache; the other rows sit near 3.5 s/tree.
+#   ⛔ VERDICTS RE-PROVEN, not assumed: all 239 entries carry the IDENTICAL verdict, assertion count and match count
+#     at every one of 1/2/4/6/8 AND at the new default — the `--workers=1` serial reference is the arbiter, exactly
+#     as the header says.
+#
+# ⚠ WHY THE CAP DOES NOT SIMPLY FOLLOW THE CORE COUNT — the footprint, measured on the same host:
+#     · DISK is the binding constraint: each scratch tree is ~1.8 GB (working copy + its own `.pio/build/native`), so
+#       8 workers hold ~14.4 GB under `TMPDIR` (6 held ~10.8 GB) against ~36 GB free here. On a smaller box, or with
+#       `MR_MUT_SCRATCH` pointed at a small volume, pass `--workers=` explicitly.
+#     · The BATTERY-PRIVATE ccache is shared by all workers and is concurrency-safe by construction (per-object files,
+#       atomic renames) — but it sat at 4.41 GB of ccache's default 5 GB cap during this sweep, so more concurrent
+#       distinct compiles buy more EVICTION, not corruption. Raising the cap past 8 should come with `max_size`.
+#     · RAM is not binding: ~61 GB available against 8 concurrent single-TU g++ invocations.
+# ⛔ THE CAP IS A NAMED CONSTANT because the `--where` banner PRINTS the formula: a hardcoded literal in that
+#   f-string drifted from this value the moment the cap moved 6 -> 8, and a banner that states a formula the code
+#   does not use is worse than no banner. ⇒ one constant, both readers.
+_WORKERS_CAP = 8
+_WORKERS_RESERVED_CORES = 2
+_WORKERS_DEFAULT = max(1, min(_usable_cores() - _WORKERS_RESERVED_CORES, _WORKERS_CAP))
+
+
+def _workers_default_formula():
+    """The ONE place the default's formula is spelled for a human. Both banners call it; neither restates it."""
+    return f"min(usable cores {_usable_cores()} - {_WORKERS_RESERVED_CORES}, {_WORKERS_CAP})"
 _WORKERS = _WORKERS_DEFAULT
 _SHARD_ID = None
 _SHARD_ENTRIES = None
@@ -7345,7 +7381,7 @@ if "--where" in sys.argv[1:]:
     print(f"source     {Path(H).resolve()}")
     print(f"key        {_BK_KEY}")
     print(f"backup dir {_BK_DIR}")
-    print(f"workers    {_WORKERS} (default {_WORKERS_DEFAULT} = min(usable cores {_usable_cores()} - 2, 6))")
+    print(f"workers    {_WORKERS} (default {_WORKERS_DEFAULT} = {_workers_default_formula()})")
     sys.exit(0)
 
 
@@ -7435,7 +7471,7 @@ def orchestrate():
     print(f"-- target {_TARGET}: {Path(H).resolve()} ({len(MUTS)} entries)", flush=True)
     print(f"-- selection: {_SCOPE_NOW}", flush=True)
     print(f"-- workers: {_WORKERS}"
-          f"{'' if _WORKERS != _WORKERS_DEFAULT else f' (default = min(usable cores {_usable_cores()} - 2, 6))'}"
+          f"{'' if _WORKERS != _WORKERS_DEFAULT else f' (default = {_workers_default_formula()})'}"
           f"{'   [SERIAL REFERENCE PATH]' if _WORKERS == 1 else ''}", flush=True)
 
     # ★★ THE INFLIGHT MARKER'S JOB, ADAPTED. In the serial tool the marker answered "is the file in the tree still
