@@ -264,7 +264,21 @@ TARGET_SRC = {
     # ⚠ THE MUTATED LINES ARE EXACTLY THE ONES SLICES A/B WILL REWRITE. When those slices land, these entries go
     #   VACUOUS (match count 0) BY DESIGN — that is the transition being visible, not the battery rotting. Re-anchor
     #   them onto the trait authority in the slice that introduces it; do not delete them silently.
-    "a0mac":        "lib/core/node_mac.cpp",           # §A0 — the TWO hand-copied own-DM-floor exemption lists
+# ⛔⛔ RETIRED 2026-08-30 BY **§CUSTODY-B**, AND THE RECORD IS KEPT RATHER THAN THE ENTRIES DELETED SILENTLY.
+#     A01/A02/A03 attacked the TWO HAND-COPIED exemption lists in `become_free` / `issue_send`. Those lists no
+#     longer exist: §CUSTODY-B replaced both with the single `data_type_traits(t).internal` authority, so all
+#     three anchors match ZERO times and the harness correctly calls them VACUOUS.
+#     ⇒ THE THREE DECISIONS DID NOT LOSE THEIR CONTROLS; THEY MOVED, and each one maps:
+#         A01 (drop REMOTE_CMD from the CHECK list)     -> `sliceBmac` B01 (revert the CHECK half wholesale)
+#         A03 (drop E2E_ACK from the STAMP list only)   -> `sliceBmac` B02 (revert the STAMP half wholesale)
+#         A02 (widen the exempt set to a hash answer)   -> ★ NOT a mutation any more: it IS the shipped
+#                                                          behaviour (§6.2(4) widened the set to 0x80..0xBF),
+#                                                          and `test_data_type_audit_a0.cpp` §A0-2 was
+#                                                          re-anchored to assert exactly that.
+#     ⚠ AND B02 REPEATED A01'S OWN LESSON ONE SLICE LATER: it measured NOTHING on its first run, because §A0-2b
+#       probed only types that BOTH list versions exempt. The fix was to the TEST (§A0-2b now loops the
+#       newly-exempt types too), never to the mutation — the second time this exact hole opened in this exact
+#       policy, and the reason the note above it is written at that length.
     "a0rx":         "lib/core/node_mac_rx.cpp",        # §A0 — the addressed if-chain's MISSING default arm
     "a0codec":      "lib/core/frame_codec.cpp",        # §A0 — the codec's total permissiveness about the TYPE byte
     # ★★ ADDED 2026-08-29 BY **§CUSTODY-A** (the DATA-namespace transition). Four targets, one decision each:
@@ -288,6 +302,22 @@ TARGET_SRC = {
     "sliceAinbox":  "lib/core/inbox.cpp",              # §CUSTODY-A — the one production site that names E2E_ACK's value
     "sliceAstore":  "lib/core/segmented_inbox_store.h",# §CUSTODY-A — the v4->v5 semantic bump and its wipe arm
     "sliceAjson":   "lib/console/console_json.cpp",    # §CUSTODY-A — [[B265]]'s numeric literal, closed by this slice
+    # ★★ ADDED 2026-08-30 BY **§CUSTODY-B** (common internal behaviour). THREE targets, because a battery is
+    #    per-SOURCE-FILE and the slice's decisions live in three files: the DM-floor authority + the origination
+    #    lifecycle gate (node_mac.cpp), the fail-closed guard and its PLACEMENT relative to the three forwarding
+    #    roles (node_mac_rx.cpp), and the terminal give-up (node_cascade.cpp).
+    # ⛔ THE PLACEMENT MUTATIONS ARE THE POINT AND THEY ARE NOT SUBSTITUTABLE BY A "GUARD DROPPED" ENTRY: a guard
+    #    that exists but sits one branch too early is a DIFFERENT defect from a missing one, it passes every
+    #    "unknown internal is dropped" assertion, and it silently eats a hosted mobile's traffic. B06/B07 attack
+    #    exactly that by INSERTING a correctly-written guard at a wrong place.
+    "sliceBmac":    "lib/core/node_mac.cpp",           # §CUSTODY-B — both DM-floor halves + the origination gate
+    "sliceBrx":     "lib/core/node_mac_rx.cpp",        # §CUSTODY-B — the fail-closed guard, its predicate + placement
+    "sliceBcascade":"lib/core/node_cascade.cpp",       # §CUSTODY-B — the terminal give-up's lifecycle gate
+    # ★★ ADDED 2026-08-30 BY [[B268]] (owner ruling (b)): the grant's OWN outcome pushes live in `node.cpp`'s
+    #    TxDone attribution, and a battery is per-SOURCE-FILE. Without its own target the ruling's four
+    #    required controls would have had nowhere to live.
+    "sliceBnode":   "lib/core/node.cpp",               # [[B268]] — team_key_grant_aired + its correlation
+    "sliceBchannel":"lib/core/node_channel.cpp",       # [[B268]] blocker-1 — the two reprovision-purge deaths
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
     # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
@@ -442,7 +472,16 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2351, 100374    # ★★ CROSS-CHECK RE-SYNCED 2026-08-29 by **§CUSTODY-A** (the
+PIN_CASES, PIN_ASSERTS = 2376, 100740    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-B**, and the
+                                         # DERIVATION IS RECORDED RATHER THAN THE NUMBER PASTED: a pristine
+                                         # `git archive HEAD` build measured 2351/100374 (reproducing the
+                                         # value below EXACTLY); the slice adds +11 cases / +220 assertions =
+                                         # +216 from the new TU `test/test_custody_internal_b.cpp` (12 cases) and the four [[B266]] coverage cases in test_dual_layer.cpp
+                                         # and +20 from re-anchoring three A0 characterizations in place
+                                         # (+15 §A0-2 derivation cross-check, +5 §A0-2c's new INTRO row incl.
+                                         # its fixture's two on_init CHECKs, +3 §A0-4's range split) minus
+                                         # the four grant-side push assertions that INVERTED (-3, net).
+                                         # PIN_CASES, PIN_ASSERTS = 2351, 100374 — ★★ RE-SYNCED 2026-08-29 by **§CUSTODY-A** (the
                                          # DATA-namespace transition), ON TOP OF the §A0 re-sync recorded
                                          # below and WITHOUT disturbing it. DERIVATION, written out:
                                          #   base (§A0 clean)          2343 /  98966
@@ -5737,11 +5776,15 @@ MUTS_UISEND = [
   "            return false;"),
  ("U09 ★★ the invite offer is made FIRST, before the two UI send slots — a UI DM holding the same handle loses "
   "its own TxDone edge to the grant verdict (the offer ORDER, inverted)",
-  "        case PK::send_aired:\n"
-  "            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model",
-  "        case PK::send_aired:\n"
-  "            if (m.on_invite_grant_push(pu)) return true;\n"
-  "            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model"),
+  # ⓘ RE-AIMED 2026-08-30 ([[B268]] ruling (b)): the grant no longer rides the GENERIC `send_aired`, so "the invite
+  #   offer is made first" is no longer expressible on that arm — the offer is gone from it entirely. The
+  #   equivalent hazard now is a UI slot being offered the GRANT's own kind, where a `{dst, ctr}` alias could
+  #   promote the wrong flight. That is what this entry attacks.
+  "        case PK::team_key_grant_aired:\n"
+  "            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge",
+  "        case PK::team_key_grant_aired:\n"
+  "            if (emg.match_aired(pu.dst, pu.ctr) || normal.match_aired(pu.dst, pu.ctr)) return true;\n"
+  "            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge"),
  # ===== §UI-16 K4 — THE GRANT RECEIPT'S NOTE ==================================================================
  # ★★★ THE §T3 SHAPE FOR THE THIRD TIME IN THIS FILE: an arm that is not spelled out here is an arm that silently
  #     answers `false`, and the whole feature compiles, passes the keyring suite and shows NOTHING on the panel.
@@ -6211,12 +6254,15 @@ MUTS_B20MAC = [
   "            const bool key_known = false;"),
  ("B05 ★★ [[B21]]'s SILENCE, HALF ONE: the size arm emits but no longer PUSHES — the app is told nothing, which is "
   "exactly the 'no send_failed' the register row names",
-  "                push_send_failed(SendFailReason::too_large, dst, ctr);\n"
+  # ⓘ RE-ANCHORED 2026-08-30 (§CUSTODY-B wrapped both B21 pushes in the §6.2(5) lifecycle gate). The MUTATION
+  #   IS UNCHANGED — it still deletes the push and leaves the emit — only the anchor text moved.
+  "                if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)\n"
   "            } else {",
   "            } else {"),
  ("B06 ★★ [[B21]]'s SILENCE, HALF TWO: the genuinely-keyless arm emits but no longer PUSHES — the sibling defect, "
   "removed separately so neither half can pass on the other's assertion",
-  "                push_send_failed(SendFailReason::no_pubkey, dst, ctr);\n"
+  # ⓘ RE-ANCHORED 2026-08-30 (§CUSTODY-B), same reason as B05 above; the mutation itself is unchanged.
+  "                if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);   // §CUSTODY-B §6.2(5)\n"
   "            }\n"
   "            return ctr;",
   "            }\n"
@@ -6865,44 +6911,6 @@ MUTS_B134INBOX = [
 #   cost is the point: these are exactly the arms the corpus cannot see (s18 originates no typed answer at all).
 ####################################################################################################################
 
-MUTS_A0MAC = [
- # ⛔⛔ THE SUBJECT: the own-DM burst floor's exempt set is written out BY HAND, TWICE (node_mac.cpp:918-919 in
- #     `become_free`, the CHECK half; :1147-1148 in `issue_send`, the STAMP half), with no shared symbol, helper or
- #     table binding the two. A fourth exempt type must be added in both places or the halves silently disagree.
- #     A01/A02 attack the CHECK list's membership; A03 attacks the STAMP list ALONE, which is the half §A0-2 is
- #     structurally blind to and which §A0-2b exists to reach.
- # ⛔⛔ A01 WAS UNUSABLE ON ITS FIRST RUN, AND THE FIX WAS TO THE TEST, NOT TO THIS ENTRY — recorded because the
- #     reason is a structural property of the two-list design and will bite the same way again. Dropping a type
- #     from the CHECK list is INVISIBLE to a same-type pair: the STAMP list still exempts that type, so the floor
- #     never arms, so the CHECK half's `!exempt_type` term is never even reached. `§A0-2c` was added to supply the
- #     observable arrangement (an ordinary DM arms the floor FIRST, then the exempt type must still fly), and this
- #     entry went RED. ⇒ the battery found a hole in the characterization before any production change existed to
- #     hide in it, which is the entire purpose of running controls on a no-change slice.
- ("A01 ★★★ REMOTE_CMD IS DROPPED FROM THE CHECK LIST — a remote-admin command now self-throttles behind the 3 s "
-  "user-DM floor, which is the exact latency the MF9 exemption was added to remove",
-  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
-  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);",
-  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_E2E_ACK)\n"
-  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);"),
- # ⓘ A02 IS SLICE B'S CHANGE APPLIED EARLY, ON PURPOSE. It widens the exempt set toward the future internal range
- #   by adding ONE hash answer. If §A0-2's negative rows were decoration, this would pass — and Slice B would then
- #   be able to widen the floor with no instrument registering it.
- ("A02 ★★★ THE EXEMPT SET IS WIDENED TO A HASH ANSWER — the pre-transition boundary (\"exactly three types, and "
-  "the internal-to-be answers are NOT among them\") stops being pinned",
-  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
-  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);",
-  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
-  "                              || (pt.type == DATA_TYPE_REMOTE_RESP) || (pt.type == DATA_TYPE_H_ANSWER);"),
- # ⛔⛔ A03 IS THE HALF-DIVERGENCE, and it is the whole reason §A0-2b was written. Dropping E2E_ACK from the STAMP
- #     list alone leaves §A0-2 GREEN (it sends the same type twice, so the matching CHECK-side exemption masks it):
- #     an own e2e-ack would silently arm the floor against the user's NEXT ordinary DM. Measured, not assumed —
- #     this entry was RED only after §A0-2b was added.
- ("A03 ★★★ E2E_ACK IS DROPPED FROM THE STAMP LIST ONLY — the two hand-copied halves diverge, and an own e2e-ack "
-  "starts arming the user-DM floor against the next real message",
-  "        const bool exempt_type = (item.type == DATA_TYPE_E2E_ACK) || (item.type == DATA_TYPE_REMOTE_CMD)",
-  "        const bool exempt_type = (item.type == DATA_TYPE_REMOTE_CMD) || (item.type == DATA_TYPE_REMOTE_CMD)"),
-]
-
 MUTS_A0RX = [
  # ⛔⛔ THE SUBJECT: the addressed-consumer dispatch in `do_post_ack` (node_mac_rx.cpp:1551-1934) is a flat IF-CHAIN
  #     with NO `else`/`default` arm, so an unknown type reaches the generic deliver tail and becomes user inbox
@@ -7042,9 +7050,218 @@ MUTS_SLICEAJSON = [
   "    if (type == 3) j.lit(\",\\\"type\\\":\\\"e2e_ack\\\"\");"),
 ]
 
-MUTS_BY_TARGET = {"a0mac": MUTS_A0MAC, "a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
+
+# =========================================================================================================
+# §CUSTODY-B — common internal behaviour (2026-08-30). Nine entries, one decision each.
+# =========================================================================================================
+MUTS_SLICEBMAC = [
+ # ★★ B01/B02 ARE THE BRIEF'S "SEPARATE ARMS FOR BOTH HISTORICAL LISTS" (§18.2.7), and they must be separate
+ #    because the two halves fail DIFFERENTLY: reverting the CHECK half alone is invisible to a same-type pair
+ #    (the STAMP half still exempts, so the floor never arms) and is caught only by §A0-2c's mixed pair;
+ #    reverting the STAMP half alone is caught by §A0-2/§A0-2b. One combined entry would let either half hide.
+ ("B01 ★★★ THE CHECK HALF REVERTS TO THE HISTORICAL THREE-TYPE LIST — every hash/mobile answer is paced behind "
+  "the 3 s USER-DM floor again, which is the §6.2(4) widening undone at the half §A0-2 cannot see",
+  "        const bool exempt_type = data_type_traits(pt.type).internal;",
+  "        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)\n"
+  "                              || (pt.type == DATA_TYPE_REMOTE_RESP);"),
+ ("B02 ★★★ THE STAMP HALF REVERTS TO THE HISTORICAL THREE-TYPE LIST — an internal origination arms the user-DM "
+  "floor again, so the NEXT user DM waits behind a frame the user never sent",
+  "        const bool exempt_type = data_type_traits(item.type).internal;",
+  "        const bool exempt_type = (item.type == DATA_TYPE_E2E_ACK) || (item.type == DATA_TYPE_REMOTE_CMD)\n"
+  "                              || (item.type == DATA_TYPE_REMOTE_RESP);"),
+ # ⓘ B03 IS THE TEMPTING WRONG PREDICATE, and design §6.1 names it explicitly: `app_dm` is an ENCODING input,
+ #   not a lifecycle question. TEAM_KEY_GRANT is internal AND travels with `app_dm = true`, so substituting one
+ #   for the other keeps the generic push on exactly the type §6.2(5) exists to take it off.
+ ("B03 ★★★ THE ORIGINATION GATE ASKS `app_dm` INSTEAD OF THE TRAIT — the sealed team-key grant keeps a generic "
+  "user-send failure it does not own (design §6.1: app_dm is an encoding input, not a lifecycle authority)",
+  "    const bool generic_lifecycle = data_type_traits(type).generic_send_lifecycle;\n"
+  "    // R6.1 §6.4 join-participation gate",
+  "    const bool generic_lifecycle = app_dm;\n"
+  "    // R6.1 §6.4 join-participation gate"),
+
+ ("M04 ★★ THE HELPER CALL IN `do_data_tx`'s PACK-FAILED PATH IS DELETED — the SEVENTH site this sweep found "
+  "reverts to destroying an admitted carrier in total silence, grant included ([[B268]] blocker-1)",
+  "        terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/false,\n"
+  "                                 SendFailReason::none, pt.dst, pt.ctr);\n",
+  ""),
+]
+
+MUTS_SLICEBRX = [
+ ("B04 ★★★ THE FAIL-CLOSED GUARD IS DELETED — an addressed unknown-internal type falls through to the deliver "
+  "tail exactly as it did before this slice, i.e. the stray 0x94's 32 raw key bytes become inbox TEXT again "
+  "(A0-F10b's \"harmless\" stray, restored verbatim)",
+  "        if (data_type_traits(pa.type).internal) {\n"
+  "            MR_EMIT(\"unsupported_internal\", EF_I(\"type\", pa.type), EF_I(\"origin\", pa.origin),\n"
+  "                    EF_I(\"dst\", pa.dst), EF_I(\"ctr\", pa.ctr));\n"
+  "            become_free();\n"
+  "            return;\n"
+  "        }\n",
+  ""),
+ # ★★★ B05 IS THE QG-REQUIRED CONTROL. `known` proves ALLOCATION, not that a handler ran.
+ ("B05 ★★★ THE GUARD IS WEAKENED TO `internal && !known` — a KNOWN-but-unwired internal type (MOBILE_KEY_FORWARD "
+  "on a static/gateway build) walks straight past it into the inbox as text, which is the exact [[B264]] class "
+  "the strong predicate exists to close",
+  "        if (data_type_traits(pa.type).internal) {",
+  "        if (data_type_traits(pa.type).internal && !data_type_traits(pa.type).known) {"),
+ # ★★★ B06/B07 ATTACK PLACEMENT, NOT EXISTENCE. Both insert a CORRECTLY-WRITTEN guard at a WRONG branch.
+ ("B06 ★★★ A SECOND, CORRECTLY-WRITTEN GUARD IS PLACED **BEFORE** THE HOSTED-MOBILE LAST-MILE FORK — the home is "
+  "the outer wire destination but only a PROXY, so it now EATS its own mobile's unknown-internal traffic and the "
+  "mobile never gets to judge it. Every \"unknown internal is dropped\" assertion still passes.",
+  "        // §mobile 3a: HOST last-mile forward",
+  "        if (data_type_traits(pa.type).internal) { become_free(); return; }\n"
+  "        // §mobile 3a: HOST last-mile forward"),
+ ("B07 ★★★ THE RELAY ARM GAINS THE GUARD — a content-blind forwarder now passes a SEMANTIC verdict on traffic "
+  "that is not addressed to it, so an unknown-internal frame dies at the first hop instead of reaching its "
+  "destination (design §6.2(3): a relay forwards it normally)",
+  "        // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.",
+  "        if (data_type_traits(pa.type).internal) { become_free(); return; }\n"
+  "        // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding."),
+ # ⓘ B08 IS THE TELEMETRY-BOUND CONTROL under the owner's S0 ruling: the bound is fixed-size and NON-AMPLIFYING,
+ #   scalar-only. A body field re-opens the very sink the guard exists to close, on the console and in the NDJSON.
+ ("B08 ★★★ THE GUARD'S TELEMETRY GAINS A BODY-DERIVED FIELD — the ruled SCALAR-ONLY bound is broken and the "
+  "stray key material reaches the event stream instead of the inbox, which is the same leak one pipe along",
+  "            MR_EMIT(\"unsupported_internal\", EF_I(\"type\", pa.type), EF_I(\"origin\", pa.origin),\n"
+  "                    EF_I(\"dst\", pa.dst), EF_I(\"ctr\", pa.ctr));",
+  "            MR_EMIT(\"unsupported_internal\", EF_I(\"type\", pa.type), EF_I(\"origin\", pa.origin),\n"
+  "                    EF_I(\"dst\", pa.dst), EF_I(\"ctr\", pa.ctr), EF_I(\"len\", pa.inner_len));"),
+ # ⓘ B09 IS THE OVER-CORRECTION CONTROL (§6.2(6)): suppressing a PROTOCOL-SPECIFIC result would leave an internal
+ #   exchange with no outcome at all — the opposite failure from leaving the generic one in place. It applies the
+ #   SAME trait gate one line too far, to `send_e2e_acked`, which is exactly how this over-correction would be
+ #   written by someone who read §6.2(5) without §6.2(6).
+ # ⛔⛔ AN EARLIER B09 GATED `send_acked` ITSELF AND WAS **UNUSABLE** — nothing in the suite pinned that push at
+ #    all. Recorded rather than silently replaced: the finding is a REAL coverage gap in the generic family's
+ #    POSITIVE arm, and it is closed by §CUSTODY-B/3f (which now asserts an application flight still earns its
+ #    `send_acked`) — so the gate this slice added has a control in BOTH directions, not just the suppressing one.
+ ("B09 ★★★ THE TRAIT GATE IS APPLIED ONE LINE TOO FAR, TO `send_e2e_acked` — the PROTOCOL-SPECIFIC result of the "
+  "one internal type that has one disappears with the generic family (§6.2(6) inverted): a -a send is delivered "
+  "and acked end-to-end and the app is never told",
+  "            Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu);",
+  "            if (data_type_traits(pa.type).generic_send_lifecycle) { Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu); }"),
+
+ ("R04 ★★★ THE HELPER CALL IN `handle_nack`'s FULL-QUEUE GIVE-UP IS DELETED — a grant NACKed with no requeue room "
+  "dies unreported. ⛔ A DIFFERENT SITE FROM `giveup_flight`, which is why it needs its own arm ([[B268]] blocker-1)",
+  "                terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/true,\n"
+  "                                         giveup_fail_reason(\"rts_giveup\"), pt.dst, pt.ctr);   // §3-A.5: no_cts\n",
+  ""),
+]
+
+MUTS_SLICEBCASCADE = [
+ # ⓘ B10 IS THE OVER-CORRECTION IN THE OTHER DIRECTION: an APPLICATION envelope losing its user outcome. It is
+ #   also the [[B263]] fence's guard — the application arm must stay reproducibly as it is until Slice E.
+ # ⛔⛔ B10 / B11 / C03 RETIRED HERE 2026-08-30 BY [[B268]] BLOCKER-1, RECORD KEPT RATHER THAN ENTRIES DELETED.
+ #     All three attacked `giveup_flight`'s INLINE gate + grant arm. Those lines no longer exist: QG required ONE
+ #     shared post-admission terminal helper, so the trait decision and the grant's replacement moved into
+ #     `Node::terminal_carrier_outcome` (node.cpp). ⇒ THE THREE DECISIONS DID NOT LOSE THEIR CONTROLS; THEY MOVED:
+ #         B10 (gate narrowed to the untyped DM — app envelopes lose their outcome) -> `sliceBnode` N06
+ #         B11 (gate deleted — internal types get the generic push again)           -> `sliceBnode` N07
+ #         C03 (the grant's terminal push deleted)                                  -> `sliceBnode` N08
+ #     and each CALL SITE gained its own arm (C04..C08 here, N04/N05, H01/H02, R04, M04) — which is the point of
+ #     the blocker: one shared arm would have let any single site lose its report with the suite still green.
+ ("C04 ★★★ THE HELPER CALL IN `giveup_flight` IS DELETED — the cascade-terminal grant reports nothing and the "
+  "§UI-16 panel is stranded on `GRANT QUEUED`; the generic failure disappears for every carrier too",
+  "    terminal_carrier_outcome(type, own, /*generic_owed=*/true, reason, dst, ctr);\n",
+  ""),
+ ("C05 ★★★ THE HELPER CALL IN `defer_send`'s REDRAIN GIVE-UP IS DELETED — a grant that re-drains past its cap "
+  "dies unreported",
+  "        terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,\n"
+  "                                 SendFailReason::no_route, item.dst, item.ctr);\n",
+  ""),
+ ("C06 ★★★ THE HELPER CALL IN `defer_send`'s CAP REFUSAL IS DELETED — a grant refused by a FULL defer ring dies "
+  "unreported",
+  "        terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1\n"
+  "                                 SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)\n",
+  ""),
+ ("C07 ★★★ THE HELPER CALL IN `try_drain_deferred`'s TTL GIVE-UP IS DELETED — a deferred grant that ages out "
+  "dies unreported",
+  "            terminal_carrier_outcome(d.item.type, !d.item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1\n"
+  "                                     SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none\n",
+  ""),
+ ("C08 ★★ THE HELPER CALL IN `gateway_doorstep_hold`'s QUEUE-FULL DROP IS DELETED — the FIFTH site this sweep "
+  "found goes back to reporting nothing to anybody, grant included",
+  "    else terminal_carrier_outcome(it.type, !it.is_forward, /*generic_owed=*/false,\n"
+  "                                  SendFailReason::queue_full, it.dst, it.ctr);\n",
+  ""),
+]
+
+
+# =========================================================================================================
+# [[B268]] — the team-key grant's OWN outcomes (owner ruling (b), 2026-08-30). The four controls the ruling names.
+# =========================================================================================================
+
+MUTS_SLICEBCHANNEL = [
+ # ★★★ [[B268]] BLOCKER-1: the two REPROVISION-PURGE carrier deaths, one arm each.
+ ("H01 ★★★ THE HELPER CALL IN THE QUEUED-CARRIER PURGE IS DELETED — a reprovision with a grant sitting in the TX "
+  "queue strands the panel, and every queued application carrier loses its `send_failed`",
+  "                if (all) terminal_carrier_outcome(it.type, !it.is_forward,\n"
+  "                                                  carrier_owes_send_failed(it.is_channel_m, it.is_forward),\n"
+  "                                                  SendFailReason::reprovisioned, it.dst, it.ctr);\n",
+  ""),
+ ("H02 ★★★ THE HELPER CALL IN THE IN-FLIGHT PURGE IS DELETED — a reprovision while the grant is ON THE AIR "
+  "strands the panel; the generic twin goes with it",
+  "            if (all) terminal_carrier_outcome(L._pending_tx->type, !L._pending_tx->has_previous_hop,   // [[B268]] blocker-1\n"
+  "                                              carrier_owes_send_failed(L._pending_tx->m_broadcast,\n"
+  "                                                                       L._pending_tx->has_previous_hop),\n"
+  "                                              SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);\n",
+  ""),
+]
+
+MUTS_SLICEBNODE = [
+ ("N01 ★★★ THE GRANT'S AIRED PUSH IS DELETED — §UI-16's panel can never leave `GRANT QUEUED`, because the generic "
+  "`send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is "
+  "[[B268]] VERBATIM, and it is the defect the whole ruling exists to close",
+  "        if (pt.type == DATA_TYPE_TEAM_KEY_GRANT && !pt.m_broadcast && !pt.has_previous_hop) {\n"
+  "            Push g{}; g.kind = PushKind::team_key_grant_aired; g.dst = pt.dst; g.ctr = pt.ctr; enqueue_push(g);\n"
+  "        }\n",
+  ""),
+ ("N02 ★★★ THE CORRELATION IS DROPPED — the aired push carries dst 0 instead of the flight's own, so the verdict "
+  "either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the "
+  "grant window cannot strand or misattribute the screen",
+  "            Push g{}; g.kind = PushKind::team_key_grant_aired; g.dst = pt.dst; g.ctr = pt.ctr; enqueue_push(g);",
+  "            Push g{}; g.kind = PushKind::team_key_grant_aired; g.dst = 0; g.ctr = pt.ctr; enqueue_push(g);"),
+ # ⓘ N03 IS THE OVER-CORRECTION IN THE OPPOSITE DIRECTION: the grant falls back into the GENERIC family, which is
+ #   precisely what §6.2(5) forbids and what the owner rejected option (a) for.
+ ("N03 ★★★ THE SUPPRESSION IS DISABLED FOR EVERY TYPE — the grant takes the GENERIC `send_aired` path again, so a "
+  "protocol-internal frame re-acquires a user-send outcome (§6.2(5) undone) AND its own kind is never minted",
+  "    if (!data_type_traits(pt.type).generic_send_lifecycle) {",
+  "    if (false) {"),
+
+ ("N04 ★★★ THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED — a `join`/`leave` with a deferred grant "
+  "strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1)",
+  "            terminal_carrier_outcome(it.type, !it.is_forward,\n"
+  "                                     carrier_owes_send_failed(it.is_channel_m, it.is_forward),\n"
+  "                                     SendFailReason::reprovisioned, it.dst, it.ctr);\n",
+  ""),
+ ("N05 ★★ THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED — the SIXTH site this sweep found reverts to "
+  "releasing a stranded flight in total silence, grant included ([[B268]] blocker-1)",
+  "            terminal_carrier_outcome(_active->_pending_tx->type, !_active->_pending_tx->has_previous_hop,\n"
+  "                                     /*generic_owed=*/false, SendFailReason::none,\n"
+  "                                     _active->_pending_tx->dst, _active->_pending_tx->ctr);\n",
+  ""),
+
+ # ★★★ THE THREE HELPER-INTERNAL ARMS, inherited from the retired sliceBcascade B10/B11/C03 (see the note there).
+ ("N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / "
+  "SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is §6.4 inverted",
+  "    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed && type == 0) push_send_failed(reason, dst, ctr);"),
+ ("N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E ack / hash answer pushes `send_failed` "
+  "under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape)",
+  "    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed) push_send_failed(reason, dst, ctr);"),
+ ("N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven post-admission carrier deaths stops "
+  "reporting the grant at once: the §UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight",
+  "    if (own_origination && type == DATA_TYPE_TEAM_KEY_GRANT) {\n"
+  "        Push g{}; g.kind = PushKind::team_key_grant_failed; g.reason = reason; g.dst = dst; g.ctr = ctr;\n"
+  "        enqueue_push(g);\n"
+  "    }\n",
+  ""),
+]
+
+MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
+                  "sliceBmac": MUTS_SLICEBMAC, "sliceBrx": MUTS_SLICEBRX,
+                  "sliceBcascade": MUTS_SLICEBCASCADE, "sliceBnode": MUTS_SLICEBNODE,
+                  "sliceBchannel": MUTS_SLICEBCHANNEL,
                   "b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
                   "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,

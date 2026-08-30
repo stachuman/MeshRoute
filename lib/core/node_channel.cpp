@@ -1485,8 +1485,11 @@ void Node::purge_tx_carriers(PurgeAxis axis) {
                 // structural, not an optimisation: on the team axis the dropped item is ALWAYS a team channel M, so
                 // carrier_owes_send_failed would be false anyway — but keeping the axis test first is what makes the
                 // team caller provably push-free without reasoning about the predicate.
-                if (all && carrier_owes_send_failed(it.is_channel_m, it.is_forward))
-                    push_send_failed(SendFailReason::reprovisioned, it.dst, it.ctr);
+                // [[B268]] blocker-1: `all &&` stays OUTSIDE — on the team axis this site reports nothing at all,
+                // and that must gate the grant arm too. `carrier_owes_send_failed` is passed in unchanged.
+                if (all) terminal_carrier_outcome(it.type, !it.is_forward,
+                                                  carrier_owes_send_failed(it.is_channel_m, it.is_forward),
+                                                  SendFailReason::reprovisioned, it.dst, it.ctr);
                 continue;
             }
             L._tx_queue[qw++] = L._tx_queue[r];
@@ -1501,8 +1504,10 @@ void Node::purge_tx_carriers(PurgeAxis axis) {
             flight = true;
             // ORDER matches giveup_flight (node_cascade.cpp:27): tell the app FIRST, while dst/ctr are still live —
             // push_send_failed takes them BY VALUE, so they are safely copied before the reset below.
-            if (all && carrier_owes_send_failed(L._pending_tx->m_broadcast, L._pending_tx->has_previous_hop))
-                push_send_failed(SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);
+            if (all) terminal_carrier_outcome(L._pending_tx->type, !L._pending_tx->has_previous_hop,   // [[B268]] blocker-1
+                                              carrier_owes_send_failed(L._pending_tx->m_broadcast,
+                                                                       L._pending_tx->has_previous_hop),
+                                              SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);
             L._pending_tx.reset();
         }
         // (5) RE-OFFER slots orphaned by (1) — after the compaction, so the find reflects the purge. `all` short-circuits

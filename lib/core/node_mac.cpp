@@ -97,12 +97,27 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
 uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len, Plane plane, SendDispatch* out_dispatch) {
+    // ★★★ §CUSTODY-B (2026-08-30) — THE GENERIC USER-SEND LIFECYCLE GATE FOR THIS ORIGINATION (design §6.2(5)).
+    //     Derived ONCE here, from the ONE trait authority, and consulted at every `send_failed` report below.
+    // ⛔ `app_dm` IS NOT THIS QUESTION and must not be reused as it (design §6.1): `app_dm` is an ENCODING input —
+    //    it decides DST_HASH/SOURCE_HASH prefixing and the crypto path — and `DATA_TYPE_TEAM_KEY_GRANT` (0xA2) is
+    //    PROTOCOL-INTERNAL yet travels this function with `app_dm = true` because it genuinely needs the
+    //    application seal (`do_send` → here). That single type is why the whole refusal ladder below is reachable
+    //    with an internal type at all, and why the gate is a TRAIT question rather than an `app_dm` question.
+    // ⚠ WHAT IS SUPPRESSED IS THE **GENERIC** FAMILY ONLY — the `send_failed` Push and the emit that carries the
+    //   same name. Every CAUSE-SPECIFIC emit below (`team_key_grant_refused`, `location_refused`, `e2e_*`) still
+    //   fires: C2's fail-loud is preserved, and §6.2(6) requires the protocol-specific result to survive intact.
+    //   The grant additionally keeps its OWN typed synchronous contract (`TeamKeyGrantTx`, node.cpp), which is
+    //   what the operator actually reads — the generic push was a second, weaker signal wearing a user-send name.
+    const bool generic_lifecycle = data_type_traits(type).generic_send_lifecycle;
     // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
     // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
     // E2E acks, forwards) is NEVER gated — only originations.
     if (app_dm && !leaf_config_synced()) {
-        MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "joining"));
-        push_send_failed(SendFailReason::joining, dst, /*ctr=*/0);
+        if (generic_lifecycle) {
+            MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "joining"));
+            push_send_failed(SendFailReason::joining, dst, /*ctr=*/0);
+        }
         return 0;
     }
     // §mobile: a mobile is reachable for a REPLY only via a valid HOME (it stamps origin=home_id, and the home last-miles
@@ -153,8 +168,10 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 #if MR_FEAT_MOBILE
     if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !flight_is_team_plane(plane, dst)
         && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {
-        MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
-        push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);
+        if (generic_lifecycle) {   // §CUSTODY-B §6.2(5) — see the gate's derivation at the top of this function
+            MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
+            push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);
+        }
         return 0;
     }
 #endif
@@ -249,12 +266,12 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (flags & DATA_FLAG_LOCATION) {
         if (!will_seal) {                                        // (1) would air the position in CLEAR -> REFUSE
             MR_EMIT("location_refused", EF_I("dst", dst), EF_I("ctr", ctr), EF_S("reason", "unsealed"));
-            push_send_failed(SendFailReason::unsealable, dst, ctr);
+            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, ctr);   // §CUSTODY-B §6.2(5)
             return ctr;                                          // not enqueued — matches the sibling CRYPTED refusals (return ctr so the app correlates)
         }
         if (_cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {              // (2) no fix -> REFUSE (never send the position-less DM silently)
             MR_EMIT("location_refused", EF_I("dst", dst), EF_I("ctr", ctr), EF_S("reason", "no_fix"));
-            push_send_failed(SendFailReason::no_location, dst, ctr);
+            if (generic_lifecycle) push_send_failed(SendFailReason::no_location, dst, ctr);   // §CUSTODY-B §6.2(5)
             return ctr;
         }
     }
@@ -266,7 +283,9 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // delegate branch. Together they make "a TEAM_KEY_GRANT frame is always sealed" structural instead of conventional.)
     if (type == DATA_TYPE_TEAM_KEY_GRANT && !want_crypt) {
         MR_EMIT("team_key_grant_refused", EF_I("dst", dst), EF_S("reason", "plaintext"));
-        push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);
+        // §CUSTODY-B §6.2(5): the grant is INTERNAL, so `generic_lifecycle` is false here BY CONSTRUCTION and this
+        // push is now unreachable — the loud emit above and `TeamKeyGrantTx`'s own typed answer carry the refusal.
+        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);
         return 0;   // ⚠ 0, unlike the sibling CRYPTED refusals below which `return ctr` so the app can correlate: this
                     // one is UNREACHABLE from the only caller (team_key_grant_send forces CryptIntent::on), so there is
                     // no in-flight handle to correlate — a non-zero ctr here would read to that caller as "airborne".
@@ -291,10 +310,10 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
             const bool key_known = (dh != 0);
             if (key_known) {
                 MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
-                push_send_failed(SendFailReason::too_large, dst, ctr);
+                if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
             } else {
                 MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
-                push_send_failed(SendFailReason::no_pubkey, dst, ctr);
+                if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);   // §CUSTODY-B §6.2(5)
             }
             return ctr;                                                    // not enqueued (fail loud, no cleartext)
         }
@@ -322,19 +341,19 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
             switch (oc) {
                 case SealOutcome::no_pubkey:                               // E2E §5: NO auto-query. Key acquisition is USER-driven:
                     MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));  // warn + drop; the
-                    push_send_failed(SendFailReason::no_pubkey, dst, ctr);                              // user
+                    if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);       // §CUSTODY-B §6.2(5); user
                     break;                                                 // requests on-air (reqpubkey) or scans a QR (peerkey). NEVER cleartext.
                 case SealOutcome::no_identity:                            // R3: no crypto identity -> fail loud, no flood
                     MR_EMIT("e2e_no_identity", EF_I("dst", dst), EF_I("ctr", ctr));
-                    push_send_failed(SendFailReason::no_identity, dst, ctr);
+                    if (generic_lifecycle) push_send_failed(SendFailReason::no_identity, dst, ctr);   // §CUSTODY-B §6.2(5)
                     break;
                 case SealOutcome::too_large:                              // R2: oversize for CRYPTED -> fail loud + send_failed, NO flood
                     MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
-                    push_send_failed(SendFailReason::too_large, dst, ctr);
+                    if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
                     break;
                 case SealOutcome::bad_rng:                                // R7: crypto RNG returned a degenerate seed -> fail loud, no flood
                     MR_EMIT("e2e_bad_rng", EF_I("dst", dst), EF_I("ctr", ctr));
-                    push_send_failed(SendFailReason::bad_rng, dst, ctr);
+                    if (generic_lifecycle) push_send_failed(SendFailReason::bad_rng, dst, ctr);   // §CUSTODY-B §6.2(5)
                     break;
                 // §w4-switchenum (2026-07-26): cross_layer/ok are now EXPLICIT (was `default:`) so -Wswitch guards this
                 // mapping. Verified at source, and the two are NOT unreachable for the same reason:
@@ -536,6 +555,10 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) {
 // only the cursor advances, so the destination can reverse it for the 4e E2E ack) + dst_hash + SOURCE_HASH (REQUIRED
 // for that reversed ack). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
 bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr, uint8_t type, uint32_t override_source_hash) {
+    // §CUSTODY-B §6.2(5): the generic user-send lifecycle gate for this origination, from the ONE trait
+    // authority. Reachable with an internal type via the same `do_send`-shaped path `enqueue_data` documents
+    // (the TEAM_KEY_GRANT refusal below IS that case). Cause-specific emits stay; only the generic push goes.
+    const bool generic_lifecycle = data_type_traits(type).generic_send_lifecycle;
     // §S4: the old v1 "no cleartext XL when e2e_dm on" choke is LIFTED. Cross-layer confidentiality now rides
     // DATA_TYPE_SEALED_RELAY (a PLAINTEXT-framed frame carrying a SEALED body — routed here like any XL DM), so the
     // no-downgrade guarantee is enforced at the COMMAND level instead (node.cpp send_layer: want_crypt -> the sealed
@@ -553,7 +576,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     // `-e` DM to a mobile whose home sits on another layer, reported to QA and deliberately NOT fixed here (C1).
     if (type == DATA_TYPE_TEAM_KEY_GRANT) {
         MR_EMIT("team_key_grant_refused", EF_I("dst", gw_node), EF_S("reason", "cross_layer"));
-        push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5): internal ⇒ unreachable; the emit above is the loud refusal
         return false;                                // fail loud, before next_ctr burns a counter
     }
     // ★★ §loc-per-send (2026-07-31, register B0): a CROSS-LAYER frame CANNOT carry a location, so a `-l` send that
@@ -574,7 +597,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     // origination passes — notably send_by_hash's mobile_home_find arm, which has no command-level fork of its own.
     if (flags & DATA_FLAG_LOCATION) {
         MR_EMIT("location_refused", EF_I("dst", gw_node), EF_S("reason", "cross_layer"));
-        push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return false;                                // fail loud, before next_ctr burns a counter
     }
     TxItem item{};
@@ -631,6 +654,10 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
 // expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
 // (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
 uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type, uint32_t override_source_hash) {
+    // §CUSTODY-B §6.2(5): the generic user-send lifecycle gate for this origination, from the ONE trait
+    // authority. Reachable with an internal type via the same `do_send`-shaped path `enqueue_data` documents
+    // (the TEAM_KEY_GRANT refusal below IS that case). Cause-specific emits stay; only the generic push goes.
+    const bool generic_lifecycle = data_type_traits(type).generic_send_lifecycle;
     // ★★ §xl-crypt-intent (2026-07-29) — THE CONFIDENTIALITY FIX. Both callers used to pass no intent at all, so
     // `send 0x<hash> -e` to a mobile whose home sits on another layer aired the text IN THE CLEAR with no refusal.
     // The seal decision lives HERE, at the one choke point every mobile_home_find / parked-XL origination passes,
@@ -662,7 +689,7 @@ uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t tar
     if (want_crypt && override_source_hash != 0) {
         MR_EMIT("xl_send_deleg_seal_conflict", EF_I("target_layer", target_layer),
                 EF_I("src_hash", static_cast<int64_t>(override_source_hash)));
-        push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return 0;
     }
     // sbody/sblen/stype = what actually flies (send_by_hash's own idiom, U3). `rbody` is STACK, not `static`: the seal
@@ -680,13 +707,14 @@ uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t tar
         if (type != 0) {
             MR_EMIT("xl_send_unsealable", EF_I("type", type), EF_I("target_layer", target_layer),
                     EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
-            push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);
+            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
             return 0;
         }
         SealOutcome oc = SealOutcome::ok;
         const uint8_t rn = build_sealed_relay_body(dst_hash, body, body_len, rbody, sizeof rbody, oc);
         if (rn == 0) {                               // no pubkey / no identity / too large / bad rng -> FAIL LOUD, NEVER cleartext
             MR_EMIT("e2e_xl_seal_failed", EF_I("dst_hash", static_cast<int64_t>(dst_hash)), EF_I("oc", static_cast<int>(oc)));
+            if (generic_lifecycle)   // §CUSTODY-B §6.2(5)
             push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
                            : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng
@@ -700,7 +728,7 @@ uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t tar
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
         MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
-        push_send_failed(SendFailReason::no_route, dst_node, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::no_route, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return 0;
     }
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
@@ -711,7 +739,7 @@ uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t tar
     uint16_t out_ctr = 0;
     if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, sbody, sblen, flags, &out_ctr, /*type=*/stype, override_source_hash)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
-        push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return 0;                                    // enqueue_cross_layer leaves out_ctr untouched on failure; 0 = nothing flew
     }
     return out_ctr;
@@ -908,15 +936,25 @@ void Node::become_free() {
         return;
     }
     // Slice 3 DM burst floor (MF9): space our OWN DM originations >= dm_min_interval_ms. Living inside the
-    // own-origin guard auto-exempts forwards (is_forward) + channel floods (is_channel_m); e2e-ack / rcmd
-    // DATA are exempt by TYPE so a gateway's cross-layer ack-confirms never self-throttle. The flat per-window
+    // own-origin guard auto-exempts forwards (is_forward) + channel floods (is_channel_m); PROTOCOL-INTERNAL
+    // DATA is exempt by TYPE so a gateway's cross-layer ack-confirms never self-throttle. The flat per-window
     // self-cap (Inc 4) was removed here — the duty plane governs own-origination volume; this is just a UX floor.
     // NOTE: we only CHECK here (defer-in-place); the _last_dm_origin_ms STAMP is set in issue_send at the point
     // the DM actually transmits, so a picked-but-deferred DM (no route yet) never falsely arms the floor.
+    //
+    // ★★★ §CUSTODY-B (2026-08-30) — THIS IS THE **CHECK** HALF OF THE DM FLOOR AND IT NOW ASKS THE ONE TRAIT
+    //     AUTHORITY (design §6.2(4)). It used to spell out `{E2E_ACK, REMOTE_CMD, REMOTE_RESP}` by hand, and
+    //     `issue_send`'s STAMP half spelled the SAME three out a second time (A0 matrix §3.2 duplication #1:
+    //     identical today, not drifted — which is luck, not structure). ⛔ THE TWO HALVES MUST ASK THE SAME
+    //     QUESTION: a type exempt from the CHECK but not the STAMP arms a floor nothing can ever trip, and the
+    //     reverse silently throttles a protocol answer. One authority is what makes that impossible rather than
+    //     merely currently-true. ⚠ THE SET WIDENS, deliberately: every `0x80..0xBF` value is now exempt, so the
+    //     hash/mobile answers (0x88/0x89/0x8B/0x90..0x96) and the team-key grant (0xA2) stop being paced by a
+    //     USER-DM floor they were never the subject of. ⛔ §6.3: this is the ONLY thing `internal` buys here —
+    //     duty, LBT, queue capacity, cascade retries and route availability all still bind exactly as before.
     {
         TxItem& pt = _active->_tx_queue[pick];
-        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)
-                              || (pt.type == DATA_TYPE_REMOTE_RESP);
+        const bool exempt_type = data_type_traits(pt.type).internal;
         if (pt.origin == _node_id && !pt.is_forward && !pt.is_channel_m && !exempt_type
             && _last_dm_origin_ms != 0 && now - _last_dm_origin_ms < _cfg.dm_min_interval_ms) {
             const uint64_t until = _last_dm_origin_ms + _cfg.dm_min_interval_ms;
@@ -1142,10 +1180,13 @@ void Node::issue_send(const TxItem& item) {
     if (item.is_channel_m) { issue_m_broadcast(); return; }   // channel gossip (pull-response): fire-and-forget M-broadcast
     // Slice 3 DM burst floor (MF9): stamp _last_dm_origin_ms only when our OWN DM actually commits to a flight
     // (route resolved, RTS about to fly) — NOT at become_free pick-time, so a picked-but-deferred (no-route) DM
-    // doesn't falsely arm the floor. Forwards / channel floods / e2e-ack / rcmd are exempt (never throttled).
+    // doesn't falsely arm the floor. Forwards / channel floods / protocol-internal DATA are exempt (never throttled).
+    // ★★★ §CUSTODY-B — THE **STAMP** HALF, and it asks the SAME authority as the CHECK half in `become_free`
+    //     (node_mac.cpp, tagged §CUSTODY-B). ⛔ Do not re-spell the set here: the whole point of the trait is that
+    //     these two can no longer drift apart. §18.2.7 mutates each half INDEPENDENTLY back to its historical
+    //     exact-type list, and both arms must go RED.
     {
-        const bool exempt_type = (item.type == DATA_TYPE_E2E_ACK) || (item.type == DATA_TYPE_REMOTE_CMD)
-                              || (item.type == DATA_TYPE_REMOTE_RESP);
+        const bool exempt_type = data_type_traits(item.type).internal;
         if (item.origin == _node_id && !item.is_forward && !item.is_channel_m && !exempt_type)
             _last_dm_origin_ms = _hal.now();
     }
@@ -2149,6 +2190,13 @@ void Node::do_data_tx() {
         _hal.log("DATA pack failed");
         MR_EMIT("data_pack_failed", EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
                 EF_I("inner_len", pt.inner_len), EF_I("flags", pt.flags), EF_I("type", pt.type));
+        // ★★★ [[B268]] blocker-1, THE **SEVENTH** POST-ADMISSION CARRIER DEATH: this one is deliberately silent
+        //     for everybody — the note above records the standing ruling that no honest `SendFailReason` exists
+        //     for "the frame could not be built", so ⛔ `generic_owed = false` keeps that silence EXACTLY. Routing
+        //     it through the shared helper anyway is the point of "EVERY site": the grant's panel must not freeze
+        //     on `GRANT QUEUED` merely because this path has no generic story to tell.
+        terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/false,
+                                 SendFailReason::none, pt.dst, pt.ctr);
         _active->_pending_tx.reset(); become_free();
         return;
     }

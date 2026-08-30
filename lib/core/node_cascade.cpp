@@ -24,8 +24,30 @@ SendFailReason Node::giveup_fail_reason(const char* ge) {
 // ORDER IS LOAD-BEARING and matches every former site: tell the app FIRST (while the flight's dst/ctr are still the
 // caller's), then drop the flight, then become_free() to re-service the queue. dst/ctr come in BY VALUE, so a caller
 // holding `PendingTx& pt = *_active->_pending_tx` may pass pt.dst/pt.ctr safely — they are copied before reset().
+// ★★★ §CUSTODY-B (2026-08-30) — THE GENERIC `send_failed` IS NOW GATED ON THE FLIGHT'S OWN DATA TYPE (design
+//     §6.2(5)). This is the single most load-bearing consumer of the trait, because this helper is where a
+//     PROTOCOL-INTERNAL frame used to acquire a USER-SEND outcome: an E2E ack, a hash answer or a mobile-layer
+//     answer that exhausted its cascade pushed `send_failed{no_cts|no_ack|…}` carrying ITS dst and ITS ctr into
+//     the app's ring, where the companion correlates by `ctr` — i.e. a counter the user never minted, reported
+//     against a send the user never made. §B59's exact failed payload (0x8B) is one of these.
+// ⛔ THE FLIGHT'S TYPE IS READ **BEFORE** THE RESET, deliberately: the reset below destroys it, and re-deriving it
+//    afterwards is impossible. ⓘ `!_active->_pending_tx` keeps the historical behaviour verbatim (push) rather
+//    than inventing a verdict from a flight that is not there — every one of the seven call sites reaches here
+//    with a live flight (this helper's own reset proves the invariant), so that arm is defence-in-depth, not a
+//    silent default. ⛔ B263 IS NOT TOUCHED HERE: the push is still UNCONDITIONAL for application carriers,
+//    transit or own — the transit-vs-own ownership question is Slice E's and this slice deliberately leaves the
+//    APPLICATION arm reproducibly as it is (a native case pins it).
+// ⛔ ORDER IS UNCHANGED and still load-bearing: report FIRST (while the caller's dst/ctr are live), then drop the
+//    flight, then become_free() to re-service the queue.
 void Node::giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr) {
-    push_send_failed(reason, dst, ctr);
+    // ⓘ NO FLIGHT ⇒ type 0, whose trait says `generic_send_lifecycle = true` — byte-identical to the previous
+    //   `!_active->_pending_tx || …` short-circuit, and a type-0 carrier can never be the grant.
+    const uint8_t type = _active->_pending_tx ? _active->_pending_tx->type : uint8_t{0};
+    const bool    own  = !_active->_pending_tx || !_active->_pending_tx->has_previous_hop;
+    // ⛔ `generic_owed = true` HERE AND ONLY HERE IS [[B263]], PRESERVED DELIBERATELY: this site owes a generic
+    //    failure for an application carrier whether we ORIGINATED it or are merely transit, which is the defect
+    //    Slice E owns. The helper must not quietly narrow it — that is why the term is a caller argument.
+    terminal_carrier_outcome(type, own, /*generic_owed=*/true, reason, dst, ctr);
     _active->_pending_tx.reset();
     become_free();
 }
@@ -338,13 +360,18 @@ void Node::defer_send(const TxItem& item) {
     // re-parking. s18-inert: s18 never drains a deferred send (redrain_count stays 0). See send_defer_max_redrains.
     if (item.redrain_count >= protocol::send_defer_max_redrains) {
         MR_EMIT("send_deferred_giveup", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
-        push_send_failed(SendFailReason::no_route, item.dst, item.ctr);
+        // §CUSTODY-B §6.2(5) + [[B268]] blocker-1: the deferred carrier states its own type. `generic_owed = true`
+        // is this site's UNCHANGED answer (it always owed one); the trait decision and the grant's replacement
+        // both live in the shared helper.
+        terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,
+                                 SendFailReason::no_route, item.dst, item.ctr);
         return;
     }
     if (_active->_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
         // dv:5549-5553), NOT drop-oldest. Complete the app future so it never hangs.
         MR_EMIT("send_deferred_refused", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
-        push_send_failed(SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)
+        terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1
+                                 SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)
         return;
     }
     DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();
@@ -378,7 +405,8 @@ void Node::try_drain_deferred() {
         // it expire (the s12 477-defer infinite loop).
         if ((now - d.deferred_at_ms) >= protocol::send_defer_ttl_ms) {
             MR_EMIT("send_deferred_giveup", EF_I("dst", d.item.dst), EF_I("ctr", d.item.ctr));
-            push_send_failed(SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none
+            terminal_carrier_outcome(d.item.type, !d.item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1
+                                     SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none
             continue;                                    // drop (don't keep)
         }
         RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane — a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)
@@ -521,7 +549,14 @@ bool Node::gateway_doorstep_hold() {
             EF_I("age_ms", static_cast<int64_t>(now - enq)));   // ⛔ inlined, NOT a local: a variable used only
             // inside MR_EMIT is stripped on every device build and warns -Wunused-variable ([[B169]] class) —
             // invisible to native AND the corpus, caught only by the warning census.
+    // ★★★ [[B268]] blocker-1, A **FIFTH SITE** THE QG LIST DID NOT NAME AND THIS SWEEP FOUND: when the queue is
+    //     FULL the re-queue silently DROPS the held flight — a post-admission carrier death that reports NOTHING
+    //     to anybody. ⛔ `generic_owed = false` PRESERVES THAT SILENCE EXACTLY (this slice does not invent a
+    //     generic failure where none existed — that would be a behaviour change outside its scope); the grant's
+    //     own arm still fires, so a held grant dropped here no longer strands the panel on `GRANT QUEUED`.
     if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
+    else terminal_carrier_outcome(it.type, !it.is_forward, /*generic_owed=*/false,
+                                  SendFailReason::queue_full, it.dst, it.ctr);
     _active->_pending_tx.reset();
     become_free();
     return true;

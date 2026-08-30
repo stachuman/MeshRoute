@@ -1625,6 +1625,17 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             sbody = sbuf; sblen = static_cast<uint8_t>(pn + body_len); itype = DATA_TYPE_INTRO;
         }
     }
+    // §CUSTODY-B §6.2(5): the generic user-send lifecycle gate for this origination, from the ONE trait authority.
+    // Derived from `itype` (final here — the INTRO auto-attach above is the only rewrite, and it is application-range
+    // either way), so a delegated/parked/sealed refusal below reports a `send_failed` only for a send whose outcome
+    // the USER owns. ⛔ The E2E-ACK terms on the two `delegated_*` lines below are NOT this question and stay exact:
+    // they ask "is this frame itself the ack?" for reverse-ack CORRELATION, which §6.3 keeps type-specific.
+    // ⚠ `[[maybe_unused]]` IS LOAD-BEARING AND IS [[B169]]'s SHAPE, ⛔ not decoration — and it was MEASURED, not
+    //   foreseen: all THREE readers of this local sit inside `#if MR_FEAT_MOBILE` / team-plane blocks, so on the
+    //   two `gateway_heltec*` envs (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) every use compiles out and the definition
+    //   becomes `-Wunused-variable`. Native and all 36 corpus streams stay green — the warning census is the ONLY
+    //   instrument that sees it, and it did (174 vs the pinned 173). Same remedy as `node.cpp`'s `dsp`.
+    [[maybe_unused]] const bool generic_lifecycle = data_type_traits(itype).generic_send_lifecycle;
     const bool delegated_e2e = reply_to_hash != 0 && mobile_ctr != 0
                             && (flags & DATA_FLAG_E2E_ACK_REQ) && itype != DATA_TYPE_E2E_ACK;
     const bool delegated_origin = reply_to_hash != 0 && mobile_ctr != 0 && itype != DATA_TYPE_E2E_ACK;
@@ -1679,7 +1690,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
         release_deleg_ack();
-        push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
+        if (generic_lifecycle) push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return 0;
     }
 #endif
@@ -1715,7 +1726,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         // the operator gets a directed message; this is the structural backstop for every other caller.
         if (itype == DATA_TYPE_TEAM_KEY_GRANT) {
             MR_EMIT("team_key_grant_refused", EF_I("hash", static_cast<int64_t>(key_hash32)), EF_S("reason", "delegated"));
-            push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);   // §CUSTODY-B §6.2(5): internal ⇒ unreachable; the emit above + TeamKeyGrantTx::delegated are the loud refusal
             return 0;
         }
         // §S4 delegated SEALED (fixes the §1b-3 TODAY-broken path): seal the body to the target HERE — only the mobile
@@ -1729,6 +1740,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             const uint8_t rn = build_sealed_relay_body(key_hash32, body, body_len, rbody, sizeof rbody, oc);
             if (rn == 0) {                                                   // fail loud (no pubkey / identity / too large) — NEVER cleartext
                 MR_EMIT("e2e_no_pubkey", EF_I("hash", static_cast<int64_t>(key_hash32)), EF_I("oc", static_cast<int>(oc)));
+                if (generic_lifecycle)   // §CUSTODY-B §6.2(5)
                 push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
                                : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
                                                                   : SendFailReason::too_large,

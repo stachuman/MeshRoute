@@ -758,8 +758,13 @@ void Node::clear_routing_state() {
         // (node_join.cpp:490 drops a no-route transit DM outright), so the guard is defence-in-depth, not dead code.
         for (uint8_t d = 0; d < _layers[i]._deferred_n; ++d) {
             const TxItem& it = _layers[i]._deferred[d].item;
-            if (carrier_owes_send_failed(it.is_channel_m, it.is_forward))
-                push_send_failed(SendFailReason::reprovisioned, it.dst, it.ctr);
+            // §CUSTODY-B §6.2(5) + [[B268]] blocker-1. `carrier_owes_send_failed` keeps its own narrow question
+            // (channel-M / forwarded) — see its banner in node_carriers.h, which warns against overloading it —
+            // and is passed IN as this site's `generic_owed`, unchanged. The trait decision and the grant's
+            // replacement live in the shared helper.
+            terminal_carrier_outcome(it.type, !it.is_forward,
+                                     carrier_owes_send_failed(it.is_channel_m, it.is_forward),
+                                     SendFailReason::reprovisioned, it.dst, it.ctr);
         }
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
@@ -2187,6 +2192,42 @@ void Node::enqueue_push(const Push& p) {
     ++_push_count;
 }
 
+// ★★★★ §CUSTODY-B / [[B268]] blocker-1 (QG 2026-08-30) — **THE ONE POST-ADMISSION TERMINAL OUTCOME.**
+//
+// ⛔⛔ THE DEFECT IT CLOSES, stated first because it is subtle: §6.2(5) removes the generic `send_failed` from
+//    every protocol-internal type, and [[B268]] gave the team-key grant a replacement — but only at
+//    `giveup_flight`. An ADMITTED grant can die at SEVEN other places, and at each of them the generic push was
+//    correctly suppressed and nothing replaced it ⇒ the §UI-16 panel sat at `GRANT QUEUED` FOR EVER. A
+//    per-site fix would have re-created the duplication this whole slice exists to remove, so there is exactly
+//    one helper and every carrier death routes through it.
+//
+// ⛔⛔ `generic_owed` IS THE CALLER'S OWN, UNCHANGED, SITE-SPECIFIC ANSWER AND IS PASSED **IN**, NEVER RECOMPUTED
+//    HERE. That is the single most important line in this function, and it is what stops the helper becoming a
+//    stealth [[B263]] fix: the sites genuinely differ — `giveup_flight` owes a generic failure UNCONDITIONALLY
+//    (transit or own, which IS B263 and stays exactly as defective as it is until Slice E), the reprovision
+//    purges first ask `carrier_owes_send_failed`, and three sites owe NOTHING to anybody and must stay silent.
+//    If this helper decided that question, every one of those would move. It decides only the TRAIT question,
+//    which is this slice's, and which each site already asked identically.
+//
+// ⛔ THE TWO ARMS ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION, not by an `else`: `generic_send_lifecycle` is false for
+//    every internal type and the grant is one, so no carrier can take both. They are written as two independent
+//    `if`s so each stays separately attackable — §18.2 mutates them one at a time, per call site.
+//
+// ★ SINGLE EMISSION IS GUARANTEED BY DESTRUCTION, not by a flag: every caller DESTROYS the carrier at the site
+//   that reports it (a `_pending_tx.reset()`, a `continue` that drops the deferred entry, or a `_deferred_n = 0`
+//   after the loop). A carrier that MOVES between carriers — flight -> requeue -> deferred -> purge — is reported
+//   only where it finally dies, because the moves are not deaths. ⇒ zero or one, never two.
+void Node::terminal_carrier_outcome(uint8_t type, bool own_origination, bool generic_owed,
+                                    SendFailReason reason, uint8_t dst, uint16_t ctr) {
+    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);
+    // [[B268]]: the grant's protocol-specific terminal outcome (§6.2(6)). ⛔ Own originations only — a relayed
+    // grant in transit is not ours to report, the same fence the generic path keeps.
+    if (own_origination && type == DATA_TYPE_TEAM_KEY_GRANT) {
+        Push g{}; g.kind = PushKind::team_key_grant_failed; g.reason = reason; g.dst = dst; g.ctr = ctr;
+        enqueue_push(g);
+    }
+}
+
 // §3-B.2: the one send-failure fill (see node.h). Every other Push field stays at its `Push{}` default — notably
 // `body`/`body_len` empty and `origin` 0, which is what all 24 former hand-rolled sites did.
 void Node::push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr) {
@@ -2248,6 +2289,26 @@ void Node::push_send_aired_if_owned(const TxOutcome& info) {
     if (!_active->_pending_tx) return;                          // the flight is gone -> nothing to attribute this to
     const PendingTx& pt = *_active->_pending_tx;
     if (info.seq != pt.flight_gen) return;                      // exact flight identity (flight_gen is never 0 on a live flight)
+    // §CUSTODY-B §6.2(5): `send_aired` is a GENERIC user-send outcome, so a protocol-internal flight raises none.
+    // ⓘ This sits AFTER the identity check on purpose — the type is only meaningful once the outcome is proven to
+    //   belong to THIS flight; asking it earlier would read a type off a flight the outcome does not describe.
+    // ⛔ The `has_previous_hop` ownership term below is NOT touched (it is the transit axis, [[B263]]/Slice E).
+    if (!data_type_traits(pt.type).generic_send_lifecycle) {
+        // ★★★★ [[B268]] (owner ruling 2026-08-30) — THE TEAM-KEY GRANT'S OWN AIRING OUTCOME. §6.2(6): an internal
+        //   type keeps its PROTOCOL-SPECIFIC result, and for the grant that result is this push. Without it §UI-16's
+        //   panel sits at `GRANT QUEUED` for ever, waiting on a generic `send_aired` that can no longer be minted —
+        //   which is [[B268]] verbatim, and is why the suppression above must not simply `return` for every type.
+        // ⛔ THE OWNERSHIP GUARD I RELY ON IS `has_previous_hop`, ASSERTED HERE RATHER THAN ASSUMED: a grant is an
+        //   OWN origination at the node that mints it (`team_key_grant_send` -> `send_by_hash` -> `do_send`), and a
+        //   RELAYED grant passing through carries `has_previous_hop` and must raise nothing. That term already sits
+        //   below for the generic path; this arm re-uses it rather than forking a second ownership rule, so the
+        //   [[B263]] transit-vs-own fence is respected identically on both arms and Slice E moves them together.
+        // ⛔ `m_broadcast` cannot be a grant (a grant is a unicast DM), so the channel arm below is not duplicated.
+        if (pt.type == DATA_TYPE_TEAM_KEY_GRANT && !pt.m_broadcast && !pt.has_previous_hop) {
+            Push g{}; g.kind = PushKind::team_key_grant_aired; g.dst = pt.dst; g.ctr = pt.ctr; enqueue_push(g);
+        }
+        return;
+    }
     Push pu{};
     pu.kind = PushKind::send_aired;
     if (!pt.m_broadcast) {
@@ -2401,6 +2462,13 @@ void Node::on_tx_complete(const TxOutcome& info) {
         // (mirror the DATA-M giveup, dv:12151) so the queue drains. Only DATA: a CTS/ACK/NACK giveup is a
         // receiver-side response whose pending_rx is freed by pending_rx_expiry; _active->_pending_tx may be unrelated.
         if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->flight_gen == s.flight_gen) {   // L9: exact flight match (was the 4-bit ctr_lo)
+            // ★★★ [[B268]] blocker-1, A **SIXTH SITE** THIS SWEEP FOUND: this releases a stranded DATA flight and
+            //     reports NOTHING to anybody. ⛔ `generic_owed = false` PRESERVES that silence byte-for-byte —
+            //     inventing a generic failure here is a behaviour change outside this slice. The grant's own arm
+            //     fires, so a grant stranded by an LBT-stash give-up no longer freezes the panel.
+            terminal_carrier_outcome(_active->_pending_tx->type, !_active->_pending_tx->has_previous_hop,
+                                     /*generic_owed=*/false, SendFailReason::none,
+                                     _active->_pending_tx->dst, _active->_pending_tx->ctr);
             _active->_pending_tx.reset();
             become_free();
         }

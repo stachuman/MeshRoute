@@ -310,6 +310,27 @@ acknowledged-empty so later boots do not bump again.** The companion sees a new 
 manual erase is required, and `device_nv.h`'s configuration version does not change. The volatile inbox needs no
 migration.
 
+**Fail-closed protocol-internal delivery (§CUSTODY-B, 2026-08-30).** An addressed DATA frame whose TYPE lies in the
+protocol-internal range `0x80..0xBF` and which reaches the ordinary-delivery tail is **dropped**, not delivered.
+Every wired internal handler consumes and returns before that point, so a healthy frame never meets the guard;
+anything internal that does is by construction unhandled on this build — a retired type, a reservation, or a
+handler compiled out by profile. The predicate is *"internal reached the tail"*, **not** *"internal and unknown"*:
+`known` means allocated-and-understood and does not prove a handler ran (`MOBILE_KEY_FORWARD` is `known` yet
+consumed only on a mobile build). The drop emits one bounded `unsupported_internal{type, origin, dst, ctr}` event
+and nothing else — no Push, no inbox record, no `msg_recv`, no ack, no body bytes. "Bounded" means fixed-size and
+non-amplifying: at most one scalar-only event per dedup-admitted DATA flight, not a wall-clock rate limit; every
+event costs the sender a complete physical exchange, and same-flight retransmissions are already suppressed by
+per-frame dedup. The guard sits **after** all three forwarding roles — ordinary relay, the cross-layer bridge, and
+the hosted-mobile last-mile by `DST_HASH` — because a home is the wire destination of its mobile's traffic but only
+a proxy for it. This replaces the previous behaviour, in which an addressed DATA whose TYPE had no handler was
+delivered as an ordinary DM.
+
+An internal type whose only asynchronous outcome was the generic pair keeps a **protocol-specific** replacement
+rather than an exemption: the team-key grant emits `team_key_grant_aired` / `team_key_grant_failed` on the same
+`{dst, ctr}` correlation, post-admission only, and never a generic push. Every post-admission carrier death reports
+through one authority (`Node::terminal_carrier_outcome`), so an internal type's replacement outcome cannot exist at
+one terminal path and be missing at another.
+
 ## 3. Beacons
 
 In **discovery** (first ~60 s, or route-starved) a node beacons fast + full-page and broadcasts `Q:REQ_SYNC` to pull

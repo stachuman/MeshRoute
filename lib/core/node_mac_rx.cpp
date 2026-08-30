@@ -1939,6 +1939,61 @@ void Node::do_post_ack() {
             (void)team_key_grant_receive(dec_body, dec_body_len, dec_source_hash, pa.origin);   // emits/pushes its own outcome
             become_free(); return;
         }
+        // ★★★★ §CUSTODY-B (2026-08-30) — THE FAIL-CLOSED PROTOCOL-INTERNAL GUARD (design §6.2(2); closes the
+        //       runtime half of [[B264]]). Every wired internal handler above CONSUMES and RETURNS, so a healthy
+        //       internal frame never reaches this line. Anything internal that DOES reach it is, by construction,
+        //       UNHANDLED on this build — so it is dropped here instead of falling through to `record_dm`,
+        //       `msg_recv` and the inbox as message text.
+        //
+        // ⛔⛔ THE PREDICATE IS "traits.internal REACHED THE ORDINARY-DELIVERY TAIL", FULL STOP — ⛔ NOT
+        //     `internal && !known`. `known` means ALLOCATED AND UNDERSTOOD; it does NOT prove a handler RAN.
+        //     `MOBILE_KEY_FORWARD` (0x96) is the standing proof: it is `known = true`, and its consuming fork is
+        //     gated on `is_mobile` AND `#if MR_FEAT_MOBILE` (:1801), so on a static / gateway / MR_FEAT_MOBILE-0
+        //     build an addressed one arrives here with nobody having handled it — and the weaker predicate would
+        //     put 32 raw requester-key bytes in the inbox as text (A0-F11). §18.2's control mutates the guard to
+        //     `internal && !known` and REQUIRES it to go RED.
+        //
+        // ⛔ PLACEMENT IS LOAD-BEARING and is AFTER all THREE forwarding roles, because a frame this node is the
+        //    wire destination of is not necessarily a frame this node is the SUBJECT of (design §6.2(3)):
+        //      (a) ordinary relay forwarding      — the `else` arm of `if (!pa.is_forward)` (:2010); never here;
+        //      (b) the cross-layer BRIDGE         — :1720-1722, which `return`s long before this line;
+        //      (c) the hosted-mobile LAST-MILE by DST_HASH — :1656-1712. ★ THIS IS THE ONE A GUARD PLACED
+        //          "at the top of the destination branch" WOULD EAT: a home is the outer wire destination but
+        //          only a PROXY for its hosted mobile, so an unknown-internal frame addressed THROUGH the home
+        //          to its mobile must still be forwarded. The mobile — not the home — is the node entitled to
+        //          decide it has no handler. §18.2's control drops that arm and requires RED.
+        //
+        // ⛔ WHAT THIS IS NOT (§6.3): not a custody-report exclusion, not sealing, not trust, not priority, not
+        //    an airtime exemption. It changes NOTHING about the hop exchange that already completed — the CTS,
+        //    the DATA and the link ACK all happened above; this is the SEMANTIC verdict only.
+        //
+        // ★★ THE TELEMETRY BOUND, OWNER-RULED 2026-08-30 (S0 ruling, Option A) AND RECORDED VERBATIM:
+        //      "«Bounded» means fixed-size and non-amplifying — one scalar-only emit per dedup-admitted distinct
+        //       flight — not a wall-clock rate limit. A sender varying flight identity can still produce one
+        //       event per physically accepted exchange."
+        //    ⇒ At most one fixed-size `unsupported_internal` event per dedup-admitted DATA flight. No body bytes,
+        //      no Push, no storage, and no secondary event generation. WHY that is the honest bound, and ⛔ NOT
+        //      the originator throttle (a hostile sender can simply ignore that one):
+        //      · every event costs the attacker a COMPLETE physical DATA exchange, so telemetry cannot amplify
+        //        one frame into many records — the bound is the radio, not a counter;
+        //      · same-flight retries never arrive here at all: the per-frame dedup drops them (`dup_drop`, :1373);
+        //      · `MR_EMIT` is DEVICE-STRIPPED (`MESHROUTE_NO_TELEMETRY`), so permanent Node state added to
+        //        regulate this would spend real RAM on all ten board envs policing something that is not there;
+        //      · complete occurrence reporting is what keeps the native/sim diagnostics and the event-level
+        //        corpus instrument able to see this at all — a windowed emit hides occurrences (the same reason
+        //        `_team_ch_nokey_push_next_ms`'s telemetry twin is deliberately un-limited, node.h);
+        //      · and the fail-closed BEHAVIOUR is UNCONDITIONAL — drop, `become_free()`, nothing inboxed —
+        //        regardless of telemetry, so a stripped build is exactly as safe as a native one.
+        //    ⛔ FIELDS ARE RULED AND CLOSED: `type, origin, dst, ctr`. ⛔ NEVER the body or anything derived from
+        //      it — the whole defect class this guard closes is raw key material reaching a text sink, and the
+        //      `delivered` emit twelve lines below (the ONE payload-carrying emit in lib/core) is precisely what
+        //      it must not become. §18.2's control adds a body field and requires RED.
+        if (data_type_traits(pa.type).internal) {
+            MR_EMIT("unsupported_internal", EF_I("type", pa.type), EF_I("origin", pa.origin),
+                    EF_I("dst", pa.dst), EF_I("ctr", pa.ctr));
+            become_free();
+            return;
+        }
         // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
         static char body[protocol::max_payload_bytes_hard_cap + 1];   // ADDENDUM 4: static (non-reentrant) — paired with dec_body, off the do_post_ack stack frame
         uint8_t blen;
@@ -2260,6 +2315,11 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     MR_EMIT("ack_rx", EF_I("from", _active->_pending_tx->next), EF_I("origin", _active->_pending_tx->origin),
             EF_I("dst", _active->_pending_tx->dst), EF_I("ctr", _active->_pending_tx->ctr), EF_I("budget_hint", k.budget_hint),
             EF_I("budget_reranked", ack_budget_reranked), EF_I("airtime_warn", k.warn ? 1 : 0));  // ACK is from our next-hop (src_hint=-1 on metal)
+    // §CUSTODY-B §6.2(5): `send_acked` is the GENERIC user-send hop-ack outcome, so a protocol-internal flight
+    // does not raise one — the app must not see a hop ACK for an E2E ack / hash answer under a ctr it never
+    // minted. ⛔ The PROTOCOL-SPECIFIC results are untouched (§6.2(6)): `send_e2e_acked` still fires on receipt
+    // of a DATA_TYPE_E2E_ACK (node_mac_rx.cpp, the E2E-ACK arm), and `team_key_received` still fires on a grant.
+    if (data_type_traits(_active->_pending_tx->type).generic_send_lifecycle)
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _active->_pending_tx->dst; pu.ctr = _active->_pending_tx->ctr; enqueue_push(pu); }
     _active->_pending_tx.reset();
     become_free();
@@ -2360,7 +2420,11 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit("rts_giveup", gf, 2); );
-                push_send_failed(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). NOT giveup_flight: the reset+become_free below are shared with the requeue arm above.
+                // [[B268]] blocker-1: the `giveup_flight` twin — same shared helper, same `generic_owed = true`
+                // (this site always owed one). NOT `giveup_flight` itself: the reset + become_free below are
+                // shared with the requeue arm above.
+                terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/true,
+                                         giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts
             }
             _active->_pending_tx.reset();
             become_free();

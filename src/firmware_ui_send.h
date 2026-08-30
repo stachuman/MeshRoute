@@ -339,14 +339,13 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
             //   above: `match_dm` refuses a non-DM slot.
             if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
             if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
-            // ★★ §UI-16 N6 — the INVITE grant's failure arm, offered LAST for the reason the two slots are offered
-            //    first anywhere in this function: a UI send slot owns its own handle, and the grant is a flight
-            //    neither slot ever submitted. The correlation is the verdict's `{dst, ctr}` and it is exact.
-            // ⚠ CORRECTED 2026-08-24 (§UI-16 N6b, V1 — the comment had drifted from the code it describes): this
-            //   read *"the model's FROZEN `{dst, ctr}`"*. The `dst` is ⛔ NOT frozen — it is the id the CORE
-            //   RESOLVED AT SEND TIME and handed back, precisely so a re-DAD inside the window cannot strand the
-            //   verdict. Only the target HASH is frozen.
-            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `GRANT FAILED` edge
+            // ⛔⛔ THE INVITE OFFER IS GONE FROM THIS ARM, 2026-08-30 ([[B268]] ruling (b)) — it is DEAD, not
+            //    merely unused: §CUSTODY-B suppresses the GENERIC lifecycle for every protocol-internal DATA type,
+            //    the team-key grant is one, so a grant can no longer mint a generic `send_failed` at all. Its
+            //    terminal edge now arrives as `PushKind::team_key_grant_failed`, handled in its own arm below.
+            //    Leaving the offer here would be a call that can never return true — and worse, it would invite a
+            //    reader to believe the generic kind still carries the grant.
+            return false;
         // ★★★ §T3 — THE EXPLICIT `send_aired` ARM. ⛔ It MUST be spelled out here and must never be left to the
         //     `default:` below (or to `firmware_ui.cpp:mr_ui_on_push`'s own `default:`): both would silently ignore
         //     the new kind and the whole app half of [[B164]] would compile and pass while doing nothing.
@@ -360,14 +359,27 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
         case PK::send_aired:
             if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model
             if (normal.match_aired(pu.dst, pu.ctr)) { m.on_send_aired(normal.kind(), now_ms); return true; }
-            // ★★★★ §UI-16 N6 — **THE ONE EDGE THAT MAY SAY `KEY SENT`** (spec §4-N6, ✅ F-9). The grant's own
-            //      admission answer is `GRANT QUEUED`; only THIS push — the SX1262 TxDone edge for the flight whose
-            //      `{dst, ctr}` the confirmation froze — promotes it, and the model applies the correlation. ⛔ It
-            //      is offered LAST, after both UI slots, because a slot that submitted this handle owns it; the
-            //      grant is a flight neither slot ever submitted, so the two answers cannot overlap.
+            // ⛔⛔ AND THE INVITE OFFER IS GONE FROM THIS ARM TOO ([[B268]] ruling (b), 2026-08-30) — same reason
+            //    as the `send_failed` arm above: a grant can no longer mint a GENERIC `send_aired`, so this call
+            //    could only ever return false. The grant's airing edge is `PushKind::team_key_grant_aired` below.
+            return false;
+        // ★★★★ [[B268]] (owner ruling 2026-08-30) — THE GRANT'S OWN KINDS, AND THEY GO STRAIGHT TO THE MODEL.
+        //   §CUSTODY-B took the GENERIC lifecycle away from every protocol-internal DATA type, and the team-key
+        //   grant (0xA2) is internal — so the two arms above can no longer carry it and the panel would sit at
+        //   `GRANT QUEUED` for ever. The grant now mints `team_key_grant_aired` / `team_key_grant_failed`.
+        // ⛔ THE TWO UI SEND SLOTS ARE **NOT** OFFERED THESE, and that is a correctness improvement rather than an
+        //   omission: no slot ever submits a grant, so a slot claiming one could only ever be a `{dst, ctr}`
+        //   ALIAS — the exact wrong-flight promotion the correlation exists to prevent. On the generic kinds the
+        //   slots must still be offered first (they own their own handles); here there is nothing to offer.
+        // ⓘ TWO SEPARATE CASE LABELS, NOT ONE FALL-THROUGH PAIR, for the reason `giveup_flight` gives for its two
+        //   `if`s: each edge must stay INDEPENDENTLY attackable, and the two controls (§18.2 U07 / U08) are
+        //   exactly that pair.
+        case PK::team_key_grant_aired:
             return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge
-        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 17 members on core's schedule
-        //    and this unit is interested in exactly five. The kinds the UI renders rather than correlates
+        case PK::team_key_grant_failed:
+            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `GRANT FAILED` edge
+        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 19 members on core's schedule
+        //    and this unit is interested in exactly seven. The kinds the UI renders rather than correlates
         //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.
         default: return false;
     }

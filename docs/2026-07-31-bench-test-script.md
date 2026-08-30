@@ -3632,3 +3632,21 @@ with at least one stored DM **and** one stored E2E-ACK receipt (`send -a` to a p
    quiet boots is the §10.1 ratchet (19.12's failure, arriving through the migration path).
 5. ☐ Send a fresh `send -a` DM and let it ack: `pull_inbox 0 0` shows the new receipt still rendering as
    `"type":"e2e_ack"` — the companion's semantic string is unchanged even though the underlying byte moved 3 → 0x80.
+
+## Part 50 — §CUSTODY-B / [[B268]]: the grant's outcome edges on the real radio (2026-08-30)
+
+⛔ **THE RESIDUE ONLY.** The fail-closed guard, the floor unification, the terminal-outcome helper and both
+grant pushes are host-gated (`test_custody_internal_b.cpp`'s production-shaped cases drive `on_tx_complete`
+and the terminal paths directly). **Metal proves only the real IRQ/timing edges.**
+
+1. ☐ **`KEY SENT` on the real TxDone.** From the OLED: `TEAM → INVITE → GRANT KEY` to a member you hold an
+   authoritative key for. Expect `GRANT QUEUED`, then **`KEY SENT`** once the frame airs. On USB the same run
+   prints `GRANT AIRED ctr=<n> dst=<id>`. ⛔ If the panel stays on `GRANT QUEUED`, the SX1262 TxDone edge is
+   not reaching `push_send_aired_if_owned` — that is [[B268]] re-opening, and it is the one behaviour on this
+   surface no host test can observe (the native cases drive `on_tx_complete` directly; only metal drives the
+   real IRQ).
+2. ☐ **`GRANT FAILED` on a real terminal failure.** Pull the antenna / force a busy channel mid-grant and
+   confirm the panel reaches **`GRANT FAILED`** rather than sitting on `GRANT QUEUED`. On USB:
+   `GRANT FAILED ctr=<n> dst=<id>`. Host tests cover seven terminal paths; only metal exercises the real
+   LBT/duty timing that picks between them. ⓘ The reason is in the push for the companion; ⛔ the OLED
+   deliberately collapses every failure to `GRANT FAILED` (command.h:280).

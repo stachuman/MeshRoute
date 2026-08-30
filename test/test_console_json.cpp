@@ -858,6 +858,7 @@ static unsigned ord(PushKind k) {
         case PushKind::team_reg:       case PushKind::join_adopted:   case PushKind::team_key_received:
         case PushKind::team_channel_no_key:   // §chan-crypt CL2a
         case PushKind::send_aired:            // §T3: the attempt-level airing fact
+        case PushKind::team_key_grant_aired:  case PushKind::team_key_grant_failed:   // §CUSTODY-B/[[B268]]
             return static_cast<unsigned>(k);
     }
     return kUnlisted;
@@ -932,7 +933,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 14);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`; 13 -> 14 S4b `err_resolve_pending_full`
-    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 17);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`; 16 -> 17: §T3 `send_aired`
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 19);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`; 16 -> 17: §T3 `send_aired`; 17 -> 19: §CUSTODY-B/[[B268]] `team_key_grant_aired` + `team_key_grant_failed`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);

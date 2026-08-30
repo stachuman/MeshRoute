@@ -273,29 +273,49 @@ TEST_CASE("§A0-1b the 0xFE tombstone is a store marker that collides with no al
 //     (type == DATA_TYPE_E2E_ACK) || (type == DATA_TYPE_REMOTE_CMD) || (type == DATA_TYPE_REMOTE_RESP)
 // by hand, with no shared symbol, helper or table binding them.
 //
-// ★★ THIS IS THE SPEC'S §6.2(4) TARGET. Slice B replaces both lists with the trait authority, after which the
-//    exempt set becomes the whole 0x80..0xBF internal range. Until then the exempt set is THESE THREE and no
-//    others — notably NOT the hash/key answers, and NOT the exact B59 pubkey-answer type.
-// [CHANGES IN SLICE B for every currently-NON-exempt internal-to-be type.]
-TEST_CASE("§A0-2 the own-DM burst floor exempts exactly {E2E_ACK, REMOTE_CMD, REMOTE_RESP} — nothing else") {
+// ★★ THIS WAS THE SPEC'S §6.2(4) TARGET, AND IT HAS NOW MOVED. ⛔⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B) —
+//    THE CASE IS NOT DELETED AND ITS AUTHORITY IS NOT REWRITTEN; only the expectation column moved, and the
+//    MOVEMENT IS STATED HERE so the A0 record stays readable as a before/after pair:
+//      BEFORE (A0, measured): exempt == { E2E_ACK, REMOTE_CMD, REMOTE_RESP } — three hand-written members.
+//      AFTER  (Slice B):      exempt == `data_type_is_internal(type)`, i.e. the WHOLE 0x80..0xBF range.
+//    ⇒ NINE rows flipped false -> true and were MEASURED flipping (the pre-re-anchor run failed exactly nine
+//      times at the `send_blocked` assertion): H_ANSWER · AUTHORITATIVE_H_ANSWER · AUTHORITATIVE_H_ANSWER_PUBKEY
+//      (the B59 type) · MOBILE_H_ANSWER · MOBILE_H_ANSWER_PUBKEY · MOBILE_KEY_FORWARD · MOBILE_BREADCRUMB ·
+//      MOBILE_LAYER_QUERY · MOBILE_LAYER_ANSWER.
+//    ⛔ THREE ROWS DELIBERATELY DID **NOT** MOVE, and they are the bound: `0` (the untyped DM the floor exists
+//      for), `INTRO` (0x01 — APPLICATION range, §6.4 keeps its user pacing) and `200` (0xC8 — RESERVED, outside
+//      BOTH ranges, which is exactly what `data_type_is_internal`'s closed upper bound buys over `t & 0x80`).
+// ⓘ The expectation is now DERIVED from the range predicate rather than re-listed, so this case cannot drift
+//   from the production authority by editing one of them — but the three non-moving rows above keep explicit
+//   `false` literals, because a derivation that agrees with itself everywhere proves nothing.
+TEST_CASE("§A0-2 the own-DM burst floor exempts exactly the PROTOCOL-INTERNAL range 0x80..0xBF — nothing else") {
     struct Case { uint8_t type; bool exempt; const char* label; };
     const Case cases[] = {
         { DATA_TYPE_E2E_ACK,                       true,  "E2E_ACK" },
         { DATA_TYPE_REMOTE_CMD,                    true,  "REMOTE_CMD" },
         { DATA_TYPE_REMOTE_RESP,                   true,  "REMOTE_RESP" },
         { 0,                                       false, "untyped DM (the carrier the floor exists for)" },
-        { DATA_TYPE_H_ANSWER,                      false, "H_ANSWER" },
-        { DATA_TYPE_AUTHORITATIVE_H_ANSWER,        false, "AUTHORITATIVE_H_ANSWER" },
-        { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, false, "AUTHORITATIVE_H_ANSWER_PUBKEY (the B59 type)" },
-        { DATA_TYPE_MOBILE_H_ANSWER,               false, "MOBILE_H_ANSWER" },
-        { DATA_TYPE_MOBILE_H_ANSWER_PUBKEY,        false, "MOBILE_H_ANSWER_PUBKEY" },
-        { DATA_TYPE_MOBILE_KEY_FORWARD,            false, "MOBILE_KEY_FORWARD" },
-        { DATA_TYPE_MOBILE_BREADCRUMB,             false, "MOBILE_BREADCRUMB" },
-        { DATA_TYPE_MOBILE_LAYER_QUERY,            false, "MOBILE_LAYER_QUERY" },
-        { DATA_TYPE_MOBILE_LAYER_ANSWER,           false, "MOBILE_LAYER_ANSWER" },
-        { DATA_TYPE_INTRO,                         false, "INTRO" },
-        { 200,                                     false, "unknown type 200" },
+        // ★ the nine that MOVED false -> true in §CUSTODY-B (see the banner)
+        { DATA_TYPE_H_ANSWER,                      true,  "H_ANSWER" },
+        { DATA_TYPE_AUTHORITATIVE_H_ANSWER,        true,  "AUTHORITATIVE_H_ANSWER" },
+        { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, true,  "AUTHORITATIVE_H_ANSWER_PUBKEY (the B59 type)" },
+        { DATA_TYPE_MOBILE_H_ANSWER,               true,  "MOBILE_H_ANSWER" },
+        { DATA_TYPE_MOBILE_H_ANSWER_PUBKEY,        true,  "MOBILE_H_ANSWER_PUBKEY" },
+        { DATA_TYPE_MOBILE_KEY_FORWARD,            true,  "MOBILE_KEY_FORWARD" },
+        { DATA_TYPE_MOBILE_BREADCRUMB,             true,  "MOBILE_BREADCRUMB" },
+        { DATA_TYPE_MOBILE_LAYER_QUERY,            true,  "MOBILE_LAYER_QUERY" },
+        { DATA_TYPE_MOBILE_LAYER_ANSWER,           true,  "MOBILE_LAYER_ANSWER" },
+        // ⛔ the three that must NOT move — the bound of the widening
+        { DATA_TYPE_INTRO,                         false, "INTRO (0x01 — APPLICATION range, §6.4)" },
+        { 200,                                     false, "200 = 0xC8 — RESERVED, outside BOTH ranges" },
+        // ⛔ TEAM_KEY_GRANT (0xA2) is deliberately ABSENT from this fixture and that is a property of the
+        //    PRODUCTION guard, not an omission: `do_send` with `CryptIntent::off` refuses a plaintext grant
+        //    outright (the T-K3 structural guard, node_mac.cpp) and returns 0, so it can never reach the floor.
+        //    Its exemption is covered by the derivation cross-check below and by test_node_channel.cpp's guards.
     };
+    // ⛔ THE DERIVATION CROSS-CHECK: every row's hand-written expectation must equal the production predicate.
+    // A row added later with the wrong literal fails HERE rather than silently widening the characterization.
+    for (const auto& c : cases) { CAPTURE(c.label); CHECK(c.exempt == data_type_is_internal(c.type)); }
     const uint8_t body[] = { 'a', 'b' };
     for (const auto& c : cases) {
         CAPTURE(c.label);
@@ -325,10 +345,22 @@ TEST_CASE("§A0-2 the own-DM burst floor exempts exactly {E2E_ACK, REMOTE_CMD, R
 // ⇒ this is what makes a stamp-list mutation measurable rather than silent.
 TEST_CASE("§A0-2b an EXEMPT origination lays no floor stamp — the next ordinary DM is not deferred by it") {
     const uint8_t body[] = { 'a', 'b' };
-    {   // EXEMPT first: no stamp is laid, so the following untyped DM must NOT be blocked.
+    // ⛔⛔ THE ROW SET IS NOW A LOOP, AND THE NEWLY-EXEMPT TYPES ARE WHY — ADDED 2026-08-30 (§CUSTODY-B) AFTER A
+    //     MUTATION MEASURED NOTHING, which is the SECOND time this exact hole opened in this exact policy:
+    //     mutation B02 (revert the STAMP half to the historical three-type list) left the whole suite GREEN.
+    //     The reason is structural and is A01's mirror image — with only `E2E_ACK` probed here, a reverted STAMP
+    //     list still exempts it, so no stamp is laid either way and the arrangement is blind to the revert. The
+    //     types that DISTINGUISH the two lists are the ones §CUSTODY-B newly exempted, so they must be probed
+    //     HERE, at the STAMP half, or the widening has no stamp-side control at all.
+    // ⇒ the fix was to the TEST, never to the mutation. (A01's note above records the first occurrence.)
+    const uint8_t exempt_types[] = { DATA_TYPE_E2E_ACK, DATA_TYPE_REMOTE_CMD,
+                                     DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY,   // ★ newly exempt: B02's control
+                                     DATA_TYPE_MOBILE_LAYER_ANSWER };           // ★ newly exempt
+    for (const uint8_t t : exempt_types) {   // EXEMPT first: no stamp is laid, so the following untyped DM flies.
+        CAPTURE(static_cast<int>(t));
         Pair p;
         CHECK(p.sender.test_do_send_typed(/*dst=*/2, body, sizeof body, CryptIntent::off,
-                                          /*dst_hash=*/0, DATA_TYPE_E2E_ACK) != 0);
+                                          /*dst_hash=*/0, t) != 0);
         p.sender.test_suspend_tx_drain(false);
         p.shal.clear_emits();
         CHECK(p.sender.test_do_send_typed(/*dst=*/2, body, sizeof body, CryptIntent::off,
@@ -357,15 +389,20 @@ TEST_CASE("§A0-2b an EXEMPT origination lays no floor stamp — the next ordina
 // ⇒ the observable arrangement is a MIXED pair: an ordinary DM arms the floor, and the exempt type must then
 //   still fly immediately. That is also the real-world shape the MF9 exemption exists for (a user DM followed by
 //   this node's own e2e-ack, which must not wait 3 s behind it).
-// [CHANGES IN SLICE B — the exempt set widens to the whole internal range.]
-TEST_CASE("§A0-2c with the floor ARMED by an ordinary DM, an exempt type still flies — the CHECK-half term") {
+// ⛔⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B), MOVEMENT STATED: the exempt set widened to the whole internal range,
+//    so the two hash-answer rows flipped false -> true and were MEASURED flipping (the pre-re-anchor run failed
+//    exactly twice here). ★ THIS CASE IS THE ONE THAT MAKES THE **CHECK** HALF OBSERVABLE, and it is therefore
+//    the arm that keeps §18.2.7's `become_free()` mutation measurable — reverting the CHECK list alone is
+//    invisible to §A0-2 (same-type pair) and visible only here.
+TEST_CASE("§A0-2c with the floor ARMED by an ordinary DM, an internal type still flies — the CHECK-half term") {
     struct Case { uint8_t type; bool exempt; const char* label; };
     const Case cases[] = {
         { DATA_TYPE_E2E_ACK,                       true,  "E2E_ACK after an ordinary DM" },
         { DATA_TYPE_REMOTE_CMD,                    true,  "REMOTE_CMD after an ordinary DM" },
         { DATA_TYPE_REMOTE_RESP,                   true,  "REMOTE_RESP after an ordinary DM" },
-        { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, false, "the B59 pubkey answer after an ordinary DM" },
-        { DATA_TYPE_H_ANSWER,                      false, "H_ANSWER after an ordinary DM" },
+        { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, true,  "the B59 pubkey answer after an ordinary DM (MOVED)" },
+        { DATA_TYPE_H_ANSWER,                      true,  "H_ANSWER after an ordinary DM (MOVED)" },
+        { DATA_TYPE_INTRO,                         false, "INTRO after an ordinary DM — application, still paced" },
         { 0,                                       false, "a second ordinary DM (the control)" },
     };
     const uint8_t body[] = { 'a', 'b' };
@@ -459,11 +496,21 @@ TEST_CASE("§A0-3b APP=1 with a 0x00 TYPE byte parses as type 0 — the packer's
 // ⚠ -Wswitch IS STRUCTURALLY BLIND TO THIS: an if-chain has no exhaustiveness diagnostic, so a new DataType
 //   member produces no warning anywhere. Registered as a quality-gate gap (A0-F2), not a claim about intent.
 //
-// ★★ THE SPEC'S §6.2(2) TARGET: Slice B makes an addressed unknown INTERNAL type fail closed. Today EVERY
-//    unknown type — the internal range, the reserved range and the 0xFE tombstone value alike — is
-//    delivered to the user as an ordinary DM. ⓘ The §CUSTODY-A namespace transition did NOT change that:
-//    the ranges now exist as a contract, but no runtime arm reads them yet. [CHANGES IN SLICE B.]
-TEST_CASE("§A0-4 an addressed UNKNOWN DATA type is delivered as an ordinary DM (msg_recv), not dropped") {
+// ⛔⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B), AND THIS IS THE SLICE'S HEADLINE FLIP. MOVEMENT STATED:
+//      BEFORE (A0, measured): EVERY unknown type — internal range, reserved range and the 0xFE tombstone value
+//                             alike — was delivered to the user as an ordinary DM (record_dm + msg_recv).
+//      AFTER  (Slice B):      a value in the PROTOCOL-INTERNAL range 0x80..0xBF that reaches the ordinary
+//                             delivery tail is DROPPED with bounded `unsupported_internal` telemetry; every
+//                             other row is UNCHANGED and still delivers.
+//    ⇒ FOUR rows flipped and were MEASURED flipping (the pre-re-anchor run failed at exactly these four):
+//      `0x81` · `0xBF` · `0x8A` (H_ANSWER_PUBKEY, reserved) · `0x94` (MOBILE_PUBKEY_PUSH, RETIRED — ★ this is
+//      A0-F10b's "harmless" stray, the one that used to put 32 raw ed25519 key bytes in the inbox as text).
+//    ⛔ SEVEN ROWS DELIBERATELY DID **NOT** MOVE and they are what bounds the guard: `20` · `100` (application
+//      range) · `0xC0` · `0xFE` · `0xFF` (RESERVED / tombstone / invalid — outside BOTH ranges, the exact space
+//      `t & 0x80` would have wrongly swallowed) · `0x05` (APP_MESSAGE reservation) · and ★ `0x04` — the outer
+//      CHANNEL_POST fall-through, which is APPLICATION-range behaviour and SURVIVES this slice by design
+//      (§6.4; nobody "fixes" it here). The split of this list is therefore the range predicate's proof.
+TEST_CASE("§A0-4 an addressed unknown type: APPLICATION/RESERVED still deliver, PROTOCOL-INTERNAL fails closed") {
     struct Case { uint8_t type; const char* label; };
     const Case cases[] = {
         { 20,   "20 — the next unallocated value" },
@@ -499,11 +546,19 @@ TEST_CASE("§A0-4 an addressed UNKNOWN DATA type is delivered as an ordinary DM 
         CHECK(h.data_type == c.type);            // the unknown byte really did reach the air unchanged
         Push pu{};
         const bool as_msg = delivered_as_message(p.receiver, pu);
-        CHECK(as_msg);                                    // reaches the app as a MESSAGE
-        CHECK(p.rhal.count("delivered") == 1);            // and fires the generic deliver telemetry
-        if (as_msg) {
-            CHECK(pu.origin == 1);
-            CHECK(pu.body_len == sizeof body);            // the raw body becomes the message text verbatim
+        if (data_type_is_internal(c.type)) {
+            // ★ §CUSTODY-B: FAIL CLOSED. Dropped, reported once, and NOTHING reached the user.
+            CHECK_FALSE(as_msg);                              // ⛔ no msg_recv
+            CHECK(p.rhal.count("delivered") == 0);            // ⛔ no deliver telemetry, so no payload echo either
+            CHECK(p.rhal.count("unsupported_internal") == 1); // exactly ONE bounded report for this one flight
+        } else {
+            CHECK(as_msg);                                    // reaches the app as a MESSAGE — UNCHANGED
+            CHECK(p.rhal.count("delivered") == 1);            // and fires the generic deliver telemetry
+            CHECK(p.rhal.count("unsupported_internal") == 0); // ⛔ the guard did NOT reach outside its range
+            if (as_msg) {
+                CHECK(pu.origin == 1);
+                CHECK(pu.body_len == sizeof body);            // the raw body becomes the message text verbatim
+            }
         }
     }
 }

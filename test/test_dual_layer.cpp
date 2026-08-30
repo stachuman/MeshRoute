@@ -332,6 +332,29 @@ struct DualLayerTestAccess {
         pa.inner_len = 37;
         n.do_post_ack();
     }
+    // ★★ [[B266]] (2026-08-30, §CUSTODY-B): the ANSWER twin of `drive_post_ack_query` above. The ingest was
+    //    previously reached ONLY by calling `learned_layers_ingest` directly, so the `pa.type ==
+    //    DATA_TYPE_MOBILE_LAYER_ANSWER && _cfg.is_mobile` DISPATCH ARM (node_mac_rx.cpp) had zero coverage —
+    //    a register finding, closed here. Layout mirrors the query's: [origin][source_hash 4B LE][body].
+    static void     drive_post_ack_layer_answer(Node& n, uint8_t origin, uint32_t source_hash,
+                                                const uint8_t* body, uint8_t len) {
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=origin; pa.dst=n._node_id;
+        pa.ctr=0x1234; pa.ctr_lo=4; pa.flags=DATA_FLAG_SOURCE_HASH; pa.type=DATA_TYPE_MOBILE_LAYER_ANSWER;
+        pa.inner[0]=origin;
+        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
+        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        for (uint8_t i=0;i<len;++i) pa.inner[5+i]=body[i];
+        pa.inner_len=static_cast<uint8_t>(5+len);
+        n.do_post_ack();
+    }
+    // ★★ [[B266]]: the PRODUCER, which `grep mobile_layer_query_tx test/` answered with zero hits.
+    static void     fire_layer_query(Node& n) { n.mobile_layer_query_fire(); }
+    static void     add_bridged_layer(Node& n, uint8_t gw_id, uint8_t dest_leaf) {
+        for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)
+            if (!n._bridged_layers[i].valid) { n._bridged_layers[i].valid = true; n._bridged_layers[i].gw_id = gw_id;
+                                               n._bridged_layers[i].dest_leaf = dest_leaf; return; }
+    }
     static uint8_t  mobile_scan_idx(Node& n)      { return n._mobile_scan_idx; }              // §mobile 5a
     static void     set_mobile_scan_idx(Node& n, uint8_t i) { n._mobile_scan_idx = i; }       // §P2-1 L2: point the FSM at a learned candidate
     static void     add_learned_layer(Node& n, uint8_t layer_id, uint8_t sf) {                // §mobile 5a: inject a learned-directory entry
@@ -2204,9 +2227,12 @@ TEST_CASE("★ §xl-crypt-intent — a TYPED `-e` XL send REFUSES LOUD (unsealab
     CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);           // ★ NOT enqueued cleartext, NOT type-stripped
     CHECK(f.hal.count("xl_send_unsealable") == 1);
     CHECK(f.hal.count("tx_enqueue_xl") == 0);
+    // ⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B §6.2(5)): the type driven here is TEAM_KEY_GRANT (0xA2), which is
+    //    PROTOCOL-INTERNAL, so the generic `send_failed` push no longer fires. "REFUSES LOUD" is unchanged and is
+    //    now carried entirely by `xl_send_unsealable` + the 0-return above. The assertion INVERTS, not deleted.
     Push p{}; bool got = false;
-    while (x.next_push(p)) if (p.kind == PushKind::send_failed) { got = true; CHECK(p.reason == SendFailReason::unsealable); }
-    CHECK(got);
+    while (x.next_push(p)) if (p.kind == PushKind::send_failed) got = true;
+    CHECK_FALSE(got);
     // Control: the identical UNTYPED send IS built (sealed), so the refusal is type-specific, not a broken path.
     (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, body, sizeof body, CryptIntent::on, /*type=*/0);
     CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
@@ -7432,4 +7458,97 @@ TEST_CASE("§B159 expiry mapping — a matching seq gives up ONCE, loudly; a sup
     node.on_tx_complete(TxOutcome{ TxOutcomeKind::expired, BusyReason::none, TxResult::ok,
                                    /*tag=*/1, /*seq=*/live_gen, /*sf=*/7, /*busy_until_ms=*/0 });
     CHECK(hal.count("send_giveup") == giveup_before + 1);            // ★ STILL exactly one, never two
+}
+
+
+// =====================================================================================================
+// [[B266]] — THE THREE MISSING COVERAGE CASES, CLOSED BY §CUSTODY-B (2026-08-30)
+// ⛔ COVERAGE, NOT BEHAVIOUR: each case pins what the code does TODAY. The register's close-by condition was
+//    "whichever slice next touches the mobile/channel dispatch surface" — this slice puts a fail-closed guard at
+//    the end of exactly that if-chain, so the arms it now sits behind must be executable, not merely present.
+// =====================================================================================================
+
+TEST_CASE("[[B266]](a) the MOBILE_LAYER_ANSWER DISPATCH ARM, driven through the real receive path") {
+    StubHal hal; Node mob(hal, 20, 0x2020u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; cfg.is_mobile=true;
+    CHECK(mob.on_init(cfg));
+    uint8_t body[64]; body[0]=2; size_t off=1;
+    LayerRecord ra{}; ra.layer_id=5; ra.freq_khz=868100; ra.sf=9;  ra.bw_hz=125000;
+    LayerRecord rb{}; rb.layer_id=7; rb.freq_khz=915000; rb.sf=7;  rb.bw_hz=250000;
+    off += pack_layer_record(ra, std::span<uint8_t>(body+off, sizeof(body)-off));
+    off += pack_layer_record(rb, std::span<uint8_t>(body+off, sizeof(body)-off));
+    CHECK(DualLayerTestAccess::learned_layers_n(mob) == 0);
+    // ★ THE ARM ITSELF, not `learned_layers_ingest` called directly — that shortcut is what left this uncovered.
+    DualLayerTestAccess::drive_post_ack_layer_answer(mob, /*origin=*/30, /*source_hash=*/0xB0B1u,
+                                                     body, static_cast<uint8_t>(off));
+    CHECK(DualLayerTestAccess::learned_layers_n(mob) == 2);        // the directory really was ingested
+    CHECK_FALSE(hal.saw_emit("unsupported_internal"));             // a WIRED internal type never meets the guard
+    // ⛔ AND THE NEGATIVE CONTROL, which is also §CUSTODY-B's: the identical frame at a NON-mobile receiver has
+    //    no handler (the arm is `_cfg.is_mobile`-gated) and therefore FAILS CLOSED instead of being inboxed.
+    StubHal shal; Node stat(shal, 21, 0x2121u);
+    NodeConfig scfg; scfg.routing_sf=8; scfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); scfg.leaf_id=0;
+    CHECK(stat.on_init(scfg));
+    DualLayerTestAccess::drive_post_ack_layer_answer(stat, 30, 0xB0B1u, body, static_cast<uint8_t>(off));
+    CHECK(shal.saw_emit("unsupported_internal"));
+    CHECK(DualLayerTestAccess::learned_layers_n(stat) == 0);
+}
+
+TEST_CASE("[[B266]](b) the CHANNEL_POST home-side unwrap, driven with etype = DATA_TYPE_CHANNEL_POST") {
+    // The enclosed CHANNEL_POST marker rides a MOBILE_SEND wrapper's single enclosed-type slot; the home strips
+    // it and re-originates the post under its OWN origin/ctr. `drive_post_ack_mobile_send_typed` existed but no
+    // call site ever passed this etype — the register's finding, and the reason this arm was never executed.
+    XlDelegFixture f;
+    Node home(f.hal, /*id=*/2, f.idH.key_hash32);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0;
+    CHECK(home.on_init(cfg));
+    uint8_t ed[32]; for (int i=0;i<32;++i) ed[i]=static_cast<uint8_t>(i+3);
+    home.test_add_host_mobile(f.idM.key_hash32, /*local_id=*/9, ed);
+    f.hal.emits.clear();
+    const uint8_t post[] = { /*channel_id=*/0, 'h', 'i' };        // [channel_id u8][text]
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, f.idM.key_hash32, f.idM.key_hash32,
+                                                          /*ctr_M=*/0x0007, /*etype=*/DATA_TYPE_CHANNEL_POST,
+                                                          post, sizeof post);
+    // ⛔ PINS TODAY'S BEHAVIOUR, whatever it is: the arm RAN (the wrapper was consumed, not delivered as a DM)
+    //    and the fail-closed guard was not involved — CHANNEL_POST is APPLICATION-range (§6.4).
+    CHECK_FALSE(f.hal.saw_emit("unsupported_internal"));
+    Push pu{}; bool as_msg = false;
+    while (home.next_push(pu)) if (pu.kind == PushKind::msg_recv) as_msg = true;
+    CHECK_FALSE(as_msg);                                          // the wrapper is unwrapped, never inboxed as text
+}
+
+TEST_CASE("[[B266]](c) mobile_layer_query_fire is EXERCISED — the producer with zero prior call sites") {
+    StubHal hal; Node mob(hal, 20, 0x2020u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; cfg.is_mobile=true;
+    CHECK(mob.on_init(cfg));
+    mob.test_set_my_mobile_reg(/*home_id=*/2, /*local_id=*/9);
+    // No gateway known yet -> the producer must fire, emit NOTHING, and simply re-arm (the documented arm).
+    DualLayerTestAccess::fire_layer_query(mob);
+    CHECK_FALSE(hal.saw_emit("mobile_layer_query_tx"));
+    // Now a routable bridging gateway exists -> the query is originated.
+    DualLayerTestAccess::add_bridged_layer(mob, /*gw_id=*/3, /*dest_leaf=*/1);
+    mob.test_learn_route(/*dest=*/3, /*via=*/3, 1, 40, false);
+    mob.test_suspend_tx_drain(true);      // hold the frame in the queue — else become_free drains it into a flight
+    DualLayerTestAccess::fire_layer_query(mob);
+    CHECK(hal.saw_emit("mobile_layer_query_tx"));
+    CHECK(mob.test_tx_queue_n() >= 1);
+    CHECK(mob.test_tx_type(0) == DATA_TYPE_MOBILE_LAYER_QUERY);   // ...and it really is the typed query
+}
+
+// ★★★ [[B266]] — THE DEAD SCAFFOLDING IS **USED**, NOT DELETED, AND IT IS USED FOR EXACTLY WHAT IT WAS BUILT FOR.
+//     `DualLayerTestAccess::drive_post_ack_pubkey_push` has had ZERO call sites since type 0x94's handler was
+//     removed (A0 §3.6). It drives a `DATA_TYPE_MOBILE_PUBKEY_PUSH` frame through `do_post_ack` — which is
+//     precisely §CUSTODY-B's named case — so it becomes the WHITE-BOX twin of the guard's real-wire case in
+//     `test_custody_internal_b.cpp`. Two independent drivers, one verdict.
+TEST_CASE("[[B266]] the retired 0x94 scaffolding now drives §CUSTODY-B's fail-closed guard (white-box twin)") {
+    StubHal hal; Node n(hal, /*id=*/2, 0x2222u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0;
+    CHECK(n.on_init(cfg));
+    uint8_t ed[32]; for (int i=0;i<32;++i) ed[i]=static_cast<uint8_t>(0xC0+i);   // recognisable "key material"
+    hal.emits.clear();
+    DualLayerTestAccess::drive_post_ack_pubkey_push(n, /*source_hash=*/0xABCDEF01u, ed);
+    CHECK(hal.saw_emit("unsupported_internal"));      // dropped by the guard...
+    CHECK_FALSE(hal.saw_emit("delivered"));           // ...never the payload-carrying deliver emit
+    Push pu{}; bool as_msg = false;
+    while (n.next_push(pu)) if (pu.kind == PushKind::msg_recv) as_msg = true;
+    CHECK_FALSE(as_msg);                              // ⛔ and the 32 raw key bytes are NOT inbox text (A0-F10b)
 }

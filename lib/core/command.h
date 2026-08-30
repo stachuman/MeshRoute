@@ -262,9 +262,36 @@ enum class PushKind : uint8_t {
                           //   ★ APPENDED AT THE END, same contract rule as the two above. Both simulator asserts pin
                           //   `join_adopted == 13` and are UNAFFECTED (this enumerator is 16); ⛔ an INSERTION would
                           //   silently renumber an existing kind for every scenario, the companion and the sim bridge.
+    // ★★★★ §CUSTODY-B / [[B268]] (owner ruling 2026-08-30) — THE TEAM-KEY GRANT'S OWN TERMINAL OUTCOMES.
+    //   §6.2(5) takes the GENERIC user-send lifecycle away from every protocol-internal type, and
+    //   `DATA_TYPE_TEAM_KEY_GRANT` (0xA2) is internal. That is correct — but the grant was the ONE internal type
+    //   whose only asynchronous outcome WAS the generic pair, and §UI-16's grant panel drives
+    //   `GRANT QUEUED -> KEY SENT` off a correlated `send_aired`. Suppressing it silently stranded that screen.
+    // ⛔⛔ THE ALTERNATIVE WAS REJECTED BY THE OWNER, AND THE REASONING IS RECORDED HERE BECAUSE IT IS THE WHOLE
+    //   JUSTIFICATION FOR ADDING TWO ENUMERATORS RATHER THAN FLIPPING ONE BIT: setting
+    //   `generic_send_lifecycle = true` for 0xA2 is NOT honestly a one-line exception. That trait controls far
+    //   more than `send_aired` — it would ALSO re-apply the user-DM pacing floor to the grant, make it stamp
+    //   `_last_dm_origin_ms`, and re-permit generic `send_blocked`/`send_acked`/`send_failed`/`send_aired` — i.e.
+    //   it would contradict the common internal-type contract immediately after implementing it. Far too broad a
+    //   change to recover one UI transition. ⇒ the grant gets PROTOCOL-SPECIFIC outcomes, which is exactly what
+    //   §6.2(6) says an internal type keeps.
+    //   CORRELATION: the existing `{dst, ctr}` pair, unchanged — `dst` is the SEND-TIME resolved id and `ctr` the
+    //   grant's own counter, both already returned by `TeamKeyGrantTx`'s out-params. NO new `Push` field.
+    //   ⓘ `team_key_grant_failed` additionally carries the existing `reason` — for the PUSH/companion consumer
+    //     ONLY: ⛔ the OLED collapses every failure to `GRANT FAILED`. `aired` carries none (airing has no why).
+    //   ⛔ `send_acked` stays IRRELEVANT to this screen: physical airing is the established UI threshold for a
+    //     grant, not hop acknowledgement — a link ack is not delivery of a private key.
+    //   ⛔ Synchronous `TeamKeyGrantTx` refusals are UNCHANGED and remain the pre-admission answer; these two are
+    //     the POST-ADMISSION outcomes only.
+    //   ★ APPENDED AT THE END, same contract rule as the four above: the sim's twin asserts pin
+    //     `join_adopted == 13` and are UNAFFECTED (these are 17 and 18).
+    team_key_grant_aired,   // the grant frame PHYSICALLY LEFT THE RADIO (TxDone for THIS flight). dst/ctr = the grant's.
+    team_key_grant_failed,  // the grant's flight terminated after a successful queue admission. dst/ctr + `reason`.
 };
-// E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
-// reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
+// E2E §5: why a failure Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
+// reasons -> plain fail). Mirrors the contract `send_failed.reason`. ⓘ 2026-08-30 ([[B268]]): it now also carries
+// `team_key_grant_failed`'s reason — the grant's terminal outcome is its own kind, but the WHY vocabulary is
+// deliberately the SAME one (⛔ never a second spelling of these strings). `none` = a push that carries no reason.
 enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining,   // R6.2: joining = un-synced managed leaf
                                       cap, min_interval,   // Slice 6a: send_blocked reasons (per-origin cap / burst floor)
                                       no_cts, no_ack,      // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
@@ -311,7 +338,11 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
 enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1, phy_mismatch = 2, sf_list_mismatch = 3 };
 struct Push {
     PushKind kind = PushKind::msg_recv;
-    SendFailReason reason = SendFailReason::none;   // send_failed only (else none)
+    // ⛔ CORRECTED 2026-08-30 ([[B268]]): this read "send_failed only (else none)", which WAS true and is not
+    //    any more — `team_key_grant_failed` carries it too (the grant lost the generic family in §CUSTODY-B
+    //    and its own terminal kind took the reason with it). `send_blocked` also fills it. `none` on any
+    //    other kind.
+    SendFailReason reason = SendFailReason::none;   // send_failed / team_key_grant_failed / send_blocked (else none)
     JoinRefuseReason join_reason = JoinRefuseReason::wire_version;   // join_refused only
     uint8_t  origin = 0;
     uint8_t  dst = 0;

@@ -904,7 +904,10 @@ public:
     }
     void              test_mark_mobile_peer(uint8_t id) { _active->_mobile_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7)); }   // simulate an is_mobile beacon setting the SET-only bit
     bool              test_id_bind_set(uint8_t id, uint32_t key_hash32, bool authoritative) { return id_bind_set(id, key_hash32, IdBindSource::bcn, authoritative ? IdBindConf::authoritative : IdBindConf::claimed); }
-    void              test_defer_send(uint8_t dst, uint16_t ctr, uint8_t redrain_count) { TxItem it{}; it.dst = dst; it.ctr = ctr; it.redrain_count = redrain_count; defer_send(it); }   // drive the defer-loop giveup directly
+    // §CUSTODY-B: `type` APPENDED with a default, so every existing caller is byte-identical and the new cases can
+    // drive the SAME terminal arm with an internal carrier (the §6.2(5) suppression is a per-type verdict, so a
+    // seam that can only build type-0 items cannot reach the behaviour under test). U1 — extended, not forked.
+    void              test_defer_send(uint8_t dst, uint16_t ctr, uint8_t redrain_count, uint8_t type = 0) { TxItem it{}; it.dst = dst; it.ctr = ctr; it.redrain_count = redrain_count; it.type = type; defer_send(it); }   // drive the defer-loop giveup directly
     uint8_t           test_deferred_count() const { return _active->_deferred_n; }
     // §S3 part2 white-box: suspend the become_free tx-drain so an enqueued frame STAYS in the queue for a wire-golden read
     // (else the MAC immediately drains it into an RTS/CTS flight and the DATA never sits in the queue). Sets the same
@@ -2174,6 +2177,13 @@ private:
     // are REQUIRED, not defaulted: several callers legitimately mean 0 ("no addressable dst yet") and that must read
     // as a decision, not an omission. The reason is the CONTRACT string the app keys on (console_json.cpp
     // sendfailreason_name) — pass the site's own; this helper never invents one.
+    // ★★★ §CUSTODY-B / [[B268]] blocker-1 — THE ONE POST-ADMISSION TERMINAL OUTCOME (definition in node.cpp,
+    //     where the full contract is written). Every site where an ADMITTED carrier DIES calls this: it applies
+    //     the DATA-type trait once, and emits either the generic `send_failed` or the grant's own
+    //     `team_key_grant_failed`. ⛔ `generic_owed` is the CALLER'S site-specific answer, passed in and never
+    //     recomputed — that is what keeps [[B263]]'s application-transit behaviour byte-identical until Slice E.
+    void     terminal_carrier_outcome(uint8_t type, bool own_origination, bool generic_owed,
+                                      SendFailReason reason, uint8_t dst, uint16_t ctr);
     void     push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr);
     // §3-B.9: THE one wire_version join-refusal — the windowed Push+emit ritual shared by the BEACON pre-parse
     // version wall (node_beacon.cpp handle_beacon) and the P-plane roster wall (node_mobile.cpp §D16). Takes the

@@ -30,7 +30,8 @@
 //   N4 shows candidates and REJECTs them; N5 added the EXPLICIT `REQUEST PUBKEY` ceremony and the side-effect-free
 //   preflight that reaches either `NEED PUBKEY` or the grant-ready confirmation; ✅ **N6 (2026-08-24) LANDS THE
 //   GRANT ITSELF** — the one forward to `Node::team_key_grant_send` on `Plane::TEAM`, the EIGHT-arm outcome mapping
-//   and the `{dst, ctr}` `send_aired` correlation (the bottom block of this file).
+//   and the `{dst, ctr}` airing correlation (the bottom block of this file). ⓘ The push kind became the grant's
+//   own `team_key_grant_aired` in [[B268]]; the CORRELATION is unchanged.
 //   ⛔ WHAT IS STILL NOT HERE, by scope: the RECEIVING half. This node never learns that its grant was READ — there
 //   is no e2e ack on a DATA_TYPE_TEAM_KEY_GRANT — and the joiner's own durable `TEAM KEY RECEIVED` note is K3/K4's.
 #pragma once
@@ -116,7 +117,7 @@ struct IUiInviteDevice {
     //      `out_ctr` is the origination handle of the flight the core really created, and `out_dst` is the id it
     //      RESOLVED AT SEND TIME. ⛔ The screen may not substitute the id it froze when the row was selected:
     //      `Node::send_by_hash` re-resolves the hash against the CURRENT binding, so a team-DAD between the
-    //      selection and the press lands the grant on a DIFFERENT id — and a `send_aired` carrying that id would
+    //      selection and the press lands the grant on a DIFFERENT id — and an airing push carrying that id would
     //      never have matched, leaving the panel at `GRANT QUEUED` for ever (QG blocker 2, 2026-08-24).
     // ⓘ BOTH ARE ZERO UNLESS THE OUTCOME IS `queued`, by the core's own contract: no other outcome has a flight.
     virtual MESHROUTE_NS::Node::TeamKeyGrantTx grant(uint32_t key_hash32, MESHROUTE_NS::Plane plane,
@@ -496,8 +497,10 @@ inline const char* invite_confirm_label(bool grant) { return grant ? kInviteGran
 //      `ctr != 0` means the send was ADMITTED TO THE QUEUE; nothing has left the radio, and the operator standing
 //      in front of a candidate reading `KEY SENT` would be reading a claim about the air that no layer made. ⇒
 //        · `queued` ⇒ `GRANT QUEUED` (S-21) — admission, and the ONLY promotable state;
-//        · a CORRELATED `PushKind::send_aired{dst, ctr}` ⇒ `KEY SENT` (S-22) — the SX1262 TxDone edge for THIS
-//          flight (`lib/core/command.h`'s `send_aired`, `lib/core/node.cpp`'s `push_send_aired_if_owned`);
+//        · a CORRELATED `PushKind::team_key_grant_aired{dst, ctr}` ⇒ `KEY SENT` (S-22) — the SX1262 TxDone edge
+//          for THIS flight (`lib/core/node.cpp`'s `push_send_aired_if_owned`). ⛔ CORRECTED 2026-08-30: this named
+//          the GENERIC `send_aired`, which was true until §CUSTODY-B suppressed the generic family for every
+//          protocol-internal type — the grant is one, and [[B268]] gave it this kind of its own instead;
 //        · a CORRELATED failure ⇒ `GRANT FAILED` (S-23);
 //        · `parked` ⇒ stored behind an H resolve, in its own words (S-37, below).
 // ⛔⛔ **CORRECTED 2026-08-24 (§UI-16 N6b, QG-ruled) — AND THE WITHDRAWN HALF IS KEPT VISIBLE:** this block used to
@@ -529,9 +532,9 @@ enum class InviteGrantState : uint8_t {
     parked,        // S-37 `GRANT PARKED`  — ⛔ ONLY from the core's EXPLICITLY-STORED park (see `kInviteGrantParked`)
     queue_full,    // S-38 `GRANT QUEUE FULL` — the ADMISSION REFUSAL. No grant DATA was stored or will air; an
                    //   unresolved-target H lookup may still air. ⛔ No push will ever be about it.
-    sent,          // S-22 `KEY SENT`      — ⛔ ONLY from a CORRELATED `send_aired`
+    sent,          // S-22 `KEY SENT`      — ⛔ ONLY from a CORRELATED `team_key_grant_aired` ([[B268]]; was `send_aired`)
     failed,        // S-23 `GRANT FAILED`  — a CORRELATED in-flight failure, ★ or the core's own already-reported
-                   //   pre-admission `send_failed` (§UI-16 N6b: the same fact, arriving synchronously)
+                   //   pre-admission `TeamKeyGrantTx::send_failed` (§UI-16 N6b: the same fact, synchronously)
     no_team,       // S-24 `NOT IN A TEAM`
     no_key,        // S-24 `NO TEAM KEY`
     no_identity,   // S-24 `NO IDENTITY`
@@ -608,13 +611,16 @@ inline InviteGrantState invite_grant_state_of(MESHROUTE_NS::Node::TeamKeyGrantTx
     using TX = MESHROUTE_NS::Node::TeamKeyGrantTx;
     switch (tx) {
         // ★★★ THE HEADLINE (F-9): `queued` is ADMISSION — the core says the TxItem was really STORED. ⛔ It is not
-        //     `sent`: nothing has left the radio until a correlated `send_aired` says so.
+        //     `sent`: nothing has left the radio until a correlated `team_key_grant_aired` says so.
         case TX::queued:      return InviteGrantState::queued;
         // ★★★ THE THREE N6b ARMS — each one used to arrive here wearing `queued`'s clothes.
         case TX::parked:      return InviteGrantState::parked;       // S-37, and ⛔ ONLY from this explicit outcome
         case TX::queue_full:  return InviteGrantState::queue_full;   // S-38, and ⛔ never collapsed into `failed`
-        // ⓘ `send_failed` IS THE SAME FACT `GRANT FAILED` ALREADY NAMES, arriving synchronously instead of as a
-        //   push: the core reached no admission point and has ALREADY pushed `send_failed` for it (its enumerator
+        // ⓘ `TeamKeyGrantTx::send_failed` IS THE SAME FACT `GRANT FAILED` ALREADY NAMES, arriving synchronously
+        //   instead of as a push. ⛔ CORRECTED 2026-08-30 ([[B268]]): the second half of this note used to add
+        //   "and has ALREADY pushed `send_failed` for it" — that was TRUE and is now FALSE. A pre-admission
+        //   refusal pushes NOTHING for a grant (the generic family is suppressed for a protocol-internal type,
+        //   and the grant's own kinds are POST-admission only); the synchronous answer is the whole report (its enumerator
         //   in `lib/core/node.h` lists the paths). ⛔ It gets no new lexeme — one fact, one word (S-23).
         case TX::send_failed: return InviteGrantState::failed;
         case TX::no_team:     return InviteGrantState::no_team;
@@ -712,12 +718,25 @@ inline bool invite_grant_perform(IUiInviteDevice* dev, uint32_t key_hash32, Invi
 inline bool invite_grant_correlates(const InviteGrantResult& r, const MESHROUTE_NS::Push& pu) {
     return r.st == InviteGrantState::queued && r.ctr != 0 && pu.ctr == r.ctr && pu.dst == r.dst;
 }
-// The two push outcomes, and ⛔ only these two: `send_aired` promotes to `KEY SENT`, `send_failed` to `GRANT FAILED`.
+// The two push outcomes, and ⛔ only these two: airing promotes to `KEY SENT`, a terminal failure to `GRANT FAILED`.
 // ⓘ `send_acked` / `send_e2e_acked` are deliberately NOT here — see the no-e2e-ack note at the top of this block: a
 //   link ack is not delivery of a grant, and there is no end-to-end ack to receive.
+//
+// ★★★★ [[B268]] (owner ruling 2026-08-30) — THESE ARE NOW THE GRANT'S **OWN** PUSH KINDS, and the swap is the whole
+//   fix. §CUSTODY-B suppresses the GENERIC user-send lifecycle for every protocol-internal DATA type, and
+//   `DATA_TYPE_TEAM_KEY_GRANT` (0xA2) is internal — so the `send_aired` this function used to wait for can no
+//   longer be minted for a grant, and the panel would sit at `GRANT QUEUED` for ever.
+// ⛔⛔ THE REJECTED ALTERNATIVE, recorded because it is what makes two new enumerators the RIGHT answer: flipping
+//   `generic_send_lifecycle` to true for 0xA2 is not a one-line exception — that trait also governs the user-DM
+//   pacing floor, the `_last_dm_origin_ms` stamp and the whole generic push family, so it would have re-paced the
+//   grant behind user DMs and contradicted the common internal-type contract to recover one UI transition.
+// ⚠ AND THE REASON THIS WAS NOT CAUGHT BY THE SUITE: every UI case here FABRICATES its pushes. Those cases test
+//   the pure MODEL (correlation, monotonicity, terminal-state refusal) and are kept for that. The two
+//   PRODUCTION-SHAPED cases that drive a real node's TxDone / terminal give-up into these kinds live in
+//   `test/test_custody_internal_b.cpp` — a fabricated push cannot prove the core still MINTS one.
 inline bool invite_grant_apply_push(InviteGrantResult& r, const MESHROUTE_NS::Push& pu) {
-    const bool aired  = pu.kind == MESHROUTE_NS::PushKind::send_aired;
-    const bool failed = pu.kind == MESHROUTE_NS::PushKind::send_failed;
+    const bool aired  = pu.kind == MESHROUTE_NS::PushKind::team_key_grant_aired;
+    const bool failed = pu.kind == MESHROUTE_NS::PushKind::team_key_grant_failed;
     if (!aired && !failed) return false;
     if (!invite_grant_correlates(r, pu)) return false;
     r.st = aired ? InviteGrantState::sent : InviteGrantState::failed;

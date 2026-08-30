@@ -2506,8 +2506,13 @@ TEST_CASE("§T-K3 guard — enqueue_data REFUSES a non-CRYPTED TEAM_KEY_GRANT (n
     CHECK(n.test_tx_queue_n() == 0);                                  // nothing was enqueued
     const Ev* e = hal.last("team_key_grant_refused");
     CHECK(e != nullptr); if (e) CHECK(e->reason == "plaintext");
-    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
-    CHECK(pu.reason == SendFailReason::unsealable);
+    // ⛔⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B §6.2(5)), MOVEMENT STATED: this used to also require a generic
+    //    `send_failed{unsealable}` PUSH. TEAM_KEY_GRANT is PROTOCOL-INTERNAL (0xA2), so the generic user-send
+    //    lifecycle no longer fires for it. ★ THE REFUSAL IS STILL LOUD ON EVERY OTHER AXIS and that is what this
+    //    case actually guards: nothing enqueued, `team_key_grant_refused{plaintext}` emitted, and the caller's
+    //    own typed answer (`TeamKeyGrantTx`) carries the verdict synchronously. ⇒ the assertion INVERTS rather
+    //    than being deleted, so a regression that re-introduces the generic push is caught.
+    Push pu{}; CHECK_FALSE(find_push(drain_all(n), PushKind::send_failed, pu));
     // ...and the SAME send with CryptIntent::on is admitted, so the guard discriminates rather than blanket-refusing.
     CHECK(n.test_id_bind_set(7, idB.key_hash32, /*authoritative=*/true));
     CHECK(n.test_do_send_typed(7, body, sizeof body, CryptIntent::on, /*override_dst_hash=*/idB.key_hash32,
@@ -2530,8 +2535,7 @@ TEST_CASE("§T-K3 guard — enqueue_cross_layer REFUSES a TEAM_KEY_GRANT outrigh
     CHECK(n.test_tx_queue_n() == 0);
     const Ev* e = hal.last("team_key_grant_refused");
     CHECK(e != nullptr); if (e) CHECK(e->reason == "cross_layer");
-    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
-    CHECK(pu.reason == SendFailReason::unsealable);
+    Push pu{}; CHECK_FALSE(find_push(drain_all(n), PushKind::send_failed, pu));   // §CUSTODY-B §6.2(5) — see the sibling case above
     // Control: the identical XL send with type 0 IS built, so the refusal is type-specific, not a broken path.
     CHECK(n.test_enqueue_cross_layer_typed(3, idB.key_hash32, hops, 2, body, sizeof body, &ctr, /*type=*/0));
     CHECK(n.test_tx_queue_n() == 1);

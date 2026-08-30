@@ -2356,6 +2356,7 @@ static uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
         case PK::join_refused:   case PK::send_blocked:   case PK::channel_sent:   case PK::mobile_reg:
         case PK::team_reg:       case PK::join_adopted:   case PK::team_key_received:
         case PK::team_channel_no_key: case PK::send_aired:
+        case PK::team_key_grant_aired: case PK::team_key_grant_failed:   // §CUSTODY-B/[[B268]]
             return uint8_t(uint8_t(k) + 1u);
     }
     return 0;
@@ -2546,44 +2547,53 @@ MESHROUTE_NS::Push n6_push(MESHROUTE_NS::PushKind k, uint8_t dst, uint16_t ctr) 
 }
 }  // namespace
 
-TEST_CASE("ui16-route: the router offers send_aired to the invite verdict — and only a CORRELATED one lands") {
+// ⛔ RE-POINTED 2026-08-30 ([[B268]], ruling (b)): the grant carries its OWN kinds now — §CUSTODY-B suppresses the
+//    generic family for every protocol-internal type, and the team-key grant is one.
+TEST_CASE("ui16-route: the router routes team_key_grant_aired to the invite verdict — and only a CORRELATED one lands") {
     N6Fix f; UiSnapshot s = n6_snap();
     CHECK(f.to_verdict(s));
     CHECK(f.dev.grants == 1);
     CHECK(f.m.state().grant.st == InviteGrantState::queued);
     SendTracker emg, normal;
-    // ⛔ NEITHER UI SLOT IS ARMED, so the two offers above the invite arm cannot claim anything — which is what
-    //    makes this a measurement of the THIRD offer.
-    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 201, 4242), 7000)
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 201, 4242), 7000)
           == false);
     CHECK(f.m.state().grant.st == InviteGrantState::queued);      // wrong dst
-    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4243), 7000)
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 200, 4243), 7000)
           == false);
     CHECK(f.m.state().grant.st == InviteGrantState::queued);      // wrong ctr
     // ★★★ THE CORRELATED EDGE REACHES THE MODEL THROUGH THE ROUTER — this is the whole wiring.
-    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000)
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 200, 4242), 7000)
           == true);
     CHECK(f.m.state().grant.st == InviteGrantState::sent);
     CHECK(strcmp(invite_grant_word(f.m.state().grant.st), "KEY SENT") == 0);
     // ⛔ ...and a later failure for the same flight does not rewrite a verdict already read.
-    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_failed, 200, 4242), 7100)
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_failed, 200, 4242), 7100)
           == false);
     CHECK(f.m.state().grant.st == InviteGrantState::sent);
+    // ★★★★ AND THE GENERIC KIND NO LONGER TOUCHES THE GRANT AT ALL — the property [[B268]]'s fix BUYS. Before the
+    //      split, a generic `send_aired` at the grant's exact {dst, ctr} would have promoted the verdict; now the
+    //      two live in different kinds, so a same-handle alias is structurally impossible rather than merely
+    //      ordered-away. ⓘ This is the arm the OLD offer-order comment worried about, answered by construction.
+    N6Fix g; UiSnapshot gs = n6_snap();
+    CHECK(g.to_verdict(gs));
+    SendTracker e2, n2;
+    CHECK(ui_route_send_push(e2, n2, g.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000) == false);
+    CHECK(g.m.state().grant.st == InviteGrantState::queued);
 }
 
-TEST_CASE("ui16-route: the router offers send_failed too, and an ARMED UI slot still wins its own handle") {
+TEST_CASE("ui16-route: team_key_grant_failed reaches the verdict, and a UI slot's generic push stays its own") {
     {   N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal;
-        MESHROUTE_NS::Push fail = n6_push(MESHROUTE_NS::PushKind::send_failed, 200, 4242);
+        MESHROUTE_NS::Push fail = n6_push(MESHROUTE_NS::PushKind::team_key_grant_failed, 200, 4242);
         fail.reason = MESHROUTE_NS::SendFailReason::no_route;
         CHECK(ui_route_send_push(emg, normal, f.m, fail, 7000) == true);
         CHECK(f.m.state().grant.st == InviteGrantState::failed);
         CHECK(strcmp(invite_grant_word(f.m.state().grant.st), "GRANT FAILED") == 0);
     }
-    {   // ★★ THE OFFER ORDER, MEASURED: a UI DM slot holding the SAME handle claims the push FIRST and the grant
-        //    verdict is untouched — the invite arm is offered LAST precisely so a slot that submitted a handle
-        //    keeps it.
+    {   // ★★ THE SEPARATION, MEASURED FROM THE OTHER SIDE: a UI DM slot holding the SAME {dst, ctr} takes its own
+        //    GENERIC push, and the grant verdict is untouched. Before [[B268]]'s split this depended on the invite
+        //    arm being offered LAST; it is now a property of the KINDS, so it holds whatever the offer order is.
         N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
@@ -2593,6 +2603,20 @@ TEST_CASE("ui16-route: the router offers send_failed too, and an ARMED UI slot s
               == true);
         CHECK(f.m.dm_state() == DmState::aired_waiting);           // the SLOT took it...
         CHECK(f.m.state().grant.st == InviteGrantState::queued);   // ...and the verdict is untouched
+    }
+    {   // ★★★★ THE MIRROR, AND IT IS THE ONE [[B268]]'s SPLIT MAKES TESTABLE: a UI DM slot armed at the GRANT's
+        //    exact `{dst, ctr}` must NOT claim the grant's OWN kind. Before the split the two shared `send_aired`
+        //    and only the offer ORDER kept them apart; now the slot is never offered these kinds at all, so a
+        //    same-handle alias cannot promote the wrong flight. ⓘ This is the arm §18.2's U09 control attacks.
+        N6Fix f; UiSnapshot s = n6_snap();
+        CHECK(f.to_verdict(s));
+        SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fx, 6000);
+        CHECK(f.m.dm_state() == DmState::waiting_ack);              // the slot holds the SAME handle
+        CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 200, 4242), 7000)
+              == true);
+        CHECK(f.m.state().grant.st == InviteGrantState::sent);      // ★ the GRANT took it...
+        CHECK(f.m.dm_state() == DmState::waiting_ack);              // ...and the DM slot is UNTOUCHED
     }
 }
 

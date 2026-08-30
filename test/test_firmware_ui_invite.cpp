@@ -120,15 +120,23 @@ constexpr MESHROUTE_NS::Node::TeamKeyGrantTx kAllTx[11] = {
     MESHROUTE_NS::Node::TeamKeyGrantTx::parked,   MESHROUTE_NS::Node::TeamKeyGrantTx::queue_full,
     MESHROUTE_NS::Node::TeamKeyGrantTx::send_failed };
 
-// One `send_aired` / `send_failed` push, as `Node::push_send_aired_if_owned` and `push_send_failed` build them.
+// One grant-outcome push, as `Node::push_send_aired_if_owned` and `Node::giveup_flight` build them.
+// ⛔⛔ RE-POINTED 2026-08-30 ([[B268]], owner ruling (b)): these used to fabricate the GENERIC `send_aired` /
+//     `send_failed`. §CUSTODY-B suppresses the generic family for every protocol-internal DATA type and the
+//     team-key grant is one, so the core now mints `team_key_grant_aired` / `team_key_grant_failed` instead.
+// ⚠⚠ AND THESE FABRICATIONS ARE **MODEL** TESTS, STATED SO THE DISTINCTION IS NEVER LOST AGAIN: a fabricated push
+//     proves the correlation, the monotonicity and the terminal-state refusals — the pure state machine — and it
+//     is exactly why [[B268]] survived the whole suite, because it can never prove the CORE still MINTS one. The
+//     PRODUCTION-SHAPED cases that drive a real node's TxDone and a real terminal give-up into these kinds live in
+//     `test/test_custody_internal_b.cpp` (§CUSTODY-B/4a and /4b). Keep both; do not confuse one for the other.
 MESHROUTE_NS::Push aired_push(uint8_t dst, uint16_t ctr) {
     MESHROUTE_NS::Push pu{};
-    pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = dst; pu.ctr = ctr;
+    pu.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; pu.dst = dst; pu.ctr = ctr;
     return pu;
 }
 MESHROUTE_NS::Push failed_push(uint8_t dst, uint16_t ctr) {
     MESHROUTE_NS::Push pu{};
-    pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.dst = dst; pu.ctr = ctr;
+    pu.kind = MESHROUTE_NS::PushKind::team_key_grant_failed; pu.dst = dst; pu.ctr = ctr;
     pu.reason = MESHROUTE_NS::SendFailReason::no_route;
     return pu;
 }
@@ -1283,12 +1291,20 @@ TEST_CASE("ui16-grant-noroute: a send that reaches NO admission point says GRANT
     CHECK(strcmp(mrui::invite_grant_word(mrui::invite_grant_state_of(tx)), "GRANT QUEUED") != 0);
     // ⛔ AND NOTHING WAS SENT OR STORED — the refusal is a refusal on every axis.
     CHECK(f.node->test_tx_queue_n() == 0);
-    // ★ THE CORE REALLY REPORTED IT: a `send_failed` push is waiting, which is why the word is not an invention.
+    // ⛔⛔ RE-ANCHORED 2026-08-30 (§CUSTODY-B §6.2(5)), MOVEMENT STATED — AND READ THE NEXT PARAGRAPH BEFORE
+    //    TRUSTING THIS SCREEN. This assertion used to corroborate the word with a generic `send_failed` PUSH.
+    //    TEAM_KEY_GRANT is PROTOCOL-INTERNAL (0xA2), so that push is now suppressed. ★ THE SCREEN IS UNAFFECTED
+    //    ON THIS PATH: `GRANT FAILED` is derived SYNCHRONOUSLY from `TeamKeyGrantTx::send_failed` twelve lines
+    //    above (`invite_grant_state_of`), never from the push — which is why only the corroboration moved.
+    // ⛔⛔ THE **QUEUED -> KEY SENT** EDGE IS A DIFFERENT STORY AND IS AN OPEN BLOCKER ([[B268]]): it is driven by
+    //    a correlated `PushKind::send_aired`, which `push_send_aired_if_owned` now also suppresses for an
+    //    internal type. Every UI case that exercises it FABRICATES the push (`aired_push(...)`), so the native
+    //    suite is structurally blind to the regression. ⇒ registered, not silently accepted.
     bool pushed_fail = false;
     MESHROUTE_NS::Push pu{};
     while (f.node->next_push(pu))
         if (pu.kind == MESHROUTE_NS::PushKind::send_failed) pushed_fail = true;
-    CHECK(pushed_fail);
+    CHECK_FALSE(pushed_fail);
     // ...and the verdict carrier built from it is terminal: ⛔ no push may promote a grant that never flew.
     mrui::InviteGrantResult r{};
     CHECK(mrui::invite_grant_perform(&seam, f.B.key_hash32, r) == true);

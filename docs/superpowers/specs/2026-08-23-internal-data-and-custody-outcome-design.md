@@ -1009,6 +1009,22 @@ No custody codec, PushKind or terminal behavior belongs here.
 
 ### Slice B — common internal behavior
 
+> ✅ **SLICE B COMPLETE — QG PASS 2026-08-30 (S0 telemetry ruling · the base landing · the [[B268]] option-(b)
+> ruling and fix · the terminal-helper + isolation round · one comment micro-fix) — AND THE RE-ANCHOR RULED
+> AND LANDED** (the third full-table ruling): s18 keystone **`76a67335` / 269527 / 0** (`b7aeaeeb`
+> historical); 18 byte-identical · 16 push-only (§6.2.5) · 2 re-timed, the s15 reshuffle two-factor-ISOLATED
+> to the floor bypass alone and accepted as "the measured cost of removing an incorrect user-DM throttle from
+> protocol traffic". Landed: both floor lists on the trait (all 15 `E2E_ACK` sites verdict:
+> stay-explicit per §6.3) · generic lifecycle suppressed for internal (every protocol-specific event
+> preserved; §6.4 proven) · the fail-closed tail guard (predicate = "internal reached the tail", ruled
+> fixed-size non-amplifying `unsupported_internal{type,origin,dst,ctr}` bound, after all three forwarding
+> roles — closes [[B264]] runtime + the stray-`0x94` delivery) · **[[B268]]**: `team_key_grant_aired/_failed`
+> appended (option (b), (a) rejected — the trait governs more than send_aired) with
+> `Node::terminal_carrier_outcome` routing ALL ELEVEN post-admission carrier-death sites (three
+> previously-silent ones found; generic behavior byte-identical, the [[B263]] transit fence intact) ·
+> [[B266]] coverage folded in. Native 2376/100740/0; `sliceB*` 24 RED / 2 disclosed-unusable; boards +0 RAM
+> both. Metal: bench Part 50 (the real-IRQ `KEY SENT`/`GRANT FAILED` edges). [[B263]] remains Slice E's.
+
 - replace duplicated DM-floor exemption lists with the trait authority;
 - suppress generic user-send lifecycle events for all internal types;
 - preserve every protocol-specific event;

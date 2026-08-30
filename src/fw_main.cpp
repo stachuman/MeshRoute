@@ -1526,6 +1526,15 @@ static void mesh_service_once() {
             case meshroute::PushKind::send_aired:
                 mrcon.print(F("AIRED ctr="));    mrcon.print(pu.ctr);
                 mrcon.print(F(" dst="));         mrcon.println(pu.dst); break;
+            // ★ [[B268]] (§CUSTODY-B): the team-key grant's OWN outcomes. The generic pair is suppressed for a
+            // protocol-internal type, so without these two the operator's console would go silent on a `grantkey`
+            // after the synchronous answer — the same blindness the OLED panel had.
+            case meshroute::PushKind::team_key_grant_aired:
+                mrcon.print(F("GRANT AIRED ctr=")); mrcon.print(pu.ctr);
+                mrcon.print(F(" dst="));            mrcon.println(pu.dst); break;
+            case meshroute::PushKind::team_key_grant_failed:
+                mrcon.print(F("GRANT FAILED ctr=")); mrcon.print(pu.ctr);
+                mrcon.print(F(" dst="));             mrcon.println(pu.dst); break;
             case meshroute::PushKind::send_failed:
                 mrcon.print(F("FAILED ctr="));   mrcon.print(pu.ctr);
                 switch (pu.reason) {   // §mobile/§3-A.5: surface WHY so a fail-loud is actionable — render EVERY reason (was a bare "FAILED" for 6 of them)

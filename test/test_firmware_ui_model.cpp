@@ -7803,7 +7803,7 @@ TEST_CASE("ui16-grantpush: only a CORRELATED push promotes the verdict, and only
     CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
     auto aired = [](uint8_t dst, uint16_t ctr) {
         MESHROUTE_NS::Push pu{};
-        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = dst; pu.ctr = ctr; return pu;
+        pu.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; pu.dst = dst; pu.ctr = ctr; return pu;
     };
     // ⛔ BOTH TERMS: a different dst and a different ctr each leave `GRANT QUEUED` standing.
     CHECK(f.m.on_invite_grant_push(aired(201, 4242)) == false);
@@ -8088,11 +8088,11 @@ TEST_CASE("ui16-k7-b245: pin 2 — THE REPRO, END TO END: a member present BEFOR
     CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") != 0);   // F-9, from this entry too
     // ★★★ AND THE `{dst, ctr}` CORRELATION PROMOTES IT — the SAME rule, on the SAME carrier, reached the same way.
     MESHROUTE_NS::Push wrong{};
-    wrong.kind = MESHROUTE_NS::PushKind::send_aired; wrong.ctr = 909; wrong.dst = 42;
+    wrong.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; wrong.ctr = 909; wrong.dst = 42;
     CHECK(f.m.on_invite_grant_push(wrong) == false);
     CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
     MESHROUTE_NS::Push aired{};
-    aired.kind = MESHROUTE_NS::PushKind::send_aired; aired.ctr = 909; aired.dst = 41;
+    aired.kind = MESHROUTE_NS::PushKind::team_key_grant_aired; aired.ctr = 909; aired.dst = 41;
     CHECK(f.m.on_invite_grant_push(aired) == true);
     CHECK(f.m.state().grant.st == mrui::InviteGrantState::sent);
     CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") == 0);
@@ -8428,7 +8428,7 @@ TEST_CASE("b250-roster-push: only a matching authoritative cache arrival opens t
     CHECK(f.invite_dev.reads == reads);                              // wrong identity does not preflight
 
     MESHROUTE_NS::Push unusable = wrong;
-    unusable.kind = MESHROUTE_NS::PushKind::send_aired;
+    unusable.kind = MESHROUTE_NS::PushKind::team_key_grant_aired;
     unusable.sender_hash = s.member[1].key_hash32;
     f.m.on_invite_push(unusable);
     CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);

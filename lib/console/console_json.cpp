@@ -144,6 +144,8 @@ const char* pushkind_name(PushKind k) {
         case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed DATA_TYPE_TEAM_KEY_GRANT DM (already adopted)
         case PushKind::team_channel_no_key: return "team_channel_no_key";   // §chan-crypt CL2a: a CRYPTED team channel post arrived and we cannot read it (no key, or a stale one) -> the app prompts for a grant. Rate-limited node-side.
         case PushKind::send_aired:    return "send_aired";          // §T3: a locally-originated DM/channel post physically left the radio (TxDone). NOT an ack and NOT terminal — the send-level outcome still follows.
+        case PushKind::team_key_grant_aired:  return "team_key_grant_aired";    // §CUSTODY-B/[[B268]]: the grant's OWN airing outcome — the generic pair is suppressed for a protocol-internal type
+        case PushKind::team_key_grant_failed: return "team_key_grant_failed";   // §CUSTODY-B/[[B268]]: the grant's OWN terminal failure, carrying `reason`
     }
     return "unknown";
 }
@@ -388,6 +390,14 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"id\":");    j.u32(p.dst);         // the adopted node_id
         j.lit(",\"layer\":"); j.u32(p.layer_id);    // _cfg.leaf_id (the wire leaf nibble)
         j.lit(",\"epoch\":"); j.u32(p.ctr);         // _claim_epoch
+    } else if (p.kind == PushKind::team_key_grant_aired || p.kind == PushKind::team_key_grant_failed) {
+        // §CUSTODY-B/[[B268]]: the grant's PROTOCOL-SPECIFIC outcomes. Same {dst, ctr} correlation the generic
+        // pair carried, so an app already keying on those needs no new field; the FAILED kind adds the existing
+        // `reason` through the SHARED `sendfailreason_name` (⛔ never a second spelling of those strings).
+        j.lit(",\"dst\":"); j.u32(p.dst);
+        j.lit(",\"ctr\":"); j.u32(p.ctr);
+        if (p.kind == PushKind::team_key_grant_failed && p.reason != SendFailReason::none) {
+            j.lit(",\"reason\":\""); j.lit(sendfailreason_name(p.reason)); j.ch('"'); }
     } else if (p.kind == PushKind::send_aired) {   // ★ §T3: the attempt-level airing fact — dst + ctr, nothing else
         // ⛔ AN EXPLICIT BRANCH, NOT A FALLTHROUGH, AND THE DIFFERENCE IS THE WHOLE POINT. Without it `send_aired`
         //    lands in the final `else` below and happens to emit exactly `dst` + `ctr` — the right output for the
