@@ -557,54 +557,29 @@ TEST_CASE("§CUSTODY-E/5b repair_attempted is TRUE when the §P3 rediscovery rea
 }
 
 // =====================================================================================================
-// §CUSTODY-E/6 — THE STEP-7 SEAM IS INERT: NO CUSTODY TRAFFIC IN THIS SLICE (§17-E bullet 4)
+// §CUSTODY-E/6 — RETIRED IN PLACE BY §CUSTODY-F (2026-08-31). ⛔ NOT DELETED: the record of what Slice E
+//               guaranteed, and of the slice that legitimately ended it, is the point.
 // =====================================================================================================
-
-// ★★★ THE BEHAVIOURAL ARM. After a fully eligible transit terminal — the exact carrier Slice F WILL report on —
-//     the relay enqueues nothing, transmits nothing new and pushes nothing.
-TEST_CASE("§CUSTODY-E/6 the eligible transit terminal enqueues NO custody notice (nothing at all)") {
-    EChain c;
-    const uint8_t body[] = { 'x' };
-    CHECK(c.n1.test_do_send_typed(/*dst=*/3, body, sizeof body, CryptIntent::off, 0, 0) != 0);
-    e_hop(c, c.n1, c.h1, c.n2, c.h2);
-    drain(c.n2);
-    CHECK(run_to_cascade_terminal(c.n2, c.h2));
-
-    CHECK(c.n2.test_tx_queue_n() == 0);                   // ⛔ nothing was queued by the terminal
-    CHECK_FALSE(c.n2.has_pending_tx());                   // ⛔ and no new flight was installed
-    Push p{};
-    int pushes = 0; while (c.n2.next_push(p)) ++pushes;
-    CHECK(pushes == 0);                                   // ⛔ no app-facing anything, generic or otherwise
-    // ⛔ AND NO FRAME CARRYING THE RESERVED CUSTODY TYPE. The DATA TYPE byte sits at offset 8 when the APP flag
-    //    is set; scanning every DATA frame for the value is cheaper and stricter than parsing, and 0x81 is not
-    //    even allocated yet — so a single occurrence anywhere is the failure.
-    for (const auto& f : c.h2.tx_frames) {
-        if (f.label != "DATA") continue;
-        for (uint8_t b : f.bytes) CHECK(b != 0x81);
-    }
-}
-
-// ★★★ THE STRUCTURAL ARM, and it is not redundant with the case above: a notice built but dropped before the
-//     HAL would leave that one green. This one asserts the code to construct a `0x81` DOES NOT EXIST.
-// ⛔ NON-VACUOUS BY CONSTRUCTION: both files must open AND contain a known marker, so a wrong working directory
-//    fails loudly instead of finding nothing.
-TEST_CASE("§CUSTODY-E/6b grep-backed: no 0x81 / DATA_TYPE_CUSTODY_FAILURE construction exists in Slice E") {
-    const std::string codec   = read_repo_file("lib/core/frame_codec.h");
-    const std::string cascade = read_repo_file("lib/core/node_cascade.cpp");
-    CHECK_FALSE(codec.empty());                                       // the reader worked...
-    CHECK_FALSE(cascade.empty());
-    CHECK(codec.find("DATA_TYPE_E2E_ACK") != std::string::npos);      // ...and read the file it meant to
-    CHECK(cascade.find("cascade_terminal_giveup") != std::string::npos);
-
-    // ⛔ THE TYPE IS STILL UNALLOCATED: Slice F adds it (design §5.2 / §17-F).
-    CHECK(codec.find("DATA_TYPE_CUSTODY_FAILURE =") == std::string::npos);
-    CHECK(codec.find("DATA_TYPE_CUSTODY_FAILURE  ") == std::string::npos);
-    // ⛔ AND THE SELECTED TERMINAL ENQUEUES NOTHING: no origination helper is called anywhere in the cascade TU.
-    CHECK(cascade.find("enqueue_data")        == std::string::npos);
-    CHECK(cascade.find("do_send_typed")       == std::string::npos);
-    CHECK(cascade.find("custody_notice")      != std::string::npos);  // only as the NAMED insertion point's contract
-    CHECK(cascade.find("custody_notice_enqueue(") != std::string::npos);
-}
+//
+// ⛔⛔ WHAT STOOD HERE AND WHY IT IS GONE. Two cases asserted §17-E bullet 4 ("do not emit custody traffic
+//     yet") — a BEHAVIOURAL arm (an eligible transit terminal enqueues nothing, installs no flight, pushes
+//     nothing, and no frame byte is `0x81`) and a GREP-BACKED structural arm (`DATA_TYPE_CUSTODY_FAILURE =`
+//     does not exist in `frame_codec.h`; `enqueue_data` does not appear in `node_cascade.cpp`). **§CUSTODY-F
+//     is the slice those assertions named as their terminator, and it landed: 0x81 is allocated, the codec
+//     exists, and the selected transit terminal now originates exactly one notice.** Keeping either case
+//     would be asserting the absence of the feature the next slice shipped.
+//
+// ★ THEY ARE REPLACED, NOT DROPPED, AND THE REPLACEMENTS ARE STRICTLY STRONGER — `test/test_custody_relay_f.cpp`:
+//     · §CUSTODY-F/4  — the eligible transit terminal enqueues EXACTLY ONE 0x81, to the failed ORIGIN, on the
+//                       global plane, with the §9.2 record the failed carrier justifies (the positive form of
+//                       the behavioural arm: "nothing" became "exactly this");
+//     · §CUSTODY-F/5  — the ordering: snapshot -> reset -> become_free -> enqueue, with a queued flight B
+//                       becoming current BEFORE the notice is queued;
+//     · §CUSTODY-F/3x — the twelve-condition negative matrix: every INELIGIBLE terminal still enqueues nothing,
+//                       which is exactly §CUSTODY-E/6's claim, retained for every carrier shape but the one
+//                       Slice F was built to report on.
+// ⓘ THE THIRD CASE OF THIS GROUP SURVIVES UNCHANGED below (§CUSTODY-E/6c, the string-inference ban): §11's
+//   prohibition on deriving a wire enum from an event name is not slice-scoped and no later slice retires it.
 
 // ⛔ AND THE REASON-INFERENCE-BY-STRING IS GONE FOR GOOD (design §11: "string prefixes such as `rts_*` and
 //    `data_*` are not an authority for a wire enum"). The former `giveup_fail_reason` prefix matcher must not

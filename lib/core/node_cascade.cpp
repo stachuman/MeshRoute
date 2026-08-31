@@ -94,8 +94,14 @@ CustodyFailureReason Node::cascade_terminal_cause(uint8_t requeue_count, uint64_
 //   construction: a store to a static nothing reads emits no event and takes no branch. It is deliberately NOT
 //   per-node (the sim runs 36 nodes through one image) — "the last terminal context anywhere" is meaningless in a
 //   multi-node run and nothing reads it there; the native cases that DO read it drive exactly one node.
-// ⚠ SLICE F RETIRES THIS. Once a real 0x81 notice is enqueued the context is observable as traffic, and an
-//   out-of-band recorder that outlives its reason is how instruments rot.
+// ⚠⚠ CORRECTED 2026-08-31 BY §CUSTODY-F — THE PREDICTION WAS WRONG AND IT IS LEFT IN PLACE RATHER THAN DELETED.
+//   IT SAID: *"SLICE F RETIRES THIS. Once a real 0x81 notice is enqueued the context is observable as traffic,
+//   and an out-of-band recorder that outlives its reason is how instruments rot."* **F KEEPS IT, MEASURED:**
+//   only an §10.1-ELIGIBLE terminal becomes traffic, and the per-cause cases §18.4.7 requires are driven at
+//   LOCAL-ORIGINATION terminals (a node's own DM dying on its own cascade), which are ineligible by condition
+//   (2) and therefore emit nothing at all. For those — and for every ineligible transit terminal, which is the
+//   whole negative half of the eligibility matrix — this slot remains the ONLY observation of stage/cause.
+//   ⇒ the recorder still earns its place; it is the CAUSE authority's observation, not the notice's.
 namespace { TerminalCustodyContext g_last_terminal_custody_ctx{}; }
 void Node::custody_terminal_observe(const TerminalCustodyContext& c) { g_last_terminal_custody_ctx = c; }
 const TerminalCustodyContext& Node::test_last_terminal_custody_ctx() { return g_last_terminal_custody_ctx; }
@@ -202,27 +208,202 @@ void Node::cascade_terminal_giveup(const PendingTx& pt, CustodyRootStage stage,
     const uint8_t  dst = pt.dst;                    // BY VALUE, before the reset — see the banner
     const uint16_t ctr = pt.ctr;
     custody_terminal_observe(ctx);                  // native/simulator test observation; an inline no-op on device
+    // ★★★★ §CUSTODY-F STEP (1), COMPLETED: the BOUNDED VALUE snapshot is materialized HERE, while `pt` is still
+    //      the live carrier. ⛔ It MUST be built before `giveup_flight` below — that call resets `_pending_tx`,
+    //      after which `pt` dangles and every field this record needs is unrecoverable. The snapshot is 32 bytes
+    //      of VALUES (§9.2's 24-byte record + the eligibility answer); no reference into the carrier survives.
+    const CustodyNoticeSnapshot snap = custody_notice_snapshot(pt, ctx);
     // (2)(3)(4)(5)(6) — the existing terminal ritual, in its existing order.
     giveup_flight(custody_stage_fail_reason(stage), dst, ctr);
-    // ⛔ `pt` IS DANGLING FROM HERE. `dst`/`ctr`/`ctx` are values and remain valid.
+    // ⛔ `pt` IS DANGLING FROM HERE. `dst`/`ctr`/`ctx`/`snap` are values and remain valid.
     //
-    // ===================== §CUSTODY-F INSERTION POINT — `custody_notice_enqueue(snapshot)` =====================
-    // ⛔⛔ INTENTIONALLY EMPTY IN SLICE E (§17-E bullet 4: "do not emit custody traffic yet"). NOTHING is
-    //     constructed, enqueued or transmitted here, `DATA_TYPE_CUSTODY_FAILURE` (0x81) is still unallocated in
-    //     frame_codec.h, and a native negative case + a battery mutation both prove this line stays inert.
-    // THE CONTRACT SLICE F PLUGS IN HERE, so it is not re-derived from the spec later:
-    //   · F materializes a BOUNDED 24-byte VALUE snapshot (§9.2) from the live `pt` **above**, at step (1) —
-    //     ⛔ never here, where `pt` is already gone, and ⛔ never as a `PendingTx` copy;
-    //   · it consumes that snapshot HERE, AFTER `become_free()` has had its chance to install the next queued
-    //     flight (§11 step 7 + §12: the notice is queued after the failed flight is closed and must not preempt
-    //     the flight `become_free()` just installed);
-    //   · eligibility is §10.1's twelve conditions — `ctx.cause` satisfies (12), and `ctx.stage`/
-    //     `ctx.repair_attempted` fill §9.3's `failed_at_cts`/`failed_at_ack`/`repair_attempted` bits;
-    //   · the notice is a NEW own-origin internal DATA on `Plane::GLOBAL` — it never inherits this carrier's
-    //     counter, nonce seed, previous-hop exclusion, retry counters, flight generation or alternatives;
-    //   · a terminal failure of the NOTICE is telemetry-only: no generic user-send result, and no recursion.
+    // ===================== §CUSTODY-F STEP (7) — the custody notice, best-effort ================================
+    // ⛔⛔ THE POSITION IS THE CONTRACT, not a convenience. §11 step 7 + §12: the notice is queued AFTER the
+    //     failed flight is closed and AFTER `become_free()` (inside `giveup_flight`) has had its chance to
+    //     install the next queued flight — so it can never preempt the flight that just became current.
+    // ⛔ AN INELIGIBLE SNAPSHOT IS A NO-OP. Eligibility (§10.1's twelve conditions) was decided at step (1),
+    //    which is the only moment the evidence existed; nothing is re-derived here from a dead carrier.
+    custody_notice_enqueue(snap);
     // ==========================================================================================================
-    (void)ctx;   // Slice E: the context is built, observed and deliberately not consumed. Slice F reads it here.
+}
+
+// ★★★★ §CUSTODY-F — **§10.1's TWELVE ELIGIBILITY CONDITIONS AND §9.2's RECORD, IN ONE PASS OVER THE LIVE
+//      CARRIER.** Called at step (1) of `cascade_terminal_giveup`, above, and NOWHERE else.
+//
+// ⛔⛔ EVERY TERM IS NAMED, AND THAT IS DELIBERATE RATHER THAN DECORATIVE: §18.4.9 requires a negative matrix,
+//     and the battery requires ONE MUTATION PER INDEPENDENT TERM. A single fused boolean would make "which
+//     condition refused this carrier" unanswerable and every mutation indistinguishable from every other.
+//
+// ⛔ THE TWO CONDITIONS THAT ARE **NOT** BOOLEANS HERE, AND WHY (evidence, not a waiver):
+//   · §10.1(1) "a live `PendingTx` exists" — STRUCTURAL. This function's only argument is `const PendingTx&`,
+//     bound at the ONE call site from `*_active->_pending_tx` before any reset. There is no code path that can
+//     reach it without a live carrier, so the condition is enforced by the type system rather than tested at
+//     runtime. (The `sizeof(Node)`-style compiler control the arc has used four times.)
+//   · §10.1(12) "deletion occurs in one of the selected terminal cascade branches" — STRUCTURAL AND CHECKED.
+//     Structural because `cascade_terminal_giveup` is reached from exactly the three §9.4-representable
+//     branches (its own banner enumerates them and `grep cascade_terminal_giveup` is the proof); CHECKED
+//     because `custody_reason_is_transmittable(ctx.cause)` refuses the `invalid` sentinel — the value
+//     `cascade_terminal_cause` returns for "NOT terminal" — so a future caller cannot smuggle a non-terminal
+//     death in. Fail-closed, one line, and the only one of the twelve with two independent guarantees.
+//
+// ⛔ THE PLANE TERM IS **BOUND TO THE EXISTING AUTHORITY**, `Node::flight_is_team_plane` (node.h) — the SAME
+//    predicate `rt_find` dispatches on and `stamp_origin` stamps by. ⛔⛔ A `pt.plane != Plane::TEAM`-style
+//    re-derivation is FORBIDDEN and would be wrong in BOTH directions, which is exactly why the authority
+//    exists: `AUTO` resolving to a team peer IS a team flight (it must be INELIGIBLE) and `GLOBAL` to a dst
+//    that numerically collides a teammate's team-local id is NOT (it must stay ELIGIBLE). Both controls are
+//    native cases; a fourth copy of that expression is how the T8 class got in through the requeue door.
+//
+// ⛔ `dst_hash32` IS COPIED FROM THE PARSED INNER OR IT IS ZERO (§10.1's closing rule, verbatim: *"Do not invent
+//    or reconstruct a hash from a node ID"*). There is no `key_hash_of_id(pt.dst)` fallback here and there must
+//    never be one — that would put a LOCALLY-BELIEVED binding on the wire as if the failed frame had carried it.
+CustodyNoticeSnapshot Node::custody_notice_snapshot(const PendingTx& pt, const TerminalCustodyContext& ctx) const {
+    CustodyNoticeSnapshot snap{};                    // `eligible = false` until every term says otherwise
+
+    // ---- §10.1(2) TRANSIT. The relay ACKed custody FROM someone; an own origination reports through the
+    //      ordinary generic lifecycle and never through a custody notice. ★ This is ALSO half of §12's
+    //      recursion gate: a notice this node originates has `has_previous_hop == false`, so its own terminal
+    //      death can never generate a second notice.
+    const bool is_transit      = pt.has_previous_hop;
+    // ---- §10.1(3) A NORMAL DATA FLIGHT, not a channel M-broadcast and not a FLOOD.
+    const bool is_normal_data  = !pt.m_broadcast && !pt.flood;
+    // ---- §10.1(4) PLAINTEXT at the DATA-frame level. A CRYPTED carrier's inner is sealed to the RECIPIENT, so
+    //      this relay can neither parse it nor honestly describe it.
+    const bool is_plaintext    = (pt.flags & DATA_FLAG_CRYPTED) == 0;
+    // ---- §10.1(5) STATIC/GLOBAL SAME-LAYER after resolving the routing selector — the EXISTING authority.
+    const bool is_static_plane = !flight_is_team_plane(pt.plane, pt.dst);
+    // ---- §10.1(6) the four named exclusions, each its own term (they are four different flight shapes and a
+    //      fused test could not say which refused the carrier).
+    const bool not_gw_reinject = !pt.is_gw_relay;                        // a gateway's cross-layer re-inject
+    const bool not_cross_layer = (pt.flags & DATA_FLAG_CROSS_LAYER) == 0;// an XL carrier (layer path in the inner)
+    const bool not_mobile_last_mile = pt.addr_len == 0;                  // addr_len 1 = a hosted-mobile last mile
+    const bool not_mobile_delegation = !pt.mobile_src;                   // the originator is a mobile
+    // ---- §10.1(7) the STANDARD UNICAST INNER PARSES. Note this is the ONLY read of the carrier's payload, and
+    //      it reads identity fields only — ⛔ no body byte is retained (§18.4.12).
+    const std::optional<data_unicast_inner> ui =
+        is_plaintext ? parse_unicast_inner(std::span<const uint8_t>(pt.inner, pt.inner_len), pt.flags)
+                     : std::nullopt;
+    const bool inner_parses    = ui.has_value();
+    // ⛔ THE THREE PARSED VALUES ARE EXTRACTED **HERE**, THROUGH `ui ? … : default`, AND NOT DEREFERENCED AGAIN
+    //    BELOW. That is not style: reading `ui->…` later, guarded only by the separate `inner_parses` bool, is a
+    //    fact GCC cannot follow — it emitted two `-Wmaybe-uninitialized` warnings on every board env, and
+    //    warnings are gate-blocking here. Extracting at the one place the optional is in scope makes the guard
+    //    the COMPILER's rather than the reader's, and the record below then contains no optional access at all.
+    // ⓘ ONE `if (ui)` BLOCK, not three guarded ternaries: GCC follows the block and does NOT follow a separate
+    //   bool, so the ternary form still warned on every board env (measured twice while fixing this).
+    uint8_t  inner_origin   = 0;
+    uint32_t inner_dst_hash = 0;
+    if (ui) {
+        inner_origin = ui->origin;
+        // §9.3 bit 5 / §10.1's closing rule: PRESENT only when the failed frame's own inner carried a
+        // validated, nonzero hash. ⛔ There is deliberately no `key_hash_of_id(pt.dst)` fallback in this
+        // function — that would put a locally-BELIEVED id->hash binding on the wire as if the frame carried it.
+        if (ui->has_dst_hash) inner_dst_hash = ui->dst_key_hash32;
+    }
+    const bool inner_has_hash = inner_dst_hash != 0;
+    // ---- §10.1(8) the PARSED origin equals `PendingTx::origin`. A disagreement means the relay's carrier and
+    //      the frame it forwards describe different senders; reporting to either would be a guess.
+    const bool origin_agrees   = inner_parses && inner_origin == pt.origin;
+    // ---- §10.1(9) the four identity fields are valid STATIC node ids.
+    const bool ids_valid       = custody_node_id_valid(pt.origin) && custody_node_id_valid(pt.dst)
+                              && custody_node_id_valid(pt.previous_hop) && custody_node_id_valid(pt.next);
+    // ---- §10.1(10) a nonzero counter.
+    const bool ctr_nonzero     = pt.ctr != 0;
+    // ---- §10.1(11) ★★ THE NEVER-ABOUT-ITSELF AND NEVER-ABOUT-AN-ACK RULES — the OTHER half of §12's recursion
+    //      gate, and the half that covers a RELAYED notice: an 0x81 in transit through this node that dies here
+    //      must not spawn an 0x81 about an 0x81. The E2E-ACK exclusion is separate and equally hard: an ack is
+    //      already an end-to-end outcome, and a custody report about one would race the very fact it reports.
+    const bool type_reportable = pt.type != DATA_TYPE_CUSTODY_FAILURE && pt.type != DATA_TYPE_E2E_ACK;
+    // ---- §10.1(12) the terminal branch, fail-closed (see the banner).
+    const bool terminal_branch = custody_reason_is_transmittable(static_cast<uint8_t>(ctx.cause));
+
+    if (!(is_transit && is_normal_data && is_plaintext && is_static_plane
+          && not_gw_reinject && not_cross_layer && not_mobile_last_mile && not_mobile_delegation
+          && inner_parses && origin_agrees && ids_valid && ctr_nonzero
+          && type_reportable && terminal_branch))
+        return snap;                                 // ineligible — an empty, `eligible = false` value
+
+    // ---- §9.2's record, materialized from the LIVE carrier. Every field is a VALUE copy.
+    CustodyFailureRecord& r = snap.rec;
+    r.version           = custody_record_version_v1;
+    r.record_len        = custody_record_v1_len;
+    // §9.3: the stage half is DERIVED (`1u << stage`) from Slice E's enum, ⛔ never a second table; `invalid`
+    // is refused inside the helper and would yield a 0 byte that `pack_custody_failure` rejects.
+    r.notice_flags      = custody_notice_flags(ctx.stage, ctx.repair_attempted,
+                                               /*next_was_one_way=*/link_bidi_state(pt.next) == LinkBidi::one_way,
+                                               /*has_dst_hash=*/inner_has_hash);
+    r.terminal_reason   = ctx.cause;
+    r.failed_origin     = pt.origin;
+    r.failed_dst        = pt.dst;
+    r.failed_ctr        = pt.ctr;
+    r.failed_type       = pt.type;
+    r.failed_data_flags = pt.flags;
+    r.failed_plane      = CustodyFailurePlane::static_same_layer;   // §9.5: v1's only transmitted value
+    r.reporter_layer    = active_layer_id();
+    r.previous_hop      = pt.previous_hop;
+    r.failed_next_hop   = pt.next;
+    r.requeue_count     = pt.requeue_count;
+    r.alternatives_tried = pt.alts_tried_n;
+    r.committed_hops    = pt.fwd_committed;
+    r.remaining_hops    = pt.fwd_remaining;
+    // ⛔ COPIED, NEVER INVENTED (§10.1): the hash is present only because the FAILED FRAME carried a validated
+    //    one. When absent, zero — and the flag above is clear, which `pack_custody_failure` cross-checks.
+    r.dst_hash32        = inner_dst_hash;
+    r.reserved          = 0;
+    snap.eligible = true;
+    return snap;
+}
+
+// ★★★★ §CUSTODY-F — **§12's TRANSMISSION BEHAVIOR, AND IT IS ALMOST ENTIRELY A LIST OF THINGS THIS FUNCTION
+//      DOES NOT DO.** Step (7) of `cascade_terminal_giveup`; the failed carrier is already gone.
+//
+// ⛔⛔ ONE CARRIER-CONVERSION PATH (U2 / §12, verbatim: *"It must not construct a parallel `TxItem` field by
+//     field when an existing enqueue helper can preserve the carrier contract"*). This calls `enqueue_data` —
+//     the SAME standard typed-DATA origination choke point the E2E ack, the hash answers, the mobile answers
+//     and the team-key grant all use. ⛔ There is no `TxItem` in this function and there must never be one:
+//     a hand-rolled carrier is the S1/L9 field-drop class, and the field it would drop next is `plane`.
+//
+// ⛔ `Plane::GLOBAL` IS EXPLICIT AND `Plane::AUTO` IS FORBIDDEN (§9.1, verbatim): AUTO dispatches on
+//    `is_team_peer(dst)`, so a team-local id numerically colliding the failed origin would route a STATIC-plane
+//    diagnostic onto the TEAM plane. The eligibility gate has already established this carrier was static; the
+//    notice must be too, by construction rather than by luck.
+//
+// ⛔ WHAT §12 SAYS THE NOTICE NEVER HAS, and where each is established — ⛔ NOT re-implemented here:
+//   · no E2E ACK request — `flags = 0`, so `DATA_FLAG_E2E_ACK_REQ` is clear;
+//   · no user E2E deadline — `enqueue_data` arms one only under `app_dm && E2E_ACK_REQ`, and `app_dm` is false;
+//   · no CRYPTED — `CryptIntent::off` plus `app_dm = false`, so the seal block is not even entered;
+//   · no DST_HASH / SOURCE_HASH prefixing — both are `app_dm`-gated in `enqueue_data`;
+//   · no generic `send_blocked`/`send_acked`/`send_failed`/`send_aired` — Slice B's ONE trait authority
+//     (`data_type_traits(0x81).generic_send_lifecycle == false`) already suppresses the whole family at
+//     `enqueue_data`, `terminal_carrier_outcome` and `push_send_aired_if_owned`. VERIFIED, not duplicated;
+//   · exempt from the user-DM burst floor — Slice B's `internal` trait, consulted in `become_free`/`issue_send`;
+//   · ORDINARY duty, LBT, routing and hop retries — nothing here asks for an exemption, which is the point.
+//
+// ⛔⛔ THE RECURSION GATE (§12, last bullet): a terminal failure of THIS notice is telemetry-only. It is
+//     structural rather than a flag — the notice is an OWN origination, so `has_previous_hop == false` and
+//     §10.1(2) refuses it; and even a RELAYED 0x81 is refused by §10.1(11). ⇒ zero 0x81-about-0x81, corpus-wide.
+//
+// ⛔ BEST-EFFORT, WITH NO RESERVED SLOT (§12's tail): `enqueue_data` silently drops on a full queue and returns
+//    the minted counter anyway, so the counter is NOT the admission (the [[B251]]/N6b lesson). The admission is
+//    asked for explicitly through `SendDispatch` and reported as bounded telemetry either way.
+void Node::custody_notice_enqueue(const CustodyNoticeSnapshot& snap) {
+    if (!snap.eligible) return;                      // decided at step (1); nothing is re-derived here
+    uint8_t body[custody_record_v1_len];
+    const size_t n = pack_custody_failure(snap.rec, std::span<uint8_t>(body, sizeof body));
+    if (n != custody_record_v1_len) {                // C2 fail-loud: a malformed record is never aired
+        MR_EMIT("custody_notice_refused", EF_I("dst", snap.rec.failed_origin),
+                EF_I("ctr", snap.rec.failed_ctr), EF_S("reason", "pack"));
+        return;
+    }
+    SendDispatch dsp{};
+    (void)enqueue_data(snap.rec.failed_origin, body, static_cast<uint8_t>(n), /*flags=*/0,
+                       "custody_notice_tx", /*app_dm=*/false, DATA_TYPE_CUSTODY_FAILURE,
+                       CryptIntent::off, /*override_dst_hash=*/0, /*override_source_hash=*/0,
+                       /*addr_len=*/0, Plane::GLOBAL, &dsp);
+    // Bounded telemetry, scalars only — the §12 "emits only bounded local telemetry" clause. ⛔ No Push, no
+    // storage, and never the record body (the `unsupported_internal` field ruling, one plane over).
+    if (dsp.admit != SendDispatch::Admit::queued)
+        MR_EMIT("custody_notice_refused", EF_I("dst", snap.rec.failed_origin),
+                EF_I("ctr", snap.rec.failed_ctr), EF_S("reason", "queue_full"));
 }
 
 // ★★★ [[B159]] correction (2026-08-28) — THE GATEWAY GIVE-UP IS A REAL SENDER DEADLINE, NOT A TIMEOUT-ENTRY TEST.

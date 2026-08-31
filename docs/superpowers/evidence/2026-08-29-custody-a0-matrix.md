@@ -724,7 +724,8 @@ column can keep the pre-transition ordinals without satisfying the check. A stal
 | `DATA_TYPE_SEALED_RELAY` | `0x03` | 17 | application envelope | live |
 | `DATA_TYPE_CHANNEL_POST` | `0x04` | 18 | application marker | live (enclosed-only by convention, not enforced — A0-F4) |
 | `DATA_TYPE_APP_MESSAGE` | `0x05` | — | application envelope | **RESERVED, unimplemented** (no producer, no consumer; `known=false`) |
-| `DATA_TYPE_E2E_ACK` | `0x80` | 3 | internal outcome | live · the ONLY `persistent_outcome` at Slice A |
+| `DATA_TYPE_E2E_ACK` | `0x80` | 3 | internal outcome | live · the ONLY `persistent_outcome` at Slice A **and still at Slice F** |
+| `DATA_TYPE_CUSTODY_FAILURE` | `0x81` | — | internal outcome | ★ **ADDED BY §CUSTODY-F (2026-08-31)** — live producer (the selected transit cascade terminal); `known=true`, `internal=true`, ⛔ `persistent_outcome=false` until Slice G's storing consumer lands |
 | `DATA_TYPE_H_ANSWER` | `0x88` | 1 | internal | live · **zero corpus reach** ([[B267]]) |
 | `DATA_TYPE_AUTHORITATIVE_H_ANSWER` | `0x89` | 2 | internal | live |
 | `DATA_TYPE_H_ANSWER_PUBKEY` | `0x8A` | 4 | internal | **RESERVED, never emitted, no consumer** (`known=false`) |
@@ -740,11 +741,15 @@ column can keep the pre-transition ordinals without satisfying the check. A stal
 | `DATA_TYPE_REMOTE_RESP` | `0xA1` | 7 | internal | live (firmware-only; no corpus reach) |
 | `DATA_TYPE_TEAM_KEY_GRANT` | `0xA2` | 19 | internal | live · **zero corpus reach** ([[B267]]) |
 
+⛔ **REDEEMED 2026-08-31 (§CUSTODY-F):** the bullet that stood at the head of the list below read *"`0x81` — the
+forward reservation for `DATA_TYPE_CUSTODY_FAILURE`. ⛔ **Slice F adds the enum member**; at Slice A it is an
+ordinary UNALLOCATED internal value"*. Slice F is that slice; `0x81` moved into the table above and the bullet is
+recorded here rather than deleted, so the reservation → allocation step stays on the record. ⓘ The A0-4 receive
+probe that used `0x81` as "the unallocated internal value nearest the base" was RE-AIMED to `0x82` for the same
+reason (`test/test_data_type_audit_a0.cpp`).
+
 Not allocated, and deliberately so:
 
-- `0x81` — the forward reservation for `DATA_TYPE_CUSTODY_FAILURE`. ⛔ **Slice F adds the enum member**; at
-  Slice A it is an ordinary UNALLOCATED internal value (`known=false`, `persistent_outcome=false`), and the
-  namespace test pins it as such.
 - `0x06..0x7F` · `0x82..0x87` · `0x97..0x9F` · `0xA3..0xBF` — unallocated inside the two live ranges.
 - `0xC0..0xFD` reserved · `0xFE` the inbox-store tombstone (never a wire DataType) · `0xFF` invalid.
 

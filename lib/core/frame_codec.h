@@ -781,9 +781,13 @@ enum DataType : uint8_t {
 
     // ---- 0x80..0xBF — protocol-internal DATA ------------------------------------------------------------
     //   0x80.. core outcomes · 0x88.. hash/key discovery · 0x90.. mobility · 0xA0.. administration/security.
-    //   ⛔ 0x81 is DELIBERATELY ABSENT: it is the forward reservation for DATA_TYPE_CUSTODY_FAILURE, added by
-    //      the custody-codec slice (design §5.2/§17-F). Until then it is an UNALLOCATED internal value.
+    //   ★★ 0x81 IS NOW ALLOCATED — §CUSTODY-F (2026-08-31) LIFTED SLICE A's FENCE. The line that stood here
+    //      read *"0x81 is DELIBERATELY ABSENT: it is the forward reservation for DATA_TYPE_CUSTODY_FAILURE,
+    //      added by the custody-codec slice (design §5.2/§17-F)"* — this IS that slice, so the reservation is
+    //      redeemed rather than removed. The value never moved: 0x81 was pinned by A's namespace test as an
+    //      UNALLOCATED internal value, and it is the same number now that it has a producer.
     DATA_TYPE_E2E_ACK                       = 0x80,   // normal-unicast inner; body = the acked ctr (2 B LE)
+    DATA_TYPE_CUSTODY_FAILURE               = 0x81,   // §CUSTODY-F: a relay reports that IT could not complete onward custody transfer for a transit DATA it had already ACKed (design §8-§12). Standard plaintext unicast inner; BODY = the 24-B v1 custody record (`CustodyFailureRecord`, §9.2 — pack/parse below). Addressed to the FAILED DATA's original sender, `Plane::GLOBAL` explicit, fresh reporter counter, NO E2E_ACK_REQ, NO CRYPTED, no app deadline. ⛔ It is NOT a hop NACK and NOT proof the destination missed the DATA (§8) — the destination may have it, another path may have delivered a copy, and an E2E ack may still arrive. ⛔ NEVER generated about a `0x81` or a `DATA_TYPE_E2E_ACK` carrier, and a terminal failure of the notice ITSELF is telemetry-only (§12's recursion gate).
     DATA_TYPE_H_ANSWER                      = 0x88,   // canonical plaintext-unicast inner; body = hash-bind answer [target_layer][node_id][key_hash32 LE] (6 B)
     DATA_TYPE_AUTHORITATIVE_H_ANSWER        = 0x89,   // same canonical envelope/body; the answer is the owner's (authoritative)
     DATA_TYPE_H_ANSWER_PUBKEY               = 0x8A,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
@@ -846,8 +850,17 @@ constexpr bool data_type_is_application(uint8_t t) {
 //                             (§6.2(5)). Internal types may not; their protocol-specific results are
 //                             untouched (§6.2(6)).
 //   persistent_outcome      — is written to inbox storage as a durable internal OUTCOME record (§7.1).
-//                             ★ EXACT MEMBERSHIP AT SLICE A = { E2E_ACK }. CUSTODY_FAILURE joins it when the
-//                             custody-codec slice adds 0x81. ⛔ This trait is about INTERNAL outcome records
+//                             ★ EXACT MEMBERSHIP AT SLICE F = { E2E_ACK }, UNCHANGED FROM SLICE A.
+//                             ⛔⛔ CORRECTED IN PLACE 2026-08-31 BY §CUSTODY-F, because the sentence that stood
+//                             here — *"CUSTODY_FAILURE joins it when the custody-codec slice adds 0x81"* — is
+//                             now FALSE AT THE SLICE THAT WAS SUPPOSED TO MAKE IT TRUE. F adds 0x81 and its
+//                             PRODUCER; it adds no storing consumer at all (the receiver, the record-before-push
+//                             ordering and the durable write are Slice G's, §17-G). A trait that claimed a
+//                             durable write nothing performs would be a claim, not a description — the same
+//                             "a success that isn't" shape the arc has corrected twice. ⇒ **Slice G flips
+//                             `persistent_outcome` to true for 0x81 and closes the §18.2 endpoint**, and it is
+//                             the slice that makes the statement true.
+//                             ⛔ This trait is about INTERNAL outcome records
 //                             only — ordinary application-message inbox persistence is `record_dm`'s path and
 //                             is not this flag's subject.
 struct DataTypeTraits {
@@ -873,6 +886,16 @@ constexpr DataTypeTraits data_type_traits(uint8_t t) {
         // 0x80 — the one durable internal OUTCOME today.
         case DATA_TYPE_E2E_ACK:
             return DataTypeTraits{ true,  true,  false, false, true  };
+        // ★★★★ 0x81 — §CUSTODY-F. `known = true` (it now has a PRODUCER and §9's defined meaning; a reservation
+        //     is not knowledge, an allocated type with a generator is), `internal = true`, NOT application-
+        //     bearing, NO generic send lifecycle — and ⛔ `persistent_outcome = FALSE IN F`, deliberately.
+        //     See the trait's own note above: F writes nothing durable, so a `true` here would describe a store
+        //     that does not exist. ⇒ **SLICE G FLIPS THIS BIT** when the storing consumption lands (§7.1/§17-G).
+        //     ⓘ The consequence is exact and is what the §CUSTODY-C classification already handles: an 0x81
+        //     record is `internal`, so `inbox_record_is_internal` hides it from ordinary views the moment G
+        //     starts writing one — the visibility rule does not wait for this flag.
+        case DATA_TYPE_CUSTODY_FAILURE:
+            return DataTypeTraits{ true,  true,  false, false, false };
         // the KNOWN internal types with a live consumer. ⛔ 0x8A and 0x94 are NOT here (see below).
         case DATA_TYPE_H_ANSWER:
         case DATA_TYPE_AUTHORITATIVE_H_ANSWER:
@@ -892,8 +915,10 @@ constexpr DataTypeTraits data_type_traits(uint8_t t) {
     }
     // ⛔ EVERYTHING ELSE FALLS TO ITS RANGE, and that is the whole design: a value nobody has taught this
     //    authority about must behave like an unknown of its range, never like a neighbour that happens to
-    //    share a subrange. `APP_MESSAGE` (0x05), the reserved `0x8A`, the retired `0x94` and the forward-
-    //    reserved `0x81` all arrive here — each `known = false`, each taking its range's rule.
+    //    share a subrange. `APP_MESSAGE` (0x05), the reserved `0x8A` and the retired `0x94` arrive here — each
+    //    `known = false`, each taking its range's rule.
+    //    ⓘ CORRECTED 2026-08-31 (§CUSTODY-F): this list used to end *"and the forward-reserved `0x81`"*. It no
+    //      longer arrives here — 0x81 has an explicit case above now that it has a producer.
     if (data_type_is_application(t)) return DataTypeTraits{ false, false, true,  true,  false };
     if (data_type_is_internal(t))    return DataTypeTraits{ false, true,  false, false, false };
     // 0xC0..0xFD reserved · 0xFE the inbox-store tombstone (never a wire DataType) · 0xFF invalid.
@@ -913,9 +938,11 @@ constexpr DataTypeTraits data_type_traits(uint8_t t) {
 //    this header is the wire authority the codec will be written against. `node_carriers.h` documents itself as
 //    having no frame_codec dependency, so importing a wire enum into it would break that property for nothing.
 //
-// ⚠ NOTHING SERIALIZES THESE IN SLICE E. They are produced at the selected cascade terminals (node_cascade.cpp)
-//   and consumed by no wire path at all — §17-E bullet 4 ("do not emit custody traffic yet") is the whole point,
-//   and `DATA_TYPE_CUSTODY_FAILURE` (0x81) is still DELIBERATELY UNALLOCATED above.
+// ⚠⚠ WITHDRAWN 2026-08-31 BY §CUSTODY-F, NOT DELETED. IT READ: *"NOTHING SERIALIZES THESE IN SLICE E … and
+//   `DATA_TYPE_CUSTODY_FAILURE` (0x81) is still DELIBERATELY UNALLOCATED above."* **BOTH HALVES ARE NOW FALSE:**
+//   `pack_custody_failure` (below) serializes these two enums onto the wire, and 0x81 is an ALLOCATED member of
+//   `DataType` with a live producer. The sentence is kept in withdrawn form because the E→F handover is what it
+//   records; ⛔ do not re-add either claim.
 enum class CustodyFailureReason : uint8_t {
     invalid           = 0,   // never transmitted; also the "this terminal pass is NOT terminal" answer (see below)
     one_way_throttled = 1,   // the MF4 reprobe window refused another burst (node_cascade.cpp `cascade_to_alt`)
@@ -944,6 +971,154 @@ enum class CustodyRootStage : uint8_t {
     cts     = 1,   // §9.3 bit 1 `failed_at_cts`  — the flight was waiting for a CTS
     hop_ack = 2,   // §9.3 bit 2 `failed_at_ack`  — the flight was waiting for a hop ACK
 };
+
+// =====================================================================================================
+// ★★★★ §CUSTODY-F (2026-08-31) — THE v1 CUSTODY-FAILURE RECORD CODEC (design §9.2/§9.3/§9.5).
+//
+// ⛔⛔ THIS IS **THE ONE** PACK/PARSE PATH, AND ITS EXISTENCE IS THE CONTRACT §9.2 STATES:
+//     *"The record codec is one shared pack/parse path used by core receive handling, Push JSON, pulled-record
+//     JSON and native tests. Do not re-read byte offsets separately in those consumers."* Every future consumer
+//     asks these two functions; nobody indexes the body. A second offset table is how a 24-byte record ends up
+//     meaning two different things.
+//
+// ⛔ THE SLICE SPLIT IS RULED AND IT IS VISIBLE HERE (§17-F as corrected): **F DEFINES this API, USES `pack_…`
+//    for generation, and EXERCISES `parse_…` in native tests. Slice G wires `parse_…` into receive handling,
+//    Push JSON, pulled JSON and persistence.** ⇒ if you are looking for the caller of `parse_custody_failure`
+//    outside `test/`, there is deliberately none yet. That is not a dangling API; it is the half of the shared
+//    path that must exist BEFORE a consumer, so the consumer cannot invent its own.
+//
+// ⛔ AND THE ENUMS ARE **NOT REDEFINED HERE**: `CustodyFailureReason` / `CustodyRootStage` are Slice E's,
+//    immediately above, and this codec only SERIALIZES them (§17-F: "⛔ no second mapping"). A wire value
+//    invented twice is a wire value that disagrees with itself exactly once.
+//
+// ⓘ NO `wire_version` BUMP, AND THAT IS A DECISION RATHER THAN AN OMISSION (recorded because C4 requires it):
+//   a post-Slice-B receiver DROPS an unknown addressed internal type at the fail-closed tail guard with bounded
+//   `unsupported_internal` telemetry (node_mac_rx.cpp), so an 0x81 arriving at a node that has not yet learned
+//   it is SAFE, not misread; and pre-namespace fleets are already incompatible under the standing
+//   reflash-together ruling (protocol.md §2.4 / M3). The existing `wire_version == 1` control in
+//   `test/test_data_type_namespace.cpp` still fails on any bump.
+// =====================================================================================================
+
+inline constexpr uint8_t custody_record_version_v1 = 1;    // §9.2 offset 0
+inline constexpr uint8_t custody_record_v1_len     = 24;   // §9.2: the v1 FIXED PREFIX. `record_len` may exceed it.
+
+// §9.3 — `notice_flags`. Bit NUMBERS 1/2 are `CustodyRootStage`'s own values, which is why the stage half of the
+// byte is the DERIVATION `1u << stage` and not a second table (see `custody_notice_flags` below).
+enum CustodyNoticeFlag : uint8_t {
+    CUSTODY_FLAG_FORWARDED        = 0x01,   // bit 0 — MUST be 1 in v1
+    CUSTODY_FLAG_FAILED_AT_CTS    = 0x02,   // bit 1 — terminal root was waiting for CTS
+    CUSTODY_FLAG_FAILED_AT_ACK    = 0x04,   // bit 2 — terminal root was waiting for a hop ACK
+    CUSTODY_FLAG_REPAIR_ATTEMPTED = 0x08,   // bit 3 — this terminal pass INVOKED repair-request logic. ⛔ It does
+                                            //         NOT claim an RREQ was admitted or aired (§9.3, verbatim).
+    CUSTODY_FLAG_NEXT_WAS_ONE_WAY = 0x10,   // bit 4 — `failed_next_hop` was classified one-way
+    CUSTODY_FLAG_HAS_DST_HASH     = 0x20,   // bit 5 — `dst_hash32` is present and valid
+};
+inline constexpr uint8_t custody_flags_stage_mask    = CUSTODY_FLAG_FAILED_AT_CTS | CUSTODY_FLAG_FAILED_AT_ACK;
+inline constexpr uint8_t custody_flags_reserved_mask = 0xC0;   // §9.3: bits 6-7 are zero in v1
+
+// §9.5 — a NOTICE-SPECIFIC wire enum, ⛔ NOT a serialization of C++ `Plane`. `Plane::AUTO` is a ROUTING SELECTOR
+// and is not a diagnostic plane: a v1 carrier which RESOLVED to static/global records `static_same_layer`
+// whether its stored selector was `AUTO` or `GLOBAL` (§9.5, verbatim). v1 transmits value 0 and nothing else.
+enum class CustodyFailurePlane : uint8_t {
+    static_same_layer = 0,     // ★ THE ONLY VALUE TRANSMITTED BY v1
+    team              = 1,     // reserved; unsupported in v1
+    hosted_mobile     = 2,     // reserved; unsupported in v1
+    cross_layer       = 3,     // reserved; unsupported in v1
+    unknown           = 255,   // reserved; NEVER transmitted by v1
+};
+constexpr bool custody_plane_is_defined(uint8_t v) {
+    return v <= static_cast<uint8_t>(CustodyFailurePlane::cross_layer)
+        || v == static_cast<uint8_t>(CustodyFailurePlane::unknown);
+}
+// §9.4 — a wire reason value a v1 record may legitimately carry. ⛔ `invalid` (0) is NEVER transmitted.
+constexpr bool custody_reason_is_transmittable(uint8_t v) {
+    return v >= static_cast<uint8_t>(CustodyFailureReason::one_way_throttled)
+        && v <= static_cast<uint8_t>(CustodyFailureReason::load_shed);
+}
+// §10.1(9) — a valid STATIC node id. The four identity fields of a v1 record must all satisfy it (0 = the
+// unprovisioned id, 0xFF = reserved/broadcast — neither can be a custody party).
+constexpr bool custody_node_id_valid(uint8_t id) { return id >= 1 && id <= 254; }
+
+// §9.2's v1 body, as a VALUE. ⛔ It is NOT a memcpy image of the wire: `dst_hash32` forces 4-byte alignment, so
+// `sizeof` exceeds 24 on every target. The 24 is the WIRE length (`custody_record_v1_len`) and only the codec
+// below knows the offsets — which is exactly the property §9.2 asks for.
+struct CustodyFailureRecord {
+    uint8_t  version           = custody_record_version_v1;   // 0
+    uint8_t  record_len        = custody_record_v1_len;       // 1  — 24..available body length
+    uint8_t  notice_flags      = 0;                           // 2
+    CustodyFailureReason terminal_reason = CustodyFailureReason::invalid;   // 3
+    uint8_t  failed_origin     = 0;                           // 4  — the original DATA's origin (= the notice's dst)
+    uint8_t  failed_dst        = 0;                           // 5
+    uint16_t failed_ctr        = 0;                           // 6  — LITTLE-endian on the wire
+    uint8_t  failed_type       = 0;                           // 8  — the original DATA's type; 0 for an ordinary DM
+    uint8_t  failed_data_flags = 0;                           // 9  — header flags visible to this transit relay
+    CustodyFailurePlane failed_plane = CustodyFailurePlane::static_same_layer;   // 10
+    uint8_t  reporter_layer    = 0;                           // 11 — the relay's ACTIVE full layer id
+    uint8_t  previous_hop      = 0;                           // 12 — the upstream custody source
+    uint8_t  failed_next_hop   = 0;                           // 13 — the last attempted downstream hop
+    uint8_t  requeue_count     = 0;                           // 14
+    uint8_t  alternatives_tried = 0;                          // 15
+    uint8_t  committed_hops    = 0;                           // 16
+    uint8_t  remaining_hops    = 0;                           // 17
+    uint32_t dst_hash32        = 0;                           // 18 — LITTLE-endian; zero when absent/unavailable
+    uint16_t reserved          = 0;                           // 22 — transmit zero; must be zero for version 1
+};
+
+// §9.3's flags byte, DERIVED. ⛔⛔ THE SENTINEL IS REFUSED RATHER THAN SHIFTED, and that is the whole reason this
+//    is a function: `1u << static_cast<uint8_t>(CustodyRootStage::invalid)` is `1u << 0` = `CUSTODY_FLAG_FORWARDED`,
+//    so a naive derivation would turn "this context claims no stage" into "forwarded, and no stage bit" — a
+//    record that satisfies bit 0 twice and §9.3's exactly-one-stage rule never. It returns 0, which is an
+//    IMPOSSIBLE v1 flags byte (`forwarded` is mandatory), so `pack_custody_failure` refuses it. Two layers, both
+//    tested: E's seam guarantee that `invalid` never reaches here, and this fail-closed answer if it ever did.
+inline uint8_t custody_notice_flags(CustodyRootStage stage, bool repair_attempted,
+                                    bool next_was_one_way, bool has_dst_hash) {
+    if (stage == CustodyRootStage::invalid) return 0;                 // fail-closed; `pack_…` refuses a 0 byte
+    uint8_t f = static_cast<uint8_t>(CUSTODY_FLAG_FORWARDED | (1u << static_cast<uint8_t>(stage)));
+    if (repair_attempted) f |= CUSTODY_FLAG_REPAIR_ATTEMPTED;
+    if (next_was_one_way) f |= CUSTODY_FLAG_NEXT_WAS_ONE_WAY;
+    if (has_dst_hash)     f |= CUSTODY_FLAG_HAS_DST_HASH;
+    return f;
+}
+// §9.3's own invariant, named once so the packer, the parser and the tests cannot each spell it differently.
+constexpr bool custody_flags_exactly_one_stage(uint8_t flags) {
+    const uint8_t s = static_cast<uint8_t>(flags & custody_flags_stage_mask);
+    return s == CUSTODY_FLAG_FAILED_AT_CTS || s == CUSTODY_FLAG_FAILED_AT_ACK;
+}
+
+// Pack a v1 record. Returns `custody_record_v1_len` (24) on success, 0 on REFUSAL — and it refuses loudly (C2)
+// rather than emitting a record that violates §9.2/§9.3, because a malformed notice is worse than none: the
+// receiver would drop it anyway and the airtime would be spent. The refusals are exactly the invariants a v1
+// TRANSMITTER owns: version, the 24-byte floor, `forwarded`, exactly one stage bit, no reserved bits, a
+// transmittable reason, the four ids in 1..254, a nonzero ctr, the hash flag agreeing with the hash, and zeroed
+// reserved bytes. ⛔ `record_len` is written as 24 — a v1 transmitter appends no tail.
+size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> out);
+
+// Parse a v1 record out of a DATA body. `nullopt` = malformed at the CODEC level (§18.3.6's list): short body,
+// unknown version, `record_len` below 24 or beyond the body, reserved flag bits, a missing `forwarded`,
+// contradictory stage bits, an unknown/never-transmitted reason, an undefined plane value, an id outside
+// 1..254, a zero ctr, an inconsistent hash flag, or nonzero reserved bytes.
+// ★ TAIL ACCEPTANCE (§9.2): `record_len > 24` is VALID as long as it fits the body — a v1 reader INTERPRETS the
+//   first 24 bytes and the returned `record_len` tells a storing consumer how many bytes it must retain. Use
+//   `custody_record_tail()` to obtain those bytes; ⛔ never re-derive the offset.
+// ⛔ WHAT THIS DELIBERATELY DOES **NOT** CHECK, because it needs NODE CONTEXT this pure codec does not have —
+//   they are §13's receiver items and belong to Slice G, stated here so a reader does not mistake absence for
+//   an oversight (the mark-done-vs-missing rule):
+//     · §13.10 `failed_plane == static_same_layer` — v1 SUPPORT, not well-formedness; a reserved plane parses;
+//     · §13.11 `failed_origin` equals THIS node's static id;
+//     · §13.15 `reporter_layer` equals the active receiving full layer;
+//     · §13.14 `failed_type` is neither E2E ACK nor custody failure — a RECEIVER-side sanity rule on a field
+//       this codec only carries (the GENERATOR's side of it is §10.1(11), enforced at the eligibility gate);
+//     · §13.18 count/hop fields fitting their protocol domains.
+std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_t> body);
+
+// §9.2's unknown-version TAIL, as a span into the caller's body. Empty for a plain v1 record. ⛔ The ONE place
+// the tail's offset is written down; a storing consumer (Slice G) asks for it rather than slicing at 24.
+inline std::span<const uint8_t> custody_record_tail(std::span<const uint8_t> body,
+                                                    const CustodyFailureRecord& rec) {
+    if (rec.record_len <= custody_record_v1_len || body.size() < rec.record_len) return {};
+    return body.subspan(custody_record_v1_len,
+                        static_cast<size_t>(rec.record_len) - custody_record_v1_len);
+}
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).
 // Wire: [layer_id u8][freq_khz u32 LE][sf u8][bw_hz u32 LE][name_len u8][name … name_len]. freq_khz = MHz×1000.

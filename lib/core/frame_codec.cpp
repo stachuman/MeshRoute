@@ -1199,6 +1199,99 @@ std::optional<LayerRecord> parse_layer_record(std::span<const uint8_t> in, size_
     return o;
 }
 
+// ★★★★ §CUSTODY-F — THE v1 CUSTODY-FAILURE RECORD (design §9.2). THE OFFSETS LIVE HERE AND NOWHERE ELSE.
+// ⛔ The field ORDER below IS §9.2's table, read top to bottom; the `Writer`/`Reader` cursors make position
+//    implicit exactly as every other codec in this file does, so an inserted field shifts both directions at
+//    once and cannot desynchronize pack from parse. (`pack_layer_record` above is the same idiom.)
+size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> out) {
+    if (out.size() < custody_record_v1_len) return 0;
+    // ---- the v1 TRANSMITTER's invariants, refused loudly rather than aired malformed (C2). Each one is a
+    //      §9.2/§9.3 sentence; a receiver would drop the record anyway, so emitting it only spends airtime.
+    if (in.version != custody_record_version_v1)                     return 0;   // §9.2 offset 0
+    if (in.record_len != custody_record_v1_len)                      return 0;   // §9.2: v1 appends no tail
+    if (!(in.notice_flags & CUSTODY_FLAG_FORWARDED))                 return 0;   // §9.3 bit 0 is mandatory
+    if (!custody_flags_exactly_one_stage(in.notice_flags))           return 0;   // §9.3 exactly-one-stage
+    if (in.notice_flags & custody_flags_reserved_mask)               return 0;   // §9.3 bits 6-7 zero in v1
+    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return 0;   // §9.4 (never `invalid`)
+    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return 0;   // §9.5: v1 transmits ONLY this
+    if (!custody_node_id_valid(in.failed_origin) || !custody_node_id_valid(in.failed_dst)
+        || !custody_node_id_valid(in.previous_hop) || !custody_node_id_valid(in.failed_next_hop)) return 0;   // §10.1(9)
+    if (in.failed_ctr == 0)                                          return 0;   // §10.1(10)
+    // §9.3 bit 5 and §10.1's "do not invent or reconstruct a hash from a node ID": the flag and the value agree
+    // in BOTH directions, so neither a set flag over a zero hash nor a carried hash with the flag clear can air.
+    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return 0;
+    if (in.reserved != 0)                                            return 0;   // §9.2 offset 22: transmit zero
+    wire::Writer w(out);
+    w.u8(in.version);                                        // 0
+    w.u8(in.record_len);                                     // 1
+    w.u8(in.notice_flags);                                   // 2
+    w.u8(static_cast<uint8_t>(in.terminal_reason));          // 3
+    w.u8(in.failed_origin);                                  // 4
+    w.u8(in.failed_dst);                                     // 5
+    w.u16_le(in.failed_ctr);                                 // 6-7  (LE)
+    w.u8(in.failed_type);                                    // 8
+    w.u8(in.failed_data_flags);                              // 9
+    w.u8(static_cast<uint8_t>(in.failed_plane));             // 10
+    w.u8(in.reporter_layer);                                 // 11
+    w.u8(in.previous_hop);                                   // 12
+    w.u8(in.failed_next_hop);                                // 13
+    w.u8(in.requeue_count);                                  // 14
+    w.u8(in.alternatives_tried);                             // 15
+    w.u8(in.committed_hops);                                 // 16
+    w.u8(in.remaining_hops);                                 // 17
+    w.u32_le(in.dst_hash32);                                 // 18-21 (LE)
+    w.u16_le(in.reserved);                                   // 22-23
+    return (w.ok() && w.size() == custody_record_v1_len) ? w.size() : 0;
+}
+
+std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_t> body) {
+    if (body.size() < custody_record_v1_len) return std::nullopt;         // §13.3 body length floor
+    wire::Reader r(body);
+    CustodyFailureRecord o{};
+    o.version = r.u8();
+    if (o.version != custody_record_version_v1) return std::nullopt;      // §13.4
+    o.record_len = r.u8();
+    // §13.5 + §9.2's TAIL rule: >= 24 and <= the available body. A LONGER record is VALID — a later version
+    // appended a tail — and the surplus is retained by the caller through `custody_record_tail`.
+    if (o.record_len < custody_record_v1_len || o.record_len > body.size()) return std::nullopt;
+    o.notice_flags = r.u8();
+    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bits 6-7
+    if (!(o.notice_flags & CUSTODY_FLAG_FORWARDED))            return std::nullopt;   // §13.7
+    if (!custody_flags_exactly_one_stage(o.notice_flags))      return std::nullopt;   // §13.8
+    const uint8_t reason = r.u8();
+    if (!custody_reason_is_transmittable(reason))              return std::nullopt;   // §13.9 (known and nonzero)
+    o.terminal_reason = static_cast<CustodyFailureReason>(reason);
+    o.failed_origin = r.u8();
+    o.failed_dst    = r.u8();
+    o.failed_ctr    = r.u16_le();
+    o.failed_type   = r.u8();
+    o.failed_data_flags = r.u8();
+    const uint8_t plane = r.u8();
+    // ⛔ UNDEFINED plane values are malformed; the RESERVED ones (team/hosted_mobile/cross_layer/unknown) parse
+    //    and are refused one layer up by §13.10's v1-support rule, which is Slice G's. Well-formedness and
+    //    version support are two questions and this codec answers only the first.
+    if (!custody_plane_is_defined(plane))                      return std::nullopt;
+    o.failed_plane = static_cast<CustodyFailurePlane>(plane);
+    o.reporter_layer     = r.u8();
+    o.previous_hop       = r.u8();
+    o.failed_next_hop    = r.u8();
+    o.requeue_count      = r.u8();
+    o.alternatives_tried = r.u8();
+    o.committed_hops     = r.u8();
+    o.remaining_hops     = r.u8();
+    o.dst_hash32         = r.u32_le();
+    o.reserved           = r.u16_le();
+    if (!r.ok()) return std::nullopt;                                                 // over-read guard
+    if (!custody_node_id_valid(o.failed_origin) || !custody_node_id_valid(o.failed_dst)
+        || !custody_node_id_valid(o.previous_hop) || !custody_node_id_valid(o.failed_next_hop))
+        return std::nullopt;                                                          // §13.12
+    if (o.failed_ctr == 0)                                     return std::nullopt;   // §13.13
+    if (((o.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (o.dst_hash32 != 0))
+        return std::nullopt;                                                          // §13.16 both directions
+    if (o.reserved != 0)                                       return std::nullopt;   // §13.17
+    return o;
+}
+
 // Hash-bind PUBKEY answer inner (E2E §6, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 0x8B): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).
 size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out) {
     if (out.size() < 34) return 0;

@@ -374,6 +374,43 @@ TARGET_SRC = {
     #        the verdict stays correct — which is exactly the plausible wrong fix.
     "sliceEnode":   "lib/core/node.cpp",               # §CUSTODY-E — the central ownership gate ([[B263]])
     "sliceEcascade":"lib/core/node_cascade.cpp",       # §CUSTODY-E — cause authority, stage map, repair flag, step-7 seam
+    # ★★ ADDED 2026-08-31 BY **§CUSTODY-F** (the v1 custody codec + relay generation). THREE targets, because a
+    #    battery is per-SOURCE-FILE and the slice's decisions genuinely live in three files: the WIRE OFFSETS and
+    #    the transmitter/parser invariants (`frame_codec.cpp`); the DERIVATIONS and the trait row that sit in the
+    #    wire header (`frame_codec.h` — `custody_notice_flags`, the exactly-one-stage predicate, the v1 plane/
+    #    reason domains, 0x81's traits); and the TWELVE ELIGIBILITY TERMS, the snapshot lifetime and §12's
+    #    enqueue (`node_cascade.cpp`). Kept separate from `sliceEcascade`/`sliceBcascade`/`b159dl`/`a0codec` —
+    #    same files, different slices — so each can be re-proved independently.
+    # ⛔ FOUR MUTATIONS ARE **DELIBERATELY ABSENT AND EACH ABSENCE IS THE STRONGER OUTCOME**,
+    #    recorded here so neither ever reads as an omission (the §CUSTODY-D/E deliberate-absence idiom):
+    #      · "§10.1(1) A LIVE `PendingTx` IS NOT REQUIRED" — `custody_notice_snapshot` takes `const PendingTx&`.
+    #        There is no value of any argument that expresses "no carrier", and the ONE call site binds it from
+    #        `*_active->_pending_tx` BEFORE any reset. Expressing this defect requires changing the SIGNATURE,
+    #        i.e. it is a compile-time control, not a runtime one (the §CUSTODY-A enum-ordinal precedent and
+    #        §CUSTODY-C's `publish` entry, verbatim). ⓘ The ORDER half of the same condition IS expressible and
+    #        is F09 below — the snapshot taken after the reset.
+    #      · "A `TxItem` IS BUILT FIELD BY FIELD" — `node_cascade.cpp` contains no `TxItem` at all on the notice
+    #        path; the whole origination is one `enqueue_data(...)` call. A field-by-field mutant is not a
+    #        one-line substitution but ~12 new lines that must also reproduce `stamp_origin`, the inner packing
+    #        and the queue admission — i.e. it would be a different function, not a mutated one. ★ THE CLAIM IS
+    #        PINNED STRUCTURALLY INSTEAD, WITH EVIDENCE: F18 deletes the `enqueue_data` call outright (RED), and
+    #        `grep -c "TxItem" lib/core/node_cascade.cpp` counts ZERO occurrences inside
+    #        `custody_notice_enqueue` — the U2 property is "there is no second construction path", which an
+    #        absence proves better than a mutant of a thing that is not there.
+    #      · "§10.1(4) THE PLAINTEXT TERM IS DROPPED" and "§10.1(7) THE INNER-PARSE TERM IS DROPPED" — both were
+    #        WRITTEN, RUN, and MEASURED TO SURVIVE, and the reason is a real subsumption rather than a missing
+    #        test: under `DATA_FLAG_CRYPTED` the shared codec deliberately leaves `u.origin = 0`
+    #        (`frame_codec.cpp:1028-1033` — "a relay must NOT learn who originated a CRYPTED DM"), and an inner
+    #        that does not parse yields `inner_origin = 0` as well. `custody_node_id_valid(0)` is FALSE, so
+    #        §10.1(8)+(9) refuse both carriers whether or not (4) and (7) exist. ⇒ neither term is behaviourally
+    #        expressible TODAY. Both are KEPT in the source because §10.1 lists them and a codec change could
+    #        unmask either; recording the subsumption here — with the file:line that causes it — is stronger
+    #        than a mutant that reddens for a reason it does not name. ⓘ The sibling term §10.1(6b) had the SAME
+    #        masking and WAS rescued rather than waived: F33 now builds a genuine cross-layer inner through
+    #        `pack_unicast_inner`, so it parses, its origin agrees, and only the exclusion can refuse it.
+    "sliceFcodec":  "lib/core/frame_codec.cpp",        # §CUSTODY-F — the 24 wire offsets + the pack/parse invariants
+    "sliceFtypes":  "lib/core/frame_codec.h",          # §CUSTODY-F — flags derivation, stage rule, v1 domains, 0x81 traits
+    "sliceFcascade":"lib/core/node_cascade.cpp",       # §CUSTODY-F — the twelve eligibility terms, the snapshot, §12's enqueue
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
     # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
@@ -7766,6 +7803,252 @@ MUTS_SLICEECASCADE = [
   "      if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = notice; }"),
 ]
 
+
+# =========================================================================================================
+# §CUSTODY-F — the v1 custody codec and relay generation (spec §9 / §10 / §11 step 7 / §12, §18.3/§18.4).
+# ⛔ §18.4's bar plus the brief's rule: ONE MUTATION PER INDEPENDENT ELIGIBILITY TERM, or a NAMED structural
+#    proof for a term that cannot be mutated (both absences are recorded at the target table above).
+# =========================================================================================================
+
+MUTS_SLICEFCODEC = [
+ # ---- the wire offsets themselves ----------------------------------------------------------------------
+ ("F01 ★★★★ A CODEC OFFSET IS SHIFTED — `failed_type` and `failed_data_flags` swap places, so every field "
+  "from offset 8 on describes something else. The record still packs, still parses and still has 24 bytes: "
+  "only its MEANING is wrong, which is exactly what a golden byte vector exists to catch",
+  "    w.u8(in.failed_type);                                    // 8\n"
+  "    w.u8(in.failed_data_flags);                              // 9\n",
+  "    w.u8(in.failed_data_flags);                              // 8\n"
+  "    w.u8(in.failed_type);                                    // 9\n"),
+ ("F02 ★★★★ `failed_ctr` IS PACKED BIG-ENDIAN — §9.2 says little-endian, and a byte-swapped counter is the "
+  "one field the whole §15 user-send correlation is keyed on: every report would correlate to nothing",
+  "    w.u16_le(in.failed_ctr);                                 // 6-7  (LE)",
+  "    w.u16_be(in.failed_ctr);                                 // 6-7  (LE)"),
+ ("F03 ★★★★ `dst_hash32` IS PACKED BIG-ENDIAN — the same defect one field wider, and it is INVISIBLE to a "
+  "round-trip test that uses the same codec both ways: only the golden vector can see it",
+  "    w.u32_le(in.dst_hash32);                                 // 18-21 (LE)",
+  "    w.u32_be(in.dst_hash32);                                 // 18-21 (LE)"),
+ # ---- the transmitter invariants ------------------------------------------------------------------------
+ ("F04 ★★★★ THE EXACTLY-ONE-STAGE RULE IS DROPPED FROM THE PACKER — §9.3's core invariant becomes advisory, "
+  "so a record with BOTH stage bits, NEITHER, or the impossible all-zero flags byte the `invalid` sentinel "
+  "produces can be transmitted. This is the sentinel-laundering §CUSTODY-E/3d closed, re-opened one layer up",
+  "    if (!custody_flags_exactly_one_stage(in.notice_flags))           return 0;   // §9.3 exactly-one-stage\n",
+  ""),
+ ("F05 ★★★★ THE HASH/FLAG AGREEMENT IS DROPPED — §10.1's \"do not invent or reconstruct a hash from a node "
+  "ID\" loses its last structural guard: a record may now claim `has_dst_hash` over a zero hash, or carry a "
+  "hash with the flag clear, and a receiver believes whichever half it reads",
+  "    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return 0;\n",
+  ""),
+ ("F06 ★★★ THE PACKER ACCEPTS A RESERVED PLANE — §9.5 says v1 transmits `static_same_layer` ONLY, so a "
+  "`team`/`hosted_mobile`/`cross_layer` value would air as a v1 diagnostic the receiver must reject",
+  "    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return 0;   // §9.5: v1 transmits ONLY this\n",
+  ""),
+ ("F07 ★★★ THE PACKER ACCEPTS THE `invalid` REASON — §9.4's value 0 is \"never transmitted\", and it is also "
+  "`cascade_terminal_cause`'s NOT-TERMINAL answer, so this airs a custody report about a carrier that lived",
+  "    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return 0;   // §9.4 (never `invalid`)\n",
+  ""),
+ # ---- the parser --------------------------------------------------------------------------------------
+ ("F08 ★★★★ THE PARSER'S TAIL BOUND IS WIDENED TO `>=` NOTHING — `record_len` may exceed the body, so a "
+  "storing consumer asking for the tail is handed a length the buffer does not have. §9.2's tail rule is "
+  "precisely a LENGTH contract, and half of it is the upper bound",
+  "    if (o.record_len < custody_record_v1_len || o.record_len > body.size()) return std::nullopt;",
+  "    if (o.record_len < custody_record_v1_len) return std::nullopt;"),
+ ("F09 ★★★ THE PARSER STOPS REJECTING INVALID NODE IDS — `0` (unprovisioned) and `0xFF` (reserved) become "
+  "legal custody parties, so a malformed report identifies a node that cannot exist",
+  "    if (!custody_node_id_valid(o.failed_origin) || !custody_node_id_valid(o.failed_dst)\n"
+  "        || !custody_node_id_valid(o.previous_hop) || !custody_node_id_valid(o.failed_next_hop))\n"
+  "        return std::nullopt;                                                          // §13.12\n",
+  ""),
+ ("F10 ★★★ THE PARSER IGNORES THE RESERVED BYTES — §9.2 says they must be zero for version 1, which is the "
+  "ONLY thing that stops a future version's tail-in-the-prefix from being read as a v1 record",
+  "    if (o.reserved != 0)                                       return std::nullopt;   // §13.17\n",
+  ""),
+]
+
+MUTS_SLICEFTYPES = [
+ # ---- §9.3's derivation and its fail-closed sentinel -----------------------------------------------------
+ ("F11 ★★★★ THE STAGE BIT IS DERIVED WITHOUT REFUSING THE SENTINEL — `1u << CustodyRootStage::invalid` is "
+  "`1u << 0` = CUSTODY_FLAG_FORWARDED, so a stage-less context produces a flags byte that sets bit 0 twice "
+  "and NO stage bit at all: §9.3's exactly-one rule satisfied by a lie. This is [[B134]]'s `has_key` and "
+  "Slice A's `known = false` laundering, in the wire layer",
+  "    if (stage == CustodyRootStage::invalid) return 0;                 // fail-closed; `pack_…` refuses a 0 byte\n",
+  ""),
+ ("F12 ★★★★ THE STAGE BITS ARE HARD-CODED INSTEAD OF DERIVED — a SECOND mapping appears beside Slice E's "
+  "enum (§17-F's explicit prohibition), and it is written the plausible wrong way round, so every notice "
+  "reports the exchange it did NOT die waiting for",
+  "    uint8_t f = static_cast<uint8_t>(CUSTODY_FLAG_FORWARDED | (1u << static_cast<uint8_t>(stage)));",
+  "    uint8_t f = static_cast<uint8_t>(CUSTODY_FLAG_FORWARDED |\n"
+  "                (stage == CustodyRootStage::cts ? CUSTODY_FLAG_FAILED_AT_ACK : CUSTODY_FLAG_FAILED_AT_CTS));"),
+ ("F13 ★★★★ THE EXACTLY-ONE-STAGE PREDICATE BECOMES \"AT LEAST ONE\" — the tempting one-liner, and it admits "
+  "a record claiming the flight died waiting for BOTH a CTS and a hop ACK",
+  "    return s == CUSTODY_FLAG_FAILED_AT_CTS || s == CUSTODY_FLAG_FAILED_AT_ACK;",
+  "    return s != 0;"),
+ ("F14 ★★★ THE v1 REASON DOMAIN ADMITS `invalid` — `custody_reason_is_transmittable(0)` becomes true, so "
+  "§9.4's never-transmitted sentinel becomes a wire value AND §10.1(12)'s terminal-branch guard (which is "
+  "this same predicate) stops refusing a carrier that was never terminal",
+  "    return v >= static_cast<uint8_t>(CustodyFailureReason::one_way_throttled)\n"
+  "        && v <= static_cast<uint8_t>(CustodyFailureReason::load_shed);",
+  "    return v <= static_cast<uint8_t>(CustodyFailureReason::load_shed);"),
+ ("F15 ★★★ THE NODE-ID DOMAIN IS WIDENED TO THE WHOLE BYTE — `0` (unprovisioned) and `0xFF` (reserved) "
+  "become valid custody parties at BOTH the generator's §10.1(9) gate and the parser's §13.12 check, since "
+  "they share this one predicate",
+  "constexpr bool custody_node_id_valid(uint8_t id) { return id >= 1 && id <= 254; }",
+  "constexpr bool custody_node_id_valid(uint8_t) { return true; }"),
+ ("F16 ★★★★ 0x81 IS GIVEN THE GENERIC USER-SEND LIFECYCLE — the custody notice starts pushing "
+  "`send_failed`/`send_aired` under ITS `{dst, ctr}` into the app ring: [[B59]]'s exact defect, re-created by "
+  "the very frame that was built to report it",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, false, false };",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, true,  false };"),
+ ("F17 ★★★ 0x81 IS MARKED `persistent_outcome` IN SLICE F — the trait claims a durable inbox record that NO "
+  "code writes until Slice G, which is the \"a success that isn't\" shape this arc has corrected twice",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, false, false };",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, false, true  };"),
+]
+
+MUTS_SLICEFCASCADE = [
+ # ---- §12: the enqueue itself ---------------------------------------------------------------------------
+ ("F18 ★★★★ THE ORIGINATION IS DELETED — the eligible transit terminal goes back to reporting nothing, which "
+  "is [[B59]] exactly as it was found on metal. ★ THIS ARM IS ALSO THE U2 STRUCTURAL PIN: the whole notice "
+  "path is ONE `enqueue_data` call, so there is no second, field-by-field `TxItem` construction to mutate",
+  "    (void)enqueue_data(snap.rec.failed_origin, body, static_cast<uint8_t>(n), /*flags=*/0,\n"
+  "                       \"custody_notice_tx\", /*app_dm=*/false, DATA_TYPE_CUSTODY_FAILURE,\n"
+  "                       CryptIntent::off, /*override_dst_hash=*/0, /*override_source_hash=*/0,\n"
+  "                       /*addr_len=*/0, Plane::GLOBAL, &dsp);",
+  "    (void)dsp; (void)body; (void)n;"),
+ ("F19 ★★★★ THE PLANE IS SENT AS `AUTO` — §9.1 forbids it in one sentence, and the reason is a live routing "
+  "defect: AUTO dispatches on `is_team_peer(dst)`, so a failed origin whose id collides a teammate's "
+  "team-local id would route a STATIC-plane diagnostic onto the TEAM plane",
+  "                       /*addr_len=*/0, Plane::GLOBAL, &dsp);",
+  "                       /*addr_len=*/0, Plane::AUTO, &dsp);"),
+ ("F20 ★★★★ THE NOTICE IS ADDRESSED TO THE FAILED DESTINATION INSTEAD OF THE ORIGIN — §9.1 says the report "
+  "goes back to the original SENDER. Sent onward instead, it is delivered to the node that never received "
+  "the DATA, by the relay that could not reach it",
+  "    (void)enqueue_data(snap.rec.failed_origin, body, static_cast<uint8_t>(n), /*flags=*/0,",
+  "    (void)enqueue_data(snap.rec.failed_dst, body, static_cast<uint8_t>(n), /*flags=*/0,"),
+ ("F21 ★★★ THE NOTICE REQUESTS AN E2E ACK — §12 forbids it outright: a best-effort diagnostic would acquire "
+  "an end-to-end retry contract, and its ack would itself be custody-bearing traffic",
+  "    (void)enqueue_data(snap.rec.failed_origin, body, static_cast<uint8_t>(n), /*flags=*/0,",
+  "    (void)enqueue_data(snap.rec.failed_origin, body, static_cast<uint8_t>(n), DATA_FLAG_E2E_ACK_REQ,"),
+ ("F22 ★★★ THE PACK REFUSAL IS SILENT — a malformed record is dropped with no telemetry at all, so the ONE "
+  "signal that a notice was owed and not sent disappears (C2's fail-loud, inverted)",
+  "    if (n != custody_record_v1_len) {                // C2 fail-loud: a malformed record is never aired\n"
+  "        MR_EMIT(\"custody_notice_refused\", EF_I(\"dst\", snap.rec.failed_origin),\n"
+  "                EF_I(\"ctr\", snap.rec.failed_ctr), EF_S(\"reason\", \"pack\"));\n"
+  "        return;\n"
+  "    }",
+  "    if (n != custody_record_v1_len) return;"),
+ # ---- §11 step 7: the snapshot lifetime -----------------------------------------------------------------
+ ("F23 ★★★★ THE SNAPSHOT IS TAKEN **AFTER** THE RESET — §11's order inverted. `pt` is dangling by then, so "
+  "the record is built from freed memory: the exact use-after-free §11 spends a paragraph forbidding, and "
+  "the reason the two halves of step 7 are two functions",
+  "    const CustodyNoticeSnapshot snap = custody_notice_snapshot(pt, ctx);\n"
+  "    // (2)(3)(4)(5)(6) — the existing terminal ritual, in its existing order.\n"
+  "    giveup_flight(custody_stage_fail_reason(stage), dst, ctr);",
+  "    // (2)(3)(4)(5)(6) — the existing terminal ritual, in its existing order.\n"
+  "    giveup_flight(custody_stage_fail_reason(stage), dst, ctr);\n"
+  "    const CustodyNoticeSnapshot snap = custody_notice_snapshot(pt, ctx);"),
+ ("F24 ★★★★ THE NOTICE IS ENQUEUED **BEFORE** THE FAILED FLIGHT IS CLOSED — §11 step 7 and §12's first two "
+  "bullets both inverted at once: the notice is queued while the dead carrier is still current, so it can "
+  "PREEMPT the flight `become_free()` was about to install",
+  "    giveup_flight(custody_stage_fail_reason(stage), dst, ctr);",
+  "    custody_notice_enqueue(custody_notice_snapshot(pt, ctx));\n"
+  "    giveup_flight(custody_stage_fail_reason(stage), dst, ctr);"),
+ # ---- §10.1: ONE ARM PER INDEPENDENT ELIGIBILITY TERM ---------------------------------------------------
+ ("F25 ★★★★ §10.1(2) THE TRANSIT TERM IS DROPPED — this node's OWN dying originations start reporting "
+  "themselves to themselves, and ★ IT ALSO REMOVES HALF THE RECURSION GATE: a custody notice is an own "
+  "origination, so its own terminal death would generate another notice, without bound",
+  "    const bool is_transit      = pt.has_previous_hop;",
+  "    const bool is_transit      = true;"),
+ ("F26 ★★★★ §10.1(11) THE TYPE RULE IS DROPPED — THE OTHER HALF OF THE RECURSION GATE, and the half that "
+  "covers a RELAYED notice: an 0x81 in transit through this node now spawns an 0x81 ABOUT an 0x81, and a "
+  "relayed E2E ACK earns a custody report that races the very delivery it reports",
+  "    const bool type_reportable = pt.type != DATA_TYPE_CUSTODY_FAILURE && pt.type != DATA_TYPE_E2E_ACK;",
+  "    const bool type_reportable = true;"),
+ ("F27 ★★★ §10.1(11a) ONLY THE E2E-ACK HALF SURVIVES — the never-about-itself rule alone is deleted, which "
+  "a combined arm cannot distinguish: relayed notices recurse while acks stay excluded",
+  "    const bool type_reportable = pt.type != DATA_TYPE_CUSTODY_FAILURE && pt.type != DATA_TYPE_E2E_ACK;",
+  "    const bool type_reportable = pt.type != DATA_TYPE_E2E_ACK;"),
+ ("F28 ★★★ §10.1(3) THE CHANNEL-M / FLOOD TERM IS DROPPED — a fire-and-forget broadcast, which has no "
+  "single sender owed a custody answer, becomes reportable",
+  "    const bool is_normal_data  = !pt.m_broadcast && !pt.flood;",
+  "    const bool is_normal_data  = true;"),
+ ("F30 ★★★★ §10.1(5) THE PLANE TERM IS RE-DERIVED AS `plane != TEAM` — the brief's explicitly FORBIDDEN "
+  "shape, and it is wrong in the direction that matters: `AUTO` resolving to a team peer is a TEAM flight "
+  "and would now be reported as a static one, on the static plane, about a team-local id",
+  "    const bool is_static_plane = !flight_is_team_plane(pt.plane, pt.dst);",
+  "    const bool is_static_plane = pt.plane != Plane::TEAM;"),
+ ("F31 ★★★ §10.1(5b) THE PLANE TERM IS DROPPED ENTIRELY — every team flight becomes reportable and the "
+  "notice's own `Plane::GLOBAL` then carries a TEAM-LOCAL id onto the static plane (C3)",
+  "    const bool is_static_plane = !flight_is_team_plane(pt.plane, pt.dst);",
+  "    const bool is_static_plane = true;"),
+ ("F32 ★★★ §10.1(6a) THE GATEWAY RE-INJECT EXCLUSION IS DROPPED — a cross-layer re-inject reports as a "
+  "same-layer static loss, which is the one thing §9.5's `static_same_layer` value must never be a lie about",
+  "    const bool not_gw_reinject = !pt.is_gw_relay;                        // a gateway's cross-layer re-inject",
+  "    const bool not_gw_reinject = true;                                   // a gateway's cross-layer re-inject"),
+ ("F33 ★★★ §10.1(6b) THE CROSS-LAYER EXCLUSION IS DROPPED — an XL carrier's inner holds a LAYER PATH, so "
+  "`static_same_layer` and `reporter_layer` would both describe a flight that spans layers",
+  "    const bool not_cross_layer = (pt.flags & DATA_FLAG_CROSS_LAYER) == 0;// an XL carrier (layer path in the inner)",
+  "    const bool not_cross_layer = true;                                   // an XL carrier (layer path in the inner)"),
+ ("F34 ★★★ §10.1(6c) THE HOSTED-MOBILE LAST-MILE EXCLUSION IS DROPPED — `dst` is then a home-assigned LOCAL "
+  "id, and the record would put a mobile-plane id into static `failed_dst` (C3's exact prohibition)",
+  "    const bool not_mobile_last_mile = pt.addr_len == 0;                  // addr_len 1 = a hosted-mobile last mile",
+  "    const bool not_mobile_last_mile = true;                              // addr_len 1 = a hosted-mobile last mile"),
+ ("F35 ★★★ §10.1(6d) THE MOBILE-DELEGATION EXCLUSION IS DROPPED — a delegated flight's ORIGIN is the home, "
+  "not the sender, so the report would go to a node that never made the send",
+  "    const bool not_mobile_delegation = !pt.mobile_src;                   // the originator is a mobile",
+  "    const bool not_mobile_delegation = true;                             // the originator is a mobile"),
+ ("F37 ★★★ §10.1(8) THE ORIGIN-AGREEMENT TERM IS DROPPED — the relay's carrier and the frame it forwards may "
+  "now name different senders, and the report is addressed to whichever one the carrier happened to hold",
+  "    const bool origin_agrees   = inner_parses && inner_origin == pt.origin;",
+  "    const bool origin_agrees   = inner_parses;"),
+ ("F38 ★★★ §10.1(9) THE ID-VALIDITY TERM IS DROPPED — `0` (unprovisioned) and `0xFF` (reserved) become "
+  "custody parties, so the notice is addressed to an id that can never answer",
+  "    const bool ids_valid       = custody_node_id_valid(pt.origin) && custody_node_id_valid(pt.dst)\n"
+  "                              && custody_node_id_valid(pt.previous_hop) && custody_node_id_valid(pt.next);",
+  "    const bool ids_valid       = true;"),
+ ("F39 ★★★ §10.1(10) THE NONZERO-COUNTER TERM IS DROPPED — a zero counter correlates to every send and to "
+  "none, which is precisely why §9.2 forbids it",
+  "    const bool ctr_nonzero     = pt.ctr != 0;",
+  "    const bool ctr_nonzero     = true;"),
+ ("F40 ★★★★ §10.1(12) THE TERMINAL-BRANCH GUARD IS DROPPED — `CustodyFailureReason::invalid` is "
+  "`cascade_terminal_cause`'s NOT-TERMINAL answer, so a future caller could report a custody failure for a "
+  "carrier that merely requeued, and the wire would carry §9.4's never-transmitted value 0",
+  "    const bool terminal_branch = custody_reason_is_transmittable(static_cast<uint8_t>(ctx.cause));",
+  "    const bool terminal_branch = true;"),
+ # ---- §10.1's closing rule and §9.2's field sourcing -----------------------------------------------------
+ ("F41 ★★★★ THE dst_hash IS INVENTED FROM A NODE ID — §10.1's closing sentence, violated in the exact shape "
+  "it forbids: a LOCALLY-BELIEVED id->hash binding is put on the wire as though the failed frame had carried "
+  "it. ⛔ id->hash is the ONE unverifiable direction in this protocol, so this manufactures evidence",
+  "        if (ui->has_dst_hash) inner_dst_hash = ui->dst_key_hash32;\n"
+  "    }\n"
+  "    const bool inner_has_hash = inner_dst_hash != 0;",
+  "        if (ui->has_dst_hash) inner_dst_hash = ui->dst_key_hash32;\n"
+  "    }\n"
+  "    uint32_t invented = 0;\n"
+  "    if (inner_dst_hash == 0 && key_hash_of_id(pt.dst, invented)) inner_dst_hash = invented;\n"
+  "    const bool inner_has_hash = inner_dst_hash != 0;"),
+ ("F42 ★★★ THE `has_dst_hash` FLAG IS SET UNCONDITIONALLY — the flag stops describing the value beside it, "
+  "so a receiver reads a zero hash as a present one (§9.3 bit 5 and §13.16, both broken by one word)",
+  "                                               /*has_dst_hash=*/inner_has_hash);",
+  "                                               /*has_dst_hash=*/true);"),
+ ("F43 ★★★ `reporter_layer` IS HARD-CODED TO ZERO instead of the ACTIVE layer — §13.15's same-layer check "
+  "is what a receiver uses to know the report is about ITS network, and a constant defeats it silently",
+  "    r.reporter_layer    = active_layer_id();",
+  "    r.reporter_layer    = 0;"),
+ ("F44 ★★★ THE `repair_attempted` BIT IS HARD-CODED TRUE — §9.3 bit 3 stops meaning \"this pass invoked the "
+  "repair logic\" and starts meaning nothing, which is the diagnostic-field-that-lies class",
+  "    r.notice_flags      = custody_notice_flags(ctx.stage, ctx.repair_attempted,",
+  "    r.notice_flags      = custody_notice_flags(ctx.stage, true,"),
+ ("F45 ★★★ THE INELIGIBLE SNAPSHOT IS ENQUEUED ANYWAY — the `eligible` answer computed at step (1), while "
+  "the carrier was alive, is discarded at step (7); every one of §10.1's twelve conditions is bypassed at "
+  "once by deleting a single line",
+  "    if (!snap.eligible) return;                      // decided at step (1); nothing is re-derived here",
+  "    if (false) return;"),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -7773,6 +8056,8 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceBcascade": MUTS_SLICEBCASCADE, "sliceBnode": MUTS_SLICEBNODE,
                   "sliceBchannel": MUTS_SLICEBCHANNEL,
                   "sliceEnode": MUTS_SLICEENODE, "sliceEcascade": MUTS_SLICEECASCADE,
+                  "sliceFcodec": MUTS_SLICEFCODEC, "sliceFtypes": MUTS_SLICEFTYPES,
+                  "sliceFcascade": MUTS_SLICEFCASCADE,
                   "sliceCinbox": MUTS_SLICECINBOX, "sliceCpull": MUTS_SLICECPULL,
                   "sliceCbudget": MUTS_SLICECBUDGET, "sliceCsend": MUTS_SLICECSEND,
                   "sliceCram": MUTS_SLICECRAM,

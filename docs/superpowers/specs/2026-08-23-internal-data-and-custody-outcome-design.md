@@ -1089,6 +1089,20 @@ own sub-slice before expanding semantics.
 
 ### Slice E — typed terminal context
 
+> ✅ **SLICE E COMPLETE — QG PASS 2026-08-31 (1 brief round w/ 4 ruled corrections + 2 impl rounds) — AND
+> THE RE-ANCHOR FORMALLY APPROVED AND LANDED** (the fourth full-table ruling): s18 keystone
+> **`32afbf11` / 269517 / 0**; nine rows moved, each Δ exclusively removed transit `push{send_failed}` lines
+> (61 total, 61/61 attributed transit — [[B263]] CLOSED). Landed: the three-term central gate
+> (`generic_owed && own_origination && traits.generic_send_lifecycle`, `generic_owed` per-caller) across all
+> eleven `terminal_carrier_outcome` callers · the canonical `CustodyFailureReason`/`CustodyRootStage` (§9.4
+> values verbatim; stage = §9.3 bit numbers — F only serializes, per the §17-F correction above) · the typed
+> 3-byte stack-only context at the selected cascade terminals (5 entry points incl. the duty-budget arm the
+> brief missed; pinned stage/cause mapping; `repair_attempted` by invocation; the string-prefix matcher
+> DELETED) · the sentinel-fail-closed exhaustive stage mapping (round 2 — `invalid` can never become a
+> diagnosis; E15/E16 RED) · the named step-7 insertion point (no snapshot object in E; 0x81-negative gate).
+> Slice B's prose-only "transit pin" corrected ([[B275]] = the false forwarder-never-defers comment). Native
+> 2437/101569/0; boards +0 RAM, net-smaller flash; no metal owed (QG-confirmed).
+
 - replace event-string reason inference at the selected cascade terminals with typed root
   stage and terminal cause;
 - preserve local application `send_failed` ordering and values;
@@ -1097,6 +1111,22 @@ own sub-slice before expanding semantics.
 
 ### Slice F — custody codec and relay generation
 
+> ✅ **SLICE F COMPLETE — QG PASS 2026-08-31 (1 brief round w/ 6 corrections + 2 rulings, then 3 impl
+> rounds) — AND THE FOUR-ROW RE-ANCHOR FORMALLY APPROVED AND LANDED** (the fifth table ruling): s06/s07/
+> s27/twin move; **the s18 keystone is UNCHANGED at `32afbf11`/269517**. `DATA_TYPE_CUSTODY_FAILURE = 0x81`
+> is LIVE (traits: known/internal, `persistent_outcome=false` per the ruling — G flips it); the one
+> pack/parse codec (F packs + test-parses; G wires the consumers); the twelve eligibility terms each
+> both-sides-tested with per-term mutations, the plane term bound to the existing authority, the B59 case
+> (0x8B) proven positively eligible; the snapshot honors E's lifetime boundary; §12's transmission set incl.
+> the recursion gate positively exercised in the corpus (2 relayed notices died, generated nothing).
+> **Corpus: 25 notices / 25 attributed / 0 unattributed** by the bind-then-classify accountant (15 controls
+> — rounds 2-3 killed the any-earlier-candidate and filter-then-bind attribution holes; three successive
+> tightenings reproduced every figure). **The QG-accepted delivery trade: 758→753 / 62→63** — the measured
+> airtime cost of the diagnostic. The census prediction gap (52-59 vs 25) surfaced a real finding:
+> `path_cascade_exhausted` fires at six sites, three §10.2-deferred. Native 2463/102123/0; +0 RAM both
+> boards; the intermediate state (receivers drop 0x81 at the tail guard) is QG-ratified until G. No metal
+> owed. ⚠ commit needs the explicit adds the coder's report names.
+>
 > ⓘ **WORDING CORRECTED 2026-08-31 (QG Slice-E brief review — enum ownership was contradictory between
 > this bullet and Slice E's "v1 enum" consumption):** the first bullet read *"add the v1 codec and numeric
 > enums"*. **RULED: Slice E lands the single canonical `CustodyFailureReason` and root-stage types,

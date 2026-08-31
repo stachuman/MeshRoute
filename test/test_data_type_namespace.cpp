@@ -95,6 +95,7 @@ const Row kLiveTypes[] = {
     { DATA_TYPE_SEALED_RELAY,                   "SEALED_RELAY" },
     { DATA_TYPE_CHANNEL_POST,                   "CHANNEL_POST (enclosed marker)" },
     { DATA_TYPE_E2E_ACK,                        "E2E_ACK" },
+    { DATA_TYPE_CUSTODY_FAILURE,                "CUSTODY_FAILURE" },   // ★ live as of §CUSTODY-F
     { DATA_TYPE_H_ANSWER,                       "H_ANSWER" },
     { DATA_TYPE_AUTHORITATIVE_H_ANSWER,         "AUTHORITATIVE_H_ANSWER" },
     { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY,  "AUTHORITATIVE_H_ANSWER_PUBKEY" },
@@ -115,6 +116,9 @@ const Row kLiveTypes[] = {
 bool is_known_internal(uint8_t t) {
     switch (t) {
         case DATA_TYPE_E2E_ACK:
+        // ★ ADDED 2026-08-31 BY §CUSTODY-F: 0x81 gained a PRODUCER and §9's defined meaning, so it is now a
+        //   KNOWN internal type. ⛔ It is deliberately NOT added to `persistent_outcome` below — see there.
+        case DATA_TYPE_CUSTODY_FAILURE:
         case DATA_TYPE_H_ANSWER:
         case DATA_TYPE_AUTHORITATIVE_H_ANSWER:
         case DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY:
@@ -154,8 +158,11 @@ DataTypeTraits expected_traits(uint8_t t) {
     // family. Everything outside both ranges is not valid for origination at all (§5.1) — it bears nothing.
     e.application_bearing    = untyped_dm || application_range;
     e.generic_send_lifecycle = untyped_dm || application_range;
-    // §7.1: the opt-in persistent set at Slice A is EXACTLY {E2E_ACK}. CUSTODY_FAILURE joins it when the
-    // custody-codec slice allocates 0x81 — ⛔ it must NOT be anticipated here.
+    // §7.1: the opt-in persistent set is EXACTLY {E2E_ACK} — STILL, at Slice F.
+    // ⛔⛔ CORRECTED IN PLACE 2026-08-31. It read *"CUSTODY_FAILURE joins it when the custody-codec slice
+    //    allocates 0x81 — it must NOT be anticipated here"*. §CUSTODY-F allocated 0x81 and DID NOT join the set:
+    //    F adds the producer and the codec, G adds the storing consumer, and the trait describes actual durable
+    //    writing rather than an intention to write. ⇒ **SLICE G is the row that moves.**
     e.persistent_outcome = (t == DATA_TYPE_E2E_ACK);
     return e;
 }
@@ -255,8 +262,11 @@ TEST_CASE("§CUSTODY-A/3 the Slice-A trait truth table, row by row") {
         { 0x06,                                   false, false, true,  true,  false, "0x06 unallocated application" },
         { 0x0F,                                   false, false, true,  true,  false, "0x0F (ordinal 15's old slot)" },
         { 0x7F,                                   false, false, true,  true,  false, "0x7F application top" },
-        // unknown internal range — ⛔ INCLUDING 0x81 until the custody-codec slice adds CUSTODY_FAILURE
-        { 0x81,                                   false, true,  false, false, false, "0x81 CUSTODY_FAILURE's reservation" },
+        // ★ 0x81 is ALLOCATED as of §CUSTODY-F — known, internal, NOT application-bearing, NO generic
+        //   lifecycle, and ⛔ `persistent_outcome` STILL FALSE (Slice G flips it).
+        { DATA_TYPE_CUSTODY_FAILURE,              true,  true,  false, false, false, "0x81 CUSTODY_FAILURE" },
+        // unknown internal range
+        { 0x82,                                   false, true,  false, false, false, "0x82 unallocated internal" },
         { 0x87,                                   false, true,  false, false, false, "0x87 unallocated internal" },
         { 0xBF,                                   false, true,  false, false, false, "0xBF internal top" },
         // outside both ranges
@@ -283,10 +293,15 @@ TEST_CASE("§CUSTODY-A/4 persistent_outcome membership is EXACTLY {E2E_ACK} at S
         if (data_type_traits(t).persistent_outcome) { ++n; CHECK(t == DATA_TYPE_E2E_ACK); }
     }
     CHECK(n == 1);
-    // ⛔ 0x81 is the custody-failure RESERVATION and this slice must not anticipate it: it is neither allocated
-    //    nor persistent yet. When the custody-codec slice lands, THIS case is the one that must move.
-    CHECK_FALSE(data_type_traits(0x81).persistent_outcome);
-    CHECK_FALSE(data_type_traits(0x81).known);
+    // ★★ THIS IS THE CASE §CUSTODY-A SAID WOULD MOVE, AND IT MOVED HALFWAY — which is the whole ruling.
+    //    0x81 is now ALLOCATED and KNOWN (F gave it a producer), and it is STILL NOT PERSISTENT: F writes
+    //    nothing durable, so the trait would be describing a store that does not exist. ⇒ Slice G flips the
+    //    persistence half and this assertion is what will redden when it does.
+    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome);
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).known);
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);
+    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).generic_send_lifecycle);
+    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).application_bearing);
 }
 
 // =====================================================================================================

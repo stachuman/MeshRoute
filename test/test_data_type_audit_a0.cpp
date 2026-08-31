@@ -172,6 +172,7 @@ const TypeRow kAllocatedTypes[] = {
     { DATA_TYPE_CHANNEL_POST,                   "CHANNEL_POST" },
     { DATA_TYPE_APP_MESSAGE,                    "APP_MESSAGE (reserved)" },
     { DATA_TYPE_E2E_ACK,                        "E2E_ACK" },
+    { DATA_TYPE_CUSTODY_FAILURE,                "CUSTODY_FAILURE" },   // ★ ADDED 2026-08-31 by §CUSTODY-F
     { DATA_TYPE_H_ANSWER,                       "H_ANSWER" },
     { DATA_TYPE_AUTHORITATIVE_H_ANSWER,         "AUTHORITATIVE_H_ANSWER" },
     { DATA_TYPE_H_ANSWER_PUBKEY,                "H_ANSWER_PUBKEY (reserved)" },
@@ -215,12 +216,14 @@ constexpr size_t kAllocatedTypeCount = sizeof(kAllocatedTypes) / sizeof(kAllocat
 //                                                     REMOTE_CMD                     6 -> 0xA0
 //                                                     REMOTE_RESP                    7 -> 0xA1
 //                                                     TEAM_KEY_GRANT                19 -> 0xA2
-//     ⛔ 0x81 (CUSTODY_FAILURE) is NOT allocated here — the custody-codec slice owns its addition.
+//     ★ 0x81 CUSTODY_FAILURE was ADDED 2026-08-31 by §CUSTODY-F (the custody-codec slice this line named as its
+//       owner). It is the 21st member; the line above used to read "is NOT allocated here" and is corrected in
+//       place rather than deleted, so the reservation -> allocation step stays on the record.
 // ⓘ The exhaustive value/boundary/trait pinning lives in `test/test_data_type_namespace.cpp`; what THIS case
 //   keeps is the A0-side claim it always made — no duplicate assignment, no member outside its declared range,
 //   and a per-member pin — so a member silently sliding into the wrong block is caught from both files.
 TEST_CASE("§A0-1 every allocated DataType sits in its declared range, with no duplicate assignment") {
-    CHECK(kAllocatedTypeCount == 20);          // 19 pre-transition members + the APP_MESSAGE reservation
+    CHECK(kAllocatedTypeCount == 21);          // 19 pre-transition + APP_MESSAGE (Slice A) + CUSTODY_FAILURE (Slice F)
     bool seen[256] = {};
     for (const auto& r : kAllocatedTypes) {
         CAPTURE(r.name);
@@ -516,10 +519,15 @@ TEST_CASE("§A0-4 an addressed unknown type: APPLICATION/RESERVED still deliver,
         { 20,   "20 — the next unallocated value" },
         { 100,  "100 — mid application range" },
         // ⛔ RE-ANCHORED 2026-08-29 (§CUSTODY-A): `0x80` LEFT this list — it is DATA_TYPE_E2E_ACK now, so it is
-        //    consumed by the ack arm and is covered by the §A0-4b control instead. `0x81` replaces it as the
-        //    unallocated internal-range value nearest the base (it is the forward reservation for
-        //    CUSTODY_FAILURE, which the custody-codec slice adds; until then it is genuinely unknown).
-        { 0x81, "0x81 — the protocol-internal range, unallocated (CUSTODY_FAILURE's reservation)" },
+        //    consumed by the ack arm and is covered by the §A0-4b control instead. `0x81` replaced it as the
+        //    unallocated internal-range value nearest the base.
+        // ⛔ RE-AIMED 2026-08-31 (§CUSTODY-F): `0x81` IS ALLOCATED NOW (CUSTODY_FAILURE), so it is no longer an
+        //    unknown and cannot carry this row's claim. `0x82` — the next value in the same 0x80.. core-outcome
+        //    block — replaces it, keeping the row's original property: the unallocated internal-range value
+        //    NEAREST THE BASE. ⓘ 0x81's own receive behaviour in the intermediate F-before-G state is measured
+        //    by §CUSTODY-F/7 (`test_custody_relay_f.cpp`): it still drops at this very guard, because the guard
+        //    asks the RANGE and not the allocation.
+        { 0x82, "0x82 — the protocol-internal range, unallocated" },
         { 0xBF, "0xBF — the protocol-internal range top, unallocated" },
         { 0xC0, "0xC0 — the reserved range" },
         { 0xFE, "0xFE — the inbox tombstone value, on the wire" },

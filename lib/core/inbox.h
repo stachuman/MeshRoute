@@ -80,12 +80,17 @@ inline constexpr uint8_t inbox_rec_type_tombstone = 0xFE;
 //         OPT-IN whose membership is exactly `{E2E_ACK}` today (frame_codec.h). It is a WRITE authority.
 //       · `internal` answers "is this record protocol machinery rather than a user message" — a RANGE fact, true
 //         for the whole `0x80..0xBF` block including values this firmware has never heard of.
-//     Classifying a READ by `persistent_outcome` therefore FAILS OPEN: the forward-reserved `0x81`, the reserved
+//     Classifying a READ by `persistent_outcome` therefore FAILS OPEN: `CUSTODY_FAILURE` (`0x81`), the reserved
 //     `0x8A`, the retired `0x94` and anything a newer firmware writes are all `persistent_outcome == false`, so
 //     each would be presented to the operator AS ORDINARY MESSAGE TEXT — which is the §7 defect class ("never
 //     through the ordinary text encoder or the OLED byte sanitizer") arriving through the front door. `internal`
-//     fails CLOSED, and that is why a future CUSTODY_FAILURE needs no presentation change at all: it is already
-//     hidden by the range, before its codec exists.
+//     fails CLOSED.
+//     ★★ CORRECTED 2026-08-31 (§CUSTODY-F) AND THE CLAIM WAS **VERIFIED RATHER THAN WEAKENED**: this used to end
+//     *"a future CUSTODY_FAILURE needs no presentation change at all: it is already hidden by the range, before
+//     its codec exists"*. Slice F allocated `0x81`, gave it a producer and a 24-byte binary body, and ⛔ CHANGED
+//     NOTHING HERE — §CUSTODY-C/1's assertion is byte-identical across the allocation. ⚠ And 0x81 stays
+//     `persistent_outcome == false` until Slice G's storing consumer lands, so this paragraph's hazard is now a
+//     LIVE type rather than a hypothetical one.
 //
 // ⛔ IT IS NOT A STORAGE RULE. Nothing about what is written, evicted or erased consults this: an internal record
 //    ages out of the ring and answers `Inbox::erase` EXACTLY like a DM (§7.5 — "no deletion protection"), and

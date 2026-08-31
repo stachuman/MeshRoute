@@ -284,6 +284,32 @@ The simulator still reports only its asynchronous `refused` path through the sam
 `Node::on_tx_complete()` entry. It does not synthesize hardware `aired`/`failed`/`unknown` events, so those
 three outcomes remain corpus-dark and are covered by the native DeviceHal tests.
 
+**The same ownership rule now governs the failure half (§CUSTODY-E, 2026-08-31).** A post-admission carrier
+death raises a generic `send_failed` only when the local app owns a future keyed on that `{dst, ctr}` — i.e.
+the carrier is **our own origination** (`!has_previous_hop` / `!is_forward`) **and** its DATA type carries a
+generic send lifecycle. A **transit** carrier that dies at a terminal give-up therefore reports **nothing**:
+its `{dst, ctr}` belongs to the original sender, and pushing it handed the companion a completion for a send
+this node never made — one that could collide with a real local pair. Telemetry is unaffected: `send_giveup`,
+`rts_giveup`, `data_ack_giveup`, `path_cascade_exhausted` and the repair emits are unchanged, because
+telemetry is not user lifecycle. The order at a terminal remains load-bearing and unchanged: **report first**
+(while the dying carrier's `dst`/`ctr` are live) → reset the flight → `become_free()`. At the selected
+cascade terminals the report is preceded by a typed diagnostic capture (root stage CTS vs hop-ACK, terminal
+cause, whether repair was invoked) taken while the carrier still exists; nothing is transmitted for it in
+this slice — the custody notice is the B59 slices' to add.
+
+**The custody notice (§CUSTODY-F, 2026-08-31).** At the selected cascade terminals, an eligible transit
+death now generates one `DATA_TYPE_CUSTODY_FAILURE` (0x81) notice to the failed DATA's original sender —
+the wire shape lives in `docs/frames.md`; eligibility is the design's twelve conditions (transit, plaintext,
+static/global same-layer by the existing plane authority, valid identities, a selected terminal branch,
+never about a 0x81 or an E2E ACK — the §10.2 deferred loss sites generate nothing). The bounded value
+snapshot is taken before the failed carrier's reset and the notice is enqueued after `become_free()`, on the
+standard typed-DATA path, `Plane::GLOBAL` explicit, under a fresh reporter counter — it inherits nothing
+from the failed flight. It is internal: ordinary hop ACKs/retries and duty/LBT apply, but no E2E ACK, no
+application deadline, no generic lifecycle push, and a terminal failure of the notice itself is
+telemetry-only — never another notice. ⚠ Until the receiver slice (G) lands, an arriving notice is dropped
+at the fail-closed internal guard with bounded telemetry — the ratified intermediate state; it is not proof
+the destination missed the DATA (another path or copy may have delivered, and an E2E ack may still arrive).
+
 ### 2.4 The DATA-type namespace, the reflash ruling and the inbox migration (§CUSTODY-A, 2026-08-29)
 
 The DATA TYPE byte is a **range contract**: `0x00` the untyped DM · `0x01..0x7F` application-bearing ·

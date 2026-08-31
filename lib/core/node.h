@@ -65,6 +65,27 @@ struct TerminalCustodyContext {
     bool                 repair_attempted = false;
 };
 
+// ★★★★ §CUSTODY-F (2026-08-31) — **THE BOUNDED VALUE SNAPSHOT** §11 step 7 requires, and the object Slice E's
+//      banner above says "does not exist in this slice". It does now.
+//
+// ⛔⛔ IT IS A **VALUE**, AND THAT IS THE WHOLE POINT (§11, verbatim: *"Do not copy the approximately 352-byte
+//     `PendingTx` onto a firmware stack merely to retain 24 diagnostic bytes"*). It holds the §9.2 record — the
+//     24 bytes that will be transmitted — plus the one boolean saying whether §10.1's twelve conditions were ALL
+//     true. No pointer, no reference, no span into the carrier. ⇒ it stays valid across `_pending_tx.reset()`
+//     and `become_free()`, which is exactly the lifetime step 7 demands.
+//
+// ⛔ THERE IS NO SEPARATE "notice destination" FIELD, deliberately: the notice is addressed to the failed DATA's
+//    ORIGINAL SENDER, which IS `rec.failed_origin` (§9.1). A second copy of the same id is a second authority
+//    that can disagree with the record it travels with (U2).
+//
+// ⓘ MEASURED, not asserted: `sizeof(CustodyFailureRecord)` is 28 (the `uint32_t dst_hash32` forces 4-byte
+//   alignment over a 24-BYTE WIRE record) and `sizeof(CustodyNoticeSnapshot)` is 32 — a stack local at ONE
+//   function, never a `Node` member, so `sizeof(Node)` cannot move. Both are pinned by a native `static_assert`.
+struct CustodyNoticeSnapshot {
+    bool                 eligible = false;   // §10.1's twelve conditions, ALL answered while the carrier was ALIVE
+    CustodyFailureRecord rec{};              // §9.2's v1 body; `rec.failed_origin` is also the notice's `dst`
+};
+
 class Node {
 public:
     Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name = nullptr);
@@ -1035,6 +1056,29 @@ public:
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     void              test_emit_beacon(const char* kind) { emit_beacon(kind); }   // §5 census/advertise tests: drive a deterministic beacon (bypasses the throttle)
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
+#ifdef MESHROUTE_NATIVE
+    // ★★★ §CUSTODY-F TEST SEAM — **THE ONE WAY §10.1's NEGATIVE MATRIX CAN BE DRIVEN OFF A REAL CARRIER.**
+    //
+    // ⛔⛔ WHY IT EXISTS, stated because [[B268]]'s lesson ("a fabricated carrier proves the assertion, not the
+    //     code") argues the other way and is RIGHT: §18.4.9 demands a negative arm for crypted, raw-inner,
+    //     team, mobile, XL, gateway-reinject, channel-M and the two excluded types — carrier shapes a static
+    //     3-node chain cannot install through its MAC at all. The alternative to this seam is fabricating a
+    //     `PendingTx` from nothing, which is strictly weaker. ⇒ the tests take the LIVE, PRODUCTION-INSTALLED
+    //     transit carrier through `test_live_pending_tx()`, copy it, change EXACTLY ONE field, and ask the
+    //     PRODUCTION predicate — a one-variable experiment against a real baseline, not an invention.
+    // ⛔ ZERO DEVICE SURFACE and zero behaviour: both are `MESHROUTE_NATIVE`-only const accessors onto the
+    //    existing private path. No state, no member, `sizeof(Node)` unmoved.
+    const PendingTx*  test_live_pending_tx() const { return _active->_pending_tx ? &*_active->_pending_tx : nullptr; }
+    CustodyNoticeSnapshot test_custody_notice_snapshot(const PendingTx& pt, const TerminalCustodyContext& ctx) const {
+        return custody_notice_snapshot(pt, ctx);
+    }
+    // ⓘ THE STEP-(7) HALF, exposed for ONE reason: `custody_notice_enqueue`'s C2 fail-loud arm (a snapshot that
+    //   is eligible yet UNPACKABLE) is unreachable from the production cascade, because the only way to build
+    //   one is a `CustodyRootStage::invalid` context and E's seam guarantees that cannot happen. A refusal that
+    //   nothing can drive is a refusal no mutation can redden — measured: the battery arm that deletes its emit
+    //   SURVIVED until this seam existed.
+    void test_custody_notice_enqueue(const CustodyNoticeSnapshot& snap) { custody_notice_enqueue(snap); }
+#endif
     bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     uint32_t          test_nav_duration_rts(uint8_t sf, uint8_t payload_len, uint8_t data_cr) const { return nav_duration_rts(sf, payload_len, data_cr); }  // M6: white-box the payload_len clamp · §rts-cr-overhear: white-box the peer-CR term
@@ -2485,6 +2529,20 @@ private:
     //     `giveup_flight`/`terminal_carrier_outcome` and stays OUTSIDE the typed custody seam (design §9.4/§10.2).
     void     cascade_terminal_giveup(const PendingTx& pt, CustodyRootStage stage,
                                      CustodyFailureReason cause, bool repair_attempted);
+    // ★★★★ §CUSTODY-F — **STEP 7, IN TWO HALVES, AND THE SPLIT IS THE LIFETIME RULE** (design §11).
+    //   `custody_notice_snapshot` runs at step (1), while the carrier is ALIVE: it answers §10.1's twelve
+    //   eligibility conditions and materializes the bounded §9.2 record. ⛔ It is `const` and takes `pt` by
+    //   const reference — it reads the authoritative carrier once and copies out 24 bytes' worth of VALUES,
+    //   never the ~352-B `PendingTx`.
+    //   `custody_notice_enqueue` runs at step (7), AFTER `become_free()` has had its chance to install the next
+    //   queued flight: it originates ONE `DATA_TYPE_CUSTODY_FAILURE` through the existing typed-DATA enqueue
+    //   path. ⛔ An ineligible snapshot is a silent no-op — eligibility was decided upstream, at the only moment
+    //   the evidence existed.
+    // ⛔ THEY MUST NOT BE MERGED: a single function called at step 7 could not see the carrier, and one called
+    //   at step 1 would queue the notice BEFORE the failed flight was closed (§12's first bullet) and could
+    //   preempt the flight `become_free()` installs.
+    CustodyNoticeSnapshot custody_notice_snapshot(const PendingTx& pt, const TerminalCustodyContext& ctx) const;
+    void                  custody_notice_enqueue(const CustodyNoticeSnapshot& snap);
     // §CUSTODY-E test observation (native/simulator builds only; a no-op inline on every board). See node_cascade.cpp.
 #ifdef MESHROUTE_NATIVE
     static void custody_terminal_observe(const TerminalCustodyContext& c);
@@ -2514,8 +2572,13 @@ public:
     static SendFailReason custody_stage_fail_reason(CustodyRootStage stage);
 #ifdef MESHROUTE_NATIVE
     // §CUSTODY-E test observation — see `custody_terminal_observe` in node_cascade.cpp for the full contract and
-    // for why it is native-only. ⚠ Slice F retires it: once a real 0x81 notice is enqueued, the context is
-    // observable as traffic and an out-of-band recorder stops earning its place.
+    // for why it is native-only.
+    // ⓘ CORRECTED 2026-08-31 (§CUSTODY-F): this note read *"⚠ Slice F retires it: once a real 0x81 notice is
+    //   enqueued, the context is observable as traffic and an out-of-band recorder stops earning its place."*
+    //   **F DID NOT RETIRE IT, AND THE REASON IS A MEASUREMENT RATHER THAN A PREFERENCE:** only an §10.1-ELIGIBLE
+    //   terminal becomes traffic. The LOCAL-ORIGINATION terminals (§CUSTODY-E/2, /3, /4a-e, /5) and every
+    //   INELIGIBLE transit terminal deliberately emit no notice at all, so for them the typed context is still
+    //   the ONLY observable — and those are exactly the cases §18.4.7's per-cause bar is proved on.
     static const TerminalCustodyContext& test_last_terminal_custody_ctx();
     static void                          test_reset_terminal_custody_ctx();
 #endif

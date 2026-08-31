@@ -108,8 +108,10 @@ TEST_CASE("§CUSTODY-C/1 the ordinary view: application records VISIBLE, every i
     CHECK_FALSE(inbox_record_is_internal(DATA_TYPE_APP_MESSAGE));
     // ③ the E2E ACK — the one durable internal outcome that EXISTS today
     CHECK(inbox_record_is_internal(DATA_TYPE_E2E_ACK));
-    // ④ the FORWARD RESERVATION `0x81` — CUSTODY_FAILURE's number, hidden before its codec exists (§17-F)
-    CHECK(inbox_record_is_internal(0x81));
+    // ④ CUSTODY_FAILURE (`0x81`) — hidden. ⓘ CORRECTED 2026-08-31: this read "the FORWARD RESERVATION … hidden
+    //    before its codec exists (§17-F)". §CUSTODY-F allocated it, and the assertion is UNCHANGED — which is
+    //    §CUSTODY-C's own claim proved: the RANGE hides it, so allocating the type needed no presentation work.
+    CHECK(inbox_record_is_internal(DATA_TYPE_CUSTODY_FAILURE));
     // ⑤ ...and another internal value that is NOT a persistent outcome, to show the range and not the opt-in set
     //    is what hides things: a hash answer, a retired number, and a KNOWN-but-mobile-only key forward.
     CHECK(inbox_record_is_internal(DATA_TYPE_H_ANSWER));
@@ -146,9 +148,13 @@ TEST_CASE("§CUSTODY-C/1c `persistent_outcome` is NOT the presentation predicate
         if (data_type_traits(t).internal != data_type_traits(t).persistent_outcome) ++disagree;
     }
     CHECK(disagree == 63u);                                   // 64 internal values, exactly one of them persistent
-    CHECK(data_type_traits(0x81).internal);                   // hidden by the shipped predicate...
-    CHECK_FALSE(data_type_traits(0x81).persistent_outcome);   // ...and VISIBLE under the weakened one
-    CHECK_FALSE(data_type_traits(0x81).known);                // and nothing has taught the tree about it yet
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);                 // hidden by the shipped predicate...
+    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome); // ...and VISIBLE under the weakened one
+    // ⓘ CORRECTED 2026-08-31 (§CUSTODY-F): the third line read `CHECK_FALSE(...known)` — "nothing has taught the
+    //   tree about it yet". F did. ★ AND THE ARGUMENT GETS STRONGER, not weaker: 0x81 is now a KNOWN, allocated,
+    //   PRODUCED internal type whose records are still not persistent, so the weakened predicate would render a
+    //   LIVE record as text rather than a hypothetical one.
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).known);
 }
 
 // =====================================================================================================
