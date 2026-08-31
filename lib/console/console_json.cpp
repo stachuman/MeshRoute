@@ -146,8 +146,65 @@ const char* pushkind_name(PushKind k) {
         case PushKind::send_aired:    return "send_aired";          // §T3: a locally-originated DM/channel post physically left the radio (TxDone). NOT an ack and NOT terminal — the send-level outcome still follows.
         case PushKind::team_key_grant_aired:  return "team_key_grant_aired";    // §CUSTODY-B/[[B268]]: the grant's OWN airing outcome — the generic pair is suppressed for a protocol-internal type
         case PushKind::team_key_grant_failed: return "team_key_grant_failed";   // §CUSTODY-B/[[B268]]: the grant's OWN terminal failure, carrying `reason`
+        case PushKind::custody_failure: return "custody_failure";   // §CUSTODY-G/§14.2: a custody report arrived and was VALIDATED (its durable record was ATTEMPTED — storage may be disabled or the append may fail, so ⛔ never say "stored"). ⛔ NOT a NACK and NOT proof of non-delivery (§8) — the SAME semantic event name the PULLED record uses, so an app ships one decoder for both.
     }
     return "unknown";
+}
+// ★★★★ §CUSTODY-G (design §14.2) — THE ONE NAME TABLE for the two custody wire enums. See console_json.h for
+// why it is one table serving three surfaces (live push · pulled record · the USB line in `src/fw_main.cpp`).
+// Both take the ENUM so -Wswitch fails the build if §9.3/§9.4 ever grow a value that is left unmapped — the
+// tripwire that has already caught three enum→string defects in this file's history.
+const char* custodystage_name(MESHROUTE_NS::CustodyRootStage s) {
+    switch (s) {
+        case MESHROUTE_NS::CustodyRootStage::cts:     return "cts";   // §9.3 bit 1 `failed_at_cts` — died waiting for a CTS
+        case MESHROUTE_NS::CustodyRootStage::hop_ack: return "ack";   // §9.3 bit 2 `failed_at_ack` — died waiting for a hop ACK
+        case MESHROUTE_NS::CustodyRootStage::invalid: break;          // never transmitted; a parsed record cannot carry it (§13.8)
+    }
+    return "invalid";   // ⛔ the SENTINEL, never a plausible-looking guess: an unreadable stage must LOOK unreadable
+}
+const char* custodyreason_name(MESHROUTE_NS::CustodyFailureReason r) {
+    switch (r) {
+        case MESHROUTE_NS::CustodyFailureReason::one_way_throttled: return "one_way_throttled";   // §9.4/1: the MF4 reprobe window refused another burst
+        case MESHROUTE_NS::CustodyFailureReason::cascade_count:     return "cascade_count";       // §9.4/2: cascade_requeue_max reached
+        case MESHROUTE_NS::CustodyFailureReason::cascade_age:       return "cascade_age";         // §9.4/3: cascade_requeue_total_max_ms reached
+        case MESHROUTE_NS::CustodyFailureReason::queue_full:        return "queue_full";          // §9.4/4: the TX queue had no requeue slot
+        case MESHROUTE_NS::CustodyFailureReason::load_shed:         return "load_shed";           // §9.4/5: the load-adaptive requeue budget rejected it
+        case MESHROUTE_NS::CustodyFailureReason::invalid:           break;                        // §9.4/0: never transmitted
+    }
+    return "invalid";   // ⛔ same policy as the stage above — the sentinel, not a neighbour
+}
+// ★★ §CUSTODY-G — §14.2's FIELD SET, EMITTED ONCE (U1). The LIVE push and the PULLED record produce *"the same
+// semantic report identity and fields"* (§18.5.3), so they share this body and differ only in their envelope:
+// the live one omits `seq` when storage is disabled, the pulled one adds its receive timestamp (§14.2).
+// ⛔ EVERY VALUE COMES FROM THE PARSED RECORD, never from a re-read offset (§9.2's one-codec contract) — the
+//    caller has already run `parse_custody_failure`, and this function cannot see the raw bytes at all.
+// ⛔ `reporter` IS THE ONE FIELD THAT IS NOT IN THE RECORD: the body carries NO reporter-ID field, so it comes
+//    from the outer DATA origin (live) or the stored record's `origin` (pulled) — §7.2 stores the same
+//    quantity. ⚠ It is UNAUTHENTICATED (§13's closing paragraph) and must be rendered as a claim.
+// ⛔ THE UNKNOWN ACCEPTED TAIL IS NOT COPIED INTO JSON (§14.2, verbatim). A v1 reader interprets 24 bytes; the
+//    tail is retained in STORAGE for a future reader and is deliberately invisible here.
+static void emit_custody_failure_fields(JsonBuf& j, uint32_t reporter,
+                                        const MESHROUTE_NS::CustodyFailureRecord& r) {
+    j.lit(",\"reporter\":");         j.u32(reporter);
+    j.lit(",\"reporter_layer\":");   j.u32(r.reporter_layer);
+    j.lit(",\"failed_origin\":");    j.u32(r.failed_origin);
+    j.lit(",\"dst\":");              j.u32(r.failed_dst);
+    j.lit(",\"ctr\":");              j.u32(r.failed_ctr);
+    j.lit(",\"failed_type\":");      j.u32(r.failed_type);
+    j.lit(",\"stage\":\"");          j.lit(custodystage_name(MESHROUTE_NS::custody_stage_of_flags(r.notice_flags))); j.ch('"');
+    j.lit(",\"reason\":\"");         j.lit(custodyreason_name(r.terminal_reason)); j.ch('"');
+    j.lit(",\"previous_hop\":");     j.u32(r.previous_hop);
+    j.lit(",\"next_hop\":");         j.u32(r.failed_next_hop);
+    j.lit(",\"requeues\":");         j.u32(r.requeue_count);
+    j.lit(",\"alternatives\":");     j.u32(r.alternatives_tried);
+    j.lit(",\"committed_hops\":");   j.u32(r.committed_hops);
+    j.lit(",\"remaining_hops\":");   j.u32(r.remaining_hops);
+    j.lit(",\"repair_attempted\":"); j.lit((r.notice_flags & MESHROUTE_NS::CUSTODY_FLAG_REPAIR_ATTEMPTED) ? "true" : "false");
+    j.lit(",\"one_way\":");          j.lit((r.notice_flags & MESHROUTE_NS::CUSTODY_FLAG_NEXT_WAS_ONE_WAY) ? "true" : "false");
+    // §14.2: emitted through the existing hash-formatting helper ONLY when its flag is valid. The codec has
+    // already cross-checked the flag against the value in BOTH directions (§13.16), so `has_dst_hash` set
+    // implies nonzero — the test below is the flag, which is the field that carries the meaning.
+    if (r.notice_flags & MESHROUTE_NS::CUSTODY_FLAG_HAS_DST_HASH) { j.lit(",\"dst_hash\":"); key_hex32(j, r.dst_hash32); }
 }
 // E2E §5: send_failed.reason — the app maps no_pubkey -> "Request key / Scan QR"; the permanent reasons -> plain fail.
 const char* sendfailreason_name(SendFailReason r) {
@@ -398,6 +455,20 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"ctr\":"); j.u32(p.ctr);
         if (p.kind == PushKind::team_key_grant_failed && p.reason != SendFailReason::none) {
             j.lit(",\"reason\":\""); j.lit(sendfailreason_name(p.reason)); j.ch('"'); }
+    } else if (p.kind == PushKind::custody_failure) {
+        // ★★★★ §CUSTODY-G (design §14.2) — THE LIVE HALF. `Push::body` holds the validated v1 record; it is
+        // parsed through F's ONE codec and rendered semantically. ⛔ THE BINARY BYTES NEVER REACH `j.str()`:
+        // stringifying them is precisely the §7.2 defect ("never through the ordinary text encoder"), and it
+        // is why this arm exists at all rather than falling into the generic `dst`/`ctr` tail below.
+        // ⛔ NO SECOND OFFSET-READER (§9.2). If `parse_custody_failure` ever stops accepting what the receiver
+        //    stored, the honest answer is the SHORT event below — not a hand-decoded fallback that would make
+        //    the two readers disagree exactly once. In practice it is unreachable: the receiver validated the
+        //    same bytes with the same function before enqueueing this push.
+        if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }   // existing live-push convention: OMITTED when 0 = storage disabled (§14.2)
+        const std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =
+            MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));
+        if (rec) emit_custody_failure_fields(j, p.origin, *rec);
+        else     j.lit(",\"error\":\"unparseable_record\"");   // C2: loud and structurally unreachable, never a silent empty event
     } else if (p.kind == PushKind::send_aired) {   // ★ §T3: the attempt-level airing fact — dst + ctr, nothing else
         // ⛔ AN EXPLICIT BRANCH, NOT A FALLTHROUGH, AND THE DIFFERENCE IS THE WHOLE POINT. Without it `send_aired`
         //    lands in the final `else` below and happens to emit exactly `dst` + `ctr` — the right output for the
@@ -544,6 +615,37 @@ size_t write_limits(char* buf, size_t cap, const LimitsFields& L) {
 size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
                       uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc, uint8_t type, uint8_t origin_layer) {
     JsonBuf j(buf, cap);
+    // ★★★★ §CUSTODY-G (design §14.2) — THE PULLED HALF, AND IT IS A **DIFFERENT EVENT**, not an `inbox_dm` with
+    // a decorated `type`. §14.2 is explicit: *"Both the live push and a pulled custody record produce the
+    // semantic event `custody_failure`"*, and §18.5.3 requires the same identity and fields on both — so an app
+    // ships ONE decoder and does not have to know which transport a report arrived over.
+    //
+    // ⛔⛔ WHY THE FORK LIVES **HERE** AND NOT IN `src/firmware_inbox.cpp`'s pull callback, which is where a
+    //     reader would first look for it: `src/*.cpp` is outside the native build (§B115's blind spot), and this
+    //     function ALREADY switches on the `type` byte three lines below. Putting the decision at the existing
+    //     type-switch means the whole of §14.2's pulled half is natively gated, and the pull callback stays
+    //     byte-for-byte unchanged — zero new code in the blind spot, which is the honest way to add a rendering
+    //     rule to a surface no test can otherwise reach.
+    // ⛔ THE BINARY BODY NEVER REACHES `j.str()`. This arm returns before the `"body"` field below; that is the
+    //    §7.2 rule ("never through the ordinary text encoder or the OLED byte sanitizer") enforced structurally
+    //    rather than by a caller remembering it.
+    // ⛔ ONE CODEC (§9.2) — `parse_custody_failure`, the same call the receiver and the live push make.
+    if (type == MESHROUTE_NS::DATA_TYPE_CUSTODY_FAILURE) {
+        const std::optional<MESHROUTE_NS::CustodyFailureRecord> rec = MESHROUTE_NS::parse_custody_failure(
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(body), body_len));
+        // C2, and ⛔ deliberately NOT a degraded `inbox_dm` fallback: a stored custody record that no longer
+        // parses is a torn store, and rendering its bytes as a message is the exact defect this fork prevents.
+        // Returning 0 is the EXISTING loud path — `firmware_inbox.cpp`'s callback emits `{"err":"inbox_encode"}`
+        // rather than dropping the record silently. Structurally unreachable: the receiver validated these same
+        // bytes with this same function before they were written.
+        if (!rec) return 0;
+        j.lit("{\"ev\":\"custody_failure\"");
+        j.lit(",\"seq\":");   j.u32(seq);
+        j.lit(",\"rx_ms\":"); j.i64(static_cast<int64_t>(rx_ms));   // §14.2: "a pulled record may additionally carry its receive timestamp"
+        emit_custody_failure_fields(j, origin, *rec);               // §7.2 stored `origin` = the reporting relay = the live push's `reporter`
+        j.ch('}');
+        return j.finish();
+    }
     j.lit("{\"ev\":\"inbox_dm\"");
     // The DATA_TYPE rides right after "ev". 0 = normal DM -> OMITTED (common case; wire-unchanged);
     // DATA_TYPE_E2E_ACK -> a receipt -> "e2e_ack"; any other non-zero -> the numeric (never drop the distinction

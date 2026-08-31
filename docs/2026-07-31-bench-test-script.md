@@ -3671,3 +3671,17 @@ both times (bumped exactly once, no per-boot ratchet) — `pull_inbox 0 0` still
 new DM takes a seq **greater** than the pre-clear high-water, and `status` / `cfg` / `routes` are unchanged
 from before the clear. *(Metal-only: real flash + NVS/InternalFS meta across a true power cut, which neither
 native nor the sim reaches.)*
+
+## Part 53 — §CUSTODY-G / [[B59]]: a custody report reaching the sender on real glass and USB (2026-08-31)
+
+Three nodes A→B→C on real radios, B the only path to C. Send an `-a` DM (or force a `reqpubkey` answer) A→C,
+then **power off C** mid-flight so B's cascade exhausts after it has ACKed custody. On **A** expect exactly
+one USB line of the form
+`CUSTODY FAILURE reporter=<B> layer=<L> origin=<A> dst=<C> ctr=<the ctr A sent> stage=cts|ack reason=cascade_count|cascade_age|queue_full|load_shed|one_way_throttled prev=<A> next=<C> repair=attempted|none one_way=0|1 seq=<N> — the relay could not complete onward custody; …`
+⛔ It must **not** say NACK or claim non-delivery. Then `pull_inbox 0 0` must stream
+`{"ev":"custody_failure","seq":<N>,"rx_ms":…,"reporter":<B>,…}` with the **same** `seq` the USB line printed
+(record-before-push, on real flash), the OLED INBOX must show **no** new row and no unread for it, and
+`del_msg dm <N>` must answer `"result":"erased"`. **Power-cycle once**: the record is still pulled, still
+hidden. *(Metal-only, and ★ the USB line's CONTENT is proven ONLY here: `fw_main.cpp` is outside the native
+build and the simulator wires no inbox store — the host gates prove the JSON surface and that the PushKind
+arm is handled, never what USB prints.)*

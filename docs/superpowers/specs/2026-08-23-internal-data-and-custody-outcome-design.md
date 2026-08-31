@@ -1142,6 +1142,23 @@ own sub-slice before expanding semantics.
 
 ### Slice G — receiver, persistence and factual output
 
+> ✅ **SLICE G COMPLETE — QG PASS 2026-08-31 (1 brief round w/ 4 amendments + 3 impl rounds) — AND THE
+> SIXTH TABLE RULING LANDED** (s06/s07/s27/twin; the keystone unchanged at `32afbf11`/269517 for the second
+> consecutive ruling). **[[B59]] IS SOFTWARE-CLOSED**: `§CUSTODY-G/6` reproduces the founding topology
+> end-to-end (the 0x8B answer dying at the relay → the notice flying back → the sender's stored record +
+> push). Landed: §13's eighteen validations each with an owning-layer falsifier (incl. the battery-forced
+> §13.1 arm) · §7.3's record-before-push with the gap-tolerant append-failure arm (`seq=0` = storage-disabled
+> ONLY) · `PushKind::custody_failure` appended with the full mapping sweep (probe twins same-slice) · §14.2's
+> one-decoder JSON live+pulled · the `persistent_outcome` flip closing §18.2 · the ruled
+> `custody_failure_reject{type,origin,dst,ctr}` · the ordered raw-residue comparator (15 derived controls,
+> type-strict seq, rounds 2-3 killed the histogram-reduction and bool/float-zero holes). Deliveries/
+> duplicates IDENTICAL (the no-radio-traffic STOP held). Native 2503/103323/0. ⚠ USB content is
+> board-compiled — proven ONLY at bench Part 53 (metal-pending, NOT yet run). Spawned [[B276]] (the stale-PIN
+> habituation lesson) + [[B277]] (companion custody-record compat). **Slice H: PARKED by QG recommendation**
+> — G provides the durable factual outcome; H adds presentation correlation only and cannot improve the
+> founding case (§15.1: no user-DM tracker exists for a pubkey answer); revisit after the Parts 35-53 metal
+> backlog informs the DM UNCERTAIN design.
+
 - validate and consume type `0x81`;
 - record before Push;
 - append `PushKind::custody_failure` without growing `Push`;

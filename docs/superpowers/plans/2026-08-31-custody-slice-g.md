@@ -21,8 +21,8 @@ with a re-anchor proposal.
 
 ## Scope (§17-G's six bullets, made operational)
 1. **Validate and consume** (§13): the eighteen validations, each a named check, BEFORE storage/push/
-   correlation/output; failures drop with bounded local telemetry (the F/B `unsupported_internal`-class
-   shape — find the honest lexeme; a MALFORMED record is not evidence: §13's outer-vs-body rule), are
+   correlation/output; failures drop with the ruled bounded scalar event `custody_failure_reject{type,origin,dst,ctr}` (see
+   bullet 6 — ⛔ not `unsupported_internal`; a MALFORMED record is not evidence: §13's outer-vs-body rule), are
    neither stored nor user-exposed; a valid unknown tail is retained durably and ignored by the v1 decoder.
    ⚠ Consumption happens at the dispatch position §13 fixes ("before ordinary DM delivery") — state where
    that lands relative to the Slice-B guard and the hosted-mobile last-mile (the three-forwarding-roles
@@ -31,8 +31,12 @@ with a re-anchor proposal.
    outcome per §7.2's mapping (`kind=dm · type=0x81 · origin=reporter · msg_id=failed_ctr · body=the
    validated record incl. tail · body_len=record_len`; ⛔ the body NEVER passes the text encoder/OLED
    sanitizer) → obtain the gap-tolerant seq → enqueue the live Push carrying it → return WITHOUT DM
-   delivery or E2E-ACK generation. Storage-disabled ⇒ push carries `seq=0`; append failure/drop-oldest
-   unchanged, no retry, no protected slot.
+   delivery or E2E-ACK generation. Storage-disabled ⇒ push carries `seq=0` — EXCLUSIVELY for storage-disabled receipt (§7.3's ruling).
+   **★ The APPEND-FAILURE arm (QG amendment 1 — the approved model is gap-tolerant: `Inbox::record()`
+   assigns and advances the sequence even when append fails, `inbox.cpp:155`):** test that append is
+   attempted BEFORE Push · one live Push still appears with the assigned NONZERO seq · the pull contains no
+   corresponding record · the next successful record takes a HIGHER seq · no retry, no protected slot.
+   ⛔ Do not reinterpret a nonzero seq as proof of persistence — it is the gap-tolerant assignment.
 3. **`PushKind::custody_failure`** (§14.1): APPENDED, `Push` does NOT grow — the existing fields per the
    table verbatim; ⛔ the custody reason NEVER in `Push::reason` (a `SendFailReason` — deliberately
    independent enums); JSON/human output parse `Push::body` through F's codec (⛔ no second offset-reader —
@@ -50,21 +54,30 @@ with a re-anchor proposal.
    test showing a STORED custody record produces 0 OLED rows / 0 unread / raw-pull-visible, plus the §18.3
    item-10 both-paths case (one received E2E ACK → live DELIVERED transition AND no ordinary row — extended
    to the custody record's analogue).
-6. **Invalid/unsupported reports stay out of storage**: per-validation rejection tests (eighteen arms — the
-   F golden-rejection idiom: each byte broken off a control that parses) with the drop-telemetry bounded
-   (fixed fields, no body bytes — the ruled S0 bound class).
+6. **Invalid/unsupported reports stay out of storage — ★ the falsifier wording corrected (QG amendment 3:
+   several §13 validations are CONTEXTUAL, not record-byte mutations):** one independent falsifier AT THE
+   OWNING LAYER per term — codec-owned record structure (the byte-broken idiom) · outer plaintext +
+   standard-unicast parsing (frame-level arms) · `failed_origin == self` (an addressed-elsewhere fixture) ·
+   the active receiving-layer match (a layer fixture) · failed-type and protocol-domain checks. ★ Stated
+   explicitly: the record contains NO reporter-ID field — reporter identity comes from the OUTER origin and
+   is unauthenticated; ⛔ do not invent an outer/body reporter-equality check. **★ The malformed-input
+   telemetry (QG recommendation, adopted): one bounded scalar event `custody_failure_reject{type,origin,
+   dst,ctr}` — no body, no Push, no reuse of `Push::reason`; ⛔ NOT `unsupported_internal` (that would be
+   false — 0x81 is now supported).**
 
-## The corpus obligation — the intermediate state ends
-Predict FIRST from F's accounting: the 25 notices' receiver-side fate flips (guard-drops → consumptions);
-per stream: `unsupported_internal{0x81}` events that DISAPPEAR, `custody_failure` push events that APPEAR,
-inbox-store writes where wired (⚠ the sim wires no stores — B134: `on_init` unreached ⇒ seq=0 pushes in sim
-context; verify), and any knock-on timing. ⚠ The failed_origin==self validation (§13.11) means only the
+## The corpus obligation — the intermediate state ends, and ★ G ADDS NO RADIO TRAFFIC (QG amendment 2)
+G is receiver-LOCAL. The permitted delta is exactly the addressed-0x81 outcome representation:
+`unsupported_internal{0x81}` disappears · `custody_failure` pushes appear · **ALL DATA/RTS/CTS/ACK traffic,
+routes, deliveries, duplicates and airtime IDENTICAL. ★ Any delivery movement is a STOP, not an
+owner-attribution candidate — unlike F, G adds no legitimate contention.** Predict FIRST from F's
+accounting: the 25 notices' receiver-side fate flips per stream; inbox-store writes where wired (⚠ the sim
+wires no stores — B134: `on_init` unreached ⇒ seq=0 pushes in sim context; verify). ⚠ The failed_origin==self validation (§13.11) means only the
 ORIGINAL SENDER consumes; relayed notices en route still... (V1: a relay is not the addressee — the notice
 routes to failed_origin, intermediate hops forward it as normal transit DATA; only the addressee consumes —
 state and test). The accountant/comparator extended or a Slice-G sibling built (own controls); a re-anchor
 PROPOSAL for the owner's single ruling; ⛔ the anchor table only on that ruling. s18 keystone
-`32afbf11/269517/0` (s18 had no notices — predict whether it stays byte-identical). Deliveries/duplicates
-attributed if they move (flag for the owner per the standing rule).
+`32afbf11/269517/0` (s18 had no notices — predict whether it stays byte-identical). Deliveries/duplicates:
+per amendment 2, ANY movement is a STOP — G adds no legitimate contention.
 
 ## Gates
 - Native: the eighteen validation arms · the five-step order proof (record-before-push observable — the
@@ -84,6 +97,10 @@ attributed if they move (flag for the owner per the standing rule).
   probes + any touched probe twins; the A0/literal checkers re-run. Boards: `pair --jobs=2`, attributed
   (`sizeof(Push)` must NOT grow — its static_assert; ABI probe if anything pinned moves). Warning census;
   `git diff --check`.
+- **★ The transition residue, named (QG amendment 4):** flip the exact-membership assertions in
+  `test_data_type_namespace.cpp` and `test_custody_internal_b.cpp` from `{E2E_ACK}` to
+  `{E2E_ACK, CUSTODY_FAILURE}`; sweep every active "until Slice G" / "only E2E_ACK persists" comment;
+  withdrawn historical wording preserved with the correction idiom.
 - ⛔ NEVER `git commit`/`git add`/`git checkout --`; maintained docs = DRAFTS (protocol.md's receiver
   paragraph replacing the intermediate-state warning · frames.md's row losing the "receivers DROP" note ·
   the INBOX_SYNC_CONTRACT custody-record section (the companion sees a new `ev:custody_failure` and a new

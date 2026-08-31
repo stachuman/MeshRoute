@@ -378,9 +378,11 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
             return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge
         case PK::team_key_grant_failed:
             return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `GRANT FAILED` edge
-        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 19 members on core's schedule
-        //    and this unit is interested in exactly seven. The kinds the UI renders rather than correlates
-        //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.
+        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 20 members on core's schedule
+        //    (§CUSTODY-G appended `custody_failure`, a DIAGNOSTIC arrival with no UI affordance in that slice —
+        //    correlating a custody report to a user send is Slice H's) and this unit is interested in exactly
+        //    seven. The kinds the UI renders rather than correlates (`msg_recv` / `channel_recv`) are handled by
+        //    firmware_ui.cpp, which owns the counters they feed.
         default: return false;
     }
 }

@@ -186,6 +186,20 @@ uint32_t Inbox::record_ack(uint8_t from_origin, uint16_t acked_ctr, uint8_t laye
                   /*sender_hash*/ acker_hash, layer_id, /*body*/ nullptr, /*len*/ 0, now_ms, /*enc*/ 0, /*type*/ DATA_TYPE_E2E_ACK, /*team_id*/ 0, /*origin_layer*/ 0);
 }
 
+// ★★★★ §CUSTODY-G (design §7.2). The mapping is fixed here; see the header for why it is a named sibling of
+// `record_ack` rather than a typed `record_dm`. It rides the DM seq-space exactly as an ack receipt does — a
+// custody report IS a DATA frame about a DM — so the companion's single DM cursor still sees every outcome.
+// ⓘ THE PARAMETER IS `rec_bytes`, NOT `record`: `Inbox::record` is the private serialization path this calls, and
+//   a parameter of that name shadows it into a hard compile error. Worth the two extra characters — the shadowing
+//   name would have read fine and meant nothing else.
+uint32_t Inbox::record_custody_failure(uint8_t reporter, uint16_t failed_ctr, uint8_t layer_id,
+                                       const uint8_t* rec_bytes, uint8_t record_len, uint64_t now_ms) {
+    if (!enabled()) return 0;
+    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, reporter, /*channel_id*/ 0,
+                  /*msg_id*/ failed_ctr, /*sender_hash*/ 0, layer_id, /*body*/ rec_bytes, /*len*/ record_len,
+                  now_ms, /*enc*/ 0, /*type*/ DATA_TYPE_CUSTODY_FAILURE, /*team_id*/ 0, /*origin_layer*/ 0);
+}
+
 uint16_t Inbox::pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const {
     if (!enabled() || !cb) return 0;
     TombSet tombs;                                                // ONE instance reused for both stores (128 B of stack, not 256)

@@ -18,8 +18,10 @@
 //       becomes current) -> enqueue; and the §11 not-inherited list.
 //   (5) §12's BEHAVIOUR SET — plane GLOBAL not AUTO, fresh reporter counter, no E2E ack request, no armed user
 //       deadline, no generic lifecycle push, DM-floor exempt — plus THE RECURSION GATE, both halves.
-//   (6) THE INTERMEDIATE F-BEFORE-G STATE — a REAL `0x81` arriving at a neighbour drops at Slice B's fail-closed
-//       tail guard with exactly one bounded `unsupported_internal`, which is the ruled behaviour until G lands.
+//   (6) THE GENERATOR-TO-RECEIVER JOIN — a REAL `0x81`, built by the real generator off a real terminal transit
+//       carrier, flown over the real MAC to its real addressee and CONSUMED there. ⚠ RE-AIMED 2026-08-31: this
+//       claim used to be *"the intermediate F-before-G state — it drops at Slice B's fail-closed tail guard with
+//       exactly one bounded `unsupported_internal`"*, the ruled behaviour until G landed. G landed; see §F/7.
 //
 // ⛔ PRODUCTION-SHAPED WHEREVER THE PATH ALLOWS. The transit carrier is a REAL forward installed by a real
 //    RTS/CTS/DATA/ACK exchange on a 3-node chain (the §CUSTODY-B/E fixture). The negative matrix takes THAT
@@ -1157,12 +1159,21 @@ TEST_CASE("§CUSTODY-F/6b a §10.2 DEFERRED loss site (no-route defer TTL) still
 // §CUSTODY-F/7 — THE INTERMEDIATE F-BEFORE-G STATE, RATIFIED AND MEASURED
 // =====================================================================================================
 
-// ★★★★ THE RULED INTERMEDIATE BEHAVIOUR: F makes `0x81` an EMITTED type while Slice G's receiver does not
-//      exist, so a transmitted notice is RECEIVED by its addressee and DROPPED at Slice B's fail-closed tail
-//      guard with exactly one bounded `unsupported_internal`. That is §17's own slice order and it is a GATE
-//      FEATURE, not a gap — measured here rather than argued, and this case is what will have to be re-anchored
-//      when Slice G lands (which is the point of pinning it).
-TEST_CASE("§CUSTODY-F/7 a REAL 0x81 arriving at its addressee drops at the Slice-B tail guard, exactly once") {
+// ⚠⚠ WITHDRAWN AND RE-ANCHORED 2026-08-31 BY §CUSTODY-G — **BY THE SLICE IT NAMED, WHICH IS THE POINT OF
+//    HAVING PINNED IT.** THE CASE READ: *"§CUSTODY-F/7 a REAL 0x81 arriving at its addressee drops at the
+//    Slice-B tail guard, exactly once"*, and asserted `unsupported_internal == 1` with `pushes == 0`. Its own
+//    banner said: *"F makes 0x81 an EMITTED type while Slice G's receiver does not exist … this case is what
+//    will have to be re-anchored when Slice G lands"*. Slice G landed `Node::custody_failure_receive`, so an
+//    addressed 0x81 is now CONSUMED before ordinary DM delivery (§13) and never reaches the tail guard.
+// ⛔ THE CASE IS RE-AIMED, NOT DELETED, AND IT KEEPS THE PROPERTY THAT MADE IT VALUABLE: it is the ONLY arm in
+//    the tree where the notice is produced by the REAL generator off a REAL terminal transit carrier and then
+//    flown to its REAL addressee over the REAL MAC. Everything downstream of it — the eighteen validations, the
+//    five-step order, the JSON — is measured in `test/test_custody_receive_g.cpp` against synthesized records;
+//    THIS is the case that proves the two halves of the arc actually meet.
+// ⓘ The inbox is UNWIRED in this fixture (no `Inbox::on_init`), so the push carries `seq == 0` — §7.3's
+//   storage-disabled receipt, which is also exactly the simulator's situation (B134). The STORED half is
+//   proven in the G file, where a `RamInboxStore` is wired.
+TEST_CASE("§CUSTODY-F/7 a REAL 0x81 arriving at its addressee is CONSUMED by the §CUSTODY-G receiver, not guard-dropped") {
     FChain c;
     const uint8_t body[] = { 'w' };
     CHECK(c.n1.test_do_send_typed(/*dst=*/3, body, sizeof body, CryptIntent::off, 0, 0) != 0);
@@ -1184,13 +1195,36 @@ TEST_CASE("§CUSTODY-F/7 a REAL 0x81 arriving at its addressee drops at the Slic
 
     // ★ THE HOP COMPLETED — the notice was ACKed like any DATA (§12: ordinary hop ACKs) ...
     CHECK(c.h1.label_count("ACK") >= 1);
-    // ... and the SEMANTIC verdict is the fail-closed drop, with the bounded telemetry and NOTHING else.
-    CHECK(c.h1.count("unsupported_internal") == 1);       // ⛔ EXACTLY one, per dedup-admitted flight
-    CHECK(c.h1.count("delivered") == 0);                  // ⛔ never delivered as a message
-    CHECK(c.h1.count("msg_recv") == 0);
-    Push p{}; int pushes = 0; while (c.n1.next_push(p)) ++pushes;
-    CHECK(pushes == 0);                                   // ⛔ no Push, no storage, no user-visible anything
-    // ⓘ THE GUARD ASKS THE RANGE, NOT THE ALLOCATION — which is exactly why allocating 0x81 did not change this
-    //   behaviour, and why Slice G's consumer will sit IN FRONT of the guard rather than replace it.
+    // ... and the SEMANTIC verdict is now CONSUMPTION by the §CUSTODY-G receiver.
+    CHECK(c.h1.count("unsupported_internal") == 0);       // ⛔ the tail guard is no longer where an 0x81 dies
+    CHECK(c.h1.count("custody_failure_reject") == 0);     // ⛔ and the REAL generator's record passes all eighteen
+    CHECK(c.h1.count("custody_failure_rx") == 1);         // ★ exactly one validated receipt
+    CHECK(c.h1.count("delivered") == 0);                  // ⛔ still never delivered as a message ...
+    CHECK(c.h1.count("msg_recv") == 0);                   // ⛔ ... and still not an ordinary DM
+    // ★★ ONE push, and it is `custody_failure` carrying §14.1's mapping off the record the RELAY built.
+    Push p{}; int pushes = 0; Push cust{}; int n_cust = 0;
+    while (c.n1.next_push(p)) { ++pushes; if (p.kind == PushKind::custody_failure) { cust = p; ++n_cust; } }
+    CHECK(pushes == 1);
+    CHECK(n_cust == 1);
+    CHECK(cust.origin == 2);                              // the OUTER reporting relay = node 2
+    CHECK(cust.dst    == 3);                              // failed_dst = the DM's original destination
+    CHECK(cust.seq    == 0u);                             // §7.3: storage disabled in this fixture -> 0
+    CHECK(cust.reason == SendFailReason::none);           // ⛔ §14.1: the custody reason is NEVER in Push::reason
+    CHECK(cust.body_len == custody_record_v1_len);
+    // ⛔ THE PUSH CARRIES THE **RELAY'S OWN** RECORD, decoded through the ONE codec — not a re-derivation.
+    const std::optional<CustodyFailureRecord> got =
+        parse_custody_failure(std::span<const uint8_t>(cust.body, cust.body_len));
+    CHECK(got.has_value());
+    if (got) {
+        CHECK(got->failed_origin == 1);                   // §13.11: addressed to US, which is why it was consumed
+        CHECK(got->failed_dst    == 3);
+        CHECK(got->failed_ctr    == cust.ctr);
+        CHECK(got->reporter_layer == 2);                  // f_cfg()'s deliberately-nonzero leaf id
+        CHECK(custody_reason_is_transmittable(static_cast<uint8_t>(got->terminal_reason)));
+        CHECK(custody_flags_exactly_one_stage(got->notice_flags));
+    }
+    // ⓘ THE GUARD ASKS THE RANGE, NOT THE ALLOCATION — which is why allocating 0x81 did not change the guard,
+    //   and why Slice G's consumer sits IN FRONT of it rather than replacing it. The paired case that proves
+    //   the guard still eats OTHER internal types lives in `test/test_custody_receive_g.cpp`.
     CHECK(data_type_is_internal(DATA_TYPE_CUSTODY_FAILURE));
 }

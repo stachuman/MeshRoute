@@ -158,12 +158,19 @@ DataTypeTraits expected_traits(uint8_t t) {
     // family. Everything outside both ranges is not valid for origination at all (§5.1) — it bears nothing.
     e.application_bearing    = untyped_dm || application_range;
     e.generic_send_lifecycle = untyped_dm || application_range;
-    // §7.1: the opt-in persistent set is EXACTLY {E2E_ACK} — STILL, at Slice F.
-    // ⛔⛔ CORRECTED IN PLACE 2026-08-31. It read *"CUSTODY_FAILURE joins it when the custody-codec slice
-    //    allocates 0x81 — it must NOT be anticipated here"*. §CUSTODY-F allocated 0x81 and DID NOT join the set:
-    //    F adds the producer and the codec, G adds the storing consumer, and the trait describes actual durable
-    //    writing rather than an intention to write. ⇒ **SLICE G is the row that moves.**
-    e.persistent_outcome = (t == DATA_TYPE_E2E_ACK);
+    // §7.1: the opt-in persistent set is EXACTLY {E2E_ACK, CUSTODY_FAILURE} — COMPLETE, at Slice G.
+    // ⛔⛔ THE ROW MOVED 2026-08-31, ON THE SLICE THAT WAS NAMED FOR IT, and the two earlier wordings are kept
+    //    because together they are the discipline rather than a changelog:
+    //      · Slice A wrote *"CUSTODY_FAILURE joins it when the custody-codec slice allocates 0x81 — it must NOT
+    //        be anticipated here"*;
+    //      · §CUSTODY-F corrected that to *"F allocated 0x81 and DID NOT join the set … ⇒ SLICE G is the row that
+    //        moves"*, because F added the producer and the codec but no storing consumer, and a trait must
+    //        describe actual durable writing rather than an intention to write.
+    //    §CUSTODY-G added `Node::custody_failure_receive` -> `Inbox::record_custody_failure`, so the write now
+    //    exists and the row moves HERE — not one slice early, not one slice late.
+    // ⛔ THIS EXPECTATION IS STILL WRITTEN FROM THE DESIGN, NOT FROM THE PRODUCTION SWITCH: §7.1 names the set in
+    //    prose, and a mutation of `data_type_traits()` cannot be absorbed by this line.
+    e.persistent_outcome = (t == DATA_TYPE_E2E_ACK || t == DATA_TYPE_CUSTODY_FAILURE);
     return e;
 }
 
@@ -240,7 +247,7 @@ TEST_CASE("§CUSTODY-A/3 the Slice-A trait truth table, row by row") {
         { DATA_TYPE_CHANNEL_POST,                 true,  false, true,  true,  false, "0x04 CHANNEL_POST" },
         // ★ the reservation is NOT knowledge — it takes the application range's unknown behaviour
         { DATA_TYPE_APP_MESSAGE,                  false, false, true,  true,  false, "0x05 APP_MESSAGE (reserved)" },
-        // ★ the only persistent_outcome at Slice A
+        // ★ persistent_outcome member 1 of 2 (§7.1); it has been one since Slice A
         { DATA_TYPE_E2E_ACK,                      true,  true,  false, false, true,  "0x80 E2E_ACK" },
         { DATA_TYPE_H_ANSWER,                     true,  true,  false, false, false, "0x88 H_ANSWER" },
         { DATA_TYPE_AUTHORITATIVE_H_ANSWER,       true,  true,  false, false, false, "0x89 AUTH_H_ANSWER" },
@@ -262,9 +269,11 @@ TEST_CASE("§CUSTODY-A/3 the Slice-A trait truth table, row by row") {
         { 0x06,                                   false, false, true,  true,  false, "0x06 unallocated application" },
         { 0x0F,                                   false, false, true,  true,  false, "0x0F (ordinal 15's old slot)" },
         { 0x7F,                                   false, false, true,  true,  false, "0x7F application top" },
-        // ★ 0x81 is ALLOCATED as of §CUSTODY-F — known, internal, NOT application-bearing, NO generic
-        //   lifecycle, and ⛔ `persistent_outcome` STILL FALSE (Slice G flips it).
-        { DATA_TYPE_CUSTODY_FAILURE,              true,  true,  false, false, false, "0x81 CUSTODY_FAILURE" },
+        // ★ 0x81 — ALLOCATED by §CUSTODY-F, PERSISTENT since §CUSTODY-G. Known, internal, NOT application-
+        //   bearing, NO generic lifecycle, and `persistent_outcome` TRUE now that a storing consumer exists.
+        //   ⓘ The row previously read `false` in the last column with the note *"(Slice G flips it)"*; this is
+        //     that flip, and it is the SECOND member of §7.1's opt-in set.
+        { DATA_TYPE_CUSTODY_FAILURE,              true,  true,  false, false, true,  "0x81 CUSTODY_FAILURE" },
         // unknown internal range
         { 0x82,                                   false, true,  false, false, false, "0x82 unallocated internal" },
         { 0x87,                                   false, true,  false, false, false, "0x87 unallocated internal" },
@@ -286,20 +295,30 @@ TEST_CASE("§CUSTODY-A/3 the Slice-A trait truth table, row by row") {
     }
 }
 
-TEST_CASE("§CUSTODY-A/4 persistent_outcome membership is EXACTLY {E2E_ACK} at Slice A") {
+TEST_CASE("§CUSTODY-A/4 persistent_outcome membership is EXACTLY {E2E_ACK, CUSTODY_FAILURE} at Slice G") {
     unsigned n = 0;
     for (unsigned v = 0; v <= 0xFF; ++v) {
         const uint8_t t = static_cast<uint8_t>(v);
-        if (data_type_traits(t).persistent_outcome) { ++n; CHECK(t == DATA_TYPE_E2E_ACK); }
+        if (data_type_traits(t).persistent_outcome) {
+            ++n;
+            CHECK((t == DATA_TYPE_E2E_ACK || t == DATA_TYPE_CUSTODY_FAILURE));
+        }
     }
-    CHECK(n == 1);
-    // ★★ THIS IS THE CASE §CUSTODY-A SAID WOULD MOVE, AND IT MOVED HALFWAY — which is the whole ruling.
-    //    0x81 is now ALLOCATED and KNOWN (F gave it a producer), and it is STILL NOT PERSISTENT: F writes
-    //    nothing durable, so the trait would be describing a store that does not exist. ⇒ Slice G flips the
-    //    persistence half and this assertion is what will redden when it does.
-    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome);
+    CHECK(n == 2);
+    // ★★ THIS IS THE CASE §CUSTODY-A SAID WOULD MOVE, AND IT MOVED IN TWO STEPS — which is the whole ruling,
+    //    now complete. Slice F made 0x81 ALLOCATED and KNOWN (it gave the type a producer) while deliberately
+    //    leaving it NOT PERSISTENT, because F wrote nothing durable and the trait would have described a store
+    //    that did not exist. §CUSTODY-G added `Node::custody_failure_receive` -> `Inbox::record_custody_failure`
+    //    and flipped the persistence half in the SAME slice as the write.
+    //    ⓘ The assertion below read `CHECK_FALSE(...persistent_outcome)` and was documented as *"what will
+    //      redden when it does"*. It reddened; this is the re-anchor, not a deletion.
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome);
     CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).known);
     CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);
+    // ⛔ AND THE OTHER THREE BITS DID **NOT** MOVE WITH IT: `persistent_outcome` is a STORAGE opt-in and buys
+    //    nothing else. A slice that flipped the generic lifecycle on 0x81 would re-create [[B59]]'s own defect
+    //    (a custody notice pushing `send_failed` under the failed flight's `{dst, ctr}`), so the negatives are
+    //    asserted beside the positive rather than left implicit.
     CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).generic_send_lifecycle);
     CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).application_bearing);
 }

@@ -33,7 +33,7 @@ struct InboxEntry {
     uint32_t       sender_hash;  // DM: the sender's key_hash32 (the STABLE identity, when SOURCE_HASH was set); 0 if absent / channel
     uint8_t        layer_id;     // §2/Q13: the FULL 8-bit receiving layer id — disambiguates `origin` across a gateway's two leaves
     uint8_t        enc;          // §8b: 1 = this DM was delivered SEALED (DATA_FLAG_CRYPTED + a successful e2e_open); 0 = plaintext / channel
-    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). ⛔ CORRECTED 2026-08-30 (§CUSTODY-C): this used to read "Room for H_ANSWER etc. later" and that direction is now RULED OUT — §7.1's opt-in set is exactly {E2E_ACK, CUSTODY_FAILURE} and §CUSTODY-B's fail-closed guard (node_mac_rx.cpp) drops every other internal type BEFORE record_dm, so no hash answer, mobility control or key forward can reach this field. What a reader asks of it is `inbox_record_is_internal()` below, never an exact-value list. ★ inbox_rec_type_tombstone (0xFE) is NOT a DataType — it marks a §3.5 DELETION marker (msg_id = the deleted record's seq, body_len 0); pull() never emits one.
+    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr); DATA_TYPE_CUSTODY_FAILURE = a §CUSTODY-G custody report (origin = the reporting relay, msg_id = failed_ctr, body = the 24+ B BINARY v1 record — ⛔ NEVER text, §7.2). ⛔ CORRECTED 2026-08-30 (§CUSTODY-C): this used to read "Room for H_ANSWER etc. later" and that direction is now RULED OUT — §7.1's opt-in set is exactly {E2E_ACK, CUSTODY_FAILURE} and §CUSTODY-B's fail-closed guard (node_mac_rx.cpp) drops every other internal type BEFORE record_dm, so no hash answer, mobility control or key forward can reach this field. What a reader asks of it is `inbox_record_is_internal()` below, never an exact-value list. ★ inbox_rec_type_tombstone (0xFE) is NOT a DataType — it marks a §3.5 DELETION marker (msg_id = the deleted record's seq, body_len 0); pull() never emits one.
     uint32_t       team_id;      // §S5: a channel message's team scoping (0 = a plain leaf channel / DM). Carries the ACTUAL id (not a flag) so post-team-switch history stays correctly labelled.
     uint8_t        origin_layer; // §GapA durable: the cross-layer SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer / non-XL). Durable twin of Push.origin_layer so a pulled record still yields the (layer_path, hash) reply address.
     uint64_t       rx_time_ms;
@@ -71,26 +71,33 @@ inline constexpr uint8_t inbox_rec_type_tombstone = 0xFE;
 
 // ★★★★ §CUSTODY-C (2026-08-30) — THE ONE CLASSIFICATION A READER ASKS OF A STORED RECORD (design §7.4).
 // A stored record is either an ordinary APPLICATION message (the thing a conversation view renders) or a
-// protocol-INTERNAL OUTCOME record (an E2E-ack receipt today; a custody-failure report when §17-F lands). Every
-// presentation seam that has to tell them apart asks THIS, so there is one answer and it cannot drift.
+// protocol-INTERNAL OUTCOME record — an E2E-ack receipt, or (since §CUSTODY-G) a custody-failure report with a
+// 24-byte BINARY body. Every presentation seam that has to tell them apart asks THIS, so there is one answer
+// and it cannot drift.
 //
 // ⛔⛔ THE PREDICATE IS `data_type_traits(t).internal`, ⛔ **NOT** `persistent_outcome`, and the distinction is
 //     load-bearing rather than stylistic:
 //       · `persistent_outcome` answers "may this type be WRITTEN to the store as a durable outcome record" — an
-//         OPT-IN whose membership is exactly `{E2E_ACK}` today (frame_codec.h). It is a WRITE authority.
+//         OPT-IN whose membership is exactly `{E2E_ACK, CUSTODY_FAILURE}` since §CUSTODY-G (frame_codec.h).
+//         It is a WRITE authority.
 //       · `internal` answers "is this record protocol machinery rather than a user message" — a RANGE fact, true
 //         for the whole `0x80..0xBF` block including values this firmware has never heard of.
-//     Classifying a READ by `persistent_outcome` therefore FAILS OPEN: `CUSTODY_FAILURE` (`0x81`), the reserved
-//     `0x8A`, the retired `0x94` and anything a newer firmware writes are all `persistent_outcome == false`, so
-//     each would be presented to the operator AS ORDINARY MESSAGE TEXT — which is the §7 defect class ("never
-//     through the ordinary text encoder or the OLED byte sanitizer") arriving through the front door. `internal`
-//     fails CLOSED.
-//     ★★ CORRECTED 2026-08-31 (§CUSTODY-F) AND THE CLAIM WAS **VERIFIED RATHER THAN WEAKENED**: this used to end
-//     *"a future CUSTODY_FAILURE needs no presentation change at all: it is already hidden by the range, before
-//     its codec exists"*. Slice F allocated `0x81`, gave it a producer and a 24-byte binary body, and ⛔ CHANGED
-//     NOTHING HERE — §CUSTODY-C/1's assertion is byte-identical across the allocation. ⚠ And 0x81 stays
-//     `persistent_outcome == false` until Slice G's storing consumer lands, so this paragraph's hazard is now a
-//     LIVE type rather than a hypothetical one.
+//     Classifying a READ by `persistent_outcome` therefore FAILS OPEN: the reserved `0x8A`, the retired `0x94`,
+//     every wired-but-not-persisted internal type (hash answers, mobility control, key forwarding, the team-key
+//     grant) and anything a NEWER firmware writes are all `persistent_outcome == false`, so each would be
+//     presented to the operator AS ORDINARY MESSAGE TEXT — the §7 defect class ("never through the ordinary text
+//     encoder or the OLED byte sanitizer") arriving through the front door. `internal` fails CLOSED.
+//     ★★ THE CLAIM HAS BEEN VERIFIED TWICE ACROSS ITS OWN SUBJECT'S LIFETIME, WHICH IS WHY IT IS TRUSTED:
+//       · §CUSTODY-F allocated `0x81`, gave it a producer and a binary body, and ⛔ CHANGED NOTHING HERE —
+//         §CUSTODY-C/1's assertion was byte-identical across the allocation;
+//       · §CUSTODY-G started WRITING one and flipped `persistent_outcome` to true, and ⛔ CHANGED NOTHING HERE
+//         EITHER. The record was already hidden by the RANGE from the moment the type existed, so the visibility
+//         rule never depended on the write authority in either direction.
+//     ⚠ CORRECTED IN PLACE 2026-08-31 (§CUSTODY-G): the wording above used to name `CUSTODY_FAILURE (0x81)` as
+//     the LEAD example of a type `persistent_outcome` fails open on, and *"0x81 stays `persistent_outcome ==
+//     false` until Slice G's storing consumer lands"*. Both are now FALSE for 0x81 specifically. ⛔ The RULE is
+//     untouched — the example moved, not the argument — and `test_custody_internal_c.cpp`'s §CUSTODY-C/1c case
+//     was re-anchored onto the examples that remain, so the weakened predicate is still measurably wrong.
 //
 // ⛔ IT IS NOT A STORAGE RULE. Nothing about what is written, evicted or erased consults this: an internal record
 //    ages out of the ring and answers `Inbox::erase` EXACTLY like a DM (§7.5 — "no deletion protection"), and
@@ -194,6 +201,25 @@ public:
     // A DM-store entry under the DM seq-cursor: kind=dm, type=DATA_TYPE_E2E_ACK, origin=from_origin, msg_id=acked_ctr, body_len=0,
     // enc=0. `acker_hash` = the acker's stable key_hash32 for a cross-layer ack (the 8-bit origin aliases across leaves); 0 same-layer.
     uint32_t record_ack(uint8_t from_origin, uint16_t acked_ctr, uint8_t layer_id, uint64_t now_ms, uint32_t acker_hash = 0);
+    // ★★★★ §CUSTODY-G (design §7.2) — THE DURABLE CUSTODY-FAILURE OUTCOME RECORD, and it is a SIBLING of
+    // `record_ack` rather than a `record_dm` call with a type argument, for the same reason `record_ack` is one:
+    // the MAPPING is the contract, and a mapping spelled at the call site is a mapping that can be spelled
+    // differently at the next one (U2 — one conversion path per carrier).
+    // §7.2's mapping, verbatim, and every field is fixed HERE so no caller can choose:
+    //     kind = dm · type = DATA_TYPE_CUSTODY_FAILURE · origin = `reporter` (the OUTER DATA origin, i.e. the
+    //     reporting relay) · layer_id = the receiving/reporting static layer · msg_id = `failed_ctr` ·
+    //     sender_hash = 0 · enc = 0 · origin_layer = 0 · body = the VALIDATED record incl. any accepted tail ·
+    //     body_len = `record_len`.
+    // ⛔⛔ `body` IS BINARY AND STAYS BINARY (§7.2's closing sentence): it must never reach the ordinary text
+    //    encoder or the OLED byte sanitizer. The store keeps bytes; `console_json.cpp`'s `custody_failure` fork
+    //    is what turns them back into semantics, through the ONE codec.
+    // ⛔ `sender_hash = 0` IS THE RULING, not an omission: the outer origin is UNAUTHENTICATED (§13's closing
+    //    paragraph), so there is no identity to key by and inventing one would make a display-shaped field look
+    //    like an attestation.
+    // Returns the assigned DM-store seq under the EXISTING gap-tolerant model — 0 iff the inbox is disabled
+    // (§7.3), and a NONZERO value is the assignment, ⛔ never a proof the append reached the medium.
+    uint32_t record_custody_failure(uint8_t reporter, uint16_t failed_ctr, uint8_t layer_id,
+                                    const uint8_t* rec_bytes, uint8_t record_len, uint64_t now_ms);
 
     // Companion pull: stream DM records (seq > dm_since), THEN channel records (seq > chan_since), each
     // oldest-first, via cb. Returns the total entries visited. DM-block-then-channel-block (the two seq
@@ -206,8 +232,11 @@ public:
     // the same cap. Cost = the store is scanned TWICE per pull; pull is a console/UI operation, never a MAC path.
     //
     // ★★★★ §CUSTODY-C — `pull()` IS THE **RAW** AUTHORITY AND STAYS RAW (design §7.4), AND THAT IS A RULING, NOT
-    //      AN OVERSIGHT. It streams internal OUTCOME records (an E2E-ack receipt; later a custody report) verbatim
-    //      alongside application messages. ⛔ **NEVER add an `inbox_record_is_internal` filter here or in the
+    //      AN OVERSIGHT. It streams internal OUTCOME records (an E2E-ack receipt; since §CUSTODY-G a custody
+    //      report too) verbatim alongside application messages — which is exactly what makes the §14 "pulled
+    //      record" half of the diagnostic contract reachable at all: `firmware_inbox.cpp`'s pull callback hands
+    //      the raw record to `write_inbox_dm`, whose `custody_failure` fork renders it semantically.
+    //      ⛔ **NEVER add an `inbox_record_is_internal` filter here or in the
     //      `pull_inbox` verb built on it.** What that "tidy-up" would break, measured rather than argued:
     //        · the companion marks an OFFLINE outgoing message DELIVERED by consuming the PULLED receipt
     //          (`AppModel.importInboxEntry`: `if e.isReceipt { markDelivered(…); activeSync?.advance(with: e) }`) —

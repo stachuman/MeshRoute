@@ -411,6 +411,18 @@ TARGET_SRC = {
     "sliceFcodec":  "lib/core/frame_codec.cpp",        # §CUSTODY-F — the 24 wire offsets + the pack/parse invariants
     "sliceFtypes":  "lib/core/frame_codec.h",          # §CUSTODY-F — flags derivation, stage rule, v1 domains, 0x81 traits
     "sliceFcascade":"lib/core/node_cascade.cpp",       # §CUSTODY-F — the twelve eligibility terms, the snapshot, §12's enqueue
+    # ★★ ADDED 2026-08-31 BY §CUSTODY-G (the receiver, persistence and factual output). FOUR targets, and the
+    #    split is the usual one: a battery is per-SOURCE-FILE and §13's eighteen validations, §7.2's record
+    #    mapping and §14.2's two emitters live in three different files, plus the trait/domain header.
+    # ⚠ `sliceGtypes` and `sliceGcodec` name files that ALREADY have a Slice-F target. That is deliberate and is
+    #    the established pattern (`sliceBcascade` / `sliceEcascade` / `sliceFcascade` are three targets over one
+    #    file): each slice's claims stay INDEPENDENTLY re-provable, and the harness keys every lock, backup and
+    #    in-flight marker by the resolved source path, so the two never interleave.
+    "sliceGtypes":  "lib/core/frame_codec.h",          # §CUSTODY-G — the persistent_outcome flip, the stage inverse, §13.18's domain
+    "sliceGcodec":  "lib/core/frame_codec.cpp",        # §CUSTODY-G — the five §13 parser terms F's battery did not attack per-term
+    "sliceGrx":     "lib/core/node_mac_rx.cpp",        # §CUSTODY-G — §13's eighteen validations + §7.3's five-step order
+    "sliceGinbox":  "lib/core/inbox.cpp",              # §CUSTODY-G — §7.2's record mapping (origin / type / body+len)
+    "sliceGjson":   "lib/console/console_json.cpp",    # §CUSTODY-G — §14.2's live + pulled emitters and the ONE name table
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
     # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
@@ -601,15 +613,34 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2437, 101569    # ★★ RE-SYNCED AGAIN 2026-08-31 by **§CUSTODY-E's QG round 2** (the
-                                         # sentinel-laundering blocker). DERIVATION, measured per case with
-                                         # `program -tc=`: +1 case / +21 assertions on 2436 / 101548.
-                                         #   the new case  E/3d the invalid stage is FAIL-CLOSED          9
-                                         #   never-invalid pins added to SEVEN existing cases:
-                                         #     E/2  8->9 (+1) · E/2b 24->25 (+1) · E/4  7->9 (+2)
-                                         #     E/4b 6->8 (+2) · E/4c 16->18 (+2) · E/4d 13->15 (+2)
-                                         #     E/4e 10->12 (+2)                                    = +12
-                                         #   9 + 12 = 21.  ⛔ ZERO cases removed or renamed.
+PIN_CASES, PIN_ASSERTS = 2503, 103323    # ★★ RE-SYNCED 2026-08-31 by **§CUSTODY-G**, and it closes TWO gaps at
+                                         # once — both are written out because a re-sync that does not say what
+                                         # it absorbed is exactly the "stale figure" this cross-check exists to
+                                         # surface.
+                                         #
+                                         # ⚠ GAP 1 — **SLICE F DID NOT RE-SYNC THIS PIN.** The value below was
+                                         #   §CUSTODY-E's (2437 / 101569); Slice F added 26 cases / 554
+                                         #   assertions (2437 -> 2463 / 101569 -> 102123, the figure F's own
+                                         #   report and the corpus evidence doc both record) and left the pin
+                                         #   alone, so every battery run since has printed the stale-pin banner.
+                                         #   ⓘ REGISTERED, not just fixed in passing: the drift is a §CUSTODY-G
+                                         #   finding in `docs/2026-07-30-open-bug-register.md`.
+                                         #
+                                         # GAP 2 — SLICE G's own delta: 2463 -> 2503 (+40 cases) and
+                                         #   102123 -> 103323 (+1200 assertions). DERIVATION, measured per case
+                                         #   with `program -tc=`:
+                                         #     `test_custody_receive_g.cpp` (NEW FILE)  -tc='§CUSTODY-G*'
+                                         #                                              38 cases / 1108 asserts
+                                         #     `test_custody_internal_c.cpp` +2 cases:
+                                         #       §CUSTODY-C/2e  visibility re-run              11
+                                         #       §CUSTODY-C/5b  the both-paths analogue        27   = 38
+                                         #     ⇒ 37 + 2 = 39 cases · 1065 + 38 = 1103 asserts from new cases.
+                                         #     The remaining +54 assertions are the RE-ANCHORED transition
+                                         #     residue inside EXISTING cases (§CUSTODY-A/3, A/4, B/3c, C/1c,
+                                         #     F/7 and the two enum-sweep additions in test_console_json.cpp),
+                                         #     each of which gained pins rather than losing them.
+                                         #   ⛔ ZERO cases removed; five were RENAMED in place, and every one of
+                                         #     the five records the withdrawn wording at its own site.
                                          #
                                          # PIN_CASES, PIN_ASSERTS = 2436, 101548 — ★★ RE-SYNCED 2026-08-31 by **§CUSTODY-E**, and the
                                          # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
@@ -7893,19 +7924,28 @@ MUTS_SLICEFTYPES = [
   "they share this one predicate",
   "constexpr bool custody_node_id_valid(uint8_t id) { return id >= 1 && id <= 254; }",
   "constexpr bool custody_node_id_valid(uint8_t) { return true; }"),
+ # ⚠⚠ BOTH ENTRIES BELOW WERE **RE-ANCHORED 2026-08-31 BY §CUSTODY-G**, and the reason is recorded rather than
+ #    quietly fixed: they anchor on the `DATA_TYPE_CUSTODY_FAILURE` trait row, and Slice G legitimately flipped
+ #    its last column (`persistent_outcome` false -> true) in the same slice that added the storing consumer. An
+ #    un-re-anchored entry does not fail loudly — it goes **VACUOUS at match count 0**, i.e. silently stops
+ #    measuring anything, which is the one failure mode a mutation battery must never have.
  ("F16 ★★★★ 0x81 IS GIVEN THE GENERIC USER-SEND LIFECYCLE — the custody notice starts pushing "
   "`send_failed`/`send_aired` under ITS `{dst, ctr}` into the app ring: [[B59]]'s exact defect, re-created by "
-  "the very frame that was built to report it",
+  "the very frame that was built to report it. (Re-anchored 2026-08-31: the row's last column is now `true`.)",
   "        case DATA_TYPE_CUSTODY_FAILURE:\n"
-  "            return DataTypeTraits{ true,  true,  false, false, false };",
+  "            return DataTypeTraits{ true,  true,  false, false, true  };",
   "        case DATA_TYPE_CUSTODY_FAILURE:\n"
-  "            return DataTypeTraits{ true,  true,  false, true,  false };"),
- ("F17 ★★★ 0x81 IS MARKED `persistent_outcome` IN SLICE F — the trait claims a durable inbox record that NO "
-  "code writes until Slice G, which is the \"a success that isn't\" shape this arc has corrected twice",
+  "            return DataTypeTraits{ true,  true,  false, true,  true  };"),
+ ("F17 ⚠ **RE-AIMED 2026-08-31 BY §CUSTODY-G.** IT READ: *\"0x81 IS MARKED `persistent_outcome` IN SLICE F — "
+  "the trait claims a durable inbox record that NO code writes until Slice G\"*. Slice G added the storing "
+  "consumer AND flipped the bit together, so that mutant is now the PRODUCTION state and the arm went vacuous. "
+  "The INVERSE — un-flipping the bit while the writer exists — is `sliceGtypes` G01. This entry is re-aimed at "
+  "the OTHER claim this one line makes and which nothing else attacks: 0x81 is a KNOWN type. Slice F earned "
+  "that word by giving it a producer; dropping it sends 0x81 back to the internal range's unknown behaviour",
   "        case DATA_TYPE_CUSTODY_FAILURE:\n"
-  "            return DataTypeTraits{ true,  true,  false, false, false };",
+  "            return DataTypeTraits{ true,  true,  false, false, true  };",
   "        case DATA_TYPE_CUSTODY_FAILURE:\n"
-  "            return DataTypeTraits{ true,  true,  false, false, true  };"),
+  "            return DataTypeTraits{ false, true,  false, false, true  };"),
 ]
 
 MUTS_SLICEFCASCADE = [
@@ -8049,6 +8089,234 @@ MUTS_SLICEFCASCADE = [
   "    if (false) return;"),
 ]
 
+
+# =====================================================================================================
+# §CUSTODY-G (2026-08-31) — THE RECEIVER, PERSISTENCE AND FACTUAL OUTPUT
+# =====================================================================================================
+# ⛔ ONE ARM PER §13 TERM, AT THE LAYER THAT OWNS IT. The eleven CODEC-owned terms are attacked in
+#    `sliceGcodec` (the five F's battery had not reached per-term) plus `sliceFcodec`'s F04-F10; the five
+#    RECEIVER-CONTEXT terms and the two FRAME-LEVEL ones are attacked in `sliceGrx`; §7.2's mapping in
+#    `sliceGinbox`; §14.2's two emitters and the ONE name table in `sliceGjson`.
+# ⛔ WHAT IS **NOT** EXPRESSIBLE AS A TOKEN SUBSTITUTION, STATED RATHER THAN SILENTLY OMITTED: the DISPATCH
+#    POSITION. The custody arm's protection of the three forwarding roles is a fact about WHERE the block sits
+#    in `do_post_ack` (after the relay/bridge/last-mile/misdelivery forks), and no in-place find/replace moves a
+#    block. Its falsifiers are the two REAL fixtures §CUSTODY-G/4 and §CUSTODY-G/4b, which fail the moment the
+#    arm runs before either forwarding role — a structural proof, named here so the gap is a decision.
+
+MUTS_SLICEGTYPES = [
+ ("G01 ★★★★ `persistent_outcome` IS UN-FLIPPED for 0x81 — the storing consumer exists and the trait DENIES it, "
+  "which is §7.1's opt-in set disagreeing with the code that writes it. The mirror of F17: F refused to flip "
+  "the bit because nothing wrote; un-flipping it now that something does is the same lie in the other direction",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, false, true  };",
+  "        case DATA_TYPE_CUSTODY_FAILURE:\n"
+  "            return DataTypeTraits{ true,  true,  false, false, false };"),
+ ("G02 ★★★★ THE STAGE INVERSE SWAPS THE TWO BITS — `failed_at_cts` decodes as `hop_ack` and vice versa, so "
+  "every diagnostic names the WRONG MAC exchange as the one the flight died waiting for. §9.3 keeps the stage "
+  "separate from the reason precisely so this distinction survives; a swapped inverse destroys it silently",
+  "    if (s == CUSTODY_FLAG_FAILED_AT_CTS) return CustodyRootStage::cts;\n"
+  "    if (s == CUSTODY_FLAG_FAILED_AT_ACK) return CustodyRootStage::hop_ack;",
+  "    if (s == CUSTODY_FLAG_FAILED_AT_CTS) return CustodyRootStage::hop_ack;\n"
+  "    if (s == CUSTODY_FLAG_FAILED_AT_ACK) return CustodyRootStage::cts;"),
+ ("G03 ★★★ §13.18's 3-BIT DOMAIN IS WIDENED TO A WHOLE BYTE — `committed_hops` stops being bounded by the "
+  "wire field it describes, so a record claiming 200 committed hops is accepted and reported as fact",
+  "inline constexpr uint8_t custody_committed_hops_max = 7;",
+  "inline constexpr uint8_t custody_committed_hops_max = 255;"),
+ ("G04 ★★★ THE STAGE INVERSE STOPS FAILING CLOSED — a flags byte with NEITHER stage bit (or BOTH) decodes as "
+  "`cts` instead of the never-transmitted `invalid` sentinel, so an unreadable stage renders as a real one",
+  "    return CustodyRootStage::invalid;\n}",
+  "    return CustodyRootStage::cts;\n}"),
+]
+
+MUTS_SLICEGCODEC = [
+ # ---- the five §13 CODEC terms F's battery did not attack per-term (F04-F10 cover .5, .8, .9, .12, .16, .17)
+ ("G05 ★★★★ §13.4 THE VERSION CHECK IS DROPPED FROM THE PARSER — a version-2 record is decoded with v1's "
+  "offsets, so every field means whatever the newer layout put there and the receiver stores it as fact",
+  "    if (o.version != custody_record_version_v1) return std::nullopt;      // §13.4",
+  "    if (false) return std::nullopt;      // §13.4"),
+ ("G06 ★★★★ §13.5 THE 24-BYTE FLOOR IS DROPPED — `record_len` below the v1 prefix is accepted, so a storing "
+  "consumer retains FEWER bytes than the record it just decoded, and the two disagree about its own length",
+  "    if (o.record_len < custody_record_v1_len || o.record_len > body.size()) return std::nullopt;",
+  "    if (o.record_len > body.size()) return std::nullopt;"),
+ ("G07 ★★★ §13.6 THE RESERVED FLAG BITS (6-7) STOP BEING CHECKED — a v2 flag set by a newer reporter is "
+  "silently ignored rather than refused, which is the opposite of the tail rule: unknown STRUCTURE is accepted "
+  "(and retained) while unknown SEMANTICS in a v1 flags byte must be refused",
+  "    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bits 6-7",
+  "    if (false)          return std::nullopt;   // §13.6 bits 6-7"),
+ ("G08 ★★★ §13.7 THE MANDATORY `forwarded` BIT STOPS BEING REQUIRED — §9.3 says bit 0 must be 1 in v1, and it "
+  "is the one bit that distinguishes a real record from a zeroed buffer that happens to satisfy the rest",
+  "    if (!(o.notice_flags & CUSTODY_FLAG_FORWARDED))            return std::nullopt;   // §13.7",
+  "    if (false)            return std::nullopt;   // §13.7"),
+ ("G09 ★★★ §13.13 A ZERO `failed_ctr` IS ACCEPTED — §15.2's correlation key is the PAIR {failed_dst, "
+  "failed_ctr}, and counter 0 is not a counter any send was ever given, so the pair stops identifying anything",
+  "    if (o.failed_ctr == 0)                                     return std::nullopt;   // §13.13",
+  "    if (false)                                     return std::nullopt;   // §13.13"),
+]
+
+MUTS_SLICEGRX = [
+ # ---- §13.1 / §13.2, the FRAME-level terms -----------------------------------------------------------------
+ ("G10 ★★★★ §13.1 THE PLAINTEXT TERM IS DROPPED — a CRYPTED carrier's inner is sealed to the recipient, so "
+  "its bytes are ciphertext; parsing them as a v1 record and storing the result is a diagnostic built out of "
+  "noise. §9.1 clears CRYPTED at origination, so anything that arrives sealed is a bug or an attack",
+  "    const bool is_plaintext  = (pa.flags & DATA_FLAG_CRYPTED) == 0;",
+  "    const bool is_plaintext  = true;"),
+ ("G11 ★★★ §13.2 AN UNPARSEABLE INNER BECOMES A SILENT CONSUME — the frame is still dropped, but the ruled "
+  "bounded `custody_failure_reject` never fires, so a malformed-input population becomes invisible to the "
+  "operator, the corpus instrument and the bug register at once",
+  "    if (!is_plaintext || !inner_parses) { reject(); return; }",
+  "    if (!inner_parses) return;\n    if (!is_plaintext) { reject(); return; }"),
+ # ---- the STRUCTURAL arm: does the receiver actually CONSULT the codec? ------------------------------------
+ ("G12 ★★★★ THE CODEC'S VERDICT IS IGNORED — `parse_custody_failure` is still CALLED and its `nullopt` still "
+  "stops the record, but the ruled reject event is dropped. ★ THIS IS THE ARM THAT PROVES THE ELEVEN "
+  "CODEC-OWNED §13 TERMS ARE REACHED THROUGH THE RECEIVER AT ALL: a receiver that imported the header and "
+  "hand-checked a few fields would pass every codec-level test in `sliceFcodec` and fail here",
+  "    if (!parsed) { reject(); return; }",
+  "    if (!parsed) { return; }"),
+ # ---- §13.10 / .11 / .14 / .15 / .18, the RECEIVER-CONTEXT terms, ONE ARM EACH -----------------------------
+ ("G13 ★★★★ §13.10 THE v1 PLANE-SUPPORT TERM IS DROPPED — the RESERVED planes (team / hosted_mobile / "
+  "cross_layer / unknown) PARSE by design, so refusing them is this layer's only job; without it a v1 node "
+  "stores and reports a cross-layer or team custody failure it has no vocabulary to interpret",
+  "    const bool plane_supported = rec.failed_plane == CustodyFailurePlane::static_same_layer;",
+  "    const bool plane_supported = true;"),
+ ("G14 ★★★ §13.10's RECEIVER-CONTEXT HALF IS DROPPED — a record CLAIMING `static_same_layer` that ARRIVED on "
+  "the TEAM plane is consumed, so a team-plane `origin` (a DAD-assigned team_local_id) is stored in a field "
+  "documented as a static reporting relay. §13's own closing rule: outer-vs-body mismatch is MALFORMED",
+  "    const bool arrived_static  = !pa.team_plane;",
+  "    const bool arrived_static  = true;"),
+ ("G15 ★★★★ §13.11 THE ADDRESSEE TEST IS DROPPED — **THE NON-ADDRESSEE CONSUME.** Any node that happens to be "
+  "the wire destination now stores and reports a custody failure about a message SOMEONE ELSE sent, as if it "
+  "were its own. This is the single term that makes 'only the original sender consumes' true",
+  "    const bool addressed_to_us = rec.failed_origin == _node_id;",
+  "    const bool addressed_to_us = true;"),
+ ("G16 ★★★ §13.14 THE NEVER-ABOUT-ITSELF RULE IS DROPPED AT THE RECEIVER — a record claiming a relay lost "
+  "custody of an E2E ACK, or of another custody notice, is accepted. The generator cannot produce either "
+  "(§10.1(11)), so such a record is by construction forged or corrupt",
+  "    const bool type_reportable = rec.failed_type != DATA_TYPE_E2E_ACK\n"
+  "                              && rec.failed_type != DATA_TYPE_CUSTODY_FAILURE;",
+  "    const bool type_reportable = true;"),
+ ("G17 ★★★★ §13.15 THE RECEIVING-LAYER MATCH IS DROPPED — a report stamped with ANOTHER layer's id is "
+  "accepted as same-layer v1 evidence. ⓘ It is also the arm an UNWRITTEN byte would slip through: 0 is what a "
+  "zeroed `reporter_layer` looks like, and without this term it reads as a legitimate layer",
+  "    const bool layer_matches   = rec.reporter_layer == active_layer_id();",
+  "    const bool layer_matches   = true;"),
+ ("G18 ★★★ §13.18 THE `requeue_count` DOMAIN IS DROPPED — a record claiming more requeues than "
+  "`cascade_requeue_max` permits is stored as fact, and the cascade budget stops bounding its own diagnostic",
+  "    const bool counts_in_domain = rec.requeue_count      <= protocol::cascade_requeue_max",
+  "    const bool counts_in_domain = true"),
+ ("G19 ★★★ §13.18 THE `alternatives_tried` DOMAIN IS DROPPED — `alts_tried[]` holds at most "
+  "`protocol::max_rt_candidates`, so a larger count describes a route table this protocol cannot have",
+  "                               && rec.alternatives_tried <= protocol::max_rt_candidates",
+  "                               && true"),
+ ("G20 ★★★ §13.18 THE `committed_hops` DOMAIN IS DROPPED — the field is a 3-BIT wire field, so any value "
+  "above 7 could not have travelled on a DATA header at all",
+  "                               && rec.committed_hops     <= custody_committed_hops_max",
+  "                               && true"),
+ ("G21 ★★★ §13.18 THE `remaining_hops` DOMAIN IS DROPPED — the field is the 5-bit hop budget, so a value "
+  "above 31 is not a hop count this network can express",
+  "                               && rec.remaining_hops     <= protocol::hop_budget_max_initial;",
+  "                               && true;"),
+ # ---- §7.3's FIVE STEPS ------------------------------------------------------------------------------------
+ ("G22 ★★★★ **PUSH BEFORE RECORD** — the ORDER DEFECT §7.3 exists to prevent. The sequence is read BEFORE the "
+  "append instead of being the append's return value, so the live push carries a sequence that names a "
+  "DIFFERENT record (or none). The app unifies live + pulled BY SEQ, so this silently mis-joins every report",
+  "    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)",
+  "    const uint32_t seq = _inbox.dm_newest_seq();\n"
+  "    (void)_inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "                                        rec_bytes, rec_len, _hal.now());"),
+ ("G23 ★★★★ **THE TAIL IS DROPPED FROM STORAGE** — only the 24-byte v1 prefix is retained, so a newer "
+  "reporter's appended tail is destroyed on the one node that received it. §9.2's tail rule exists so a v1 "
+  "reader can be a faithful CARRIER of what it cannot interpret; truncating makes it a lossy one",
+  "    const uint8_t  rec_len = rec.record_len;",
+  "    const uint8_t  rec_len = custody_record_v1_len;"),
+ ("G24 ★★★★ **THE CUSTODY REASON IS PLACED IN `Push::reason`** — §14.1, verbatim: *\"Do not place the custody "
+  "reason in `Push::reason`; that field is a `SendFailReason` and the wire enum is deliberately independent.\"* "
+  "The two vocabularies COLLIDE on `queue_full` with different meanings, so this makes one read as the other",
+  "    pu.layer_id = active_layer_id();",
+  "    pu.layer_id = active_layer_id();\n"
+  "    pu.reason   = static_cast<SendFailReason>(rec.terminal_reason);"),
+ ("G25 ★★★ THE LIVE PUSH IS SUPPRESSED WHEN STORAGE IS DISABLED — §7.3 rules the opposite: the receipt still "
+  "emits ONE push carrying `seq = 0`. A node with no inbox backend (every simulator node, and any board built "
+  "without one) would go silent on the whole diagnostic. ⓘ The anchor carries the line ABOVE it: a bare "
+  "`enqueue_push(pu);` matches several sites in this file and the entry went VACUOUS at match count 3",
+  "    for (uint8_t i = 0; i < rec_len; ++i) pu.body[i] = rec_bytes[i];\n"
+  "    enqueue_push(pu);",
+  "    for (uint8_t i = 0; i < rec_len; ++i) pu.body[i] = rec_bytes[i];\n"
+  "    if (seq) enqueue_push(pu);"),
+]
+
+MUTS_SLICEGINBOX = [
+ ("G30 ★★★★ §7.2's `origin` IS THE FAILED ORIGIN INSTEAD OF THE REPORTER — the stored record starts naming "
+  "THIS NODE as the relay that lost custody of its own message. `origin` is the one field that says WHO "
+  "reported, and it is the only place the (unauthenticated) reporter identity is kept at all",
+  "                  /*msg_id*/ failed_ctr, /*sender_hash*/ 0, layer_id, /*body*/ rec_bytes, /*len*/ record_len,",
+  "                  /*msg_id*/ failed_ctr, /*sender_hash*/ 0, layer_id, /*body*/ rec_bytes, /*len*/ 0,"),
+ ("G31 ★★★★ THE RECORD IS STORED AS AN ORDINARY DM (`type = 0`) — it stops being `internal`, so §CUSTODY-C's "
+  "presentation predicate admits it to the ordinary view and 24 bytes of packed binary reach the OLED byte "
+  "sanitizer and the `inbox_dm` text encoder. That is §7.2's forbidden outcome, reached by one argument",
+  "                  now_ms, /*enc*/ 0, /*type*/ DATA_TYPE_CUSTODY_FAILURE, /*team_id*/ 0, /*origin_layer*/ 0);",
+  "                  now_ms, /*enc*/ 0, /*type*/ 0, /*team_id*/ 0, /*origin_layer*/ 0);"),
+ ("G32 ★★★ THE REPORTER IS NOT RECORDED — `origin` becomes 0, so the pulled record and its JSON name reporter "
+  "0, an id no node can hold. A diagnostic that cannot say who reported is not evidence of anything",
+  "    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, reporter, /*channel_id*/ 0,",
+  "    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, 0, /*channel_id*/ 0,"),
+ ("G33 ★★★ A DISABLED INBOX RETURNS A NONZERO SEQUENCE — `seq = 0` is EXCLUSIVELY the storage-disabled "
+  "receipt (§7.3), and the app reads a nonzero seq as a record it can pull. Returning 1 makes every "
+  "storage-disabled node advertise a record that does not exist",
+  "uint32_t Inbox::record_custody_failure(uint8_t reporter, uint16_t failed_ctr, uint8_t layer_id,\n"
+  "                                       const uint8_t* rec_bytes, uint8_t record_len, uint64_t now_ms) {\n"
+  "    if (!enabled()) return 0;",
+  "uint32_t Inbox::record_custody_failure(uint8_t reporter, uint16_t failed_ctr, uint8_t layer_id,\n"
+  "                                       const uint8_t* rec_bytes, uint8_t record_len, uint64_t now_ms) {\n"
+  "    if (!enabled()) return 1;"),
+]
+
+MUTS_SLICEGJSON = [
+ ("G40 ★★★★ **A SECOND OFFSET-READER IS INTRODUCED** — the live emitter stops calling the shared codec and "
+  "decodes `Push::body` by hand, reading the little-endian `failed_ctr` the other way round. §9.2, verbatim: "
+  "*\"Do not re-read byte offsets separately in those consumers.\"* This is exactly how a 24-byte record ends "
+  "up meaning two different things, and the JSON golden is what catches it. ⓘ The golden that catches it is "
+  "§CUSTODY-G/5d's, NOT §14.2's own example: the spec's counter 3598 is `0x0E0E`, whose two wire bytes are "
+  "IDENTICAL, so this arm SURVIVED against it until a non-palindromic 0x1234 was pinned",
+  "        const std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =\n"
+  "            MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));\n"
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec);",
+  "        std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =\n"
+  "            MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));\n"
+  "        if (rec && body_n >= 8) rec->failed_ctr = uint16_t((p.body[6] << 8) | p.body[7]);\n"
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec);"),
+ ("G41 ★★★★ **THE BINARY RECORD REACHES THE ORDINARY TEXT ENCODER** — the pulled-record fork is removed, so a "
+  "stored custody report renders as `inbox_dm` with its 24 packed bytes JSON-escaped into a `\"body\"` string. "
+  "§7.2/§14.2 forbid exactly this: *\"The ordinary `inbox_dm` text encoder must not stringify the binary "
+  "record\"*",
+  "    if (type == MESHROUTE_NS::DATA_TYPE_CUSTODY_FAILURE) {",
+  "    if (false) {"),
+ ("G42 ★★★ THE STAGE NAME TABLE COLLAPSES — `hop_ack` renders as \"cts\", so every report claims it died "
+  "waiting for a CTS. §9.3 keeps the stage separate from the reason so an operator can tell a CTS death from "
+  "an ACK death; one wrong string erases that distinction on all three surfaces at once",
+  "        case MESHROUTE_NS::CustodyRootStage::hop_ack: return \"ack\";",
+  "        case MESHROUTE_NS::CustodyRootStage::hop_ack: return \"cts\";"),
+ ("G43 ★★★ THE REASON NAME TABLE MIS-MAPS `one_way_throttled` — §9.4's five causes are distinct remedies "
+  "(a throttled reprobe window is not an exhausted requeue budget), and a wrong word sends an operator after "
+  "the wrong fix",
+  "        case MESHROUTE_NS::CustodyFailureReason::one_way_throttled: return \"one_way_throttled\";",
+  "        case MESHROUTE_NS::CustodyFailureReason::one_way_throttled: return \"cascade_count\";"),
+ ("G44 ★★★ `dst_hash` IS EMITTED UNCONDITIONALLY — §14.2 says it is emitted ONLY when its flag is valid, and "
+  "the flag is what says the FAILED FRAME carried a hash. Emitting a zero as a hash publishes an identity the "
+  "record explicitly does not have (the display-shaped-field rule)",
+  "    if (r.notice_flags & MESHROUTE_NS::CUSTODY_FLAG_HAS_DST_HASH) { j.lit(\",\\\"dst_hash\\\":\"); key_hex32(j, r.dst_hash32); }",
+  "    { j.lit(\",\\\"dst_hash\\\":\"); key_hex32(j, r.dst_hash32); }"),
+ ("G45 ★★★ THE PUSH KIND FALLS THROUGH TO \"unknown\" — the app boundary's silent-fallback defect, on the new "
+  "kind. The whole `pushkind_name` sweep exists because three enum->string mappings shipped broken this way",
+  "        case PushKind::custody_failure: return \"custody_failure\";",
+  "        case PushKind::custody_failure: return \"unknown\";"),
+ ("G46 ★★★ THE LIVE EVENT ALWAYS EMITS `seq`, INCLUDING 0 — the existing push convention OMITS it when the "
+  "inbox is disabled, and a `\"seq\":0` tells the app there is a record at sequence 0, which cannot exist "
+  "(sequences are 1-based; 0 is the before-everything pull cursor)",
+  "        if (p.seq) { j.lit(\",\\\"seq\\\":\"); j.u32(p.seq); }   // existing live-push convention: OMITTED when 0 = storage disabled (§14.2)",
+  "        { j.lit(\",\\\"seq\\\":\"); j.u32(p.seq); }"),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -8058,6 +8326,9 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceEnode": MUTS_SLICEENODE, "sliceEcascade": MUTS_SLICEECASCADE,
                   "sliceFcodec": MUTS_SLICEFCODEC, "sliceFtypes": MUTS_SLICEFTYPES,
                   "sliceFcascade": MUTS_SLICEFCASCADE,
+                  "sliceGtypes": MUTS_SLICEGTYPES, "sliceGcodec": MUTS_SLICEGCODEC,
+                  "sliceGrx": MUTS_SLICEGRX, "sliceGinbox": MUTS_SLICEGINBOX,
+                  "sliceGjson": MUTS_SLICEGJSON,
                   "sliceCinbox": MUTS_SLICECINBOX, "sliceCpull": MUTS_SLICECPULL,
                   "sliceCbudget": MUTS_SLICECBUDGET, "sliceCsend": MUTS_SLICECSEND,
                   "sliceCram": MUTS_SLICECRAM,

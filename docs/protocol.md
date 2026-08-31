@@ -306,9 +306,26 @@ snapshot is taken before the failed carrier's reset and the notice is enqueued a
 standard typed-DATA path, `Plane::GLOBAL` explicit, under a fresh reporter counter — it inherits nothing
 from the failed flight. It is internal: ordinary hop ACKs/retries and duty/LBT apply, but no E2E ACK, no
 application deadline, no generic lifecycle push, and a terminal failure of the notice itself is
-telemetry-only — never another notice. ⚠ Until the receiver slice (G) lands, an arriving notice is dropped
-at the fail-closed internal guard with bounded telemetry — the ratified intermediate state; it is not proof
-the destination missed the DATA (another path or copy may have delivered, and an E2E ack may still arrive).
+telemetry-only — never another notice. **Receiving a custody notice (§CUSTODY-G, 2026-08-31).** ⛔ The intermediate state is over — the sentence that
+stood here ("until the receiver slice lands, an arriving notice is dropped at the fail-closed internal guard")
+is withdrawn. An addressed `0x81` is now CONSUMED before ordinary DM delivery, at a dispatch position AFTER
+every forwarding role: a relay forwards a transit notice as ordinary DATA, a gateway bridges it, a home
+last-miles one addressed through it to a hosted mobile — only the node the record names as `failed_origin`
+consumes it. The receiver applies §13's eighteen validations (frame plaintext + standard unicast parse; the
+shared codec's record-structure terms; the v1 plane checked both as the body's claim and against the arrival
+plane; `failed_origin == self`; `failed_type` neither an ack nor another notice; `reporter_layer` equal to
+the active receiving layer; the count/hop domains). A valid record is stored BEFORE the live push and the
+push carries the sequence the store assigned; with storage disabled the push carries `seq = 0`, which is the
+ONLY meaning that value has — the model is gap-tolerant, so a nonzero sequence is an assignment, never a
+proof of persistence. A `record_len` above 24 is retained whole, tail included, and interpreted as its first
+24 bytes. An invalid record is dropped with one bounded scalar `custody_failure_reject{type, origin, dst,
+ctr}` — ⛔ never `unsupported_internal`, which would now be false — and is neither stored nor user-exposed.
+The fail-closed guard is untouched and still drops every other unhandled internal type. ⛔ None of this is
+proof the destination missed the DATA: another path or copy may have delivered it and an E2E ack may still
+arrive, so no surface may call it a NACK. The report surfaces as `PushKind::custody_failure` (live),
+`ev:custody_failure` on `pull_inbox` (durable), and one bounded USB line (⚠ its CONTENT is board-compiled
+and proven only at bench Part 53; the JSON is the host-proven surface); correlating it to a user send is
+Slice H's, currently parked.
 
 ### 2.4 The DATA-type namespace, the reflash ruling and the inbox migration (§CUSTODY-A, 2026-08-29)
 
@@ -364,7 +381,10 @@ reserved `0x81`, the retired `0x94` and anything newer firmware writes as ordina
 rule: `Inbox::pull()` and `pull_inbox` remain raw and are the diagnostic access §7.4 promises; the OLED list/detail
 apply it **before** the row budget and before `inbox_total`, which counts admitted records only. Internal records
 never reach the byte sanitizer, never increment the unread count, and have no special lifetime — they age out of
-the ring and answer `del_msg dm <seq>` exactly like a DM. CUSTODY_FAILURE therefore arrives pre-hidden.
+the ring and answer `del_msg dm <seq>` exactly like a DM. CUSTODY_FAILURE therefore arrives pre-hidden. (§CUSTODY-G then started WRITING one and changed
+nothing here — it was hidden by the RANGE before its storing consumer existed and remains so after;
+`persistent_outcome`'s membership grew to `{E2E_ACK, CUSTODY_FAILURE}` in the same slice, and the
+presentation predicate did not consult it before and does not now.)
 
 ## 3. Beacons
 

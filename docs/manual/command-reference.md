@@ -73,6 +73,11 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 | `del_msg <dm\|chan> <seq>` | Local; Common | Persistent + Recovery | Deletes one selected inbox record through a durable tombstone when the inbox backend is enabled. |
 | `clear_inbox confirm` | Local; Common | Persistent + Recovery | Wipes both inbox record stores after explicit confirmation. Preserves each sequence high-water, resets both read cursors and increments the storage epoch once. Leaves all non-inbox state untouched; it does not replace `prep-restart` or `factory_reset`. |
 
+A received **custody-failure report** appears on USB as one `CUSTODY FAILURE reporter=… stage=… reason=… …`
+line and in `pull_inbox` as `{"ev":"custody_failure",…}`. It reports that a **relay** could not complete
+onward custody; it is **not** proof the destination missed the message. Delete it with `del_msg dm <seq>`
+like any record. (§CUSTODY-G, 2026-08-31.)
+
 ⛔ CORRECTED 2026-08-31 (the paragraph below was stale — [[B134]]/[[B260]] made BOTH platforms durable):
 ~~The external-flash inbox backend is currently enabled on the XIAO nRF52840 build. The ESP32 inbox backend
 remains disabled, so these commands are accepted there but have no durable records to operate on.~~

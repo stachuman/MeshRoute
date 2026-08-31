@@ -1128,6 +1128,13 @@ uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
         //    green claimed something no build could have produced. ★ The sweep grows by two, which is the point of
         //    the no-`default:` design; nothing else about this file's behaviour changes.
         case PK::team_key_grant_aired: case PK::team_key_grant_failed:
+        // ✔ §CUSTODY-G (2026-08-31) — the 19th kind, `custody_failure`, added HERE **in the same slice** that
+        //   appended it to `lib/core/command.h`. That is the [[B271]] obligation above, honoured rather than
+        //   re-learned: the twin in `test/test_firmware_ui_send.cpp` was updated in the same edit, and this
+        //   probe was RUN. `custody_failure` is a diagnostic arrival with no UI affordance in G — it reaches
+        //   `mr_ui_on_push`'s `default:` arm, correlates against nothing, and must leave the panel untouched
+        //   (Slice H owns any presentation). The sweep grows by one; nothing else about this file changes.
+        case PK::custody_failure:
             return uint8_t(uint8_t(k) + 1u);
     }
     return 0;

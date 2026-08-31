@@ -1491,8 +1491,8 @@ static void mesh_service_once() {
             // ⛔ The inventory sentinel is not a route; it is spelled out rather than swallowed by a `default:`.
             case mrfw::GrantUiRoute::count:                                        break;
         }
-        // ★ ALL 17 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
-        // when an 18th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
+        // ★ ALL 20 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
+        // when a 21st is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
         // BASELINE 25m's enum→string defect class — this file is invisible to the native gate, so the compiler is the
         // only tripwire). Case order tracks the enum declaration order in command.h.
         // ✔ IT WORKED, again: §team-ch-key T-K3 added the 15th kind (team_key_received) plus the 17th
@@ -1663,6 +1663,38 @@ static void mesh_service_once() {
                 mrcon.print(F(" from=0x")); mrcon.print(pu.sender_hash, HEX);
                 if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // the granter's optional label (NOT persisted)
                 mrcon.println(F(" — this node can now read the team channel")); break;   // ⚠ the KEY itself is never printed; `team exportkey` is its one disclosure
+            // ★★★★ §CUSTODY-G (design §14.3) — THE OPERATOR-FACING CUSTODY REPORT, in ONE bounded line.
+            // ⛔⛔ *"No output may call it a NACK or claim non-delivery"* (§14.3, verbatim). The wording below is
+            //    therefore about CUSTODY TRANSFER at a named relay and says nothing about the destination: the
+            //    DATA may well have arrived, another path may have delivered a copy, and an E2E ack may still
+            //    land. `E2E-ACKED` remains the only line on this console that means delivery.
+            // ⛔ THE RECORD IS PARSED THROUGH F's ONE CODEC (§9.2) — ⛔ no offset indexing of `pu.body` here.
+            //    `fw_main.cpp` is outside the native gate, so a hand-decoded copy would be the one reader nothing
+            //    could catch disagreeing; and the two words `stage`/`reason` come from console_json's SINGLE name
+            //    table (U1 — the same rule `sendfailreason_name` follows two arms above).
+            // ⓘ `origin=` is the FAILED DATA's origin, which §13.11 has already proven is THIS node — it is
+            //   printed anyway because an operator reading a log needs the report to be self-contained.
+            case meshroute::PushKind::custody_failure: {
+                const std::optional<meshroute::CustodyFailureRecord> cf =
+                    meshroute::parse_custody_failure(std::span<const uint8_t>(pu.body, pu.body_len));
+                if (!cf) { mrcon.println(F("CUSTODY FAILURE (unparseable record)")); break; }   // C2: loud; structurally unreachable
+                mrcon.print(F("CUSTODY FAILURE reporter=")); mrcon.print(pu.origin);
+                mrcon.print(F(" layer="));  mrcon.print(cf->reporter_layer);
+                mrcon.print(F(" origin=")); mrcon.print(cf->failed_origin);
+                mrcon.print(F(" dst="));    mrcon.print(cf->failed_dst);
+                mrcon.print(F(" ctr="));    mrcon.print(cf->failed_ctr);
+                mrcon.print(F(" stage="));  mrcon.print(meshroute::console::custodystage_name(
+                                                meshroute::custody_stage_of_flags(cf->notice_flags)));
+                mrcon.print(F(" reason=")); mrcon.print(meshroute::console::custodyreason_name(cf->terminal_reason));
+                mrcon.print(F(" prev="));   mrcon.print(cf->previous_hop);
+                mrcon.print(F(" next="));   mrcon.print(cf->failed_next_hop);
+                mrcon.print(F(" repair=")); mrcon.print((cf->notice_flags & meshroute::CUSTODY_FLAG_REPAIR_ATTEMPTED)
+                                                        ? F("attempted") : F("none"));
+                mrcon.print(F(" one_way=")); mrcon.print((cf->notice_flags & meshroute::CUSTODY_FLAG_NEXT_WAS_ONE_WAY) ? 1 : 0);
+                if (pu.seq) { mrcon.print(F(" seq=")); mrcon.print(pu.seq); }   // omitted when storage is disabled, matching the JSON convention
+                mrcon.println(F(" — the relay could not complete onward custody; NOT proof the destination missed it (an e2e ack may still arrive)"));
+                break;
+            }
             case meshroute::PushKind::team_channel_no_key:   // §chan-crypt CL2a: an ENCRYPTED team post arrived that this node cannot read. Rate-limited node-side, so this line is a prompt, not a flood.
                 mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
                 mrcon.print(F(" from=")); mrcon.print(pu.origin);

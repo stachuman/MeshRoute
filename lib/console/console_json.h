@@ -390,5 +390,17 @@ const char* joinrefusereason_name(JoinRefuseReason r);  // join_refused `reason`
 // command.h cannot see node.h (see the encoding static_assert beside the enum).
 const char* peerkeyconf_name(Node::PeerKeyConf c);
 const char* peerlocsrc_name (Node::PeerLocSrc s);   // ★ §AB4: "peer" (pairwise) | "team" (group) — the retained position's TRUST ANCHOR
+// ★★★★ §CUSTODY-G (design §14.2) — **THE ONE NAME TABLE** for the custody wire enums, the `pushkind_name` idiom.
+// §14.2 requires `stage`/`reason` as SEMANTIC names rather than numbers, on BOTH the live push and the pulled
+// record, and `src/fw_main.cpp`'s USB line renders the same two words. ⛔ THREE SURFACES, ⛔ ONE TABLE — a second
+// spelling of a wire vocabulary is the enum→string defect class that made warnings gate-blocking here in the
+// first place. Both take the ENUM (not the raw byte) so `-Wswitch` fails the build if a value is ever added and
+// left unmapped. Out-of-range answers the SENTINEL rather than a plausible-looking value, because a wrong-but-
+// readable diagnostic is worse than an obviously absent one — the same policy `peerkeyconf_name` follows.
+// ⛔ THE SPELLINGS ARE §9.3/§9.4's, NOT new words: `reason` is the `CustodyFailureReason` enumerator verbatim
+//    (§14.2's own example emits `"one_way_throttled"`), and `stage` is §9.3's flag-name suffix — `failed_at_cts`
+//    -> "cts", `failed_at_ack` -> "ack" (§14.2's example emits `"cts"`).
+const char* custodystage_name (MESHROUTE_NS::CustodyRootStage s);       // "cts" | "ack" ("invalid" = never transmitted)
+const char* custodyreason_name(MESHROUTE_NS::CustodyFailureReason r);   // §9.4's five ("invalid" = never transmitted)
 
 }  // namespace meshroute::console

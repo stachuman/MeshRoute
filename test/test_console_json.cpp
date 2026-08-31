@@ -885,6 +885,7 @@ static unsigned ord(PushKind k) {
         case PushKind::team_channel_no_key:   // §chan-crypt CL2a
         case PushKind::send_aired:            // §T3: the attempt-level airing fact
         case PushKind::team_key_grant_aired:  case PushKind::team_key_grant_failed:   // §CUSTODY-B/[[B268]]
+        case PushKind::custody_failure:       // §CUSTODY-G/§14.1: a custody report was received + VALIDATED (⛔ not "stored" — storage may be disabled or the append may fail)
             return static_cast<unsigned>(k);
     }
     return kUnlisted;
@@ -928,6 +929,29 @@ static unsigned ord(Node::PeerLocSrc s) {
     }
     return kUnlisted;
 }
+// ★★ §CUSTODY-G: the 6th and 7th mapped enums — the custody wire vocabulary (§9.3's root stage, §9.4's terminal
+// reason). They join THIS sweep rather than getting a private test because the failure mode is identical to the
+// three enum→string defects that made this file exist: a value added to the wire enum, left unmapped, and
+// rendered to the operator as a plausible-looking neighbour. ⚠ `CustodyFailureReason`'s DECLARATION order is
+// deliberately not its numeric order (`load_shed = 5` is written before `queue_full = 4`, frame_codec.h), which
+// is exactly why the sweep tests NUMERIC contiguity over 0..255 and never a hand-written list order.
+static unsigned ord(MESHROUTE_NS::CustodyRootStage s) {
+    switch (s) {
+        case MESHROUTE_NS::CustodyRootStage::invalid: case MESHROUTE_NS::CustodyRootStage::cts:
+        case MESHROUTE_NS::CustodyRootStage::hop_ack:
+            return static_cast<unsigned>(s);
+    }
+    return kUnlisted;
+}
+static unsigned ord(MESHROUTE_NS::CustodyFailureReason r) {
+    switch (r) {
+        case MESHROUTE_NS::CustodyFailureReason::invalid:       case MESHROUTE_NS::CustodyFailureReason::one_way_throttled:
+        case MESHROUTE_NS::CustodyFailureReason::cascade_count: case MESHROUTE_NS::CustodyFailureReason::cascade_age:
+        case MESHROUTE_NS::CustodyFailureReason::queue_full:    case MESHROUTE_NS::CustodyFailureReason::load_shed:
+            return static_cast<unsigned>(r);
+    }
+    return kUnlisted;
+}
 #pragma GCC diagnostic pop
 
 // Walk every enumerator of E and assert its mapper never yields the SILENT fallback (nor an empty string).
@@ -959,7 +983,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 14);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`; 13 -> 14 S4b `err_resolve_pending_full`
-    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 19);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`; 16 -> 17: §T3 `send_aired`; 17 -> 19: §CUSTODY-B/[[B268]] `team_key_grant_aired` + `team_key_grant_failed`
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 20);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`; 16 -> 17: §T3 `send_aired`; 17 -> 19: §CUSTODY-B/[[B268]] `team_key_grant_aired` + `team_key_grant_failed`; 19 -> 20: §CUSTODY-G `custody_failure`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
@@ -972,6 +996,14 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     // WEAKER (group) anchor, never claim the stronger pairwise attribution.
     check_mapper_covers_every_enumerator<Node::PeerLocSrc>("PeerLocSrc", peerlocsrc_name, "team", 2,
                                                             /*exempt_ord=*/1);
+    // ★★ §CUSTODY-G: the custody wire vocabulary. exempt_ord = 0 for BOTH because `invalid` IS the fallback
+    // string — deliberately, and it is the honest direction here too: `invalid` is §9.3/§9.4's NEVER-TRANSMITTED
+    // sentinel, so an out-of-range byte reading as "invalid" says "this is not a value this protocol produces"
+    // rather than naming a stage or a cause the record does not carry.
+    check_mapper_covers_every_enumerator<MESHROUTE_NS::CustodyRootStage>(
+        "CustodyRootStage", custodystage_name, "invalid", 3, /*exempt_ord=*/0);
+    check_mapper_covers_every_enumerator<MESHROUTE_NS::CustodyFailureReason>(
+        "CustodyFailureReason", custodyreason_name, "invalid", 6, /*exempt_ord=*/0);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
     // The fallbacks STAY: an out-of-range cast (a corrupt byte, never a live enumerator) must still land there.

@@ -336,6 +336,25 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   trait table. (`AppModel.importInboxEntry`'s `isReceipt` arm already implements exactly this — verified 2026-08-30;
   this bullet makes the obligation contractual rather than incidental.)
 
+- **Custody-failure reports (§CUSTODY-G, 2026-08-31).** A relay that had already ACKed custody of a DATA
+  **you sent** could not complete onward custody transfer for it. ⛔ **NOT a NACK and NOT proof of
+  non-delivery** — the destination may have it, another path may have delivered a copy, and an E2E ack may
+  still arrive. The **live push** and the **pulled record** produce the *same* semantic event
+  `custody_failure` with the same fields (ship one decoder); the pulled form adds `seq` and `rx_ms`. Fields:
+  `reporter` (the outer relay — **UNAUTHENTICATED**, render as a claim), `reporter_layer`, `failed_origin`,
+  `dst`, `ctr`, `failed_type`, `stage` (`cts`|`ack`), `reason` (the custody vocabulary — ⛔ a *different*
+  vocabulary from `send_failed.reason`, and `queue_full` means something different in each), `previous_hop`,
+  `next_hop`, `requeues`, `alternatives`, `committed_hops`, `remaining_hops`, `repair_attempted`, `one_way`,
+  and `dst_hash` only when its flag is valid. `seq` is omitted when the node's inbox is disabled. Correlate
+  on the **pair** `{dst, ctr}` — ⛔ never the counter alone.
+  **COMPAT WITH AN UN-UPDATED COMPANION — MEASURED, not assumed** ([[B277]]): `Inbound.decodeEvent`'s
+  `default:` falls through to the generic event arm, so both forms decode as a plain event and are inert —
+  no crash, no misrender, never mistaken for an outcome push, and it cannot appear as an empty-body DM
+  (the pulled record is its own event, not an `inbox_dm`). ⚠ The one measured cost: it is not an
+  `.inboxEntry`, so the DM cursor is not advanced BY it — a custody record that is the newest DM record is
+  re-streamed on each `pull_inbox` until a later application record passes it (idempotent). CLOSE BY: a
+  `case "custody_failure"` in the decoder and/or advancing the DM cursor from `inbox_end`'s `dm_seq`.
+
 ## Whole-inbox clear — `clear_inbox confirm` (§CUSTODY-D, 2026-08-31)
 
 Two verb forms, exact-token gated: `clear_inbox` (or any token other than exactly `confirm`) refuses and

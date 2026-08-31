@@ -287,6 +287,33 @@ enum class PushKind : uint8_t {
     //     `join_adopted == 13` and are UNAFFECTED (these are 17 and 18).
     team_key_grant_aired,   // the grant frame PHYSICALLY LEFT THE RADIO (TxDone for THIS flight). dst/ctr = the grant's.
     team_key_grant_failed,  // the grant's flight terminated after a successful queue admission. dst/ctr + `reason`.
+    // ★★★★ §CUSTODY-G (2026-08-31, design §14.1) — A CUSTODY-FAILURE REPORT WAS RECEIVED AND VALIDATED, AND
+    //   ITS DURABLE RECORD WAS **ATTEMPTED**. ⛔ NOT "stored": the inbox may be DISABLED (`seq = 0`) and an
+    //   enabled store's append may FAIL — the model is gap-tolerant, so the sequence advances either way.
+    //   Receipt, validation and the attempt are what this push guarantees; persistence is not one of them.
+    //   A relay that had already ACKed custody of a DATA WE ORIGINATED could not complete onward custody transfer
+    //   for it (§8). ⛔⛔ IT IS NOT A NACK AND NOT PROOF OF NON-DELIVERY: the destination may have received the
+    //   DATA while a hop ACK was lost, another path may have delivered a copy, and an E2E ACK may still arrive.
+    //   ⛔ No output on any surface may call it a NACK or claim non-delivery (§14.3, verbatim).
+    // §14.1's CARRIER MAPPING, and ⛔ **`Push` DOES NOT GROW** — every field below already existed:
+    //     origin   = the OUTER reporting relay (⚠ UNAUTHENTICATED — §13's closing paragraph; the record carries
+    //                no reporter-ID field at all, so there is nothing to cross-check it against and ⛔ no
+    //                outer/body reporter-equality check may be invented)
+    //     dst      = `failed_dst`   · ctr = `failed_ctr`   (§15.2's correlation PAIR — never the counter alone)
+    //     layer_id = the reporting/receiving layer
+    //     seq      = the assigned DM-store sequence, or 0 when the inbox is disabled
+    //     body / body_len = the VALIDATED record bytes / `record_len`
+    // ⛔⛔ THE REASON IS **NEVER** IN `Push::reason`. That field is a `SendFailReason`; `CustodyFailureReason`
+    //   (frame_codec.h) is a DELIBERATELY INDEPENDENT wire enum (§9.4, §14.1 verbatim), and squeezing one into
+    //   the other would make two vocabularies look like one — the same defect class as reusing
+    //   `unsupported_internal` for a type that is now supported. Every consumer parses `body` through
+    //   `parse_custody_failure`; ⛔ there is no second offset-reader (§9.2).
+    // ⛔ CORRELATION TO A USER SEND IS **SLICE H's**, not this push's: §15.1 makes the diagnostic and the
+    //   optional `DM UNCERTAIN` presentation two INDEPENDENT results, and G lands only the factual one.
+    // ★ APPENDED AT THE END, same contract rule as the six above: the simulator's twin asserts pin
+    //   `join_adopted == 13` and are UNAFFECTED (this enumerator is 19); ⛔ an INSERTION would silently renumber
+    //   an existing kind for every scenario, the companion and the sim bridge.
+    custody_failure,
 };
 // E2E §5: why a failure Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. ⓘ 2026-08-30 ([[B268]]): it now also carries
@@ -343,6 +370,11 @@ struct Push {
     //    and its own terminal kind took the reason with it). `send_blocked` also fills it. `none` on any
     //    other kind.
     SendFailReason reason = SendFailReason::none;   // send_failed / team_key_grant_failed / send_blocked (else none)
+                                                    // ⛔⛔ §CUSTODY-G: `custody_failure` is one of the "else none"
+                                                    //    kinds BY RULING, not by omission (§14.1 verbatim: "Do not
+                                                    //    place the custody reason in `Push::reason`"). The custody
+                                                    //    vocabulary is `CustodyFailureReason`, a separate wire enum
+                                                    //    reached only through `parse_custody_failure(body)`.
     JoinRefuseReason join_reason = JoinRefuseReason::wire_version;   // join_refused only
     uint8_t  origin = 0;
     uint8_t  dst = 0;
@@ -378,15 +410,26 @@ struct Push {
                                    //   node.h PeerLocSrc for the bound.
     uint32_t channel_msg_id = 0;   // channel_recv: the FULL 32-bit channel message id (the app's dedup identity)
     uint32_t team_id = 0;          // §S4: channel_recv team scoping (0 = a plain leaf channel -> omitted); §S2 team_reg carries the team id here
-    uint32_t seq = 0;              // msg_recv/channel_recv: the inbox per-store seq (0 = inbox disabled -> omit).
-                                   //   The app unifies live + pulled by seq + detects a dropped live push (model B).
+    uint32_t seq = 0;              // msg_recv/channel_recv/custody_failure: the inbox per-store seq (0 = inbox
+                                   //   disabled -> omit). The app unifies live + pulled by seq + detects a dropped
+                                   //   live push (model B).
+                                   // ⛔⛔ §CUSTODY-G/§7.3: a NONZERO seq is the GAP-TOLERANT ASSIGNMENT, ⛔ NOT a
+                                   //    proof of persistence — `Inbox::record()` advances the sequence even when the
+                                   //    store's append FAILS (inbox.cpp), by design. **`seq == 0` means exactly one
+                                   //    thing: storage is disabled.** Reading a nonzero value as "it is on the
+                                   //    medium" is the "a success that isn't" shape this arc has corrected twice.
     bool     has_location = false; // msg_recv: the sender piggybacked a 6-B location (DATA_FLAG_LOCATION).
                                    // ★ §chan-crypt CL2b sets it for channel_recv too (the sealed inner's bit1), and
                                    //   §chan-crypt CL2c is what put it on the WIRE FORMAT of the push — write_push's
                                    //   channel_recv arm now emits `lat`/`lon`. (The DM arm still does not; that is
                                    //   register B36's half, a rendering fix with no wire change.)
     int32_t  lat_e7 = 0, lon_e7 = 0;  //   deg×1e7 (~11 m), valid iff has_location.
-    uint8_t  body[protocol::max_payload_bytes_hard_cap] = {};   // msg_recv / channel_recv text (empty otherwise)
+    uint8_t  body[protocol::max_payload_bytes_hard_cap] = {};   // msg_recv / channel_recv TEXT; hash_resolved's 4-B
+                                   //   hash; peer_key_cached / team_key_received's optional name. ⛔⛔ §CUSTODY-G
+                                   //   adds the ONE BINARY occupant: `custody_failure` carries the validated v1
+                                   //   record (`record_len` bytes, incl. any accepted future tail). It is NOT text
+                                   //   and must never reach a text encoder or an OLED byte sanitizer (§7.2) — every
+                                   //   consumer calls `parse_custody_failure` on it.
     uint8_t  body_len = 0;
 };
 // ★★ §AB2 — PER-ABI, NOT native-only, and deliberately so (the same discipline, and the same wording, as

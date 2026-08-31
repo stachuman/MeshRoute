@@ -2357,6 +2357,7 @@ static uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
         case PK::team_reg:       case PK::join_adopted:   case PK::team_key_received:
         case PK::team_channel_no_key: case PK::send_aired:
         case PK::team_key_grant_aired: case PK::team_key_grant_failed:   // §CUSTODY-B/[[B268]]
+        case PK::custody_failure:                                        // §CUSTODY-G/§14.1
             return uint8_t(uint8_t(k) + 1u);
     }
     return 0;

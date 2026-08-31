@@ -1078,6 +1078,24 @@ public:
     //   nothing can drive is a refusal no mutation can redden — measured: the battery arm that deletes its emit
     //   SURVIVED until this seam existed.
     void test_custody_notice_enqueue(const CustodyNoticeSnapshot& snap) { custody_notice_enqueue(snap); }
+    // ★★★ §CUSTODY-G TEST SEAM — **THE SAME ARGUMENT, ON THE RECEIVE SIDE.** §13's eighteen validations need one
+    //     independent falsifier EACH, and several of the contexts they judge (a TEAM-plane arrival; an inner that
+    //     parses at the MAC but not as a unicast inner) cannot be installed by a static 3-node chain's MAC.
+    // ⛔ THE PAIR IS DELIBERATE AND SO IS THE ORDER OF USE: `test_pending_post_ack()` hands back the LIVE,
+    //    PRODUCTION-INSTALLED `PostAck` that a REAL received DATA left behind (it is `pending` between `on_recv`
+    //    and the post-ACK timer), and `test_custody_failure_receive` runs the PRODUCTION validator over a COPY of
+    //    it with EXACTLY ONE field changed. ⇒ every arm is a one-variable experiment against a real baseline,
+    //    never a fabricated frame ([[B268]]'s lesson, honoured rather than argued around).
+    // ⛔ IT IS NOT A SHORTCUT PAST THE MAC: the arms that CAN be driven as real frames (every record-byte break,
+    //    the CRYPTED flag, a foreign `failed_origin`, a wrong `reporter_layer`, the domain overruns) ARE driven
+    //    that way in `test/test_custody_receive_g.cpp`, and the seam covers only what the chain cannot install.
+    // ⛔ ZERO DEVICE SURFACE and zero behaviour: `MESHROUTE_NATIVE`-only, no state, `sizeof(Node)` unmoved.
+    const PostAck* test_pending_post_ack() const {
+        return _active->_post_ack.pending ? &_active->_post_ack : nullptr;
+    }
+    void test_custody_failure_receive(const PostAck& pa, const data_unicast_inner* ui) {
+        custody_failure_receive(pa, ui);
+    }
 #endif
     bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
@@ -1607,6 +1625,14 @@ private:
     // (renumber) is confirmation-gated: deferred to the HARD-H resolution, fired only when want_hash resolves
     // back to OUR own id (a proven same-id collision) — see design §7.1.
     void    l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash);
+    // ★★★★ §CUSTODY-G (2026-08-31) — **THE RECEIVER FOR `DATA_TYPE_CUSTODY_FAILURE` (0x81)**: design §13's
+    //   EIGHTEEN validations, then §7.3's five-step record-BEFORE-push order. Called from `do_post_ack`
+    //   (node_mac_rx.cpp) at the position §13 fixes — after EVERY forwarding role, before ordinary DM delivery.
+    // ⛔ IT ALWAYS CONSUMES. A valid report is stored + pushed; an invalid one is dropped with the ruled bounded
+    //   scalar `custody_failure_reject{type,origin,dst,ctr}` — ⛔ NOT `unsupported_internal`, which would now be
+    //   FALSE (0x81 is supported). Either way the frame never reaches `record_dm`, `msg_recv` or an E2E ack.
+    // `ui` is `nullptr` iff the standard unicast parse failed (§13.2); the caller owns `become_free()`.
+    void    custody_failure_receive(const PostAck& pa, const data_unicast_inner* ui);
     void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
     bool    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
                                 uint8_t type, const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]);   // fresh ORIGINATOR-budget leg; type/nonce_seed threaded (S1: a typed/CRYPTED redirect keeps them); false = dropped (queue full)

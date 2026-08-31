@@ -850,16 +850,18 @@ constexpr bool data_type_is_application(uint8_t t) {
 //                             (§6.2(5)). Internal types may not; their protocol-specific results are
 //                             untouched (§6.2(6)).
 //   persistent_outcome      — is written to inbox storage as a durable internal OUTCOME record (§7.1).
-//                             ★ EXACT MEMBERSHIP AT SLICE F = { E2E_ACK }, UNCHANGED FROM SLICE A.
-//                             ⛔⛔ CORRECTED IN PLACE 2026-08-31 BY §CUSTODY-F, because the sentence that stood
-//                             here — *"CUSTODY_FAILURE joins it when the custody-codec slice adds 0x81"* — is
-//                             now FALSE AT THE SLICE THAT WAS SUPPOSED TO MAKE IT TRUE. F adds 0x81 and its
-//                             PRODUCER; it adds no storing consumer at all (the receiver, the record-before-push
-//                             ordering and the durable write are Slice G's, §17-G). A trait that claimed a
-//                             durable write nothing performs would be a claim, not a description — the same
-//                             "a success that isn't" shape the arc has corrected twice. ⇒ **Slice G flips
-//                             `persistent_outcome` to true for 0x81 and closes the §18.2 endpoint**, and it is
-//                             the slice that makes the statement true.
+//                             ★★★★ EXACT MEMBERSHIP AT SLICE G = **{ E2E_ACK, CUSTODY_FAILURE }** — §7.1's
+//                             opt-in set, now COMPLETE. ⓘ HISTORY, kept because it is the rule the arc enforced
+//                             on itself rather than a changelog: at Slices A-F this read *"EXACT MEMBERSHIP =
+//                             { E2E_ACK }"*, and §CUSTODY-F deliberately REFUSED to flip 0x81 even though it
+//                             allocated the type and built its producer — *"F adds 0x81 and its PRODUCER; it adds
+//                             no storing consumer at all … a trait that claimed a durable write nothing performs
+//                             would be a claim, not a description"*. **§CUSTODY-G (2026-08-31) IS THE SLICE THAT
+//                             MAKES THE STATEMENT TRUE**: `Node::custody_failure_receive` (node_mac_rx.cpp) now
+//                             validates §13's eighteen terms and calls `Inbox::record_custody_failure` BEFORE the
+//                             live Push (§7.3's five steps), so the flag below describes a store that exists.
+//                             ⛔ Do not re-add a THIRD member without §7.1's *"explicit record mapping and
+//                             presentation contract"* — the flag is a WRITE authority, not a convenience.
 //                             ⛔ This trait is about INTERNAL outcome records
 //                             only — ordinary application-message inbox persistence is `record_dm`'s path and
 //                             is not this flag's subject.
@@ -886,16 +888,18 @@ constexpr DataTypeTraits data_type_traits(uint8_t t) {
         // 0x80 — the one durable internal OUTCOME today.
         case DATA_TYPE_E2E_ACK:
             return DataTypeTraits{ true,  true,  false, false, true  };
-        // ★★★★ 0x81 — §CUSTODY-F. `known = true` (it now has a PRODUCER and §9's defined meaning; a reservation
-        //     is not knowledge, an allocated type with a generator is), `internal = true`, NOT application-
-        //     bearing, NO generic send lifecycle — and ⛔ `persistent_outcome = FALSE IN F`, deliberately.
-        //     See the trait's own note above: F writes nothing durable, so a `true` here would describe a store
-        //     that does not exist. ⇒ **SLICE G FLIPS THIS BIT** when the storing consumption lands (§7.1/§17-G).
-        //     ⓘ The consequence is exact and is what the §CUSTODY-C classification already handles: an 0x81
-        //     record is `internal`, so `inbox_record_is_internal` hides it from ordinary views the moment G
-        //     starts writing one — the visibility rule does not wait for this flag.
+        // ★★★★ 0x81 — §CUSTODY-F allocated it; **§CUSTODY-G FLIPPED THE LAST BIT**. `known = true` (a PRODUCER
+        //     and §9's defined meaning; a reservation is not knowledge, an allocated type with a generator is),
+        //     `internal = true`, NOT application-bearing, NO generic send lifecycle — and now
+        //     `persistent_outcome = TRUE`, because G's receiver (`Node::custody_failure_receive`) performs the
+        //     durable write §7.1/§7.2 describe. ⛔ THE `false` THAT STOOD HERE THROUGH SLICE F WAS NOT AN
+        //     OVERSIGHT and must not be read as one: F wrote nothing durable, so a `true` would have described a
+        //     store that did not exist. The bit and the store landed in the SAME slice, on purpose.
+        //     ⓘ The §CUSTODY-C consequence is unchanged and was never gated on this flag: an 0x81 record is
+        //     `internal`, so `inbox_record_is_internal` hid it from ordinary views from the moment the type
+        //     existed — the visibility rule did not wait for this bit, and does not consult it now (inbox.h).
         case DATA_TYPE_CUSTODY_FAILURE:
-            return DataTypeTraits{ true,  true,  false, false, false };
+            return DataTypeTraits{ true,  true,  false, false, true  };
         // the KNOWN internal types with a live consumer. ⛔ 0x8A and 0x94 are NOT here (see below).
         case DATA_TYPE_H_ANSWER:
         case DATA_TYPE_AUTHORITATIVE_H_ANSWER:
@@ -981,11 +985,17 @@ enum class CustodyRootStage : uint8_t {
 //     asks these two functions; nobody indexes the body. A second offset table is how a 24-byte record ends up
 //     meaning two different things.
 //
-// ⛔ THE SLICE SPLIT IS RULED AND IT IS VISIBLE HERE (§17-F as corrected): **F DEFINES this API, USES `pack_…`
-//    for generation, and EXERCISES `parse_…` in native tests. Slice G wires `parse_…` into receive handling,
-//    Push JSON, pulled JSON and persistence.** ⇒ if you are looking for the caller of `parse_custody_failure`
-//    outside `test/`, there is deliberately none yet. That is not a dangling API; it is the half of the shared
-//    path that must exist BEFORE a consumer, so the consumer cannot invent its own.
+// ⛔ THE SLICE SPLIT IS RULED (§17-F as corrected): **F DEFINED this API, USED `pack_…` for generation, and
+//    EXERCISED `parse_…` in native tests. Slice G wired `parse_…` into receive handling, Push JSON, pulled JSON
+//    and persistence.** ⓘ CORRECTED 2026-08-31 BY §CUSTODY-G: this paragraph used to end *"if you are looking
+//    for the caller of `parse_custody_failure` outside `test/`, there is deliberately none yet"*. **THERE ARE
+//    NOW EXACTLY THREE, AND THEY ARE THE WHOLE CONSUMER SET §9.2 NAMES:**
+//      · `Node::custody_failure_receive`  (lib/core/node_mac_rx.cpp) — §13's validation + §7.3's five steps;
+//      · `write_push`'s `custody_failure` arm (lib/console/console_json.cpp) — the LIVE §14.2 event;
+//      · `write_inbox_dm`'s `custody_failure` fork (same file) — the PULLED §14.2 event.
+//    The USB human line (`src/fw_main.cpp`) reaches the record through the SAME call. ⛔ A fourth consumer that
+//    indexes the body instead of calling this function is the defect §9.2 forbids by name; the mutation battery
+//    carries an entry that re-introduces one.
 //
 // ⛔ AND THE ENUMS ARE **NOT REDEFINED HERE**: `CustodyFailureReason` / `CustodyRootStage` are Slice E's,
 //    immediately above, and this codec only SERIALIZES them (§17-F: "⛔ no second mapping"). A wire value
@@ -1039,6 +1049,25 @@ constexpr bool custody_reason_is_transmittable(uint8_t v) {
 // unprovisioned id, 0xFF = reserved/broadcast — neither can be a custody party).
 constexpr bool custody_node_id_valid(uint8_t id) { return id >= 1 && id <= 254; }
 
+// ★★★ §CUSTODY-G (2026-08-31) — §13.18's PROTOCOL DOMAINS for the record's four count/hop fields, named ONCE.
+// ⛔ These are RECEIVER terms, not codec well-formedness: `parse_custody_failure` below deliberately does NOT
+//    apply them (see its own list), because "24 well-formed bytes" and "values this protocol can actually
+//    produce" are two different questions and only the second needs the protocol's constants.
+// ⛔ THEY ARE DERIVED FROM THE EXISTING AUTHORITIES, never re-typed literals — a second spelling of a bound is
+//    how the two halves of a domain drift apart:
+//    · `requeue_count`      <= `protocol::cascade_requeue_max`  — the cascade budget itself (protocol_constants.h);
+//    · `alternatives_tried` <= `protocol::max_rt_candidates`    — `alts_tried[]`'s own capacity (node_cascade.cpp
+//                                                                 `pt.alts_tried_n < protocol::max_rt_candidates`);
+//    · `remaining_hops`     <= `protocol::hop_budget_max_initial` — DATA byte 4 bits 7..3, a 5-BIT field;
+//    · `committed_hops`     <= `custody_committed_hops_max`     — DATA byte 4 bits 2..0, a 3-BIT field.
+// ⓘ THE ONE NEW CONSTANT, AND WHY IT IS NEW: the 5-bit bound already had a name (`hop_budget_max_initial`); the
+//   3-bit one did not — it lived as the literal `7` at `frame_codec.cpp` (`pack_data`'s saturation) and at
+//   `node_mac_rx.cpp` (`hb_new_committed`). ⛔ THIS SLICE DOES **NOT** REWRITE THOSE TWO SITES (C1: a literal→
+//   constant sweep is a refactor and would ride inside a feature slice). It names the bound here, and
+//   `test/test_custody_receive_g.cpp` pins the constant AGAINST the wire field itself — `parse_data` masks the
+//   byte with 0x07, so a domain constant that disagreed with the mask is caught by a test rather than by a reader.
+inline constexpr uint8_t custody_committed_hops_max = 7;   // DATA byte 4 bits 2..0 — the 3-bit committed_hops field
+
 // §9.2's v1 body, as a VALUE. ⛔ It is NOT a memcpy image of the wire: `dst_hash32` forces 4-byte alignment, so
 // `sizeof` exceeds 24 on every target. The 24 is the WIRE length (`custody_record_v1_len`) and only the codec
 // below knows the offsets — which is exactly the property §9.2 asks for.
@@ -1084,6 +1113,19 @@ constexpr bool custody_flags_exactly_one_stage(uint8_t flags) {
     const uint8_t s = static_cast<uint8_t>(flags & custody_flags_stage_mask);
     return s == CUSTODY_FLAG_FAILED_AT_CTS || s == CUSTODY_FLAG_FAILED_AT_ACK;
 }
+// ★★★ §CUSTODY-G — THE **INVERSE** OF `custody_notice_flags`' STAGE HALF, and it lives here, next to the
+// forward derivation, for exactly the reason the forward one is a function: §14.2 needs the stage as a SEMANTIC
+// NAME on the live push, on the pulled record and on the USB line, and three readers each recovering it from
+// the flags byte is three chances to disagree about which bit means what. ⛔ There is ONE inverse.
+// FAIL-CLOSED: anything that is not exactly one stage bit answers `invalid` — which `custodystage_name` renders
+// as the never-transmitted sentinel rather than guessing. A PARSED record can never reach that arm
+// (`parse_custody_failure` enforces §13.8 first), which is what makes the sentinel a tripwire and not a mode.
+constexpr CustodyRootStage custody_stage_of_flags(uint8_t flags) {
+    const uint8_t s = static_cast<uint8_t>(flags & custody_flags_stage_mask);
+    if (s == CUSTODY_FLAG_FAILED_AT_CTS) return CustodyRootStage::cts;
+    if (s == CUSTODY_FLAG_FAILED_AT_ACK) return CustodyRootStage::hop_ack;
+    return CustodyRootStage::invalid;
+}
 
 // Pack a v1 record. Returns `custody_record_v1_len` (24) on success, 0 on REFUSAL — and it refuses loudly (C2)
 // rather than emitting a record that violates §9.2/§9.3, because a malformed notice is worse than none: the
@@ -1101,14 +1143,16 @@ size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> o
 //   first 24 bytes and the returned `record_len` tells a storing consumer how many bytes it must retain. Use
 //   `custody_record_tail()` to obtain those bytes; ⛔ never re-derive the offset.
 // ⛔ WHAT THIS DELIBERATELY DOES **NOT** CHECK, because it needs NODE CONTEXT this pure codec does not have —
-//   they are §13's receiver items and belong to Slice G, stated here so a reader does not mistake absence for
-//   an oversight (the mark-done-vs-missing rule):
+//   they are §13's receiver items, and ⓘ **§CUSTODY-G LANDED ALL FIVE** in `Node::custody_failure_receive`
+//   (node_mac_rx.cpp), each as its own named term with its own falsifier. Kept listed here so a reader of the
+//   codec alone does not mistake their absence FROM THIS FUNCTION for their absence from the system:
 //     · §13.10 `failed_plane == static_same_layer` — v1 SUPPORT, not well-formedness; a reserved plane parses;
 //     · §13.11 `failed_origin` equals THIS node's static id;
 //     · §13.15 `reporter_layer` equals the active receiving full layer;
 //     · §13.14 `failed_type` is neither E2E ACK nor custody failure — a RECEIVER-side sanity rule on a field
 //       this codec only carries (the GENERATOR's side of it is §10.1(11), enforced at the eligibility gate);
-//     · §13.18 count/hop fields fitting their protocol domains.
+//     · §13.18 count/hop fields fitting their protocol domains (`custody_committed_hops_max` and the three
+//       existing `protocol::` bounds, above).
 std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_t> body);
 
 // §9.2's unknown-version TAIL, as a span into the caller's body. Empty for a plain v1 record. ⛔ The ONE place

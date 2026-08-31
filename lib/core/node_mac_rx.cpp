@@ -1535,6 +1535,146 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     (void)_hal.after(airtime_routing_ms(3) + 1, kPostAckTimerId);
 }
 
+// =========================================================================================================
+// ★★★★ §CUSTODY-G (2026-08-31) — THE `DATA_TYPE_CUSTODY_FAILURE` (0x81) RECEIVER
+//      (design §13 the eighteen validations · §7.2 the record mapping · §7.3 the five-step order · §14.1 the
+//       Push mapping). This function ENDS the ratified F-before-G intermediate state in which an addressed
+//       0x81 died at Slice B's fail-closed tail guard.
+//
+// ⛔⛔ EVERY §13 TERM IS NAMED SEPARATELY, and that is a gate requirement rather than a style: the battery
+//     demands ONE FALSIFIER PER TERM, and a fused boolean would make "which validation refused this record"
+//     unanswerable and every mutation indistinguishable from every other. The terms are grouped by the layer
+//     that OWNS them, because they are not all the same kind of question:
+//
+//   FRAME-LEVEL (this function; the record has not been read yet)
+//     §13.1  the DATA is PLAINTEXT      — a CRYPTED inner is sealed to us and would have to be opened first;
+//                                         a notice is originated `CryptIntent::off` (§9.1), so a crypted one
+//                                         is a forgery attempt or a bug either way.
+//     §13.2  standard unicast parsing succeeded (`ui != nullptr`).
+//
+//   CODEC-OWNED (`parse_custody_failure`, frame_codec.cpp — ELEVEN terms behind ONE `nullopt`)
+//     §13.3 body >= 24 · §13.4 version == 1 · §13.5 `record_len` in [24, body] · §13.6 flag bits 6-7 zero ·
+//     §13.7 `forwarded` set · §13.8 exactly one stage bit · §13.9 a known nonzero reason · §13.12 the four
+//     ids in 1..254 · §13.13 `failed_ctr` nonzero · §13.16 the hash flag agrees with the hash, BOTH ways ·
+//     §13.17 reserved bytes zero.
+//     ⛔ THEY ARE NOT RE-IMPLEMENTED HERE. §9.2 rules ONE shared pack/parse path; a second offset table is
+//        how a 24-byte record ends up meaning two different things. G's native arms drive each of the eleven
+//        THROUGH this receiver (a codec-byte break at the wire), which is what proves the receiver actually
+//        consults the codec rather than merely importing it.
+//
+//   RECEIVER-CONTEXT (this function; needs node state the pure codec does not have)
+//     §13.10 `failed_plane == static_same_layer` — v1 SUPPORT, not well-formedness. ★ IN TWO HALVES, because
+//            the field is a CLAIM and the arrival is the FACT it can be checked against: the body must say
+//            `static_same_layer`, AND the frame must not have arrived on the TEAM plane. §9.1 forces
+//            `Plane::GLOBAL` on every v1 notice EXACTLY so a team-local-id collision cannot route a
+//            static-plane diagnostic onto the team plane — so a team-plane arrival contradicts the record's
+//            own plane byte, and consuming it would write a team-plane `origin` into a record documented as
+//            a static reporting relay (C3: the planes are separate id-namespaces).
+//     §13.11 `failed_origin` == THIS node's static id. ★★ THIS — not the wire `dst`, not a DST_HASH — IS THE
+//            ADDRESSEE TEST. Only the ORIGINAL SENDER of the failed DATA consumes a notice; a relay carrying
+//            one in transit never reaches this function at all (it is `pa.is_forward` and is forwarded as
+//            ordinary transit DATA), and a home proxying one to a hosted mobile forwards it at the DST_HASH
+//            last-mile, far above. Three roles, one consumer.
+//     §13.14 `failed_type` is neither E2E ACK nor custody failure — the receiver's half of §10.1(11)'s
+//            never-about-itself rule. A record claiming a relay lost custody of an ACK or of another notice
+//            describes something the generator structurally cannot produce.
+//     §13.15 `reporter_layer` == the ACTIVE receiving full layer, in the same-layer v1 case.
+//     §13.18 the four count/hop fields fit their PROTOCOL domains (`custody_committed_hops_max` and the three
+//            `protocol::` bounds — frame_codec.h names all four in one place).
+//
+// ⛔⛔ WHAT IS **NOT** CHECKED, STATED SO ITS ABSENCE IS NOT READ AS AN OVERSIGHT (§13's closing paragraph,
+//     verbatim: *"The outer origin is the reporter. It is not authenticated. A mismatch between outer context
+//     and body invariants is malformed, not evidence."*): **THE RECORD CARRIES NO REPORTER-ID FIELD AT ALL.**
+//     There is therefore nothing to cross-check `pa.origin` against, and ⛔ an outer/body reporter-equality
+//     check MUST NOT BE INVENTED — it would be a check against a field that does not exist, and it would
+//     dress an unauthenticated identity up as a verified one (the standing "a display-shaped field must never
+//     make a decision" rule). The reporter is recorded as what it is: a claim.
+//
+// ★★ THE REJECTION TELEMETRY IS OWNER-RULED AND CLOSED: ONE bounded scalar
+//    `custody_failure_reject{type, origin, dst, ctr}` per rejected flight. ⛔ NO body bytes and nothing derived
+//    from them · ⛔ NO Push · ⛔ NO storage · ⛔ NO reuse of `Push::reason`. ⛔⛔ AND ⛔ NOT
+//    `unsupported_internal`: that event means "this build has no handler for this internal type", and after
+//    this function exists that sentence is FALSE for 0x81. Reusing it would be the same defect shape as
+//    reporting a success that isn't — a true-sounding event that describes the wrong fact. The field set
+//    deliberately MIRRORS `unsupported_internal`'s ruled four, so the bound is the same one the owner ruled on
+//    2026-08-30: fixed-size, non-amplifying, at most one per dedup-admitted DATA flight (the radio is the
+//    bound, not a counter).
+//
+// ⛔ NO E2E ACK IS EVER GENERATED for a notice and none is expected: §9.1 clears `E2E_ACK_REQ` at origination,
+//    and this function returns before the ordinary deliver tail that would consider one (§7.3 step 5).
+// =========================================================================================================
+void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* ui) {
+    // The ONE rejection exit. Named so every arm below is a single line and the emit cannot drift between
+    // them; `[[maybe_unused]]` is unnecessary — MR_EMIT compiles to nothing on a device and the lambda with it.
+    auto reject = [&]() {
+        MR_EMIT("custody_failure_reject", EF_I("type", pa.type), EF_I("origin", pa.origin),
+                EF_I("dst", pa.dst), EF_I("ctr", pa.ctr));
+    };
+    // ---- §13.1 / §13.2 — the FRAME-level terms, before a single record byte is read.
+    const bool is_plaintext  = (pa.flags & DATA_FLAG_CRYPTED) == 0;
+    const bool inner_parses  = ui != nullptr;
+    if (!is_plaintext || !inner_parses) { reject(); return; }
+    // ---- §13.3-.9, .12, .13, .16, .17 — the CODEC's eleven, behind the ONE shared parse (§9.2).
+    const std::optional<CustodyFailureRecord> parsed = parse_custody_failure(ui->body);
+    if (!parsed) { reject(); return; }
+    const CustodyFailureRecord& rec = *parsed;
+    // ---- §13.10 — v1 plane SUPPORT, in its two halves (see the banner). The reserved plane values PARSE;
+    //      refusing them is this layer's job, not the codec's.
+    const bool plane_supported = rec.failed_plane == CustodyFailurePlane::static_same_layer;
+    const bool arrived_static  = !pa.team_plane;
+    // ---- §13.11 — the ADDRESSEE test. `_node_id` is the active leaf's static id (node.h).
+    const bool addressed_to_us = rec.failed_origin == _node_id;
+    // ---- §13.14 — never about an ack, never about another notice.
+    const bool type_reportable = rec.failed_type != DATA_TYPE_E2E_ACK
+                              && rec.failed_type != DATA_TYPE_CUSTODY_FAILURE;
+    // ---- §13.15 — the same-layer v1 case: the reporter's layer IS our receiving layer.
+    const bool layer_matches   = rec.reporter_layer == active_layer_id();
+    // ---- §13.18 — the four count/hop domains, each against its EXISTING authority (frame_codec.h).
+    const bool counts_in_domain = rec.requeue_count      <= protocol::cascade_requeue_max
+                               && rec.alternatives_tried <= protocol::max_rt_candidates
+                               && rec.committed_hops     <= custody_committed_hops_max
+                               && rec.remaining_hops     <= protocol::hop_budget_max_initial;
+    if (!(plane_supported && arrived_static && addressed_to_us && type_reportable
+          && layer_matches && counts_in_domain)) { reject(); return; }
+
+    // =====================================================================================================
+    // §7.3's FIVE STEPS. ⛔⛔ THE ORDER IS THE CONTRACT, not an implementation detail: the Push carries the
+    //   sequence the STORE assigned, so the app can unify live + pulled by seq and detect a dropped live push
+    //   (the contract's model B). Pushing first would have nothing to carry.
+    //     (1) parse + validate       — done, above.
+    //     (2) append the outcome     — `record_custody_failure`, §7.2's mapping fixed inside `Inbox` (U2).
+    //     (3) obtain the assigned seq under the EXISTING gap-tolerant model — the return value.
+    //     (4) enqueue the live Push carrying it.
+    //     (5) return WITHOUT ordinary DM delivery or E2E-ACK generation — this function's `return`.
+    // =====================================================================================================
+    // ⛔ `record_len` BYTES, NOT 24: §7.2 stores *"the validated custody record, including any accepted future
+    //    tail"*, and §9.2 makes `record_len` the authority on how many bytes that is. A v1 reader INTERPRETS
+    //    the first 24 and RETAINS the rest — dropping the tail would silently truncate a newer reporter's
+    //    record on the one node that still had it. Bounded by construction: the codec already refused
+    //    `record_len > ui->body.size()`, and `ui->body.size() <= protocol::max_payload_bytes_hard_cap`, which
+    //    is exactly `protocol::inbox_max_body` and exactly `sizeof(Push::body)`.
+    const uint8_t  rec_len = rec.record_len;
+    const uint8_t* rec_bytes = ui->body.data();
+    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),
+                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)
+    // ---- step (4): §14.1's carrier mapping, verbatim. ⛔ `Push` does not grow and ⛔ `reason` stays `none`.
+    Push pu{};
+    pu.kind     = PushKind::custody_failure;
+    pu.origin   = pa.origin;              // the OUTER reporting relay — unauthenticated, recorded as a claim
+    pu.dst      = rec.failed_dst;         // §15.2's correlation pair, half one
+    pu.ctr      = rec.failed_ctr;         //   … half two. ⛔ never matched by counter alone
+    pu.layer_id = active_layer_id();
+    pu.seq      = seq;                    // 0 IFF storage is disabled (§7.3) — ⛔ never a persistence proof
+    pu.body_len = rec_len;
+    for (uint8_t i = 0; i < rec_len; ++i) pu.body[i] = rec_bytes[i];
+    enqueue_push(pu);
+    // KEEP for the sim analyzer + the corpus instrument (free on metal — MR_EMIT is device-stripped). Scalars
+    // only, the same bound the rejection carries.
+    MR_EMIT("custody_failure_rx", EF_I("reporter", pa.origin), EF_I("dst", rec.failed_dst),
+            EF_I("ctr", rec.failed_ctr), EF_I("seq", static_cast<int64_t>(seq)));
+    // ---- step (5): return. ⛔ No `record_dm`, no `msg_recv`, no E2E ack. The caller calls `become_free()`.
+}
+
 void Node::do_post_ack() {
     if (!_active->_post_ack.pending) return;
     const PostAck pa = _active->_post_ack;
@@ -1859,6 +1999,35 @@ void Node::do_post_ack() {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
+        // ★★★★ §CUSTODY-G (2026-08-31) — **THE 0x81 CONSUMER, AND THE END OF THE RATIFIED INTERMEDIATE STATE.**
+        // Until this line existed, an addressed `DATA_TYPE_CUSTODY_FAILURE` fell all the way to Slice B's
+        // fail-closed tail guard and was dropped with one `unsupported_internal` (test §CUSTODY-F/7, now
+        // re-anchored). §13's opening sentence — *"An addressed `DATA_TYPE_CUSTODY_FAILURE` is consumed before
+        // ordinary DM delivery"* — is what this arm implements.
+        //
+        // ⛔⛔ THE POSITION IS THE CONTRACT, and it is the SAME doctrine the Slice-B guard's own banner states
+        //    twelve lines below: a frame this node is the WIRE DESTINATION of is not necessarily a frame this
+        //    node is the SUBJECT of. Every role that must FORWARD an 0x81 has already run and returned:
+        //      (a) ordinary relay forwarding — the `else` arm of `if (!pa.is_forward)`; never reaches here;
+        //      (b) the cross-layer BRIDGE    — :1720-1722, returns long before this line;
+        //      (c) the hosted-mobile LAST-MILE by DST_HASH — :1656-1712. ★ A home is the outer wire destination
+        //          but only a PROXY for its hosted mobile: a notice addressed THROUGH the home must still be
+        //          forwarded, and the MOBILE is the node entitled to decide whether it is the failed origin;
+        //      (d) `l2c_handle_misdelivery` — an id-collision redirect, immediately above.
+        //    ⓘ (d) is UNREACHABLE for a genuine v1 notice and the arm is placed after it anyway: §9.1 originates
+        //      the notice `app_dm = false` with `override_dst_hash = 0`, and `enqueue_data` gates BOTH the
+        //      DST_HASH and SOURCE_HASH prefixes on `app_dm` — so `ui->has_dst_hash` is false by construction.
+        //      Sitting after the redirect costs nothing and means a CRAFTED notice cannot eat one.
+        // ⛔ AND IT IS **BEFORE** THE TWO OPEN PATHS BELOW (SEALED_RELAY / CRYPTED trial decrypt), because
+        //    §13.1 requires the DATA to be PLAINTEXT: a crypted 0x81 must be refused, not trial-decrypted.
+        // ⛔ THE SLICE-B GUARD IS UNTOUCHED AND STILL PROTECTS EVERYTHING ELSE. This arm consumes exactly one
+        //    type; every OTHER unhandled internal type still reaches the guard and is still dropped there. The
+        //    paired native case proves both halves at once, which is the only honest way to state a transition.
+        if (pa.type == DATA_TYPE_CUSTODY_FAILURE) {
+            custody_failure_receive(pa, ui ? &*ui : nullptr);
+            become_free();
+            return;
+        }
         // §S2 DATA_TYPE_INTRO (0x01): a PLAINTEXT first-contact DM addressed to US, body = [ed_pub 32][name_len][name][text].
         // Verify ed_pub[:4] == SOURCE_HASH (the peerkey self-consistency rule), cache the sender's key AUTHORITATIVE +
         // name (fires peer_key_cached), STRIP the prefix, and fall through to the NORMAL deliver (enc absent; dedup
@@ -1944,6 +2113,11 @@ void Node::do_post_ack() {
         //       internal frame never reaches this line. Anything internal that DOES reach it is, by construction,
         //       UNHANDLED on this build — so it is dropped here instead of falling through to `record_dm`,
         //       `msg_recv` and the inbox as message text.
+        //   ⓘ 2026-08-31 (§CUSTODY-G): `DATA_TYPE_CUSTODY_FAILURE` (0x81) JOINED the wired handlers above and no
+        //     longer arrives here. ⛔ NOTHING ABOUT THIS GUARD CHANGED — it was never 0x81-specific, and it still
+        //     protects every other internal type, allocated or not. The paired case in
+        //     `test/test_custody_receive_g.cpp` measures exactly that: 0x81 consumed, another internal type still
+        //     guard-dropped, in one test. A transition stated as "the guard weakened" would be false.
         //
         // ⛔⛔ THE PREDICATE IS "traits.internal REACHED THE ORDINARY-DELIVERY TAIL", FULL STOP — ⛔ NOT
         //     `internal && !known`. `known` means ALLOCATED AND UNDERSTOOD; it does NOT prove a handler RAN.

@@ -346,17 +346,31 @@ TEST_CASE("§CUSTODY-B/3b receiving an E2E ACK still produces send_e2e_acked (§
     CHECK(c.h1.count("unsupported_internal") == 0);      // ⛔ and a WIRED internal type never meets the guard
 }
 
-// §6.2(8) — persistence is EXACT. A sweep, not a spot check: `persistent_outcome` must still name exactly one
-// type at this slice, so nothing acquired durable storage as a side effect of the trait becoming load-bearing.
-TEST_CASE("§CUSTODY-B/3c persistence stayed exact: E2E_ACK is the ONLY persistent_outcome type in 0..255") {
+// §6.2(8) / §7.1 — persistence is EXACT. A sweep, not a spot check: `persistent_outcome` must name §7.1's opt-in
+// set and NOTHING ELSE, so no type acquires durable storage as a side effect of a trait edit.
+// ⚠⚠ RE-ANCHORED 2026-08-31 BY §CUSTODY-G, AND THE OLD ASSERTION IS RECORDED RATHER THAN SILENTLY REPLACED.
+//   IT READ: *"E2E_ACK is the ONLY persistent_outcome type in 0..255"*, with `CHECK(v == DATA_TYPE_E2E_ACK)`,
+//   `CHECK(n == 1)` and a closing `CHECK_FALSE(data_type_traits(0x81).persistent_outcome)` guarding against the
+//   forward reservation *"quietly opting in ahead of the custody-codec slice"*. That guard did its job through
+//   Slices B-F — §CUSTODY-F deliberately left 0x81 `false` because F wrote nothing durable — and Slice G is the
+//   slice that legitimately opts it in, together with the storing consumer (`Node::custody_failure_receive`
+//   -> `Inbox::record_custody_failure`). ⛔ THE SHAPE OF THE CHECK IS UNCHANGED: it is still a full 0..255 sweep
+//   with an exact cardinality, so a THIRD type opting in without §7.1's *"explicit record mapping and
+//   presentation contract"* still fails here.
+TEST_CASE("§CUSTODY-B/3c persistence stayed exact: {E2E_ACK, CUSTODY_FAILURE} are the ONLY persistent_outcome types in 0..255") {
     int n = 0;
     for (int t = 0; t <= 255; ++t) {
         const uint8_t v = static_cast<uint8_t>(t);
-        if (data_type_traits(v).persistent_outcome) { ++n; CHECK(v == DATA_TYPE_E2E_ACK); }
+        if (data_type_traits(v).persistent_outcome) {
+            ++n;
+            CHECK((v == DATA_TYPE_E2E_ACK || v == DATA_TYPE_CUSTODY_FAILURE));
+        }
     }
-    CHECK(n == 1);
-    // ⛔ And the forward reservation has NOT quietly opted in ahead of the custody-codec slice.
-    CHECK_FALSE(data_type_traits(0x81).persistent_outcome);
+    CHECK(n == 2);
+    // ⛔ NON-VACUOUS IN BOTH DIRECTIONS: both members are named positively (a sweep that found neither would
+    //    still satisfy an "only these two" test), and the guard against a silent third member is `n == 2`.
+    CHECK(data_type_traits(DATA_TYPE_E2E_ACK).persistent_outcome);
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome);
 }
 
 // §6.3 — the internal range buys the DM-floor exemption and NOTHING ELSE. The RTS backstop hint is the named

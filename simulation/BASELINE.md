@@ -10475,9 +10475,19 @@ DROPPED at the §CUSTODY-B tail guard until Slice G lands the receiver (the QG-r
 ⚠ The QG-ACCEPTED delivery trade rides this ruling: 758→753 deliveries / 62→63 duplicates — "the measured
 airtime cost of the B59 diagnostic, not evidence of systematic suppression."
 
+★★★ **FOUR ROWS RE-ANCHORED 2026-08-31 ON THE §CUSTODY-G RULING ("I formally approve the sixth
+corpus-table ruling") — THE SIXTH TABLE-AUTHORITY RULING; ⛔ NO AGENT EDITS THIS TABLE WITHOUT A NEW ONE.**
+s06/s07/s27/twin from the reproduced proposal (`docs/superpowers/evidence/2026-08-31-custody-slice-g-corpus.md`);
+**the s18 keystone is UNCHANGED at `32afbf11`/269517** for the second consecutive ruling. The delta is
+EXACTLY the addressed-0x81 outcome representation flipping (11 receipts: `unsupported_internal{0x81}` →
+`custody_failure_rx` + `push{custody_failure}`), proven by the ordered raw-residue comparator
+(`tools/compare_corpus_slice_g.py`, 15 derived controls — byte-identical residue after striking only the
+permitted lines; type-strict `seq == 0`). Deliveries/duplicates IDENTICAL (G adds no radio traffic — the
+no-movement STOP rule held). **[[B59]] is software-closed at this ruling**; bench Part 53 is its metal half.
+
 ```
-s06_seattle_lifecycle                        303bada4 lus: 69035 events emitted, 0 assertion failure(s)
-s07_seattle_mobile_meshroute                 b2e97ff1 lus: 111676 events emitted, 0 assertion failure(s)
+s06_seattle_lifecycle                        e8f862b0 lus: 69039 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                 dab62874 lus: 111677 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway                        71120178 lus: 2266 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway_metal                  0182f858 lus: 2343 events emitted, 0 assertion failure(s)
 s10_two_layer_separation                     c44c0b39 lus: 2266 events emitted, 0 assertion failure(s)
@@ -10497,7 +10507,7 @@ s23_mobile_team_multihop_meshroute           568c684f lus: 924 events emitted, 0
 s24_static_and_team_multihop_meshroute       d06536f4 lus: 1576 events emitted, 0 assertion failure(s)
 s25_two_team_separation_meshroute            f87360c7 lus: 786 events emitted, 0 assertion failure(s)
 s26_team_reroute_meshroute                   73a68a35 lus: 1037 events emitted, 0 assertion failure(s)
-s27_cross_layer_mobiles_meshroute            0abe1650 lus: 9431 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute            662c6158 lus: 9433 events emitted, 0 assertion failure(s)
 s28_mixed_team_channels_meshroute            525756e2 lus: 3861 events emitted, 0 assertion failure(s)
 s29_mixed_leaf_team_meshroute                bb534a88 lus: 2025 events emitted, 0 assertion failure(s)
 s30_team_dad_mediation_meshroute             4a1de37d lus: 1034 events emitted, 0 assertion failure(s)
@@ -10511,7 +10521,7 @@ s36_reprovision_purges_carriers              76d02e58 lus: 472 events emitted, 0
 s37_team_homed_origin_meshroute              db535d42 lus: 748 events emitted, 0 assertion failure(s)
 s38_team_origin_learn_meshroute              52be507e lus: 522 events emitted, 0 assertion failure(s)
 sim_9node_base                               e7a1c3d6 lus: 4945 events emitted, 0 assertion failure(s)
-twin_9node_dm                                c93fe4eb lus: 14548 events emitted, 0 assertion failure(s)
+twin_9node_dm                                dd28f145 lus: 14552 events emitted, 0 assertion failure(s)
 ```
 
 ### What a corrected Phase 0 needs (report only — spec/plan NOT edited, per instruction)

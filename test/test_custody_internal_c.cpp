@@ -88,6 +88,43 @@ void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t) 
                  reinterpret_cast<const uint8_t*>(s), uint8_t(std::strlen(s)), t);
 }
 
+// ★★★★ §CUSTODY-G — A VALID v1 CUSTODY RECORD, PACKED BY THE PRODUCTION ENCODER (⛔ never a hand-laid byte
+//      array here: the §9.2 GOLDEN belongs to `test_custody_relay_f.cpp` and duplicating it would create a
+//      second wire authority). What this file needs is a record that IS one, so the presentation seams can be
+//      asked about a REAL stored body — 24 binary bytes whose first is `0x01` and which contains no text at all.
+// ⓘ `failed_origin` / `reporter_layer` are parameters because the RECEIVE-driven case below has to satisfy
+//   §13.11 and §13.15 against a live node, while the pure-READ cases only need well-formed bytes.
+uint8_t g_valid_record(uint8_t out[custody_record_v1_len], uint8_t failed_origin, uint8_t reporter_layer,
+                       uint8_t failed_dst = 9, uint16_t failed_ctr = 0x1234) {
+    CustodyFailureRecord r{};
+    r.notice_flags      = custody_notice_flags(CustodyRootStage::cts, /*repair_attempted=*/true,
+                                               /*next_was_one_way=*/false, /*has_dst_hash=*/false);
+    r.terminal_reason   = CustodyFailureReason::cascade_count;
+    r.failed_origin     = failed_origin;
+    r.failed_dst        = failed_dst;
+    r.failed_ctr        = failed_ctr;
+    r.failed_type       = DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY;   // [[B59]]'s own type
+    r.failed_data_flags = 0;
+    r.reporter_layer    = reporter_layer;
+    r.previous_hop      = 1;
+    r.failed_next_hop   = 9;
+    r.requeue_count     = 3;
+    r.alternatives_tried = 1;
+    r.committed_hops    = 1;
+    r.remaining_hops    = 4;
+    const size_t n = pack_custody_failure(r, std::span<uint8_t>(out, custody_record_v1_len));
+    CHECK(n == custody_record_v1_len);   // non-vacuous: a refused pack must not silently yield a zero body
+    return uint8_t(n);
+}
+
+// Store one custody report the way `Node::custody_failure_receive` does (§7.2's mapping, via the ONE Inbox entry
+// point). ⛔ The mapping is NOT re-spelled here — `record_custody_failure` owns it; this just supplies bytes.
+void rec_custody(Inbox& ib, uint8_t reporter, uint16_t failed_ctr, uint64_t t) {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = g_valid_record(rec, /*failed_origin=*/1, /*reporter_layer=*/0, /*failed_dst=*/9, failed_ctr);
+    ib.record_custody_failure(reporter, failed_ctr, /*layer_id=*/0, rec, n, t);
+}
+
 }  // namespace
 
 // =====================================================================================================
@@ -134,26 +171,40 @@ TEST_CASE("§CUSTODY-C/1b the hidden set is EXACTLY the internal range, for all 
 }
 
 // ★★★★ THE QG CORRECTION, MADE MEASURABLE. This is the case that would have to be DELETED for the weaker
-//      predicate to look acceptable, which is exactly why it exists: `persistent_outcome` is the WRITE opt-in
-//      (membership `{E2E_ACK}` today), so classifying a READ by it shows `0x81` — and every future internal
-//      record — as ordinary message text.
-TEST_CASE("§CUSTODY-C/1c `persistent_outcome` is NOT the presentation predicate — it fails OPEN on 0x81") {
-    // They agree on the ONE type that is both today...
+//      predicate to look acceptable, which is exactly why it exists: `persistent_outcome` is the WRITE opt-in,
+//      so classifying a READ by it renders every internal record OUTSIDE that opt-in as ordinary message text.
+//
+// ⚠⚠ RE-ANCHORED 2026-08-31 BY §CUSTODY-G, AND THE **ARGUMENT IS UNCHANGED WHILE ITS EXAMPLE MOVED.**
+//   The case was titled *"…it fails OPEN on 0x81"* and asserted `CHECK_FALSE(traits(0x81).persistent_outcome)`
+//   with `disagree == 63u`. Slice G legitimately opts 0x81 IN (it now has a storing consumer), so 0x81 is no
+//   longer an example of the failure — ⛔ but the failure is not gone, it simply has 62 other examples, every
+//   one of them a LIVE type: the reserved `0x8A`, the retired `0x94`, and the ten WIRED-BUT-NOT-PERSISTED
+//   internal types (hash answers, mobility control, key forwarding, remote RPC, the team-key grant) whose
+//   bodies are keys, layer tables and command text.
+//   ★ THE EXAMPLE IS NOW **NAMED AND WIRED**, WHICH MAKES IT STRONGER THAN 0x81 EVER WAS: `TEAM_KEY_GRANT`
+//   (0xA2) carries a 32-byte PRIVATE team key. Under the weakened predicate a stored one would be presented as
+//   message text — the exact §7 defect class, with the worst possible payload.
+TEST_CASE("§CUSTODY-C/1c `persistent_outcome` is NOT the presentation predicate — it fails OPEN on every internal type outside §7.1's opt-in") {
+    // They agree on the TWO types that are both, since §CUSTODY-G...
     CHECK(data_type_traits(DATA_TYPE_E2E_ACK).persistent_outcome);
     CHECK(data_type_traits(DATA_TYPE_E2E_ACK).internal);
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome);
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);
     // ...and DISAGREE on every other internal value, which is the whole argument.
     unsigned disagree = 0;
     for (unsigned v = 0; v <= 255; ++v) {
         const uint8_t t = uint8_t(v);
         if (data_type_traits(t).internal != data_type_traits(t).persistent_outcome) ++disagree;
     }
-    CHECK(disagree == 63u);                                   // 64 internal values, exactly one of them persistent
-    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);                 // hidden by the shipped predicate...
-    CHECK_FALSE(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).persistent_outcome); // ...and VISIBLE under the weakened one
-    // ⓘ CORRECTED 2026-08-31 (§CUSTODY-F): the third line read `CHECK_FALSE(...known)` — "nothing has taught the
-    //   tree about it yet". F did. ★ AND THE ARGUMENT GETS STRONGER, not weaker: 0x81 is now a KNOWN, allocated,
-    //   PRODUCED internal type whose records are still not persistent, so the weakened predicate would render a
-    //   LIVE record as text rather than a hypothetical one.
+    CHECK(disagree == 62u);                                   // 64 internal values, exactly two of them persistent
+    // ★ THE NAMED LIVE EXAMPLE, and it is the one with the worst body: a sealed team CONTENT KEY.
+    CHECK(data_type_traits(DATA_TYPE_TEAM_KEY_GRANT).internal);                 // hidden by the shipped predicate...
+    CHECK_FALSE(data_type_traits(DATA_TYPE_TEAM_KEY_GRANT).persistent_outcome); // ...and VISIBLE under the weakened one
+    CHECK(data_type_traits(DATA_TYPE_TEAM_KEY_GRANT).known);                    // a KNOWN, WIRED, PRODUCED type
+    // ⓘ HISTORY, kept because it is the rule the arc enforced on itself: this block used to name 0x81 here and
+    //   read `CHECK_FALSE(...known)` before that. Slice F made 0x81 known; Slice G made it persistent. Each time
+    //   the example was re-pointed at something still true, and ⛔ the case was never deleted — which is the only
+    //   reason the weakened predicate is still measurably wrong today.
     CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).known);
 }
 
@@ -218,6 +269,43 @@ TEST_CASE("§CUSTODY-C/2c an inbox of receipts only presents an EMPTY list, tota
     CHECK(s.inbox_shown == 0);
     CHECK(s.inbox_total == 0);
     CHECK(oled.sanitized == 0);
+}
+
+// ★★★★ §CUSTODY-G — **THE VISIBILITY MATRIX RE-RUN AGAINST A REAL STORED CUSTODY RECORD**, which is the first
+//      time this file can ask its question about the type it was written for. Slice C proved the RANGE hides
+//      `0x81` before the type had a codec, a producer or a storing consumer; Slice G gave it all three, so the
+//      claim is now testable against an actual 24-byte BINARY body sitting in the DM store.
+// ⛔ NOTHING IN THE PRESENTATION LAYER WAS RE-IMPLEMENTED FOR THIS. The gate is the same `OledList::row_cb`
+//    mirror, the same `inbox_record_is_internal`, the same budget — the record simply arrives and is hidden.
+// ★★ `sanitized == 2` IS THE LOAD-BEARING ASSERTION, not the row count: it counts bodies that reached
+//    `mrui::ui_display_byte`. §7.2 says the custody body *"must never be passed through the ordinary text
+//    encoder or OLED byte sanitizer as if it were a message"* — and this body is 24 bytes of packed binary
+//    whose first byte is a version number, so a leak would render as control-character mojibake on the panel.
+TEST_CASE("§CUSTODY-C/2e a STORED custody report shows 0 rows, 0 total, and its BINARY body never reaches the sanitizer") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, /*origin=*/7, 100, "hello", 1000);
+    rec_custody(ib, /*reporter=*/5, /*failed_ctr=*/0x1111, 1500);
+    rec_custody(ib, /*reporter=*/6, /*failed_ctr=*/0x2222, 1600);
+    ib.record_ack(/*from_origin=*/3, 200, /*layer*/ 0, 1700);        // the OTHER persistent internal type, beside it
+    rec_dm(ib, /*origin=*/7, 101, "world", 1800);
+
+    OledList oled;
+    const mrui::UiSnapshot s = oled.fill(ib);
+    CHECK(oled.raw_visited == 5);            // ★ the RAW pull visits all five, custody reports included...
+    CHECK(s.inbox_shown == 2);               // ...and the panel shows only the two messages
+    CHECK(s.inbox_total == 2);               // ⛔ NOT 5 — two receipts and one ack are not mailbox contents
+    CHECK(oled.sanitized == 2);              // ★★ THE PIN: three internal bodies never met the byte sanitizer
+    // ...and the raw diagnostic still carries both reports VERBATIM, 24 binary bytes each (§7.4: pull is raw).
+    const std::vector<PulledRec> raw = raw_pull(ib);
+    int reports = 0;
+    for (const auto& r : raw)
+        if (r.type == DATA_TYPE_CUSTODY_FAILURE) {
+            ++reports;
+            CHECK(r.body_len == custody_record_v1_len);
+            CHECK(uint8_t(r.body[0]) == custody_record_version_v1);   // it really is the record, not text
+        }
+    CHECK(reports == 2);
 }
 
 // The budget's own half of §7.4, driven directly: the total is what was ADMITTED, taken BEFORE the ring cap, so
@@ -509,4 +597,71 @@ TEST_CASE("§CUSTODY-C/5 one E2E ACK: send_e2e_acked fires LIVE and the stored r
     CHECK(mrui::ui_route_recv_push(ctr, model, dm_push, 1, false, "peer", 1000));
     CHECK(ctr.unread_dm() == 1);
     CHECK(ctr.have_dm);
+}
+
+// ★★★★ §CUSTODY-G — **§18.5.10's BOTH-PATHS CASE, EXTENDED TO THE CUSTODY RECORD'S ANALOGUE** (the brief's
+//      item, and the shape §7.4's last paragraph rules for every internal outcome): ONE received report
+//      simultaneously proves the two INDEPENDENT paths — the live diagnostic fires immediately, and the stored
+//      record contributes no ordinary row, no visible total and no unread count. Asserted about ONE report in
+//      ONE case, because a live push proved on a different report than the one that was hidden proves nothing
+//      about their independence.
+// ⛔ THE REPORT IS FLOWN OVER THE REAL MAC by node 2, addressed to node 1 by node id, and node 1 validates it
+//    with the production §13 path — ⛔ not injected into the store.
+TEST_CASE("§CUSTODY-C/5b one custody report: the live push fires AND the stored record shows NO row, total or unread") {
+    Pair p;
+    uint8_t rec[custody_record_v1_len];
+    // §13.11 / §13.15: the record must name NODE 1 as the failed origin and node 1's ACTIVE layer as the
+    // reporter layer, or the production receiver rejects it — which is exactly what makes this non-vacuous.
+    const uint8_t n = g_valid_record(rec, /*failed_origin=*/1, /*reporter_layer=*/p.n1.active_layer_id(),
+                                     /*failed_dst=*/9, /*failed_ctr=*/0x0BEE);
+    CHECK(p.n2.test_do_send_typed(/*dst=*/1, rec, n, CryptIntent::off, /*dst_hash=*/0,
+                                  DATA_TYPE_CUSTODY_FAILURE) != 0);
+    p.hop(p.n2, p.h2, p.n1, p.h1);
+
+    // ① THE LIVE DIAGNOSTIC — immediately, with no inbox read involved, carrying §14.1's mapping.
+    Push pu{}; int live = 0; uint32_t live_seq = 0;
+    while (p.n1.next_push(pu))
+        if (pu.kind == PushKind::custody_failure) {
+            ++live; live_seq = pu.seq;
+            CHECK(pu.origin == 2);                       // the outer reporting relay
+            CHECK(pu.dst    == 9);                       // failed_dst
+            CHECK(pu.ctr    == 0x0BEE);                  // failed_ctr
+            CHECK(pu.reason == SendFailReason::none);    // ⛔ §14.1: never the custody reason
+        }
+    CHECK(live == 1);
+
+    // ② THE STORED RECORD — present in the raw stream, at the SAME sequence the push carried (§7.3's order).
+    const std::vector<PulledRec> raw = raw_pull(p.n1.inbox());
+    int stored = 0;
+    for (const auto& r : raw)
+        if (r.type == DATA_TYPE_CUSTODY_FAILURE && r.msg_id == 0x0BEEu) {
+            ++stored;
+            CHECK(r.seq == live_seq);                    // ★ record-BEFORE-push, made observable
+            CHECK(r.origin == 2);                        // §7.2: origin = the reporting relay
+            CHECK(r.sender_hash == 0u);                  // §7.2: no identity to key by — the reporter is unauthenticated
+            CHECK(r.body_len == custody_record_v1_len);
+        }
+    CHECK(stored == 1);
+    CHECK(live_seq != 0u);                               // this fixture WIRES a store, so the seq is a real one
+
+    // ③ ...and it contributes NOTHING to the ordinary view.
+    OledList oled;
+    const mrui::UiSnapshot s = oled.fill(p.n1.inbox());
+    CHECK(s.inbox_shown == 0);
+    CHECK(s.inbox_total == 0);
+    CHECK(oled.sanitized == 0);                          // §7.2: the binary body never met the byte sanitizer
+    CHECK(oled.raw_visited == uint16_t(raw.size()));     // while the raw pull still visited it
+
+    // ④ THE UNREAD COUNT — a custody report is not an arrival, so the panel's DM counter never moves for it.
+    mrui::UiInboxCounters ctr{};
+    mrui::UiModel model;
+    Push cf{}; cf.kind = PushKind::custody_failure; cf.origin = 2; cf.dst = 9; cf.ctr = 0x0BEE;
+    CHECK_FALSE(mrui::ui_route_recv_push(ctr, model, cf, /*ui_team_channel_id=*/1,
+                                         /*same_team_post=*/false, "peer", 1000));
+    CHECK(ctr.unread_dm() == 0);
+    CHECK_FALSE(ctr.have_dm);
+    // ...and the same CONTROL as §CUSTODY-C/5, so the zero is a measurement rather than a dead counter.
+    Push dm_push{}; dm_push.kind = PushKind::msg_recv; dm_push.origin = 2; dm_push.ctr = 9;
+    CHECK(mrui::ui_route_recv_push(ctr, model, dm_push, 1, false, "peer", 1000));
+    CHECK(ctr.unread_dm() == 1);
 }
