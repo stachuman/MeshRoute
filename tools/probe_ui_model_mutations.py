@@ -337,6 +337,26 @@ TARGET_SRC = {
     "sliceCbudget": "src/firmware_ui_model.h",         # §CUSTODY-C — inbox_total = ADMITTED, taken before the cap
     "sliceCsend":   "src/firmware_ui_send.h",          # §CUSTODY-C — the unread router's scope (§7.4's unread rule)
     "sliceCram":    "lib/core/fixed_inbox_store.h",    # §CUSTODY-C — the slot ring's drop-oldest, with no pinning
+    # ★★ ADDED 2026-08-30 BY **§CUSTODY-D** (inbox-only clear). FIVE targets, because a battery is per-SOURCE-FILE
+    #    and the slice's decisions genuinely live in five files: the ORCHESTRATION — persist order, no-short-circuit,
+    #    cursors, the shared target (`inbox.cpp`); the durable store's target-epoch arm (`segmented_inbox_store.h`);
+    #    the volatile ring's (`fixed_inbox_store.h`); the confirmation INTERLOCK (`firmware_config_parse.h`); and the
+    #    verdict -> lexeme mapping (`console_json.h`). Kept separate from `sliceCpull`/`b134inbox`/`b134store`/
+    #    `b134ram`/`cfgparse`/`b134ack` — same files, different slices — so each can be re-proved independently.
+    # ⛔ ONE OF THE BRIEF'S NINE MUTATIONS IS **DELIBERATELY ABSENT** AND THE ABSENCE IS THE STRONGER OUTCOME,
+    #    recorded here so it does not read as an omission:
+    #      · "A NON-INBOX STORE IS TOUCHED (over-reach)" — `Inbox` holds `_dm`, `_chan` and two counters, and
+    #        `inbox.h` includes only `protocol_constants.h` + `frame_codec.h`. It has NO reference to a route
+    #        table, an NV slot, a keyring or a config, so touching one is not expressible in `clear()` at all
+    #        without first changing the class's signature — a control at the COMPILER beats one in a battery (the
+    #        §CUSTODY-A enum-ordinal precedent, and §CUSTODY-C's `publish` entry, verbatim). The behavioural half
+    #        is measured anyway, one level up, by `§CUSTODY-D/6`'s Node snapshot across a confirmed clear. The
+    #        reachable over-reach that IS expressible is D05 below.
+    "sliceDclear":  "lib/core/inbox.cpp",              # §CUSTODY-D — the clear orchestration: order, verdicts, cursors, target
+    "sliceDstore":  "lib/core/segmented_inbox_store.h",# §CUSTODY-D — the durable store's target-epoch arm
+    "sliceDram":    "lib/core/fixed_inbox_store.h",    # §CUSTODY-D — the volatile ring's runtime epoch
+    "sliceDtoken":  "src/firmware_config_parse.h",     # §CUSTODY-D — the `confirm` interlock (§B115-hoisted)
+    "sliceDack":    "lib/console/console_json.h",      # §CUSTODY-D — the verdict -> lexeme mapping
     "sliceBchannel":"lib/core/node_channel.cpp",       # [[B268]] blocker-1 — the two reprovision-purge deaths
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
@@ -528,7 +548,30 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2389, 101117    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-C**, and the
+PIN_CASES, PIN_ASSERTS = 2418, 101346    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-D**, and the
+                                         # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
+                                         # (⚠ a `,` in a case name is a doctest filter SEPARATOR — the per-case
+                                         # measurement uses `-tc="*CUSTODY-D/<n> *"`, not the full title):
+                                         # +29 cases / +229 assertions, 28 of them the new TU
+                                         # `test/test_custody_internal_d.cpp` and ONE the frozen-ack-shape case
+                                         # added to `test/test_console_json.cpp`. ⛔ ZERO existing cases edited.
+                                         #   D/1  token EXACT 14 · D/1b factory_reset equivalence 18
+                                         #   D/1c refusal inert 9 · D/2 both stores wiped 13 · D/2b not-a-filter 7
+                                         #   D/3  ★ high-water across the REMOUNT 13 · D/3b empty-store arm 7
+                                         #   D/4  cursors reset 11
+                                         #   D/5  ★ empty DM + full chan 7 · D/5b inverse 7 · D/5c both full 6
+                                         #   D/5d both empty 5 · D/5e ★ two remounts, no ratchet 7
+                                         #   D/5f FixedInboxStore 11 · D/5g the LEGACY wipe() unchanged 8
+                                         #   D/6  ★ non-inbox snapshot 10 · D/6b the two verbs differ 12
+                                         #   D/7b verdict->lexeme 5 · D/7c the ack's numbers 6
+                                         #   D/8 8b 8c the failure matrix 5+5+4 · D/9 9b 9c erase-neither 6+4+2
+                                         #   D/10 ★ RETRY completes 13 · D/11 disabled 3 · D/12 the OLED view 6
+                                         #   write_inbox_cleared/needs_confirm (console_json) 5
+                                         #   14+18+9+13+7+13+7+11+7+7+6+5+7+11+8+10+12+5+6+5+5+4+6+4+2+13+3+6 = 224,
+                                         #   +5 = 229. ✓
+                                         #
+                                         # The superseded §CUSTODY-C sync follows, kept visible:
+                                         # PIN_CASES, PIN_ASSERTS = 2389, 101117 — ★★ RE-SYNCED 2026-08-30 by **§CUSTODY-C**, and the
                                          # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
                                          # rather than inferred from the totals: +13 cases / +377 assertions,
                                          # ALL of them the new TU `test/test_custody_internal_c.cpp`, and
@@ -6842,14 +6885,20 @@ MUTS_B134STORE = [
   "        _meta.records_state = kRecordsAppendPending;\n"
   "        if (!save_meta()) { _meta.records_state = kRecordsEmpty; _meta_dirty = true; return false; }",
   "        _meta.records_state = kRecordsAppendPending;"),
+ # ⚠ G27/G28 RE-AIMED 2026-08-30 BY §CUSTODY-D, NOT REWRITTEN. The bump line became a two-arm decision (the
+ #   shared `target_epoch` for `Inbox::clear()`, the legacy `had_history` transition for
+ #   `prep-restart`/`factory_reset`), so both search strings matched 0 times and the battery reported them
+ #   VACUOUS. ★ EACH ENTRY STILL ATTACKS EXACTLY WHAT IT ALWAYS DID — the LEGACY arm — and the `target_epoch`
+ #   arm is left standing so the mutant is the pre-slice defect and nothing else. §CUSTODY-D's `sliceDstore`
+ #   D06/D07/D08 attack the new arm separately.
  ("G27 ★★★ the WIPE transition's bump+mark is dropped — a deliberate wipe stops telling the companion anything, "
   "and the §10.1 arm then has to re-derive it on the next boot (which is the ratchet again)",
-  "        if (had_history) _meta.epoch += 1;",
-  "        (void)had_history;"),
+  "        else if (had_history) _meta.epoch += 1;",
+  "        else { (void)had_history; }"),
  ("G28 ★★ the wipe bumps UNCONDITIONALLY — wiping an already-empty store destroyed no history but still tells "
   "every companion to drop its cursors and re-pull",
-  "        if (had_history) _meta.epoch += 1;",
-  "        _meta.epoch += 1;"),
+  "        else if (had_history) _meta.epoch += 1;",
+  "        else _meta.epoch += 1;"),
  ("G29 ★★★ THE EXTERNAL-LOSS ARM IS DROPPED ENTIRELY — §10.1 goes dead, so a records wipe outside this store is "
   "never announced and the companion reads its cursors against a history that no longer exists",
   "    if (version_ok && records_empty && _meta.records_state == kRecordsNonEmpty) {",
@@ -6935,19 +6984,27 @@ MUTS_B134ACK = [
   'inline const char* inbox_mark_result(bool persisted) { return persisted ? "io_error" : "marked"; }'),
 ]
 
+# ⚠ RE-AIMED 2026-08-30 BY §CUSTODY-D, NOT REWRITTEN. `wipe()` gained a `target_epoch` parameter (the shared-epoch
+#   seam — see InboxStore::wipe), so all three search strings named a signature that no longer exists and the
+#   battery reported them VACUOUS at match count 0. ★ THE INTENT OF EACH ENTRY IS UNCHANGED, WORD FOR WORD; only
+#   the line they are applied to moved with the signature. ⓘ R03 keeps attacking the LEGACY (`target_epoch == 0`)
+#   arm — re-rolling the per-boot epoch for `prep-restart`/`factory_reset` is still wrong, and §CUSTODY-D's own
+#   `sliceDram` D09 attacks the OTHER arm (the confirmed clear failing to move it). Two arms, two entries.
 MUTS_B134RAM = [
  ("R01 ★★★ wipe() drops back to the base's successful NO-OP — `prep-restart` HALTS but does NOT reboot, so the "
   "console reports a cleared inbox while `pull_inbox` still streams every record until the operator cuts power",
-  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
-  "    // (inherits the base no-op)"),
+  "        _head = 0; _count = 0; _read_cursor = 0;\n"
+  "        if (target_epoch) _epoch = target_epoch;\n"
+  "        return true;",
+  "        (void)target_epoch; return true;   // (back to the base no-op)"),
  ("R02 ★★ wipe() empties the ring but leaves the READ CURSOR pointing at records that no longer exist — the "
   "unread badge then counts against a history that was just destroyed",
-  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
-  "    bool wipe() override { _head = 0; _count = 0; return true; }"),
+  "        _head = 0; _count = 0; _read_cursor = 0;",
+  "        _head = 0; _count = 0;"),
  ("R03 ★★ wipe() also re-rolls the storage epoch — it announces a wipe to the companion that the imminent reboot "
   "makes moot, forcing a full re-pull for nothing",
-  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }",
-  "    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; _epoch += 1; return true; }"),
+  "        if (target_epoch) _epoch = target_epoch;",
+  "        _epoch = target_epoch ? target_epoch : (_epoch + 1);"),
 ]
 
 MUTS_B134INBOX = [
@@ -7425,6 +7482,114 @@ MUTS_SLICECRAM = [
   "            _head = static_cast<uint16_t>((_head + 1) % Slots); }   // full -> evict the oldest"),
 ]
 
+# ============================================================================== §CUSTODY-D — the inbox-only clear
+MUTS_SLICEDCLEAR = [
+ # ⛔⛔⛔ QG CORRECTION 1, VERBATIM AND AS A MUTATION — THE BATCH-PERSIST GAP. `record()` persists the next-seq
+ #      counter every EIGHT appends, so between batches the RECORDS are the only witness of the high-water.
+ #      Erasing them first destroys that witness while the metadata still holds an older value, and the next boot
+ #      hands out sequences a companion has already filed ⇒ SEQ REUSE. ★ It is invisible in RAM (`_dm_next` is
+ #      untouched by a wipe), which is exactly why every high-water case REMOUNTS a fresh Inbox over the cleared
+ #      stores — this mutant passes every in-memory assertion and is red only against the remount.
+ ("D01 ★★★★ THE PRE-ERASE HIGH-WATER PERSIST IS DROPPED — the records are erased while the metadata still holds "
+  "a stale counter, so a reboot after a clear REUSES sequences the companion has already filed",
+  "    const bool dm_hw = _dm->set_next_seq(_dm_next);\n"
+  "    const bool ch_hw = _chan->set_next_seq(_chan_next);\n"
+  "    if (dm_hw)   _dm_unpersisted   = 0;                           // the batch is only cleared by a SUCCESSFUL persist\n"
+  "    if (ch_hw)   _chan_unpersisted = 0;\n"
+  "    if (!dm_hw || !ch_hw) return false;                           // ⛔ ERASE NEITHER STORE — the records are still the only witness\n",
+  ""),
+ # ⛔⛔ QG CORRECTION 1'S OTHER HALF. The persist is ATTEMPTED but its verdict is discarded, so a store whose
+ #     metadata will not reach the medium is erased anyway — the same seq reuse, arrived at through a checked
+ #     operation whose answer nobody read. This is the [[B134]] "discarded verdict" family, one field along.
+ ("D02 ★★★★ THE ERASE-NEITHER GUARD IS DROPPED — a high-water that could not be persisted no longer stops the "
+  "erase, so both stores are destroyed over metadata the medium never accepted",
+  "    if (!dm_hw || !ch_hw) return false;                           // ⛔ ERASE NEITHER STORE — the records are still the only witness",
+  "    (void)dm_hw; (void)ch_hw;"),
+ # ⛔⛔ THE SHORT-CIRCUIT. Reads as the tidy "don't bother if the first failed" and leaves MORE recoverable
+ #     history behind for the same `io_error` — the exact defect `on_init`'s mount and `wipe()`'s erase loop each
+ #     had to have removed. A destructive verb must erase everything it can even when it cannot finish.
+ ("D03 ★★★ THE SECOND WIPE IS SHORT-CIRCUITED ON THE FIRST'S FAILURE — a partial clear leaves the healthy "
+  "store's entire history on the medium and still reports the same io_error",
+  "    const bool ch_w = _chan->wipe(target);",
+  "    const bool ch_w = dm_w && _chan->wipe(target);"),
+ # ⛔ §7.5.4. A cursor left pointing past records that no longer exist makes the unread badge permanently wrong,
+ #    and it survives every reboot because it is persisted metadata.
+ ("D04 ★★★ THE READ CURSORS ARE NOT RESET — the unread badge keeps a cursor into a history that was destroyed",
+  "    const bool dm_c = _dm->set_read_cursor(0);\n"
+  "    const bool ch_c = _chan->set_read_cursor(0);\n"
+  "\n"
+  "    return dm_w && ch_w && dm_c && ch_c;",
+  "    return dm_w && ch_w;"),
+ # ⛔⛔ THE REACHABLE OVER-REACH (see the target table for why "a non-inbox store is touched" is pinned at the
+ #     compiler instead). Resetting the sequence counters is the tempting "a cleared inbox should start from
+ #     one" — and it destroys the one thing §7.5.3 says a clear must PRESERVE, in the same breath as preserving it.
+ ("D05 ★★★★ THE CLEAR ALSO RESETS THE SEQUENCE COUNTERS — the high-water is destroyed by the very operation "
+  "that just persisted it, so the next message reuses seq 1",
+  "    // ---- (2) ONE shared target epoch for BOTH stores",
+  "    _dm_next = _chan_next = 1;\n"
+  "    // ---- (2) ONE shared target epoch for BOTH stores"),
+]
+
+MUTS_SLICEDSTORE = [
+ # ⛔⛔⛔ QG CORRECTION 2, VERBATIM AND AS A MUTATION. `had_history` is the right question for a PER-STORE
+ #      transition and the wrong one for a SHARED epoch: the public contract publishes the DM store's value, so
+ #      an empty DM store beside a full channel store leaves the externally visible epoch UNCHANGED — the
+ #      companion resets nothing and keeps cursors into a history that no longer exists.
+ ("D06 ★★★★ THE SHARED TARGET IS APPLIED ONLY TO A STORE THAT HELD HISTORY — clearing a full channel store "
+  "beside an empty DM store leaves the ONE published epoch unmoved and the companion never re-syncs",
+  "        if (target_epoch)     _meta.epoch  = target_epoch;   // the ONE value both stores land on (Inbox::clear)",
+  "        if (target_epoch && had_history) _meta.epoch = target_epoch;"),
+ # ⛔⛔ THE RATCHET CLASS ([[B134]] measured epoch 2, 3, 4 with nothing having changed). Here the two stores land
+ #     on DIFFERENT values in one clear — the shared target plus the legacy transition bump — so "exactly once"
+ #     becomes "once or twice depending on what each store happened to hold".
+ ("D07 ★★★ THE EPOCH IS DOUBLE-BUMPED — the shared target is applied AND the legacy transition bump still fires, "
+  "so one clear moves a populated store twice and an empty one once",
+  "        if (target_epoch)     _meta.epoch  = target_epoch;   // the ONE value both stores land on (Inbox::clear)\n"
+  "        else if (had_history) _meta.epoch += 1;",
+  "        if (target_epoch)     _meta.epoch  = target_epoch;\n"
+  "        if (had_history)      _meta.epoch += 1;"),
+ # ⛔ THE ARM DELETED OUTRIGHT — the durable store falls back to the per-store policy and the clear's shared
+ #    epoch never reaches the medium at all.
+ ("D08 ★★★★ THE TARGET-EPOCH ARM IS DROPPED — a confirmed clear announces itself with the legacy per-store rule, "
+  "so an empty store's epoch never moves and the two stores can disagree",
+  "        if (target_epoch)     _meta.epoch  = target_epoch;   // the ONE value both stores land on (Inbox::clear)\n"
+  "        else if (had_history) _meta.epoch += 1;",
+  "        if (had_history) _meta.epoch += 1;"),
+]
+
+MUTS_SLICEDRAM = [
+ # ⛔⛔ THE VOLATILE ARM. `FixedInboxStore`'s epoch is set ONCE PER BOOT, and `clear_inbox` — unlike
+ #     `prep-restart`/`factory_reset` — has no reboot behind it. A ring that keeps its epoch across a confirmed
+ #     clear tells the companion nothing happened while every record vanishes from under its cursors.
+ ("D09 ★★★★ THE VOLATILE RING KEEPS ITS EPOCH ACROSS A CONFIRMED CLEAR — the records are gone and the "
+  "companion's only wipe-detector says nothing changed",
+  "        if (target_epoch) _epoch = target_epoch;",
+  ""),
+]
+
+MUTS_SLICEDTOKEN = [
+ # ⛔⛔⛔ THE INTERLOCK ITSELF. A PREFIX match is the classic wrong fix and it is worse than no guard, because it
+ #      LOOKS guarded: `clear_inbox confirmation-later` and a paste with a trailing word both destroy the history.
+ ("D10 ★★★★ THE CONFIRM TOKEN IS MATCHED AS A PREFIX — `clear_inbox confirm extra` and `clear_inbox "
+  "confirmation` both DESTROY the inbox",
+  "    return n == 7 && !strncmp(s, \"confirm\", 7);",
+  "    return n >= 7 && !strncmp(s, \"confirm\", 7);"),
+ # ⛔⛔ THE GATE DROPPED. A bare `clear_inbox` — or any typo the router still routes here — wipes both stores.
+ ("D11 ★★★★ THE CONFIRM GATE IS DROPPED ENTIRELY — a bare `clear_inbox` (or any tail at all) clears the inbox "
+  "with no confirmation",
+  "    return n == 7 && !strncmp(s, \"confirm\", 7);",
+  "    (void)n; return true;"),
+]
+
+MUTS_SLICEDACK = [
+ # ⛔⛔ THE [[B134]] LIE, IN THIS SLICE'S SHAPE: a destructive verb that can only ever say it succeeded. The
+ #     handler is §B115-invisible, which is exactly why the decision was hoisted to where this can redden.
+ ("D12 ★★★★ A FAILED CLEAR STILL PRINTS `cleared` — the operator is told an inbox was destroyed that is still "
+  "on the medium, which is the one direction a data-retention report must never fail in",
+  "inline const char* inbox_clear_result(bool cleared) { return cleared ? \"cleared\" : \"io_error\"; }",
+  "inline const char* inbox_clear_result(bool) { return \"cleared\"; }"),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -7434,6 +7599,9 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceCinbox": MUTS_SLICECINBOX, "sliceCpull": MUTS_SLICECPULL,
                   "sliceCbudget": MUTS_SLICECBUDGET, "sliceCsend": MUTS_SLICECSEND,
                   "sliceCram": MUTS_SLICECRAM,
+                  "sliceDclear": MUTS_SLICEDCLEAR, "sliceDstore": MUTS_SLICEDSTORE,
+                  "sliceDram": MUTS_SLICEDRAM, "sliceDtoken": MUTS_SLICEDTOKEN,
+                  "sliceDack": MUTS_SLICEDACK,
                   "b134seam": MUTS_B134SEAM, "b134nvs": MUTS_B134NVS, "b260": MUTS_B260,
                   "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,

@@ -76,7 +76,19 @@ public:
     //    same reason it holds there: the counter that hands out seqs lives in `Inbox` (`_dm_next`/`_chan_next`),
     //    which `wipe()` does not touch and only `on_init` resets — so the next record after a wipe continues
     //    upward and cannot collide with anything the companion has already filed.
-    bool wipe() override { _head = 0; _count = 0; _read_cursor = 0; return true; }
+    // ★★ §CUSTODY-D (2026-08-30): `target_epoch != 0` SETS `_epoch`, and the `ⓘ` above is scoped rather than
+    //    contradicted — it explains the LEGACY (`target_epoch == 0`) arm, which is unchanged and still leaves the
+    //    per-boot value alone because the reboot behind `prep-restart`/`factory_reset` re-rolls it anyway.
+    //    `clear_inbox` has NO reboot behind it, and the companion's only wipe-detector is this number, so a
+    //    volatile store that kept its epoch across a confirmed clear would tell the app nothing happened while
+    //    every record vanished from under its cursors. ⛔ Applied even when the ring was ALREADY EMPTY: the target
+    //    is shared with the other store and the pair must land on ONE value (see InboxStore::wipe).
+    using InboxStore::wipe;   // keep the legacy no-argument overload visible through this class
+    bool wipe(uint32_t target_epoch) override {
+        _head = 0; _count = 0; _read_cursor = 0;
+        if (target_epoch) _epoch = target_epoch;
+        return true;
+    }
 
 private:
     struct Slot { uint32_t seq = 0; uint16_t len = 0; uint8_t bytes[inbox_record_max_bytes] = {}; };

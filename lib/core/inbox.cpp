@@ -253,6 +253,42 @@ bool Inbox::mark_read(InboxKind kind, uint32_t seq) {
     return s->set_read_cursor(seq);                               // ⛔ the verdict is RELAYED, never discarded
 }
 
+// ---- §CUSTODY-D whole-inbox clear (the ONE orchestration authority; see inbox.h for the contract) ----
+bool Inbox::clear() {
+    if (!enabled()) return false;                                 // an unwired inbox reports failure, NEVER success (§7.5)
+
+    // ---- (1) THE HIGH-WATER GOES TO THE MEDIUM BEFORE ANY RECORD IS DESTROYED (the batch-persist gap). ----
+    // Both are ATTEMPTED — a `&&` here would leave the channel store's counter unwritten (and its retry latch
+    // unarmed) whenever the DM one failed, which is the same short-circuit `on_init` had to remove.
+    const bool dm_hw = _dm->set_next_seq(_dm_next);
+    const bool ch_hw = _chan->set_next_seq(_chan_next);
+    if (dm_hw)   _dm_unpersisted   = 0;                           // the batch is only cleared by a SUCCESSFUL persist
+    if (ch_hw)   _chan_unpersisted = 0;
+    if (!dm_hw || !ch_hw) return false;                           // ⛔ ERASE NEITHER STORE — the records are still the only witness
+
+    // ---- (2) ONE shared target epoch for BOTH stores (§7.5.5 + the single-epoch contract at storage_epoch()). ----
+    // Strictly greater than BOTH stores' current values, so it is a ratchet even if the two ever disagree (an
+    // external records loss can bump one store alone at mount). Wrap keeps it non-zero: 0 means "no durable epoch".
+    uint32_t target = _dm->storage_epoch();
+    const uint32_t chan_epoch = _chan->storage_epoch();
+    if (chan_epoch > target) target = chan_epoch;
+    ++target;
+    if (target == 0) target = 1;
+
+    // ---- (3) BOTH wipes run — ⛔ no short-circuit (a partial clear must still erase everything it can). ----
+    const bool dm_w = _dm->wipe(target);
+    const bool ch_w = _chan->wipe(target);
+
+    // ---- (4) Both read cursors reset (§7.5.4). Here, not inside wipe(), so `prep-restart`/`factory_reset` keep
+    // their exact behaviour (C1) and both store kinds get the same treatment from the one authority. The verdict
+    // counts: a cursor left on the medium pointing past records that no longer exist is unpersisted bookkeeping,
+    // which is precisely what `wipe()`'s own contract calls a failure.
+    const bool dm_c = _dm->set_read_cursor(0);
+    const bool ch_c = _chan->set_read_cursor(0);
+
+    return dm_w && ch_w && dm_c && ch_c;
+}
+
 void Inbox::flush() {
     if (!enabled()) return;
     // InternalFS self-heal Part 3 (2026-06-24): write ONLY a store with un-persisted appends. The periodic caller

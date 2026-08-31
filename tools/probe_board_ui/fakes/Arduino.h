@@ -79,13 +79,63 @@ public:
     size_t print(const char* s)             { return write(s); }
     size_t println(const char* s)           { return write(s) + write("\r\n"); }
     size_t println()                        { return write("\r\n"); }
+    // ★★ THE NUMERIC + CHAR OVERLOADS, ADDED 2026-08-31 BY §CUSTODY-D's `tools/probe_inbox_verbs/`. ⛔ THIS IS A
+    //    FAITHFULNESS FIX, NOT A CONVENIENCE: real Arduino `Print` carries `print(int/long/unsigned/char/double,
+    //    base)` and `println` twins, and WITHOUT them a TU that prints a number does not host-compile at all — the
+    //    third probe compiles `src/firmware_commands.cpp`, whose `[route] dest=… next=…` dumps print integers by
+    //    the hundred. A fake NARROWER than the API it stands in for is a fake that decides which production TUs may
+    //    be probed, which is the wrong thing for a fake to decide.
+    // ⓘ ADDITIVE ONLY — no existing signature changed — so `probe_firmware_ui` / `probe_board_ui` cannot resolve any
+    //   call differently than before (measured: both re-run at their published counts after this edit).
+    // ⓘ The base argument is ACCEPTED AND IGNORED for text purposes (HEX prints decimal here). Nothing this probe
+    //   asserts reads a based number; a check that did would have to pin the digits itself rather than trust a shim.
+    size_t print(char c)                    { return write(uint8_t(c)); }
+    size_t print(unsigned char v, int = 10) { return print_num_(static_cast<long long>(v)); }
+    size_t print(int v, int = 10)           { return print_num_(v); }
+    size_t print(unsigned int v, int = 10)  { return print_num_(static_cast<long long>(v)); }
+    size_t print(long v, int = 10)          { return print_num_(v); }
+    size_t print(unsigned long v, int = 10) { return print_num_(static_cast<long long>(v)); }
+    size_t print(long long v, int = 10)     { return print_num_(v); }
+    size_t print(unsigned long long v, int = 10) { return print_num_(static_cast<long long>(v)); }
+    size_t print(short v, int = 10)         { return print_num_(v); }
+    size_t print(unsigned short v, int = 10){ return print_num_(static_cast<long long>(v)); }
+    size_t print(double v, int = 2)         { return print_num_(static_cast<long long>(v)); }
+    template <class T> size_t println(T v)          { return print(v) + write("\r\n"); }
+    template <class T> size_t println(T v, int b)   { return print(v, b) + write("\r\n"); }
+private:
+    size_t print_num_(long long v) {
+        char b[24]; int i = 0; bool neg = v < 0; unsigned long long u = neg ? 0ull - (unsigned long long)v : (unsigned long long)v;
+        do { b[i++] = char('0' + int(u % 10)); u /= 10; } while (u && i < 20);
+        if (neg) b[i++] = '-';
+        size_t n = 0; while (i) n += write(uint8_t(b[--i]));
+        return n;
+    }
 };
+// The base constants callers pass as `print(x, HEX)`. Real Arduino spells them as macros/enums in the same header.
+enum { DEC = 10, HEX = 16, OCT = 8, BIN = 2 };
 
 // ---- Serial: what `console_sink.h`'s MR_CONSOLE=1 stage hands its bytes to. The probe mirrors the board env
 //      (`-DMR_CONSOLE=1`) rather than compiling the NullPrint arm, so a console line the firmware emits is a line the
 //      probe can actually ASSERT — a shim that swallowed output would make §B91's dead-panel report unmeasurable.
 struct ProbeSerial {
     bool  present = true;      // `if (!Serial)` — a host attached or not
+    // ⓘ ADDED 2026-08-31 with the `Print` overloads above and for the same reason: `lib/core/frame_trace.h`'s
+    //   decoded «rx/»tx trace prints through `Serial` directly, so a TU that includes it needs these to compile.
+    //   Deliberately SINKS to the same `out` buffer, so a probe can still assert what reached "the wire".
+    template <class T> size_t print(T v)        { char b[24]; int n = fmt_(b, (long long)v); return write(reinterpret_cast<const uint8_t*>(b), size_t(n)); }
+    template <class T> size_t print(T v, int)   { return print(v); }
+    size_t print(const char* s)                 { size_t n = 0; while (s && s[n]) ++n; return write(reinterpret_cast<const uint8_t*>(s), n); }
+    size_t print(char c)                        { return write(reinterpret_cast<const uint8_t*>(&c), 1); }
+    size_t println()                            { return write(reinterpret_cast<const uint8_t*>("\r\n"), 2); }
+    template <class T> size_t println(T v)      { return print(v) + println(); }
+    template <class T> size_t println(T v, int) { return print(v) + println(); }
+    static int fmt_(char* b, long long v) {
+        char t[24]; int i = 0; bool neg = v < 0; unsigned long long u = neg ? 0ull - (unsigned long long)v : (unsigned long long)v;
+        do { t[i++] = char('0' + int(u % 10)); u /= 10; } while (u && i < 20);
+        if (neg) t[i++] = '-';
+        int n = 0; while (i) b[n++] = t[--i];
+        return n;
+    }
     int   avail   = 4096;      // what availableForWrite() answers (0 = a full FIFO)
     char  out[4096] = {};      // everything that reached "the wire", concatenated
     size_t n_out  = 0;

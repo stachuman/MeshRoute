@@ -183,7 +183,13 @@ public:
     // ⛔ EVERY erase AND the metadata save are CHECKED ([[B134]] QG blocker 3). ★ And the loop does NOT stop at the
     //    first failure: a destructive verb must erase as much as it can AND still report that it did not finish.
     //    Stopping early would leave MORE recoverable history behind for the same `false`.
-    bool wipe() override {
+    // ★★ §CUSTODY-D (2026-08-30) — `target_epoch` (see InboxStore::wipe for the seam and why it is a parameter on
+    //    THIS function rather than a second erase path). `0` keeps every line below exactly as `prep-restart` and
+    //    `factory_reset confirm` have always executed it; non-zero replaces ONLY the epoch DECISION — the erase
+    //    loop, the ring reset, the `records_state` marker and the single checked `save_meta()` are shared, so the
+    //    two callers cannot drift in how much they destroy or how honestly they report it.
+    using InboxStore::wipe;   // keep the legacy no-argument overload visible through this class
+    bool wipe(uint32_t target_epoch) override {
         bool ok = true;
         const uint32_t _total_before_erase = _total;   // captured BEFORE the erases zero it (see had_history)
         for (uint16_t i = 0; i < ring_segs(); ++i) if (!_records->seg_erase(i)) ok = false;
@@ -198,9 +204,15 @@ public:
         //   pending with bytes present is real history (bump), pending with none is an append that never landed
         //   (nothing to announce). After a mount pending cannot survive — begin() resolves it — so this arm is
         //   reachable only when a finalizing save failed earlier in THIS runtime, where `_total` is exact.
+        // ★★ …AND `target_epoch` OVERRIDES THAT RULE OUTRIGHT, INCLUDING THE ALREADY-EMPTY CASE (§CUSTODY-D).
+        //    `had_history` is the right question for a per-store transition ("did I destroy anything the
+        //    companion knew about?"), and the WRONG one for a shared epoch: the DM store can be empty while the
+        //    channel store is not, and the DM store's value is the only one the contract publishes. Skipping the
+        //    empty store here would clear a full channel history behind an UNCHANGED public epoch.
         const bool had_history = (_meta.records_state == kRecordsNonEmpty)
                               || (_meta.records_state == kRecordsAppendPending && _total_before_erase > 0);
-        if (had_history) _meta.epoch += 1;
+        if (target_epoch)     _meta.epoch  = target_epoch;   // the ONE value both stores land on (Inbox::clear)
+        else if (had_history) _meta.epoch += 1;
         _meta.records_state = kRecordsEmpty;
         // The topology must say "empty" on the MEDIUM too: an unpersisted reset leaves the next boot walking a ring
         // that describes records this call just erased. A failed save is a failed wipe, and it arms the retry.

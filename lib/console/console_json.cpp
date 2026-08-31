@@ -607,6 +607,25 @@ size_t write_inbox_deleted(char* buf, size_t cap, const char* kind, uint32_t seq
     j.ch('}');
     return j.finish();
 }
+// §CUSTODY-D §7.5.7 — the destructive-success / possibly-partial ack. The three state fields ride BOTH arms: after
+// an io_error the companion still needs the epoch and the high-waters it CAN see, and withholding them would leave
+// it unable to tell a failed clear from a completed one it missed. `warning` is emitted only on the failing arm.
+size_t write_inbox_cleared(char* buf, size_t cap, uint32_t epoch, uint32_t dm_seq, uint32_t chan_seq,
+                           const char* result) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ack\":\"clear_inbox\",\"result\":"); j.str(result, std::strlen(result));   // cleared | io_error — never a bool
+    if (std::strcmp(result, "cleared") != 0) j.lit(",\"warning\":\"messages_may_remain\"");
+    j.lit(",\"epoch\":");    j.u32(epoch);
+    j.lit(",\"dm_seq\":");   j.u32(dm_seq);      // the PRESERVED high-water (§7.5.3), not a reset counter
+    j.lit(",\"chan_seq\":"); j.u32(chan_seq);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_inbox_needs_confirm(char* buf, size_t cap) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ack\":\"clear_inbox\",\"result\":\"needs_confirm\"}");
+    return j.finish();
+}
 size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state,
                     const StatusFields& s) {
     JsonBuf j(buf, cap);

@@ -352,6 +352,31 @@ inline const char* inbox_mark_result(bool persisted) { return persisted ? "marke
 // different thing for each, and `not_found` is neither a success nor a storage failure.
 size_t write_inbox_deleted(char* buf, size_t cap, const char* kind, uint32_t seq, const char* result);
 
+// ★★★★ §CUSTODY-D (spec §7.5) — the `clear_inbox` ack family, FROZEN as three shapes and no more:
+//   {"ack":"clear_inbox","result":"needs_confirm"}                                          (refusal; NO state fields)
+//   {"ack":"clear_inbox","result":"cleared","epoch":N,"dm_seq":N,"chan_seq":N}              (§7.5.7)
+//   {"ack":"clear_inbox","result":"io_error","warning":"messages_may_remain","epoch":N,…}   (POSSIBLY PARTIAL)
+// ⛔ THE REFUSAL CARRIES NO `epoch`/`dm_seq`/`chan_seq`, deliberately: nothing changed, and printing the current
+//    values beside a refusal is how a companion comes to record a "clear" that never happened. `needs_confirm` is
+//    therefore emitted by its own writer — a single writer with omit-when-refused fields would have been one edit
+//    away from leaking them. ⓘ `factory_reset` has no generic needs_confirm response to reuse (it answers in prose
+//    over the human console), which is why this family is spelled here rather than shared.
+// ★ `warning` rides the io_error line and says MAY remain — the same ruled wording as `factory_reset`/`prep-restart`
+//   (2026-08-29): both stores can erase cleanly and a metadata save still fail, so "messages remain" would be its
+//   own overclaim. What the caller is being told is that the operation did not finish, not what survived.
+size_t write_inbox_cleared    (char* buf, size_t cap, uint32_t epoch, uint32_t dm_seq, uint32_t chan_seq,
+                               const char* result);
+size_t write_inbox_needs_confirm(char* buf, size_t cap);
+// ★ THE DECISION, hoisted so a battery can reach it — `inbox_mark_result`'s precedent, verbatim: `handle_clear_inbox`
+//   lives in a TU neither the native suite nor the simulator compiles (§B115), so the verdict -> lexeme mapping is
+//   pinned HERE, where it is host-testable. ⛔ `false` MUST NOT be able to spell "cleared": a destructive verb that
+//   claims success over a partial erase is the [[B134]] lie this whole arc removed.
+// ⓘ HOISTING IS NECESSARY AND WAS NEVER SUFFICIENT (QG, 2026-08-31): pinning the MAPPING here says nothing about
+//   whether the caller passes the REAL verdict into it. That half is `tools/probe_inbox_verbs/run.sh`'s control
+//   C5 (this function forced to a constant `true`) and C6 (`ib.clear()` replaced by `true`), both measured RED
+//   against the host-linked production handler.
+inline const char* inbox_clear_result(bool cleared) { return cleared ? "cleared" : "io_error"; }
+
 const char* cmdcode_name(CmdCode c);
 // ★ §id-hash S1 (spec §3-D9): CmdResult::plane / ResolveCmd::plane -> "team" (1) | "static" (anything else). Takes the
 // RAW uint8_t, not `Plane`: that enum is in node_carriers.h and the app seam (command.h) must not include it, so 0/1/2

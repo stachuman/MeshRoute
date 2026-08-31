@@ -107,4 +107,38 @@ void handle_del_msg(const char* args, Print& out) {
     if (n) out.write(ab, n);
 }
 
+// §CUSTODY-D (spec §7.5) — `clear_inbox confirm`. Deliberately THIN: every decision it makes is one of
+//   (a) `mrfw::parse_confirm_token` (firmware_config_parse.h) — the safety interlock,
+//   (b) `Inbox::clear()` (lib/core)                            — the orchestration + the persistence order,
+//   (c) `console::inbox_clear_result` + the two writers        — the frozen ack family,
+// all three of which the native suite compiles, because THIS function is not (§B115: `src/*.cpp` is outside the
+// native build).
+// ⛔⛔ CORRECTED IN PLACE 2026-08-31 (QG HOLD). THIS COMMENT USED TO END: *"What is left here is plumbing, so there
+//    is nothing in the §B115 blind spot to get wrong."* THAT WAS FALSE, and it was the most expensive kind of
+//    false — a claim that a gap needed no gate. The plumbing IS the destructive command: whether the interlock is
+//    consulted, whether the refusal returns before `clear()`, whether the real verdict reaches the lexeme, and
+//    whether `dispatch()` routes here at all are FOUR decisions, all of them in the blind spot, and every gate the
+//    slice shipped would have stayed green with any of the four broken.
+// ✅ WHAT GATES IT NOW: `tools/probe_inbox_verbs/run.sh` host-links THIS TU together with the real
+//    `firmware_commands.cpp` and drives `mrfw::dispatch()`, pinning the exact ack bytes on every arm plus
+//    "the store was not touched" on a refusal. Its controls C1..C7 are the tempting wrong shapes, each RED.
+// ⇒ ⛔ IF YOU EDIT THIS FUNCTION, RUN THAT PROBE. It is the only thing that compiles it.
+// ⛔ THE REFUSAL RETURNS BEFORE `clear()` IS EVEN NAMED — and that is now a MEASURED property (probe W2b/W2c:
+//    `wipe_calls == 0` and no high-water persist), not a structural assertion about the shape of the code.
+void handle_clear_inbox(const char* args, size_t n, Print& out) {
+    if (!parse_confirm_token(args, n)) {
+        char cb[64]; const size_t m = meshroute::console::write_inbox_needs_confirm(cb, sizeof cb);
+        if (m) out.write(cb, m);
+        return;                                           // ⛔ NO state is read and nothing is touched
+    }
+    meshroute::Inbox& ib = g_node.inbox();
+    const bool cleared = ib.clear();
+    // ★ The high-waters are read AFTER the clear precisely because §7.5.3 says they SURVIVE it — printing them is
+    //   what makes the preservation observable to the operator and the companion on the spot.
+    char ab[112]; const size_t m = meshroute::console::write_inbox_cleared(
+        ab, sizeof ab, ib.storage_epoch(), ib.dm_newest_seq(), ib.chan_newest_seq(),
+        meshroute::console::inbox_clear_result(cleared));
+    if (m) out.write(ab, m);
+}
+
 }  // namespace mrfw

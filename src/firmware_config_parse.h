@@ -520,6 +520,34 @@ inline bool parse_seq_arg(const char* s, uint32_t& out) {
     return true;
 }
 
+// ★★ §CUSTODY-D (2026-08-30) — THE DESTRUCTIVE-VERB CONFIRMATION TOKEN, as a pure predicate the native suite can
+// reach. `clear_inbox confirm` (design §7.5.1) must be inert without the EXACT token, and its handler lives in
+// `src/firmware_inbox.cpp` — a TU neither the native suite nor the simulator compiles (§B115) — so the decision is
+// hoisted here, beside the other destructive-target parser (`parse_seq_arg`), rather than written inline where
+// nothing could redden it. Same reason, same file, same idiom (U1/U3).
+// ⓘ AND THE HOIST IS HALF THE GATE, NOT THE WHOLE ONE (QG, 2026-08-31): a pinned predicate proves nothing about
+//   whether the handler CONSULTS it. `tools/probe_inbox_verbs/run.sh` drives the real `dispatch()` into the real
+//   `handle_clear_inbox` and reddens on control C3 — this call replaced by `false`, i.e. the interlock bypassed.
+//
+// ⛔ THE SHAPE IS `handle_factory_reset`'s, COPIED RATHER THAN INVENTED (`src/firmware_commands.cpp`): skip leading
+//    spaces, then require the remaining argument to be EXACTLY the seven bytes `confirm`. Consequences, all in the
+//    SAFE direction and all pinned by the native cases: `""`/`"   "` refuse · `"confirm extra"` refuses (length) ·
+//    `"confirmation"` refuses (length) · `"confirmX"` refuses · `"CONFIRM"` refuses (case-sensitive) · a trailing
+//    space (`"confirm "`) refuses. ⚠ That last one is STRICTER than `parse_seq_arg`, which eats trailing
+//    whitespace, and the divergence is deliberate: a seq argument's trailing space is a transport artefact around a
+//    value the operator typed, while here the token IS the whole safety interlock — the failure direction of a
+//    refused clear is one extra keystroke, and of an accepted one it is a destroyed history.
+//
+// ⛔ `handle_factory_reset` IS DELIBERATELY NOT RE-POINTED AT THIS PREDICATE IN THIS SLICE (C1: a feature slice does
+//    not refactor a second destructive verb's parse, and §7.5.6 requires this verb to acquire no coupling that
+//    could widen `factory_reset`). Its equivalence is proved instead, by a native case that mirrors its expression
+//    and requires the two to agree over the whole token corpus. Unifying them is its own increment.
+inline bool parse_confirm_token(const char* s, size_t n) {
+    if (!s) return false;
+    while (n && *s == ' ') { ++s; --n; }                               // the dispatcher leaves the separating space
+    return n == 7 && !strncmp(s, "confirm", 7);
+}
+
 // FNV-1a/32 over the 8 little-endian bytes of (a ‖ b). Used to MINT a fresh team_id = hash(our key ‖ HW-RNG nonce).
 inline uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     uint32_t h = 2166136261u;

@@ -132,7 +132,8 @@ public:
     // reads it; a changed epoch ⇒ the node's history was wiped ⇒ the app resets its cursors to 0 and
     // re-pulls (dedup by stable message identity makes that non-duplicating). 0 = no durable epoch.
     virtual uint32_t storage_epoch() const = 0;
-    // factory_reset (§5) / `prep-restart`: drop ALL persisted records, and ★ REPORT WHETHER THAT HAPPENED.
+    // factory_reset (§5) / `prep-restart` / §CUSTODY-D `clear_inbox`: drop ALL persisted records, and ★ REPORT
+    // WHETHER THAT HAPPENED.
     // ⛔ THE RETURN TYPE WAS `void` UNTIL 2026-08-28 ([[B134]] QG blocker 3) AND THAT WAS A DATA-RETENTION LIE IN
     //    THE WORST DIRECTION: every erase result was discarded, so `prep-restart` printed *"inbox cleared"* and
     //    `factory_reset confirm` carried on while records stayed RECOVERABLE on flash. For a DESTRUCTIVE verb the
@@ -140,7 +141,29 @@ public:
     // Contract: `true` iff, after this call, the store holds no recoverable records AND the bookkeeping that says so
     // is persisted. A store with nothing persistent (FixedInboxStore, a RAM ring cleared by the reboot that follows)
     // trivially satisfies that, which is why the default is `true` and not a silent no-op success.
-    virtual bool     wipe() { return true; }
+    //
+    // ★★★★ §CUSTODY-D (2026-08-30) — `target_epoch` IS THE SHARED-EPOCH SEAM, AND IT IS ONE PARAMETER ON THE ONE
+    //      ERASE PATH RATHER THAN A SECOND `wipe_to_epoch()` VIRTUAL (U1). Two erase entry points into the same
+    //      segments is exactly the fork this file's §3.5 delete note refuses for the same reason: an implementer
+    //      can be missed, and the two copies drift.
+    //        · `target_epoch == 0` = THE LEGACY POLICY, BYTE-FOR-BYTE: each store applies its OWN transition rule
+    //          (the segmented store bumps by one iff it HELD history; the RAM ring leaves its per-boot epoch
+    //          alone). ⛔ `prep-restart` and `factory_reset confirm` pass 0 and are UNCHANGED by §CUSTODY-D.
+    //          0 is not a fresh sentinel: it is already this contract's "no durable epoch" value (storage_epoch()).
+    //        · `target_epoch != 0` = SET THIS EXACT VALUE, unconditionally — ⛔ INCLUDING a store that was already
+    //          empty, and including the RAM ring's runtime epoch. That arm exists because the public contract
+    //          exposes ONE epoch (`Inbox::storage_epoch()` below returns the DM store's, and the boot banner
+    //          prints that one value), so a per-store "only bump what held something" rule would let a clear of a
+    //          non-empty CHANNEL store beside an empty DM store leave the externally visible epoch UNCHANGED —
+    //          and the companion, whose whole wipe-detector is that number, would reset nothing and keep cursors
+    //          pointing past records that no longer exist. The caller that computes the shared target is
+    //          `Inbox::clear()`, which is the ONLY caller allowed to pass non-zero.
+    virtual bool     wipe(uint32_t target_epoch) { (void)target_epoch; return true; }
+    // The legacy spelling, kept as a NON-virtual overload so `prep-restart`/`factory_reset` (and every existing
+    // store test) read exactly as before. ⛔ Deliberately not a defaulted argument on the virtual: a default on a
+    // virtual is bound STATICALLY, so an override that re-declared it differently would silently give two callers
+    // two policies. Derived classes need `using InboxStore::wipe;` to keep this overload visible.
+    bool             wipe() { return wipe(0); }
 };
 
 // ---- the inbox logic (lib/core; platform-neutral) -------------------------------------------------
@@ -224,6 +247,33 @@ public:
     // durable cursor that never moved. `false` = the cursor is NOT on the medium (and an unwired inbox is false,
     // never a silent success — the same rule `erase` follows).
     bool     mark_read(InboxKind kind, uint32_t seq);
+
+    // ★★★★ §CUSTODY-D — WHOLE-INBOX CLEAR (design §7.5): the ONE orchestration authority behind `clear_inbox
+    // confirm`. `true` = BOTH stores are empty with their bookkeeping persisted; `false` = the clear is
+    // POSSIBLY PARTIAL and the caller must never report it as done (the §7.5 refusal/destructive contract).
+    // An unwired inbox returns `false` — never a silent success, the same rule `erase`/`mark_read` follow.
+    //
+    // ⛔⛔ WHY THIS IS A METHOD AND NOT TWO `store->wipe()` CALLS AT THE VERB — the BATCH-PERSIST GAP, which is a
+    //     real defect and not a theoretical one. `record()` persists the next-seq counter only every
+    //     `kSeqPersistBatch` (8) appends (inbox.cpp), so between batches the ONLY witness of the true high-water
+    //     is the RECORDS THEMSELVES (`restore_next` takes `max(record seq + 1, persisted_next_seq)`). Erase the
+    //     records while the persisted metadata still says the older value and the high-water DROPS: the next boot
+    //     hands out sequences that a companion has already filed against different messages — seq REUSE, the one
+    //     thing §6 exists to prevent. ⚠ An in-memory "the next seq is greater" assertion cannot see this at all:
+    //     `_dm_next`/`_chan_next` are untouched by a wipe, so they read correct in the very run that lost the fact.
+    //     ⇒ the order is FIXED: persist BOTH high-waters FIRST, and if EITHER persist fails, erase NEITHER store
+    //     and report failure. A clear that cannot record where the sequence space got to has not earned the right
+    //     to destroy the evidence of it.
+    //
+    // The rest of §7.5, in the order it happens: ONE new non-zero target epoch is computed (strictly greater than
+    // both stores' current epochs) and passed to BOTH wipes, so the single externally visible epoch always moves;
+    // both wipes are ATTEMPTED — ⛔ never short-circuited on the first's verdict, since a destructive verb must
+    // erase everything it can even when it cannot finish; both read cursors are reset. `_dm_next`/`_chan_next` are
+    // deliberately NOT reset (that IS the preserved high-water), so `dm_newest_seq()`/`chan_newest_seq()` keep
+    // reporting it after a successful clear and the verb's ack carries it (§7.5.7).
+    // ⛔ NOTHING OUTSIDE THE TWO INBOX STORES IS TOUCHED (§7.5.6) — no routes, membership, identity, config, keys
+    //    or counters; this class holds no reference to any of them.
+    bool     clear();
 
     // Force-persist both next-seq counters NOW (the "/ on a timer" half of §6's batched persist). The backend
     // should call this on a periodic timer and/or before a planned reboot, to bound how far the persisted

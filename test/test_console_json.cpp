@@ -246,6 +246,32 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     CHECK(std::string(inbox_mark_result(false)) == "io_error");
 }
 
+// ★★★★ §CUSTODY-D (spec §7.5) — THE `clear_inbox` ACK FAMILY, FROZEN AS THREE SHAPES AND PINNED BYTE-FOR-BYTE.
+//      The family is ruled, not derived: `factory_reset` answers a missing token in PROSE over the human console
+//      and has no generic `needs_confirm` line to reuse, so these three are spelled here and this case is what
+//      stops a fourth shape — or a field moving — from arriving unnoticed.
+TEST_CASE("write_inbox_cleared / write_inbox_needs_confirm — §CUSTODY-D's three frozen shapes") {
+    char b[160];
+    // ① THE REFUSAL. ⛔ It carries NO epoch/dm_seq/chan_seq: nothing changed, and printing live state beside a
+    //    refusal is how a companion comes to record a clear that never happened.
+    size_t n = write_inbox_needs_confirm(b, sizeof b);
+    CHECK(std::string(b, n) == "{\"ack\":\"clear_inbox\",\"result\":\"needs_confirm\"}\n");
+    // ② DESTRUCTIVE SUCCESS — §7.5.7's "new epoch and newest sequence values".
+    n = write_inbox_cleared(b, sizeof b, /*epoch*/ 4, /*dm_seq*/ 12, /*chan_seq*/ 7, inbox_clear_result(true));
+    CHECK(std::string(b, n) ==
+          "{\"ack\":\"clear_inbox\",\"result\":\"cleared\",\"epoch\":4,\"dm_seq\":12,\"chan_seq\":7}\n");
+    // ③ POSSIBLY-PARTIAL FAILURE. `warning` rides ONLY this arm, and says MAY remain — the ruled wording, because
+    //    every segment can erase cleanly and the metadata save still fail.
+    n = write_inbox_cleared(b, sizeof b, 4, 12, 7, inbox_clear_result(false));
+    CHECK(std::string(b, n) ==
+          "{\"ack\":\"clear_inbox\",\"result\":\"io_error\",\"warning\":\"messages_may_remain\","
+          "\"epoch\":4,\"dm_seq\":12,\"chan_seq\":7}\n");
+    // ★ THE DECISION ITSELF, pinned where a battery can reach it (handle_clear_inbox's TU is §B115-invisible) —
+    //   `inbox_mark_result`'s precedent, verbatim.
+    CHECK(std::string(inbox_clear_result(true))  == "cleared");
+    CHECK(std::string(inbox_clear_result(false)) == "io_error");
+}
+
 TEST_CASE("write_err / write_log / write_ready / write_status") {
     char b[512];   // ready-with-pubkey+duty is ~280B — must clear the largest emitter here (device streams it via the 1700B scratch)
     size_t n = write_err(b, sizeof b, "parse", "expected: send <dst> <body>");

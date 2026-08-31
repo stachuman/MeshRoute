@@ -1038,6 +1038,7 @@ static void dump_help(Print& out) {
     out.println(F("INBOX"));
     out.println(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
     out.println(F("  del_msg <dm|chan> <seq>                     delete one record (erased|not_found|io_error)"));
+    out.println(F("  clear_inbox confirm                         WIPE both stores (inbox ONLY; keeps everything else)"));
     out.println(F(""));
     // §UI-10/11 P2. ⓘ The hierarchical help is CODE and is this slice's (spec §3's documentation rule); the two
     // DOCUMENT targets (ios-companion/INBOX_SYNC_CONTRACT.md, docs/manual/command-reference.md) are the
@@ -1267,6 +1268,9 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, out); return true; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  out); return true; }
     if ((len ==  7 || (len >  7 && line[7]  == ' ')) && !strncmp(line, "del_msg",     7)) { handle_del_msg(line + 7,   out); return true; }   // §3.5 durable single-record delete
+    // §CUSTODY-D: the inbox-only clear, on THIS one dispatch so serial and BLE both reach it. ⛔ Shadows nothing —
+    // `joinprofile` is the only other 11-byte verb and does not match this text.
+    if ((len == 11 || (len > 11 && line[11] == ' ')) && !strncmp(line, "clear_inbox", 11)) { handle_clear_inbox(line + 11, len - 11, out); return true; }
 #if MR_FEAT_REMOTE_MGMT
     if (len > 9 && !strncmp(line, "password ", 9)) { handle_password(line + 9, out); return true; }   // §remote-mgmt: LOCAL-only admin credential set
     if (len > 7 && !strncmp(line, "unlock ", 7))   { handle_unlock(line + 7, out);   return true; }   // admin-issue: derive the admin key into RAM

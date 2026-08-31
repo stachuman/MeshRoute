@@ -26,4 +26,11 @@ void handle_mark_read(const char* args, Print& out);
 // Acks `{"ack":"del_msg","kind":…,"seq":N,"result":"erased|not_found|io_error"}` — THREE outcomes, never a bool.
 void handle_del_msg(const char* args, Print& out);
 
+// `clear_inbox confirm` — §CUSTODY-D (spec §7.5): the targeted INBOX-ONLY wipe. Without the exact `confirm` token it
+// is INERT and acks `needs_confirm`. Confirmed, it clears BOTH record stores through the one `Inbox::clear()`
+// authority (high-waters preserved, cursors reset, ONE shared epoch bump) and acks `cleared` — or `io_error` +
+// `messages_may_remain` if either store could not finish, which is explicitly a POSSIBLY-PARTIAL state.
+// ⛔ It does NOT replace `prep-restart` or `factory_reset confirm`, and touches nothing outside the two stores.
+void handle_clear_inbox(const char* args, size_t n, Print& out);
+
 }  // namespace mrfw
