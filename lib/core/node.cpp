@@ -754,8 +754,16 @@ void Node::clear_routing_state() {
         // from _deferred already completes the app's future — defer_send's redrain giveup and its cap refusal push
         // (node_cascade.cpp:245/251), and the TTL giveup in the drain (:285). Wiping the queue here was the ONE exit
         // that stayed silent, so a `join`/`leave` with parked sends hung exactly the futures this ruling is about.
-        // Same reason code, same predicate (carrier_owes_send_failed, node_carriers.h) — a forwarder never defers
-        // (node_join.cpp:490 drops a no-route transit DM outright), so the guard is defence-in-depth, not dead code.
+        // Same reason code, same predicate (carrier_owes_send_failed, node_carriers.h).
+        // ⛔⛔ DRIFTED COMMENT CORRECTED 2026-08-31 BY §CUSTODY-E's caller audit (V1), because the correction
+        //    CHANGES WHAT THE GUARD IS. This line used to read *"a forwarder never defers (node_join.cpp:490 drops
+        //    a no-route transit DM outright), so the guard is defence-in-depth, not dead code"*. BOTH halves were
+        //    wrong: the cited line is not that drop (the citation had drifted), and the real site — `issue_send`'s
+        //    no-route arm, `node_mac.cpp` — carries a **DELIBERATE EXCEPTION**: a GATEWAY relaying a CROSS-LAYER
+        //    transit DM with no far-layer route calls `defer_send(item)` with `is_forward == true` (the reactive
+        //    route-pull, spec 2026-06-21 §4 — it exists precisely so the first DM to each new far-layer dst is not
+        //    lost). ⇒ a FORWARDED item genuinely can sit in `_deferred`, and this predicate is a LIVE guard on a
+        //    gateway build, not dead code. It answers correctly either way; only the reasoning was false.
         for (uint8_t d = 0; d < _layers[i]._deferred_n; ++d) {
             const TxItem& it = _layers[i]._deferred[d].item;
             // §CUSTODY-B §6.2(5) + [[B268]] blocker-1. `carrier_owes_send_failed` keeps its own narrow question
@@ -2202,12 +2210,26 @@ void Node::enqueue_push(const Push& p) {
 //    one helper and every carrier death routes through it.
 //
 // ⛔⛔ `generic_owed` IS THE CALLER'S OWN, UNCHANGED, SITE-SPECIFIC ANSWER AND IS PASSED **IN**, NEVER RECOMPUTED
-//    HERE. That is the single most important line in this function, and it is what stops the helper becoming a
-//    stealth [[B263]] fix: the sites genuinely differ — `giveup_flight` owes a generic failure UNCONDITIONALLY
-//    (transit or own, which IS B263 and stays exactly as defective as it is until Slice E), the reprovision
-//    purges first ask `carrier_owes_send_failed`, and three sites owe NOTHING to anybody and must stay silent.
-//    If this helper decided that question, every one of those would move. It decides only the TRAIT question,
-//    which is this slice's, and which each site already asked identically.
+//    HERE. That is the single most important line in this function: the sites genuinely differ — `giveup_flight`
+//    owes a generic failure at every cascade terminal, the reprovision purges first ask
+//    `carrier_owes_send_failed`, and three sites owe NOTHING to anybody and must stay silent. If this helper
+//    decided that question, every one of those would move.
+//
+// ★★★★ §CUSTODY-E (2026-08-31) — **THE GATE GAINED ITS THIRD TERM, `own_origination`, AND THAT IS [[B263]] CLOSED.**
+//    ⛔⛔ THE DEFECT, stated exactly: `giveup_flight` reaches here with `generic_owed = true` for a TRANSIT flight
+//       as readily as for our own send, so a relay whose cascade died pushed `send_failed` carrying the ORIGINAL
+//       sender's `{dst, ctr}` — a user-send completion for a send this node never made, minted under a FOREIGN
+//       counter, and able to collide with a real local `{dst, ctr}` in the companion's correlation. The asymmetry
+//       was already measured: `push_send_aired_if_owned` (below) has ALWAYS gated on `has_previous_hop`.
+//    ★ WHY THE TERM BELONGS **HERE** AND NOT AT THE CALL SITES. Ownership of a generic user-send lifecycle is ONE
+//      policy — "the local app has a future keyed on this `{dst, ctr}`" — and the tree already states it twice
+//      (`carrier_owes_send_failed`'s `forwarded` term, `push_send_aired_if_owned`'s `has_previous_hop` term). A
+//      per-site fix would have made it a TWELFTH list. ⛔ It is deliberately NOT `carrier_owes_send_failed`
+//      wholesale: that predicate also excludes channel-M, whose future is a `channel_sent` push, and answering a
+//      different question here is how that helper's own banner records it was misread once already.
+//    ⓘ THE TWO TERMS ARE INDEPENDENT AND BOTH REQUIRED: `generic_owed` is "does this SITE owe a completion at
+//      all?" (three sites answer no), `own_origination` is "is the completion OURS to give?". Neither implies
+//      the other, and the [[B268]] grant arm below reads only the second — a relayed grant is not ours to report.
 //
 // ⛔ THE TWO ARMS ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION, not by an `else`: `generic_send_lifecycle` is false for
 //    every internal type and the grant is one, so no carrier can take both. They are written as two independent
@@ -2219,7 +2241,7 @@ void Node::enqueue_push(const Push& p) {
 //   only where it finally dies, because the moves are not deaths. ⇒ zero or one, never two.
 void Node::terminal_carrier_outcome(uint8_t type, bool own_origination, bool generic_owed,
                                     SendFailReason reason, uint8_t dst, uint16_t ctr) {
-    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);
+    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);
     // [[B268]]: the grant's protocol-specific terminal outcome (§6.2(6)). ⛔ Own originations only — a relayed
     // grant in transit is not ours to report, the same fence the generic path keeps.
     if (own_origination && type == DATA_TYPE_TEAM_KEY_GRANT) {
@@ -2292,7 +2314,8 @@ void Node::push_send_aired_if_owned(const TxOutcome& info) {
     // §CUSTODY-B §6.2(5): `send_aired` is a GENERIC user-send outcome, so a protocol-internal flight raises none.
     // ⓘ This sits AFTER the identity check on purpose — the type is only meaningful once the outcome is proven to
     //   belong to THIS flight; asking it earlier would read a type off a flight the outcome does not describe.
-    // ⛔ The `has_previous_hop` ownership term below is NOT touched (it is the transit axis, [[B263]]/Slice E).
+    // ⓘ The `has_previous_hop` ownership term below was ALWAYS here — it is the transit axis, and §CUSTODY-E
+    //   gave `terminal_carrier_outcome` the matching term so the two halves of the lifecycle finally agree.
     if (!data_type_traits(pt.type).generic_send_lifecycle) {
         // ★★★★ [[B268]] (owner ruling 2026-08-30) — THE TEAM-KEY GRANT'S OWN AIRING OUTCOME. §6.2(6): an internal
         //   type keeps its PROTOCOL-SPECIFIC result, and for the grant that result is this push. Without it §UI-16's
@@ -2302,7 +2325,9 @@ void Node::push_send_aired_if_owned(const TxOutcome& info) {
         //   OWN origination at the node that mints it (`team_key_grant_send` -> `send_by_hash` -> `do_send`), and a
         //   RELAYED grant passing through carries `has_previous_hop` and must raise nothing. That term already sits
         //   below for the generic path; this arm re-uses it rather than forking a second ownership rule, so the
-        //   [[B263]] transit-vs-own fence is respected identically on both arms and Slice E moves them together.
+        //   [[B263]] transit-vs-own fence is respected identically on both arms. ⓘ §CUSTODY-E moved them
+        //   together as foretold: the FAILURE path's central gate gained the same `own_origination` term, so
+        //   `send_aired` and `send_failed` now agree on who owns a completion instead of only one of them doing so.
         // ⛔ `m_broadcast` cannot be a grant (a grant is a unicast DM), so the channel arm below is not duplicated.
         if (pt.type == DATA_TYPE_TEAM_KEY_GRANT && !pt.m_broadcast && !pt.has_previous_hop) {
             Push g{}; g.kind = PushKind::team_key_grant_aired; g.dst = pt.dst; g.ctr = pt.ctr; enqueue_push(g);

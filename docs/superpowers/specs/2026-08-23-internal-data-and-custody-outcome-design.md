@@ -1066,6 +1066,22 @@ own sub-slice before expanding semantics.
 
 ### Slice D — inbox-only clear
 
+> ✅ **SLICE D COMPLETE — QG PASS 2026-08-31 (1 brief round + 3 impl rounds).** The brief-review corrections
+> were ruled design: ONE `Inbox::clear()` authority persisting BOTH high-waters BEFORE any erase (the
+> batch-persist gap — `set_next_seq` every 8 records; erase-neither on persist failure; preservation proven
+> by REMOUNT, never the in-memory counter) · ONE shared target epoch (`max(dm,chan)+1`) pushed to BOTH store
+> wipes including an already-empty store, delivered as `wipe(uint32_t target_epoch)` with `wipe()=wipe(0)`
+> keeping prep-restart/factory_reset byte-identical, no format bump · the FROZEN three-ack family
+> (`needs_confirm` / `cleared` w/ preserved high-waters / `io_error`+`messages_may_remain`), both wipes
+> always attempted, possibly-partial never prints cleared, retry completes. Rounds 2-3 closed the two
+> instrument gaps QG found: **the destructive verb's REAL wiring gated** by the new sibling probe
+> `tools/probe_inbox_verbs/` (host-links the production `firmware_commands.cpp`+`firmware_inbox.cpp`, drives
+> `dispatch()` — 39 checks / 8 controls, the "makes no decisions" structural-pin claim corrected everywhere)
+> and **the probe runner's own verdict enforced** (PIPESTATUS capture, pinned counts, PROBE-ONLY labeling,
+> three sabotage proofs). Spawned [[B273]] (harness `io_error`-name laundering) + [[B274]] (partial-wipe
+> remanence observation). Native 2418/101346/0; corpus 36/36 streams inert; RAM +0 both boards.
+> ⚠ metal-pending: bench Part 52. ⚠ commit needs the explicit add of `tools/probe_inbox_verbs/`.
+
 - add the confirmed `clear_inbox confirm` operation;
 - preserve high-water values and bump the storage epoch once;
 - prove the refusal and destructive-success contracts independently of B59; and
@@ -1081,7 +1097,14 @@ own sub-slice before expanding semantics.
 
 ### Slice F — custody codec and relay generation
 
-- add the v1 codec and numeric enums;
+> ⓘ **WORDING CORRECTED 2026-08-31 (QG Slice-E brief review — enum ownership was contradictory between
+> this bullet and Slice E's "v1 enum" consumption):** the first bullet read *"add the v1 codec and numeric
+> enums"*. **RULED: Slice E lands the single canonical `CustodyFailureReason` and root-stage types,
+> including the approved explicit values; Slice F adds only the codec and SERIALIZES those existing types —
+> it must not introduce a second mapping.**
+
+- add the v1 codec, serializing the `CustodyFailureReason`/root-stage types Slice E landed (⛔ no second
+  mapping; the bullet's original "and numeric enums" is superseded per the correction above);
 - snapshot eligible terminal transit carriers;
 - reset/become-free in the established order;
 - enqueue one global-plane internal report after the failed carrier is gone; and

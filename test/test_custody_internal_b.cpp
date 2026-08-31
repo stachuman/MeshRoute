@@ -280,7 +280,12 @@ TEST_CASE("§CUSTODY-B/2c a HOME last-miles an unknown-internal frame to its hos
 // AUTHORITY: lib/core/node_cascade.cpp `giveup_flight` + `defer_send`.
 // ★ THE PAIR IS THE POINT: the same terminal path, driven once with an INTERNAL carrier and once with an
 //   APPLICATION carrier. Suppressing both would be an over-correction that deletes real user feedback; the
-//   application arm is ALSO the [[B263]] fence — it stays reproducibly as it is until Slice E.
+//   application arm is ALSO the [[B263]] fence.
+// ⓘ CORRECTED IN PLACE 2026-08-31 BY §CUSTODY-E, not deleted: this line used to end "— it stays reproducibly as
+//   it is until Slice E", and Slice E has now landed. What it fenced is UNCHANGED and this case still passes
+//   untouched, because every carrier here is a LOCAL origination (`test_defer_send` builds `is_forward = false`).
+//   What Slice E changed is the TRANSIT arm, which this file never drove — see `test_custody_terminal_e.cpp`
+//   §CUSTODY-E/1, which drives a REAL relayed carrier and pins the suppression.
 TEST_CASE("§CUSTODY-B/3 a deferred-send giveup reports send_failed for an APPLICATION carrier and not for an INTERNAL one") {
     struct Case { uint8_t type; bool expect_push; const char* label; };
     const Case cases[] = {
@@ -406,11 +411,17 @@ TEST_CASE("§CUSTODY-B/1d the guard's telemetry is SCALAR-ONLY: exactly {type, o
 //     internal flight that exhausts its retries must NOT hand the app a `send_failed` under a ctr the user never
 //     minted. ⓘ This is the `giveup_flight` path — a DIFFERENT production site from §CUSTODY-B/3's `defer_send`,
 //     and the one that carries the [[B59]] failure shape. The application control on the same path is what keeps
-//     the [[B263]] boundary honest: an APPLICATION carrier still reports, transit-or-not, until Slice E.
+//     the [[B263]] boundary honest: an APPLICATION carrier still reports.
+// ⛔⛔ CORRECTED IN PLACE 2026-08-31 BY §CUSTODY-E: the words "transit-or-not, until Slice E" are WITHDRAWN and
+//     the reason is worth keeping. They were the deliberate pin for the arm this file DID exercise (a LOCAL
+//     origination, which is unchanged and still passes here verbatim) — but they also asserted, in a comment,
+//     a TRANSIT behaviour no assertion in this file ever drove. Slice E closes [[B263]]: a transit terminal
+//     give-up now reports NOTHING. The transit arm has a real, production-shaped case of its own in
+//     `test_custody_terminal_e.cpp` §CUSTODY-E/1. ⇒ a claim that lived only in prose has become a measurement.
 TEST_CASE("§CUSTODY-B/3e a cascade-exhausted INTERNAL flight reports no send_failed; an APPLICATION one still does") {
     struct Case { uint8_t type; bool expect_push; const char* label; };
     const Case cases[] = {
-        { 0,                                       true,  "untyped DM — the user's own send ([[B263]] fence)" },
+        { 0,                                       true,  "untyped DM — the user's OWN send (local; the transit twin is §CUSTODY-E/1)" },
         { DATA_TYPE_INTRO,                         true,  "INTRO (0x01) — application envelope (§6.4)" },
         { DATA_TYPE_E2E_ACK,                       false, "E2E_ACK (0x80)" },
         { DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, false, "the B59 pubkey answer (0x8B)" },
@@ -633,8 +644,9 @@ TEST_CASE("[[B268]]/5a a DEFERRED grant that ages out mints team_key_grant_faile
     CHECK_FALSE(generic);                                 // ⛔ and never the generic twin
     CHECK(g.ctr == 4242);
     CHECK(g.reason == SendFailReason::no_route);
-    // ⛔ THE APPLICATION CONTROL ON THE IDENTICAL PATH — the [[B263]] fence: an ordinary DM still reports
-    //    generically, byte-for-byte as before this slice.
+    // ⛔ THE APPLICATION CONTROL ON THE IDENTICAL PATH: an ordinary DM still reports generically, byte-for-byte
+    //    as before this slice — and STILL DOES after §CUSTODY-E, because `test_defer_send` stages a LOCAL
+    //    origination (`is_forward = false`), which the [[B263]] ownership term leaves untouched.
     BHal h2; Node a(h2, /*id=*/2, 0x11111111u);
     CHECK(a.on_init(cfg)); h2._now = 100000; drain(a);
     a.test_defer_send(/*dst=*/86, /*ctr=*/7, /*redrain_count=*/0, /*type=*/0);

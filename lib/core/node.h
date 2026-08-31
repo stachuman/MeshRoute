@@ -43,6 +43,28 @@ struct beacon_entry;   // frame_codec.h — fwd-decl for the Slice 3 bidi detect
 
 struct data_unicast_inner;   // frame_codec.h — fwd-decl for bridge_cross_layer's const-ref param (full type in node_mac_rx.cpp)
 
+// ★★★★ §CUSTODY-E (2026-08-31) — **THE TYPED TERMINAL CONTEXT** (design §11), the seam that replaces
+//      event-string inference at the SELECTED cascade terminals.
+//
+// ⛔⛔ IT IS A BOUNDED VALUE AND IT DELIBERATELY HOLDS **NO** `PendingTx`. §11 describes the context as carrying
+//     "an immutable reference to the complete live `PendingTx`", and that reference is the terminal helper's OWN
+//     `const PendingTx&` PARAMETER — valid ONLY until `_pending_tx.reset()`, which is why it cannot be a member
+//     here. Storing one would either dangle (the reset destroys the optional) or force the ~352-byte stack copy
+//     §11 forbids outright. ⇒ three bytes, no aliasing, no lifetime question.
+//
+// ⛔ AND IT IS **NOT** SLICE F's SNAPSHOT. F materializes a bounded 24-byte VALUE snapshot (§9.2) from the live
+//    carrier BEFORE the reset and consumes it AFTER `become_free()`; that object does not exist in this slice and
+//    nothing here is a stand-in for it. What E owns is the three ANSWERS — stage, cause, repair — that cannot be
+//    recovered once the combined cascade state is erased.
+struct TerminalCustodyContext {
+    CustodyRootStage     stage            = CustodyRootStage::invalid;   // §9.3 bit 1/2 — WHICH exchange it died waiting for
+    CustodyFailureReason cause            = CustodyFailureReason::invalid;  // §9.4 — WHY the carrier was finally deleted
+    // §9.3 bit 3: this terminal cascade pass INVOKED the repair-request logic (`emit_route_request`). ⛔ It does
+    // NOT claim an RREQ was admitted or aired — the rate limiter inside `emit_route_request` may refuse it — and
+    // it is set at the CALL, never inferred from a give-up event's name.
+    bool                 repair_attempted = false;
+};
+
 class Node {
 public:
     Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name = nullptr);
@@ -2181,7 +2203,8 @@ private:
     //     where the full contract is written). Every site where an ADMITTED carrier DIES calls this: it applies
     //     the DATA-type trait once, and emits either the generic `send_failed` or the grant's own
     //     `team_key_grant_failed`. ⛔ `generic_owed` is the CALLER'S site-specific answer, passed in and never
-    //     recomputed — that is what keeps [[B263]]'s application-transit behaviour byte-identical until Slice E.
+    //     recomputed. §CUSTODY-E added the THIRD term `own_origination` to the central gate, which is [[B263]]
+    //     closed: a TRANSIT carrier's death no longer mints a generic completion under a foreign `{dst, ctr}`.
     void     terminal_carrier_outcome(uint8_t type, bool own_origination, bool generic_owed,
                                       SendFailReason reason, uint8_t dst, uint16_t ctr);
     void     push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr);
@@ -2446,17 +2469,56 @@ private:
     uint8_t  pick_next_cascade_hop(const PendingTx& pt);          // two-pass walk :5430; 0 = none (NON-const: refreshes the route order first)
     bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,
                                  bool allow_uphill) const;        // minimal filter :3990
-    void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
-    void     try_cascade_requeue(const PendingTx& pt, const char* giveup_event);  // exhaustion -> requeue/giveup :6190
-    static SendFailReason giveup_fail_reason(const char* giveup_event);   // Slice 6b: "rts_*"->no_cts, "data_ack_*"->no_ack, else none
+    // ★ §CUSTODY-E: the ROOT STAGE travels as a TYPED argument from the timer that fired, alongside — never
+    //   inside — the give-up EVENT NAME. The string stays because telemetry names two distinct events per stage
+    //   ("rts_giveup"/"rts_silent_cascade"), which no 2-value enum can carry; ⛔ but it is no longer parsed.
+    void     cascade_to_alt(CustodyRootStage stage, const char* trigger);        // on giveup: switch hop or requeue :6456
+    void     try_cascade_requeue(const PendingTx& pt, CustodyRootStage stage, const char* giveup_event,
+                                 bool repair_attempted);                          // exhaustion -> requeue/giveup :6190
     // §3-B.2: the TERMINAL giveup of the live flight — tell the app, drop the flight, re-service the queue. Deliberately
     // does NOT absorb the caller's `return`: the 6 sites return differently (bare `return`, `return true`, or fall out of
     // an if/else to a shared `return`), and hiding control flow inside a helper is worse than the duplication it saves.
     void     giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr);   // push_send_failed + _pending_tx.reset() + become_free(), in that order
+    // ★★★ §CUSTODY-E — THE SELECTED CUSTODY-ELIGIBLE CASCADE TERMINAL: the §11 seven-step order, steps 1-6, with
+    //     step 7's insertion point named at the end. ⛔ ONLY the three §9.4-representable branches call it; every
+    //     other carrier death (gateway timeout, no-route, NACK, purge, pack-fail, LBT stash) keeps plain
+    //     `giveup_flight`/`terminal_carrier_outcome` and stays OUTSIDE the typed custody seam (design §9.4/§10.2).
+    void     cascade_terminal_giveup(const PendingTx& pt, CustodyRootStage stage,
+                                     CustodyFailureReason cause, bool repair_attempted);
+    // §CUSTODY-E test observation (native/simulator builds only; a no-op inline on every board). See node_cascade.cpp.
+#ifdef MESHROUTE_NATIVE
+    static void custody_terminal_observe(const TerminalCustodyContext& c);
+#else
+    static void custody_terminal_observe(const TerminalCustodyContext&) {}
+#endif
 public:
     // ④ load-adaptive cascade budget (Lua cascade_load_skip dv:6275): the effective requeue budget at a given TX-queue
     // depth = cascade_requeue_max − max(0, depth − threshold), clamped ≥0. Pure (depth + constants); static for tests.
     static int cascade_effective_max(uint8_t queue_depth);
+    // ★★★★ §CUSTODY-E — **THE ONE CASCADE-TERMINAL CAUSE AUTHORITY** (design §9.4), and it is `try_cascade_requeue`'s
+    //      BRANCH PREDICATE as well as its diagnostic label. That dual role is the design, not an economy:
+    //      a wrong answer here does not merely mislabel a future notice, it sends the carrier down the wrong arm
+    //      (or requeues a flight that must die), so the wiring is behaviourally load-bearing instead of decorative.
+    // ⛔ PRECEDENCE IS `cascade_count` -> `cascade_age` -> `queue_full` -> `load_shed`, which reproduces the
+    //    pre-slice condition's own evaluation order EXACTLY (`count_done || age_done || queue >= cap`, then the
+    //    load-shed test) — the diagnostic is deterministic when several are simultaneously true, and the terminal
+    //    DECISION is byte-identical to what it replaced.
+    // ⛔ `invalid` means **NOT TERMINAL** — the flight is requeued. It is the same value §9.4 reserves as "never
+    //    transmitted", which is exactly right: no notice can be built from a carrier that did not die.
+    // ⓘ Pure (its three inputs + protocol constants + `cascade_effective_max`); static so §18.4.7's per-cause
+    //   cases can drive it directly rather than through a fixture that can only reach some of its arms.
+    static CustodyFailureReason cascade_terminal_cause(uint8_t requeue_count, uint64_t age_ms,
+                                                       uint8_t queue_depth);
+    // §CUSTODY-E: the ROOT STAGE -> `SendFailReason` mapping, replacing `giveup_fail_reason`'s prefix match on
+    // "rts_*"/"data_ack_*". Same two answers, from the timer identity instead of a string (design §11).
+    static SendFailReason custody_stage_fail_reason(CustodyRootStage stage);
+#ifdef MESHROUTE_NATIVE
+    // §CUSTODY-E test observation — see `custody_terminal_observe` in node_cascade.cpp for the full contract and
+    // for why it is native-only. ⚠ Slice F retires it: once a real 0x81 notice is enqueued, the context is
+    // observable as traffic and an out-of-band recorder stops earning its place.
+    static const TerminalCustodyContext& test_last_terminal_custody_ctx();
+    static void                          test_reset_terminal_custody_ctx();
+#endif
 private:
     uint32_t requeue_backoff_ms(uint8_t requeue_count) const;     // pure base*2^(n-1) capped :6209
     uint8_t  effective_rts_max_retries(uint8_t requeue_count) const;  // max(0, max-requeue_count) :3119

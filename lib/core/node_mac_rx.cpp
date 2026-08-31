@@ -2383,7 +2383,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                 _hal.emit("path_cascade_exhausted", f, 2);
                 _hal.emit("rts_giveup", f, 2); );
-            giveup_flight(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none)
+            giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). §CUSTODY-E: the reason is NAMED, not parsed out of a literal event string
         }
         return;
     }
@@ -2424,7 +2424,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 // (this site always owed one). NOT `giveup_flight` itself: the reset + become_free below are
                 // shared with the requeue arm above.
                 terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/true,
-                                         giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts
+                                         SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (§CUSTODY-E: named, not string-parsed)
             }
             _active->_pending_tx.reset();
             become_free();
@@ -2457,7 +2457,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                 { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", gf, 2);
             _hal.emit("rts_giveup", gf, 2); );
-        giveup_flight(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none)
+        giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). §CUSTODY-E: named, not string-parsed
         return;
     }
 
@@ -2487,7 +2487,13 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // requeue-or-giveup: the helper does both legs (caps -> exhausted+giveup+drop, else
         // requeue@backoff) + _active->_pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
         // giveup event is "rts_giveup" (Lua dv:10462; "budget_low" is the trigger, not the name).
-        try_cascade_requeue(pt, "rts_giveup");
+        // ★ §CUSTODY-E: a BUDGET NACK answers an RTS, so the root stage is `cts` — ⛔ derived from what the flight
+        //   was waiting for, NOT from the "rts_giveup" label the emit happens to carry. `repair_attempted = false`
+        //   is this path's honest answer: it invokes no `emit_route_request` at all (the duty-budget response is a
+        //   blind window + a rerank, never a rediscovery). ⓘ This IS inside the custody seam whenever the requeue
+        //   caps fire, and it is a DIFFERENT thing from §9.4's excluded "hop-budget NACK" terminal (:2460), which
+        //   gives up DIRECTLY and never enters a selected cascade branch.
+        try_cascade_requeue(pt, CustodyRootStage::cts, "rts_giveup", /*repair_attempted=*/false);
         return;
     }
 

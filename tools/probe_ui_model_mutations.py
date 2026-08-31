@@ -358,6 +358,22 @@ TARGET_SRC = {
     "sliceDtoken":  "src/firmware_config_parse.h",     # §CUSTODY-D — the `confirm` interlock (§B115-hoisted)
     "sliceDack":    "lib/console/console_json.h",      # §CUSTODY-D — the verdict -> lexeme mapping
     "sliceBchannel":"lib/core/node_channel.cpp",       # [[B268]] blocker-1 — the two reprovision-purge deaths
+    # ★★ ADDED 2026-08-31 BY **§CUSTODY-E** (the typed terminal context + [[B263]]'s closure). TWO targets,
+    #    because a battery is per-SOURCE-FILE and the slice's decisions genuinely live in two files: the CENTRAL
+    #    OWNERSHIP GATE (`node.cpp`'s `terminal_carrier_outcome`, where the `own_origination` term closes B263)
+    #    and the SELECTED CASCADE TERMINALS (`node_cascade.cpp` — the cause authority, the stage mapping, the
+    #    repair flag and the step-7 insertion point). Kept separate from `sliceBnode`/`sliceBcascade`/`b159dl` —
+    #    same files, different slices — so each can be re-proved independently, exactly as those entries were.
+    # ⛔ ONE OF THE BRIEF'S MUTATIONS IS **DELIBERATELY ABSENT AND ITS ABSENCE IS THE STRONGER OUTCOME**, recorded
+    #    here so it never reads as an omission:
+    #      · "THE CAUSE IS SELECTED FROM AN EVENT-NAME STRING" in its FULL form — replacing the whole cause
+    #        computation with a `giveup_event` prefix match — does not COMPILE as a drop-in: `cascade_terminal_cause`
+    #        is the branch PREDICATE, so a string cannot answer "is this terminal at all?" without also rewriting
+    #        the two arms. A control at the compiler beats one in a battery (the §CUSTODY-A enum-ordinal
+    #        precedent). E04 below carries the runtime-measurable half: the LABEL derived from the string while
+    #        the verdict stays correct — which is exactly the plausible wrong fix.
+    "sliceEnode":   "lib/core/node.cpp",               # §CUSTODY-E — the central ownership gate ([[B263]])
+    "sliceEcascade":"lib/core/node_cascade.cpp",       # §CUSTODY-E — cause authority, stage map, repair flag, step-7 seam
     # ★★ ADDED 2026-08-28 BY [[B134]] (the durable ESP32/Heltec inbox), for the reason every target above it was
     #    added: the slice's decisions must be attacked ONE AT A TIME and a battery is per-SOURCE-FILE.
     # ⓘ `b134seam` is a `src/` HEADER that the native suite compiles because `test/test_device_inbox_fs_esp32.cpp`
@@ -548,7 +564,36 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2418, 101346    # ★★ CROSS-CHECK RE-SYNCED 2026-08-30 by **§CUSTODY-D**, and the
+PIN_CASES, PIN_ASSERTS = 2437, 101569    # ★★ RE-SYNCED AGAIN 2026-08-31 by **§CUSTODY-E's QG round 2** (the
+                                         # sentinel-laundering blocker). DERIVATION, measured per case with
+                                         # `program -tc=`: +1 case / +21 assertions on 2436 / 101548.
+                                         #   the new case  E/3d the invalid stage is FAIL-CLOSED          9
+                                         #   never-invalid pins added to SEVEN existing cases:
+                                         #     E/2  8->9 (+1) · E/2b 24->25 (+1) · E/4  7->9 (+2)
+                                         #     E/4b 6->8 (+2) · E/4c 16->18 (+2) · E/4d 13->15 (+2)
+                                         #     E/4e 10->12 (+2)                                    = +12
+                                         #   9 + 12 = 21.  ⛔ ZERO cases removed or renamed.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2436, 101548 — ★★ RE-SYNCED 2026-08-31 by **§CUSTODY-E**, and the
+                                         # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
+                                         # (⚠ a `,` in a case name is a doctest filter SEPARATOR — the per-case
+                                         # measurement uses `-tc="*CUSTODY-E/<n> *"`, not the full title):
+                                         # +18 cases / +202 assertions, ALL of them the new TU
+                                         # `test/test_custody_terminal_e.cpp`. ⛔ ZERO existing cases edited —
+                                         # the §CUSTODY-B edits this slice made are COMMENT-ONLY corrections of
+                                         # the "[[B263]] fence ... until Slice E" pins, and moved no assertion.
+                                         #   E/1  transit terminal, no generic push 12 · E/1b local values  9
+                                         #   E/1c minted from the dying flight 19 · E/2  RTS root -> cts     8
+                                         #   E/2b DATA-ACK root -> hop_ack 24 · E/3  cause per branch        9
+                                         #   E/3b the §9.4 precedence 6 · E/3c the approved numeric values  11
+                                         #   E/4  cascade_count 7 · E/4b cascade_age 6 · E/4c queue_full    16
+                                         #   E/4d load_shed 13 · E/4e one_way_throttled 10
+                                         #   E/5  repair_attempted false 16 · E/5b repair_attempted true     9
+                                         #   E/6  the step-7 seam is inert 11 · E/6b grep-backed 0x81       10
+                                         #   E/6c grep-backed: no reason-by-string 6
+                                         #   12+9+19+8+24+9+6+11+7+6+16+13+10+16+9+11+10+6 = 202
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2418, 101346 — ★★ RE-SYNCED 2026-08-30 by **§CUSTODY-D**, and the
                                          # DERIVATION CLOSES EXACTLY, MEASURED CASE BY CASE with `program -tc=`
                                          # (⚠ a `,` in a case name is a doctest filter SEPARATOR — the per-case
                                          # measurement uses `-tc="*CUSTODY-D/<n> *"`, not the full title):
@@ -7278,8 +7323,11 @@ MUTS_SLICEBRX = [
 
  ("R04 ★★★ THE HELPER CALL IN `handle_nack`'s FULL-QUEUE GIVE-UP IS DELETED — a grant NACKed with no requeue room "
   "dies unreported. ⛔ A DIFFERENT SITE FROM `giveup_flight`, which is why it needs its own arm ([[B268]] blocker-1)",
+  # ⓘ RE-ANCHORED 2026-08-31 BY §CUSTODY-E, not rewritten: §11 forbids inferring a reason from an event NAME, so
+  #   `giveup_fail_reason("rts_giveup")` became the named `SendFailReason::no_cts`. The DECISION R04 attacks —
+  #   "this site reports nothing at all" — is unchanged, and so is its mutant (deletion).
   "                terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/true,\n"
-  "                                         giveup_fail_reason(\"rts_giveup\"), pt.dst, pt.ctr);   // §3-A.5: no_cts\n",
+  "                                         SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (§CUSTODY-E: named, not string-parsed)\n",
   ""),
 ]
 
@@ -7379,12 +7427,16 @@ MUTS_SLICEBNODE = [
  # ★★★ THE THREE HELPER-INTERNAL ARMS, inherited from the retired sliceBcascade B10/B11/C03 (see the note there).
  ("N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / "
   "SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is §6.4 inverted",
-  "    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
-  "    if (generic_owed && type == 0) push_send_failed(reason, dst, ctr);"),
+  # ⓘ RE-ANCHORED 2026-08-31 BY §CUSTODY-E, not rewritten: the gate line gained the `own_origination` term
+  #   ([[B263]]). The DECISION N06 attacks is unchanged — the trait arm narrowed to the untyped DM.
+  "    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed && own_origination && type == 0) push_send_failed(reason, dst, ctr);"),
  ("N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E ack / hash answer pushes `send_failed` "
   "under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape)",
-  "    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
-  "    if (generic_owed) push_send_failed(reason, dst, ctr);"),
+  # ⓘ RE-ANCHORED 2026-08-31 BY §CUSTODY-E (see N06). ⛔ The `own_origination` term is KEPT in the mutant so this
+  #   arm still attacks ONLY the TRAIT term — dropping both at once would be `sliceEnode` E01, a different defect.
+  "    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed && own_origination) push_send_failed(reason, dst, ctr);"),
  ("N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven post-admission carrier deaths stops "
   "reporting the grant at once: the §UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight",
   "    if (own_origination && type == DATA_TYPE_TEAM_KEY_GRANT) {\n"
@@ -7590,12 +7642,137 @@ MUTS_SLICEDACK = [
   "inline const char* inbox_clear_result(bool) { return \"cleared\"; }"),
 ]
 
+
+# =========================================================================================================
+# §CUSTODY-E — the typed terminal context (spec §9.3/§9.4/§11/§17-E) and [[B263]]'s closure.
+# ⛔ §18.4.7's bar is ONE TEST **AND** ONE MUTATION **PER CAUSE**, and both stages. Every arm below is one
+#    decision; none is a deletion of a whole block where a wrong-fix is expressible.
+# =========================================================================================================
+
+MUTS_SLICEENODE = [
+ # ★★★★ THE REGISTER ROW'S OWN GATE, VERBATIM: "[[B263]] — a mutation restoring the unconditional push ⇒ RED".
+ #   This is ALSO the brief's "central gate's `own_origination` term dropped" — one edit, one defect, one arm.
+ ("E01 ★★★★ [[B263]] IS RESTORED — the `own_origination` term is dropped from the central gate, so a TRANSIT "
+  "terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send "
+  "completion for a send this node never made, able to collide with a real local one",
+  "    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);"),
+ # ⓘ E02 IS THE INVERSION, which a "term dropped" arm cannot catch: it is equally wrong in the OTHER direction
+ #   and would pass any test that only checked "transit is silent".
+ ("E02 ★★★ THE TRANSIT AXIS IS INVERTED — only RELAYED carriers report and our own sends go silent, which is "
+  "[[B263]] with the sign flipped: every real user-send failure disappears from the app",
+  "    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if (generic_owed && !own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);"),
+ # ⓘ E03 IS THE PLAUSIBLE WIDENING a reader who took `own_origination` for a REPLACEMENT rather than an
+ #   ADDITIONAL term would write. It keeps every existing local case green and re-opens B263 in full.
+ ("E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_origination` becomes an alternative to "
+  "the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the "
+  "transit fence is gone",
+  "    if (generic_owed && own_origination && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);",
+  "    if ((generic_owed || own_origination) && data_type_traits(type).generic_send_lifecycle) push_send_failed(reason, dst, ctr);"),
+]
+
+MUTS_SLICEECASCADE = [
+ # ★★★ THE ORDER DEFECT §11 names: the ownership decision (and the type) read from a carrier that is already
+ #     gone. It compiles, it looks tidier, and it silently answers `type = 0, own = true` for EVERY carrier —
+ #     re-opening [[B263]] and §CUSTODY-B's internal suppression in one edit.
+ ("E04 ★★★★ THE OWNERSHIP DECISION IS MADE **AFTER** THE RESET — the type and the transit axis are read from a "
+  "destroyed carrier, so every terminal reports as an own untyped DM",
+  "    const uint8_t type = _active->_pending_tx ? _active->_pending_tx->type : uint8_t{0};",
+  "    _active->_pending_tx.reset();\n"
+  "    const uint8_t type = _active->_pending_tx ? _active->_pending_tx->type : uint8_t{0};"),
+ # ⓘ E05 IS THE OVER-CORRECTION: suppressing the generic failure for EVERYBODY, which is what a reader who saw
+ #   "suppress the generic event" without "for transit and protocol-internal carriers" would write.
+ ("E05 ★★★ A LOCAL APPLICATION SEND'S GENERIC FAILURE IS SUPPRESSED TOO — the cascade terminal tells the app "
+  "nothing at all, so a user's own DM that died on the air hangs until the companion's own timeout",
+  "    terminal_carrier_outcome(type, own, /*generic_owed=*/true, reason, dst, ctr);",
+  "    terminal_carrier_outcome(type, own, /*generic_owed=*/false, reason, dst, ctr);"),
+ # ---- §18.4.7: one arm PER STAGE ------------------------------------------------------------------------
+ ("E06 ★★★★ THE TWO ROOT STAGES ARE SWAPPED — an RTS root reports the hop-ACK stage and a DATA-ACK root the "
+  "CTS stage, so both the app-visible `SendFailReason` and Slice F's §9.3 flag bit describe the wrong exchange",
+  # ⓘ RE-ANCHORED 2026-08-31 (QG round 2): the ternary became an exhaustive switch. The DECISION E06 attacks is
+  #   unchanged — the two REAL stages swapped — and the `invalid` arm is left FAIL-CLOSED in the mutant on
+  #   purpose, so this arm still attacks ONLY the mapping and never doubles as E15/E16.
+  "        case CustodyRootStage::cts:     return SendFailReason::no_cts;\n"
+  "        case CustodyRootStage::hop_ack: return SendFailReason::no_ack;",
+  "        case CustodyRootStage::cts:     return SendFailReason::no_ack;\n"
+  "        case CustodyRootStage::hop_ack: return SendFailReason::no_cts;"),
+ ("E07 ★★★ THE RTS ROOT IS STAMPED AS THE hop-ACK STAGE AT ITS CALL SITE — the mapping is right and the WIRING "
+  "is wrong, which no test of the pure mapping alone can see",
+  "        cascade_to_alt(CustodyRootStage::cts, \"rts_giveup\");   // same-hop retries exhausted",
+  "        cascade_to_alt(CustodyRootStage::hop_ack, \"rts_giveup\");   // same-hop retries exhausted"),
+ # ---- §18.4.7: one arm PER CAUSE ------------------------------------------------------------------------
+ ("E08 ★★★★ THE §9.4 PRECEDENCE IS BROKEN — `cascade_age` is tested before `cascade_count`, so a flight that is "
+  "BOTH spent and aged reports the wrong terminal cause and the diagnostic stops being deterministic",
+  "    if (requeue_count >= protocol::cascade_requeue_max)            return CustodyFailureReason::cascade_count;\n"
+  "    if (age_ms        >= protocol::cascade_requeue_total_max_ms)   return CustodyFailureReason::cascade_age;",
+  "    if (age_ms        >= protocol::cascade_requeue_total_max_ms)   return CustodyFailureReason::cascade_age;\n"
+  "    if (requeue_count >= protocol::cascade_requeue_max)            return CustodyFailureReason::cascade_count;"),
+ ("E09 ★★★ `queue_full` IS MERGED INTO `cascade_count` — a carrier that died because there was no requeue SLOT "
+  "is reported as one whose retry budget was spent, which points a future operator at the wrong subsystem",
+  "    if (queue_depth   >= kTxQueueCap)                              return CustodyFailureReason::queue_full;",
+  "    if (queue_depth   >= kTxQueueCap)                              return CustodyFailureReason::cascade_count;"),
+ ("E10 ★★★★ `load_shed` IS MERGED INTO `cascade_count` — the load-adaptive branch loses its own §9.4 identity, "
+  "and because the cause IS the branch predicate the shed arm's `cascade_load_skip` telemetry disappears with it",
+  "    if (static_cast<int>(requeue_count) + 1 > cascade_effective_max(queue_depth)) return CustodyFailureReason::load_shed;",
+  "    if (static_cast<int>(requeue_count) + 1 > cascade_effective_max(queue_depth)) return CustodyFailureReason::cascade_count;"),
+ ("E11 ★★★★ `one_way_throttled` IS MERGED INTO `cascade_count` — an MF4 reprobe refusal (the carrier is NOT "
+  "spent; the window is simply shut) is reported as an exhausted retry budget",
+  "                cascade_terminal_giveup(pt, stage, CustodyFailureReason::one_way_throttled, repair_attempted);",
+  "                cascade_terminal_giveup(pt, stage, CustodyFailureReason::cascade_count, repair_attempted);"),
+ # ⓘ E12 IS §11's NAMED PROHIBITION: "string prefixes such as `rts_*` and `data_*` are not an authority". The
+ #   VERDICT stays correct here — only the LABEL is string-derived — which is exactly the plausible wrong fix.
+ ("E12 ★★★★ THE TERMINAL CAUSE IS DERIVED FROM THE GIVE-UP EVENT NAME — the wire enum Slice F will serialize is "
+  "taken from a telemetry LABEL that any later slice may rename, which is §11's explicit prohibition",
+  "        cascade_terminal_giveup(pt, stage, cause, repair_attempted);\n"
+  "        return;\n"
+  "    }\n"
+  "    // ④ load-adaptive shed",
+  "        cascade_terminal_giveup(pt, stage, (giveup_event[0] == 'r') ? CustodyFailureReason::cascade_count\n"
+  "                                                                   : CustodyFailureReason::cascade_age, repair_attempted);\n"
+  "        return;\n"
+  "    }\n"
+  "    // ④ load-adaptive shed"),
+ ("E13 ★★★★ `repair_attempted` IS FAKED FROM A STRING — §9.3 bit 3 claims a repair was invoked whenever the "
+  "give-up happens to be RTS-rooted, which is uncorrelated with whether `emit_route_request` was ever called",
+  "    bool repair_attempted = false;",
+  "    bool repair_attempted = (giveup_event != nullptr && giveup_event[0] == 'r');"),
+ # ★★★★ THE §17-E BULLET-4 NEGATIVE GATE: the step-7 insertion point must stay INERT in this slice.
+ # ★★★★ E15 IS THE QG BLOCKER OF 2026-08-31, PRESERVED AS A CONTROL. The slice's FIRST cut wrote this mapping as
+ #   a ternary, so `CustodyRootStage::invalid` — the enum's own non-stage sentinel — silently became `no_cts`, a
+ #   MEANINGFUL diagnosis, and §9.3's "exactly one stage bit" would have been satisfied by a lie. The battery could
+ #   not see it because every case drove only the two real stages. ⇒ this arm restores the exact defect.
+ ("E15 ★★★★ THE STAGE MAPPING GOES BACK TO A TERNARY — the `invalid` SENTINEL (and every future enum member) "
+  "silently launders into `no_cts`, a meaningful diagnosis a stage-less context must never be able to claim; the "
+  "exhaustive switch that makes a new stage a COMPILE error is gone with it",
+  "    switch (stage) {\n"
+  "        case CustodyRootStage::cts:     return SendFailReason::no_cts;\n"
+  "        case CustodyRootStage::hop_ack: return SendFailReason::no_ack;\n"
+  "        case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis\n"
+  "    }\n"
+  "    return SendFailReason::none;   // out-of-range cast only; see the banner — not a `default:`, and fail-closed",
+  "    return (stage == CustodyRootStage::hop_ack) ? SendFailReason::no_ack : SendFailReason::no_cts;"),
+ # ⓘ E16 IS THE OTHER HALF OF THE SAME BLOCKER, and it is a DIFFERENT defect: the sentinel is handled but mapped to
+ #   the wrong side. It reddens on the fail-closed property alone, with the exhaustive switch left standing.
+ ("E16 ★★★ THE SENTINEL IS MAPPED TO A REAL DIAGNOSIS — `invalid` answers `no_cts` from inside the exhaustive "
+  "switch, so the shape looks right and a stage-less context still claims the flight died waiting for a CTS",
+  "        case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis",
+  "        case CustodyRootStage::invalid: return SendFailReason::no_cts;"),
+ ("E14 ★★★★ THE SLICE-F INSERTION POINT PREMATURELY ENQUEUES A CUSTODY NOTICE — Slice E emits custody traffic "
+  "it is explicitly forbidden to emit (§17-E bullet 4), on a `0x81` that is not even allocated yet",
+  "    (void)ctx;   // Slice E: the context is built, observed and deliberately not consumed. Slice F reads it here.",
+  "    (void)ctx;\n"
+  "    { TxItem notice{}; notice.type = 0x81; notice.dst = dst; notice.ctr = ctr;\n"
+  "      if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = notice; }"),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
                   "sliceBmac": MUTS_SLICEBMAC, "sliceBrx": MUTS_SLICEBRX,
                   "sliceBcascade": MUTS_SLICEBCASCADE, "sliceBnode": MUTS_SLICEBNODE,
                   "sliceBchannel": MUTS_SLICEBCHANNEL,
+                  "sliceEnode": MUTS_SLICEENODE, "sliceEcascade": MUTS_SLICEECASCADE,
                   "sliceCinbox": MUTS_SLICECINBOX, "sliceCpull": MUTS_SLICECPULL,
                   "sliceCbudget": MUTS_SLICECBUDGET, "sliceCsend": MUTS_SLICECSEND,
                   "sliceCram": MUTS_SLICECRAM,

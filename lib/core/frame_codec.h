@@ -901,6 +901,50 @@ constexpr DataTypeTraits data_type_traits(uint8_t t) {
     return DataTypeTraits{ false, false, false, false, false };
 }
 
+// ★★★★ §CUSTODY-E (2026-08-31) — THE TWO CANONICAL CUSTODY-TERMINAL TYPES, WITH THEIR **APPROVED EXPLICIT
+//      VALUES** (design §9.4 / §9.3, and the §17-F wording correction of the same date).
+//
+// ⛔⛔ ENUM OWNERSHIP IS RULED AND IT IS THIS SLICE'S: **Slice E lands these types AND their numeric values;
+//     Slice F adds only the CODEC that serializes them and MAY NOT introduce a second mapping.** The earlier
+//     §17-F bullet ("add the v1 codec and numeric enums") was contradictory and is superseded — a wire value
+//     invented twice is a wire value that disagrees with itself exactly once.
+//
+// ⛔ THEY LIVE HERE, BESIDE `DataType`, AND NOT IN `node_carriers.h`, for one reason: these are WIRE values, and
+//    this header is the wire authority the codec will be written against. `node_carriers.h` documents itself as
+//    having no frame_codec dependency, so importing a wire enum into it would break that property for nothing.
+//
+// ⚠ NOTHING SERIALIZES THESE IN SLICE E. They are produced at the selected cascade terminals (node_cascade.cpp)
+//   and consumed by no wire path at all — §17-E bullet 4 ("do not emit custody traffic yet") is the whole point,
+//   and `DATA_TYPE_CUSTODY_FAILURE` (0x81) is still DELIBERATELY UNALLOCATED above.
+enum class CustodyFailureReason : uint8_t {
+    invalid           = 0,   // never transmitted; also the "this terminal pass is NOT terminal" answer (see below)
+    one_way_throttled = 1,   // the MF4 reprobe window refused another burst (node_cascade.cpp `cascade_to_alt`)
+    cascade_count     = 2,   // `cascade_requeue_max` reached
+    cascade_age       = 3,   // `cascade_requeue_total_max_ms` reached
+    load_shed         = 5,   // the load-adaptive effective requeue budget rejected it
+    queue_full        = 4,   // the TX queue had no requeue slot
+};
+// ⓘ THE DECLARATION ORDER ABOVE IS DELIBERATELY **NOT** THE PRECEDENCE ORDER, and `load_shed` is written out of
+//   numeric order on purpose: the values are §9.4's wire contract and may never be re-ordered to look tidy, while
+//   the PRECEDENCE (`cascade_count` -> `cascade_age` -> `queue_full`, with `load_shed` and `one_way_throttled` as
+//   SEPARATE branches) is stated once, in code, by `Node::cascade_terminal_cause` — the one authority. If the two
+//   were written as one ordered list a reader would inevitably take position for precedence, which is exactly the
+//   "subrange position is not a second behaviour authority" mistake `DataType` above warns about.
+
+// §9.3 bits 1/2 — WHICH MAC EXCHANGE THE TERMINAL FLIGHT DIED WAITING FOR. Exactly one of the two is true for a
+// live carrier, and the stage is SEPARATE from the reason: `cascade_age` after repeated CTS failures is different
+// evidence from a bare "no CTS" label, which would hide why the carrier was finally deleted.
+// ★ THE VALUES ARE §9.3's BIT NUMBERS, not an invented ordinal — Slice F's `notice_flags` half is therefore the
+//   DERIVATION `1u << static_cast<uint8_t>(stage)` (bit 1 = failed_at_cts, bit 2 = failed_at_ack) rather than a
+//   second table. `invalid` is 0 so a default-constructed context can never claim a stage it does not have.
+// ⛔ THE MAPPING TO THE ROOT TIMEOUT IS PINNED: an RTS root (`rts_timeout_fire`) is ALWAYS `cts`; a DATA-ACK root
+//    (`ack_timeout_fire`) is ALWAYS `hop_ack`. It is derived from WHICH TIMER FIRED, never from an event name.
+enum class CustodyRootStage : uint8_t {
+    invalid = 0,
+    cts     = 1,   // §9.3 bit 1 `failed_at_cts`  — the flight was waiting for a CTS
+    hop_ack = 2,   // §9.3 bit 2 `failed_at_ack`  — the flight was waiting for a hop ACK
+};
+
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).
 // Wire: [layer_id u8][freq_khz u32 LE][sf u8][bw_hz u32 LE][name_len u8][name … name_len]. freq_khz = MHz×1000.
 struct LayerRecord {

@@ -71,8 +71,13 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 | `pull_inbox <dm_since> <chan_since>` | Local; Common | Read | Streams DM and channel inbox records followed by an end marker. |
 | `mark_read <dm\|chan> <seq>` | Local; Common | Persistent when the inbox backend is enabled | Advances the selected inbox read cursor. |
 | `del_msg <dm\|chan> <seq>` | Local; Common | Persistent + Recovery | Deletes one selected inbox record through a durable tombstone when the inbox backend is enabled. |
+| `clear_inbox confirm` | Local; Common | Persistent + Recovery | Wipes both inbox record stores after explicit confirmation. Preserves each sequence high-water, resets both read cursors and increments the storage epoch once. Leaves all non-inbox state untouched; it does not replace `prep-restart` or `factory_reset`. |
 
-The external-flash inbox backend is currently enabled on the XIAO nRF52840 build. The ESP32 inbox backend remains disabled, so these commands are accepted there but have no durable records to operate on.
+⛔ CORRECTED 2026-08-31 (the paragraph below was stale — [[B134]]/[[B260]] made BOTH platforms durable):
+~~The external-flash inbox backend is currently enabled on the XIAO nRF52840 build. The ESP32 inbox backend
+remains disabled, so these commands are accepted there but have no durable records to operate on.~~
+Every board now runs the one durable `SegmentedInboxStore` — nRF52 over QSPI/InternalFS, ESP32 over
+LittleFS/NVS — so these commands operate on durable records on every platform.
 
 ## Static and gateway provisioning
 

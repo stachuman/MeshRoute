@@ -3659,3 +3659,15 @@ status-bar unread count matches the visible rows. Then `pull_inbox 0 0` over USB
 `{"ev":"inbox_dm","type":"e2e_ack",...}` record (⛔ the pulled stream is RAW by contract — a missing receipt
 means the companion loses offline delivery confirmation), and `del_msg dm <that seq>` must answer
 `{"ack":"del_msg",...,"result":"erased"}` — internal records have no special lifetime.
+
+## Part 52 — §CUSTODY-D: confirmed inbox clear survives power cycles (2026-08-31)
+
+On a durable board (`heltec_mobile` or a QSPI nRF52): send some DMs/channel posts, note the boot banner's
+`epoch=N`, then `clear_inbox confirm`. Expect exactly
+`{"ack":"clear_inbox","result":"cleared","epoch":N+1,"dm_seq":<unchanged high-water>,"chan_seq":<unchanged>}`
+— ⛔ `dm_seq` must **not** be 0. `pull_inbox 0 0` returns only `inbox_end` with `count:0`. **Power-cycle
+twice.** After each cycle the banner must read `inbox = … (durable), epoch=N+1, enabled=1` — the **same** N+1
+both times (bumped exactly once, no per-boot ratchet) — `pull_inbox 0 0` still returns `count:0`, the next
+new DM takes a seq **greater** than the pre-clear high-water, and `status` / `cfg` / `routes` are unchanged
+from before the clear. *(Metal-only: real flash + NVS/InternalFS meta across a true power cut, which neither
+native nor the sim reaches.)*

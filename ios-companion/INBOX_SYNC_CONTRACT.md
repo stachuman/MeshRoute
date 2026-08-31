@@ -336,6 +336,26 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   trait table. (`AppModel.importInboxEntry`'s `isReceipt` arm already implements exactly this — verified 2026-08-30;
   this bullet makes the obligation contractual rather than incidental.)
 
+## Whole-inbox clear — `clear_inbox confirm` (§CUSTODY-D, 2026-08-31)
+
+Two verb forms, exact-token gated: `clear_inbox` (or any token other than exactly `confirm`) refuses and
+changes **nothing**; `clear_inbox confirm` wipes **both** record stores (messages, receipts, tombstones).
+Three ack shapes, NDJSON like every other ack:
+
+```json
+{"ack":"clear_inbox","result":"needs_confirm"}
+{"ack":"clear_inbox","result":"cleared","epoch":4,"dm_seq":12,"chan_seq":7}
+{"ack":"clear_inbox","result":"io_error","warning":"messages_may_remain","epoch":4,"dm_seq":12,"chan_seq":7}
+```
+
+`cleared` requires **both** stores empty with metadata persisted; `io_error` is explicitly possibly-partial
+(both wipes are always attempted — one store may have cleared) and a later `clear_inbox confirm` after the
+medium recovers completes the job. Two guarantees worth relying on: **`dm_seq`/`chan_seq` are the PRESERVED
+sequence high-waters** (never zeros — no sequence is ever reused), and both read cursors are reset **on the
+medium**. **No decoder change is expected**: the clear rides the established epoch path below — the epoch
+changed, so reset cursors and re-pull; the re-pull returns nothing because the history really is gone. It
+does not replace `prep-restart` or `factory_reset`; nothing outside the inbox is touched.
+
 ## Epoch & store-reset handling (FIRM)
 
 `seq` is monotonic only **within an epoch**. A flash wipe (bootloader re-flash erasing QSPI, or a

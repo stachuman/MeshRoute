@@ -10,15 +10,97 @@
 
 namespace MESHROUTE_NS {
 
-// Slice 6b: a terminal cascade giveup maps its giveup_event to the DM-failure reason the companion reads.
-// The two roots are "rts_giveup"/"rts_silent_cascade" (CTS-timeout) and "data_ack_giveup"/"data_ack_silent_cascade"
-// (DATA-ACK-timeout). Prefix-keyed so a new giveup label inherits the right reason. A non-DM/legacy giveup -> none.
-SendFailReason Node::giveup_fail_reason(const char* ge) {
-    if (!ge) return SendFailReason::none;
-    if (ge[0]=='r' && ge[1]=='t' && ge[2]=='s') return SendFailReason::no_cts;                    // "rts_*"
-    if (ge[0]=='d' && ge[1]=='a' && ge[2]=='t' && ge[3]=='a' && ge[4]=='_') return SendFailReason::no_ack;  // "data_ack_*"
-    return SendFailReason::none;
+// ★★★★ §CUSTODY-E (2026-08-31) — THE STAGE -> `SendFailReason` MAPPING, AND WHAT IT REPLACED.
+//
+// ⛔⛔ WHAT WAS HERE: `giveup_fail_reason(const char* ge)`, which PARSED THE TELEMETRY EVENT NAME — `ge[0..2]=="rts"`
+//    -> no_cts, `ge[0..4]=="data_"` -> no_ack. Design §11 forbids exactly that ("string prefixes such as `rts_*`
+//    and `data_*` are not an authority"), and the reason is concrete rather than stylistic: the give-up EVENT is a
+//    telemetry label, free to be renamed or added to by any later slice, while the answer it was being asked for is
+//    a DECISION about a flight. A renamed emit would have silently re-labelled a user-visible failure — and, once
+//    Slice F lands, a wire enum. ⇒ the root stage now travels as a TYPED argument from the timer that fired.
+//
+// ★ THE MAPPING IS 1:1 WITH THE FUNCTION IT REPLACED, verified against all four former inputs:
+//     "rts_giveup" / "rts_silent_cascade"           -> cts     -> no_cts   (was the "rts" prefix arm)
+//     "data_ack_giveup" / "data_ack_silent_cascade" -> hop_ack -> no_ack   (was the "data_" prefix arm)
+//   ⇒ this half of the slice is byte-identical by construction; the native suite and the corpus prove it.
+//
+// ⛔⛔⛔ AND THE THIRD ARM IS THE POINT, NOT PADDING — CORRECTED 2026-08-31 AFTER A QG BLOCKER, AND THE ORIGINAL
+//    WORDING IS WITHDRAWN RATHER THAN DELETED. This function first shipped as
+//        `return (stage == hop_ack) ? no_ack : no_cts;`
+//    under a banner claiming *"the former `none` fall-through had NO producer … so dropping it removes an
+//    unreachable arm rather than a behaviour"*. **THAT REASONING WAS WRONG IN THE SAME WAY TWICE:**
+//      (1) it argued from TODAY'S CALL SITES, and a mapping's contract is not a census of its callers;
+//      (2) the ternary made `CustodyRootStage::invalid` — the enum's own EXPLICIT non-stage sentinel, the value a
+//          default-constructed `TerminalCustodyContext` carries — silently return `no_cts`, **a meaningful
+//          diagnosis**. A context that claims no stage would have claimed "the flight died waiting for a CTS",
+//          and §9.3's "exactly one of failed_at_cts / failed_at_ack" would have been satisfied by a lie.
+//    ⇒ THE PROPERTY THIS FUNCTION NOW GUARANTEES, and the one the native case + battery arm E15 defend:
+//      **`invalid` can NEVER become either meaningful diagnosis.** It is the launder-the-sentinel class that
+//      [[B134]]'s `has_key` and Slice A's `known = false` reasoning both had to be corrected for.
+//
+// ⛔ WHY `SendFailReason::none` IS THE FAIL-CLOSED ANSWER, chosen rather than defaulted:
+//    · `none` is the tree's EXISTING "no honest reason exists for this death" value — `do_data_tx`'s pack-failure
+//      bail and the LBT-stash give-up both pass it deliberately, for exactly this kind of reason;
+//    · it is also what the DELETED `giveup_fail_reason` returned for any string matching neither prefix, so the
+//      historical answer and the fail-closed answer are the same value — no new vocabulary is invented; and
+//    · it is inert at the consumer: `terminal_carrier_outcome`'s gate decides WHETHER to push, so a `none` here
+//      can only ever weaken a report, never fabricate one.
+//
+// ⛔ NO `default:` LABEL, DELIBERATELY — the `frame_codec.h` / `data_type_traits` precedent and the project's
+//    `-Werror=switch` ruling: with all three enumerators listed and NO default, **adding a fourth stage is a
+//    COMPILE FAILURE here**, which is where that decision belongs. ⓘ The trailing `return` is NOT a catch-all
+//    and does not weaken that: `-Wswitch` still fires on a new enumerator (a `default:` would silence it), and it
+//    exists only for `-Wreturn-type` on an out-of-range cast — the exact idiom `label_of_frame` and
+//    `busy_reason_name` already use. It is fail-closed to the same `none`, so no path reaches a diagnosis.
+SendFailReason Node::custody_stage_fail_reason(CustodyRootStage stage) {
+    switch (stage) {
+        case CustodyRootStage::cts:     return SendFailReason::no_cts;
+        case CustodyRootStage::hop_ack: return SendFailReason::no_ack;
+        case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis
+    }
+    return SendFailReason::none;   // out-of-range cast only; see the banner — not a `default:`, and fail-closed
 }
+
+// ★★★★ §CUSTODY-E — THE ONE CASCADE-TERMINAL CAUSE AUTHORITY (design §9.4). The contract, the precedence rule and
+//      the "`invalid` == not terminal" convention are stated at the declaration in node.h; this is the arithmetic.
+// ⛔ THE FOUR TESTS AND THEIR ORDER ARE `try_cascade_requeue`'s FORMER CONDITION, MOVED VERBATIM — `count_done`,
+//    `age_done`, the `kTxQueueCap` overflow, then the load-adaptive budget. Nothing was retuned, re-ordered or
+//    widened; only the ANSWER changed shape, from three bools consumed inline to one typed cause.
+CustodyFailureReason Node::cascade_terminal_cause(uint8_t requeue_count, uint64_t age_ms, uint8_t queue_depth) {
+    if (requeue_count >= protocol::cascade_requeue_max)            return CustodyFailureReason::cascade_count;
+    if (age_ms        >= protocol::cascade_requeue_total_max_ms)   return CustodyFailureReason::cascade_age;
+    if (queue_depth   >= kTxQueueCap)                              return CustodyFailureReason::queue_full;
+    // ④ the load-adaptive shed (Lua cascade_load_skip dv:6275-6303) — a SEPARATE §9.4 branch, never merged into
+    //   the hard caps above: it means "this node is congested", not "this flight is spent", and it carries its own
+    //   `cascade_load_skip` telemetry at the call site.
+    if (static_cast<int>(requeue_count) + 1 > cascade_effective_max(queue_depth)) return CustodyFailureReason::load_shed;
+    return CustodyFailureReason::invalid;                          // NOT terminal -> the flight requeues with backoff
+}
+
+#ifdef MESHROUTE_NATIVE
+// ★★★ §CUSTODY-E — THE TEST OBSERVATION OF THE TYPED CONTEXT, AND WHY IT EXISTS AT ALL.
+//
+// ⛔⛔ IN SLICE E THE CONTEXT HAS NO PRODUCTION CONSUMER — that is §17-E bullet 4's whole point ("do not emit
+//     custody traffic yet"). A value nothing reads is a value no test can judge, and §18.4.7's bar is ONE TEST AND
+//     ONE MUTATION **PER CAUSE** and per stage. Two of the five causes are load-bearing at their branch (see
+//     `cascade_terminal_cause`), but `one_way_throttled`, the precedence between the three cap causes, and
+//     `repair_attempted` are not observable from behaviour alone. ⇒ this records the last terminal context so the
+//     native cases can assert what the PRODUCTION path actually built, rather than re-deriving it (which would be
+//     a tautology, not a measurement).
+//
+// ⛔ ZERO DEVICE SURFACE: `MESHROUTE_NATIVE` is set only by the host env, so every board build compiles the inline
+//    no-op declared in node.h and `sizeof(Node)` does not move — the slot is a file-scope static, NOT a member.
+// ⓘ THE SIMULATOR DEFINES `MESHROUTE_NATIVE` TOO, so this store happens in corpus runs. It is corpus-INERT by
+//   construction: a store to a static nothing reads emits no event and takes no branch. It is deliberately NOT
+//   per-node (the sim runs 36 nodes through one image) — "the last terminal context anywhere" is meaningless in a
+//   multi-node run and nothing reads it there; the native cases that DO read it drive exactly one node.
+// ⚠ SLICE F RETIRES THIS. Once a real 0x81 notice is enqueued the context is observable as traffic, and an
+//   out-of-band recorder that outlives its reason is how instruments rot.
+namespace { TerminalCustodyContext g_last_terminal_custody_ctx{}; }
+void Node::custody_terminal_observe(const TerminalCustodyContext& c) { g_last_terminal_custody_ctx = c; }
+const TerminalCustodyContext& Node::test_last_terminal_custody_ctx() { return g_last_terminal_custody_ctx; }
+void Node::test_reset_terminal_custody_ctx() { g_last_terminal_custody_ctx = TerminalCustodyContext{}; }
+#endif
 
 // §3-B.2: the terminal giveup ritual, previously written out verbatim at 6 sites (4 here, 2 in node_mac_rx.cpp).
 // ORDER IS LOAD-BEARING and matches every former site: tell the app FIRST (while the flight's dst/ctr are still the
@@ -34,22 +116,113 @@ SendFailReason Node::giveup_fail_reason(const char* ge) {
 //    afterwards is impossible. ⓘ `!_active->_pending_tx` keeps the historical behaviour verbatim (push) rather
 //    than inventing a verdict from a flight that is not there — every one of the seven call sites reaches here
 //    with a live flight (this helper's own reset proves the invariant), so that arm is defence-in-depth, not a
-//    silent default. ⛔ B263 IS NOT TOUCHED HERE: the push is still UNCONDITIONAL for application carriers,
-//    transit or own — the transit-vs-own ownership question is Slice E's and this slice deliberately leaves the
-//    APPLICATION arm reproducibly as it is (a native case pins it).
+//    silent default.
+// ★★★★ §CUSTODY-E (2026-08-31) — **[[B263]] IS CLOSED HERE, AND THE CORRECTION IS TO THE SHARED GATE, NOT TO THIS
+//      SITE.** The banner above used to read *"B263 IS NOT TOUCHED HERE: the push is still UNCONDITIONAL for
+//      application carriers, transit or own"* — that sentence is CORRECTED IN PLACE, not deleted, because the shape
+//      of the fix is the point: `generic_owed = true` below is STILL this site's unchanged site-specific answer
+//      ("this terminal owes a generic completion to whoever owns this carrier"), and it is the CENTRAL gate in
+//      `terminal_carrier_outcome` that now also asks `own_origination`. ⇒ a TRANSIT flight dying here no longer
+//      hands the app a `send_failed` under the ORIGINAL sender's `{dst, ctr}` — a completion for a send this node
+//      never made, which could collide with a real local one. A LOCAL application send is byte-identical.
 // ⛔ ORDER IS UNCHANGED and still load-bearing: report FIRST (while the caller's dst/ctr are live), then drop the
 //    flight, then become_free() to re-service the queue.
 void Node::giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr) {
     // ⓘ NO FLIGHT ⇒ type 0, whose trait says `generic_send_lifecycle = true` — byte-identical to the previous
     //   `!_active->_pending_tx || …` short-circuit, and a type-0 carrier can never be the grant.
     const uint8_t type = _active->_pending_tx ? _active->_pending_tx->type : uint8_t{0};
+    // ⓘ NO FLIGHT ⇒ `own = true`, the same defence-in-depth direction as `type = 0`: with no carrier to read there
+    //   is no transit evidence, and the historical behaviour was to push. Unreachable in production (every caller
+    //   arrives with a live flight), and stated rather than silently defaulted.
     const bool    own  = !_active->_pending_tx || !_active->_pending_tx->has_previous_hop;
-    // ⛔ `generic_owed = true` HERE AND ONLY HERE IS [[B263]], PRESERVED DELIBERATELY: this site owes a generic
-    //    failure for an application carrier whether we ORIGINATED it or are merely transit, which is the defect
-    //    Slice E owns. The helper must not quietly narrow it — that is why the term is a caller argument.
     terminal_carrier_outcome(type, own, /*generic_owed=*/true, reason, dst, ctr);
     _active->_pending_tx.reset();
     become_free();
+}
+
+// ★★★★ §CUSTODY-E — **THE SELECTED CUSTODY-ELIGIBLE CASCADE TERMINAL**: design §11's seven-step order, steps 1-6.
+//
+// ⛔⛔ WHICH TERMINALS REACH THIS, AND WHY THE SET IS SMALL. Exactly the three cascade branches the v1
+//     `CustodyFailureReason` can NAME (§10.1(12)): `try_cascade_requeue`'s hard-cap arm (cascade_count /
+//     cascade_age / queue_full), its load-shed arm, and `cascade_to_alt`'s shut-reprobe-window arm
+//     (one_way_throttled). ⛔ Gateway-doorstep timeout, no-route defer/drain, the loop-duplicate and hop-budget
+//     NACK terminals, the reprovision purges, the pack-failure bail and the LBT-stash give-up are the §9.4/§10.2
+//     EXCLUDED deaths: they keep plain `giveup_flight` / `terminal_carrier_outcome` and stay outside this seam.
+//     A later census + a shared post-custody-discard design own them; prose about `no_route` implies nothing.
+//
+// ★ THE ORDER, and every step named so a reader can check it against §11 line by line:
+//   (1) capture the diagnostics while `PendingTx` STILL EXISTS — the typed context, plus `dst`/`ctr` BY VALUE;
+//   (2) decide generic ownership       ─┐
+//   (3) keep the pre-reset generic      │ all three are `terminal_carrier_outcome`'s single gate, reached through
+//       `send_failed` for eligible      │ `giveup_flight` below. They are NOT re-implemented here: one ownership
+//       LOCAL APPLICATION sends         │ policy, not a twelfth list (U1).
+//   (4) suppress it for TRANSIT and    ─┘
+//       protocol-internal carriers
+//   (5) reset the failed `PendingTx`   ─┐ `giveup_flight`'s existing, unchanged tail.
+//   (6) `become_free()`                ─┘
+//   (7) the custody notice — SLICE F's, and only its INSERTION POINT is established below.
+//
+// ⛔⛔ `pt` IS VALID ONLY UNTIL `giveup_flight` RESETS THE CARRIER. It is a reference INTO `*_active->_pending_tx`,
+//     so the reset inside `giveup_flight` destroys it; `dst`/`ctr` are therefore copied out first (which is also
+//     why `giveup_flight` takes them by value). ⛔ NOTHING may read `pt` after that call — and nothing does.
+// ⛔ NO ~352-BYTE `PendingTx` STACK COPY (§11): the carrier is READ where it lives. The context is three bytes.
+void Node::cascade_terminal_giveup(const PendingTx& pt, CustodyRootStage stage,
+                                   CustodyFailureReason cause, bool repair_attempted) {
+    // (1) DIAGNOSTICS, CAPTURED WHILE THE CARRIER IS ALIVE. ⛔ The cause was SELECTED BEFORE the combined cascade
+    //     state was erased — it is decided by `cascade_terminal_cause` at the branch, from `pt`'s own live
+    //     requeue_count/age and the live queue depth, and merely carried here. Reading it after the reset is
+    //     impossible, and re-deriving it afterwards would read a dead carrier.
+    // ⛔⛔ NEITHER FIELD CAN BE `invalid` HERE, AND IT IS STRUCTURAL RATHER THAN CHECKED (QG 2026-08-31 asked for
+    //    this trace; it is recorded at the ONE place a `TerminalCustodyContext` is ever constructed in production
+    //    — grep `TerminalCustodyContext` in lib/core: this line, plus the native-only observation slot):
+    //
+    //    STAGE — every entry point passes a LITERAL, and no site derives or defaults one:
+    //      · `rts_timeout_fire`  -> `cascade_to_alt(cts, "rts_silent_cascade")`      (§P3 silent-next)
+    //      · `rts_timeout_fire`  -> `cascade_to_alt(cts, "rts_giveup")`              (retries exhausted)
+    //      · `ack_timeout_fire`  -> `cascade_to_alt(hop_ack, "data_ack_silent_cascade")`
+    //      · `ack_timeout_fire`  -> `cascade_to_alt(hop_ack, "data_ack_giveup")`
+    //      · `handle_nack`'s duty-BUDGET arm -> `try_cascade_requeue(pt, cts, "rts_giveup", false)`
+    //      `cascade_to_alt` FORWARDS its parameter unchanged to `try_cascade_requeue` and to this function; no
+    //      function in the chain constructs, defaults or re-derives a stage. ⇒ `invalid` is unproducible.
+    //
+    //    CAUSE — the three calling branches are each GUARDED BY A TEST OF THE CAUSE ITSELF:
+    //      · `cause == cascade_count || cascade_age || queue_full`  (the hard-cap arm)
+    //      · `cause == load_shed`                                   (the shed arm)
+    //      · the literal `one_way_throttled`                        (the shut-reprobe-window arm)
+    //      `invalid` is precisely `cascade_terminal_cause`'s "NOT TERMINAL" answer, and the only path it selects
+    //      is the REQUEUE — which never reaches this function. ⇒ the branch conditions ARE the guarantee.
+    //
+    // ⓘ NO RUNTIME ASSERT, and that is a MEASUREMENT of the tree rather than a preference: `lib/core` contains
+    //   ZERO runtime asserts (only `static_assert`), so one here would introduce a mechanism with no home on a
+    //   device build — and it would be a SECOND authority sitting beside branch conditions that already decide
+    //   the same thing. The guarantee is instead defended where it can fail: `custody_stage_fail_reason` is
+    //   fail-closed for `invalid` (above), the native cases assert `stage`/`cause` are never `invalid` at every
+    //   production terminal, and battery arm E15 reddens the moment the sentinel can become a diagnosis again.
+    const TerminalCustodyContext ctx{ stage, cause, repair_attempted };
+    const uint8_t  dst = pt.dst;                    // BY VALUE, before the reset — see the banner
+    const uint16_t ctr = pt.ctr;
+    custody_terminal_observe(ctx);                  // native/simulator test observation; an inline no-op on device
+    // (2)(3)(4)(5)(6) — the existing terminal ritual, in its existing order.
+    giveup_flight(custody_stage_fail_reason(stage), dst, ctr);
+    // ⛔ `pt` IS DANGLING FROM HERE. `dst`/`ctr`/`ctx` are values and remain valid.
+    //
+    // ===================== §CUSTODY-F INSERTION POINT — `custody_notice_enqueue(snapshot)` =====================
+    // ⛔⛔ INTENTIONALLY EMPTY IN SLICE E (§17-E bullet 4: "do not emit custody traffic yet"). NOTHING is
+    //     constructed, enqueued or transmitted here, `DATA_TYPE_CUSTODY_FAILURE` (0x81) is still unallocated in
+    //     frame_codec.h, and a native negative case + a battery mutation both prove this line stays inert.
+    // THE CONTRACT SLICE F PLUGS IN HERE, so it is not re-derived from the spec later:
+    //   · F materializes a BOUNDED 24-byte VALUE snapshot (§9.2) from the live `pt` **above**, at step (1) —
+    //     ⛔ never here, where `pt` is already gone, and ⛔ never as a `PendingTx` copy;
+    //   · it consumes that snapshot HERE, AFTER `become_free()` has had its chance to install the next queued
+    //     flight (§11 step 7 + §12: the notice is queued after the failed flight is closed and must not preempt
+    //     the flight `become_free()` just installed);
+    //   · eligibility is §10.1's twelve conditions — `ctx.cause` satisfies (12), and `ctx.stage`/
+    //     `ctx.repair_attempted` fill §9.3's `failed_at_cts`/`failed_at_ack`/`repair_attempted` bits;
+    //   · the notice is a NEW own-origin internal DATA on `Plane::GLOBAL` — it never inherits this carrier's
+    //     counter, nonce seed, previous-hop exclusion, retry counters, flight generation or alternatives;
+    //   · a terminal failure of the NOTICE is telemetry-only: no generic user-send result, and no recursion.
+    // ==========================================================================================================
+    (void)ctx;   // Slice E: the context is built, observed and deliberately not consumed. Slice F reads it here.
 }
 
 // ★★★ [[B159]] correction (2026-08-28) — THE GATEWAY GIVE-UP IS A REAL SENDER DEADLINE, NOT A TIMEOUT-ENTRY TEST.
@@ -215,9 +388,17 @@ uint8_t Node::effective_rts_max_retries(uint8_t requeue_count) const {
 // same-hop retries): mark it tried, walk to the next candidate and re-RTS there with
 // NO jitter draw (dv:6478 — adding a rand here de-aligns the lua/meshroute streams).
 // When no untried candidate remains, hand off to try_cascade_requeue.
-void Node::cascade_to_alt(const char* giveup_event) {
+void Node::cascade_to_alt(CustodyRootStage stage, const char* giveup_event) {
     if (!_active->_pending_tx) return;
     PendingTx& pt = *_active->_pending_tx;
+    // ★★★ §CUSTODY-E (§9.3 bit 3): "did THIS terminal pass invoke the repair-request logic?" — answered by
+    //     SETTING IT AT THE `emit_route_request` CALL, at each of the two sites that can make one below.
+    // ⛔⛔ NEVER FROM THE GIVE-UP EVENT NAME. The two are not even correlated: "rts_giveup" reaches this function
+    //     with the §P3 rediscovery either fired or not, depending purely on the failed hop's liveness tier, and a
+    //     "silent_cascade" root can arrive with no RREQ at all. A string-derived answer would be a confident lie.
+    // ⛔ IT CLAIMS INVOCATION, NOT ADMISSION: `emit_route_request` is rate-limited internally (`rreq_rate_ok`), so
+    //    a call here may air nothing. §9.3 defines the bit exactly that way, and the honest claim is the weaker one.
+    bool repair_attempted = false;
     const uint8_t from_next = pt.next;   // the hop that just failed (capture before overwrite; used by both branches)
     mark_tried(pt, pt.next);
     const uint8_t alt = pick_next_cascade_hop(pt);
@@ -246,7 +427,8 @@ void Node::cascade_to_alt(const char* giveup_event) {
             // weakly probed. Byte-identity CANNOT see a mistake here. Native coverage:
             // test_node_r3.cpp "§team-parity T1 — team cascade exhaustion re-floods at team_hop_cap, not dv_hop_cap".
             emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/true), /*team_plane=*/true);
-            try_cascade_requeue(pt, giveup_event);
+            repair_attempted = true;                 // §CUSTODY-E §9.3 bit 3: set AT the invocation (see the banner)
+            try_cascade_requeue(pt, stage, giveup_event, repair_attempted);
             return;
         }
 #endif
@@ -254,7 +436,7 @@ void Node::cascade_to_alt(const char* giveup_event) {
         // flaky, not merely congested) -> the route table holds only dead paths to dst. Flood an RREQ to find a FRESH
         // path NOW rather than stalling on the requeue / 3h aging — closes the no-alt dead-relay case (the user's bug:
         // a dest reachable only via a departed relay). Rate-limited (rreq_rate_ok); a normal congested giveup does NOT.
-        if (liveness_penalty_q4(from_next) >= protocol::peer_silent_penalty_q4)
+        if (liveness_penalty_q4(from_next) >= protocol::peer_silent_penalty_q4) {
             // §team-parity T0: full-radius requery (network-wide configured TTL, like the deferred-drain requery),
             // now read through the plane accessor. ★ This site is STATIC-ONLY BY CONSTRUCTION and stays that way:
             // the `pt.plane == Plane::TEAM` branch above returns before reaching here, and the RREQ it emits is
@@ -265,6 +447,8 @@ void Node::cascade_to_alt(const char* giveup_event) {
             // grep for `_cfg.dv_hop_cap` finds no surviving direct reads. Measured corpus reach: 94 executions,
             // 100% static. Static reduction: hop_cap_for(false) == _cfg.dv_hop_cap.
             emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/false));
+            repair_attempted = true;                 // §CUSTODY-E §9.3 bit 3: set AT the invocation (see the banner)
+        }
         // Slow-reprobe interception (asymmetric-link slice 6, MF4): a one-way next-hop stays liveness-HEALTHY
         // (clear_peer_suspect fires on its every beacon) so §P3 above never triggers on it -> the giveup would
         // fall straight to the 9–80-RTS try_cascade_requeue burst. Instead: throttle to ONE RTS per
@@ -285,16 +469,19 @@ void Node::cascade_to_alt(const char* giveup_event) {
                 tx_rts_retry();                                // ONE probe (re-arms kRtsTimeoutTimerId), NO jitter
             } else {
                 // Inside the throttle window: clean giveup, NO burst. The route stays in the table (reversible).
+                // ★ §CUSTODY-E: THE THIRD SELECTED TERMINAL, and its §9.4 cause is `one_way_throttled` — a
+                //   SEPARATE branch from the cascade caps, because the carrier is not spent: the MF4 reprobe
+                //   window simply refused another burst on a sole one-way route.
                 MR_TELEMETRY(
                     EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit(giveup_event, gf, 2); );
-                giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
+                cascade_terminal_giveup(pt, stage, CustodyFailureReason::one_way_throttled, repair_attempted);
             }
             return;
         }
-        try_cascade_requeue(pt, giveup_event);           // all candidates tried (NOT one-way -> legacy burst)
+        try_cascade_requeue(pt, stage, giveup_event, repair_attempted);   // all candidates tried (NOT one-way -> legacy burst)
     }
 }
 
@@ -309,24 +496,32 @@ int Node::cascade_effective_max(uint8_t queue_depth) {
     return eff > 0 ? eff : 0;
 }
 
-void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
+// ★★★ §CUSTODY-E: the two terminal arms below are now SELECTED BY THE TYPED CAUSE. `cascade_terminal_cause` is
+//     the single authority for both the verdict and its label (see node.h), so a mis-selected cause is a
+//     mis-taken BRANCH — the wiring is behaviourally load-bearing, not a decorative diagnostic. ⛔ The two tests
+//     and their order are the former condition verbatim; the telemetry is byte-identical.
+void Node::try_cascade_requeue(const PendingTx& pt, CustodyRootStage stage, const char* giveup_event,
+                               bool repair_attempted) {
     const uint64_t now = _hal.now();
-    const bool count_done = pt.requeue_count >= protocol::cascade_requeue_max;
-    const bool age_done   = (now - pt.enqueue_time_ms) >= protocol::cascade_requeue_total_max_ms;
-    if (count_done || age_done || _active->_tx_queue_n >= kTxQueueCap) {
+    const CustodyFailureReason cause =
+        cascade_terminal_cause(pt.requeue_count, now - pt.enqueue_time_ms, _active->_tx_queue_n);
+    if (cause == CustodyFailureReason::cascade_count || cause == CustodyFailureReason::cascade_age
+        || cause == CustodyFailureReason::queue_full) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
+        cascade_terminal_giveup(pt, stage, cause, repair_attempted);
         return;
     }
     // ④ load-adaptive shed: under a backed-up queue the budget shrinks below cascade_requeue_max, so a congested node
     // sheds cascade-waste instead of requeuing at the fixed budget. Same TERMINAL drop as the hard cap above (so the
     // analyzers still see path_cascade_exhausted + the giveup) + a cascade_load_skip marker. The kTxQueueCap overflow
     // above stays the absolute backstop. dv:6275-6303.
-    if (static_cast<int>(pt.requeue_count) + 1 > cascade_effective_max(_active->_tx_queue_n)) {
+    // ⛔ §CUSTODY-E: a SEPARATE §9.4 cause (`load_shed`), never merged into the hard caps — the two arms emit
+    //    different telemetry and mean different things ("this node is congested" vs "this flight is spent").
+    if (cause == CustodyFailureReason::load_shed) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "dst",         .type = EventField::T::i64, .i = pt.dst },
                                { .key = "ctr",         .type = EventField::T::i64, .i = pt.ctr },
@@ -335,7 +530,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
             _hal.emit("cascade_load_skip", f, 4);
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
+        cascade_terminal_giveup(pt, stage, cause, repair_attempted);
         return;
     }
     TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. type + nonce_seed — the H4 drop)
@@ -363,6 +558,12 @@ void Node::defer_send(const TxItem& item) {
         // §CUSTODY-B §6.2(5) + [[B268]] blocker-1: the deferred carrier states its own type. `generic_owed = true`
         // is this site's UNCHANGED answer (it always owed one); the trait decision and the grant's replacement
         // both live in the shared helper.
+        // ★ §CUSTODY-E caller audit (2026-08-31) — THIS SITE IS **REACHABLE WITH A TRANSIT CARRIER**, contrary to
+        //   the tree's long-standing "a forwarder never defers" note (corrected at its source in node.cpp). A
+        //   GATEWAY relaying a CROSS-LAYER DM with no far-layer route calls `defer_send` with `is_forward == true`
+        //   (`issue_send`'s reactive route-pull exception, node_mac.cpp). ⇒ `!item.is_forward` is a LIVE ownership
+        //   term here, and such a carrier now correctly reports nothing. ⓘ Corpus-inert, MEASURED not assumed: all
+        //   61 suppressed pushes across the 36 streams came through `giveup_flight`, none through this site.
         terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,
                                  SendFailReason::no_route, item.dst, item.ctr);
         return;
@@ -462,7 +663,7 @@ void Node::rts_timeout_fire() {
         // Reads the persisted tier (no per-timeout counting — that churned the suite). DRIFT from the spec's literal
         // per-failure/suspect trigger: gated on SILENT (confirmed flaky), not suspect; see the phase report.
         if (liveness_penalty_q4(_active->_pending_tx->next, _active->_pending_tx->plane == Plane::TEAM) >= protocol::peer_silent_penalty_q4) {   // §2c: a TEAM flight reads TEAM liveness (mirror of ack_timeout_fire; audit-caught missed twin)
-            cascade_to_alt("rts_silent_cascade");
+            cascade_to_alt(CustodyRootStage::cts, "rts_silent_cascade");   // §CUSTODY-E: an RTS root is ALWAYS the CTS stage
             return;
         }
         --_active->_pending_tx->retries_left;
@@ -483,7 +684,7 @@ void Node::rts_timeout_fire() {
         else if (is_team_peer(_active->_pending_tx->next))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo, /*team_plane=*/true);   // §2c: a team next-hop's giveup accrues TEAM liveness (proactive-demotion evidence)
 #endif
-        cascade_to_alt("rts_giveup");                    // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
+        cascade_to_alt(CustodyRootStage::cts, "rts_giveup");   // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
 void Node::ack_timeout_fire() {
@@ -496,7 +697,7 @@ void Node::ack_timeout_fire() {
         // §P3 silent-next cascade (mirror of rts_timeout_fire): a missed DATA-ACK on an ALREADY-silent primary
         // cascades immediately rather than re-RTSing the dead path. Persisted-tier read, no per-timeout counting.
         if (liveness_penalty_q4(_active->_pending_tx->next, _active->_pending_tx->plane == Plane::TEAM) >= protocol::peer_silent_penalty_q4) {   // §2c: a TEAM flight reads TEAM liveness (not static _peer_liveness[team_id])
-            cascade_to_alt("data_ack_silent_cascade");
+            cascade_to_alt(CustodyRootStage::hop_ack, "data_ack_silent_cascade");   // §CUSTODY-E: a DATA-ACK root is ALWAYS the hop-ACK stage
             return;
         }
         --_active->_pending_tx->retries_left;
@@ -514,7 +715,7 @@ void Node::ack_timeout_fire() {
         else if (is_team_peer(_active->_pending_tx->next))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo, /*team_plane=*/true);   // §2c: a team next-hop's giveup accrues TEAM liveness
 #endif
-        cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
+        cascade_to_alt(CustodyRootStage::hop_ack, "data_ack_giveup");   // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
 // Gateway-doorstep hold (Lua gateway_doorstep_hold@6351): an RTS/ACK to a known gateway on its
