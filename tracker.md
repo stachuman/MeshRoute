@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-08-28**
+Last refreshed: **2026-09-01**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -13,11 +13,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 - `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — V4 implementation slices landed; remaining
   hardware qualification is tracked separately.
 
+- `2026-08-23-internal-data-and-custody-outcome-design.md` — slices A0–G are implemented and QG-passed; B59 is
+  fully closed after bench Part 53 passed on metal on 2026-09-01. Optional Slice H (`DM UNCERTAIN` user-send
+  presentation) remains deliberately parked; adjacent findings stay in the bug register.
 
-## Ongoing
-- `2026-08-23-internal-data-and-custody-outcome-design.md` — next major arc. Preparation order: adopt B246's
-  board-ABI size probe; fix B20/B21; fix B159 transport deduplication; implement B134 durable Heltec inbox;
-  then finalize and execute custody slices A-H.
 
 ## Backlog — priority order
 - GPS: 2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md - to be reviewed
@@ -47,18 +46,6 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 -  `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
 ## Bugs - suggested order
-
-- B246 — add the cheap standing Xtensa/board-ABI `sizeof` probe before the custody arc changes structures.
-
-- B20/B21 — resolve the high-severity DATA packing/failure-reporting defects before renumbering DATA types.
-
-- B159 — fix transport deduplication across the full retry horizon before relying on it for custody-outcome
-  idempotence.
-
-- B134 — provide durable Heltec inbox storage before custody adds durable outcome records and migrates the store.
-
-- `2026-08-23-internal-data-and-custody-outcome-design.md` — finalize the reviewed design, unpark B59 and implement
-  slices A-H with separate gates and attribution.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 

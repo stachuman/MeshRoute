@@ -1,14 +1,15 @@
 # Command Reference
 
-> Status: First inventory complete. Command names, canonical forms, availability, and state-effect classes were audited against current production parsers on 2026-08-21. Detailed argument rules, output examples, and error guidance remain to be reviewed.
+> Status: Inventory refreshed. Command names, canonical forms, availability, and state-effect classes were audited against the current production parsers, feature gates, and board profiles on 2026-08-31. Detailed argument rules, output examples, and error guidance remain to be reviewed.
 
-This page inventories the textual commands accepted by a MeshRoute node. It covers 47 primary command names plus `?`, the alias for `help`. Radio frame opcodes, OLED actions, simulator-only operations, and host-tool subcommands are outside this inventory.
+This page inventories the textual commands accepted by a MeshRoute node. It covers 49 primary command names plus `?`, the alias for `help`. Radio frame opcodes, OLED button actions, simulator-only operations, and host-tool subcommands are outside this inventory.
 
 ## Access and availability
 
 - **Local** means the command is accepted through the local textual command dispatcher. That is USB when the build has `MR_CONSOLE=1`, and BLE on the XIAO nRF52840 when BLE is enabled.
 - The `production` build has no USB console because it sets `MR_CONSOLE=0`.
 - BLE refuses `help`, `?`, and any argument-bearing `peers` form, including `peers all`. Other commands reach the shared parser or dispatcher, although their output format is not necessarily identical to USB.
+- The `ui` family is compiled only into OLED builds. In the current build matrix those are ESP32 Heltec V3/V4 builds, where BLE is not implemented, so `ui preset` is available through USB only.
 - **Common** means all current device profiles, subject to having a local transport.
 - **Normal** means a single-layer, non-gateway build.
 - **Mobile role** means a normal build with the mobile feature compiled in and the node currently configured as mobile.
@@ -68,21 +69,19 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 
 | Command or form | Access/build | Effect | First classification |
 | --- | --- | --- | --- |
-| `pull_inbox <dm_since> <chan_since>` | Local; Common | Read | Streams DM and channel inbox records followed by an end marker. |
-| `mark_read <dm\|chan> <seq>` | Local; Common | Persistent when the inbox backend is enabled | Advances the selected inbox read cursor. |
-| `del_msg <dm\|chan> <seq>` | Local; Common | Persistent + Recovery | Deletes one selected inbox record through a durable tombstone when the inbox backend is enabled. |
-| `clear_inbox confirm` | Local; Common | Persistent + Recovery | Wipes both inbox record stores after explicit confirmation. Preserves each sequence high-water, resets both read cursors and increments the storage epoch once. Leaves all non-inbox state untouched; it does not replace `prep-restart` or `factory_reset`. |
+| `pull_inbox <dm_since> <chan_since>` | Local; Common | Read | Streams raw DM records first, then channel records, followed by `inbox_end`. The DM stream includes delivery receipts and custody-failure reports used by companion sync and diagnostics. |
+| `mark_read <dm\|chan> <seq>` | Local; Common | Persistent | Advances and persists the selected inbox read cursor; reports `marked` or `io_error`. |
+| `del_msg <dm\|chan> <seq>` | Local; Common | Persistent + Recovery | Deletes one selected inbox record through a durable tombstone; reports `erased`, `not_found`, or `io_error`. |
+| `clear_inbox confirm` | Local; Common | Persistent + Recovery | After exact confirmation, attempts to wipe both record stores while preserving their sequence high-waters, resets both read cursors, and advances their shared storage epoch. Reports `cleared` or `io_error`; on failure, messages may remain. Leaves all non-inbox state untouched. |
 
 A received **custody-failure report** appears on USB as one `CUSTODY FAILURE reporter=… stage=… reason=… …`
-line and in `pull_inbox` as `{"ev":"custody_failure",…}`. It reports that a **relay** could not complete
-onward custody; it is **not** proof the destination missed the message. Delete it with `del_msg dm <seq>`
-like any record. (§CUSTODY-G, 2026-08-31.)
+line and in `pull_inbox` as `{"ev":"custody_failure",…}`. It means a relay could not complete onward custody;
+it is not proof that the destination missed the message. Delete it with `del_msg dm <seq>` like any other record.
+The OLED's normal inbox view hides protocol-internal outcome records, but `pull_inbox` deliberately includes them.
 
-⛔ CORRECTED 2026-08-31 (the paragraph below was stale — [[B134]]/[[B260]] made BOTH platforms durable):
-~~The external-flash inbox backend is currently enabled on the XIAO nRF52840 build. The ESP32 inbox backend
-remains disabled, so these commands are accepted there but have no durable records to operate on.~~
-Every board now runs the one durable `SegmentedInboxStore` — nRF52 over QSPI/InternalFS, ESP32 over
-LittleFS/NVS — so these commands operate on durable records on every platform.
+All current hardware boards use the durable `SegmentedInboxStore`: nRF52 stores records in QSPI with metadata in
+InternalFS, while ESP32 stores records in LittleFS with metadata in NVS. If either store cannot initialize, inbox
+operations fail rather than silently falling back to volatile storage.
 
 ## Static and gateway provisioning
 
@@ -97,7 +96,9 @@ LittleFS/NVS — so these commands operate on durable records on every platform.
 | `joinprofile clear <1..4>` | Local; Normal | Persistent + Recovery | Clears one stored preset. |
 | `joinprofile reset confirm` | Local; Normal | Persistent + Recovery | Clears the entire preset store after confirmation. |
 
-The textual `joinprofile` storage commands are implemented. The broader UI-15 on-device provisioning workflow remains marked **planned** until its completion and metal validation are confirmed.
+The textual `joinprofile` storage commands are implemented. The OLED UI-15 provisioning workflow is also implemented
+and metal-qualified: `SETTINGS` → `PROVISION` can create a team or join a static network from one of these four
+stored profiles when that operation is available on the current build.
 
 ## Mobile operation
 
@@ -127,22 +128,20 @@ The `team` family is available on normal builds. Team membership, role projectio
 
 ## OLED preset catalog
 
-The `ui preset` family administers the seventeen stable preset slots the on-device compose lists render: one
+The OLED-only `ui preset` family administers the seventeen stable preset slots the on-device compose lists render: one
 mandatory `emergency`, eight `dm` (`dm1`..`dm8`), and eight `channel` (`channel1`..`channel8`). Slot identity is
-the token, never a list position. The family answers in NDJSON on both transports; a mistyped line gets a usage
-line instead.
+the token, never a list position. The family answers in NDJSON over USB; a mistyped line gets a usage line instead.
 
 | Command or form | Access/build | Effect | First classification |
 | --- | --- | --- | --- |
-| `ui preset list` | Local; Common | Read | Emits all 17 `ui_preset` records in stable slot order, including disabled slots, then `ui_presets_end` with the capacity, both active counts and the catalog generation. |
-| `ui preset set <emergency\|dm1..dm8\|channel1..channel8> loc=<on\|off> "<text>"` | Local; Common | Persistent + live | Validates the full record and enables that slot. Text is 1-17 printable ASCII bytes with at least one non-space; `"`, `\`, CR and LF are rejected. Answers with the resulting record. |
-| `ui preset clear <dm1..dm8\|channel1..channel8>` | Local; Common | Persistent + live | Disables the slot and clears its text and location flag. `clear emergency` is refused with `mandatory`. |
-| `ui preset reset <emergency\|dm1..dm8\|channel1..channel8>` | Local; Common | Persistent + live | Restores that slot's compiled default; slots 3-8 return to disabled. Answers with the resulting record. |
-| `ui preset reset all` | Local; Common | Persistent + live + Recovery | Restores the complete compiled catalog. Answers with the full list. The generation still advances. |
+| `ui preset list` | USB; OLED builds | Read | Emits all 17 `ui_preset` records in stable slot order, including disabled slots, then `ui_presets_end` with the capacity, both active counts and the catalog generation. |
+| `ui preset set <emergency\|dm1..dm8\|channel1..channel8> loc=<on\|off> "<text>"` | USB; OLED builds | Persistent + live | Validates the full record and enables that slot. Text is 1-17 printable ASCII bytes with at least one non-space; `"`, `\`, CR and LF are rejected. Answers with the resulting record. |
+| `ui preset clear <dm1..dm8\|channel1..channel8>` | USB; OLED builds | Persistent + live | Disables the slot and clears its text and location flag. `clear emergency` is refused with `mandatory`. |
+| `ui preset reset <emergency\|dm1..dm8\|channel1..channel8>` | USB; OLED builds | Persistent + live | Restores that slot's compiled default; slots 3-8 return to disabled. Answers with the resulting record. |
+| `ui preset reset all` | USB; OLED builds | Persistent + live + Recovery | Restores the complete compiled catalog. Answers with the full list. The generation still advances. |
 
-Storage is a separate versioned UI record (`/mrui`), deliberately isolated from `/mrcfg`: editing a phrase can
-never reprovision radio, identity, team or key configuration. A factory reset erases it with the rest of the
-`mr` namespace.
+Storage uses a separate versioned UI record (`/mrui`), so editing a phrase does not reprovision radio, identity,
+team, or key configuration. A factory reset erases it with the rest of the `mr` namespace.
 
 Refusals are reported as `{"ev":"ui_preset_err","reason":"…"}` with exactly six values: `bad_slot`, `bad_text`,
 `bad_location`, `mandatory`, `busy`, `store`. `store` covers both an unreadable record and a failed write; a
@@ -219,16 +218,21 @@ The target-side remote allow-list is narrower than the local dispatcher:
 
 Other text can be accepted by the issuing `rcmd` parser but is not executed by the target allow-list.
 
+The current sealed remote-management path still uses the old monotonic replay-counter protocol. If a target rejects
+a command as stale, the issuer reports that the command was not run, resynchronizes from the returned floor, and asks
+the operator to issue it again. The proposed loss-independent open/operator/owner administration protocol is not yet
+implemented; do not assume its ACL or key-management behavior is available.
+
 ## Bench and fault-injection controls
 
 These commands are present in production command dispatch so the deployed image can be exercised on hardware. They are inventoried here but should not appear in ordinary first-time workflows.
 
 | Command or form | Effect | First classification |
 | --- | --- | --- |
-| `route add <destination> <next-hop> <hops> [score-q4]` | Session + Bench | Injects a route candidate. |
-| `route del <destination>` | Session + Bench | Removes the selected route. |
-| `testsend <destination> <run> [-a] [-e] -t <ms,...>` | Air + Session + Bench | Schedules tagged direct-message transmissions. |
-| `testch <channel> <run> -t <ms,...>` | Air + Session + Bench | Schedules tagged channel transmissions. |
+| `route add <1..254> <1..254> <1..255> [score-q4]` | Session + Bench | Injects a route candidate as destination, next hop, and hop count. |
+| `route del <1..254>` | Session + Bench | Removes the selected route. |
+| `testsend <1..254\|8-hex-hash> <alphanumeric-run> [-a] [-e] -t <ms,...>` | Air + Session + Bench | Schedules tagged direct-message transmissions. `-e` requires the hash form. |
+| `testch <0..255> <alphanumeric-run> -t <ms,...>` | Air + Session + Bench | Schedules tagged channel transmissions. |
 | `teststatus` | Read + Bench | Reports scheduled-send state and counters. |
 | `testclear` | Session + Bench | Clears the scheduled-send queue. |
 | `crashtest <hang\|fault\|reboot>` | Recovery + Bench | Deliberately hangs, faults, or reboots after `debug on`. |
@@ -243,3 +247,10 @@ Before this reference is marked complete, each inventory row still needs:
 - safety warnings and recovery guidance;
 - a link to the workflow chapter that explains when to use it;
 - metal evidence where source inspection alone cannot prove behavior.
+
+## Audit basis
+
+The 2026-08-31 refresh followed the live command paths in `src/firmware_commands.cpp`,
+`src/firmware_config.cpp`, `src/firmware_inbox.cpp`, `src/firmware_remote.cpp`, `src/fw_main.cpp`, and
+`lib/console/console_parse.cpp`, together with the feature/build gates in `lib/core/mr_features.h`,
+`src/device_ble.h`, and `platformio.ini`.

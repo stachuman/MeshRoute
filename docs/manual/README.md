@@ -33,10 +33,10 @@ Journey pages provide an end-to-end sequence and link to the canonical task inst
 | [Teams](05-teams.md) | Team lifecycle and key handling | Skeleton |
 | [Messaging](06-messaging.md) | Direct and channel messages | Skeleton |
 | [Inbox](07-inbox.md) | Reading, marking, and deleting messages | Skeleton |
-| [Heltec OLED](08-heltec-oled.md) | Controls and implemented screens | Skeleton; UI-15 provisioning is planned |
+| [Heltec OLED](08-heltec-oled.md) | Controls and implemented screens | Skeleton; UI-15 provisioning is implemented and metal-qualified |
 | [Configuration](09-configuration.md) | Settings, persistence, reset, and restart | Skeleton |
 | [Diagnostics and recovery](10-diagnostics.md) | Status, faults, recovery, and common errors | Skeleton |
-| [Command reference](command-reference.md) | Concise, source-verified command catalogue | Skeleton |
+| [Command reference](command-reference.md) | Concise, source-verified command catalogue | Inventory refreshed 2026-08-31; detail pass pending |
 
 ## Availability labels
 
@@ -48,6 +48,6 @@ The completed manual will use these labels consistently:
 - **Planned**: not currently presented as usable behavior.
 - **Pending verification**: excluded from operating instructions until its source and, where necessary, metal behavior have been checked.
 
-UI-15 on-device provisioning is **planned**. It must not be treated as an available OLED workflow until its implementation and metal validation are complete.
+UI-15 on-device provisioning is **available** and metal-qualified. Its complete operating procedure still belongs in the Heltec OLED chapter before that chapter can be marked complete.
 
 Unresolved documentation questions are kept in [review notes](review-notes.md), separate from user instructions.

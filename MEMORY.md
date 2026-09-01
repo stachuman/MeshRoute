@@ -1,5 +1,20 @@
 # MeshRoute durable decisions
 
+- **Remote administration v2 controller boundary (owner-ruled, review pending, 2026-09-01):** the locally
+  attached MeshRoute node—not its companion—is the authenticated RPC endpoint. It seals/opens with its
+  default `/mrid` identity or one explicitly selected seed-derived dedicated identity from ten persistent
+  slots; the companion exchanges plaintext only. Four independent stores own the trust directions:
+  `/mrmkeys` controller seeds, `/mracl` controller public keys/roles, `/mradmid` the target's stable
+  administration seed, and a 32-row `/mrtargets` public target book—never `/mrpeers`. Ordinary `regen`
+  preserves dedicated management trust; `self` grants cannot follow a regenerated controller identity.
+  First-owner and target-root provisioning/rotation are USB-only. Authenticated carriers are global-plane,
+  AEAD-bind the controller's stable `SOURCE_HASH`, and use carrier-specific packer-derived limits. The
+  transmitted control stays one opcode/slot byte; no global `wire_version` bump. Safe session rollover never
+  abandons an unacknowledged result; confirmed force rollover may report it unknown. Remote OTA only enters
+  a locally reached Wi-Fi/BLE receiver—firmware never crosses MeshRoute. Open `status`/`routes` remain
+  explicit, BLE results remain retained until locally acknowledged, mobile builds may originate/transport
+  but never accept, and legacy `rcmd` is replaced rather than retained. See
+  `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

@@ -1144,7 +1144,8 @@ own sub-slice before expanding semantics.
 
 > ✅ **SLICE G COMPLETE — QG PASS 2026-08-31 (1 brief round w/ 4 amendments + 3 impl rounds) — AND THE
 > SIXTH TABLE RULING LANDED** (s06/s07/s27/twin; the keystone unchanged at `32afbf11`/269517 for the second
-> consecutive ruling). **[[B59]] IS SOFTWARE-CLOSED**: `§CUSTODY-G/6` reproduces the founding topology
+> consecutive ruling). **[[B59]] IS CLOSED IN SOFTWARE AND ON METAL (Part 53 PASS 2026-09-01)**:
+> `§CUSTODY-G/6` reproduces the founding topology
 > end-to-end (the 0x8B answer dying at the relay → the notice flying back → the sender's stored record +
 > push). Landed: §13's eighteen validations each with an owning-layer falsifier (incl. the battery-forced
 > §13.1 arm) · §7.3's record-before-push with the gap-tolerant append-failure arm (`seq=0` = storage-disabled
@@ -1152,8 +1153,10 @@ own sub-slice before expanding semantics.
 > one-decoder JSON live+pulled · the `persistent_outcome` flip closing §18.2 · the ruled
 > `custody_failure_reject{type,origin,dst,ctr}` · the ordered raw-residue comparator (15 derived controls,
 > type-strict seq, rounds 2-3 killed the histogram-reduction and bool/float-zero holes). Deliveries/
-> duplicates IDENTICAL (the no-radio-traffic STOP held). Native 2503/103323/0. ⚠ USB content is
-> board-compiled — proven ONLY at bench Part 53 (metal-pending, NOT yet run). Spawned [[B276]] (the stale-PIN
+> duplicates IDENTICAL (the no-radio-traffic STOP held). Native 2503/103323/0. USB content is
+> board-compiled and was proven by bench Part 53: the real A→B→C run matched the live USB report to the
+> durable pulled record, preserved it across reboot while hiding it from OLED, and proved durable deletion.
+> Spawned [[B276]] (the stale-PIN
 > habituation lesson) + [[B277]] (companion custody-record compat). **Slice H: PARKED by QG recommendation**
 > — G provides the durable factual outcome; H adds presentation correlation only and cannot improve the
 > founding case (§15.1: no user-DM tracker exists for a pubkey answer); revisit after the Parts 35-53 metal

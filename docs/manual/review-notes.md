@@ -10,11 +10,10 @@ Resolved facts belong in the relevant manual chapter. Developer rationale remain
 | --- | --- | --- | --- | --- | --- |
 | MAN-001 | Getting started | Confirm the complete supported board/build matrix before publishing it. The V4.2/V4.3 base, mobile, and gateway environment bindings are source-audited; their operating status remains pending metal. | `platformio.ini`, `lib/core/mr_features.h`, and V4 RF constraints checked 2026-08-26 | Pending for V4.2/V4.3 | Open; V4 rows drafted, not marked Available |
 | MAN-002 | Connections | Establish the current scope of BLE metal validation before describing it as verified. | Pending | Pending | Open |
-| MAN-003 | Heltec OLED | Recheck the boundary between existing OLED behavior and unfinished UI-15 work when drafting the chapter. | Pending | Pending | Open; UI-15 remains planned |
 | MAN-004 | Choose your path | Confirm a concise user-facing explanation of device role, network participation, mobile attachment, and team membership. | Pending | Pending | Open |
 | MAN-005 | Hiking group | Establish which field topologies are both implemented and metal-tested before recommending a group setup. | Pending | Pending | Open |
-| MAN-006 | Command reference | The built-in help omits `joinprofile`, the `control_sf` alias, `l1_bw`, and `l1_cr`; its `rcmd` wording is broader than the target allow-list. The manual inventory follows the handlers. Any firmware-help correction is a separate task. | `firmware_commands.cpp`, `firmware_config.cpp`, `firmware_remote.cpp` checked 2026-08-21 | Pending | Open |
-| MAN-007 | Command reference | BLE specializes some replies as JSON, streams other commands through the text fallback, and refuses `help`/`?` plus every argument-bearing `peers` form (including `peers all`). Audit each command's BLE output before describing the transport as uniformly JSON. | `fw_main.cpp` checked 2026-08-21 | Pending | Open |
+| MAN-006 | Command reference | The built-in help omits `joinprofile`, the accepted `-K` flags on `send`/`send_layer`, the `control_sf` alias, `l1_bw`, and `l1_cr`; its `rcmd` wording is broader than the target allow-list. The manual inventory follows the handlers. Any firmware-help correction is a separate task. | `firmware_commands.cpp`, `firmware_config.cpp`, `firmware_remote.cpp`, and `console_parse.cpp` checked 2026-08-31 | Pending | Open |
+| MAN-007 | Command reference | BLE specializes some replies as JSON, streams other commands through the text fallback, and refuses `help`/`?` plus every argument-bearing `peers` form (including `peers all`). Audit each command's BLE output before describing the transport as uniformly JSON. | `fw_main.cpp` and `device_ble.h` checked 2026-08-31 | Pending | Open |
 | MAN-008 | Configuration | The common `cfg set` handler accepts the 15 dual-layer topology keys even though built-in help labels them gateway-only. Confirm the supported guidance for issuing them on a normal build. | `firmware_config.cpp` checked 2026-08-21 | Pending | Open |
 | MAN-009 | Command reference | Decide whether host-side client subcommands belong in this reference or in the Connections chapter. They are intentionally outside the first node-command inventory. | Node command paths checked 2026-08-21 | Pending | Open |
 
@@ -22,7 +21,7 @@ Resolved facts belong in the relevant manual chapter. Developer rationale remain
 
 | ID | Resolution | Evidence |
 | --- | --- | --- |
-| _None yet_ |  |  |
+| MAN-003 | UI-15 is implemented and metal-qualified. The manual must describe its stored-profile static join and team-create workflows as available, not planned. | `firmware_ui_model.h`, `firmware_ui_prov.h`, `firmware_ui_join.h`, and the completed 2026-08-20 UI-15 metal walkthrough checked 2026-08-31 |
 
 ## Review checkpoints
 

@@ -3674,14 +3674,139 @@ native nor the sim reaches.)*
 
 ## Part 53 — §CUSTODY-G / [[B59]]: a custody report reaching the sender on real glass and USB (2026-08-31)
 
-Three nodes A→B→C on real radios, B the only path to C. Send an `-a` DM (or force a `reqpubkey` answer) A→C,
-then **power off C** mid-flight so B's cascade exhausts after it has ACKed custody. On **A** expect exactly
-one USB line of the form
-`CUSTODY FAILURE reporter=<B> layer=<L> origin=<A> dst=<C> ctr=<the ctr A sent> stage=cts|ack reason=cascade_count|cascade_age|queue_full|load_shed|one_way_throttled prev=<A> next=<C> repair=attempted|none one_way=0|1 seq=<N> — the relay could not complete onward custody; …`
-⛔ It must **not** say NACK or claim non-delivery. Then `pull_inbox 0 0` must stream
-`{"ev":"custody_failure","seq":<N>,"rx_ms":…,"reporter":<B>,…}` with the **same** `seq` the USB line printed
-(record-before-push, on real flash), the OLED INBOX must show **no** new row and no unread for it, and
-`del_msg dm <N>` must answer `"result":"erased"`. **Power-cycle once**: the record is still pulled, still
-hidden. *(Metal-only, and ★ the USB line's CONTENT is proven ONLY here: `fw_main.cpp` is outside the native
-build and the simulator wires no inbox store — the host gates prove the JSON surface and that the PushKind
-arm is handled, never what USB prints.)*
+✅ **PASS — 2026-09-01, owner metal run.** The static A→B→C custody failure completed exactly as specified:
+one factual USB report reached A; its `{dst,ctr,seq}` matched the pulled durable record; the record survived
+the first power cycle while remaining absent from the OLED inbox/unread count; B and C gained no application
+record; deletion returned `erased`, survived the second power cycle, and the repeated delete returned
+`not_found`. The temporary plaintext policy was restored. This discharges [[B59]]'s metal half.
+
+Use three nodes on one ordinary/static plane, with IDs called `A_ID`, `B_ID`, and `C_ID`. Arrange the RF
+topology as **A↔B↔C with no usable A↔C link** (distance, shielding or rated attenuation; never transmit
+without an antenna or suitable load). B must be the only next hop by which A can reach C.
+
+1. **Capture identity, route and inbox baselines.** On all three nodes run:
+
+   ```text
+   version
+   whoami
+   mobile status
+   status
+   routes
+   debug on
+   pull_inbox 0 0
+   ```
+
+   Each `mobile status` must report `"mobile":false`; v1 deliberately excludes team, hosted-mobile and
+   mobile-delegated custody failures, so a mobile build makes this run invalid. From each final `inbox_end`,
+   record `dm_seq`, `chan_seq`, `epoch`, and `count`; call A's values `A_DM0`,
+   `A_CH0`, and `A_EPOCH0` (and likewise `B_DM0/B_CH0`, `C_DM0/C_CH0`). Record A's OLED unread count and
+   visible INBOX rows. Stop if A's route to `C_ID` is direct or has any next hop other than B, or if B has
+   no route to C. From A's `cfg`, also record the current `e2e_dm` and `intro_attach` values as `A_E2E0`
+   and `A_INTRO0`, then force this run's carrier to the v1-supported **plaintext static** shape:
+
+   ```text
+   cfg set e2e_dm 0
+   cfg set intro_attach 0
+   cfg
+   ```
+
+   The final `cfg` must show both values as 0. These writes are persistent; step 9 restores them.
+
+2. **Positive path control, while C is still on.** On A run (replace the placeholders with decimal IDs and
+   use a fresh literal tag):
+
+   ```text
+   send C_ID "part53-path-control-20260831" -a
+   ```
+
+   C must receive that exact text, B's debug trace must show that it relayed the flight, and A must receive
+   the normal E2E acknowledgement. The DATA trace must not say `CRYPTED`. If A reaches C without B, change
+   the RF arrangement and repeat step 1.
+   Re-run `pull_inbox 0 0` on all nodes and update the six `*_DM0/*_CH0` high-waters so the control message
+   is outside the failure-test delta.
+
+3. **Create the custody failure without a human timing race.** Power C fully off. Do not wait for the cached
+   A→B→C route to age out. Immediately run on A:
+
+   ```text
+   send C_ID "part53-custody-failure-20260831" -a
+   ```
+
+   Keep C off until the failure report reaches A. B's trace must first prove it accepted the A→C carrier
+   (A's DATA reaches B and B transmits the hop ACK), then show failed onward attempts toward C and terminal
+   cascade exhaustion. Allow up to **180 seconds**. If B never sent the hop ACK, the custody handoff never
+   happened and the run is invalid rather than a pass or fail.
+
+4. **Check A's live report.** A must print exactly one line of the form:
+
+   ```text
+   CUSTODY FAILURE reporter=<B_ID> layer=<L> origin=<A_ID> dst=<C_ID> ctr=<sent ctr> stage=cts|ack reason=cascade_count|cascade_age|queue_full|load_shed|one_way_throttled prev=<A_ID> next=<C_ID> repair=attempted|none one_way=0|1 seq=<N> — the relay could not complete onward custody; …
+   ```
+
+   Record `N` as `CF_SEQ`. The line must name the same destination and counter as A's failed send, must not
+   say `NACK`, and must not claim that C certainly missed the message.
+
+5. **Check all three inbox deltas.** Substitute the recorded decimal high-waters:
+
+   ```text
+   # on A
+   pull_inbox A_DM0 A_CH0
+
+   # on B
+   pull_inbox B_DM0 B_CH0
+   ```
+
+   A must return exactly one new DM-store record:
+   `{"ev":"custody_failure","seq":CF_SEQ,"rx_ms":…,"reporter":B_ID,…}` followed by `inbox_end`, with
+   the same `{dst,ctr}` and `seq` as the USB line. B must return only `inbox_end` with `count:0`; a relay
+   never stores the transit payload or its own report as an application message. A's OLED INBOX rows and
+   unread count must remain exactly at their step-1 values.
+
+6. **Prove persistence before deleting.** Physically power-cycle A. After its boot banner reports the inbox
+   enabled, run:
+
+   ```text
+   pull_inbox A_DM0 A_CH0
+   ```
+
+   The same single custody record must return with the same `CF_SEQ`, and it must still be absent from the
+   OLED INBOX and unread count. `epoch` must still equal `A_EPOCH0`.
+
+7. **Prove deletion, then deletion persistence.** On A run:
+
+   ```text
+   del_msg dm CF_SEQ
+   pull_inbox A_DM0 A_CH0
+   ```
+
+   The first command must answer
+   `{"ack":"del_msg","kind":"dm","seq":CF_SEQ,"result":"erased"}`. The pull must no longer contain
+   `CF_SEQ` (its `inbox_end.dm_seq` high-water is allowed to remain at or above `CF_SEQ`). Physically
+   power-cycle A once more and repeat `pull_inbox A_DM0 A_CH0`; `CF_SEQ` must remain absent. An optional
+   `del_msg dm CF_SEQ` control must now answer `"result":"not_found"`.
+
+8. **Check the powered-off destination.** Power C on and run:
+
+   ```text
+   pull_inbox C_DM0 C_CH0
+   ```
+
+   It must return only `inbox_end` with `count:0` and must not contain
+   `part53-custody-failure-20260831`. This proves the run did not accidentally deliver the failed payload
+   before C was removed.
+
+9. **Restore A's message policy and the RF arrangement.** Substitute the exact 0/1 values recorded in
+   step 1:
+
+   ```text
+   cfg set e2e_dm A_E2E0
+   cfg set intro_attach A_INTRO0
+   cfg
+   ```
+
+   Confirm both values match the initial `cfg`, then restore the normal RF arrangement.
+
+*(Metal-only, and ★ the USB line's CONTENT is proven ONLY here: `fw_main.cpp` is outside the native build
+and the simulator wires no inbox store — the host gates prove the JSON surface and that the PushKind arm is
+handled, never what USB prints. ⛔ Corrected 2026-08-31: the earlier compact step deleted `CF_SEQ` before
+asking a reboot to restore it. Persistence is now tested before deletion; a second reboot proves deletion.)*

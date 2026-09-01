@@ -10483,7 +10483,9 @@ EXACTLY the addressed-0x81 outcome representation flipping (11 receipts: `unsupp
 `custody_failure_rx` + `push{custody_failure}`), proven by the ordered raw-residue comparator
 (`tools/compare_corpus_slice_g.py`, 15 derived controls — byte-identical residue after striking only the
 permitted lines; type-strict `seq == 0`). Deliveries/duplicates IDENTICAL (G adds no radio traffic — the
-no-movement STOP rule held). **[[B59]] is software-closed at this ruling**; bench Part 53 is its metal half.
+no-movement STOP rule held). **[[B59]] was software-closed at this ruling and fully closed on 2026-09-01:**
+bench Part 53 subsequently passed the real static A→B→C USB, durable-record, OLED-exclusion, reboot and
+deletion checks.
 
 ```
 s06_seattle_lifecycle                        e8f862b0 lus: 69039 events emitted, 0 assertion failure(s)

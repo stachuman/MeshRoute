@@ -1,6 +1,6 @@
 # Heltec OLED
 
-> Status: Skeleton. Existing controls and screens still require source and metal-evidence review. UI-15 on-device provisioning is planned, not available user guidance.
+> Status: Skeleton. Existing controls and screens still require a manual detail pass. UI-15 on-device provisioning is implemented and metal-qualified, but its operating procedure has not yet been drafted here.
 
 ## Hardware and build availability
 
@@ -18,9 +18,12 @@
 
 <!-- Add verified operator-visible behavior here. -->
 
-## Planned: UI-15 provisioning
+## UI-15 provisioning
 
-UI-15 provisioning remains planned. This manual will not provide on-device create/join instructions until that functionality is complete and metal-validated.
+The current OLED workflow can create a team and can join a static network from one of four stored `joinprofile`
+slots. Both flows are implemented and passed their multi-node metal qualification. Step-by-step operating guidance
+will be added in this chapter during its detailed review; the command forms are already listed in the
+[Command Reference](command-reference.md).
 
 ## Common display problems
 
