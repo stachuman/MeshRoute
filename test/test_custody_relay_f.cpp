@@ -223,6 +223,67 @@ const uint8_t kGoldenBytes[24] = {
     /*22 reserved       */ 0x00, 0x00,
 };
 
+// ---- §B278 §6.2's TRANSLATED tail (S2) -----------------------------------------------------------------------
+// The tail as a VALUE. `golden_record()` sets `CUSTODY_FLAG_HAS_DST_HASH` over `dst_hash32 = 0xA1B2C3D4` and
+// `failed_dst = 0x22`, so BOTH kinds below are §6.3-valid against the SAME prefix — which is exactly what makes
+// the two golden arrays a one-variable comparison of the target-kind field.
+CustodyTranslatedTail golden_tail_hash() {
+    CustodyTranslatedTail t{};
+    t.original_reporter = 0x99;
+    t.target_kind       = CustodyTranslatedTargetKind::key_hash;
+    t.mobile_ctr        = 0x8877;
+    t.target_value      = 0xA1B2C3D4u;      // == golden_record().dst_hash32, and HAS_DST_HASH is set
+    return t;
+}
+CustodyTranslatedTail golden_tail_node() {
+    CustodyTranslatedTail t = golden_tail_hash();
+    t.target_kind  = CustodyTranslatedTargetKind::node_id;
+    t.target_value = 0x22;                  // == golden_record().failed_dst
+    return t;
+}
+
+// The SAME translated records as 32 literal bytes, written out by hand from §6.1/§6.2's offset tables. ⛔ NOT
+// produced by the encoder — a golden made by the encoder is a tautology. Only bytes 1, 2 and 24-31 differ from
+// `kGoldenBytes`, and those three facts ARE §6.1/§6.2: `record_len` 32, bit 6 set, the eight-byte tail.
+const uint8_t kGoldenTranslatedHash[32] = {
+    /*0  version        */ 0x01,
+    /*1  record_len     */ 0x20,          // 32 — §6.2's translated known prefix
+    /*2  notice_flags   */ 0x7D,          // 0x3D | CUSTODY_FLAG_HOME_TRANSLATED (0x40)
+    /*3  terminal_reason*/ 0x03,          // cascade_age
+    /*4  failed_origin  */ 0x11,
+    /*5  failed_dst     */ 0x22,
+    /*6  failed_ctr LE  */ 0x44, 0x33,    // 0x3344
+    /*8  failed_type    */ 0x8B,
+    /*9  failed_flags   */ 0x06,
+    /*10 failed_plane   */ 0x00,          // static_same_layer
+    /*11 reporter_layer */ 0x55,
+    /*12 previous_hop   */ 0x66,
+    /*13 failed_next_hop*/ 0x77,
+    /*14 requeue_count  */ 0x02,
+    /*15 alts_tried     */ 0x03,
+    /*16 committed_hops */ 0x04,
+    /*17 remaining_hops */ 0x1D,
+    /*18 dst_hash32 LE  */ 0xD4, 0xC3, 0xB2, 0xA1,
+    /*22 reserved       */ 0x00, 0x00,
+    /*24 orig_reporter  */ 0x99,
+    /*25 target_kind    */ 0x01,          // key_hash
+    /*26 mobile_ctr LE  */ 0x77, 0x88,    // 0x8877
+    /*28 target_value LE*/ 0xD4, 0xC3, 0xB2, 0xA1,   // 0xA1B2C3D4
+};
+const uint8_t kGoldenTranslatedNode[32] = {
+    0x01, 0x20, 0x7D, 0x03, 0x11, 0x22, 0x44, 0x33, 0x8B, 0x06, 0x00, 0x55,
+    0x66, 0x77, 0x02, 0x03, 0x04, 0x1D, 0xD4, 0xC3, 0xB2, 0xA1, 0x00, 0x00,
+    /*24 orig_reporter  */ 0x99,
+    /*25 target_kind    */ 0x00,          // node_id
+    /*26 mobile_ctr LE  */ 0x77, 0x88,    // 0x8877
+    /*28 target_value LE*/ 0x22, 0x00, 0x00, 0x00,   // 0x00000022 — ★ the u32 is LE: the value is at byte 28
+};
+
+bool same_tail(const CustodyTranslatedTail& a, const CustodyTranslatedTail& b) {
+    return a.original_reporter == b.original_reporter && a.target_kind == b.target_kind
+        && a.mobile_ctr == b.mobile_ctr && a.target_value == b.target_value;
+}
+
 bool same_record(const CustodyFailureRecord& a, const CustodyFailureRecord& b) {
     return a.version == b.version && a.record_len == b.record_len && a.notice_flags == b.notice_flags
         && a.terminal_reason == b.terminal_reason && a.failed_origin == b.failed_origin
@@ -346,8 +407,11 @@ TEST_CASE("§CUSTODY-F/1d the parser rejects every §18.3.6 malformation, one by
     CHECK(rejects(0, 0));                       // version 0        (§13.4)
     CHECK(rejects(0, 2));                       // version 2, unknown
     CHECK(rejects(1, 23));                      // record_len < 24  (§13.5)
-    CHECK(rejects(2, 0x7D));                    // flags bit 6 set  (§13.6)
-    CHECK(rejects(2, 0xBD));                    // flags bit 7 set
+    // ⚠ RE-AIMED 2026-09-02 BY §B278 S2: bit 6 is no longer RESERVED, it is `CUSTODY_FLAG_HOME_TRANSLATED`.
+    //   Setting it on a 24-byte record is still refused — now by §6.2's 32-byte translated floor rather than by
+    //   §13.6's reserved mask. The whole 24..31 range and every §6.3 tail term are in §CUSTODY-F/1m.
+    CHECK(rejects(2, 0x7D));                    // bit 6 set with record_len 24 (§6.2's floor)
+    CHECK(rejects(2, 0xBD));                    // flags bit 7 set  (§13.6 — the only STILL-reserved bit)
     CHECK(rejects(2, 0x3C));                    // `forwarded` clear (§13.7)
     CHECK(rejects(2, 0x3F));                    // BOTH stage bits  (§13.8)
     CHECK(rejects(2, 0x39));                    // NEITHER stage bit
@@ -468,7 +532,12 @@ TEST_CASE("§CUSTODY-F/1g the packer refuses a short buffer and every transmitte
     auto refuses = [&](CustodyFailureRecord r) { return pack_custody_failure(r, std::span<uint8_t>(out, sizeof out)) == 0; };
     { CustodyFailureRecord r = golden_record(); r.version = 2;            CHECK(refuses(r)); }
     { CustodyFailureRecord r = golden_record(); r.notice_flags &= static_cast<uint8_t>(~CUSTODY_FLAG_FORWARDED); CHECK(refuses(r)); }
-    { CustodyFailureRecord r = golden_record(); r.notice_flags |= 0x40;   CHECK(refuses(r)); }
+    // ⚠ RE-AIMED 2026-09-02 BY §B278 S2: this bit is now ALLOCATED (`CUSTODY_FLAG_HOME_TRANSLATED`), and the
+    //   direct packer must still refuse it — §6.1: *"A direct v1 transmitter still emits 24 bytes with bit 6
+    //   clear."* Its positive counterpart (the translated packer setting it) is §CUSTODY-F/1i.
+    { CustodyFailureRecord r = golden_record();
+      r.notice_flags |= CUSTODY_FLAG_HOME_TRANSLATED;                     CHECK(refuses(r)); }
+    { CustodyFailureRecord r = golden_record(); r.notice_flags |= 0x80;   CHECK(refuses(r)); }   // bit 7 reserved
     // ★★ §9.3's EXACTLY-ONE-STAGE RULE, AT THE PACKER, BOTH VIOLATIONS. ⛔ Neither is covered by the
     //    `forwarded` check above, which is why the packer needs its own stage test and why a battery arm that
     //    deleted it SURVIVED until these two lines existed.
@@ -488,11 +557,407 @@ TEST_CASE("§CUSTODY-F/1g the packer refuses a short buffer and every transmitte
     CHECK(pack_custody_failure(golden_record(), std::span<uint8_t>(out, sizeof out)) == 24);
 }
 
+// =====================================================================================================
+// §CUSTODY-F/1i..1r — §B278 S2: THE HOME-TRANSLATED FORM (design §6.1/§6.2/§6.3)
+// =====================================================================================================
+// ⛔⛔ WHAT S2 IS AND IS NOT, so no case below is read as more than it measures: S2 allocates `notice_flags`
+//    bit 6 and the 32-byte translated record, and gives them ONE packer, ONE tail reader and ONE tail value.
+//    **NOTHING PRODUCES OR CONSUMES THE FORM.** S3 originates it at the translating home; S4 lands the mobile
+//    receiver. The production receiver's interim refusal is measured in `test_custody_receive_g.cpp`
+//    (§CUSTODY-G/2.21), not here — this file is the pure codec.
+
+// ★★★★ §6.1/§6.2 — THE TRANSLATED 32-BYTE GOLDEN VECTOR, EVERY OFFSET, against a hand-written array rather than
+//      the encoder's own output. ⛔ AND THE DIRECT VECTOR IS RE-ASSERTED IN THE SAME CASE: S2's headline promise
+//      is that the direct form did not move by one byte, and a promise measured in a different test case is a
+//      promise measured against a different tree state.
+TEST_CASE("§CUSTODY-F/1i §B278 S2 the TRANSLATED packer reproduces §6.2's 32 bytes EXACTLY — direct unmoved") {
+    // ---- the control FIRST: the pre-S2 direct vector, byte for byte, from the unchanged direct packer.
+    {
+        uint8_t out[64];
+        std::memset(out, 0xEE, sizeof out);
+        CHECK(pack_custody_failure(golden_record(), std::span<uint8_t>(out, sizeof out)) == 24);
+        CHECK(std::memcmp(out, kGoldenBytes, 24) == 0);
+        CHECK(out[24] == 0xEE);                 // ⛔ still 24 and not one byte more
+    }
+    // ---- the key-hash form
+    {
+        uint8_t out[64];
+        std::memset(out, 0xEE, sizeof out);
+        const size_t n = pack_custody_failure_translated(golden_record(), golden_tail_hash(),
+                                                         std::span<uint8_t>(out, sizeof out));
+        CHECK(n == 32);
+        CHECK(n == custody_record_translated_len);
+        for (size_t i = 0; i < 32; ++i) { CAPTURE(i); CHECK(out[i] == kGoldenTranslatedHash[i]); }
+        CHECK(out[32] == 0xEE);                 // ⛔ it wrote 32 and not one byte more
+        // ★ THE THREE BYTES THE PACKER STAMPS, asserted as such rather than as "the array matches".
+        CHECK(out[1] == 32);                                        // §6.2 record_len, written by the packer
+        CHECK((out[2] & CUSTODY_FLAG_HOME_TRANSLATED) != 0);        // §6.1 bit 6, set by the packer
+        CHECK(out[2] == (kGoldenBytes[2] | CUSTODY_FLAG_HOME_TRANSLATED));
+        // ★ AND THE PREFIX IS OTHERWISE THE DIRECT RECORD, UNREINTERPRETED (§6.1) — offsets 0 and 3..23 identical.
+        CHECK(out[0] == kGoldenBytes[0]);
+        CHECK(std::memcmp(out + 3, kGoldenBytes + 3, 21) == 0);
+        // ★★ BOTH LITTLE-ENDIAN TAIL FIELDS, INDEPENDENTLY — low byte first, asserted as endianness.
+        CHECK(out[24] == 0x99);                                     // original_reporter
+        CHECK(out[25] == 0x01);                                     // target_kind = key_hash
+        CHECK(out[26] == 0x77); CHECK(out[27] == 0x88);             // mobile_ctr  0x8877 LE
+        CHECK(out[28] == 0xD4); CHECK(out[29] == 0xC3);
+        CHECK(out[30] == 0xB2); CHECK(out[31] == 0xA1);             // target_value 0xA1B2C3D4 LE
+    }
+    // ---- the node-id form: the SAME prefix, one tail field different, and the u32's LE order is visible in a
+    //      SECOND independent way — a small value must land at byte 28, not at byte 31.
+    {
+        uint8_t out[64];
+        std::memset(out, 0xEE, sizeof out);
+        CHECK(pack_custody_failure_translated(golden_record(), golden_tail_node(),
+                                              std::span<uint8_t>(out, sizeof out)) == 32);
+        for (size_t i = 0; i < 32; ++i) { CAPTURE(i); CHECK(out[i] == kGoldenTranslatedNode[i]); }
+        CHECK(out[25] == 0x00);                                     // target_kind = node_id
+        CHECK(out[28] == 0x22);                                     // ★ LE: the value is in the LOW byte…
+        CHECK(out[29] == 0x00); CHECK(out[30] == 0x00); CHECK(out[31] == 0x00);   // …and the rest are zero
+        CHECK(out[28] == kGoldenBytes[5]);                          // §6.2: it EQUALS `failed_dst`
+    }
+    // ⛔ the buffer floor: 31 bytes is not enough for a 32-byte record, and the refusal is loud (C2).
+    {
+        uint8_t small[31];
+        CHECK(pack_custody_failure_translated(golden_record(), golden_tail_hash(),
+                                              std::span<uint8_t>(small, sizeof small)) == 0);
+    }
+}
+
+// ★★★★ §6.3 — THE PARSE SIDE: the SAME 24-byte record comes back, plus the tail as its own typed value.
+TEST_CASE("§CUSTODY-F/1j §B278 S2 a translated record parses to the ORIGINAL record + the exact typed tail") {
+    for (int kind = 0; kind < 2; ++kind) {
+        CAPTURE(kind);
+        const uint8_t* bytes = kind ? kGoldenTranslatedHash : kGoldenTranslatedNode;
+        const CustodyTranslatedTail want = kind ? golden_tail_hash() : golden_tail_node();
+        const std::optional<CustodyFailureRecord> r =
+            parse_custody_failure(std::span<const uint8_t>(bytes, 32));
+        CHECK(r.has_value());
+        if (!r) continue;
+        // ★ THE PREFIX IS THE ORIGINAL v1 RECORD (§6.1: "without reinterpretation") — the only two fields that
+        //   differ from `golden_record()` are the two the translation itself stamps.
+        CustodyFailureRecord expect = golden_record();
+        expect.record_len   = 32;
+        expect.notice_flags = static_cast<uint8_t>(expect.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED);
+        CHECK(same_record(*r, expect));
+        CHECK(custody_record_is_translated(r->notice_flags));
+        // ★ THE TAIL, FIELD BY FIELD — not "it parsed", which a zeroed struct would also satisfy.
+        const std::optional<CustodyTranslatedTail> t =
+            parse_custody_translated_tail(std::span<const uint8_t>(bytes, 32), *r);
+        CHECK(t.has_value());
+        if (!t) continue;
+        CHECK(same_tail(*t, want));
+        CHECK(t->original_reporter == 0x99);
+        CHECK(t->mobile_ctr == 0x8877);
+        CHECK(t->target_value == (kind ? 0xA1B2C3D4u : 0x22u));
+        CHECK(t->target_kind == (kind ? CustodyTranslatedTargetKind::key_hash
+                                      : CustodyTranslatedTargetKind::node_id));
+        // ★★ AND THE ROUND TRIP CLOSES through the ONE packer: re-packing the DIRECT-shaped record + this tail
+        //    reproduces the golden bytes. (`*r` is already stamped, so it is un-stamped back to the direct form
+        //    first — which is itself the assertion that the packer owns offsets 1 and 2, not the caller.)
+        CustodyFailureRecord direct = *r;
+        direct.record_len   = custody_record_v1_len;
+        direct.notice_flags = static_cast<uint8_t>(direct.notice_flags & ~CUSTODY_FLAG_HOME_TRANSLATED);
+        uint8_t out[32];
+        CHECK(pack_custody_failure_translated(direct, *t, std::span<uint8_t>(out, sizeof out)) == 32);
+        CHECK(std::memcmp(out, bytes, 32) == 0);
+    }
+}
+
+// ★★★ §6.2's DELIBERATE ASYMMETRY — a key-hash target with NO `HAS_DST_HASH` on the prefix is CODEC-VALID.
+// ⚠⚠ THIS VECTOR IS SYNTHETIC AND IS LABELLED AS SUCH: §6.2 says the two hashes must agree *"when the direct
+//    report carries `HAS_DST_HASH`"* and that *"absence of that optional field remains valid"*, because the tail
+//    carries the row's RETAINED original target and the prefix may simply have no carrier hash to compare. No
+//    S3 producer is claimed to emit this shape; it is here so the codec's acceptance is a measured decision
+//    rather than an accident, and so a later slice cannot tighten it without a failing test.
+TEST_CASE("§CUSTODY-F/1k §B278 S2 a key-hash target WITHOUT HAS_DST_HASH is codec-valid (SYNTHETIC vector)") {
+    CustodyFailureRecord base = golden_record();
+    base.notice_flags = static_cast<uint8_t>(base.notice_flags & ~CUSTODY_FLAG_HAS_DST_HASH);
+    base.dst_hash32   = 0;                    // §13.16: the flag and the hash agree in BOTH directions
+    CustodyTranslatedTail t = golden_tail_hash();
+    t.target_value = 0xDEADBEEFu;             // a hash the prefix carries no copy of
+    uint8_t out[32];
+    CHECK(pack_custody_failure_translated(base, t, std::span<uint8_t>(out, sizeof out)) == 32);
+    CHECK(out[2] == (base.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED));
+    CHECK((out[2] & CUSTODY_FLAG_HAS_DST_HASH) == 0);
+    CHECK(out[28] == 0xEF); CHECK(out[29] == 0xBE); CHECK(out[30] == 0xAD); CHECK(out[31] == 0xDE);
+    const std::optional<CustodyFailureRecord> r = parse_custody_failure(std::span<const uint8_t>(out, 32));
+    CHECK(r.has_value());
+    if (!r) return;
+    const std::optional<CustodyTranslatedTail> back =
+        parse_custody_translated_tail(std::span<const uint8_t>(out, 32), *r);
+    CHECK(back.has_value());
+    if (back) CHECK(same_tail(*back, t));
+    // ⛔ THE CONTRAST, IN THE SAME CASE: with the flag PRESENT, the very same disagreeing hash is REFUSED.
+    CustodyTranslatedTail bad = golden_tail_hash();
+    bad.target_value = 0xDEADBEEFu;            // != golden_record().dst_hash32, and HAS_DST_HASH is set
+    CHECK(pack_custody_failure_translated(golden_record(), bad, std::span<uint8_t>(out, sizeof out)) == 0);
+    // ★★★★ AND THE ZERO TARGET, WHICH **ONLY THIS SHAPE CAN OBSERVE** — a measured gap, closed here rather than
+    //      argued away. §6.3's `target_value != 0` term is SHADOWED everywhere else: a node-id zero dies at
+    //      `custody_node_id_valid(0)`, and a key-hash zero with `HAS_DST_HASH` set dies at the hash-agreement
+    //      term. It is only in the hash-target-WITHOUT-carrier-hash case that nothing else stands there — so
+    //      without this arm the codec would accept a translated record whose whole mobile-visible identity is 0.
+    //      (The mutation battery proved it: `sliceFcodec` X58 SURVIVED until these four lines existed.)
+    {
+        CustodyTranslatedTail zero = t;
+        zero.target_value = 0;
+        CHECK(pack_custody_failure_translated(base, zero, std::span<uint8_t>(out, sizeof out)) == 0);
+        // …and on the PARSE side, off the accepted synthetic vector with only those four bytes changed.
+        std::vector<uint8_t> b(out, out + 32);
+        CHECK(pack_custody_failure_translated(base, t, std::span<uint8_t>(out, sizeof out)) == 32);   // re-make it
+        b.assign(out, out + 32);
+        CHECK(parse_custody_failure(std::span<const uint8_t>(b)).has_value());        // the control
+        b[28] = b[29] = b[30] = b[31] = 0;
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+    }
+}
+
+// ★★★★ §6.3's FUTURE-TAIL OFFSET — 24 for a direct record, 32 for a translated one. ⛔ THE DEFECT THIS MEASURES
+//      IS SPECIFIC: slicing a translated record at 24 would hand a storing consumer the eight DEFINED tail bytes
+//      labelled "bytes I cannot interpret". Both forms carry the SAME four unknown bytes so the only variable is
+//      where the accessor starts.
+TEST_CASE("§CUSTODY-F/1l §B278 S2 custody_record_tail starts after the record's OWN prefix: 24 direct / 32 translated") {
+    const uint8_t extra[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+    // ---- the authority itself, stated once and asserted directly
+    CHECK(custody_record_prefix_len(kGoldenBytes[2]) == custody_record_v1_len);
+    CHECK(custody_record_prefix_len(kGoldenTranslatedHash[2]) == custody_record_translated_len);
+    CHECK(custody_record_translated_len == custody_record_v1_len + custody_translated_tail_len);
+    CHECK(custody_record_translated_len == 32);
+    CHECK(custody_translated_tail_len == 8);
+    // ---- DIRECT + 4 unknown bytes: the tail starts at 24 and all four are retained
+    {
+        std::vector<uint8_t> body(kGoldenBytes, kGoldenBytes + 24);
+        body[1] = 28;
+        body.insert(body.end(), extra, extra + 4);
+        const std::optional<CustodyFailureRecord> r = parse_custody_failure(std::span<const uint8_t>(body));
+        CHECK(r.has_value());
+        if (!r) return;
+        const std::span<const uint8_t> tail = custody_record_tail(std::span<const uint8_t>(body), *r);
+        CHECK(tail.size() == 4);
+        if (tail.size() == 4) CHECK(std::memcmp(tail.data(), extra, 4) == 0);
+        // ⛔ and a direct record's future tail is NOT a translation, however it is spelled
+        CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(body), *r).has_value());
+    }
+    // ---- TRANSLATED + the SAME 4 unknown bytes: the tail starts at 32, all four retained, and the eight
+    //      DEFINED bytes are NOT in it
+    {
+        std::vector<uint8_t> body(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        body[1] = 36;
+        body.insert(body.end(), extra, extra + 4);
+        const std::optional<CustodyFailureRecord> r = parse_custody_failure(std::span<const uint8_t>(body));
+        CHECK(r.has_value());
+        if (!r) return;
+        CHECK(r->record_len == 36);
+        const std::span<const uint8_t> tail = custody_record_tail(std::span<const uint8_t>(body), *r);
+        CHECK(tail.size() == 4);                       // ⛔ 4, not 12 — the eight defined bytes are not "unknown"
+        if (tail.size() == 4) CHECK(std::memcmp(tail.data(), extra, 4) == 0);
+        // …and the defined tail still reads, unaffected by the surplus
+        const std::optional<CustodyTranslatedTail> t =
+            parse_custody_translated_tail(std::span<const uint8_t>(body), *r);
+        CHECK(t.has_value());
+        if (t) CHECK(same_tail(*t, golden_tail_hash()));
+    }
+    // ---- and a plain 32-byte translated record has NO unknown tail at all
+    {
+        const std::optional<CustodyFailureRecord> r =
+            parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedHash, 32));
+        CHECK(r.has_value());
+        if (r) CHECK(custody_record_tail(std::span<const uint8_t>(kGoldenTranslatedHash, 32), *r).empty());
+    }
+}
+
+// ★★★★ §6.3's REFUSAL MATRIX, one independently observable arm each, EVERY arm one field off a vector that is
+//      known to parse — so a rejection can only be attributed to that field.
+TEST_CASE("§CUSTODY-F/1m §B278 S2 the parser refuses every §6.3 translated malformation, one field at a time") {
+    // The control FIRST: the unmutated translated golden PARSES.
+    CHECK(parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedHash, 32)).has_value());
+    auto rejects = [](int off, uint8_t val) {
+        std::vector<uint8_t> b(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        b[static_cast<size_t>(off)] = val;
+        return !parse_custody_failure(std::span<const uint8_t>(b)).has_value();
+    };
+    // ---- §6.2: bit 6 set with a `record_len` below 32 — the WHOLE 24..31 range, each its own observation
+    for (uint8_t len = 24; len <= 31; ++len) { CAPTURE(len); CHECK(rejects(1, len)); }
+    CHECK_FALSE(rejects(1, 32));                    // …and 32 itself is the accepted floor (a non-vacuous edge)
+    // ---- bit 7 is STILL reserved (§6.1), on the translated record as on the direct one
+    CHECK(rejects(2, static_cast<uint8_t>(kGoldenTranslatedHash[2] | 0x80)));
+    // ---- §6.2 target_kind: every undefined value, swept rather than sampled
+    for (int k = 2; k < 256; ++k) { CAPTURE(k); CHECK(rejects(25, static_cast<uint8_t>(k))); }
+    // ---- §6.3 original_reporter: the two domain edges (§10.1(9)'s ids, reused not re-typed)
+    CHECK(rejects(24, 0));
+    CHECK(rejects(24, 255));
+    {   // ---- §6.3 mobile_ctr == 0 — two bytes, so its own edit
+        std::vector<uint8_t> b(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        b[26] = 0; b[27] = 0;
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+    }
+    {   // ---- §6.3 a zero key-hash target
+        std::vector<uint8_t> b(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        b[28] = b[29] = b[30] = b[31] = 0;
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+    }
+    {   // ---- §6.2 a key-hash target that DISAGREES with `dst_hash32`, while HAS_DST_HASH is set
+        std::vector<uint8_t> b(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        CHECK((b[2] & CUSTODY_FLAG_HAS_DST_HASH) != 0);      // the precondition, asserted not assumed
+        b[28] = 0xD5;                                        // one byte off the carrier hash
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+    }
+    // ---- the NODE-ID arms, off the node-id golden
+    auto rejects_node = [](int off, uint8_t val) {
+        std::vector<uint8_t> b(kGoldenTranslatedNode, kGoldenTranslatedNode + 32);
+        b[static_cast<size_t>(off)] = val;
+        return !parse_custody_failure(std::span<const uint8_t>(b)).has_value();
+    };
+    CHECK(parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedNode, 32)).has_value());   // control
+    CHECK(rejects_node(28, 0));                     // zero node-id target
+    CHECK(rejects_node(28, 255));                   // 0xFF — reserved, never a custody party
+    CHECK(rejects_node(28, 0x23));                  // != failed_dst (0x22)
+    {   // ★ a node-id target that is only equal AFTER truncation: 0x0122 must NOT pass as 0x22
+        std::vector<uint8_t> b(kGoldenTranslatedNode, kGoldenTranslatedNode + 32);
+        b[28] = 0x22; b[29] = 0x01;
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+    }
+    {   // ---- a declared length beyond the SUPPLIED body, both ways round
+        std::vector<uint8_t> b(kGoldenTranslatedHash, kGoldenTranslatedHash + 32);
+        b[1] = 33;                                  // claims a byte the body does not have
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(b)).has_value());
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedHash, 31)).has_value());
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedHash, 24)).has_value());
+    }
+}
+
+// ★★★★ THE TAIL PARSER'S OWN REFUSALS — the accessor must never manufacture a translation.
+TEST_CASE("§CUSTODY-F/1n §B278 S2 parse_custody_translated_tail refuses a direct record and every disagreement") {
+    // ---- a plain DIRECT record: no tail, ever
+    {
+        const std::optional<CustodyFailureRecord> r = parse_custody_failure(std::span<const uint8_t>(kGoldenBytes));
+        CHECK(r.has_value());
+        if (r) CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(kGoldenBytes), *r).has_value());
+    }
+    // ★★ THE POINTED ONE: a DIRECT record whose unknown future tail is byte-for-byte a valid translated tail.
+    //    It must STILL be refused — bit 6, not the byte pattern, is what declares a translation.
+    {
+        std::vector<uint8_t> body(kGoldenBytes, kGoldenBytes + 24);
+        body[1] = 32;
+        body.insert(body.end(), kGoldenTranslatedHash + 24, kGoldenTranslatedHash + 32);
+        const std::optional<CustodyFailureRecord> r = parse_custody_failure(std::span<const uint8_t>(body));
+        CHECK(r.has_value());                        // it is a perfectly valid v1 record with an 8-byte tail…
+        if (!r) return;
+        CHECK_FALSE(custody_record_is_translated(r->notice_flags));
+        CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(body), *r).has_value());   // …and NOT this
+        CHECK(custody_record_tail(std::span<const uint8_t>(body), *r).size() == 8);   // they stay UNKNOWN bytes
+    }
+    // ---- a translated record handed a SHORT body: the record/body disagreement is refused, not read past
+    {
+        const std::optional<CustodyFailureRecord> r =
+            parse_custody_failure(std::span<const uint8_t>(kGoldenTranslatedHash, 32));
+        CHECK(r.has_value());
+        if (!r) return;
+        CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(kGoldenTranslatedHash, 31), *r).has_value());
+        CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(kGoldenTranslatedHash, 24), *r).has_value());
+        CHECK(parse_custody_translated_tail(std::span<const uint8_t>(kGoldenTranslatedHash, 32), *r).has_value());
+        // ---- and a record CLAIMING translation below the 32-byte floor is refused by the accessor too
+        CustodyFailureRecord shorty = *r;
+        shorty.record_len = 31;
+        CHECK_FALSE(parse_custody_translated_tail(std::span<const uint8_t>(kGoldenTranslatedHash, 32), shorty).has_value());
+    }
+}
+
+// ★★★★ THE TWO PACKERS' REFUSALS. ⛔ The direct packer must refuse the flag it may never set; the translated
+//      packer must refuse every direct-prefix invalidity AND every tail term.
+TEST_CASE("§CUSTODY-F/1o §B278 S2 the direct packer refuses bit 6, and the translated packer refuses both halves") {
+    uint8_t out[64];
+    // ---- the DIRECT packer and the now-ALLOCATED bit 6 (§6.1: a v1 transmitter emits 24 bytes with it clear)
+    {
+        CustodyFailureRecord r = golden_record();
+        r.notice_flags = static_cast<uint8_t>(r.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED);
+        CHECK(pack_custody_failure(r, std::span<uint8_t>(out, sizeof out)) == 0);
+        // …and the control: without that one bit it still packs to the golden 24.
+        CHECK(pack_custody_failure(golden_record(), std::span<uint8_t>(out, sizeof out)) == 24);
+    }
+    auto refuses = [&](CustodyFailureRecord r, CustodyTranslatedTail t) {
+        return pack_custody_failure_translated(r, t, std::span<uint8_t>(out, sizeof out)) == 0;
+    };
+    // ---- BAD DIRECT PREFIX, one field each — the shared validator, reached through the translated packer
+    { CustodyFailureRecord r = golden_record(); r.version = 2;           CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record(); r.failed_ctr = 0;        CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record(); r.failed_origin = 0;     CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record(); r.reserved = 1;          CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record(); r.failed_plane = CustodyFailurePlane::team;
+                                                                          CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record();
+      r.notice_flags = static_cast<uint8_t>(r.notice_flags | custody_flags_stage_mask);
+      CHECK(refuses(r, golden_tail_hash())); }                            // BOTH stage bits
+    { CustodyFailureRecord r = golden_record(); r.notice_flags |= 0x80;   // bit 7 still reserved
+      CHECK(refuses(r, golden_tail_hash())); }
+    // ★ the caller hands the DIRECT prefix; a PRE-STAMPED one is refused because this packer owns offsets 1 & 2
+    { CustodyFailureRecord r = golden_record(); r.record_len = 32;        CHECK(refuses(r, golden_tail_hash())); }
+    { CustodyFailureRecord r = golden_record();
+      r.notice_flags = static_cast<uint8_t>(r.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED);
+      CHECK(refuses(r, golden_tail_hash())); }
+    // ---- BAD TAIL, one field each
+    { CustodyTranslatedTail t = golden_tail_hash(); t.original_reporter = 0;   CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_hash(); t.original_reporter = 255; CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_hash(); t.mobile_ctr = 0;          CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_hash(); t.target_value = 0;        CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_hash(); t.target_value = 0xA1B2C3D5u; CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_hash();
+      t.target_kind = static_cast<CustodyTranslatedTargetKind>(2);            CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_node(); t.target_value = 0x23;    CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_node(); t.target_value = 255;     CHECK(refuses(golden_record(), t)); }
+    { CustodyTranslatedTail t = golden_tail_node(); t.target_value = 0x0122u; CHECK(refuses(golden_record(), t)); }
+    // ⛔ AND ON EVERY REFUSAL THE BUFFER IS UNTOUCHED — a refusing packer never leaves a half-record behind.
+    {
+        std::memset(out, 0xEE, sizeof out);
+        CustodyTranslatedTail t = golden_tail_hash(); t.mobile_ctr = 0;
+        CHECK(pack_custody_failure_translated(golden_record(), t, std::span<uint8_t>(out, sizeof out)) == 0);
+        for (size_t i = 0; i < sizeof out; ++i) { CAPTURE(i); CHECK(out[i] == 0xEE); }
+    }
+    // ---- the controls: both good pairs still pack, so every refusal above is attributable to its one field.
+    CHECK(pack_custody_failure_translated(golden_record(), golden_tail_hash(),
+                                          std::span<uint8_t>(out, sizeof out)) == 32);
+    CHECK(pack_custody_failure_translated(golden_record(), golden_tail_node(),
+                                          std::span<uint8_t>(out, sizeof out)) == 32);
+}
+
+// ★★★★ §6.1's OTHER HALF, and it is the one a golden vector cannot see: the DIRECT flags DERIVATION can never
+//      produce bit 6, for ANY input. Swept exhaustively rather than sampled — `custody_notice_flags` is the only
+//      way a v1 transmitter builds that byte, so this is what makes "a direct transmitter emits bit 6 clear" a
+//      property of the code rather than of the three call sites that happen to exist today.
+TEST_CASE("§CUSTODY-F/1p §B278 S2 custody_notice_flags can NEVER set bit 6 — every stage x boolean combination") {
+    const CustodyRootStage stages[] = { CustodyRootStage::cts, CustodyRootStage::hop_ack,
+                                        CustodyRootStage::invalid };
+    for (CustodyRootStage s : stages) {
+        for (int m = 0; m < 8; ++m) {
+            CAPTURE(static_cast<int>(s)); CAPTURE(m);
+            const uint8_t f = custody_notice_flags(s, (m & 1) != 0, (m & 2) != 0, (m & 4) != 0);
+            CHECK((f & CUSTODY_FLAG_HOME_TRANSLATED) == 0);
+            CHECK_FALSE(custody_record_is_translated(f));
+            CHECK((f & custody_flags_reserved_mask) == 0);      // bit 7 too
+            CHECK(custody_record_prefix_len(f) == custody_record_v1_len);
+        }
+    }
+    // ⓘ THE ALLOCATION ITSELF, pinned as a wire value: bit 6 is 0x40 and the reserved mask is now bit 7 ALONE.
+    CHECK(static_cast<uint8_t>(CUSTODY_FLAG_HOME_TRANSLATED) == 0x40);
+    CHECK(custody_flags_reserved_mask == 0x80);
+    CHECK((custody_flags_reserved_mask & CUSTODY_FLAG_HOME_TRANSLATED) == 0);
+    // …and the two target-kind wire values, with the fail-closed domain around them.
+    CHECK(static_cast<uint8_t>(CustodyTranslatedTargetKind::node_id)  == 0);
+    CHECK(static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash) == 1);
+    CHECK(custody_target_kind_is_defined(0));
+    CHECK(custody_target_kind_is_defined(1));
+    for (int k = 2; k < 256; ++k) { CAPTURE(k); CHECK_FALSE(custody_target_kind_is_defined(static_cast<uint8_t>(k))); }
+}
+
 // ⓘ THE SNAPSHOT'S SIZE, MEASURED RATHER THAN CLAIMED (§11: "do not copy the approximately 352-byte PendingTx
 //   onto a firmware stack merely to retain 24 diagnostic bytes"). The record is a VALUE whose C++ size exceeds
 //   its 24-byte wire length because `dst_hash32` forces 4-byte alignment — stated so a reader is not surprised.
 TEST_CASE("§CUSTODY-F/1h the snapshot is BOUNDED and is nowhere near a PendingTx copy") {
     CHECK(sizeof(CustodyFailureRecord) == 28);
+    // ★ §B278 S2: the translated tail is its OWN value and the record did NOT grow to hold it (the additive-API
+    //   ruling, spec §6.3). ⛔ Neither type is a `Node` member — both are bounded stack/local codec values, which
+    //   is why S2 costs stack and never RAM. `CustodyNoticeSnapshot` is unmoved at 32, measured right below.
+    CHECK(sizeof(CustodyTranslatedTail) == 8);
     CHECK(sizeof(CustodyNoticeSnapshot) == 32);
     CHECK(sizeof(CustodyNoticeSnapshot) * 10 < sizeof(PendingTx));   // ★ an order of magnitude, not a saving
     CHECK(sizeof(PendingTx) == 352);

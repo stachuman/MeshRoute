@@ -1592,7 +1592,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 //     §13.2  standard unicast parsing succeeded (`ui != nullptr`).
 //
 //   CODEC-OWNED (`parse_custody_failure`, frame_codec.cpp — ELEVEN terms behind ONE `nullopt`)
-//     §13.3 body >= 24 · §13.4 version == 1 · §13.5 `record_len` in [24, body] · §13.6 flag bits 6-7 zero ·
+//     §13.3 body >= 24 · §13.4 version == 1 · §13.5 `record_len` in [24, body] · §13.6 flag bit 7 zero (bit 6
+//     is ALLOCATED as of §B278 S2 and is refused HERE, at the interim guard below, not by the codec) ·
 //     §13.7 `forwarded` set · §13.8 exactly one stage bit · §13.9 a known nonzero reason · §13.12 the four
 //     ids in 1..254 · §13.13 `failed_ctr` nonzero · §13.16 the hash flag agrees with the hash, BOTH ways ·
 //     §13.17 reserved bytes zero.
@@ -1657,6 +1658,19 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
     const std::optional<CustodyFailureRecord> parsed = parse_custody_failure(ui->body);
     if (!parsed) { reject(); return; }
     const CustodyFailureRecord& rec = *parsed;
+    // ★★★★ §B278 S2 — THE INTERIM HOME-TRANSLATED REFUSAL. ⛔⛔ THIS IS THE RATIFIED S2→S4 INTERMEDIATE STATE,
+    //   NOT AN OVERSIGHT AND NOT A PERMANENT RULE — the same F-before-G idiom §CUSTODY-F used and §CUSTODY-G
+    //   replaced. **S4 ("mobile receive and surfaces") IS THE SLICE THAT REPLACES THIS LINE** with the split
+    //   direct-vs-translated contextual validation of design §8.1/§8.2; S3 is what first puts a translated
+    //   record on the air. Until S4 lands, nothing produces this form and NOTHING may consume it.
+    //   ⓘ WHY IT MUST BE EXPLICIT NOW, in one sentence: before S2 a bit-6 record died at the codec's reserved
+    //     mask; S2 allocated bit 6, so without this line §13's eighteen terms below would run on a translated
+    //     record and could ACCEPT one — the translating home's own id sits in `failed_origin`, so a home would
+    //     store and push its own translation as if it were a direct report about itself.
+    //   ⛔ It takes the EXISTING bounded `custody_failure_reject` exit, exactly once, and returns BEFORE
+    //     `plane_supported` / `addressed_to_us` / type / layer / domain / store / Push. ⛔ G's eighteen
+    //     validations below are neither duplicated nor modified here.
+    if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }
     // ---- §13.10 — v1 plane SUPPORT, in its two halves (see the banner). The reserved plane values PARSE;
     //      refusing them is this layer's job, not the codec's.
     const bool plane_supported = rec.failed_plane == CustodyFailurePlane::static_same_layer;

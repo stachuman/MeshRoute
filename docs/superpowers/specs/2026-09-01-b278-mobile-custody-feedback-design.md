@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 + S1a CLOSED 2026-09-02 · S1b BRIEF QUALITY-AGENT PASS — owner ruling recorded; authorized for dispatch
+**Status:** DESIGN PASS · S0 + S1a + S1b + S2 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S3 brief Quality-Agent PASS, ready for Opus dispatch
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -425,8 +425,15 @@ There remains one shared custody codec.
 - `pack_custody_failure` continues to produce only the direct 24-byte form.
 - Add one explicit translated pack operation using the same prefix writer and the eight-byte
   tail; no caller writes offsets.
-- `parse_custody_failure` returns whether the translated flag is set plus the parsed tail.
+- `parse_custody_failure` keeps its existing source-compatible return type and exposes the
+  translated flag through `CustodyFailureRecord::notice_flags`. Add a separate
+  `parse_custody_translated_tail(body, record)` operation returning the parsed eight-byte
+  tail; do not force the four existing parse callers—including `src/fw_main.cpp`—through a
+  return-type migration merely to expose the extension.
 - bit 6 clear: the existing `record_len >= 24` future-tail rule remains unchanged.
+- `custody_record_tail` must start after the prefix this record actually owns: 24 for a
+  direct record, 32 for a translated record. Keep the existing caller-facing signature or
+  add a source-compatible overload/helper; never slice a translated future tail at 24.
 - bit 6 set: require `record_len >= 32`, valid `original_reporter`, a defined
   `target_kind`, a nonzero and kind-valid `target_value`, and nonzero `mobile_ctr`; require a
   node-id value in 1..254 which equals `failed_dst`, and require a hash value to equal
@@ -784,6 +791,22 @@ change.
 
 No custody wire or receiver change in S1b.
 
+**Completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s1b.md`. The two-phase authority now moves rows
+`none -> candidate -> eligible`, all four ACK-only activation arms clear the candidate, and
+cross-mobile return-key collisions refuse without overwriting or evicting the incumbent.
+The owner-ruled wrapper consequence is proven end to end: only the new reservation is
+released, no false `send_failed{no_route}` is emitted, and the untranslated ACK leaves the
+mobile to its existing 300 s timeout. Release/expiry telemetry has one semantic authority
+each. Native, both complete B251 mutation batteries, ABI probes, the ruled board pair and
+the warning census passed; `DelegAck`, `Node`, and board RAM moved by zero. The ordered
+corpus comparator attributed every delta to the new F6 telemetry: only `s07` and `s22`
+moved, while delivery, duplicate, failure, routing and airtime ledgers remained identical.
+The owner-approved seventh table ruling is landed in `simulation/BASELINE.md`; the keystone
+remains `32afbf11 / 269517 / 0`. S1b owes no bench part. It also surfaced two separate
+findings: B282 (wrapper-XL reservation leak) and B283 (the warning census's
+`-Wunused-parameter` blind spot).
+
 ### S2 — codec extension
 
 1. Allocate bit 6 and the 32-byte translated form.
@@ -791,6 +814,20 @@ No custody wire or receiver change in S1b.
 3. Keep direct 24-byte output byte-identical.
 4. Update `docs/frames.md` and `docs/protocol.md` drafts in the same slice; land them only
    after QG PASS.
+
+**Completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s2.md`. Bit 6 and the derived 32-byte form now
+live behind one additive codec: the four existing parser callers remain source-compatible,
+the direct 24-byte vector is byte-identical, translated offsets are pinned by two literal
+golden arrays, and future-tail access starts after the record's own 24- or 32-byte prefix.
+The named interim guard rejects a translated record immediately after shared parsing and
+before every G contextual term, store, Push or presentation surface; S4 owns its replacement.
+All four touched mutation targets passed in full (62 RED, zero unusable), all 36 corpus
+anchors reproduce the seventh ruled table after a proven relink, `Node` and ruled-board RAM
+are unchanged, and both wiring probes/checkers passed. The S2 wire text is landed in
+`docs/frames.md` and `docs/protocol.md`. S2 has no producer, consumer, re-anchor, owner
+ruling or bench residue; S3 is the first producer and Part 54 remains the end-to-end metal
+gate.
 
 ### S3 — home translation
 

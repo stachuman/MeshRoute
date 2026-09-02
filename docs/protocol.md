@@ -327,6 +327,18 @@ arrive, so no surface may call it a NACK. The report surfaces as `PushKind::cust
 and proven only at bench Part 53; the JSON is the host-proven surface); correlating it to a user send is
 Slice H's, currently parked.
 
+**The home-translated custody record (§B278 S2, 2026-09-02).** The `0x81` wire form now also has a 32-byte
+TRANSLATED shape — `notice_flags` bit 6 plus an eight-byte tail carrying the original outer reporter, the
+mobile's own counter and the mobile-visible target (byte layout in `docs/frames.md`) — and its first 24 bytes
+keep their exact direct meaning, so the record version stays 1 and `wire_version` is unchanged; an older
+receiver refuses bit 6 as reserved and cannot misread a translated record as an ordinary one. ⛔ **Nothing
+produces the translated form and every receiver explicitly refuses one until S4.** S2 landed the codec only:
+`Node::custody_failure_receive` rejects a translated record at a named interim guard, taking the same bounded
+`custody_failure_reject` a malformed record takes, **before** any plane, addressee, type, layer, domain,
+storage or Push logic runs — so no translated record is stored, pushed or user-exposed. S3 originates the form
+at a translating home; S4 replaces that guard with the split direct-vs-translated contextual validation. Until
+then a translated `0x81` is, by construction, behaviourally identical to one that was never sent.
+
 ### 2.4 The DATA-type namespace, the reflash ruling and the inbox migration (§CUSTODY-A, 2026-08-29)
 
 The DATA TYPE byte is a **range contract**: `0x00` the untyped DM · `0x01..0x7F` application-bearing ·

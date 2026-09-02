@@ -613,7 +613,39 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2530, 106699    # ★★ RE-SYNCED 2026-09-02 by **§B278 S1b** (custody admission, the
+PIN_CASES, PIN_ASSERTS = 2539, 107602    # ★★ RE-SYNCED 2026-09-02 by **§B278 S2** (the ADDITIVE translated-custody
+                                         # codec extension: `notice_flags` bit 6 + §6.2's 8-byte tail + the one
+                                         # interim receiver refusal). DERIVATION, measured with the real binary
+                                         # and not assumed: clean tree BEFORE (the uncommitted S1b tree, HEAD
+                                         # cebafdf) = 2530 / 106699 / 0 failed; AFTER = 2539 / 107602 / 0 failed
+                                         # ⇒ +9 cases / +903 assertions, and the delta closes EXACTLY:
+                                         #   · NINE new cases, each measured on its own filter —
+                                         #       F/1i  91 (the 32-byte golden, both kinds, + the direct control)
+                                         #       F/1j  22 (parse -> original record + typed tail, round trip)
+                                         #       F/1k  15 (the SYNTHETIC hash-without-HAS_DST_HASH vector,
+                                         #                 incl. the 4 zero-target assertions added after the
+                                         #                 battery proved X58 SURVIVED without them)
+                                         #       F/1l  17 (future-tail offset 24 direct / 32 translated)
+                                         #       F/1m 279 (the §6.3 refusal matrix; 254 of them are the
+                                         #                 exhaustive undefined-`target_kind` sweep)
+                                         #       F/1n  11 (the tail parser's own refusals)
+                                         #       F/1o  87 (both packers' refusals + the untouched-buffer proof)
+                                         #       F/1p 357 (the exhaustive "bit 6 is unreachable from
+                                         #                 `custody_notice_flags`" + kind-domain sweeps)
+                                         #       G/2.21 22 (the interim guard, production-shaped, + control)
+                                         #     = 901;
+                                         #   · TWO existing cases each gain exactly ONE assertion, both
+                                         #     deliberate and both part of the slice:
+                                         #       F/1g 13 -> 14 (the direct packer must also refuse bit 7 now
+                                         #                      that bit 6 has its own named arm)
+                                         #       F/1h  4 ->  5 (`sizeof(CustodyTranslatedTail) == 8` — the
+                                         #                      additive-API proof that the RECORD did not grow)
+                                         #   ⇒ 901 + 1 + 1 = 903. ✓
+                                         # ⛔ NO other case was edited. F/1d's two bit-6/bit-7 arms were RE-AIMED
+                                         #   in COMMENT only (bit 6 is now refused by §6.2's 32-byte floor rather
+                                         #   than by the reserved mask); its 32 assertions are unmoved.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2530, 106699 — ★★ RE-SYNCED 2026-09-02 by **§B278 S1b** (custody admission, the
                                          # CROSS-MOBILE return-key refusal and exact lifecycle telemetry — the
                                          # first B278 slice with BEHAVIOUR). DERIVATION, measured with the real
                                          # binary and not assumed: clean tree BEFORE (the uncommitted S1a tree)
@@ -8202,23 +8234,29 @@ MUTS_SLICEFCODEC = [
   "    w.u32_le(in.dst_hash32);                                 // 18-21 (LE)",
   "    w.u32_be(in.dst_hash32);                                 // 18-21 (LE)"),
  # ---- the transmitter invariants ------------------------------------------------------------------------
+ # ⚠⚠ F04-F07 WERE **RE-ANCHORED 2026-09-02 BY §B278 S2**, and the reason is recorded rather than quietly fixed
+ #    (the F16/F17 idiom above): S2 gives the two packers ONE shared prefix validator, so these four refusals
+ #    moved out of `pack_custody_failure`'s body into `custody_prefix_transmittable()` in the SAME file, and
+ #    their `return 0;` became `return false;`. ⛔ NOTHING ELSE CHANGED — each still deletes exactly one v1
+ #    transmitter invariant, and each is now reached through BOTH packers, which is strictly more coverage.
+ #    An un-re-anchored entry does not fail loudly; it goes VACUOUS at match count 0.
  ("F04 ★★★★ THE EXACTLY-ONE-STAGE RULE IS DROPPED FROM THE PACKER — §9.3's core invariant becomes advisory, "
   "so a record with BOTH stage bits, NEITHER, or the impossible all-zero flags byte the `invalid` sentinel "
   "produces can be transmitted. This is the sentinel-laundering §CUSTODY-E/3d closed, re-opened one layer up",
-  "    if (!custody_flags_exactly_one_stage(in.notice_flags))           return 0;   // §9.3 exactly-one-stage\n",
+  "    if (!custody_flags_exactly_one_stage(in.notice_flags))           return false;   // §9.3 exactly-one-stage\n",
   ""),
  ("F05 ★★★★ THE HASH/FLAG AGREEMENT IS DROPPED — §10.1's \"do not invent or reconstruct a hash from a node "
   "ID\" loses its last structural guard: a record may now claim `has_dst_hash` over a zero hash, or carry a "
   "hash with the flag clear, and a receiver believes whichever half it reads",
-  "    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return 0;\n",
+  "    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return false;\n",
   ""),
  ("F06 ★★★ THE PACKER ACCEPTS A RESERVED PLANE — §9.5 says v1 transmits `static_same_layer` ONLY, so a "
   "`team`/`hosted_mobile`/`cross_layer` value would air as a v1 diagnostic the receiver must reject",
-  "    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return 0;   // §9.5: v1 transmits ONLY this\n",
+  "    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return false;   // §9.5: v1 transmits ONLY this\n",
   ""),
  ("F07 ★★★ THE PACKER ACCEPTS THE `invalid` REASON — §9.4's value 0 is \"never transmitted\", and it is also "
   "`cascade_terminal_cause`'s NOT-TERMINAL answer, so this airs a custody report about a carrier that lived",
-  "    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return 0;   // §9.4 (never `invalid`)\n",
+  "    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return false;   // §9.4 (never `invalid`)\n",
   ""),
  # ---- the parser --------------------------------------------------------------------------------------
  ("F08 ★★★★ THE PARSER'S TAIL BOUND IS WIDENED TO `>=` NOTHING — `record_len` may exceed the body, so a "
@@ -8235,6 +8273,104 @@ MUTS_SLICEFCODEC = [
  ("F10 ★★★ THE PARSER IGNORES THE RESERVED BYTES — §9.2 says they must be zero for version 1, which is the "
   "ONLY thing that stops a future version's tail-in-the-prefix from being read as a v1 record",
   "    if (o.reserved != 0)                                       return std::nullopt;   // §13.17\n",
+  ""),
+ # =====================================================================================================
+ # §B278 S2 (2026-09-02) — THE HOME-TRANSLATED CODEC EXTENSION, in `frame_codec.cpp`.
+ # =====================================================================================================
+ # ⛔ ROUTED BY PRODUCTION FILE, which is the battery's own rule: everything below edits `frame_codec.cpp`, so
+ #    it belongs to `sliceFcodec`. The bit-6 ALLOCATION, the direct flags derivation and the future-tail OFFSET
+ #    authority all live in `frame_codec.h` and are therefore in `sliceFtypes` — including "wrong future-tail
+ #    offset", which the dispatch brief's prose listed here but whose only source line is the header's
+ #    `custody_record_prefix_len`. A mutation in a target that cannot edit its source is vacuous by construction.
+ # ⓘ The parser's bit-7 refusal is `sliceGcodec` G07 (already its owner); X45 below is the PACKER's half.
+ ("X45 ★★★★ §B278 S2 THE SHARED PREFIX VALIDATOR STOPS REFUSING BIT 6 — **THE DIRECT PACKER AIRS A TRANSLATED "
+  "FLAG OVER A 24-BYTE RECORD.** §6.1 says a direct v1 transmitter emits 24 bytes with bit 6 clear; without "
+  "this line `pack_custody_failure` stamps `record_len = 24` beside a flag that promises eight more bytes, and "
+  "every receiver refuses it at §6.2's floor — a diagnostic that can never be read, spent as airtime",
+  "    if (custody_record_is_translated(in.notice_flags))               return false;   // §6.1: the PACKERS own bit 6\n",
+  ""),
+ ("X46 ★★★ §B278 S2 THE PACKERS STOP REFUSING BIT 7 — the ONE still-reserved bit becomes transmittable, so a "
+  "v1 transmitter can air a flags byte a conforming receiver must reject. ⓘ Its parser-side twin is `sliceGcodec` "
+  "G07; this is the half that stops the bit ever reaching the air",
+  "    if (in.notice_flags & custody_flags_reserved_mask)               return false;   // §9.3 bit 7 zero in v1\n",
+  ""),
+ ("X47 ★★★★ §B278 S2 THE TRANSLATED LENGTH FLOOR IS WEAKENED TO THE v1 PREFIX — `record_len` 24..31 is accepted "
+  "with bit 6 set, so the tail reader runs off bytes the record never claimed to have. §6.2's whole "
+  "self-description is `flag + record_len`, and this deletes half of it",
+  "    if (rec.record_len < custody_record_translated_len)        return std::nullopt;   // §6.2: 32 is the floor",
+  "    if (rec.record_len < custody_record_v1_len)                return std::nullopt;   // §6.2: 32 is the floor"),
+ ("X48 ★★★★ §B278 S2 THE TAIL READER STOPS REFUSING A DIRECT RECORD — the first eight bytes of a v1 record's "
+  "UNKNOWN future tail are reinterpreted as a translation, so a mobile identity is manufactured out of bytes "
+  "some later version wrote for an entirely different purpose. ★ This is the arm that makes 'bit 6, not the "
+  "byte pattern, declares a translation' a property of the code",
+  "    if (!custody_record_is_translated(rec.notice_flags))       return std::nullopt;   // §6.3: direct ⇒ no tail\n",
+  ""),
+ ("X49 ★★★★ §B278 S2 THE PARSER STOPS VALIDATING THE TRANSLATED FORM — bit 6 is waved through and its eight "
+  "bytes are never checked, so `parse_custody_failure` returns a record whose extension is unvalidated while "
+  "its flag says the extension is there. **A success that isn't**, one layer down: the caller that later reads "
+  "the tail is the one that discovers the record was malformed",
+  "    if (custody_record_is_translated(o.notice_flags)\n"
+  "        && !custody_read_translated_tail(body, o))             return std::nullopt;   // §6.2/§6.3\n",
+  ""),
+ ("X50 ★★★★ §B278 S2 THE TRANSLATED PACKER OMITS THE FLAG IT EXISTS TO SET — 32 bytes are written with bit 6 "
+  "CLEAR, so the record airs as an ordinary v1 report carrying an eight-byte 'unknown tail'. Every receiver "
+  "accepts it, stores it, pushes it, and reports a direct custody failure that was actually a translation",
+  "    const uint8_t stamped_flags = static_cast<uint8_t>(in.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED);",
+  "    const uint8_t stamped_flags = in.notice_flags;"),
+ ("X51 ★★★★ §B278 S2 THE TRANSLATED PACKER STAMPS THE v1 LENGTH — `record_len` says 24 while 32 bytes are "
+  "written and bit 6 is set, so the record contradicts itself: a storing consumer retains 24 of the 32 and the "
+  "tail reader refuses the very bytes the packer just wrote",
+  "    custody_write_prefix(w, in, custody_record_translated_len, stamped_flags);",
+  "    custody_write_prefix(w, in, custody_record_v1_len, stamped_flags);"),
+ ("X52 ★★★★ §B278 S2 THE TAIL'S FIRST TWO OFFSETS SWAP — `original_reporter` and `target_kind` trade places, so "
+  "every translated record names the wrong reporter AND addresses the wrong kind. The record still packs, still "
+  "parses and still has 32 bytes: only its MEANING is wrong, which is what the 32-byte golden array is for",
+  "    w.u8(tail.original_reporter);                            // 24\n"
+  "    w.u8(static_cast<uint8_t>(tail.target_kind));            // 25\n",
+  "    w.u8(static_cast<uint8_t>(tail.target_kind));            // 24\n"
+  "    w.u8(tail.original_reporter);                            // 25\n"),
+ ("X53 ★★★★ §B278 S2 `mobile_ctr` IS PACKED BIG-ENDIAN — §6.2 says little-endian, and ctrM is the counter the "
+  "WHOLE mobile-side correlation is keyed on: every translated report would correlate to nothing. ⛔ INVISIBLE "
+  "to a pack->parse round trip, which uses the same codec both ways — only the golden array sees it",
+  "    w.u16_le(tail.mobile_ctr);                               // 26-27 (LE)",
+  "    w.u16_be(tail.mobile_ctr);                               // 26-27 (LE)"),
+ ("X54 ★★★★ §B278 S2 `target_value` IS PACKED BIG-ENDIAN — the same defect two fields wider, and it silently "
+  "turns a node-id target into a value 2^24 times too large and a hash target into a different hash",
+  "    w.u32_le(tail.target_value);                             // 28-31 (LE)",
+  "    w.u32_be(tail.target_value);                             // 28-31 (LE)"),
+ ("X55 ★★★ §B278 S2 THE TAIL'S REPORTER DOMAIN IS DROPPED — `0` (unprovisioned) and `0xFF` (reserved) become "
+  "legal values for `original_reporter`, so a translated record names an outer reporter that cannot exist. It "
+  "is the SAME §10.1(9) domain the prefix's four ids use, which is exactly why it must not be skipped here",
+  "    if (!custody_node_id_valid(t.original_reporter))                          return false;\n",
+  ""),
+ ("X56 ★★★★ §B278 S2 THE TARGET-KIND DOMAIN IS DROPPED — any byte becomes a 'kind', and since the node-id "
+  "branch is an equality test against `node_id` every undefined value silently takes the KEY-HASH branch. A "
+  "third mode appears that no version ever defined, and it is the most permissive one",
+  "    if (!custody_target_kind_is_defined(static_cast<uint8_t>(t.target_kind))) return false;\n",
+  ""),
+ ("X57 ★★★★ §B278 S2 A ZERO `mobile_ctr` IS ACCEPTED — §6.2 says nonzero, and ctrM 0 is not a counter any "
+  "mobile send was ever given, so the correlation key stops identifying anything (§13.13's defect, in the tail)",
+  "    if (t.mobile_ctr == 0)                                                    return false;\n",
+  ""),
+ ("X58 ★★★★ §B278 S2 A ZERO `target_value` IS ACCEPTED — neither a node id nor a hash, so the one field that "
+  "carries the MOBILE-VISIBLE identity carries nothing, in both kinds at once",
+  "    if (t.target_value == 0)                                                  return false;\n",
+  ""),
+ ("X59 ★★★★ §B278 S2 THE NODE-ID TARGET NEED NOT EQUAL `failed_dst` — §6.2's one cross-check between the tail "
+  "and the prefix is deleted, so a translated record can name a target the failed carrier was never sent to. "
+  "`target_value` is deliberately NOT inferred from the prefix precisely so the two can be compared",
+  "        if (static_cast<uint8_t>(t.target_value) != rec.failed_dst)            return false;\n",
+  ""),
+ ("X60 ★★★★ §B278 S2 THE NODE-ID WIDTH TEST IS DROPPED — a u32 target above 254 is TRUNCATED before the "
+  "equality, so `0x0122` passes as `0x22`. ★ The refusal that follows it is not a substitute: it compares the "
+  "truncated byte, so without this line the high 24 bits are simply discarded and never checked at all",
+  "        if (t.target_value > 254u)                                            return false;\n",
+  ""),
+ ("X61 ★★★★ §B278 S2 THE KEY-HASH TARGET NEED NOT MATCH `dst_hash32` — §6.2 requires the two hashes to agree "
+  "WHEN the direct report carries `HAS_DST_HASH`; without this the carrier hash and the retained original "
+  "target may name two different destinations and nothing notices. ⓘ The absent-flag case stays valid by "
+  "design — that asymmetry is §6.2's, and it is what makes this arm about agreement rather than presence",
+  "        if (t.target_value != rec.dst_hash32)                                 return false;\n",
   ""),
 ]
 
@@ -8289,6 +8425,64 @@ MUTS_SLICEFTYPES = [
   "            return DataTypeTraits{ true,  true,  false, false, true  };",
   "        case DATA_TYPE_CUSTODY_FAILURE:\n"
   "            return DataTypeTraits{ false, true,  false, false, true  };"),
+ # =====================================================================================================
+ # §B278 S2 (2026-09-02) — THE HOME-TRANSLATED WIRE VOCABULARY, in `frame_codec.h`.
+ # =====================================================================================================
+ # ⛔ ROUTED BY PRODUCTION FILE. The bit-6 ALLOCATION, the direct flags DERIVATION, the target-kind DOMAIN and
+ #    the future-tail OFFSET authority are all header lines, so they are `sliceFtypes`'. The codec's packer /
+ #    parser / tail-reader arms are `sliceFcodec`'s (X45-X61) and the interim receiver guard is `sliceGrx`'s.
+ ("X62 ★★★★ §B278 S2 BIT 6 IS KEPT RESERVED — the reserved mask goes back to `0xC0`, so the codec refuses every "
+  "translated record at §13.6 and the whole extension is UNREACHABLE while the flag constant, the tail type, "
+  "the packer and the tail reader all still exist and still compile. ★ THE POINT OF THIS ARM: an allocation is "
+  "a decision made in ONE constant, and a slice that added every part of a wire form except the one byte that "
+  "admits it would look complete in review and be inert on the air",
+  "inline constexpr uint8_t custody_flags_reserved_mask = 0x80;   // §6.1: bit 7 remains reserved; bit 6 is allocated",
+  "inline constexpr uint8_t custody_flags_reserved_mask = 0xC0;   // §6.1: bit 7 remains reserved; bit 6 is allocated"),
+ ("X63 ★★★★ §B278 S2 THE DIRECT FLAGS HELPER CAN SET BIT 6 — `custody_notice_flags` starts claiming a "
+  "translation on records built by ORDINARY v1 transmitters, which is the §6.1 sentence *\"A direct v1 "
+  "transmitter still emits 24 bytes with bit 6 clear\"* inverted at its single source. Every direct notice would "
+  "then promise eight bytes it does not carry, and its own packer would refuse to air it",
+  "    if (has_dst_hash)     f |= CUSTODY_FLAG_HAS_DST_HASH;\n"
+  "    return f;",
+  "    if (has_dst_hash)     f |= CUSTODY_FLAG_HAS_DST_HASH;\n"
+  "    f |= CUSTODY_FLAG_HOME_TRANSLATED;\n"
+  "    return f;"),
+ ("X64 ★★★★ §B278 S2 THE FUTURE-TAIL OFFSET IS WRONG FOR A TRANSLATED RECORD — the prefix-length authority "
+  "answers 24 for every record, so `custody_record_tail()` slices a translated record at 24 and hands a storing "
+  "consumer its eight DEFINED bytes labelled *\"bytes I cannot interpret\"*. ⛔ This is the exact defect §6.3's "
+  "correction exists to prevent, and it is INVISIBLE to a direct record — every pre-S2 call site is unaffected",
+  "constexpr uint8_t custody_record_prefix_len(uint8_t notice_flags) {\n"
+  "    return custody_record_is_translated(notice_flags) ? custody_record_translated_len : custody_record_v1_len;\n"
+  "}",
+  "constexpr uint8_t custody_record_prefix_len(uint8_t) {\n"
+  "    return custody_record_v1_len;\n"
+  "}"),
+ ("X65 ★★★★ §B278 S2 THE TRANSLATED PREDICATE ALWAYS ANSWERS FALSE — the ONE named authority every layer asks "
+  "(parser, tail accessor, packer, the interim receiver guard, the tests) stops recognising the form. ★ It is "
+  "the STRUCTURAL arm: a system that had re-spelled `flags & 0x40` at each site instead of asking here would "
+  "survive this mutation, so surviving it would mean the single authority is not actually the authority",
+  "constexpr bool custody_record_is_translated(uint8_t notice_flags) {\n"
+  "    return (notice_flags & CUSTODY_FLAG_HOME_TRANSLATED) != 0;\n"
+  "}",
+  "constexpr bool custody_record_is_translated(uint8_t) {\n"
+  "    return false;\n"
+  "}"),
+ ("X66 ★★★ §B278 S2 THE TRANSLATED PREFIX LENGTH BECOMES A MAGIC NUMBER THAT DISAGREES — 32 is written as an "
+  "unrelated literal instead of being DERIVED from `24 + 8`, and it is written one byte short. The tail then "
+  "starts inside its own last defined field and the 32-byte floor admits a 31-byte record",
+  "inline constexpr uint8_t custody_record_translated_len =\n"
+  "    static_cast<uint8_t>(custody_record_v1_len + custody_translated_tail_len);   // 32",
+  "inline constexpr uint8_t custody_record_translated_len = 31;   // 32"),
+ ("X67 ★★★ §B278 S2 THE TARGET-KIND DOMAIN ADMITS EVERY BYTE — `custody_target_kind_is_defined` stops "
+  "fail-closed, so §6.2's two-value enum silently acquires 254 undefined members at its single source. The "
+  "codec's own kind test then means nothing and every unknown value takes the key-hash branch",
+  "constexpr bool custody_target_kind_is_defined(uint8_t v) {\n"
+  "    return v == static_cast<uint8_t>(CustodyTranslatedTargetKind::node_id)\n"
+  "        || v == static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash);\n"
+  "}",
+  "constexpr bool custody_target_kind_is_defined(uint8_t) {\n"
+  "    return true;\n"
+  "}"),
 ]
 
 MUTS_SLICEFCASCADE = [
@@ -8481,11 +8675,16 @@ MUTS_SLICEGCODEC = [
   "consumer retains FEWER bytes than the record it just decoded, and the two disagree about its own length",
   "    if (o.record_len < custody_record_v1_len || o.record_len > body.size()) return std::nullopt;",
   "    if (o.record_len > body.size()) return std::nullopt;"),
- ("G07 ★★★ §13.6 THE RESERVED FLAG BITS (6-7) STOP BEING CHECKED — a v2 flag set by a newer reporter is "
+ # ⚠ G07 WAS **RE-ANCHORED AND RE-AIMED 2026-09-02 BY §B278 S2** (the F16/F17 idiom). §6.1 ALLOCATED bit 6 as
+ #   `CUSTODY_FLAG_HOME_TRANSLATED`, so the mask this line applies narrowed from `0xC0` to bit 7 alone and the
+ #   trailing comment moved with it. The ENTRY'S CLAIM IS UNCHANGED in kind — "the parser stops refusing the
+ #   still-reserved bit" — it is simply now about ONE bit instead of two. ⛔ Bit 6's own refusals did not
+ #   disappear: they became `sliceFcodec` X47-X61 (well-formedness) and `sliceGrx` X68 (the product refusal).
+ ("G07 ★★★ §13.6 THE RESERVED FLAG BIT (7) STOPS BEING CHECKED — a v2 flag set by a newer reporter is "
   "silently ignored rather than refused, which is the opposite of the tail rule: unknown STRUCTURE is accepted "
   "(and retained) while unknown SEMANTICS in a v1 flags byte must be refused",
-  "    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bits 6-7",
-  "    if (false)          return std::nullopt;   // §13.6 bits 6-7"),
+  "    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bit 7 (§6.1)",
+  "    if (false)          return std::nullopt;   // §13.6 bit 7 (§6.1)"),
  ("G08 ★★★ §13.7 THE MANDATORY `forwarded` BIT STOPS BEING REQUIRED — §9.3 says bit 0 must be 1 in v1, and it "
   "is the one bit that distinguishes a real record from a zeroed buffer that happens to satisfy the rest",
   "    if (!(o.notice_flags & CUSTODY_FLAG_FORWARDED))            return std::nullopt;   // §13.7",
@@ -8586,6 +8785,19 @@ MUTS_SLICEGRX = [
   "    enqueue_push(pu);",
   "    for (uint8_t i = 0; i < rec_len; ++i) pu.body[i] = rec_bytes[i];\n"
   "    if (seq) enqueue_push(pu);"),
+ # ---- §B278 S2 (2026-09-02) — the INTERIM translated-record refusal ----------------------------------------
+ # ⛔ This is the ONE production line S2 adds to `node_mac_rx.cpp`, and it is a ratified S2->S4 intermediate
+ #    state rather than final behaviour. When S4 replaces the guard with the split direct/translated contextual
+ #    validation, THIS ENTRY IS THE ONE TO RE-AIM — exactly as F17 was re-aimed when G landed.
+ ("X68 ★★★★ §B278 S2 THE INTERIM HOME-TRANSLATED GUARD IS REMOVED — a translated record falls through to §13's "
+  "eighteen terms, every one of which it satisfies (the tail is INVISIBLE to all eighteen), so the receiver "
+  "STORES it and PUSHES it as if it were a direct report. ★★ The consequence is not academic: the translating "
+  "home's own static id is what sits in `failed_origin`, so §13.11's addressee test PASSES at that home and it "
+  "consumes its own translation — a node reporting to itself that it lost custody of someone else's message. "
+  "⛔ Before S2 this could not happen because the codec refused bit 6 as reserved; S2 allocated the bit, so this "
+  "one line is now the whole of the product's refusal until S4 lands the real translated receiver",
+  "    if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }\n",
+  ""),
 ]
 
 MUTS_SLICEGINBOX = [

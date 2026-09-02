@@ -1007,10 +1007,29 @@ enum class CustodyRootStage : uint8_t {
 //   it is SAFE, not misread; and pre-namespace fleets are already incompatible under the standing
 //   reflash-together ruling (protocol.md §2.4 / M3). The existing `wire_version == 1` control in
 //   `test/test_data_type_namespace.cpp` still fails on any bump.
+//
+// ★★★★ §B278 S2 (2026-09-02) — THE HOME-TRANSLATED EXTENSION IS **ADDITIVE**, AND THIS IS STILL ONE CODEC.
+//   `notice_flags` bit 6 (`CUSTODY_FLAG_HOME_TRANSLATED`) plus §6.2's eight-byte tail at offsets 24-31 make a
+//   32-byte TRANSLATED record. The first 24 bytes keep their exact v1 meaning — they are the original report,
+//   not a reinterpretation — so `parse_custody_failure` keeps its signature and all four callers above compile
+//   and behave unchanged. What is added is one packer, one tail reader and one tail VALUE type; the prefix
+//   writer, the prefix validator and the prefix reader each still exist exactly once (frame_codec.cpp).
+//   · RECORD VERSION STAYS 1 and `protocol::wire_version` is UNTOUCHED (§6.3): the prefix's meaning is unchanged
+//     and the extension is self-described by an allocated flag plus `record_len`. During a mixed-build reflash an
+//     older receiver refuses bit 6 as reserved — it cannot misread a translated record as an ordinary one.
+//   · ⓘ INTERMEDIATE STATE, STATED IN CODE BECAUSE DOCS ROT: after S2 the wire form EXISTS and NOTHING
+//     PRODUCES OR CONSUMES IT. S3 originates it at the translating home; S4 lands the mobile receiver. Until
+//     then `Node::custody_failure_receive` refuses every translated record at an explicit named guard — see
+//     `node_mac_rx.cpp`. ⇒ the codec accepting bit 6 changes no product behaviour, by construction.
 // =====================================================================================================
 
 inline constexpr uint8_t custody_record_version_v1 = 1;    // §9.2 offset 0
 inline constexpr uint8_t custody_record_v1_len     = 24;   // §9.2: the v1 FIXED PREFIX. `record_len` may exceed it.
+// §B278 §6.2 — the HOME-TRANSLATED extension. ⛔ DERIVED, never a second magic 32: the translated known prefix
+// IS the v1 prefix plus this eight-byte tail, so the two lengths cannot drift apart (S2-1(3)).
+inline constexpr uint8_t custody_translated_tail_len   = 8;    // §6.2: offsets 24-31
+inline constexpr uint8_t custody_record_translated_len =
+    static_cast<uint8_t>(custody_record_v1_len + custody_translated_tail_len);   // 32
 
 // §9.3 — `notice_flags`. Bit NUMBERS 1/2 are `CustodyRootStage`'s own values, which is why the stage half of the
 // byte is the DERIVATION `1u << stage` and not a second table (see `custody_notice_flags` below).
@@ -1022,9 +1041,27 @@ enum CustodyNoticeFlag : uint8_t {
                                             //         NOT claim an RREQ was admitted or aired (§9.3, verbatim).
     CUSTODY_FLAG_NEXT_WAS_ONE_WAY = 0x10,   // bit 4 — `failed_next_hop` was classified one-way
     CUSTODY_FLAG_HAS_DST_HASH     = 0x20,   // bit 5 — `dst_hash32` is present and valid
+    // ★★★★ §B278 S2 (design `2026-09-01-b278-mobile-custody-feedback-design.md` §6.1) — bit 6, ALLOCATED.
+    //      A record carrying it is the HOME-TRANSLATED form: the same 24-byte v1 prefix, unreinterpreted, plus
+    //      §6.2's eight-byte tail at offsets 24-31 (`record_len >= 32`). ⛔ It is a FLAGS value and NEVER a
+    //      DataType literal — `0x40` is written down HERE and nowhere else (S2-1).
+    CUSTODY_FLAG_HOME_TRANSLATED  = 0x40,   // bit 6 — §6.2's translated tail is present
 };
 inline constexpr uint8_t custody_flags_stage_mask    = CUSTODY_FLAG_FAILED_AT_CTS | CUSTODY_FLAG_FAILED_AT_ACK;
-inline constexpr uint8_t custody_flags_reserved_mask = 0xC0;   // §9.3: bits 6-7 are zero in v1
+// §9.3 as amended by §6.1: bit 6 is now ALLOCATED, so only bit 7 is still reserved-and-must-be-zero.
+inline constexpr uint8_t custody_flags_reserved_mask = 0x80;   // §6.1: bit 7 remains reserved; bit 6 is allocated
+
+// ★★★★ §B278 S2-1(6) — THE ONE TRANSLATED PREDICATE AND THE ONE PREFIX-LENGTH AUTHORITY. Everything that needs
+//      to ask "is this the translated form?" or "how many bytes does this record's OWN known prefix occupy?"
+//      asks HERE: the parser, the future-tail accessor (`custody_record_tail` below), the translated packer, the
+//      §B278-S2 interim receiver guard (`node_mac_rx.cpp`) and the tests. ⛔ A second spelling of either is how
+//      a translated record ends up with its defined tail sliced at 24 and read as "unknown bytes".
+constexpr bool custody_record_is_translated(uint8_t notice_flags) {
+    return (notice_flags & CUSTODY_FLAG_HOME_TRANSLATED) != 0;
+}
+constexpr uint8_t custody_record_prefix_len(uint8_t notice_flags) {
+    return custody_record_is_translated(notice_flags) ? custody_record_translated_len : custody_record_v1_len;
+}
 
 // §9.5 — a NOTICE-SPECIFIC wire enum, ⛔ NOT a serialization of C++ `Plane`. `Plane::AUTO` is a ROUTING SELECTOR
 // and is not a diagnostic plane: a v1 carrier which RESOLVED to static/global records `static_same_layer`
@@ -1093,6 +1130,29 @@ struct CustodyFailureRecord {
     uint16_t reserved          = 0;                           // 22 — transmit zero; must be zero for version 1
 };
 
+// ★★★★ §B278 §6.2 — THE TRANSLATED TAIL, AS ITS OWN VALUE. ⛔⛔ IT IS DELIBERATELY **NOT** A SET OF FIELDS ON
+//      `CustodyFailureRecord` (S2's additive-API ruling, spec §6.3): the 24-byte v1 prefix stays exactly one
+//      value with exactly one meaning, and the extension stays a SECOND value that either exists or does not.
+//      Folding the two together would make every one of the four existing parse callers carry eight fields that
+//      are meaningless to three of them, and would make "is the tail present?" a per-field zero test.
+// ⛔ Like the record, this is NOT a memcpy image of the wire — `target_value` forces 4-byte alignment. The eight
+//    is the WIRE length (`custody_translated_tail_len`); only the codec knows the offsets.
+enum class CustodyTranslatedTargetKind : uint8_t {
+    node_id  = 0,   // §6.2: `target_value` is the original mobile-visible STATIC node id (1..254 == `failed_dst`)
+    key_hash = 1,   // §6.2: `target_value` is the row's retained original target `key_hash32`
+};
+// FAIL-CLOSED (C2): anything that is not one of the two defined values is malformed, never a third mode.
+constexpr bool custody_target_kind_is_defined(uint8_t v) {
+    return v == static_cast<uint8_t>(CustodyTranslatedTargetKind::node_id)
+        || v == static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash);
+}
+struct CustodyTranslatedTail {
+    uint8_t  original_reporter = 0;                                       // 24 — the outer origin H1 received from
+    CustodyTranslatedTargetKind target_kind = CustodyTranslatedTargetKind::node_id;   // 25
+    uint16_t mobile_ctr        = 0;                                       // 26 — ctrM, LITTLE-endian, nonzero
+    uint32_t target_value      = 0;                                       // 28 — LITTLE-endian, nonzero, kind-valid
+};
+
 // §9.3's flags byte, DERIVED. ⛔⛔ THE SENTINEL IS REFUSED RATHER THAN SHIFTED, and that is the whole reason this
 //    is a function: `1u << static_cast<uint8_t>(CustodyRootStage::invalid)` is `1u << 0` = `CUSTODY_FLAG_FORWARDED`,
 //    so a naive derivation would turn "this context claims no stage" into "forwarded, and no stage bit" — a
@@ -1133,7 +1193,21 @@ constexpr CustodyRootStage custody_stage_of_flags(uint8_t flags) {
 // TRANSMITTER owns: version, the 24-byte floor, `forwarded`, exactly one stage bit, no reserved bits, a
 // transmittable reason, the four ids in 1..254, a nonzero ctr, the hash flag agreeing with the hash, and zeroed
 // reserved bytes. ⛔ `record_len` is written as 24 — a v1 transmitter appends no tail.
+// ★ §B278 §6.1/S2-2: it additionally refuses the now-ALLOCATED `CUSTODY_FLAG_HOME_TRANSLATED` — *"a direct v1
+//   transmitter still emits 24 bytes with bit 6 clear"*. The refusal lives in the shared prefix validator
+//   (frame_codec.cpp) because the translated packer stamps that bit itself and refuses a pre-stamped input too.
 size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> out);
+
+// ★★★★ §B278 §6.2/§6.3 — PACK THE HOME-TRANSLATED FORM. Returns `custody_record_translated_len` (32) on success,
+// 0 on REFUSAL (C2). `in` is the ORIGINAL, DIRECT-shaped record (`record_len == 24`, bit 6 CLEAR) exactly as
+// `parse_custody_failure` handed it back; this function stamps `record_len = 32` and sets bit 6 itself, so ⛔ no
+// caller ever writes offset 1, offset 2 or any byte of 24-31. It shares the ONE prefix writer and the ONE prefix
+// validator with `pack_custody_failure` — there is no second serializer — and refuses, on top of every direct
+// invalidity, each §6.3 tail term: reporter outside 1..254, an undefined `target_kind`, a zero `mobile_ctr`, a
+// zero `target_value`, a node-id target outside 1..254 or unequal to `failed_dst`, and a key-hash target unequal
+// to `dst_hash32` when `CUSTODY_FLAG_HAS_DST_HASH` is set.
+size_t pack_custody_failure_translated(const CustodyFailureRecord& in, const CustodyTranslatedTail& tail,
+                                       std::span<uint8_t> out);
 
 // Parse a v1 record out of a DATA body. `nullopt` = malformed at the CODEC level (§18.3.6's list): short body,
 // unknown version, `record_len` below 24 or beyond the body, reserved flag bits, a missing `forwarded`,
@@ -1142,6 +1216,14 @@ size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> o
 // ★ TAIL ACCEPTANCE (§9.2): `record_len > 24` is VALID as long as it fits the body — a v1 reader INTERPRETS the
 //   first 24 bytes and the returned `record_len` tells a storing consumer how many bytes it must retain. Use
 //   `custody_record_tail()` to obtain those bytes; ⛔ never re-derive the offset.
+// ★★★★ §B278 S2 — THE RETURN TYPE IS DELIBERATELY UNCHANGED, and that is the slice's ruled API decision (spec
+//   §6.3, verbatim: *"do not force the four existing parse callers — including `src/fw_main.cpp` — through a
+//   return-type migration merely to expose the extension"*). The TRANSLATED form is visible two ways, both
+//   already on the value this returns: `custody_record_is_translated(rec.notice_flags)` says WHETHER, and
+//   `parse_custody_translated_tail(body, rec)` yields the eight-byte value. A bit-6 record that reaches here is
+//   VALIDATED IN FULL against §6.3 before it is returned — accepting the flag and deferring its terms would be
+//   exactly the "a success that isn't" shape. ⇒ a caller that ignores the tail is never handed a half-checked
+//   record; it is handed a record whose extension it simply does not read.
 // ⛔ WHAT THIS DELIBERATELY DOES **NOT** CHECK, because it needs NODE CONTEXT this pure codec does not have —
 //   they are §13's receiver items, and ⓘ **§CUSTODY-G LANDED ALL FIVE** in `Node::custody_failure_receive`
 //   (node_mac_rx.cpp), each as its own named term with its own falsifier. Kept listed here so a reader of the
@@ -1155,13 +1237,28 @@ size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> o
 //       existing `protocol::` bounds, above).
 std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_t> body);
 
+// ★★★★ §B278 §6.2/§6.3 — READ THE EIGHT-BYTE TRANSLATED TAIL of a record `parse_custody_failure` already
+// returned, out of the SAME body. `nullopt` for: a DIRECT record (bit 6 clear — ⛔ the first eight bytes of a v1
+// record's unknown future tail are NEVER reinterpreted as translation), a `record_len` below 32 or beyond the
+// supplied body, and every §6.3 tail term listed on the translated packer above. ⛔ There is no second offset
+// table: `parse_custody_failure` validates a bit-6 record through THIS SAME reader, so a record that parsed has
+// a tail that reads, and a tail that reads came off a record that parsed.
+std::optional<CustodyTranslatedTail> parse_custody_translated_tail(std::span<const uint8_t> body,
+                                                                   const CustodyFailureRecord& rec);
+
 // §9.2's unknown-version TAIL, as a span into the caller's body. Empty for a plain v1 record. ⛔ The ONE place
 // the tail's offset is written down; a storing consumer (Slice G) asks for it rather than slicing at 24.
+// ★★★★ §B278 S2 CORRECTION, and it is a FIX rather than an extension: the future tail starts after the prefix
+//   THIS RECORD OWNS — `custody_record_prefix_len()`, i.e. 24 direct and 32 translated — not at a hard-coded 24.
+//   Slicing a translated record at 24 would hand a storing consumer its eight DEFINED bytes labelled "bytes I
+//   cannot interpret", which is the same defect class as a display-shaped field making a decision. The
+//   caller-facing signature is unchanged, so all existing call sites are source- AND behaviour-identical for a
+//   direct record (bit 6 clear ⇒ the prefix length IS 24).
 inline std::span<const uint8_t> custody_record_tail(std::span<const uint8_t> body,
                                                     const CustodyFailureRecord& rec) {
-    if (rec.record_len <= custody_record_v1_len || body.size() < rec.record_len) return {};
-    return body.subspan(custody_record_v1_len,
-                        static_cast<size_t>(rec.record_len) - custody_record_v1_len);
+    const uint8_t prefix = custody_record_prefix_len(rec.notice_flags);
+    if (rec.record_len <= prefix || body.size() < rec.record_len) return {};
+    return body.subspan(prefix, static_cast<size_t>(rec.record_len) - prefix);
 }
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).

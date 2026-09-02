@@ -517,11 +517,11 @@ TEST_CASE("§CUSTODY-G/2.5 §13.5 a record_len beyond the available body is REFU
 TEST_CASE("§CUSTODY-G/2.5b §13.5 a record_len below the 24-byte floor is REFUSED") {
     expect_rejected_byte("13.5 record_len under", kOffRecordLen, custody_record_v1_len - 1);
 }
-TEST_CASE("§CUSTODY-G/2.6 §13.6 a set reserved flag bit (6-7) is REFUSED") {
+TEST_CASE("§CUSTODY-G/2.6 a translated flag over the direct 24-byte form is REFUSED") {
     uint8_t rec[custody_record_v1_len];
     const CustodyFailureRecord base = g_base_record(1, 2);
     const uint8_t n = g_pack(base, rec);
-    rec[kOffFlags] = static_cast<uint8_t>(base.notice_flags | 0x40);   // bit 6 — §9.3 says zero in v1
+    rec[kOffFlags] = static_cast<uint8_t>(base.notice_flags | 0x40);   // bit 6 requires §B278's 32-byte form
     const ArmOut o = run_arm(rec, n);
     CHECK(o.flew); CHECK(o.accepted == 0); CHECK(o.rejected == 1); CHECK(o.stored == 0);
 }
@@ -741,6 +741,63 @@ TEST_CASE("§CUSTODY-G/2.20 a VALID unknown tail is accepted, ignored by the v1 
         CHECK(rec->record_len == custody_record_v1_len + 4);
         CHECK(rec->failed_ctr == 0x0BEE);
         CHECK(custody_record_tail(std::span<const uint8_t>(s.body.data(), s.body.size()), *rec).size() == 4u);
+    }
+}
+
+// ★★★★ §B278 S2 — THE INTERIM HOME-TRANSLATED REFUSAL, AND IT IS A **PRODUCTION-SHAPED** ARM: the record below
+//      is not merely well-formed, it is the §CUSTODY-G/2 POSITIVE BASELINE — the very record this receiver
+//      accepts, stores and pushes — with §6.2's translated tail added and nothing else changed. Every one of
+//      §13's eighteen terms is therefore satisfied, so the ONLY thing that can refuse it is S2's explicit guard.
+// ⛔⛔ THIS IS THE RATIFIED S2→S4 INTERMEDIATE STATE, NOT THE FINAL BEHAVIOUR. S3 originates the translated form;
+//    **S4 replaces this guard** with design §8.1/§8.2's split direct-vs-translated contextual validation. When
+//    S4 lands, this case is the one that must be re-aimed — the same way §CUSTODY-F/6's
+//    "drops at Slice B's tail guard" claim was re-aimed when G landed.
+// ⓘ WHY THE GUARD IS LOAD-BEARING RATHER THAN COSMETIC: before S2 a bit-6 record died at the codec's reserved
+//   mask. S2 allocates bit 6, so without the guard the eighteen terms below would run on a translated record —
+//   and a translating home's own id sits in `failed_origin`, so a home could store and push its own translation
+//   as if it were a direct report about itself.
+TEST_CASE("§CUSTODY-G/2.21 §B278 S2 a WELL-FORMED translated record is REFUSED by the interim guard: no store, no push") {
+    // ---- the tail, valid against the baseline prefix: `failed_dst` is 9 and no `HAS_DST_HASH` is carried.
+    CustodyTranslatedTail tail{};
+    tail.original_reporter = 2;                                   // the relay this fixture reports from
+    tail.target_kind       = CustodyTranslatedTargetKind::node_id;
+    tail.mobile_ctr        = 0x0777;
+    tail.target_value      = 9;                                   // == g_base_record(...).failed_dst
+
+    uint8_t body[custody_record_translated_len];
+    const size_t n = pack_custody_failure_translated(g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2),
+                                                     tail, std::span<uint8_t>(body, sizeof body));
+    CHECK(n == custody_record_translated_len);                    // non-vacuous: the packer really produced 32 B
+    if (n != custody_record_translated_len) return;
+    // ★ AND IT IS GENUINELY WELL-FORMED AT THE CODEC — the refusal below is the RECEIVER's, not the parser's.
+    const std::optional<CustodyFailureRecord> parsed =
+        parse_custody_failure(std::span<const uint8_t>(body, n));
+    CHECK(parsed.has_value());
+    if (parsed) {
+        CHECK(custody_record_is_translated(parsed->notice_flags));
+        CHECK(parsed->failed_origin == 1);                        // ⇒ §13.11's addressee test WOULD pass
+        CHECK(parsed->reporter_layer == 2);                       // ⇒ §13.15's layer test WOULD pass
+        CHECK(parse_custody_translated_tail(std::span<const uint8_t>(body, n), *parsed).has_value());
+    }
+    // ---- the arm: exactly one bounded rejection, and nothing else happens at all.
+    const ArmOut o = run_arm(body, static_cast<uint8_t>(n));
+    CHECK(o.flew);                 // ⛔ the frame really reached node 1 — a stalled chain is not a rejection
+    CHECK(o.accepted == 0);
+    CHECK(o.rejected == 1);        // the EXISTING bounded exit, taken exactly once
+    CHECK(o.pushes == 0);          // ⛔ zero Push
+    CHECK(o.stored == 0);          // ⛔ zero store
+    CHECK(o.delivered == 0);       // ⛔ and never a fall-through to ordinary DM delivery
+    CHECK(o.unsupported == 0);     // ⛔ NOT `unsupported_internal` — 0x81 is still a supported type
+    // ---- THE POSITIVE CONTROL, in the same case: the identical prefix WITHOUT the tail is still accepted, so
+    //      the refusal above is attributable to the translated form alone and not to a broken fixture.
+    {
+        uint8_t direct[custody_record_v1_len];
+        const uint8_t dn = g_pack(g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2), direct);
+        const ArmOut d = run_arm(direct, dn);
+        CHECK(d.accepted == 1);
+        CHECK(d.rejected == 0);
+        CHECK(d.pushes == 1);
+        CHECK(d.stored == 1);
     }
 }
 

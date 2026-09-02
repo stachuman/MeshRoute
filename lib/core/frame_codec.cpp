@@ -1203,28 +1203,43 @@ std::optional<LayerRecord> parse_layer_record(std::span<const uint8_t> in, size_
 // ⛔ The field ORDER below IS §9.2's table, read top to bottom; the `Writer`/`Reader` cursors make position
 //    implicit exactly as every other codec in this file does, so an inserted field shifts both directions at
 //    once and cannot desynchronize pack from parse. (`pack_layer_record` above is the same idiom.)
-size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> out) {
-    if (out.size() < custody_record_v1_len) return 0;
+namespace {
+
+// ★★★★ THE ONE v1 PREFIX VALIDATOR, shared by BOTH packers (§B278 §6.3: *"Add one explicit translated pack
+//      operation using the same prefix writer"* — the validator travels with the writer, or the two forms drift).
+// ⛔ WHAT IS **NOT** HERE, AND WHY: `record_len`. It is the one field the two forms disagree about (24 vs 32) and
+//    each packer therefore states its own rule; folding it in would make the shared authority say "whichever".
+// ⓘ Both packers are handed the DIRECT-shaped record, which is why bit 6 is refused HERE rather than only in the
+//    direct packer: a v1 transmitter never sets it (§6.1), and `pack_custody_failure_translated` stamps it
+//    itself, so a caller that pre-stamped it is confused about who owns offset 2 and is refused loudly (C2).
+bool custody_prefix_transmittable(const CustodyFailureRecord& in) {
     // ---- the v1 TRANSMITTER's invariants, refused loudly rather than aired malformed (C2). Each one is a
     //      §9.2/§9.3 sentence; a receiver would drop the record anyway, so emitting it only spends airtime.
-    if (in.version != custody_record_version_v1)                     return 0;   // §9.2 offset 0
-    if (in.record_len != custody_record_v1_len)                      return 0;   // §9.2: v1 appends no tail
-    if (!(in.notice_flags & CUSTODY_FLAG_FORWARDED))                 return 0;   // §9.3 bit 0 is mandatory
-    if (!custody_flags_exactly_one_stage(in.notice_flags))           return 0;   // §9.3 exactly-one-stage
-    if (in.notice_flags & custody_flags_reserved_mask)               return 0;   // §9.3 bits 6-7 zero in v1
-    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return 0;   // §9.4 (never `invalid`)
-    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return 0;   // §9.5: v1 transmits ONLY this
+    if (in.version != custody_record_version_v1)                     return false;   // §9.2 offset 0
+    if (!(in.notice_flags & CUSTODY_FLAG_FORWARDED))                 return false;   // §9.3 bit 0 is mandatory
+    if (!custody_flags_exactly_one_stage(in.notice_flags))           return false;   // §9.3 exactly-one-stage
+    if (in.notice_flags & custody_flags_reserved_mask)               return false;   // §9.3 bit 7 zero in v1
+    if (custody_record_is_translated(in.notice_flags))               return false;   // §6.1: the PACKERS own bit 6
+    if (!custody_reason_is_transmittable(static_cast<uint8_t>(in.terminal_reason))) return false;   // §9.4 (never `invalid`)
+    if (in.failed_plane != CustodyFailurePlane::static_same_layer)   return false;   // §9.5: v1 transmits ONLY this
     if (!custody_node_id_valid(in.failed_origin) || !custody_node_id_valid(in.failed_dst)
-        || !custody_node_id_valid(in.previous_hop) || !custody_node_id_valid(in.failed_next_hop)) return 0;   // §10.1(9)
-    if (in.failed_ctr == 0)                                          return 0;   // §10.1(10)
+        || !custody_node_id_valid(in.previous_hop) || !custody_node_id_valid(in.failed_next_hop)) return false;   // §10.1(9)
+    if (in.failed_ctr == 0)                                          return false;   // §10.1(10)
     // §9.3 bit 5 and §10.1's "do not invent or reconstruct a hash from a node ID": the flag and the value agree
     // in BOTH directions, so neither a set flag over a zero hash nor a carried hash with the flag clear can air.
-    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return 0;
-    if (in.reserved != 0)                                            return 0;   // §9.2 offset 22: transmit zero
-    wire::Writer w(out);
+    if (((in.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (in.dst_hash32 != 0)) return false;
+    if (in.reserved != 0)                                            return false;   // §9.2 offset 22: transmit zero
+    return true;
+}
+
+// ★★★★ THE ONE v1 PREFIX WRITER. ⛔ `record_len` (offset 1) and `notice_flags` (offset 2) are PARAMETERS, not
+//      fields, because they are exactly the two bytes the translated form stamps — passing them in is what keeps
+//      a single serializer honest instead of growing a second one that "also writes 32 and bit 6".
+void custody_write_prefix(wire::Writer& w, const CustodyFailureRecord& in,
+                          uint8_t record_len, uint8_t notice_flags) {
     w.u8(in.version);                                        // 0
-    w.u8(in.record_len);                                     // 1
-    w.u8(in.notice_flags);                                   // 2
+    w.u8(record_len);                                        // 1
+    w.u8(notice_flags);                                      // 2
     w.u8(static_cast<uint8_t>(in.terminal_reason));          // 3
     w.u8(in.failed_origin);                                  // 4
     w.u8(in.failed_dst);                                     // 5
@@ -1241,7 +1256,86 @@ size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> o
     w.u8(in.remaining_hops);                                 // 17
     w.u32_le(in.dst_hash32);                                 // 18-21 (LE)
     w.u16_le(in.reserved);                                   // 22-23
+}
+
+// ★★★★ §B278 §6.3 — THE ONE TRANSLATED-TAIL VALIDATOR, as a VALUE test against the prefix the tail rides on.
+//      Both directions ask it: the packer BEFORE it writes a byte, the reader AFTER it decodes eight. That split
+//      is what lets the packer refuse without leaving a half-written buffer behind, while still keeping exactly
+//      one statement of each term (the prefix validator/writer pair above is the same shape).
+bool custody_tail_transmittable(const CustodyTranslatedTail& t, const CustodyFailureRecord& rec) {
+    // ⛔ `original_reporter` reuses the ONE static-id domain (§10.1(9)); it is not a second range.
+    if (!custody_node_id_valid(t.original_reporter))                          return false;
+    if (!custody_target_kind_is_defined(static_cast<uint8_t>(t.target_kind))) return false;
+    if (t.mobile_ctr == 0)                                                    return false;
+    if (t.target_value == 0)                                                  return false;
+    if (t.target_kind == CustodyTranslatedTargetKind::node_id) {
+        // §6.2: *"For node-id addressing it must equal `failed_dst`."* The WIDTH test comes first — a u32 value
+        // above 254 is not a node id at all, and truncating before comparing would let 0x0122 pass as 0x22.
+        if (t.target_value > 254u)                                            return false;
+        if (!custody_node_id_valid(static_cast<uint8_t>(t.target_value)))      return false;
+        if (static_cast<uint8_t>(t.target_value) != rec.failed_dst)            return false;
+    } else if ((rec.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) {
+        // §6.2: *"when the direct report carries `HAS_DST_HASH`, both hashes must agree, while absence of that
+        // optional field remains valid."* ⛔ The absent-hash case is NOT repaired or inferred — it is accepted
+        // as-is, because the tail carries the row's retained ORIGINAL target and the prefix then has no carrier
+        // hash to cross-check it against. That asymmetry is §6.2's, not a fallback (C2).
+        if (t.target_value != rec.dst_hash32)                                 return false;
+    }
+    return true;
+}
+
+// ★★★★ §B278 §6.2/§6.3 — THE ONE TRANSLATED-TAIL READER, at offsets 24-31. Both `parse_custody_failure` (which
+//      uses it to VALIDATE a bit-6 record) and `parse_custody_translated_tail` (which uses it to RETURN the
+//      value) call this, so "the record parsed" and "the tail reads" can never mean two different things.
+// ⛔ It refuses a DIRECT record outright: the first eight bytes of a v1 record's unknown future tail are NOT a
+//    translation, and reinterpreting them would invent a mobile identity out of bytes some later version wrote.
+std::optional<CustodyTranslatedTail> custody_read_translated_tail(std::span<const uint8_t> body,
+                                                                  const CustodyFailureRecord& rec) {
+    if (!custody_record_is_translated(rec.notice_flags))       return std::nullopt;   // §6.3: direct ⇒ no tail
+    if (rec.record_len < custody_record_translated_len)        return std::nullopt;   // §6.2: 32 is the floor
+    if (rec.record_len > body.size())                          return std::nullopt;   // record/body disagreement
+    wire::Reader r(body.subspan(custody_record_v1_len));
+    CustodyTranslatedTail t{};
+    t.original_reporter = r.u8();                                                  // 24
+    t.target_kind       = static_cast<CustodyTranslatedTargetKind>(r.u8());        // 25 (validated below)
+    t.mobile_ctr        = r.u16_le();                                              // 26-27 (LE)
+    t.target_value      = r.u32_le();                                              // 28-31 (LE)
+    if (!r.ok())                                               return std::nullopt;   // over-read guard
+    if (!custody_tail_transmittable(t, rec))                   return std::nullopt;   // §6.3's tail terms
+    return t;
+}
+
+}  // namespace
+
+size_t pack_custody_failure(const CustodyFailureRecord& in, std::span<uint8_t> out) {
+    if (out.size() < custody_record_v1_len) return 0;
+    if (!custody_prefix_transmittable(in))                           return 0;   // the shared v1 invariants
+    if (in.record_len != custody_record_v1_len)                      return 0;   // §9.2: v1 appends no tail
+    wire::Writer w(out);
+    custody_write_prefix(w, in, custody_record_v1_len, in.notice_flags);
     return (w.ok() && w.size() == custody_record_v1_len) ? w.size() : 0;
+}
+
+// ★★★★ §B278 §6.2 — THE TRANSLATED PACKER. Same prefix validator, same prefix writer, one extra eight-byte tail.
+// ⛔ `in` is the DIRECT record (24 / bit 6 clear); THIS function stamps offset 1 = 32 and offset 2 |= bit 6, so
+//    the caller never touches a byte. Refuses everything the direct packer refuses, plus every §6.3 tail term.
+size_t pack_custody_failure_translated(const CustodyFailureRecord& in, const CustodyTranslatedTail& tail,
+                                       std::span<uint8_t> out) {
+    if (out.size() < custody_record_translated_len) return 0;
+    if (!custody_prefix_transmittable(in))                           return 0;   // the shared v1 invariants
+    if (in.record_len != custody_record_v1_len)                      return 0;   // the DIRECT prefix, stamped below
+    // ⓘ The tail is judged against `in`, not against the stamped copy, and that is exact rather than convenient:
+    //   the only prefix fields §6.3 cross-checks are `failed_dst`, `dst_hash32` and `HAS_DST_HASH`, and stamping
+    //   touches offsets 1 and 2's bit 6 only. Nothing the stamp writes can change this verdict.
+    if (!custody_tail_transmittable(tail, in))                       return 0;   // §6.3's tail terms
+    const uint8_t stamped_flags = static_cast<uint8_t>(in.notice_flags | CUSTODY_FLAG_HOME_TRANSLATED);
+    wire::Writer w(out);
+    custody_write_prefix(w, in, custody_record_translated_len, stamped_flags);
+    w.u8(tail.original_reporter);                            // 24
+    w.u8(static_cast<uint8_t>(tail.target_kind));            // 25
+    w.u16_le(tail.mobile_ctr);                               // 26-27 (LE)
+    w.u32_le(tail.target_value);                             // 28-31 (LE)
+    return (w.ok() && w.size() == custody_record_translated_len) ? w.size() : 0;
 }
 
 std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_t> body) {
@@ -1255,7 +1349,7 @@ std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_
     // appended a tail — and the surplus is retained by the caller through `custody_record_tail`.
     if (o.record_len < custody_record_v1_len || o.record_len > body.size()) return std::nullopt;
     o.notice_flags = r.u8();
-    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bits 6-7
+    if (o.notice_flags & custody_flags_reserved_mask)          return std::nullopt;   // §13.6 bit 7 (§6.1)
     if (!(o.notice_flags & CUSTODY_FLAG_FORWARDED))            return std::nullopt;   // §13.7
     if (!custody_flags_exactly_one_stage(o.notice_flags))      return std::nullopt;   // §13.8
     const uint8_t reason = r.u8();
@@ -1289,7 +1383,20 @@ std::optional<CustodyFailureRecord> parse_custody_failure(std::span<const uint8_
     if (((o.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0) != (o.dst_hash32 != 0))
         return std::nullopt;                                                          // §13.16 both directions
     if (o.reserved != 0)                                       return std::nullopt;   // §13.17
+    // ★★★★ §B278 §6.3 — BIT 6 IS AN INSTRUCTION TO VALIDATE THE TRANSLATED FORM, never a bit to wave through.
+    //   Bit 6 CLEAR leaves everything above exactly as it was: `record_len >= 24` and the surplus is an unknown
+    //   future tail (§9.2). Bit 6 SET additionally requires `record_len >= 32` and every §6.3 tail term, checked
+    //   through the ONE reader — so a record this function returns with the flag set has a tail that reads.
+    if (custody_record_is_translated(o.notice_flags)
+        && !custody_read_translated_tail(body, o))             return std::nullopt;   // §6.2/§6.3
     return o;
+}
+
+// §B278 §6.3's public tail accessor. ⛔ It adds NO term of its own — it is the same reader `parse_custody_failure`
+// already ran, so the two can never disagree about whether a record is a well-formed translation.
+std::optional<CustodyTranslatedTail> parse_custody_translated_tail(std::span<const uint8_t> body,
+                                                                   const CustodyFailureRecord& rec) {
+    return custody_read_translated_tail(body, rec);
 }
 
 // Hash-bind PUBKEY answer inner (E2E §6, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 0x8B): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).

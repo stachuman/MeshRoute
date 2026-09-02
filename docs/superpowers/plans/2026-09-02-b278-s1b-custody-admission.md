@@ -1,7 +1,8 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B278 S1b — custody admission, collision refusal and exact lifecycle telemetry · dispatch brief · 2026-09-02
 
-**Status: QUALITY-AGENT PASS 2026-09-02 — OWNER RULING RECORDED; AUTHORIZED FOR DISPATCH.**
+**Status: COMPLETE 2026-09-02 — software/QG closed; owner ruling applied; seventh corpus-table ruling landed; evidence at
+`docs/superpowers/evidence/2026-09-02-b278-s1b.md`.**
 Dispatch model after PASS: **Opus**. Authority:
 `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`, especially
 §4.2–§5, §10 and §12-S1b. Pre-check input:
