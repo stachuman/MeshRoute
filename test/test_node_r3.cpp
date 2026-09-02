@@ -115,7 +115,9 @@ public:
             else if (std::strcmp(f[i].key, "awaiting_ack") == 0) e.awaiting_ack = f[i].b;          // §hybrid-rts S4
         }
         events.push_back(e);
+        flog.record(type, f, n);                 // §B278 S1b: the shared FIELD-level projection, beside this TU's own `Ev`
     }
+    mrtest::EmitFieldLog flog;
 
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
     const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }
@@ -434,9 +436,11 @@ static CmdResult send_e2e_global(Node& node, uint8_t dst, const char* body) {
 // A production-shaped registered-mobile first-hop DATA/RTS pair. The inner uses the shared codec and carries
 // SOURCE_HASH exactly as enqueue_data does; only the radio exchange is hand-driven so capacity tests can retain
 // eight outstanding E2E correlations without filling a separate mobile node's own pending-ACK ring.
+// §B278 S1b: `type` APPENDED with a default, so every pre-existing caller is byte-identical. It exists so a
+// case can drive §5(7) — the ONE eligibility term the direct-transit reservation reads from `d.type`.
 static std::vector<uint8_t> b251_mobile_data(uint8_t home, uint8_t dst, uint16_t ctr_m,
                                              uint32_t mobile_hash, const char* body,
-                                             bool e2e = true) {
+                                             bool e2e = true, uint8_t type = 0) {
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_SOURCE_HASH
                            | (e2e ? DATA_FLAG_E2E_ACK_REQ : 0));
     uint8_t inner[protocol::max_payload_bytes_hard_cap]{};
@@ -447,7 +451,7 @@ static std::vector<uint8_t> b251_mobile_data(uint8_t home, uint8_t dst, uint16_t
     CHECK(inner_len > 0);
     std::array<uint8_t, protocol::lora_max_frame_bytes> wire{};
     const uint8_t mac[4] = {0, 0, 0, 0};
-    data_in d{}; d.addr_len = 0; d.flags = flags; d.next = home; d.dst = dst;
+    data_in d{}; d.addr_len = 0; d.flags = flags; d.type = type; d.next = home; d.dst = dst;
     d.hops_remaining = 31; d.ctr = ctr_m;
     d.inner = std::span<const uint8_t>(inner, inner_len); d.mac = std::span<const uint8_t>(mac, sizeof mac);
     const size_t n = pack_data(d, std::span<uint8_t>(wire.data(), wire.size()));
@@ -10830,6 +10834,258 @@ TEST_CASE("§B278 S0 — a full ring refuses TWO independent senders concurrentl
     CHECK(home.test_deleg_ack_live_n() == 8);                        // ★ and neither evicted a live row
     CHECK(hh.count("mobile_ctr_translated") == 8);
     CHECK(ma.has_pending_tx()); CHECK(mb.has_pending_tx());          // both still retrying, in lockstep
+}
+
+// ==================================================================================================================
+// §B278 S1b (2026-09-02) — the ARM-LEVEL custody verdicts, driven END TO END through the real hosted-mobile
+// transit path rather than through the ring's seam. Spec §4.3/§5, brief §S1b-1.
+// ==================================================================================================================
+
+TEST_CASE("§B278 S1b — a direct hosted-mobile E2E transit's row is CUSTODY-ELIGIBLE, and §5(7)'s two excluded "
+          "types are refused a candidate at the SAME site") {
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u;
+    const uint8_t NONE = 0, CAND = 1, ELIG = 2, FWD = 3;   // Node::DelegAckCustody, flattened (test_deleg_custody_n)
+    const RxMeta meta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+
+    auto drive = [&](TestHal& hh, Node& home, uint64_t& now, uint16_t ctr_m, bool e2e, uint8_t type) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, ctr_m, MOBILE_HASH, "x", e2e, type);
+        const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), meta);
+        hh._now = ++now; home.on_recv(data.data(), data.size(), meta);
+        home.on_timer(kPostAckTimerId);
+    };
+    auto fresh = [&](TestHal& hh, Node& home) {
+        NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        c.leaf_id = 0; c.lbt_enabled = false; CHECK(home.on_init(c));
+        uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+        home.route_inject(DEST, DEST, 1, 100);
+        (void)hh;
+    };
+
+    SUBCASE("a plain E2E transit: exactly one row, and it is ELIGIBLE — nothing is left provisional") {
+        TestHal hh; Node home(hh, HOME, 0x10101010u); fresh(hh, home);
+        uint64_t now = 1000; hh._now = now;
+        drive(hh, home, now, /*ctr_m*/1, /*e2e=*/true, /*type=*/0);
+        CHECK(home.test_deleg_ack_live_n() == 1);
+        CHECK(home.test_deleg_custody_n(ELIG) == 1);        // ★ the direct-transit arm CARRIES custody
+        CHECK(home.test_deleg_custody_n(CAND) == 0);        // ⛔ the provisional state did not survive activation
+        CHECK(home.test_deleg_custody_n(FWD) == 0);         // ⛔ S3's state is unreachable
+        CHECK(hh.count("mobile_ctr_translated") == 1);      // and the flight really was forwarded
+        // the reservation event now names the addressing CHOICE: a direct transit reserves by NODE ID.
+        const auto res = hh.flog.all("deleg_ack_reserved");
+        CHECK(res.size() == 1u);
+        if (res.size() == 1u) {
+            CHECK(res[0]->shape() == "mobile_hash,ctr_m,target,layer,target_kind");
+            CHECK(res[0]->at("target_kind") == 0);          // node_id — `d.dst`, not a hash
+            CHECK(res[0]->at("target") == DEST);
+        }
+    }
+
+    SUBCASE("§5(7): a DATA_TYPE_CUSTODY_FAILURE carrier still owes an ACK but can NEVER owe custody") {
+        // The E2E flag is set, so the ACK obligation (R1=A) is created exactly as before — but a notice about a
+        // notice is what §5(7) excludes, and the exclusion is applied at RESERVATION because `d.type` is knowable.
+        TestHal hh; Node home(hh, HOME, 0x10101010u); fresh(hh, home);
+        uint64_t now = 1000; hh._now = now;
+        drive(hh, home, now, /*ctr_m*/1, /*e2e=*/true, /*type=*/DATA_TYPE_CUSTODY_FAILURE);
+        CHECK(hh.count("deleg_ack_reserved") == 1);         // the ACK obligation exists...
+        CHECK(home.test_deleg_ack_live_n() == 1);
+        CHECK(home.test_deleg_custody_n(NONE) == 8);        // ...and NOT ONE row in the whole ring owes custody
+        CHECK(home.test_deleg_custody_n(CAND) == 0);
+        CHECK(home.test_deleg_custody_n(ELIG) == 0);
+    }
+
+    SUBCASE("§5(7): a DATA_TYPE_E2E_ACK carrier is excluded one step earlier — it takes no row at all") {
+        TestHal hh; Node home(hh, HOME, 0x10101010u); fresh(hh, home);
+        uint64_t now = 1000; hh._now = now;
+        drive(hh, home, now, /*ctr_m*/1, /*e2e=*/true, /*type=*/DATA_TYPE_E2E_ACK);
+        CHECK(hh.count("deleg_ack_reserved") == 0);         // `wants_reverse_map` already refuses it
+        CHECK(home.test_deleg_ack_live_n() == 0);
+        CHECK(home.test_deleg_custody_n(NONE) == 8);
+    }
+
+    SUBCASE("R1=A is untouched: a plain NON-E2E transit takes no row, so it can hold no custody state either") {
+        TestHal hh; Node home(hh, HOME, 0x10101010u); fresh(hh, home);
+        uint64_t now = 1000; hh._now = now;
+        drive(hh, home, now, /*ctr_m*/1, /*e2e=*/false, /*type=*/0);
+        CHECK(hh.count("deleg_ack_reserved") == 0);
+        CHECK(hh.count("deleg_ack_released") == 0);         // ⛔ and S1b's new emit does NOT appear either
+        CHECK(home.test_deleg_ack_live_n() == 0);
+        CHECK(home.test_deleg_custody_n(NONE) == 8);
+        CHECK(admission_refusals_with_reason(hh, 2) == 0);  // ⛔ no B278 BUSY_RX on a non-E2E send
+        CHECK(tx_label_count(hh, "NACK") == 0);
+    }
+}
+
+TEST_CASE("§B278 S1b — the WRAPPER reservation is PROVISIONAL: a same-layer wrapper is a candidate before the "
+          "hop ACK and a CROSS-LAYER one never is") {
+    // ★★★ THE ONE OBSERVATION POINT THE WRAPPER PATH HAS, and why it exists: a wrapper is reserved in
+    //     `handle_data` and activated much later in `do_post_ack`, so the row sits RESERVED in between —
+    //     unlike a direct transit, which does both inside one call. `drive_current_hop(..., run_post_ack=false)`
+    //     stops exactly there.
+    constexpr uint8_t HOME = 10, MOBILE = 70, DEST = 30;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u, DEST_HASH = 0x30303030u;
+    const uint8_t NONE = 0, CAND = 1, ELIG = 2, FWD = 3;
+
+    SUBCASE("same-layer: `candidate` while RESERVED, then `eligible` once the arm is known") {
+        TestHal mh, hh; Node mobile(mh, MOBILE, MOBILE_HASH), home(hh, HOME, 0x10101010u);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        cfg.leaf_id = 0; cfg.lbt_enabled = false;
+        NodeConfig mc = cfg; mc.is_mobile = true;
+        CHECK(mobile.on_init(mc)); CHECK(home.on_init(cfg));
+        uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+        mobile.test_set_my_mobile_reg(HOME, MOBILE);
+        mobile.route_inject(HOME, HOME, 1, 100);
+        home.route_inject(DEST, DEST, 1, 100);
+        CHECK(home.test_id_bind_set(DEST, DEST_HASH, true));        // resolves immediately -> the eligible arm
+
+        uint64_t now = 1000; mh._now = hh._now = now;
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = DEST_HASH;
+        c.u.send.flags = DATA_FLAG_E2E_ACK_REQ; c.u.send.plane = static_cast<uint8_t>(Plane::GLOBAL);
+        c.crypt = CryptIntent::off; c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        CHECK(mobile.on_command(c).code == CmdCode::queued);
+        const DrivenHop hop = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now,
+                                                /*run_post_ack=*/false);
+        CHECK(hop.got_ack); CHECK(hop.data_type == DATA_TYPE_MOBILE_SEND);
+        // ⛔ HERE: the hop ACK is out, the wrapper body has NOT been parsed, and the row is PROVISIONAL.
+        CHECK(hh.count("deleg_ack_reserved") == 1);
+        CHECK(hh.count("deleg_ack_put") == 0);
+        CHECK(home.test_deleg_ack_live_n() == 1);
+        CHECK(home.test_deleg_custody_n(CAND) == 1);                 // ★ candidate: "not yet disproven"
+        CHECK(home.test_deleg_custody_n(ELIG) == 0);
+        // ...and the reservation is HASH-addressed, which is what `target_kind` now says on the wire-side event.
+        const auto res = hh.flog.all("deleg_ack_reserved");
+        CHECK(res.size() == 1u);
+        if (res.size() == 1u) CHECK(res[0]->at("target_kind") == 1);   // key_hash
+
+        mh._now = hh._now = ++now; home.on_timer(kPostAckTimerId);   // now the arm is known
+        CHECK(hh.count("deleg_ack_put") == 1);
+        CHECK(home.test_deleg_custody_n(ELIG) == 1);                 // ★ confirmed by the resolved-id arm
+        CHECK(home.test_deleg_custody_n(CAND) == 0);                 // ⛔ the provisional state did not survive
+        CHECK(home.test_deleg_custody_n(FWD) == 0);
+    }
+
+    SUBCASE("cross-layer: the wrapper is refused a candidate at RESERVATION, before any body is parsed") {
+        // §5(6) excludes a cross-layer carrier, and `ui->has_cross_layer` is one of the few exclusions that IS
+        // knowable pre-ACK — so this row is born `none` and the ACK obligation is all it ever carries.
+        TestHal mh, hh; Node mobile(mh, MOBILE, MOBILE_HASH), home(hh, HOME, 0x10101010u);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+        cfg.leaf_id = 0; cfg.lbt_enabled = false;
+        NodeConfig mc = cfg; mc.is_mobile = true;
+        CHECK(mobile.on_init(mc)); CHECK(home.on_init(cfg));
+        uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+        mobile.test_set_my_mobile_reg(HOME, MOBILE);
+        mobile.route_inject(HOME, HOME, 1, 100);
+
+        uint64_t now = 1000; mh._now = hh._now = now;
+        Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = DEST_HASH;
+        c.u.layer.hops[0] = 7; c.u.layer.hop_count = 1;   // ONE user hop: the destination leaf 7
+        c.u.layer.flags = DATA_FLAG_E2E_ACK_REQ;
+        c.crypt = CryptIntent::off; c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        CHECK(mobile.on_command(c).code == CmdCode::queued);
+        const DrivenHop hop = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now,
+                                                /*run_post_ack=*/false);
+        CHECK(hop.got_ack); CHECK(hop.data_type == DATA_TYPE_MOBILE_SEND);
+        CHECK((hop.data_flags & DATA_FLAG_CROSS_LAYER) != 0);        // the wrapper really is cross-layer
+        CHECK(hh.count("deleg_ack_reserved") == 1);                  // the ACK obligation still exists...
+        CHECK(home.test_deleg_ack_live_n() == 1);
+        CHECK(home.test_deleg_custody_n(CAND) == 0);                 // ⛔ ...and NO custody candidate ever was
+        CHECK(home.test_deleg_custody_n(NONE) == 8);
+    }
+}
+
+TEST_CASE("§B278 S1b F6 — a PARKED delegated send releases its reservation at the give-up edge, and the event "
+          "names `park_giveup`") {
+    // The one release cause with a clock behind it. A wrapper whose target hash the home cannot resolve is
+    // PARKED, so its reservation stays RESERVED — carrying the provisional candidate — until
+    // `hash_locate_giveup_ms` retires the parked send. ⛔ Before §B278 S1b that release was INVISIBLE.
+    constexpr uint8_t HOME = 10, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u, UNKNOWN_HASH = 0xFEEDFACEu;
+    const uint8_t CAND = 1;
+    TestHal mh, hh; Node mobile(mh, MOBILE, MOBILE_HASH), home(hh, HOME, 0x10101010u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig mc = cfg; mc.is_mobile = true;
+    CHECK(mobile.on_init(mc)); CHECK(home.on_init(cfg));
+    uint8_t pub[32]{}; home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);
+    mobile.test_set_my_mobile_reg(HOME, MOBILE);
+    mobile.route_inject(HOME, HOME, 1, 100);
+    // ⛔ NO id_bind and NO cached home for UNKNOWN_HASH -> `send_by_hash` parks and floods an H query.
+
+    uint64_t now = 1000; mh._now = hh._now = now;
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = UNKNOWN_HASH;
+    c.u.send.flags = DATA_FLAG_E2E_ACK_REQ; c.u.send.plane = static_cast<uint8_t>(Plane::GLOBAL);
+    c.crypt = CryptIntent::off; c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    CHECK(mobile.on_command(c).code == CmdCode::queued);
+    const DrivenHop hop = drive_current_hop(mobile, mh, home, hh, last_tx_copy(mh, "RTS"), now);
+    CHECK(hop.got_ack);
+    CHECK(hh.count("deleg_ack_reserved") == 1);
+    CHECK(hh.count("deleg_ack_put") == 0);                       // parked, so never activated
+    CHECK(home.test_deleg_ack_live_n() == 1);
+    CHECK(home.test_deleg_custody_n(CAND) == 1);                 // ★ a PARKED wrapper keeps its provisional state
+    CHECK(hh.count("deleg_ack_released") == 0);
+
+    // ...and at the named give-up edge the retained send is dropped and its reservation is released, LOUDLY.
+    now += protocol::hash_locate_giveup_ms + 1; hh._now = now;
+    home.test_fire_aging();
+    CHECK(hh.count("send_hash_giveup") == 1);
+    CHECK(hh.count("deleg_ack_released") == 1);
+    CHECK(home.test_deleg_ack_live_n() == 0);
+    const auto rel = hh.flog.all("deleg_ack_released");
+    CHECK(rel.size() == 1u);
+    if (rel.size() == 1u) {
+        CHECK(rel[0]->shape() == "mobile_hash,ctr_m,target,target_kind,layer,cause");
+        CHECK(rel[0]->at("mobile_hash") == static_cast<int64_t>(MOBILE_HASH));
+        CHECK(rel[0]->at("target") == static_cast<int64_t>(UNKNOWN_HASH));
+        CHECK(rel[0]->at("target_kind") == 1);                   // key_hash — the mobile addressed by hash
+        CHECK(rel[0]->at("cause") == 6);                         // ★ DelegAckReleaseCause::park_giveup
+    }
+}
+
+TEST_CASE("§B278 S1b — natural per-destination counters are COLLISION-FREE: two hosted mobiles to one "
+          "destination both activate, and no BUSY_RX reason 2 appears") {
+    // ★ THE MEASUREMENT BEHIND §4.3's "the guard is for wrap/malformed state, not a claimed ordinary event".
+    //   The home mints `next_ctr(dst)` PER DESTINATION, so two mobiles sending to the SAME destination get
+    //   DIFFERENT ctr_H and can never share the wire-visible return key. ⛔ This is why the cross-mobile refusal
+    //   has no production-shaped end-to-end case and is proved at the ring instead — stated, not glossed.
+    constexpr uint8_t HOME = 10, DEST = 30, M1 = 70, M2 = 71;
+    constexpr uint32_t H1 = 0x70707070u, H2 = 0x71717171u;
+    TestHal hh; Node home(hh, HOME, 0x10101010u);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false; CHECK(home.on_init(c));
+    uint8_t pub[32]{};
+    home.test_add_host_mobile(H1, M1, pub);
+    home.test_add_host_mobile(H2, M2, pub);
+    home.route_inject(DEST, DEST, 1, 100);
+    const RxMeta meta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+    uint64_t now = 1000; hh._now = now;
+
+    // ⛔ NO queue wake-up BETWEEN the two: the idiom is `§B251 first-hop identity`'s — both first hops are
+    //    accepted while the home is idle, then the queue drains. Waking the queue in between would leave the home
+    //    mid-flight and refuse the second RTS for a reason that has nothing to do with correlation.
+    for (const auto& who : {std::pair<uint8_t, uint32_t>{M1, H1}, std::pair<uint8_t, uint32_t>{M2, H2}}) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, /*ctr_m*/1, who.second, "x", /*e2e=*/true);
+        const std::vector<uint8_t> rts = b251_mobile_rts(who.first, HOME, DEST, data);
+        const size_t ack0 = tx_label_count(hh, "ACK");
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), meta);
+        hh._now = ++now; home.on_recv(data.data(), data.size(), meta);
+        CHECK(tx_label_count(hh, "ACK") == ack0 + 1);       // both hop ACKs were issued
+        home.on_timer(kPostAckTimerId);
+    }
+    CHECK(hh.count("deleg_ack_reserved") == 2);
+    CHECK(hh.count("deleg_ack_put") == 2);                  // ★ BOTH activated — no refusal on the natural path
+    CHECK(home.test_deleg_ack_live_n() == 2);
+    CHECK(home.test_deleg_custody_n(/*eligible*/2) == 2);
+    CHECK(admission_refusals_with_reason(hh, 2) == 0);      // ⛔ zero correlation-ring refusals
+    CHECK(hh.count("deleg_ack_released") == 0);             // ⛔ and zero releases
+    // ...and the reason is the per-destination counter: the two ctr_H values DIFFER for one destination.
+    const auto puts = hh.flog.all("deleg_ack_put");
+    CHECK(puts.size() == 2u);
+    if (puts.size() == 2u) {
+        CHECK(puts[0]->at("ctr_h") != puts[1]->at("ctr_h"));
+        CHECK(puts[0]->at("peer") == puts[1]->at("peer"));   // same destination, so the OTHER key terms agree
+        CHECK(puts[0]->at("layer") == puts[1]->at("layer"));
+    }
 }
 
 TEST_CASE("§B251 exclusions — ordinary static and team-plane transit preserve their original counters") {

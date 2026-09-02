@@ -124,6 +124,125 @@ class TestModelControls(unittest.TestCase):
         self.assertEqual(census.selftest(), 0)                           # and it is restored
 
 
+class TestS1bIdentityIsConsumedDirectly(unittest.TestCase):
+    """§B278 S1b F6 — the ACK binder reads the row's OWN identity and refuses to work without it.
+
+    ⛔ THE THREE MUTATIONS THE BRIEF NAMES ARE EACH ATTACKED HERE: the census ignoring the new identity, the
+       census accepting a missing field, and the census keeping the RETIRED registration authority as the ACK
+       binder. Each one would leave the headline number looking the same while the measurement got weaker.
+    """
+
+    @staticmethod
+    def _flight(**overrides):
+        ack = {"local": 254, "ctr": 4, "mobile_hash": 0xDDDD, "ctr_h": 9}
+        ack.update(overrides)
+        return [
+            census.Event(9, 0, "mobile_registered", {"key": 0xDDDD, "local_id": 254, "epoch": 1}),
+            census.Event(9, 1_000, "deleg_ack_reserved", {"mobile_hash": 0xDDDD, "ctr_m": 4, "target": 30,
+                                                          "layer": 0, "target_kind": 1}),
+            census.Event(9, 1_000, "deleg_ack_put", {"mobile_hash": 0xDDDD, "ctr_h": 9, "ctr_m": 4,
+                                                      "peer": 30, "layer": 0}),
+            census.Event(9, 5_000, "mobile_reverse_ack", ack),
+        ]
+
+    def test_the_bind_uses_the_events_own_identity(self) -> None:
+        c = census.build_node_census(self._flight())[9]
+        self.assertEqual((c.ack_release_bound, len(c.ack_release_unbound)), (1, 0))
+        self.assertEqual(c.rows[0].end_kind, "ack")
+        self.assertEqual(c.rows[0].target_kind, 1)          # the reservation's addressing CHOICE is retained
+
+    def test_the_registration_authority_no_longer_decides(self) -> None:
+        """Strip the registration entirely: under S0/S1a this was UNBINDABLE, and now it binds."""
+        events = [e for e in self._flight() if e.kind != "mobile_registered"]
+        c = census.build_node_census(events)[9]
+        self.assertEqual((c.ack_release_bound, len(c.ack_release_unbound)), (1, 0))
+
+    def test_a_registration_that_disagrees_does_not_override_the_event(self) -> None:
+        """A second live key on the local id used to make the bind ambiguous; now it is only a diagnostic."""
+        events = list(self._flight())
+        events.insert(1, census.Event(9, 0, "mobile_registered", {"key": 0xEEEE, "local_id": 254, "epoch": 1}))
+        c = census.build_node_census(events)[9]
+        self.assertEqual(c.ack_release_bound, 1)
+
+    def test_a_missing_identity_field_REFUSES(self) -> None:
+        for missing in ("mobile_hash", "ctr_h"):
+            with self.subTest(field=missing):
+                events = self._flight()
+                events[-1].data.pop(missing)
+                with self.assertRaises(census.CensusRefusal):
+                    census.build_node_census(events)
+
+    def test_a_wrong_typed_identity_field_REFUSES(self) -> None:
+        # `False == 9` is false, but `False` for a counter is a wire-shape defect, and `9.0 == 9` is TRUE in
+        # Python — only the TYPE IDENTITY rejects both, which is the whole point of this control.
+        for value in (False, 9.0, "9", None):
+            with self.subTest(value=value):
+                with self.assertRaises(census.CensusRefusal):
+                    census.build_node_census(self._flight(ctr_h=value))
+
+    def test_a_pre_S1b_reservation_REFUSES_rather_than_being_censused_weakly(self) -> None:
+        events = self._flight()
+        events[1].data.pop("target_kind")
+        with self.assertRaises(census.CensusRefusal):
+            census.build_node_census(events)
+
+
+class TestS1bLifecycleClosesTheInterval(unittest.TestCase):
+    """§B278 S1b F6 — release and expiry turn the S0/S1a lower/upper bounds into one measured number."""
+
+    RESERVE = {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30, "layer": 0, "target_kind": 0}
+
+    def test_without_the_release_the_two_arms_disagree(self) -> None:
+        c = census.build_node_census([census.Event(9, 0, "deleg_ack_reserved", dict(self.RESERVE))])[9]
+        lo = census.max_occupancy(c.rows, census.ACK_TTL_MS, False)[2]
+        hi = census.max_occupancy(c.rows, census.ACK_TTL_MS, True)[2]
+        self.assertNotEqual(lo, hi)
+        self.assertEqual(c.unclosed_rows, 1)
+
+    def test_with_the_release_they_coincide_at_the_observed_instant(self) -> None:
+        c = census.build_node_census([
+            census.Event(9, 0, "deleg_ack_reserved", dict(self.RESERVE)),
+            census.Event(9, 1_234, "deleg_ack_released", dict(self.RESERVE, cause=5)),
+        ])[9]
+        lo = census.max_occupancy(c.rows, census.ACK_TTL_MS, False)[2]
+        hi = census.max_occupancy(c.rows, census.ACK_TTL_MS, True)[2]
+        self.assertEqual((lo, hi), (1_234, 1_234))
+        self.assertEqual((c.unclosed_rows, c.release_causes), (0, {5: 1}))
+
+    def test_an_expiry_reports_the_exact_pre_clear_custody_state(self) -> None:
+        for state in (0, 1, 2):
+            with self.subTest(custody_state=state):
+                c = census.build_node_census([
+                    census.Event(9, 0, "deleg_ack_reserved", dict(self.RESERVE)),
+                    census.Event(9, census.ACK_TTL_MS, "deleg_ack_expired",
+                                 {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 0, "target": 30, "layer": 0,
+                                  "custody_state": state}),
+                ])[9]
+                self.assertEqual(c.rows[0].custody_at_end, state)
+                self.assertEqual(c.rows[0].end_kind, "expired")
+
+    def test_a_lifecycle_event_naming_no_row_is_never_invented_into_one(self) -> None:
+        c = census.build_node_census([
+            census.Event(9, 5, "deleg_ack_released", dict(self.RESERVE, cause=0)),
+            census.Event(9, 6, "deleg_ack_expired", {"mobile_hash": 1, "ctr_m": 1, "ctr_h": 1, "target": 1,
+                                                     "layer": 0, "custody_state": 0}),
+        ])[9]
+        self.assertEqual((len(c.rows), len(c.release_unbound), len(c.expiry_unbound)), (0, 1, 1))
+
+    def test_every_new_field_must_be_an_integer(self) -> None:
+        for ev, field, bad in (("deleg_ack_released", "cause", 5.0),
+                               ("deleg_ack_released", "target_kind", False),
+                               ("deleg_ack_expired", "custody_state", "2")):
+            with self.subTest(ev=ev, field=field):
+                base = (dict(self.RESERVE, cause=5) if ev == "deleg_ack_released"
+                        else {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 0, "target": 30, "layer": 0,
+                              "custody_state": 2})
+                base[field] = bad
+                with self.assertRaises(census.CensusRefusal):
+                    census.build_node_census([census.Event(9, 0, "deleg_ack_reserved", dict(self.RESERVE)),
+                                              census.Event(9, 10, ev, base)])
+
+
 class TestDiagnosticIsNeverABinding(unittest.TestCase):
     def test_a_diagnostic_origin_does_not_change_the_status(self) -> None:
         events = [

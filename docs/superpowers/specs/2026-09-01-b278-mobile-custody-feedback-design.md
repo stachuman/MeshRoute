@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 CLOSED 2026-09-02 · S1a BRIEF DRAFTED — awaiting Quality-Agent brief gate
+**Status:** DESIGN PASS · S0 + S1a CLOSED 2026-09-02 · S1b BRIEF QUALITY-AGENT PASS — owner ruling recorded; authorized for dispatch
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -64,6 +64,13 @@ The owner accepted the following design authority:
    Team creation/grants, registration, presence and key lookup consume no rows; a team-plane
    OLED `-t -a` DM bypasses home delegation. Failed, unacknowledged `-a` sends are the pressure
    case. S1b's correlation telemetry must make the occupancy observable on metal.
+7. **R3: no false `deleg_fail` on a wrapper correlation collision (owner ruling
+   2026-09-02).** The outward DM has already been admitted and may deliver, so
+   `presence_mark_deleg_fail` would surface the false statement `send_failed{no_route}`.
+   Preserve the measured consequence: release only the new correlation reservation, let the
+   outward DM continue, leave any later ACK untranslated, and let the mobile's existing E2E
+   deadline report the timeout. A faster truthful `correlation_lost` outcome, if ever wanted,
+   requires a separate reviewed design.
 
 ## 2. Problem and current truth
 
@@ -267,6 +274,13 @@ the corpus cannot expose the mistake because home counters are per destination.
 
 Admission failure releases the reservation through the same one-owner cleanup path. A
 minted counter is not admission evidence.
+
+**R3 consequence:** a wrapper-path cross-mobile collision is discovered only after its
+outward DM was admitted. It releases the new reservation but must not call
+`presence_mark_deleg_fail`: the DM may still deliver, so `send_failed{no_route}` would be
+false. The returning ACK remains untranslated and the mobile reaches its existing E2E
+timeout. Direct transit remains different and loud: it refuses before the hop ACK with
+BUSY_RX reason 2.
 
 ### 4.4 Custody lookup identity
 
@@ -719,7 +733,7 @@ then-measured 750 s counterfactual with §10.1's single 300 s row lifetime. S0 a
 (BUSY_RX retry bound) and B281 (board-runner output-path contradiction), and assigned the F3,
 F4, F6 and corpus-reachability corrections recorded in this spec.
 
-### S1a — behavior-neutral correlation refactor
+### S1a — CLOSED 2026-09-02 · behavior-neutral correlation refactor
 
 1. Generalize the one ring and preserve target + return identities.
 2. Add outward type and custody lifecycle state without changing which flights reserve;
@@ -734,6 +748,15 @@ F4, F6 and corpus-reachability corrections recorded in this spec.
    `mobile_ctr_admission_refused`.
 
 No custody admission, wire or receiver behavior changes in S1a.
+
+**Completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s1a.md`. The one row is 32 bytes
+on host/ARM/Xtensa; `Node` and both ruled board RAM figures moved exactly +64 bytes, wholly
+attributed to the eight-row ring. Native, both B251 batteries, the ABI probes, warning census
+and all 36 corpus anchors passed; every corpus stream remained byte-identical. S1a added no
+wire/NV/timer/telemetry behavior and has no metal residue—the D2 board diff is the RAM
+authority. The same-mobile-scoped uniqueness behavior remains deliberately live for S1b to
+change.
 
 ### S1b — R1/R2 admission and obligation behavior
 

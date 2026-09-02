@@ -1387,9 +1387,27 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     uint32_t map_mobile_hash = 0;
     DelegAckPeer map_target_kind = DelegAckPeer::node_id;
     uint32_t map_target = 0;
+    // ★★★ §B278 S1b §5 PHASE 1 — the PROVISIONAL custody verdict, decided from facts already parsed BEFORE the
+    //     mobile hop ACK and from nothing else. ⛔ NO SECOND BODY PARSER AND NO WRAPPER-BYTE PEEK: `candidate`
+    //     means "not yet disproven", and activation owns the final type and dispatch-arm facts (§4.3).
+    DelegAckCustody map_custody = DelegAckCustody::none;
     if (!live_dup && translate_mobile_transit && wants_reverse_map) {
         map_mobile_hash = hosted_mobile_hash;
         map_target = d.dst;
+        // §5 for a DIRECT HOSTED-MOBILE TRANSIT, term by term, and SEVEN of the eight are STRUCTURAL at this site:
+        //   (1) verified direct hosted transit  -> `hosted_mobile_direct` (a live DIRECT row whose local id is the
+        //       immediate sender, and whose SOURCE_HASH, when present, names that exact row);
+        //   (2) E2E-ACK requested               -> `wants_reverse_map`, the same gate that decides reservation;
+        //   (3) plaintext outer DATA            -> `!d.crypted`, required by `hosted_mobile_direct`;
+        //   (4) static/global, same layer       -> `!wire_team_plane && for_static_data`, likewise;
+        //   (5) normal DATA, not channel M/FLOOD-> structural: a channel message is an M frame and never reaches
+        //       `handle_data` at all;
+        //   (6) not XL/team/gateway re-inject/last-mile -> a direct transit is same-layer by construction, and
+        //       `translate_mobile_transit` already excludes the gateway re-inject and `for_me_dst` (the last mile);
+        //   (8) nonzero target with a complete identity -> `d.dst`, and `deleg_ack_reserve` refuses a 0 target.
+        // ⇒ (7) is the ONE term left to state, and `d.type` IS knowable here — so this arm is type-complete.
+        map_custody = deleg_custody_reserve_verdict(/*carrier_prospectively_eligible=*/true,
+                                                    /*outward_type_known=*/true, d.type);
     } else if (!live_dup && !d.crypted && !done_team && for_me_dst(d.dst) && wants_reverse_map
                && d.type == DATA_TYPE_MOBILE_SEND && ui && ui->has_source_hash && ui->has_dst_hash) {
         // Existing wrapper path: reserve by the stable requested target hash. do_post_ack/send_by_hash later
@@ -1399,6 +1417,17 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 map_mobile_hash = ui->source_hash;
                 map_target_kind = DelegAckPeer::key_hash;
                 map_target = ui->dst_key_hash32;
+                // §5 for a MOBILE_SEND WRAPPER: terms (1)-(5) and (8) are structural in this arm's own condition
+                // (a live direct hosted row owns `source_hash`; E2E requested; plaintext; static/same-layer;
+                // the DATA path; a nonzero `dst_key_hash32`). ★ Of term (6), the CROSS-LAYER half IS knowable
+                // here — `ui->has_cross_layer` is already parsed — so the wrapper XL branch is excluded at
+                // RESERVATION and not merely at activation. ⛔ The LAST-MILE half of (6) is NOT knowable (it is
+                // decided inside `send_by_hash`'s direct-host arm) and neither is term (7) (the enclosed type is
+                // `etype`, read only in `do_post_ack`) ⇒ `outward_type_known = false`, which is precisely WHY
+                // this row is only provisional.
+                map_custody = deleg_custody_reserve_verdict(
+                    /*carrier_prospectively_eligible=*/!ui->has_cross_layer,
+                    /*outward_type_known=*/false, /*outward_type=*/0);
                 break;
             }
     }
@@ -1410,14 +1439,18 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         admission_refusal = 1;
     } else if (map_mobile_hash != 0
                && !deleg_ack_reserve(map_mobile_hash, d.ctr, map_target_kind, map_target,
-                                      active_layer_id(), correlation_slot, admission_retry_ms)) {
+                                      active_layer_id(), map_custody,
+                                      correlation_slot, admission_retry_ms)) {
         admission_refusal = 2;
     }
     if (admission_refusal == 0 && correlation_slot != kDelegAckNoSlot && translate_mobile_transit) {
         admitted_ctr_h = peek_next_ctr(d.dst);
         if (!deleg_ack_activation_available(correlation_slot, admitted_ctr_h, DelegAckPeer::node_id,
                                             d.dst, active_layer_id(), admission_retry_ms)) {
-            deleg_ack_release(map_mobile_hash, d.ctr, map_target_kind, map_target, active_layer_id());
+            // ★ §B278 S1b: this is the LOUD half of the cross-mobile refusal. It runs BEFORE the mobile hop ACK,
+            //   so the mobile learns immediately through BUSY_RX reason 2 and retries — no DM has flown yet.
+            deleg_ack_release(map_mobile_hash, d.ctr, map_target_kind, map_target, active_layer_id(),
+                              DelegAckReleaseCause::activation_conflict);
             correlation_slot = kDelegAckNoSlot;
             admission_refusal = 2;
         }
@@ -1513,13 +1546,19 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const bool correlation_ready = correlation_slot == kDelegAckNoSlot
             || (ctr_h == admitted_ctr_h
                 && deleg_ack_activate(correlation_slot, ctr_h, DelegAckPeer::node_id,
-                                      d.dst, active_layer_id()));
+                                      d.dst, active_layer_id(),
+                                      /*outward_type=*/d.type,     // §B278 S1a: the forwarded carrier's OWN type
+                                      // §B278 S1b §4.3: DIRECT HOSTED-MOBILE TRANSIT — a same-layer static outward
+                                      // DATA flight. Every §5 term held at reservation and none of them can have
+                                      // changed: this arm forwards the SAME carrier it already inspected.
+                                      deleg_custody_activate_verdict(/*arm_carries_custody=*/true, d.type)));
         if (!correlation_ready) {
             // All resource/collision checks ran before the hop ACK, and the loop task is single-threaded. Reaching
             // this means an internal counter/reservation invariant was broken, not ordinary pressure. Never forward
             // without the map; the prequeued marker also prevents do_post_ack from materialising a fallback copy.
             if (correlation_slot != kDelegAckNoSlot)
-                deleg_ack_release(hosted_mobile_hash, d.ctr, DelegAckPeer::node_id, d.dst, active_layer_id());
+                deleg_ack_release(hosted_mobile_hash, d.ctr, DelegAckPeer::node_id, d.dst, active_layer_id(),
+                                  DelegAckReleaseCause::commit_invariant);
             ++_mobile_ctr_admission_refused_n;
             MR_EMIT("mobile_ctr_commit_failed", EF_I("mobile_hash", static_cast<int64_t>(hosted_mobile_hash)),
                     EF_I("dst", d.dst), EF_I("ctr_m", d.ctr), EF_I("ctr_h", ctr_h));
@@ -1714,17 +1753,19 @@ void Node::do_post_ack() {
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == ui->source_hash && host_row_live_direct(i)) { ours = true; break; }
             const bool reserved_reverse_ack = (pa.flags & DATA_FLAG_E2E_ACK_REQ) != 0;
-            auto release_reverse_ack = [&]() {
+            // §B278 S1b F6: each of this lambda's four fire sites states its OWN release cause; the helper cannot
+            // infer one (a bad XL path and a spoofed source leave byte-identical rows).
+            auto release_reverse_ack = [&](DelegAckReleaseCause cause) {
                 if (reserved_reverse_ack)
                     deleg_ack_release(ui->source_hash, pa.ctr, DelegAckPeer::key_hash,
-                                      ui->dst_key_hash32, active_layer_id());
+                                      ui->dst_key_hash32, active_layer_id(), cause);
             };
             if (ours && (pa.flags & DATA_FLAG_MS_ENCLOSED_TYPE) && ui->body.size() >= 2 && ui->body[0] == DATA_TYPE_CHANNEL_POST) {
                 // §S7 T-B: a delegated GLOBAL/leaf channel post. Body = [DATA_TYPE_CHANNEL_POST][channel_id][text].
                 // Re-originate via do_send_channel under OUR OWN origin/ctr (the home mints; the wrapper's DST_HASH =
                 // the mobile's own hash is a placeholder — never used here). Anti-spam bills the HOME + our self-GATE
                 // applies (deliberate: hosting implies consenting to the mobile's channel share).
-                release_reverse_ack();                           // channel posts do not use the delegated DM E2E map
+                release_reverse_ack(DelegAckReleaseCause::carrier_ineligible);   // channel posts do not use the delegated DM E2E map
                 do_send_channel(ui->body[1], ui->body.data() + 2, static_cast<uint8_t>(ui->body.size() - 2));
                 become_free();
                 return;
@@ -1742,7 +1783,7 @@ void Node::do_post_ack() {
                              && ui->layer_ids[0] != active_layer_id();   // 1 + n_layers must fit; hops[0] != our own layer
                 for (uint8_t i = 0; valid && i < ui->n_layers; ++i) if (ui->layer_ids[i] == 0) valid = false;
                 if (!valid) {
-                    release_reverse_ack();
+                    release_reverse_ack(DelegAckReleaseCause::invalid_path);
                     MR_EMIT("xl_delegate_bad_path", EF_I("n", ui->n_layers), EF_I("m", static_cast<int64_t>(ui->source_hash)));
                     presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                 } else {
@@ -1754,13 +1795,19 @@ void Node::do_post_ack() {
                                                               /*type=*/etype, /*override_source_hash=*/ui->source_hash);
                     if (code == CmdCode::queued) {
                         if (etype != DATA_TYPE_E2E_ACK && reserved_reverse_ack) {
+                            // ⛔ §B278 S1b §4.3 ACK-ONLY ARM 3 of 4 — the WRAPPER'S OWN CROSS-LAYER BRANCH. §5(6)
+                            //    excludes it outright, and the reservation already knew (`ui->has_cross_layer` is
+                            //    parsed before the hop ACK), so this row was born `none` and is CONFIRMED `none`
+                            //    here from the arm's own final type. ACK obligation kept, custody never granted.
                             if (!deleg_ack_put(ui->source_hash, hctr, pa.ctr,
                                               DelegAckPeer::key_hash, ui->dst_key_hash32,
-                                              DelegAckPeer::key_hash, ui->dst_key_hash32, active_layer_id()))
+                                              DelegAckPeer::key_hash, ui->dst_key_hash32, active_layer_id(),
+                                              /*outward_type=*/etype,   // §B278 S1a: the re-originated frame's TYPE
+                                              deleg_custody_activate_verdict(/*arm_carries_custody=*/false, etype)))
                                 presence_mark_deleg_fail(ui->source_hash);
                         }
                     } else {
-                        release_reverse_ack();
+                        release_reverse_ack(DelegAckReleaseCause::dispatch_refused);
                         MR_EMIT("xl_delegate_no_route", EF_I("m", static_cast<int64_t>(ui->source_hash)), EF_I("code", static_cast<int>(code)));
                         presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                     }
@@ -1788,7 +1835,7 @@ void Node::do_post_ack() {
                                    /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr, Plane::AUTO, /*type=*/etype,
                                    /*suppress_intro=*/false, &dispatch);   // plaintext-only (v1)
             } else {
-                release_reverse_ack();                           // spoofed/stale source: no later resolver can consume it
+                release_reverse_ack(DelegAckReleaseCause::source_not_owned);   // spoofed/stale source: no later resolver can consume it
             }
             become_free();
             return;
@@ -1842,7 +1889,14 @@ void Node::do_post_ack() {
                                     it.inner[boff]     = static_cast<uint8_t>(m_ctr & 0xFF);
                                     it.inner[boff + 1] = static_cast<uint8_t>(m_ctr >> 8);
                                 }
-                                MR_EMIT("mobile_reverse_ack", EF_I("local", it.dst), EF_I("ctr", m_ctr));
+                                // §B278 S1b F6: `mobile_hash` + `ctr_h` are APPENDED (existing fields keep their
+                                // names and order). Both are already live here — `ui->dst_key_hash32` is the mobile
+                                // whose row just translated, `acked` is the home counter it was keyed by — so the
+                                // offline census can bind a reverse ACK to its row DIRECTLY instead of going through
+                                // the registration authority, which could not decide a re-used local id.
+                                MR_EMIT("mobile_reverse_ack", EF_I("local", it.dst), EF_I("ctr", m_ctr),
+                                        EF_I("mobile_hash", static_cast<int64_t>(ui->dst_key_hash32)),
+                                        EF_I("ctr_h", acked));
                             }
                         }
                         _active->_tx_queue[_active->_tx_queue_n++] = it;

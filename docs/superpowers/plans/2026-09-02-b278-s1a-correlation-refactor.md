@@ -1,7 +1,8 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B278 S1a — behavior-neutral delegated-correlation refactor · dispatch brief · 2026-09-02
 
-**Status: DRAFT — awaiting Quality-Agent review; no dispatch is authorized by this draft.**
+**Status: COMPLETE 2026-09-02 — software/QG closed; evidence at
+`docs/superpowers/evidence/2026-09-02-b278-s1a.md`.**
 Dispatch model after PASS: **Opus**. Authority:
 `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`, especially
 §1.1 items 4–6, §4.1–§4.5, §10 and §12-S1a. Pre-check input:
@@ -98,15 +99,13 @@ uint8   outward_type
 uint8   target_kind
 uint8   return_kind
 uint8   state
-uint8   obligations
+uint8   custody_state          none | candidate | eligible | forwarded
 ```
 
-The reviewed spec calls the last byte `custody_state` schematically and explicitly says row
-names are implementation choices. The pre-check and S0 ABI authority call it `obligations`;
-use that spelling so the production row and measured probe share one vocabulary. This byte
-does **not** mean two clocks: S1a sets only the E2E-ACK obligation on every row, leaves all
-custody/custody-forwarded bits clear, and retains one timestamp and one 300 s TTL. Do not add
-an ACK clock, custody clock or custody-only row.
+Use the reviewed spec's `custody_state` name and values. S1a writes `none` on every reserve
+and put; `candidate`, `eligible` and `forwarded` are S1b behavior. R1=A means every row is an
+E2E-ACK row by construction, so there is no separate ACK-obligation bit. The row retains one
+timestamp and one 300 s TTL; do not add an ACK clock, custody clock or custody-only row.
 
 At reservation, write `target`/`target_kind` once and never overwrite them. At activation,
 write `return_peer`/`return_kind`. The existing phase-dependent `peer` behavior must be
@@ -141,8 +140,7 @@ Required native controls include both sides of every row above. In particular:
 - the same-mobile ambiguity case must continue refusing;
 - target identity must survive activation while return identity changes independently;
 - `outward_type` must be observable as stored but must affect no current lookup or decision;
-- the E2E-ACK obligation must be set on every row while every custody-related obligation bit
-  remains clear through every S1a path;
+- `custody_state == none` on every row through every S1a path;
 - exact retry, active refresh, reserved release, one-shot translate, full-ring refusal and
   the 300 s boundary must remain exact; and
 - non-E2E sends must continue allocating no row.
@@ -197,9 +195,12 @@ S1a is a behavior change and triggers STOP.
    run the complete touched targets, not selected mutations.
 3. Re-point `tools/probe_b278_row_abi.py`: retire the 24-byte current-row control now that the
    candidate is production, bind the production 32-byte pin, and keep controls for omitted
-   fields, reordered fields, compile failure and a missing target/toolchain. The instrument
-   must bind the same `obligations` field sequence as production rather than retaining a
-   separate candidate-row authority.
+   fields, reordered fields, compile failure and a missing target/toolchain. `Node::DelegAck`
+   remains private: do not expose it or weaken access for the probe. Use S0's bridge—the
+   generated TU includes `node.h`, so each host/ARM/Xtensa toolchain compiles the production
+   `static_assert(sizeof(DelegAck) == 32)` beside the namespace-scope mirror whose field
+   sequence now ends in `custody_state`. That paired compile is the production-size pin; the
+   mirror supplies the externally printable offsets.
 4. Run the complete `tools/probe_board_abi.py` sweep and update all three `Node` pins from
    measured layouts.
 5. Re-synchronize every affected native/mutation PIN. The report must contain exactly:

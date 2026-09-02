@@ -92,4 +92,61 @@ public:
     }
 };
 
+// ★★★ §B278 S1b — THE ONE FIELD-LEVEL EMIT PROJECTION, shared rather than hand-rolled per TU (U1/U2).
+//     `TestHalBase::emit` stays PURE on purpose (see the header note): each TU still owns WHAT it projects.
+//     This is the recorder a TU's own override can feed when a case must assert on the FIELDS themselves —
+//     their NAMES, their ORDER and their TYPES — and not merely on the event kind. F6's whole obligation is
+//     that existing fields keep their name and position while new ones are APPENDED, and a kind-only capture
+//     is structurally blind to every one of those three properties.
+// ⛔ A MISSING FIELD IS NEVER A ZERO: `index_of` answers -1 and `has` answers false, so an assertion has to
+//    state which it means. (`compare_corpus_slice_g.py`'s C5 records the same lesson on the analyzer side.)
+struct EmitRecord {
+    std::string              type;
+    std::vector<std::string> keys;    // in EMIT ORDER — the order IS the contract
+    std::vector<int64_t>     ints;    // EventField::i, meaningful where kinds[i] == i64
+    std::vector<int>         kinds;   // static_cast<int>(EventField::T)
+    int index_of(const char* k) const {
+        for (size_t i = 0; i < keys.size(); ++i) if (keys[i] == k) return static_cast<int>(i);
+        return -1;
+    }
+    bool    has(const char* k) const { return index_of(k) >= 0; }
+    int64_t at(const char* k) const { const int i = index_of(k); return i < 0 ? -1 : ints[static_cast<size_t>(i)]; }
+    bool    is_i64(const char* k) const {
+        const int i = index_of(k);
+        return i >= 0 && kinds[static_cast<size_t>(i)] == static_cast<int>(MESHROUTE_NS::EventField::T::i64);
+    }
+    // The complete key list, in order, as one comparable string — so a case pins the SHAPE in one assertion
+    // and a reorder or an insertion in the middle can never read as "the field is still there".
+    std::string shape() const {
+        std::string s;
+        for (const auto& k : keys) { if (!s.empty()) s += ","; s += k; }
+        return s;
+    }
+};
+
+struct EmitFieldLog {
+    std::vector<EmitRecord> records;
+    void record(const char* type, const MESHROUTE_NS::EventField* f, size_t n) {
+        EmitRecord r; r.type = type ? type : "";
+        for (size_t i = 0; i < n; ++i) {
+            r.keys.emplace_back(f[i].key ? f[i].key : "");
+            r.ints.push_back(f[i].i);
+            r.kinds.push_back(static_cast<int>(f[i].type));
+        }
+        records.push_back(std::move(r));
+    }
+    std::vector<const EmitRecord*> all(const char* type) const {
+        std::vector<const EmitRecord*> out;
+        for (const auto& r : records) if (r.type == type) out.push_back(&r);
+        return out;
+    }
+    const EmitRecord* last(const char* type) const {
+        const EmitRecord* r = nullptr;
+        for (const auto& e : records) if (e.type == type) r = &e;
+        return r;
+    }
+    size_t n(const char* type) const { return all(type).size(); }
+    void   clear() { records.clear(); }
+};
+
 }  // namespace mrtest

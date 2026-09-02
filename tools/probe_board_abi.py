@@ -238,9 +238,23 @@ FIXTURE_SOURCE = (
 #      and `heltec_mobile` measured BYTE-IDENTICAL in all 17 allocated sections (the payload sha256 moved only in
 #      the 32-B app-descriptor `app_elf_sha256` + the 33-B trailing image hash — the [[B254]] `__LINE__`/DWARF
 #      class, `.debug_info` +9 / `.debug_line` -1 and nothing else).
+# ★★ RE-PIN 2 — 2026-09-02, THE §B278 S1a SLICE. **ONE STRUCT, `sizeof` ONLY; ⛔ NOT ONE `alignof` OR `T` COLUMN
+#    MOVED**, and the movement is UNIFORM across all three targets, which is itself the measurement:
+#      meshroute::Node   native 222008 -> 222072   |   heltec_mobile 117848 -> 117912   |   gateway 148616 -> 148680
+#    DERIVATION, measured by this file's own compile-and-read mechanism on each target's real `idedata` flag set (and
+#    corroborated by a compile-only `template<size_t> struct Reveal;` reveal of `sizeof(meshroute::Node)` in the same
+#    TU): `Node::DelegAck` — the ONE delegated-flight correlation row — goes **24 -> 32 B** because B251's single
+#    phase-dependent `peer`/`peer_kind` splits into `target`/`target_kind` + `return_peer`/`return_kind` (+5 B) and the
+#    row gains `outward_type` + `custody_state` (+2 B); 7 new bytes against 2 bytes of existing tail padding crosses one
+#    8-byte quantum. x `kDelegAckCap` (8) = **+64**, and `_deleg_acks` sits between two 8-aligned neighbours
+#    (`_parked_sends` / `_pending_e2e_acks`) so every later member shifts by exactly 64 and no hole opens.
+#    ⚠ **+64 EVERYWHERE IS THE POINT, and it is the OPPOSITE of RE-PIN 1's shape:** the ring is NOT `MR_FEAT_*`-gated,
+#    so MR_PROFILE_GATEWAY (MR_FEAT_MOBILE 0) pays it exactly as MR_PROFILE_MOBILE does. A target that had NOT moved
+#    would have been the [[B246]] signal to investigate, not to re-pin.
+#    The RAM authority for this slice is the per-board `RAM_used` diff run with `tools/measure_board.py pair`.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (222008, 8, True),
+        "meshroute::Node":         (222072, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -261,7 +275,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         FIXTURE_NAME:              (24, 8, True),
     },
     "heltec_mobile": {
-        "meshroute::Node":         (117848, 8, True),
+        "meshroute::Node":         (117912, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -285,7 +299,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         # ⓘ `Node` differs from xtensa's by far more than the ABI: `gateway` is MR_PROFILE_GATEWAY
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
-        "meshroute::Node":         (148616, 8, True),
+        "meshroute::Node":         (148680, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),

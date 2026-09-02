@@ -779,6 +779,15 @@ inline constexpr uint8_t  cap_completed_flights = 12;
 inline constexpr uint32_t e2e_ack_deadline_ms    = 2 * send_defer_ttl_ms;       // 60 s  — same-layer round trip
 inline constexpr uint32_t e2e_ack_deadline_xl_ms = 2 * gateway_send_giveup_ms;  // 300 s — cross-layer / delegated (gateway-window latency class)
 inline constexpr uint8_t  cap_pending_e2e_acks   = 8;                           // fixed no-heap ring; a full ring REFUSES a new -a send LOUD (CmdCode::err_ack_ring_full) — NEVER evict-oldest (that would re-create the silent class)
+// §B278 §10.1 (owner ruling 2026-09-02) — the ONE lifetime of a delegated-flight correlation row: the ACK mapping,
+// the custody eligibility and the forwarded state all expire together at this single boundary. ⛔ It is EQUAL to
+// `e2e_ack_deadline_xl_ms` BY CONSTRUCTION, not by coincidence: the product authority is the originating mobile's own
+// operation, which reports `e2e_ack_timeout` and closes at 300 s — after that a translated custody notice is a
+// post-mortem diagnostic with no live state to update. The name stays custody-specific so a future evidence-based
+// retune is ONE named change; ⛔ it is NOT a second clock and there is no separate custody timer.
+// ⛔ The retired 750 s proposal added `seen_origin_ttl_ms` (450 s), which [[B159]] derived for a DIFFERENT question
+// (how long a RECEIVER must remember DATA to reject a duplicate) — never a custody-chain latency.
+inline constexpr uint32_t delegated_custody_ttl_ms = e2e_ack_deadline_xl_ms;    // 300 s — the whole correlation row
 // Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
 // an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
 inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;

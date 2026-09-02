@@ -11,32 +11,43 @@ WHAT THIS IS
     SIMULATOR BEHAVIOUR AND RUNS NO SCENARIO — it reads `<corpus>/streams/*.ndjson` produced and promoted by
     `tools/run_corpus.py`, whose manifest is re-validated here before a single event is parsed.
 
-★★★ THE TELEMETRY IS INCOMPLETE, AND THAT IS AN INPUT — NOT A SURPRISE TO DISCOVER AFTER CLAIMING EXACTNESS.
-    Verified against `lib/core/node_hashlocate.cpp` / `node_mac_rx.cpp` (V1, not against comments):
-      · `deleg_ack_release()` emits NOTHING. A reservation released on admission failure, a spoofed source, a
-        channel-post delegation, a bad XL path, a no-route XL delegation or a parked-send age-out is INVISIBLE.
-      · expiry pruning (`state != free && now - ts_ms >= TTL  =>  e = DelegAck{}`) emits NOTHING. It happens
-        inside reserve/put/translate, so it is COMPUTABLE from the TTL but never observed.
-      · an EXACT-RETRY reservation refresh is silent: `deleg_ack_reserve` updates `e.ts_ms` and returns WITHOUT
-        emitting (only a FIRST reservation emits `deleg_ack_reserved`). ⇒ a row's life can be extended with no
-        record at all. This is a pure UPPER-bound uncertainty and is reported as one.
-      · `deleg_ack_translate()` emits nothing ITSELF. ★ But it has exactly ONE call site
-        (`node_mac_rx.cpp`, the hosted-mobile last-mile fork) and `mobile_reverse_ack{local, ctr}` is emitted
-        INSIDE its success branch ⇒ a successful translate is observable one-for-one. The event carries the
-        MOBILE-LOCAL id and `ctr_m`, and NEITHER `mobile_hash` NOR `ctr_h`, so binding it to a row needs the
-        registration authority below.
+★★★ WHAT THE TELEMETRY COULD NOT SAY UNDER §B278 S0/S1a, AND WHAT §B278 S1b's F6 SURFACE CLOSED. Verified
+    against `lib/core/node_hashlocate.cpp` / `node_mac_rx.cpp` (V1, not against comments):
+      · ⛔ WAS: `deleg_ack_release()` emitted NOTHING, so a reservation released on admission failure, a
+        spoofed source, a channel-post delegation, a bad XL path, a no-route XL delegation or a parked-send
+        age-out was INVISIBLE. ★ NOW: `deleg_ack_released{mobile_hash, ctr_m, target, target_kind, layer,
+        cause}` is emitted inside the helper, immediately before the matching RESERVED row is cleared, and its
+        `cause` names WHICH of the seven release reasons applied. A no-match release still emits nothing —
+        correctly, because nothing was released.
+      · ⛔ WAS: expiry pruning emitted NOTHING; it was COMPUTABLE from the TTL but never observed. ★ NOW:
+        `deleg_ack_expired{mobile_hash, ctr_m, ctr_h, target, layer, custody_state}` reports the row's EXACT
+        pre-clear values from the one prune authority.
+      · an EXACT-RETRY reservation refresh is STILL silent: `deleg_ack_reserve` updates `e.ts_ms` and returns
+        without emitting. ⚠ But it is no longer an unbounded uncertainty: the row's END is now observed
+        (release, expiry or ACK translation), so only the interior of a refreshed row's life is unrecorded.
+      · `deleg_ack_translate()` emits nothing ITSELF; `mobile_reverse_ack` is emitted INSIDE its success
+        branch, so a successful translate is observable one-for-one. ★ AND IT NOW CARRIES THE ROW'S OWN
+        IDENTITY — `mobile_hash` and `ctr_h` — so the bind is EXACT and no longer needs the registration
+        authority (see below).
       · an exact ACTIVE refresh in `deleg_ack_put` DOES emit `deleg_ack_put` again (same ctr_h/peer/layer), so
         that one refresh is visible; the RESERVED refresh is not.
 
-    ⇒ THE OUTPUT IS A PAIR OF LABELLED BOUNDS WHEREVER THE TELEMETRY CANNOT DECIDE, never a single "exact"
-      number, and every interval the telemetry cannot close is named together with the event that would close it.
+    ⇒ THE OUTPUT STILL REPORTS A LABELLED PAIR OF BOUNDS, but they now COINCIDE for every row whose end was
+      observed. `unclosed_rows` counts the rows still live at the end of a stream — the only remaining gap,
+      and it is a property of where the scenario stops, not of the telemetry.
 
-★★ THE REGISTRATION AUTHORITY, NAMED AND VALIDATED (the brief's requirement). To turn
-   `mobile_reverse_ack.local` into a stable mobile hash this census uses `mobile_registered{key, local_id,
-   epoch}` AT THE SAME SIMULATOR NODE, with `mobile_reg_expired{key, local_id}` applied in event order. At the
-   instant of the ACK, the live map must name EXACTLY ONE key for that local id. If it names none or several,
-   the release is NOT applied and is recorded in the `ack_release_unbound` / `ack_release_ambiguous` census —
-   ⛔ it may not be paired by counter alone, resolved to the nearest event, or attributed to an inferred mobile.
+★★ THE REGISTRATION AUTHORITY IS RETIRED AS THE ACK BINDER, AND THAT IS AN UPGRADE, NOT A LOSS. Under S0/S1a
+   `mobile_reverse_ack` carried only `{local, ctr}`, so turning the MOBILE-LOCAL id into a stable hash needed
+   `mobile_registered` / `mobile_reg_expired` replayed per node — and a local id with none or several live
+   keys made the release UNBINDABLE. §B278 S1b's F6 appends `mobile_hash` and `ctr_h` to the event itself, so
+   the bind is now the row's own `{mobile_hash, ctr_m, ctr_h}`.
+   ⛔ THE NEGATIVE COVERAGE DID NOT GO WITH IT — it MOVED, and the selftest names where: the old `O3s`
+   (no registration) and `O3a` (two live keys on one local id) are replaced by `O3s` (an ACK naming a row this
+   node never activated) and `O3a` (an ACK whose identity matches more than one live row). Both still REFUSE
+   to bind, both still leave the row unfreed, and neither may be resolved by counter alone.
+   ⛔ AND THE ANALYZER NOW FAILS LOUD ON THE FIELDS THEMSELVES: a `mobile_reverse_ack` missing `mobile_hash`
+   or `ctr_h`, or carrying a non-integer one, REFUSES the whole run rather than silently reverting to a
+   weaker binder. A missing field is not a zero.
 
 ★★ THE CUSTODY BINDER. Receipt `custody_failure_rx{reporter, dst, ctr, seq}` at node N. Candidate outward
    origins AT THE SAME NODE N, at or before the receipt, matching on `{dst, ctr}`:
@@ -209,14 +220,30 @@ class Row:
     ctr_h: int | None = None
     peer: int | None = None
     target: int | None = None
+    target_kind: int | None = None                 # §B278 S1b F6: the mobile API's addressing CHOICE
     released_at: int | None = None                 # observed ACK release (mobile_reverse_ack bound to this row)
     reserved_only: bool = True
+    # ★ §B278 S1b F6 — THE OBSERVED END, and the whole reason the lo/hi interval can now close. `end_kind` is
+    #   one of "ack" (a translation consumed it), "released" (`deleg_ack_released`), "expired"
+    #   (`deleg_ack_expired`) or None (still live when the stream stopped).
+    end_kind: str | None = None
+    end_at: int | None = None
+    release_cause: int | None = None
+    custody_at_end: int | None = None
 
     def expiry(self, ttl_ms: int) -> int:
         return self.last_touch + ttl_ms
 
     def end(self, ttl_ms: int) -> int:
-        """The instant the slot is free again under `ttl_ms`, given whatever release evidence exists."""
+        """The instant the slot is free again under `ttl_ms`, given whatever evidence exists.
+
+        ⛔ AN OBSERVED END WINS OVER THE MODELLED ONE, ALWAYS — including an end LATER than the modelled
+        expiry. Under S0/S1a the only evidence was an ACK, so the modelled expiry was a ceiling; now a
+        `deleg_ack_expired` reports the instant the row really went, and clamping that back to a computed
+        ceiling would be the analyzer preferring its own arithmetic to a measurement.
+        """
+        if self.end_at is not None:
+            return self.end_at
         expiry = self.expiry(ttl_ms)
         if self.released_at is not None and self.released_at < expiry:
             return self.released_at
@@ -237,10 +264,22 @@ class NodeCensus:
     ack_release_unbound: list[dict] = field(default_factory=list)
     ack_release_ambiguous: list[dict] = field(default_factory=list)
     put_bind_ambiguous: list[dict] = field(default_factory=list)
+    # ---- §B278 S1b F6: the lifecycle events that close the intervals S0/S1a could only bound -------------
+    releases: list[dict] = field(default_factory=list)          # bound `deleg_ack_released`
+    release_unbound: list[dict] = field(default_factory=list)   # ⛔ never dropped from a denominator
+    expiries: list[dict] = field(default_factory=list)          # bound `deleg_ack_expired`
+    expiry_unbound: list[dict] = field(default_factory=list)
+    release_causes: dict = field(default_factory=dict)           # cause -> count
+    unclosed_rows: int = 0                                       # still live when the stream stopped
 
 
 class Registry:
-    """`mobile_registered` / `mobile_reg_expired` replayed per node -> the live local_id -> {key} map."""
+    """`mobile_registered` / `mobile_reg_expired` replayed per node -> the live local_id -> {key} map.
+
+    ⛔ NO LONGER THE ACK BINDER (§B278 S1b F6 put `mobile_hash`/`ctr_h` on `mobile_reverse_ack` itself). It is
+    KEPT because it is still the only way to report WHICH local id an ACK went to alongside the hash the row
+    names, and because a disagreement between the two is worth seeing — but it decides nothing.
+    """
 
     def __init__(self) -> None:
         self._live: dict[int, dict[int, int]] = {}          # local_id -> {key: last_registered_ms}
@@ -276,9 +315,14 @@ def build_node_census(events: list[Event]) -> dict[int, NodeCensus]:
             registry(ev.node).expire(int(ev.data["key"]), int(ev.data["local_id"]))
         elif ev.kind == "deleg_ack_reserved":
             c = census(ev.node)
+            require("target_kind" in ev.data,
+                    f"`deleg_ack_reserved` at node {ev.node} t={ev.t} carries no `target_kind` — §B278 S1b F6 "
+                    f"appends it, so this stream predates the slice and cannot be censused as if it did not")
+            require(type(ev.data["target_kind"]) is int,      # noqa: E721 — the type IDENTITY is the check
+                    f"`deleg_ack_reserved.target_kind` is {ev.data['target_kind']!r}, not an integer")
             c.rows.append(Row(mobile_hash=int(ev.data["mobile_hash"]), ctr_m=int(ev.data["ctr_m"]),
                               layer=int(ev.data["layer"]), start=ev.t, last_touch=ev.t,
-                              target=int(ev.data["target"])))
+                              target=int(ev.data["target"]), target_kind=int(ev.data["target_kind"])))
         elif ev.kind == "deleg_ack_put":
             c = census(ev.node)
             mh, ctr_h = int(ev.data["mobile_hash"]), int(ev.data["ctr_h"])
@@ -315,6 +359,53 @@ def build_node_census(events: list[Event]) -> dict[int, NodeCensus]:
             c.direct_puts += 1
             c.rows.append(Row(mobile_hash=mh, ctr_m=ctr_m, layer=layer, start=ev.t, last_touch=ev.t,
                               activated_at=ev.t, ctr_h=ctr_h, peer=peer, reserved_only=False))
+        elif ev.kind == "deleg_ack_released":
+            c = census(ev.node)
+            for f in ("mobile_hash", "ctr_m", "target", "target_kind", "layer", "cause"):
+                require(f in ev.data, f"`deleg_ack_released` at node {ev.node} t={ev.t} carries no `{f}`")
+                require(type(ev.data[f]) is int,               # noqa: E721
+                        f"`deleg_ack_released.{f}` is {ev.data[f]!r}, not an integer")
+            cause = int(ev.data["cause"])
+            # A release only ever matches a RESERVED row, by the production reserve key.
+            matches = [r for r in c.rows
+                       if r.activated_at is None and r.end_kind is None
+                       and r.mobile_hash == int(ev.data["mobile_hash"]) and r.ctr_m == int(ev.data["ctr_m"])
+                       and r.layer == int(ev.data["layer"]) and r.target == int(ev.data["target"])]
+            rec = {"t": ev.t, "mobile_hash": int(ev.data["mobile_hash"]), "ctr_m": int(ev.data["ctr_m"]),
+                   "target": int(ev.data["target"]), "target_kind": int(ev.data["target_kind"]),
+                   "cause": cause}
+            if len(matches) == 1:
+                matches[0].end_kind = "released"
+                matches[0].end_at = ev.t
+                matches[0].release_cause = cause
+                c.releases.append(rec)
+                c.release_causes[cause] = c.release_causes.get(cause, 0) + 1
+            else:
+                c.release_unbound.append(dict(rec, candidates=len(matches),
+                                              why="no live RESERVED row with that reserve key"
+                                                  if not matches else "several"))
+        elif ev.kind == "deleg_ack_expired":
+            c = census(ev.node)
+            for f in ("mobile_hash", "ctr_m", "ctr_h", "target", "layer", "custody_state"):
+                require(f in ev.data, f"`deleg_ack_expired` at node {ev.node} t={ev.t} carries no `{f}`")
+                require(type(ev.data[f]) is int,               # noqa: E721
+                        f"`deleg_ack_expired.{f}` is {ev.data[f]!r}, not an integer")
+            matches = [r for r in c.rows
+                       if r.end_kind is None and r.mobile_hash == int(ev.data["mobile_hash"])
+                       and r.ctr_m == int(ev.data["ctr_m"]) and r.layer == int(ev.data["layer"])
+                       and (r.target is None or r.target == int(ev.data["target"]))]
+            rec = {"t": ev.t, "mobile_hash": int(ev.data["mobile_hash"]), "ctr_m": int(ev.data["ctr_m"]),
+                   "ctr_h": int(ev.data["ctr_h"]), "target": int(ev.data["target"]),
+                   "custody_state": int(ev.data["custody_state"])}
+            if len(matches) == 1:
+                matches[0].end_kind = "expired"
+                matches[0].end_at = ev.t
+                matches[0].custody_at_end = int(ev.data["custody_state"])
+                c.expiries.append(rec)
+            else:
+                c.expiry_unbound.append(dict(rec, candidates=len(matches),
+                                             why="no live row with that identity" if not matches
+                                                 else "several live rows share it"))
         elif ev.kind == "deleg_ack_put_refused":
             census(ev.node).put_refused.append(ev.t)
         elif ev.kind == "mobile_ctr_admission_refused":
@@ -322,28 +413,43 @@ def build_node_census(events: list[Event]) -> dict[int, NodeCensus]:
             (c.ring_refusals if int(ev.data.get("reason", 0)) == 2 else c.queue_refusals).append(ev.t)
         elif ev.kind == "mobile_reverse_ack":
             c = census(ev.node)
+            # ★ §B278 S1b F6 — THE DIRECT BIND. The event now names the row: its mobile hash and the HOME
+            #   counter it was keyed by. ⛔ FAIL LOUD if either is absent or wrong-typed rather than falling
+            #   back to the retired registration authority: a silent fallback would report a WEAKER
+            #   measurement under the same headline, which is exactly the shape this census exists to refuse.
+            for f in ("mobile_hash", "ctr_h"):
+                require(f in ev.data,
+                        f"`mobile_reverse_ack` at node {ev.node} t={ev.t} carries no `{f}` — §B278 S1b F6 "
+                        f"appends it; a stream without it cannot be bound exactly and must not be censused "
+                        f"as if it could")
+                require(type(ev.data[f]) is int,               # noqa: E721 — the type IDENTITY is the check
+                        f"`mobile_reverse_ack.{f}` is {ev.data[f]!r}, not an integer")
             local_id, ctr_m = int(ev.data["local"]), int(ev.data["ctr"])
-            key, candidates = registry(ev.node).resolve(local_id)
-            if key is None:
-                c.ack_release_unbound.append({"t": ev.t, "local": local_id, "ctr_m": ctr_m,
-                                              "live_keys": candidates,
-                                              "why": "no live registration" if not candidates
-                                                     else "several live registrations on one local id"})
-                continue
+            key, ctr_h = int(ev.data["mobile_hash"]), int(ev.data["ctr_h"])
+            reg_key, candidates = registry(ev.node).resolve(local_id)   # ⓘ diagnostic only; decides nothing
             matches = [r for r in c.rows
                        if r.activated_at is not None and r.mobile_hash == key and r.ctr_m == ctr_m
-                       and r.released_at is None and r.expiry(ACK_TTL_MS) > ev.t]
+                       and r.ctr_h == ctr_h and r.end_kind is None and r.released_at is None]
             if len(matches) == 1:
                 matches[0].released_at = ev.t
+                matches[0].end_kind = "ack"
+                matches[0].end_at = ev.t
                 c.ack_release_bound += 1
             elif not matches:
                 c.ack_release_unbound.append({"t": ev.t, "local": local_id, "ctr_m": ctr_m,
-                                              "mobile_hash": key, "why": "no live ACTIVE row with that ctr_m"})
+                                              "mobile_hash": key, "ctr_h": ctr_h,
+                                              "registry_key": reg_key, "registry_candidates": candidates,
+                                              "why": "no live ACTIVE row with that {mobile_hash, ctr_m, ctr_h}"})
             else:
                 c.ack_release_ambiguous.append({"t": ev.t, "local": local_id, "ctr_m": ctr_m,
-                                               "mobile_hash": key, "candidates": len(matches)})
+                                               "mobile_hash": key, "ctr_h": ctr_h,
+                                               "candidates": len(matches)})
     for c in censuses.values():
         c.reserved_never_activated = sum(1 for r in c.rows if r.activated_at is None)
+        # ★ §B278 S1b: the ONLY remaining lo/hi uncertainty. A row whose end was observed contributes the same
+        #   span to both arms; one still live when the stream stopped is a property of where the SCENARIO
+        #   ends, not of the telemetry, and is reported as its own number rather than folded into a bound.
+        c.unclosed_rows = sum(1 for r in c.rows if r.end_kind is None)
     return censuses
 
 
@@ -357,7 +463,11 @@ def max_occupancy(rows: list[Row], ttl_ms: int, reserved_only_counts: bool) -> t
     spans: list[tuple[int, int, Row]] = []
     for row in rows:
         end = row.end(ttl_ms)
-        if row.activated_at is None and not reserved_only_counts:
+        # ★ §B278 S1b: the lo arm's whole reason was that a silent `deleg_ack_release` could have freed a
+        #   never-activated row the same instant it was made. That release is OBSERVED now, so a row with an
+        #   observed end contributes the SAME span to both arms — the two bounds coincide wherever the
+        #   lifecycle was seen, which is the precision gain F6 was asked for.
+        if row.activated_at is None and not reserved_only_counts and row.end_kind is None:
             end = row.start                                     # the instant it demonstrably existed
         spans.append((row.start, end, row))
     points = sorted({p for s, e, _ in spans for p in (s, e)})
@@ -481,6 +591,13 @@ def analyse(streams: dict[str, Path]) -> dict:
             entry["nodes"][str(node)] = {
                 "rows": len(c.rows),
                 "reserved_never_activated": c.reserved_never_activated,
+                "releases": c.releases,
+                "release_unbound": c.release_unbound,
+                "release_causes": c.release_causes,
+                "expiries": c.expiries,
+                "expiry_unbound": c.expiry_unbound,
+                "unclosed_rows": c.unclosed_rows,
+                "ends_observed": sum(1 for r in c.rows if r.end_kind is not None),
                 "direct_puts": c.direct_puts,
                 "active_refreshes": c.active_refreshes,
                 "put_refused": len(c.put_refused),
@@ -521,20 +638,25 @@ def print_report(result: dict, banner: str = "") -> None:
         print(banner)
     print(f"  ruled bounds: ACK {ACK_TTL_MS} ms · custody {ACK_TTL_MS} + {SEEN_ORIGIN_TTL_MS} = "
           f"{CUSTODY_TTL_MS} ms · ring capacity {RING_CAP}")
-    print("\n  PER-STREAM / PER-NODE OCCUPANCY  (lo = reservations that never activated contribute no span,")
-    print("                                    hi = they are held to their TTL; the gap is the silent-release")
-    print("                                    uncertainty `deleg_ack_release` leaves)")
-    header = (f"  {'stream':<44}{'node':>5}{'rows':>6}{'resOnly':>8}{'direct':>7}{'refr':>5}"
-              f"{'refus':>6}{'ackRel':>7}{'300lo':>7}{'300hi':>7}{'750lo':>7}{'750hi':>7}")
+    print("\n  PER-STREAM / PER-NODE OCCUPANCY  (lo = a never-activated, never-CLOSED reservation contributes no")
+    print("                                    span, hi = it is held to its TTL. ★ §B278 S1b: a row whose END was")
+    print("                                    OBSERVED — released, expired or ACK-translated — contributes the")
+    print("                                    SAME span to both arms, so lo == hi wherever the lifecycle was")
+    print("                                    seen; `open` counts the rows still live when the stream stopped,")
+    print("                                    which is the only remaining gap and belongs to the scenario.)")
+    header = (f"  {'stream':<40}{'node':>5}{'rows':>6}{'resOnly':>8}{'direct':>7}{'refr':>5}"
+              f"{'refus':>6}{'ackRel':>7}{'rel':>5}{'exp':>5}{'open':>5}"
+              f"{'300lo':>7}{'300hi':>7}{'750lo':>7}{'750hi':>7}")
     print(header)
     print("  " + "-" * (len(header) - 2))
     any_row = False
     for name, entry in sorted(result["streams"].items()):
         for node, n in sorted(entry["nodes"].items(), key=lambda kv: int(kv[0])):
             any_row = True
-            print(f"  {name:<44}{node:>5}{n['rows']:>6}{n['reserved_never_activated']:>8}"
+            print(f"  {name:<40}{node:>5}{n['rows']:>6}{n['reserved_never_activated']:>8}"
                   f"{n['direct_puts']:>7}{n['active_refreshes']:>5}"
                   f"{n['put_refused'] + n['ring_refusals']:>6}{n['ack_release_bound']:>7}"
+                  f"{len(n['releases']):>5}{len(n['expiries']):>5}{n['unclosed_rows']:>5}"
                   f"{n['models']['current_300s_lo']['max_rows']:>7}"
                   f"{n['models']['current_300s_hi']['max_rows']:>7}"
                   f"{n['models']['ruled_upper_750s_lo']['max_rows']:>7}"
@@ -562,9 +684,32 @@ def print_report(result: dict, banner: str = "") -> None:
     print("\n  FAIL-LOUD CENSUS (never dropped from a denominator)")
     for name, entry in sorted(result["streams"].items()):
         for node, n in sorted(entry["nodes"].items(), key=lambda kv: int(kv[0])):
-            for label in ("ack_release_unbound", "ack_release_ambiguous", "put_bind_ambiguous"):
+            for label in ("ack_release_unbound", "ack_release_ambiguous", "put_bind_ambiguous",
+                          "release_unbound", "expiry_unbound"):
                 for item in n[label]:
                     print(f"    {name} node {node} {label}: {item}")
+
+    print("\n  §B278 S1b LIFECYCLE LEDGER  (what F6 made observable: every release with its CAUSE, every "
+          "expiry with the\n"
+          "                              row's exact pre-clear custody state, and the rows still open at the "
+          "end of the run)")
+    printed_lc = False
+    for name, entry in sorted(result["streams"].items()):
+        for node, n in sorted(entry["nodes"].items(), key=lambda kv: int(kv[0])):
+            if not (n["releases"] or n["expiries"] or n["unclosed_rows"]):
+                continue
+            printed_lc = True
+            print(f"    {name} node {node}: releases={len(n['releases'])} "
+                  f"causes={n['release_causes']} expiries={len(n['expiries'])} "
+                  f"ends_observed={n['ends_observed']}/{n['rows']} still-open={n['unclosed_rows']}")
+            for e in n["expiries"]:
+                print(f"        expired  t={e['t']} mobile_hash={e['mobile_hash']} ctr_m={e['ctr_m']} "
+                      f"ctr_h={e['ctr_h']} target={e['target']} custody_state={e['custody_state']}")
+            for r in n["releases"]:
+                print(f"        released t={r['t']} mobile_hash={r['mobile_hash']} ctr_m={r['ctr_m']} "
+                      f"target={r['target']} target_kind={r['target_kind']} cause={r['cause']}")
+    if not printed_lc:
+        print("    (no stream in this input closes or leaves open a correlation row)")
 
     tot = result["totals"]
     print("\n  CUSTODY-REPORT AGE LEDGER  (custody_failure_rx bound to its outward origin at the SAME node)")
@@ -609,7 +754,8 @@ def selftest() -> int:
     # ---- (P1) the POSITIVE custody bind: one exact delegated origin -> receipt at the same node -------------
     positive = _synth([
         (5, 1_000, "mobile_registered", {"key": 0xAAAA, "local_id": 254, "epoch": 1}),
-        (5, 2_000, "deleg_ack_reserved", {"mobile_hash": 0xAAAA, "ctr_m": 1, "target": 30, "layer": 0}),
+        (5, 2_000, "deleg_ack_reserved", {"mobile_hash": 0xAAAA, "ctr_m": 1, "target": 30, "layer": 0,
+                                          "target_kind": 0}),
         (5, 2_000, "deleg_ack_put", {"mobile_hash": 0xAAAA, "ctr_h": 7, "ctr_m": 1, "peer": 30, "layer": 0}),
         (5, 2_000, "mobile_ctr_translated", {"mobile_hash": 0xAAAA, "dst": 30, "ctr_m": 1, "ctr_h": 7}),
         (5, 402_000, "custody_failure_rx", {"reporter": 31, "dst": 30, "ctr": 7, "seq": 0}),
@@ -678,40 +824,151 @@ def selftest() -> int:
     check("O2 at 300 s the two rows never coexist", max_occupancy(c.rows, ACK_TTL_MS, True)[0], 1)
     check("O2 at 750 s they do  (this is R2's whole cost)", max_occupancy(c.rows, CUSTODY_TTL_MS, True)[0], 2)
 
-    # ---- (O3) ACK RELEASE via the registration authority -------------------------------------------------------
+    # ---- (O3) ACK RELEASE, bound DIRECTLY on the row's own identity (§B278 S1b F6) -----------------------------
+    # ⛔ THE REGISTRATION EVENT IS STILL IN THE FIXTURE AND STILL DECIDES NOTHING: it is here so the diagnostic
+    #    `registry_key` can be reported beside the hash the row names, and so a future divergence between the two
+    #    is visible rather than invisible.
     released = _synth([
         (9, 0, "mobile_registered", {"key": 0xDDDD, "local_id": 254, "epoch": 1}),
-        (9, 1_000, "deleg_ack_reserved", {"mobile_hash": 0xDDDD, "ctr_m": 4, "target": 30, "layer": 0}),
+        (9, 1_000, "deleg_ack_reserved", {"mobile_hash": 0xDDDD, "ctr_m": 4, "target": 30, "layer": 0,
+                                          "target_kind": 0}),
         (9, 1_000, "deleg_ack_put", {"mobile_hash": 0xDDDD, "ctr_h": 9, "ctr_m": 4, "peer": 30, "layer": 0}),
-        (9, 5_000, "mobile_reverse_ack", {"local": 254, "ctr": 4}),
+        (9, 5_000, "mobile_reverse_ack", {"local": 254, "ctr": 4, "mobile_hash": 0xDDDD, "ctr_h": 9}),
     ])
     c = build_node_census(released)[9]
     check("O3 the ACK released exactly one row", c.ack_release_bound, 1)
     check("O3 the row's life ends at the ACK, not at the TTL", c.rows[0].end(CUSTODY_TTL_MS), 5_000)
     check("O3 reserve+put collapse to ONE row, not two", len(c.rows), 1)
+    check("O3 the end is OBSERVED, so the row is not left open", (c.rows[0].end_kind, c.unclosed_rows),
+          ("ack", 0))
+    # ★ THE UPGRADE, MEASURED: removing the registration no longer breaks the bind. Under S0/S1a this exact
+    #   input produced an UNBOUND release; the identity now rides on the event itself.
+    no_reg = [e for e in released if e.kind != "mobile_registered"]
+    c = build_node_census(no_reg)[9]
+    check("O3 the registration authority is no longer needed for the bind",
+          (c.ack_release_bound, len(c.ack_release_unbound)), (1, 0))
 
-    # ---- (O3-sabotage) the registration authority is REMOVED -> the release must NOT be applied ---------------
-    unbound = [e for e in released if e.kind != "mobile_registered"]
-    c = build_node_census(unbound)[9]
-    check("O3s no registration -> release unbound, row NOT freed", (c.ack_release_bound,
-                                                                    len(c.ack_release_unbound)), (0, 1))
+    # ---- (O3s, RE-SCOPED) the ACK names a row this node never activated -> REFUSE, row NOT freed ---------------
+    #      Replaces the retired "no registration" arm: the negative coverage is the SAME question (can an ACK be
+    #      applied without an identity that decides?), asked of the authority that now answers it.
+    wrong_ctr_h = _synth([(e.node, e.t, e.kind,
+                           dict(e.data, ctr_h=99) if e.kind == "mobile_reverse_ack" else e.data)
+                          for e in released])
+    c = build_node_census(wrong_ctr_h)[9]
+    check("O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed",
+          (c.ack_release_bound, len(c.ack_release_unbound)), (0, 1))
     check("O3s the row therefore lives to its TTL", c.rows[0].end(CUSTODY_TTL_MS), 1_000 + CUSTODY_TTL_MS)
-
-    # ---- (O3-ambiguous) two live keys on ONE local id -> refuse to guess ---------------------------------------
-    two_keys = _synth([(9, 0, "mobile_registered", {"key": 0xDDDD, "local_id": 254, "epoch": 1}),
-                       (9, 0, "mobile_registered", {"key": 0xEEEE, "local_id": 254, "epoch": 1})]
-                      + [(e.node, e.t, e.kind, e.data) for e in released if e.kind != "mobile_registered"])
-    c = build_node_census(two_keys)[9]
-    check("O3a two live keys on one local id -> unbound, never paired by ctr alone",
+    wrong_hash = _synth([(e.node, e.t, e.kind,
+                          dict(e.data, mobile_hash=0xBEEF) if e.kind == "mobile_reverse_ack" else e.data)
+                         for e in released])
+    c = build_node_census(wrong_hash)[9]
+    check("O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone",
           (c.ack_release_bound, len(c.ack_release_unbound)), (0, 1))
 
-    # ---- (O4) the lo/hi arms differ EXACTLY when a reservation never activated --------------------------------
+    # ---- (O3a, RE-SCOPED) TWO live rows share the ACK's whole identity -> refuse to guess ----------------------
+    #      This is the shape §4.3's cross-mobile refusal exists to make impossible in production; the census must
+    #      still refuse it if a stream ever shows one, rather than clearing the first match.
+    twin = _synth([(9, 0, "mobile_registered", {"key": 0xDDDD, "local_id": 254, "epoch": 1}),
+                   (9, 1_000, "deleg_ack_reserved", {"mobile_hash": 0xDDDD, "ctr_m": 4, "target": 30,
+                                                     "layer": 0, "target_kind": 0}),
+                   (9, 1_000, "deleg_ack_put", {"mobile_hash": 0xDDDD, "ctr_h": 9, "ctr_m": 4, "peer": 30,
+                                                "layer": 0}),
+                   (9, 1_500, "deleg_ack_put", {"mobile_hash": 0xDDDD, "ctr_h": 9, "ctr_m": 4, "peer": 31,
+                                                "layer": 0}),
+                   (9, 5_000, "mobile_reverse_ack", {"local": 254, "ctr": 4, "mobile_hash": 0xDDDD,
+                                                     "ctr_h": 9})])
+    c = build_node_census(twin)[9]
+    check("O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match",
+          (c.ack_release_bound, len(c.ack_release_ambiguous)), (0, 1))
+
+    # ---- (O3f, NEW) the analyzer FAILS LOUD on a missing or wrong-typed identity field -------------------------
+    for missing in ("mobile_hash", "ctr_h"):
+        stripped = _synth([(e.node, e.t, e.kind,
+                            {k: v for k, v in e.data.items() if k != missing}
+                            if e.kind == "mobile_reverse_ack" else e.data) for e in released])
+        try:
+            build_node_census(stripped)
+            failures += 1
+            print(f"  FAIL  O3f a `mobile_reverse_ack` without `{missing}` did NOT refuse")
+        except CensusRefusal:
+            print(f"  ok    O3f a `mobile_reverse_ack` without `{missing}` REFUSES (a missing field is not a zero)")
+    for bad_value in (False, 2.0, "9"):
+        typed = _synth([(e.node, e.t, e.kind,
+                         dict(e.data, ctr_h=bad_value) if e.kind == "mobile_reverse_ack" else e.data)
+                        for e in released])
+        try:
+            build_node_census(typed)
+            failures += 1
+            print(f"  FAIL  O3f a `ctr_h` of {bad_value!r} did NOT refuse")
+        except CensusRefusal:
+            print(f"  ok    O3f a `ctr_h` of {bad_value!r} REFUSES (bool subclasses int; only a type identity "
+                  f"rejects it)")
+    no_kind = _synth([(e.node, e.t, e.kind,
+                       {k: v for k, v in e.data.items() if k != "target_kind"}
+                       if e.kind == "deleg_ack_reserved" else e.data) for e in released])
+    try:
+        build_node_census(no_kind)
+        failures += 1
+        print("  FAIL  O3f a `deleg_ack_reserved` without `target_kind` did NOT refuse")
+    except CensusRefusal:
+        print("  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this "
+              "measurement)")
+
+    # ---- (O4) the lo/hi arms differ EXACTLY when a reservation never activated AND never closed ----------------
     stranded = _synth([(9, 0, "deleg_ack_reserved", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
-                                                     "layer": 0})])
+                                                     "layer": 0, "target_kind": 0})])
     c = build_node_census(stranded)[9]
     check("O4 reserved-never-activated counted", c.reserved_never_activated, 1)
+    check("O4 an unclosed row is reported as such, not folded into a bound", c.unclosed_rows, 1)
     check("O4 lo arm gives it no span", max_occupancy(c.rows, ACK_TTL_MS, False)[1:3], (0, 0))
     check("O4 hi arm holds it to the TTL", max_occupancy(c.rows, ACK_TTL_MS, True)[2], ACK_TTL_MS)
+
+    # ---- (O5, NEW) §B278 S1b F6 CLOSES THE INTERVAL: an OBSERVED release makes lo == hi -------------------------
+    #      This is the precision claim, measured rather than asserted: the SAME reservation, with and without the
+    #      new `deleg_ack_released`, and the two occupancy arms coincide only when the lifecycle is observed.
+    for cause in range(7):
+        closed = _synth([(9, 0, "deleg_ack_reserved", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
+                                                       "layer": 0, "target_kind": 0}),
+                         (9, 1_234, "deleg_ack_released", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
+                                                           "target_kind": 0, "layer": 0, "cause": cause})])
+        c = build_node_census(closed)[9]
+        if cause == 0:
+            check("O5 the release closed the row exactly, with its cause",
+                  (len(c.releases), c.rows[0].end_kind, c.rows[0].end_at, c.rows[0].release_cause,
+                   c.unclosed_rows), (1, "released", 1_234, 0, 0))
+            check("O5 lo and hi now COINCIDE — the S0/S1a gap is closed",
+                  (max_occupancy(c.rows, ACK_TTL_MS, False)[2], max_occupancy(c.rows, ACK_TTL_MS, True)[2]),
+                  (1_234, 1_234))
+    check("O5 all seven release causes are accepted and counted separately",
+          sorted(build_node_census(_synth(
+              [(9, 0, "deleg_ack_reserved", {"mobile_hash": 0xF00D, "ctr_m": i + 1, "target": 30,
+                                             "layer": 0, "target_kind": 0}) for i in range(7)]
+              + [(9, 100, "deleg_ack_released", {"mobile_hash": 0xF00D, "ctr_m": i + 1, "target": 30,
+                                                 "target_kind": 0, "layer": 0, "cause": i}) for i in range(7)]
+          ))[9].release_causes.items()), [(i, 1) for i in range(7)])
+    # ⛔ a release naming NO live reserved row is never applied and never dropped from the denominator.
+    orphan = _synth([(9, 1_234, "deleg_ack_released", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
+                                                       "target_kind": 0, "layer": 0, "cause": 5})])
+    c = build_node_census(orphan)[9]
+    check("O5s an orphan release is UNBOUND, never invented into a row",
+          (len(c.releases), len(c.release_unbound)), (0, 1))
+
+    # ---- (O6, NEW) an EXPIRY closes the row at its exact instant and carries the pre-clear custody state -------
+    expired = _synth([(9, 0, "deleg_ack_reserved", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
+                                                    "layer": 0, "target_kind": 0}),
+                      (9, 0, "deleg_ack_put", {"mobile_hash": 0xF00D, "ctr_h": 5, "ctr_m": 1, "peer": 30,
+                                               "layer": 0}),
+                      (9, ACK_TTL_MS, "deleg_ack_expired", {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 5,
+                                                            "target": 30, "layer": 0, "custody_state": 2})])
+    c = build_node_census(expired)[9]
+    check("O6 the expiry closed the row at the named edge, with its exact custody state",
+          (len(c.expiries), c.rows[0].end_kind, c.rows[0].end_at, c.rows[0].custody_at_end, c.unclosed_rows),
+          (1, "expired", ACK_TTL_MS, 2, 0))
+    orphan_exp = _synth([(9, 10, "deleg_ack_expired", {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 5,
+                                                       "target": 30, "layer": 0, "custody_state": 2})])
+    c = build_node_census(orphan_exp)[9]
+    check("O6s an orphan expiry is UNBOUND, never invented into a row",
+          (len(c.expiries), len(c.expiry_unbound)), (0, 1))
 
     # ---- (S1) the constant guard REFUSES on a mutated bound ----------------------------------------------------
     saved = ACK_TTL_MS

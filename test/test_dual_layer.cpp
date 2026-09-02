@@ -8,7 +8,9 @@
 // This file grows as the gateway slices land. NB: test_airtime.cpp provides main(); -fno-exceptions => CHECK only.
 #include "doctest.h"
 
+#include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "node.h"
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
@@ -49,7 +51,8 @@ public:
     void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
     void     set_protocol_id(int id) override { last_set_protocol_id = id; }
     std::vector<std::string> emits;                                                   // §intra-relay: record emit kinds so the drop is assertable
-    void     emit(const char* kind, const EventField*, size_t) override { emits.push_back(kind); }
+    mrtest::EmitFieldLog flog;                                                        // §B278 S1b: ...and the FIELDS (names, order, types) — F6's contract is about those
+    void     emit(const char* kind, const EventField* f, size_t n) override { emits.push_back(kind); flog.record(kind, f, n); }
     bool     saw_emit(const char* k) const { for (auto& e : emits) if (e == k) return true; return false; }
     int      count(const char* k) const { int c = 0; for (auto& e : emits) if (e == k) ++c; return c; }   // §clean-team-channel: "served exactly once / not at all" needs a COUNT, not just presence
 };
@@ -400,10 +403,111 @@ struct DualLayerTestAccess {
         n.do_post_ack();
     }
     static bool     deleg_ack_put(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
-                                  uint32_t return_peer, bool return_is_hash = false) {
+                                  uint32_t return_peer, bool return_is_hash = false,
+                                  uint8_t outward_type = 0,   // §B278 S1a: type APPENDED with a default -> every pre-existing caller is byte-identical
+                                  uint8_t custody = 0) {      // §B278 S1b: the phase-2 verdict, likewise APPENDED with `none`
         const auto kind = return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id;
         return n.deleg_ack_put(mobile_hash, ctr_h, ctr_m, kind, return_peer,
-                               kind, return_peer, n.active_layer_id());
+                               kind, return_peer, n.active_layer_id(), outward_type,
+                               static_cast<Node::DelegAckCustody>(custody));
+    }
+    // ================= §B278 S1a — the SPLIT-identity seam ==========================================================
+    // ⛔ These are pass-throughs, NOT a second implementation: each one forwards to the single production authority
+    //    in node_hashlocate.cpp and adds nothing but the bool->enum spelling the private enums need. The 5-arg
+    //    `deleg_ack_put` above is unchanged and still collapses target == return_peer, which is exactly what every
+    //    pre-existing B251 case asserted; the FULL form below is what lets a case give them DIFFERENT values.
+    static bool     deleg_ack_put_full(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                                       bool target_is_hash, uint32_t target,
+                                       bool return_is_hash, uint32_t return_peer, uint8_t outward_type,
+                                       uint8_t custody = 0) {
+        return n.deleg_ack_put(mobile_hash, ctr_h, ctr_m,
+                               target_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id, target,
+                               return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id, return_peer,
+                               n.active_layer_id(), outward_type, static_cast<Node::DelegAckCustody>(custody));
+    }
+    static bool     deleg_ack_reserve(Node& n, uint32_t mobile_hash, uint16_t ctr_m, bool target_is_hash,
+                                      uint32_t target, uint8_t& out_slot, uint32_t& retry_ms,
+                                      uint8_t custody = 0) {
+        return n.deleg_ack_reserve(mobile_hash, ctr_m,
+                                   target_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id,
+                                   target, n.active_layer_id(), static_cast<Node::DelegAckCustody>(custody),
+                                   out_slot, retry_ms);
+    }
+    static bool     deleg_ack_activate(Node& n, uint8_t slot, uint16_t ctr_h, bool return_is_hash,
+                                       uint32_t return_peer, uint8_t outward_type, uint8_t custody = 0) {
+        return n.deleg_ack_activate(slot, ctr_h,
+                                    return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id,
+                                    return_peer, n.active_layer_id(), outward_type,
+                                    static_cast<Node::DelegAckCustody>(custody));
+    }
+    static bool     deleg_ack_activation_available(Node& n, uint8_t slot, uint16_t ctr_h, bool return_is_hash,
+                                                   uint32_t return_peer, uint32_t& retry_ms) {
+        return n.deleg_ack_activation_available(slot, ctr_h,
+                                                return_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id,
+                                                return_peer, n.active_layer_id(), retry_ms);
+    }
+    static void     deleg_ack_release(Node& n, uint32_t mobile_hash, uint16_t ctr_m, bool target_is_hash,
+                                      uint32_t target, uint8_t cause = 0) {
+        n.deleg_ack_release(mobile_hash, ctr_m,
+                            target_is_hash ? Node::DelegAckPeer::key_hash : Node::DelegAckPeer::node_id,
+                            target, n.active_layer_id(), static_cast<Node::DelegAckReleaseCause>(cause));
+    }
+    // ================= §B278 S1b — the two-phase §5 eligibility authority, reachable from a case ====================
+    // ⛔ Pass-throughs to the ONE authority in node.h. They exist so a native case can drive every §5 term directly
+    //    instead of inferring the predicate from a row it had to build first.
+    static uint8_t  custody_reserve_verdict(bool carrier_prospectively_eligible, bool outward_type_known,
+                                            uint8_t outward_type) {
+        return static_cast<uint8_t>(Node::deleg_custody_reserve_verdict(carrier_prospectively_eligible,
+                                                                       outward_type_known, outward_type));
+    }
+    static uint8_t  custody_activate_verdict(bool arm_carries_custody, uint8_t outward_type) {
+        return static_cast<uint8_t>(Node::deleg_custody_activate_verdict(arm_carries_custody, outward_type));
+    }
+    static bool     custody_type_reportable(uint8_t type) { return Node::deleg_custody_type_reportable(type); }
+    // The four lifecycle values, flattened, so a case never hard-codes an integer whose meaning could drift.
+    static uint8_t  custody_none()      { return static_cast<uint8_t>(Node::DelegAckCustody::none); }
+    static uint8_t  custody_candidate() { return static_cast<uint8_t>(Node::DelegAckCustody::candidate); }
+    static uint8_t  custody_eligible()  { return static_cast<uint8_t>(Node::DelegAckCustody::eligible); }
+    static uint8_t  custody_forwarded() { return static_cast<uint8_t>(Node::DelegAckCustody::forwarded); }
+    static uint8_t  release_cause(const char* name) {   // the seven §S1b-3 causes, by NAME (a typo is a compile-time miss)
+        using C = Node::DelegAckReleaseCause;
+        return static_cast<uint8_t>(
+            std::string_view(name) == "activation_conflict" ? C::activation_conflict :
+            std::string_view(name) == "commit_invariant"    ? C::commit_invariant    :
+            std::string_view(name) == "carrier_ineligible"  ? C::carrier_ineligible  :
+            std::string_view(name) == "invalid_path"        ? C::invalid_path        :
+            std::string_view(name) == "source_not_owned"    ? C::source_not_owned    :
+            std::string_view(name) == "dispatch_refused"    ? C::dispatch_refused    :
+                                                              C::park_giveup);
+    }
+    // How many rows in the whole ring hold a given custody value (the invariant assertions read this, not slots).
+    static uint8_t  deleg_custody_n(Node& n, uint8_t custody) {
+        uint8_t k = 0;
+        for (const auto& e : n._deleg_acks)
+            if (static_cast<uint8_t>(e.custody_state) == custody) ++k;
+        return k;
+    }
+    static uint8_t  deleg_ack_cap() { return Node::kDelegAckCap; }
+    static uint8_t  deleg_ack_no_slot() { return Node::kDelegAckNoSlot; }
+    // A flat COPY of one row. ⛔ `Node::DelegAck` and `Node::DelegAckCustody` stay PRIVATE: nothing here weakens
+    //    access, and the enums are flattened to the integers a doctest CHECK can print.
+    struct DelegRow {
+        uint64_t ts_ms; uint32_t mobile_hash; uint32_t target; uint32_t return_peer;
+        uint16_t ctr_h; uint16_t ctr_m;
+        uint8_t layer; uint8_t outward_type;
+        uint8_t target_kind; uint8_t return_kind; uint8_t state; uint8_t custody_state;
+    };
+    static DelegRow deleg_row(Node& n, uint8_t slot) {
+        const auto& e = n._deleg_acks[slot];
+        return DelegRow{e.ts_ms, e.mobile_hash, e.target, e.return_peer, e.ctr_h, e.ctr_m, e.layer, e.outward_type,
+                        static_cast<uint8_t>(e.target_kind), static_cast<uint8_t>(e.return_kind),
+                        static_cast<uint8_t>(e.state), static_cast<uint8_t>(e.custody_state)};
+    }
+    // Every row's custody byte, in ONE call: the "`none` on every S1a path" assertion should never have to name slots.
+    static bool     deleg_all_custody_none(Node& n) {
+        for (const auto& e : n._deleg_acks)
+            if (e.custody_state != Node::DelegAckCustody::none) return false;
+        return true;
     }
     // §xl-deleg-ack: READ the map back. The returning ack's ctr rewrite (node_mac_rx.cpp's hosted-mobile last-mile fork)
     // IS this call, so asserting on it asserts the ctr the MOBILE will actually see.
@@ -3912,18 +4016,32 @@ TEST_CASE("§B251 reverse key — destination scopes equal destination-local ctr
     CHECK(translated == 101);
 }
 
+// ★★★ FLIPPED BY §B278 S1b (2026-09-02), and the flip IS the slice's admission change — not refactor fallout.
+//     ⛔ THIS CASE USED TO ASSERT THAT BOTH ROWS WERE ADMITTED and that the ACK lookup then kept them apart BY
+//     MOBILE HASH. That proof was of the wrong thing: a returning E2E ACK exposes only {ctr_h, return_kind,
+//     return_peer, layer} on the wire, and §4.4's custody record carries NO mobile hash at all — so the second row
+//     was never distinguishable in the direction that matters, and the lookup's hash term was a test-only
+//     discriminator the wire cannot supply. §4.3 therefore refuses the SECOND ACTIVATION outright.
+//     ⓘ The name is kept verbatim: the PROPERTY ("cannot cross-correlate") is the same one; only the mechanism
+//       moved from a lookup filter to an ADMISSION refusal, which is the strictly stronger place for it.
 TEST_CASE("§B251 reverse key — two hosted-mobile hashes sharing ctrH and return peer cannot cross-correlate") {
     StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
     NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
     cfg.leaf_id = 4; CHECK(home.on_init(cfg));
 
     CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile A*/0xAAAA1111u, 7, 101, /*return*/70));
-    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile B*/0xBBBB2222u, 7, 202, /*return*/70));
+    // ★ §B278 S1b: the SECOND mobile is REFUSED — the return key {ctr_h=7, node_id, 70, layer} is already taken.
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_put(home, /*mobile B*/0xBBBB2222u, 7, 202, /*return*/70));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);       // ⛔ never a second row
+    // ⛔ THE INCUMBENT IS INTACT: not evicted, not re-keyed, not re-stamped, and still answering ITS ctr.
     uint16_t translated = 0;
-    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0xBBBB2222u, 7, 70, false, translated));
-    CHECK(translated == 202);
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, 0xBBBB2222u, 7, 70, false, translated));
     CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0xAAAA1111u, 7, 70, false, translated));
     CHECK(translated == 101);
+    // ...and mobile B IS admissible the moment any one term of the return key differs.
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*mobile B*/0xBBBB2222u, 7, 202, /*return*/71));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0xBBBB2222u, 7, 71, false, translated));
+    CHECK(translated == 202);
 }
 
 TEST_CASE("§B251 reverse key — the same mobile, ctrH and return peer cannot cross-correlate across layers") {
@@ -3966,6 +4084,679 @@ TEST_CASE("§B251 reverse ring — a ninth live correlation is refused without e
     CHECK(translated == 101);
     CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, mobile_hash, /*ctrH*/9, /*return*/69,
                                                      false, translated));
+}
+
+// ======================== §B278 S1a — the ONE delegated-flight correlation row ========================
+// ⛔ WHAT THESE CASES ARE FOR, AND WHY THE CORPUS CANNOT REPLACE THEM. S1a is a behaviour-NEUTRAL refactor whose
+//    corpus gate is 36/36 byte-identity — a *negative* instrument. It proves nothing was broken; it cannot prove
+//    the split row carries the identities it now claims to carry, because no corpus stream contains a delegated
+//    flight that receives a custody report (S0 §3: the intersection is 0). ⇒ the POSITIVE proof is here and in the
+//    ABI probes, and every case below has a controlled RED in `tools/probe_ui_model_mutations.py --target=b251hash`.
+// ⛔ NOT ONE of these asserts a NEW decision. They assert that a decision the pre-S1a ring already made is still
+//    made, now through the split identities — plus the two stored-only fields (`outward_type`, `custody_state`)
+//    being stored and read by nothing.
+
+TEST_CASE("§B278 S1a — reserve writes the TARGET identity and activation writes the RETURN identity independently") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    constexpr uint32_t T = 0x11223344u;                 // the mobile-visible target: a stable KEY HASH
+    constexpr uint32_t R = 70;                          // the returning ACK's discriminator: a same-layer NODE ID
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, /*ctr_m*/0x0006u, /*target_is_hash=*/true, T,
+                                                 slot, retry_ms));
+    CHECK(slot < DualLayerTestAccess::deleg_ack_cap());
+
+    auto row = DualLayerTestAccess::deleg_row(home, slot);
+    CHECK(row.state == 1);                              // RESERVED
+    CHECK(row.mobile_hash == M);
+    CHECK(row.target == T);                             // ★ the target is recorded AT RESERVATION
+    CHECK(row.target_kind == 1);                        // key_hash — the API's addressing choice, not a re-derivation
+    CHECK(row.ctr_m == 0x0006u);
+    CHECK(row.ctr_h == 0);                              // no home counter exists yet
+    CHECK(row.return_peer == 0);                        // ★ the return identity is NOT known before the arm is chosen
+    CHECK(row.return_kind == 0);
+    CHECK(row.outward_type == 0);
+    CHECK(row.custody_state == 0);                      // none
+
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, /*ctr_h*/0x000Cu, /*return_is_hash=*/false, R,
+                                                  /*outward_type=*/DATA_TYPE_MOBILE_SEND));
+    row = DualLayerTestAccess::deleg_row(home, slot);
+    CHECK(row.state == 2);                              // ACTIVE
+    CHECK(row.target == T);                             // ★★ THE WHOLE POINT: the target SURVIVES activation
+    CHECK(row.target_kind == 1);                        //     (B251's single `peer` field overwrote both of these)
+    CHECK(row.return_peer == R);                        // ★ and the return identity landed beside it, not over it
+    CHECK(row.return_kind == 0);                        // node_id
+    CHECK(row.ctr_h == 0x000Cu);
+    CHECK(row.ctr_m == 0x0006u);                        // the mobile's own counter is untouched by activation
+    CHECK(row.custody_state == 0);
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);   // activation MOVES a row, it never allocates one
+
+    // The ACTIVE lookup is keyed by the RETURN pair and by nothing else: the retained target value is not a key.
+    uint16_t translated = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, M, 0x000Cu, /*the TARGET value*/T,
+                                                     /*return_is_hash=*/true, translated));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);    // a miss consumes nothing
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, M, 0x000Cu, R, /*return_is_hash=*/false, translated));
+    CHECK(translated == 0x0006u);                                // ctr_H -> ctr_M, the mobile's own counter
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 0);      // one-shot: the ACK consumed the correlation
+}
+
+TEST_CASE("§B278 S1a — release matches RESERVED rows on the target identity, and never touches an ACTIVE row") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    constexpr uint32_t T = 0x11223344u;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+
+    DualLayerTestAccess::deleg_ack_release(home, M, 5, /*target_is_hash=*/false, T);   // wrong KIND
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T + 1);                   // wrong target VALUE
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    DualLayerTestAccess::deleg_ack_release(home, M, 6, true, T);                       // wrong ctr_m
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T);                       // ★ the exact reservation
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 0);
+
+    // An ACTIVE row is NOT releasable by its reservation identity — release is a reserved-only cleanup path.
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, /*ctr_h*/9, false, /*return*/70, /*type*/0));
+    DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T);
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 2);
+}
+
+TEST_CASE("§B278 S1a — the reserve key is exact: retry refreshes in place, any other tuple takes its own row") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    constexpr uint32_t T = 0x11223344u;
+    uint8_t slot = 0xFF, slot2 = 0xFF; uint32_t retry_ms = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+    const uint64_t t0 = DualLayerTestAccess::deleg_row(home, slot).ts_ms;
+
+    hal._now += 1000;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot2, retry_ms));
+    CHECK(slot2 == slot);                                        // ★ the SAME row
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);      // exact retry never allocates a second one
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).ts_ms == t0 + 1000);   // refreshed in place
+
+    // Each of the four other key terms takes a NEW row rather than replacing the first.
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 6, true, T, slot2, retry_ms));          // ctr_m
+    CHECK(slot2 != slot);
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T + 1, slot2, retry_ms));      // target value
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, false, T, slot2, retry_ms));         // target KIND
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M + 1, 5, true, T, slot2, retry_ms));      // mobile hash
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 5);
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));
+
+    // Degenerate inputs are refused without consuming a row (the pre-S1a guard, unchanged).
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_reserve(home, 0, 5, true, T, slot2, retry_ms));
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_reserve(home, M, 0, true, T, slot2, retry_ms));
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, 0, slot2, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 5);
+}
+
+TEST_CASE("§B278 S1a — a full ring of RESERVATIONS refuses the ninth with a retry hint, evicts nothing, and self-drains at the named TTL") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    // The TTL is the OWNER-RULED NAME, and it is the E2E-ACK XL deadline by construction (spec §10.1).
+    CHECK(protocol::delegated_custody_ttl_ms == protocol::e2e_ack_deadline_xl_ms);
+    CHECK(protocol::delegated_custody_ttl_ms == 300000u);
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+    for (uint16_t i = 1; i <= 8; ++i)
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, i, true, 0x1000u + i, slot, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+
+    uint8_t ninth = 7;                                          // deliberately a VALID slot value to start from
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_reserve(home, M, 9, true, 0x2000u, ninth, retry_ms));
+    CHECK(ninth == DualLayerTestAccess::deleg_ack_no_slot());    // refused: no slot handed back
+    CHECK(retry_ms == protocol::delegated_custody_ttl_ms);       // the earliest expiry, derived not guessed
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);     // ★ never evicts a live reservation
+    CHECK(DualLayerTestAccess::deleg_row(home, 0).ctr_m == 1);   // and slot 0 in particular still holds row #1
+
+    hal._now += protocol::delegated_custody_ttl_ms - 1;          // one ms INSIDE the window: still refused
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_reserve(home, M, 9, true, 0x2000u, ninth, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+    hal._now += 1;                                              // AT the exclusive bound: prune-before-admit reclaims
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 9, true, 0x2000u, ninth, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);     // the whole ring aged out together
+}
+
+TEST_CASE("§B278 S1a — outward_type is STORED at every activation arm and is part of NO key") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    constexpr uint32_t T = 0x11223344u;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+
+    // (a) reserve -> put: the reserve key carries NO type, so a put whose outward type differs from anything still
+    //     matches the reservation and ACTIVATES it in place rather than allocating a second row.
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, /*ctr_h*/9, /*ctr_m*/5, true, T, false, /*return*/70,
+                                                  /*outward_type=*/DATA_TYPE_INTRO));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).outward_type == DATA_TYPE_INTRO);   // ★ stored
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).target == T);                        // ★ still the reserved target
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).return_peer == 70);
+
+    // (b) the ACTIVE key carries no type either: an exact refresh with a DIFFERENT type is still an exact refresh
+    //     (only the stamp moves), and it is emphatically not a second row.
+    hal._now += 500;
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, 9, 5, true, T, false, 70,
+                                                  /*outward_type=*/DATA_TYPE_MOBILE_SEND));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).outward_type == DATA_TYPE_INTRO);   // refresh ≠ re-activation
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).ctr_m == 5);
+
+    // (c) a DIRECT put (no reservation) stores both identities and the type.
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, /*ctr_h*/11, /*ctr_m*/6, true, T, false, /*return*/71,
+                                                  /*outward_type*/DATA_TYPE_CUSTODY_FAILURE));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 2);
+    bool found = false;
+    for (uint8_t i = 0; i < DualLayerTestAccess::deleg_ack_cap(); ++i) {
+        const auto r = DualLayerTestAccess::deleg_row(home, i);
+        if (r.state == 2 && r.ctr_h == 11) {
+            found = true;
+            CHECK(r.target == T);
+            CHECK(r.target_kind == 1);                          // ★ a direct put RETAINS the target it was handed
+            CHECK(r.return_peer == 71);
+            CHECK(r.return_kind == 0);
+            CHECK(r.outward_type == DATA_TYPE_CUSTODY_FAILURE);
+            CHECK(r.custody_state == 0);
+        }
+    }
+    CHECK(found);
+
+    // (d) translation does not consult the type: the return key alone resolves it.
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, M, 11, 71, false, translated));
+    CHECK(translated == 6);
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, M, 9, 70, false, translated));
+    CHECK(translated == 5);
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 0);
+}
+
+TEST_CASE("§B278 S1a — custody_state is `none` on every path a behaviour-neutral slice can reach") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t M = 0xC0FFEEu;
+    constexpr uint32_t T = 0x11223344u;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after RESERVE
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after an exact RETRY
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, 9, false, 70, DATA_TYPE_INTRO));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after ACTIVATE
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, 9, 5, true, T, false, 70, DATA_TYPE_INTRO));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after an ACTIVE refresh
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, 11, 6, true, T, false, 71, 0));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after a DIRECT put
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, M, 9, 70, false, translated));
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after TRANSLATE frees a row
+    DualLayerTestAccess::deleg_ack_release(home, M, 6, true, T);
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after RELEASE
+    hal._now += protocol::delegated_custody_ttl_ms;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 7, true, T, slot, retry_ms));   // drives the prune
+    CHECK(DualLayerTestAccess::deleg_all_custody_none(home));                       // after EXPIRY
+}
+
+// ★★★ RENAMED AND FLIPPED BY §B278 S1b: its second half asserted the C1 fence S1a deliberately held (two mobiles
+//     both admitted). S1b removes the `mobile_hash` term from BOTH activation authorities, so the same-mobile
+//     refusal below is unchanged and the cross-mobile case now refuses too — one key, one row, for anybody.
+TEST_CASE("§B278 S1b — activation uniqueness is CROSS-MOBILE: one wire-visible return key admits exactly one row") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+
+    constexpr uint32_t A = 0xAAAA1111u, B = 0xBBBB2222u;
+    constexpr uint32_t T1 = 0x11110000u, T2 = 0x22220000u;
+    uint8_t s1 = 0xFF, s2 = 0xFF; uint32_t retry_ms = 0;
+
+    // ONE mobile, two distinct flights that would land on the SAME wire-visible return key {ctr_h, kind, peer, layer}.
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, A, /*ctr_m*/5, true, T1, s1, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, A, /*ctr_m*/6, true, T2, s2, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, s1, /*ctr_h*/9, false, /*return*/70, 0));
+    uint32_t probe_retry = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_activation_available(home, s2, 9, false, 70, probe_retry));
+    CHECK(probe_retry > 0);                                       // a real wait, derived from the live row's age
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_activate(home, s2, 9, false, 70, 0));
+    CHECK(DualLayerTestAccess::deleg_row(home, s2).state == 1);    // ★ still RESERVED — a refusal is not a release
+    CHECK(DualLayerTestAccess::deleg_row(home, s1).ctr_m == 5);    // ★ and the incumbent answer is untouched
+    // The same second flight IS admissible on a different return key.
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, s2, 9, false, /*return*/71, 0));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 2);
+
+    // ★★★ §B278 S1b §4.3 — TWO DIFFERENT MOBILES ON ONE RETURN KEY ARE NOW REFUSED. This is the half that flipped:
+    //     S1a asserted both were admitted (the C1 fence), because the extra `mobile_hash` term made the two rows
+    //     look distinct — to the ledger, but never to the wire.
+    StubHal hal2; Node home2(hal2, 31, 0xAD20B6EAu);
+    NodeConfig cfg2; cfg2.routing_sf = 8; cfg2.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg2.leaf_id = 4; CHECK(home2.on_init(cfg2));
+    uint8_t a1 = 0xFF, b1 = 0xFF;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home2, A, 5, true, T1, a1, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home2, B, 6, true, T2, b1, retry_ms));
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home2, a1, /*ctr_h*/9, false, /*return*/70, 0));
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_activation_available(home2, b1, 9, false, 70, probe_retry));
+    CHECK(probe_retry > 0);                                        // the incumbent's own remaining lifetime
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_activate(home2, b1, /*ctr_h*/9, false, /*return*/70, 0));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home2) == 2);       // ⛔ the REFUSED row is still RESERVED, not freed
+    CHECK(DualLayerTestAccess::deleg_row(home2, b1).state == 1);    //    (a refusal is not a release — the caller owns that)
+    CHECK(DualLayerTestAccess::deleg_row(home2, a1).state == 2);    // ⛔ the incumbent is untouched...
+    CHECK(DualLayerTestAccess::deleg_row(home2, a1).ctr_m == 5);    //    ...and still answers ITS ctr_m
+    CHECK(DualLayerTestAccess::deleg_row(home2, a1).mobile_hash == A);
+    uint16_t translated = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home2, B, 9, 70, false, translated));   // B has no ACTIVE row
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home2, A, 9, 70, false, translated));
+    CHECK(translated == 5);
+    // ⛔ AND THE HASH DID NOT MERELY MOVE INTO THE LOOKUP: with A's row consumed above, the key is free again and
+    //    B activates on it — proving the refusal was a CAPACITY-of-one-key rule, not a per-mobile ban.
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home2, b1, /*ctr_h*/9, false, /*return*/70, 0));
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home2, B, 9, 70, false, translated));
+    CHECK(translated == 6);
+}
+
+
+// ==================================================================================================================
+// §B278 S1b (2026-09-02) — CUSTODY ADMISSION, THE CROSS-MOBILE REFUSAL AND EXACT LIFECYCLE TELEMETRY.
+// Authority: docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md §4.2-§5, §10, §12-S1b.
+// ==================================================================================================================
+
+TEST_CASE("§B278 S1b — §5's type term is ONE authority, and exactly two DataTypes are non-reportable") {
+    // ⛔ DERIVED OVER THE WHOLE 8-BIT SPACE, never a hand-listed pair: the assertion is "how many types are
+    //    excluded", so widening or narrowing the term by one value fails here rather than passing unnoticed.
+    int excluded = 0;
+    for (int t = 0; t <= 0xFF; ++t)
+        if (!DualLayerTestAccess::custody_type_reportable(static_cast<uint8_t>(t))) ++excluded;
+    CHECK(excluded == 2);
+    CHECK_FALSE(DualLayerTestAccess::custody_type_reportable(DATA_TYPE_E2E_ACK));          // §5(7): the ACK itself
+    CHECK_FALSE(DualLayerTestAccess::custody_type_reportable(DATA_TYPE_CUSTODY_FAILURE));  // §5(7): a notice about a notice
+    CHECK(DualLayerTestAccess::custody_type_reportable(0));                                // a plain DM
+    CHECK(DualLayerTestAccess::custody_type_reportable(DATA_TYPE_SEALED_RELAY));           // §5: plaintext OUTER frame
+    CHECK(DualLayerTestAccess::custody_type_reportable(DATA_TYPE_REMOTE_CMD));             // §5: an internal type is eligible
+    CHECK(DualLayerTestAccess::custody_type_reportable(DATA_TYPE_INTRO));
+}
+
+TEST_CASE("§B278 S1b — the RESERVATION verdict can only ever be `none` or a PROVISIONAL `candidate`") {
+    const uint8_t NONE = DualLayerTestAccess::custody_none();
+    const uint8_t CAND = DualLayerTestAccess::custody_candidate();
+
+    // (a) the DIRECT-TRANSIT shape: the carrier is prospectively eligible AND its type is knowable ⇒ §5(7) is
+    //     applied at reservation, so a non-reportable type is refused a candidate here and not later.
+    CHECK(DualLayerTestAccess::custody_reserve_verdict(true, true, 0) == CAND);
+    CHECK(DualLayerTestAccess::custody_reserve_verdict(true, true, DATA_TYPE_SEALED_RELAY) == CAND);
+    CHECK(DualLayerTestAccess::custody_reserve_verdict(true, true, DATA_TYPE_E2E_ACK) == NONE);
+    CHECK(DualLayerTestAccess::custody_reserve_verdict(true, true, DATA_TYPE_CUSTODY_FAILURE) == NONE);
+
+    // (b) the WRAPPER shape: the enclosed type is NOT parsed before the hop ACK. ★ THIS IS WHAT "PROVISIONAL"
+    //     MEANS — the type argument is ignored, so even a value that WOULD be excluded still yields a candidate,
+    //     and activation is what finally applies §5(7). A verdict that silently used the argument anyway would
+    //     be claiming knowledge this phase does not have.
+    for (int t = 0; t <= 0xFF; ++t)
+        CHECK(DualLayerTestAccess::custody_reserve_verdict(true, false, static_cast<uint8_t>(t)) == CAND);
+
+    // (c) a carrier already KNOWN ineligible (the cross-layer wrapper: `ui->has_cross_layer`) is `none`
+    //     whatever the type half says — the two terms are ANDed, not alternatives.
+    for (int t = 0; t <= 0xFF; ++t) {
+        CHECK(DualLayerTestAccess::custody_reserve_verdict(false, true, static_cast<uint8_t>(t)) == NONE);
+        CHECK(DualLayerTestAccess::custody_reserve_verdict(false, false, static_cast<uint8_t>(t)) == NONE);
+    }
+    // ⛔ and NOTHING this phase produces is ever `eligible` or `forwarded`.
+    for (int t = 0; t <= 0xFF; ++t)
+        for (int elig = 0; elig < 2; ++elig)
+            for (int known = 0; known < 2; ++known) {
+                const uint8_t v = DualLayerTestAccess::custody_reserve_verdict(elig != 0, known != 0,
+                                                                              static_cast<uint8_t>(t));
+                CHECK((v == NONE || v == CAND));
+            }
+}
+
+TEST_CASE("§B278 S1b — the ACTIVATION verdict is final: `eligible` iff a custody-carrying arm meets §5(7)") {
+    const uint8_t NONE = DualLayerTestAccess::custody_none();
+    const uint8_t ELIG = DualLayerTestAccess::custody_eligible();
+    int eligible_cells = 0;
+    for (int t = 0; t <= 0xFF; ++t) {
+        const uint8_t ty = static_cast<uint8_t>(t);
+        const bool reportable = DualLayerTestAccess::custody_type_reportable(ty);
+        // an ACK-only arm (§4.3's four) is `none` for EVERY type — the arm decides first.
+        CHECK(DualLayerTestAccess::custody_activate_verdict(false, ty) == NONE);
+        const uint8_t v = DualLayerTestAccess::custody_activate_verdict(true, ty);
+        CHECK(v == (reportable ? ELIG : NONE));
+        if (v == ELIG) ++eligible_cells;
+        CHECK((v == NONE || v == ELIG));       // ⛔ never `candidate`, never `forwarded`
+    }
+    CHECK(eligible_cells == 254);              // 256 types minus the two §5(7) exclusions — DERIVED, not typed
+}
+
+TEST_CASE("§B278 S1b — the ring stores exactly the verdict it is handed; `candidate` never survives ACTIVE and "
+          "`forwarded` is unreachable") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+    const uint8_t NONE = DualLayerTestAccess::custody_none(), CAND = DualLayerTestAccess::custody_candidate();
+    const uint8_t ELIG = DualLayerTestAccess::custody_eligible(), FWD = DualLayerTestAccess::custody_forwarded();
+    constexpr uint32_t M = 0xC0FFEEu, T = 0xDEADBEEFu;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+
+    // RESERVE writes the phase-1 verdict...
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms, CAND));
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).custody_state == CAND);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 1);          // RESERVED
+    // ...and an EXACT RETRY preserves it even when the retry passes a different verdict (the reserve key carries
+    // no type term, so a retry brings no new §5 evidence).
+    uint8_t slot2 = 0xFF;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot2, retry_ms, NONE));
+    CHECK(slot2 == slot);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).custody_state == CAND);   // ★ preserved, not re-decided
+
+    // ACTIVATION confirms it...
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, /*ctr_h*/9, false, /*return*/70, 0, ELIG));
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).custody_state == ELIG);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 2);          // ACTIVE
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, CAND) == 0);          // ⛔ no candidate survived
+    // ...and an exact ACTIVE REFRESH leaves the already-decided state alone, exactly as it leaves outward_type.
+    CHECK(DualLayerTestAccess::deleg_ack_put_full(home, M, 9, 5, true, T, false, 70, /*type*/0, /*custody*/NONE));
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).custody_state == ELIG);   // ★ unchanged by the refresh
+
+    // A CLEARED arm: the same reservation shape, activated by an ACK-only arm.
+    uint8_t s3 = 0xFF;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 6, true, 0xB0B0B0B0u, s3, retry_ms, CAND));
+    CHECK(DualLayerTestAccess::deleg_row(home, s3).custody_state == CAND);
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, s3, /*ctr_h*/9, false, /*return*/71, 0, NONE));
+    CHECK(DualLayerTestAccess::deleg_row(home, s3).custody_state == NONE);     // ★ cleared, ACK obligation kept
+    CHECK(DualLayerTestAccess::deleg_row(home, s3).state == 2);
+
+    // A DIRECT PUT (no reservation) carries its caller's verdict and nothing else.
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, 0xAB01u, /*ctr_h*/12, /*ctr_m*/3, /*return*/80, false, 0, ELIG));
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, ELIG) == 2);
+
+    // ⛔ `forwarded` NEVER appears on any path this slice can reach.
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, FWD) == 0);
+
+    // RELEASE / TRANSLATE clear the WHOLE row, custody byte included.
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, M, 9, 70, false, translated));
+    CHECK(translated == 5);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).custody_state == NONE);
+    CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 0);          // free
+    uint8_t s4 = 0xFF;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 7, true, T, s4, retry_ms, CAND));
+    DualLayerTestAccess::deleg_ack_release(home, M, 7, true, T);
+    CHECK(DualLayerTestAccess::deleg_row(home, s4).custody_state == NONE);
+    CHECK(DualLayerTestAccess::deleg_row(home, s4).state == 0);
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, FWD) == 0);
+}
+
+TEST_CASE("§B278 S1b F6 — the WHOLE row expires at the exclusive 300 s edge and reports its exact pre-clear "
+          "values ONCE, from every prune site") {
+    const uint8_t CAND = DualLayerTestAccess::custody_candidate(), ELIG = DualLayerTestAccess::custody_eligible();
+    constexpr uint32_t M = 0xC0FFEEu, T = 0xDEADBEEFu;
+
+    SUBCASE("a RESERVED candidate: nothing at TTL-1, exactly one event at the TTL, nothing afterwards") {
+        StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+        cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+        uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms, CAND));
+        hal.flog.clear();
+        hal._now += protocol::delegated_custody_ttl_ms - 1;                 // ⛔ ONE MILLISECOND SHORT
+        uint16_t ignored = 0;
+        CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, M, 1, 1, false, ignored));   // drives a prune scan
+        CHECK(hal.flog.n("deleg_ack_expired") == 0);
+        CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 1);       // still RESERVED
+        hal._now += 1;                                                      // ★ the exclusive edge, exactly
+        CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, M, 1, 1, false, ignored));
+        CHECK(hal.flog.n("deleg_ack_expired") == 1);
+        const auto* e = hal.flog.last("deleg_ack_expired");
+        CHECK(e != nullptr);
+        if (e) {
+            CHECK(e->shape() == "mobile_hash,ctr_m,ctr_h,target,layer,custody_state");
+            CHECK(e->at("mobile_hash") == static_cast<int64_t>(M));
+            CHECK(e->at("ctr_m") == 5);
+            CHECK(e->at("ctr_h") == 0);                                     // a RESERVED row has no return counter yet
+            CHECK(e->at("target") == static_cast<int64_t>(T));
+            CHECK(e->at("custody_state") == CAND);                          // ★ the EXACT pre-clear lifecycle value
+        }
+        CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 0);       // and the row is gone
+        CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, M, 1, 1, false, ignored));
+        CHECK(hal.flog.n("deleg_ack_expired") == 1);                        // ⛔ a free row emits NOTHING
+    }
+
+    SUBCASE("an ACTIVE eligible row reports `eligible` and its real ctr_h") {
+        StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+        cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+        uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms, CAND));
+        CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, /*ctr_h*/9, false, /*return*/70, 0, ELIG));
+        hal.flog.clear();
+        hal._now += protocol::delegated_custody_ttl_ms;
+        uint8_t s2 = 0xFF;
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, 0x1234u, 1, false, 40, s2, retry_ms, CAND));  // prune site: RESERVE
+        CHECK(hal.flog.n("deleg_ack_expired") == 1);
+        const auto* e = hal.flog.last("deleg_ack_expired");
+        CHECK(e != nullptr);
+        if (e) {
+            CHECK(e->at("ctr_h") == 9);
+            CHECK(e->at("custody_state") == ELIG);
+            CHECK(e->at("target") == static_cast<int64_t>(T));              // ★ the RESERVED target, not the return peer
+        }
+    }
+
+    SUBCASE("the third prune site — deleg_ack_put — emits it too, and an empty ring never does") {
+        StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+        cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+        CHECK(DualLayerTestAccess::deleg_ack_put(home, M, 9, 5, 70, false, 0, ELIG));
+        hal.flog.clear();
+        hal._now += protocol::delegated_custody_ttl_ms;
+        CHECK(DualLayerTestAccess::deleg_ack_put(home, 0x2222u, 3, 3, 41, false, 0, ELIG));
+        CHECK(hal.flog.n("deleg_ack_expired") == 1);
+        // and now the ring holds one FRESH row + seven free ones: another scan reports nothing at all.
+        hal.flog.clear();
+        uint16_t ignored = 0;
+        CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, 0x9999u, 1, 1, false, ignored));
+        CHECK(hal.flog.n("deleg_ack_expired") == 0);
+    }
+}
+
+TEST_CASE("§B278 S1b F6 — `deleg_ack_released` names its CAUSE, fires once per matched row, and a no-match "
+          "release is SILENT") {
+    const uint8_t CAND = DualLayerTestAccess::custody_candidate();
+    constexpr uint32_t M = 0xC0FFEEu, T = 0xDEADBEEFu;
+    // ⛔ THE SEVEN CAUSES ARE DRIVEN BY NAME, so a renumbered enum cannot pass by accident and a MISSING name
+    //    is a compile-time miss rather than a silently-wrong integer.
+    const char* causes[] = {"activation_conflict", "commit_invariant", "carrier_ineligible", "invalid_path",
+                            "source_not_owned", "dispatch_refused", "park_giveup"};
+    for (const char* name : causes) {
+        StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+        cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+        uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, /*target_is_hash=*/true, T, slot, retry_ms, CAND));
+        hal.flog.clear();
+        DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T, DualLayerTestAccess::release_cause(name));
+        CHECK(hal.flog.n("deleg_ack_released") == 1);
+        const auto* e = hal.flog.last("deleg_ack_released");
+        CHECK(e != nullptr);
+        if (e) {
+            CHECK(e->shape() == "mobile_hash,ctr_m,target,target_kind,layer,cause");
+            CHECK(e->at("mobile_hash") == static_cast<int64_t>(M));
+            CHECK(e->at("ctr_m") == 5);
+            CHECK(e->at("target") == static_cast<int64_t>(T));
+            CHECK(e->at("target_kind") == 1);                               // key_hash
+            CHECK(e->at("cause") == DualLayerTestAccess::release_cause(name));
+        }
+        CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 0);        // emitted BEFORE the clear, then cleared
+        // a SECOND release of the same identity matches nothing -> silence.
+        DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T, DualLayerTestAccess::release_cause(name));
+        CHECK(hal.flog.n("deleg_ack_released") == 1);
+    }
+    // The seven values are distinct — a collapsed enum would make the causes unattributable in the corpus.
+    std::vector<int> seen;
+    for (const char* name : causes) seen.push_back(DualLayerTestAccess::release_cause(name));
+    std::sort(seen.begin(), seen.end());
+    CHECK(std::unique(seen.begin(), seen.end()) == seen.end());
+    CHECK(seen.size() == 7u);
+
+    SUBCASE("no-match shapes emit nothing at all") {
+        StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+        cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+        uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+        CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, true, T, slot, retry_ms, CAND));
+        hal.flog.clear();
+        DualLayerTestAccess::deleg_ack_release(home, M, /*wrong ctr_m*/6, true, T);
+        DualLayerTestAccess::deleg_ack_release(home, /*wrong hash*/0x1u, 5, true, T);
+        DualLayerTestAccess::deleg_ack_release(home, M, 5, /*wrong kind*/false, T);
+        DualLayerTestAccess::deleg_ack_release(home, M, 5, true, /*wrong target*/0x1u);
+        CHECK(hal.flog.n("deleg_ack_released") == 0);                        // ⛔ four misses, zero events
+        CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 1);        // and the row is untouched
+        // an ACTIVE row is not releasable by its reservation identity either -> still silent.
+        CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, 9, false, 70, 0,
+                                                      DualLayerTestAccess::custody_eligible()));
+        DualLayerTestAccess::deleg_ack_release(home, M, 5, true, T);
+        CHECK(hal.flog.n("deleg_ack_released") == 0);
+        CHECK(DualLayerTestAccess::deleg_row(home, slot).state == 2);
+    }
+}
+
+TEST_CASE("§B278 S1b F6 — every EXISTING correlation event keeps its name, its fields and their ORDER; the two "
+          "new fields are APPENDED") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+    constexpr uint32_t M = 0xC0FFEEu, T = 0xDEADBEEFu;
+    uint8_t slot = 0xFF; uint32_t retry_ms = 0;
+
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 5, /*target_is_hash=*/true, T, slot, retry_ms,
+                                                 DualLayerTestAccess::custody_candidate()));
+    const auto* r = hal.flog.last("deleg_ack_reserved");
+    CHECK(r != nullptr);
+    if (r) {
+        // ★ `target_kind` is APPENDED — the four pre-existing fields keep their names AND their positions.
+        CHECK(r->shape() == "mobile_hash,ctr_m,target,layer,target_kind");
+        CHECK(r->at("target_kind") == 1);                                    // key_hash
+        for (const char* k : {"mobile_hash", "ctr_m", "target", "layer", "target_kind"}) CHECK(r->is_i64(k));
+    }
+
+    CHECK(DualLayerTestAccess::deleg_ack_activate(home, slot, 9, false, 70, 0,
+                                                  DualLayerTestAccess::custody_eligible()));
+    const auto* p = hal.flog.last("deleg_ack_put");
+    CHECK(p != nullptr);
+    // ⛔ UNCHANGED BY S1b. The emitted field is still spelled `peer` although the struct field is `return_peer`,
+    //    and no custody/type field was added: this event's shape is what 36 corpus streams were anchored on.
+    if (p) CHECK(p->shape() == "mobile_hash,ctr_h,ctr_m,peer,layer");
+
+    // A node-id reservation reports `target_kind == 0`, so the field really is the addressing CHOICE.
+    uint8_t s2 = 0xFF;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, M, 6, /*target_is_hash=*/false, 40, s2, retry_ms,
+                                                 DualLayerTestAccess::custody_candidate()));
+    const auto* r2 = hal.flog.last("deleg_ack_reserved");
+    CHECK(r2 != nullptr);
+    if (r2) {
+        CHECK(r2->at("target_kind") == 0);
+        CHECK(r2->shape() == "mobile_hash,ctr_m,target,layer,target_kind");
+    }
+}
+
+TEST_CASE("§B278 S1b — the last-mile reverse ACK reports its OWN identity: `mobile_hash` and `ctr_h` are "
+          "APPENDED to `mobile_reverse_ack`") {
+    // Drives the REAL last-mile fork (node_mac_rx.cpp), so the two appended values are the ones production has
+    // in scope there — not a fixture's idea of them.
+    StubHal hal; Node home(hal, /*id*/31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+    constexpr uint32_t M = 0x2716EFCDu;
+    uint8_t ed[32]{}; home.test_add_host_mobile(M, /*local*/254, ed);
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, M, /*ctr_h*/77, /*ctr_m*/9, /*return*/70, false, 0,
+                                             DualLayerTestAccess::custody_eligible()));
+    hal.flog.clear();
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, M, /*acked ctr_h*/77);
+    CHECK(hal.flog.n("mobile_reverse_ack") == 1);
+    const auto* e = hal.flog.last("mobile_reverse_ack");
+    CHECK(e != nullptr);
+    if (e) {
+        CHECK(e->shape() == "local,ctr,mobile_hash,ctr_h");                  // ★ two APPENDED, two unmoved
+        CHECK(e->at("local") == 254);
+        CHECK(e->at("ctr") == 9);                                            // the MOBILE's counter (translated)
+        CHECK(e->at("mobile_hash") == static_cast<int64_t>(M));
+        CHECK(e->at("ctr_h") == 77);                                         // the HOME's counter it was keyed by
+        for (const char* k : {"local", "ctr", "mobile_hash", "ctr_h"}) CHECK(e->is_i64(k));
+    }
+}
+
+TEST_CASE("§B278 S1b OWNER RULING — a wrapper-path return-key collision releases ONLY the new reservation, "
+          "leaves the incumbent intact, and the ACK it can no longer translate stays UNTRANSLATED") {
+    // ★★★ THE MEASURED CONSEQUENCE, kept exactly as ruled 2026-09-02: the outward DM was already admitted when
+    //     the collision is discovered, so `presence_mark_deleg_fail` (which the app renders as
+    //     `send_failed{no_route}`) would be a FALSE claim about a message that may still deliver. The mobile's
+    //     own E2E deadline is the backstop, and the proof that it will fire is the UNTRANSLATED counter below:
+    //     the mobile armed on ctr_M and the last mile hands it the home's ctr_H, so nothing clears its entry.
+    StubHal hal; Node home(hal, /*id*/31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; CHECK(home.on_init(cfg));
+    constexpr uint32_t A = 0xAAAA1111u, B = 0xBBBB2222u, TB = 0xB0B0B0B0u;
+    uint8_t ed[32]{}; home.test_add_host_mobile(B, /*local*/254, ed);
+
+    // The incumbent: mobile A already holds the wire-visible return key {ctr_h=9, node_id, 70, layer}.
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, A, /*ctr_h*/9, /*ctr_m*/5, /*return*/70, false, 0,
+                                             DualLayerTestAccess::custody_eligible()));
+    // Mobile B's wrapper reserved BEFORE its hop ACK (hash-addressed target, provisional candidate)...
+    uint8_t sb = 0xFF; uint32_t retry_ms = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_reserve(home, B, /*ctr_m*/4, /*target_is_hash=*/true, TB, sb, retry_ms,
+                                                 DualLayerTestAccess::custody_candidate()));
+    hal.flog.clear();
+    // ...and its outward DM has ALREADY flown by the time activation discovers the collision.
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_put_full(home, B, /*ctr_h*/9, /*ctr_m*/4, true, TB, false, 70,
+                                                        /*type*/0, DualLayerTestAccess::custody_eligible()));
+    // The caller releases ONLY its own reservation, with the one cause that describes it.
+    DualLayerTestAccess::deleg_ack_release(home, B, 4, true, TB,
+                                           DualLayerTestAccess::release_cause("activation_conflict"));
+    CHECK(hal.flog.n("deleg_ack_released") == 1);
+    if (const auto* rel = hal.flog.last("deleg_ack_released"))
+        CHECK(rel->at("cause") == DualLayerTestAccess::release_cause("activation_conflict"));
+    CHECK(DualLayerTestAccess::deleg_row(home, sb).state == 0);              // B's reservation is gone...
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);                 // ...and ONLY that one row went
+    uint16_t translated = 0;                                                 // ⛔ the incumbent is untouched
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, A, 9, 70, false, translated));
+    CHECK(translated == 5);
+
+    // ★ THE CONSEQUENCE, MEASURED: B's returning ACK (carrying the HOME's ctr_H) finds no row, so the last mile
+    //   forwards it VERBATIM — the mobile receives 9, not the 4 it is waiting on, and its own e2e_ack deadline
+    //   is what will eventually fire. ⛔ No `mobile_reverse_ack` is emitted, because nothing was translated.
+    hal.flog.clear();
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, B, /*acked ctr_h*/9);
+    CHECK(hal.flog.n("mobile_reverse_ack") == 0);
+    CHECK(hal.saw_emit("mobile_lastmile_fwd"));            // the last mile DID run — it simply had nothing to translate
+    // The forward left the queue immediately (the node was idle, so `become_free` issued its RTS), so the carrier
+    // to inspect is the IN-FLIGHT sender state, not the queue.
+    const PendingTx* fwd = DualLayerTestAccess::pending(home);
+    CHECK(fwd != nullptr);
+    if (fwd) {
+        CHECK(fwd->addr_len == 1);                                           // the hosted-mobile last mile
+        CHECK(fwd->dst == 254);
+        CHECK(fwd->type == DATA_TYPE_E2E_ACK);
+        const size_t boff = fwd->inner_len - 2;                              // the E2E_ACK body: the acked ctr, LE
+        CHECK(static_cast<uint16_t>(fwd->inner[boff] | (fwd->inner[boff + 1] << 8)) == 9);   // ★ the HOME's ctr_H
+    }
 }
 
 // ============================ §S1 + §GapA + §GapB (2026-07-18) ============================
@@ -4027,6 +4818,39 @@ TEST_CASE("§S1 — the home unwraps an XL data delegation -> re-originates a CR
         }
     }
     CHECK(hal.saw_emit("deleg_ack_put"));                                          // ★ ctr_H->ctr_M recorded (keyed by M's hash)
+}
+
+TEST_CASE("§B278 S1b §4.3 ACK-ONLY ARM 3 of 4 — the wrapper's own CROSS-LAYER branch activates with NO custody "
+          "obligation, only the ACK one") {
+    // ⛔ THE FIXTURE IS §S1's, REUSED VERBATIM (U1) — same home, same bridging gateway, same one-hop path — so
+    //    the ONLY thing this case adds is the custody verdict the S1 case never looked at.
+    StubHal hal; hal._now = 50000; Node home(hal, /*id*/101, /*hash*/0x44070011u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4;
+    CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0x2716EFCDu, /*local*/17);
+    DualLayerTestAccess::store_gw_schedule_pair(home, /*gw*/10, /*leafA*/4, /*leafB*/7);
+    DualLayerTestAccess::learn_neighbor(home, 10);
+    const uint8_t hops[1] = { 7 };
+    const char* b = "hello-m3";
+    DualLayerTestAccess::drive_post_ack_mobile_send_xl(home, /*M*/0x2716EFCDu, /*X*/0xBCC13CC5u, /*ctr_M*/0x0006,
+                                                       hops, 1, /*etype=*/0,
+                                                       reinterpret_cast<const uint8_t*>(b), 8,
+                                                       /*wrapper_flags=*/DATA_FLAG_E2E_ACK_REQ);
+    CHECK(hal.saw_emit("deleg_ack_put"));                          // the ACK obligation IS recorded...
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+    // ...and §5(6) excludes the carrier outright, so the row is ACTIVE with `none` — a custody report about a
+    // cross-layer flight would be raised on another layer, under another layer's identity, and could never be
+    // correlated back here.
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, DualLayerTestAccess::custody_eligible()) == 0);
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, DualLayerTestAccess::custody_candidate()) == 0);
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, DualLayerTestAccess::custody_forwarded()) == 0);
+    CHECK(DualLayerTestAccess::deleg_custody_n(home, DualLayerTestAccess::custody_none())
+          == DualLayerTestAccess::deleg_ack_cap());                // every row in the ring, the live one included
+    // ⛔ AND THE ACK OBLIGATION IS REAL, not merely "a row exists": the returning ACK still translates.
+    uint16_t translated = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, 0x2716EFCDu, DualLayerTestAccess::deleg_row(home, 0).ctr_h,
+                                               0xBCC13CC5u, /*return_is_hash=*/true, translated));
+    CHECK(translated == 0x0006);
 }
 
 TEST_CASE("§GapB — the home unwraps an XL ACK delegation (enclosed_type=E2E_ACK): re-originates type=E2E_ACK, no ack-of-ack, no deleg map") {

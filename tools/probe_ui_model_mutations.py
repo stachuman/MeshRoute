@@ -613,7 +613,62 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2509, 103638    # ★★ RE-SYNCED 2026-09-02 by **§B278 S0** (characterization only — the
+PIN_CASES, PIN_ASSERTS = 2530, 106699    # ★★ RE-SYNCED 2026-09-02 by **§B278 S1b** (custody admission, the
+                                         # CROSS-MOBILE return-key refusal and exact lifecycle telemetry — the
+                                         # first B278 slice with BEHAVIOUR). DERIVATION, measured with the real
+                                         # binary and not assumed: clean tree BEFORE (the uncommitted S1a tree)
+                                         # = 2516 / 103777 / 0 failed; AFTER = 2530 / 106699 / 0 failed
+                                         # ⇒ +14 cases / +2922 assertions, and the delta closes EXACTLY:
+                                         #   · `-tc="*B278 S1b*"` = 15 cases / 2941 assertions, of which ONE
+                                         #     case is the RENAMED S1a uniqueness case (22 -> 29 assertions,
+                                         #     +7) ⇒ 14 genuinely NEW cases carrying 2912 assertions;
+                                         #   · the flipped B251 case `two hosted-mobile hashes sharing ctrH …`
+                                         #     goes 7 -> 10 assertions (+3);
+                                         #   ⇒ 2912 + 7 + 3 = 2922. ✓ and `-tc="*B278 S1a*"` drops 7 -> 6
+                                         #     cases / 139 -> 117 assertions, which is exactly the renamed
+                                         #     case leaving that filter.
+                                         # ⓘ THE 2837 IS DOMINATED BY TWO EXHAUSTIVE CASES, deliberately: the
+                                         #   §5 reservation predicate (1796) and the activation predicate
+                                         #   (769) are swept over ALL 256 DataType values x every term, so
+                                         #   "exactly two types are excluded" is DERIVED rather than listed.
+                                         #   The other nine new cases carry 272 assertions between them.
+                                         # ⛔ TWO EXISTING CASES WERE EDITED ON PURPOSE and both are the
+                                         #   slice's measured admission change, not fallout:
+                                         #     test_dual_layer.cpp "§B251 reverse key — two hosted-mobile
+                                         #       hashes sharing ctrH and return peer cannot cross-correlate"
+                                         #     test_dual_layer.cpp "§B278 S1b — activation uniqueness is
+                                         #       CROSS-MOBILE …" (renamed from "… stays SAME-MOBILE-SCOPED")
+                                         #   No other case was touched: every other pre-existing call site
+                                         #   compiles unchanged because the seam's new `custody` / `cause`
+                                         #   parameters are APPENDED WITH DEFAULTS.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2516, 103777 — ★★ RE-SYNCED 2026-09-02 by **§B278 S1a** (the behaviour-NEUTRAL
+                                         # correlation refactor: `Node::DelegAck` 24 -> 32 B, B251's single
+                                         # phase-dependent `peer` split into target/return, `outward_type` +
+                                         # `custody_state` added STORED-ONLY). DERIVATION, measured with the
+                                         # real binary and not assumed: clean tree BEFORE (HEAD 63b4065, the
+                                         # S0 cases already committed) = 2509 / 103638 / 0 failed; AFTER =
+                                         # 2516 / 103777 / 0 failed  ⇒  +7 cases / +139 assertions, and
+                                         # `./.pio/build/native/program -tc="*B278 S1a*"` reports EXACTLY
+                                         # 7 cases / 139 assertions, so the WHOLE delta is attributed:
+                                         #   test/test_dual_layer.cpp  +7 cases, all §B278 S1a
+                                         #     reserve writes TARGET / activation writes RETURN independently
+                                         #     release is RESERVED-only and matches on the target identity
+                                         #     the reserve key is exact (retry refreshes, anything else is new)
+                                         #     a full ring of RESERVATIONS refuses, evicts nothing, self-drains
+                                         #     outward_type is stored at every arm and is part of NO key
+                                         #     custody_state is `none` on every path S1a can reach
+                                         #     activation uniqueness stays SAME-MOBILE-SCOPED (the C1 fence)
+                                         # ⛔ ZERO existing cases edited or removed. The existing B251 cases
+                                         #   are byte-identical: `DualLayerTestAccess::deleg_ack_put`'s new
+                                         #   `outward_type` parameter is APPENDED WITH A DEFAULT, so every
+                                         #   pre-existing call site compiles and behaves exactly as before.
+                                         # ⛔ THE PRODUCTION TOUCH IS REAL THIS TIME (unlike S0): node.h,
+                                         #   node_hashlocate.cpp, node_mac_rx.cpp, protocol_constants.h — and
+                                         #   the gate that makes it a REFACTOR rather than a change is the
+                                         #   36/36 byte-identical corpus, not this pin.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2509, 103638 — ★★ RE-SYNCED 2026-09-02 by **§B278 S0** (characterization only — the
                                          # slice changes ZERO production lines; the delta is entirely new
                                          # `test/` cases). DERIVATION, measured with the real binary, not
                                          # assumed: clean tree BEFORE = 2503 / 103323 / 0 failed; AFTER =
@@ -6254,24 +6309,97 @@ MUTS_B251RX = [
   "            if (false && _active->_tx_queue_n < kTxQueueCap) {\n"
   "                _active->_tx_queue[_active->_tx_queue_n++] = it;\n"
   "            } else {                                              // queue full -> can't requeue; give up loudly"),
+ # ---- §B278 S1b (2026-09-02) — the RESERVATION-phase §5 verdict and the four ACK-only activation arms -----------
+ # ⛔ X12 IS DELIBERATELY ABSENT AND ITS ABSENCE IS A MEASUREMENT, NOT AN OVERSIGHT. The direct-transit
+ #    RESERVATION verdict (`deleg_custody_reserve_verdict(true, true, d.type)`) is written and then SUPERSEDED
+ #    inside the SAME `handle_data` call by the activation verdict at the bottom of the function, so no
+ #    observation point exists between them and a mutation of it would be VACUOUS-BY-CONSTRUCTION — the exact
+ #    shape this battery refuses to ship. The §5(7) half of that site IS reachable and IS attacked, by X15
+ #    below, because `wants_reverse_map` / `d.type` decide whether a row exists at all.
+ ("X13 B278 S1b the wrapper reservation IGNORES `has_cross_layer`, so a cross-layer wrapper gets a candidate",
+  "                map_custody = deleg_custody_reserve_verdict(\n"
+  "                    /*carrier_prospectively_eligible=*/!ui->has_cross_layer,",
+  "                map_custody = deleg_custody_reserve_verdict(\n"
+  "                    /*carrier_prospectively_eligible=*/true,"),
+ ("X14 B278 S1b the wrapper reservation CLAIMS to know the enclosed type, so no wrapper is ever provisional",
+  "                    /*outward_type_known=*/false, /*outward_type=*/0);",
+  "                    /*outward_type_known=*/true, /*outward_type=*/DATA_TYPE_E2E_ACK);"),
+ # ⛔⛔ X15 WAS WRITTEN, MEASURED **UNUSABLE**, AND IS RETIRED HERE RATHER THAN LEFT AS A SILENT GREEN — for the
+ #     same structural reason X12 was never written, and the measurement is worth keeping because it is a fact
+ #     about the CODE, not about the tests. It read: *"the direct-transit reservation stops applying §5(7), so a
+ #     CUSTODY_FAILURE carrier owes custody"*.
+ #     ★ WHY NOTHING CAN SEE IT: on the DIRECT-TRANSIT path the reservation (`node_mac_rx.cpp`, the
+ #       `translate_mobile_transit` arm) and the activation (the `deleg_ack_activate` at the bottom of the SAME
+ #       `handle_data` call) are separated by no observation point at all, and the ACTIVATION verdict —
+ #       `deleg_custody_activate_verdict(true, d.type)` — applies §5(7) again over the same `d.type`. So the row
+ #       ends `none` either way and no native case, no telemetry field and no corpus line can differ.
+ #     ⇒ THE DECISION IS STILL CONTROLLED, just not from this site: the type term itself is swept over all 256
+ #       DataTypes by `§B278 S1b — §5's type term is ONE authority`, and the arm that DOES decide the direct
+ #       transit's final state is attacked by X16. The reservation-phase call is kept in production because the
+ #       brief's §S1b-1 table requires it and because it is the only thing that would be correct if a future
+ #       slice ever separated the two phases on this path.
+ ("X16 B278 S1b the DIRECT-TRANSIT activation verdict is inverted (the one arm that must carry custody stops)",
+  "                                      deleg_custody_activate_verdict(/*arm_carries_custody=*/true, d.type)));",
+  "                                      deleg_custody_activate_verdict(/*arm_carries_custody=*/false, d.type)));"),
+ ("X17 B278 S1b the WRAPPER CROSS-LAYER branch acquires a custody obligation §5(6) forbids (ACK-only arm 3 of 4)",
+  "                                              deleg_custody_activate_verdict(/*arm_carries_custody=*/false, etype)))",
+  "                                              deleg_custody_activate_verdict(/*arm_carries_custody=*/true, etype)))"),
+ ("X18 B278 S1b the pre-ACK uniqueness refusal moves BEHIND the mobile's hop ACK",
+  "    if (admission_refusal == 0 && correlation_slot != kDelegAckNoSlot && translate_mobile_transit) {\n"
+  "        admitted_ctr_h = peek_next_ctr(d.dst);",
+  "    if (false && correlation_slot != kDelegAckNoSlot && translate_mobile_transit) {\n"
+  "        admitted_ctr_h = peek_next_ctr(d.dst);"),
+ ("X19 B278 S1b F6 `mobile_hash`/`ctr_h` are DROPPED from `mobile_reverse_ack` (the census loses its exact bind)",
+  "                                MR_EMIT(\"mobile_reverse_ack\", EF_I(\"local\", it.dst), EF_I(\"ctr\", m_ctr),\n"
+  "                                        EF_I(\"mobile_hash\", static_cast<int64_t>(ui->dst_key_hash32)),\n"
+  "                                        EF_I(\"ctr_h\", acked));",
+  "                                MR_EMIT(\"mobile_reverse_ack\", EF_I(\"local\", it.dst), EF_I(\"ctr\", m_ctr));"),
+ ("X20 B278 S1b F6 `mobile_reverse_ack` is REORDERED instead of appended (its two pre-existing fields move)",
+  "                                MR_EMIT(\"mobile_reverse_ack\", EF_I(\"local\", it.dst), EF_I(\"ctr\", m_ctr),\n"
+  "                                        EF_I(\"mobile_hash\", static_cast<int64_t>(ui->dst_key_hash32)),\n"
+  "                                        EF_I(\"ctr_h\", acked));",
+  "                                MR_EMIT(\"mobile_reverse_ack\", EF_I(\"mobile_hash\", static_cast<int64_t>(ui->dst_key_hash32)),\n"
+  "                                        EF_I(\"ctr_h\", acked), EF_I(\"local\", it.dst), EF_I(\"ctr\", m_ctr));"),
+ ("X21 B278 S1b F6 `mobile_reverse_ack` reports the HOME's ctr as the mobile's (the two counters are swapped)",
+  "                                        EF_I(\"ctr_h\", acked));",
+  "                                        EF_I(\"ctr_h\", m_ctr));"),
+ # ⛔⛔ X22 AND X23 WERE WRITTEN, MEASURED **UNUSABLE**, AND ARE RETIRED HERE WITH THEIR REASONS. Both attacked
+ #     the CAUSE VALUE at one specific release site, and in both cases the site cannot be reached by a
+ #     production-shaped fixture — so a mutation of them could only ever be a silent green.
+ #     · X22 *"the commit-invariant release loses its CAUSE"* — `node_mac_rx.cpp`'s `mobile_ctr_commit_failed`
+ #       arm fires only when `ctr_h != admitted_ctr_h` or the activation fails AFTER the pre-ACK availability
+ #       probe already said yes. Both resources were checked before the hop ACK and the loop task is
+ #       single-threaded, so reaching it means an internal invariant broke — which is exactly what its own
+ #       in-source note says. There is no fixture that produces it without hand-editing the ring.
+ #     · X23 *"the SPOOFED-SOURCE release is reported as an ordinary dispatch refusal"* — the `else` arm fires
+ #       when `ours == false`, i.e. no LIVE DIRECT hosted row owns `ui->source_hash`. But that same predicate
+ #       gates the RESERVATION in `handle_data`, so a spoofed source never reserved anything and the release
+ #       matches NO row and emits NOTHING (correctly). The only way to reach it with a live row is to let the
+ #       host row's `mobile_liveness_ms` (1 500 000 ms) elapse BETWEEN the hop ACK and the post-ack timer, which
+ #       fires a few milliseconds later in production — a fixture that manufactures a scenario the code cannot
+ #       produce, which §S1b's own STOP condition 8 forbids for exactly this reason.
+ #     ⇒ THE CLASS IS STILL CONTROLLED: D19 (`the release CAUSE is hard-coded`) attacks "a wrong cause" across
+ #       every site at once and is RED, D21 attacks a cause emitted with no release behind it, and the four
+ #       causes that ARE reachable from a production-shaped fixture (`park_giveup`, `dispatch_refused`,
+ #       `carrier_ineligible`, `activation_conflict`) are each driven by a native case.
 ]
 
 MUTS_B251HASH = [
  ("D01 B251 reverse lookup drops the returning destination discriminator",
   "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {",
   "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.layer == layer) {"),
+  "            && e.return_kind == return_kind && e.layer == layer) {"),
  ("D02 B251 reverse lookup drops the layer/plane discriminator",
   "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {",
   "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.peer == return_peer) {"),
+  "            && e.return_kind == return_kind && e.return_peer == return_peer) {"),
  ("D03 B251 reverse lookup drops the hosted-mobile hash discriminator",
   "        if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {",
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {",
   "        if (e.ctr_h == acked_ctr\n"
-  "            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {"),
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {"),
  ("D04 B251 a full live correlation ring evicts slot zero instead of applying backpressure",
   "    if (free_slot == kDelegAckNoSlot) {\n"
   "        ++_mobile_ctr_admission_refused_n;\n"
@@ -6304,10 +6432,169 @@ MUTS_B251HASH = [
   "            return true;",
   "            out_mobile_ctr = e.ctr_m;\n"
   "            return true;"),
+ # ⓘ D08 RE-ANCHORED 2026-09-02 by §B278 S1b: its quoted inline prune line became the call to the ONE expiry
+ #   authority (`deleg_ack_prune_expired`). SAME DECISION, same site, same RED — only the spelling moved.
  ("D08 B278 prune-before-admit is removed from deleg_ack_put, so the ring never self-drains at its TTL",
-  "        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};\n"
+  "        deleg_ack_prune_expired(e, now);\n"
   "        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m",
   "        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m"),
+ # ---- §B278 S1a (2026-09-02) — the controlled REDs for the behaviour-NEUTRAL correlation refactor. ⛔ D09 IS THE
+ #      SPECIAL ONE AND IT IS NOT AN ATTACK: it implements S1b's FUTURE cross-mobile refusal EARLY (spec §4.3 /
+ #      §12-S1b(3)). Its RED is the positive proof that S1a did NOT quietly land that admission change — the corpus
+ #      cannot see it either way (home counters are per destination), which is exactly why it needs its own arm.
+ # ⛔⛔ D09 IS RETIRED BY **§B278 S1b (2026-09-02)**, AND THE RECORD IS KEPT RATHER THAN THE ENTRY DELETED
+ #     SILENTLY — the A01/A02/A03 correction idiom, applied a second time.
+ #     D09 read: *"S1b's CROSS-MOBILE return-key refusal is landed EARLY inside the behaviour-neutral S1a
+ #     refactor"*, and its RED was S1a's positive proof that the admission change had NOT snuck in. ★ THAT
+ #     MUTATION IS NOW THE PRODUCTION CODE: S1b removed the `mobile_hash` term from BOTH activation
+ #     authorities, so D09's quoted text matches ZERO times and the harness would correctly call it VACUOUS.
+ #     ⇒ THE DECISION DID NOT LOSE ITS CONTROL; IT INVERTED. D09i and D09j below RESTORE either half of the
+ #       removed term, one at a time, and each must be RED — which is the strictly stronger statement, because
+ #       a single entry could have been satisfied by only one of the two authorities being changed.
+ ("D09i B278 S1b the CROSS-MOBILE refusal is undone at the availability probe (the `mobile_hash` term returns)",
+  "        if (e.ctr_h == ctr_h\n"
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {\n"
+  "            const uint64_t wait = kDelegAckTtlMs - (now - e.ts_ms);",
+  "        if (e.mobile_hash == _deleg_acks[slot].mobile_hash && e.ctr_h == ctr_h\n"
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {\n"
+  "            const uint64_t wait = kDelegAckTtlMs - (now - e.ts_ms);"),
+ ("D09j B278 S1b the CROSS-MOBILE refusal is undone at the ACTIVE-match arm (the `mobile_hash` term returns)",
+  "        if (e.state == DelegAckState::active && e.ctr_h == ctr_h\n"
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {",
+  "        if (e.state == DelegAckState::active && e.mobile_hash == mobile_hash && e.ctr_h == ctr_h\n"
+  "            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {"),
+ ("D09k B278 S1b a colliding foreign mobile OVERWRITES the incumbent instead of being refused",
+  "            if (e.mobile_hash != mobile_hash || e.ctr_m != ctr_m) return false;",
+  "            if (e.ctr_m != ctr_m) { e.mobile_hash = mobile_hash; }   // mutant: steal the incumbent's row"),
+ ("D09m B278 S1b a colliding foreign mobile falls THROUGH to a free slot, creating the second indistinguishable row",
+  "            if (e.mobile_hash != mobile_hash || e.ctr_m != ctr_m) return false;\n"
+  "            e.ts_ms = now;                                        // exact active refresh, never a replacement",
+  "            if (e.mobile_hash != mobile_hash) { if (free_slot == kDelegAckNoSlot) free_slot = i; continue; }\n"
+  "            if (e.ctr_m != ctr_m) return false;\n"
+  "            e.ts_ms = now;                                        // exact active refresh, never a replacement"),
+ ("D10 B278 S1a the mobile-visible TARGET is overwritten at activation (B251's single phase-dependent `peer` restored)",
+  "    e.return_kind = return_kind; e.outward_type = outward_type; e.state = DelegAckState::active;",
+  "    e.return_kind = return_kind; e.outward_type = outward_type; e.state = DelegAckState::active;\n"
+  "    e.target = return_peer; e.target_kind = return_kind;          // mutant: collapse the two identities again"),
+ ("D11 B278 S1a the outward carrier TYPE is silently dropped at activation instead of being stored",
+  "    e.ts_ms = _hal.now(); e.ctr_h = ctr_h; e.return_peer = return_peer; e.layer = layer;",
+  "    e.ts_ms = _hal.now(); e.ctr_h = ctr_h; e.return_peer = return_peer; e.layer = layer;\n"
+  "    outward_type = 0;                                             // mutant: the type never reaches the row"),
+ # ⛔ D12 IS RE-SCOPED BY **§B278 S1b (2026-09-02)**, not deleted. It read *"a RESERVED row is born with a
+ #    custody candidate already set (S1b behaviour landed early)"* and its quoted line no longer exists: a
+ #    reservation now stores the CALLER'S phase-1 verdict. ⇒ the same decision is attacked from the other side —
+ #    the row is born with a candidate REGARDLESS of that verdict, i.e. a known-ineligible carrier acquires one.
+ ("D12 B278 S1b a RESERVED row is born with a candidate REGARDLESS of the caller's §5 verdict",
+  "    // §B278 S1b at RESERVE: the caller's PHASE-1 verdict (`deleg_custody_reserve_verdict`), which can only be\n"
+  "    // `none` or the provisional `candidate` — §5's remaining terms are activation-phase facts.\n"
+  "    e.custody_state = custody;",
+  "    e.custody_state = DelegAckCustody::candidate;               // mutant: every reservation is a candidate"),
+ ("D14 B278 S1b the reservation's custody verdict is DROPPED, so no row is ever provisional",
+  "    // §B278 S1b at RESERVE: the caller's PHASE-1 verdict (`deleg_custody_reserve_verdict`), which can only be\n"
+  "    // `none` or the provisional `candidate` — §5's remaining terms are activation-phase facts.\n"
+  "    e.custody_state = custody;",
+  "    e.custody_state = DelegAckCustody::none;                    // mutant: the phase-1 verdict is thrown away"),
+ ("D15 B278 S1b a `candidate` SURVIVES activation (the arm's verdict never lands on the row)",
+  "    e.custody_state = custody;\n"
+  "    MR_EMIT(\"deleg_ack_put\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),",
+  "    if (e.custody_state == DelegAckCustody::none) e.custody_state = custody;   // mutant: a candidate is never cleared\n"
+  "    MR_EMIT(\"deleg_ack_put\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),"),
+ ("D16 B278 S1b `forwarded` — S3's state — is written at activation, one arc-slice early",
+  "    e.custody_state = custody;\n"
+  "    MR_EMIT(\"deleg_ack_put\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),",
+  "    e.custody_state = DelegAckCustody::forwarded;               // mutant: S3's unreachable state, reached\n"
+  "    MR_EMIT(\"deleg_ack_put\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),"),
+ ("D17 B278 S1b an ACTIVE refresh RE-DECIDES the custody state instead of preserving it",
+  "            if (e.mobile_hash != mobile_hash || e.ctr_m != ctr_m) return false;\n"
+  "            e.ts_ms = now;                                        // exact active refresh, never a replacement",
+  "            if (e.mobile_hash != mobile_hash || e.ctr_m != ctr_m) return false;\n"
+  "            e.ts_ms = now; e.custody_state = custody;             // mutant: a refresh re-decides"),
+ ("D18 B278 S1b an exact RESERVED retry re-decides the provisional state instead of preserving it",
+  "            e.ts_ms = now;                                      // exact retry: keep the same reservation",
+  "            e.ts_ms = now; e.custody_state = custody;            // mutant: a retry re-decides"),
+ # ---- F6: the release-cause authority --------------------------------------------------------------------------
+ ("D19 B278 S1b F6 the release CAUSE is hard-coded, so every release reads as the same reason",
+  "                    EF_I(\"cause\", static_cast<int>(cause)));",
+  "                    EF_I(\"cause\", 0));                          // mutant: one cause fits all"),
+ ("D20 B278 S1b F6 `deleg_ack_released` is emitted AFTER the clear, so it reports a zeroed row",
+  "            MR_EMIT(\"deleg_ack_released\", EF_I(\"mobile_hash\", static_cast<int64_t>(mobile_hash)),\n"
+  "                    EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)),\n"
+  "                    EF_I(\"target_kind\", static_cast<int>(target_kind)), EF_I(\"layer\", layer),\n"
+  "                    EF_I(\"cause\", static_cast<int>(cause)));\n"
+  "            e = DelegAck{};                                      // emit BEFORE the clear: the values are the row's",
+  "            e = DelegAck{};\n"
+  "            MR_EMIT(\"deleg_ack_released\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),\n"
+  "                    EF_I(\"ctr_m\", e.ctr_m), EF_I(\"target\", static_cast<int64_t>(e.target)),\n"
+  "                    EF_I(\"target_kind\", static_cast<int>(e.target_kind)), EF_I(\"layer\", e.layer),\n"
+  "                    EF_I(\"cause\", static_cast<int>(cause)));"),
+ ("D21 B278 S1b F6 a NO-MATCH release emits anyway, so the census counts releases that never happened",
+  "                            uint32_t target, uint8_t layer,\n"
+  "                            [[maybe_unused]] DelegAckReleaseCause cause) {\n"
+  "    for (DelegAck& e : _deleg_acks)",
+  "                            uint32_t target, uint8_t layer,\n"
+  "                            [[maybe_unused]] DelegAckReleaseCause cause) {\n"
+  "    MR_EMIT(\"deleg_ack_released\", EF_I(\"mobile_hash\", static_cast<int64_t>(mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)),\n"
+  "            EF_I(\"target_kind\", static_cast<int>(target_kind)), EF_I(\"layer\", layer),\n"
+  "            EF_I(\"cause\", static_cast<int>(cause)));            // mutant: a miss is no longer silent\n"
+  "    for (DelegAck& e : _deleg_acks)"),
+ ("D22 B278 S1b F6 the park-giveup call site BYPASSES the helper, so an aged-out send reports no release",
+  "                if (p.reply_to_hash != 0 && (p.flags & DATA_FLAG_E2E_ACK_REQ) && p.type != DATA_TYPE_E2E_ACK)\n"
+  "                    deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,\n"
+  "                                      p.key_hash32, active_layer_id(),\n"
+  "                                      DelegAckReleaseCause::park_giveup);",
+  "                if (false && p.reply_to_hash != 0)                 // mutant: this site stops using the helper\n"
+  "                    deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,\n"
+  "                                      p.key_hash32, active_layer_id(),\n"
+  "                                      DelegAckReleaseCause::park_giveup);"),
+ # ---- F6: the ONE expiry authority ------------------------------------------------------------------------------
+ ("D23 B278 S1b F6 the expiry emit is DELETED, so a row's end becomes unobservable again",
+  "    MR_EMIT(\"deleg_ack_expired\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", e.ctr_m), EF_I(\"ctr_h\", e.ctr_h),\n"
+  "            EF_I(\"target\", static_cast<int64_t>(e.target)), EF_I(\"layer\", e.layer),\n"
+  "            EF_I(\"custody_state\", static_cast<int>(e.custody_state)));\n"
+  "    e = DelegAck{};",
+  "    e = DelegAck{};"),
+ ("D24 B278 S1b F6 the expiry is emitted AFTER the clear, so every field reports a zeroed row",
+  "    MR_EMIT(\"deleg_ack_expired\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", e.ctr_m), EF_I(\"ctr_h\", e.ctr_h),\n"
+  "            EF_I(\"target\", static_cast<int64_t>(e.target)), EF_I(\"layer\", e.layer),\n"
+  "            EF_I(\"custody_state\", static_cast<int>(e.custody_state)));\n"
+  "    e = DelegAck{};",
+  "    e = DelegAck{};\n"
+  "    MR_EMIT(\"deleg_ack_expired\", EF_I(\"mobile_hash\", static_cast<int64_t>(e.mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", e.ctr_m), EF_I(\"ctr_h\", e.ctr_h),\n"
+  "            EF_I(\"target\", static_cast<int64_t>(e.target)), EF_I(\"layer\", e.layer),\n"
+  "            EF_I(\"custody_state\", static_cast<int>(e.custody_state)));"),
+ ("D25 B278 S1b F6 the exclusive 300 s edge becomes inclusive, so a row dies one scan early",
+  "    if (e.state == DelegAckState::free || now - e.ts_ms < kDelegAckTtlMs) return;",
+  "    if (e.state == DelegAckState::free || now - e.ts_ms <= kDelegAckTtlMs) return;"),
+ ("D26 B278 S1b F6 the translate prune site BYPASSES the one expiry authority",
+  "    for (DelegAck& e : _deleg_acks) {\n"
+  "        deleg_ack_prune_expired(e, now);\n"
+  "        if (e.state != DelegAckState::active) continue;",
+  "    for (DelegAck& e : _deleg_acks) {\n"
+  "        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};\n"
+  "        if (e.state != DelegAckState::active) continue;"),
+ # ---- F6: the APPENDED fields, and the events that must NOT move ------------------------------------------------
+ ("D27 B278 S1b F6 `target_kind` is DROPPED from `deleg_ack_reserved` (the appended field never lands)",
+  "            EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)), EF_I(\"layer\", layer),\n"
+  "            EF_I(\"target_kind\", static_cast<int>(target_kind)));",
+  "            EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)), EF_I(\"layer\", layer));"),
+ ("D28 B278 S1b F6 `deleg_ack_reserved` is REORDERED instead of appended (the corpus anchor becomes unattributable)",
+  "    MR_EMIT(\"deleg_ack_reserved\", EF_I(\"mobile_hash\", static_cast<int64_t>(mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)), EF_I(\"layer\", layer),\n"
+  "            EF_I(\"target_kind\", static_cast<int>(target_kind)));",
+  "    MR_EMIT(\"deleg_ack_reserved\", EF_I(\"target_kind\", static_cast<int>(target_kind)),\n"
+  "            EF_I(\"mobile_hash\", static_cast<int64_t>(mobile_hash)),\n"
+  "            EF_I(\"ctr_m\", ctr_m), EF_I(\"target\", static_cast<int64_t>(target)), EF_I(\"layer\", layer));"),
+ ("D13 B278 S1a the RESERVED-phase key silently reads the ACTIVE-phase identity, so no reservation can ever match",
+  "        if (e.state == DelegAckState::reserved\n"
+  "            && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m\n"
+  "            && e.target_kind == target_kind && e.target == target && e.layer == layer) {",
+  "        if (e.state == DelegAckState::reserved\n"
+  "            && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m\n"
+  "            && e.return_kind == target_kind && e.return_peer == target && e.layer == layer) {"),
 ]
 
 # ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================

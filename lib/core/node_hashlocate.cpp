@@ -1639,28 +1639,43 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     const bool delegated_e2e = reply_to_hash != 0 && mobile_ctr != 0
                             && (flags & DATA_FLAG_E2E_ACK_REQ) && itype != DATA_TYPE_E2E_ACK;
     const bool delegated_origin = reply_to_hash != 0 && mobile_ctr != 0 && itype != DATA_TYPE_E2E_ACK;
-    auto release_deleg_ack = [&]() {
+    // §B278 S1b F6: every release states its OWN cause — the helper cannot infer it (a no-route XL dispatch and a
+    // spoofed source leave byte-identical rows), and the evidence's call-site table maps each site to exactly one.
+    auto release_deleg_ack = [&](DelegAckReleaseCause cause) {
         if (delegated_e2e)
             deleg_ack_release(reply_to_hash, mobile_ctr, DelegAckPeer::key_hash,
-                              key_hash32, active_layer_id());
+                              key_hash32, active_layer_id(), cause);
     };
+    // §B278 S1b §4.3/§5: `arm_carries_custody` is the CALLER'S EXPLICIT phase-2 decision and cannot be defaulted or
+    // inferred here — `commit_deleg_ack`'s four callers are indistinguishable from `{return_kind, return_peer}`
+    // (the direct last mile and the cached-home same-layer arm both pass a node id), and the last mile is one of
+    // §4.3's four ACK-only arms. The TYPE half of the verdict is `itype`, already final at this point.
     auto commit_deleg_ack = [&](uint16_t ctr_h, const SendDispatch* dispatch,
-                                DelegAckPeer return_kind, uint32_t return_peer) {
+                                DelegAckPeer return_kind, uint32_t return_peer,
+                                bool arm_carries_custody) {
         // B251 QG: enqueue_data deliberately returns its minted counter even when the queue is full. Only the
         // admission authority may create logical-origin evidence or turn the pre-ACK reservation ACTIVE. The
         // nullptr fallback preserves the pre-existing contract for callers that did not request dispatch evidence;
         // the MOBILE_SEND consumer now always supplies it.
         const bool admitted = dispatch ? dispatch->admit == SendDispatch::Admit::queued : ctr_h != 0;
         if (!admitted) {
-            release_deleg_ack();
+            release_deleg_ack(DelegAckReleaseCause::dispatch_refused);
             return false;
         }
         if (delegated_origin) emit_deleg_originated(reply_to_hash, ctr_h, mobile_ctr);
         if (!delegated_e2e) return true;
+        // §B278 S1a: `itype` is THE outward type at this site and it is already final here (the INTRO auto-attach
+        // above is the only rewrite of it), so nothing is threaded merely to discover a type.
         const bool ok = deleg_ack_put(reply_to_hash, ctr_h, mobile_ctr,
                                      DelegAckPeer::key_hash, key_hash32,
-                                     return_kind, return_peer, active_layer_id());
-        if (!ok) release_deleg_ack();
+                                     return_kind, return_peer, active_layer_id(), itype,
+                                     deleg_custody_activate_verdict(arm_carries_custody, itype));
+        // ⚠ §B278 S1b / OWNER RULING 2026-09-02: a put failure here is now ALSO reachable as a CROSS-MOBILE return-key
+        //    collision, and its consequence is deliberately left EXACTLY as measured. The reservation is released, the
+        //    outward DM has ALREADY been admitted and still flies, a returning ACK finds no row and is forwarded under
+        //    the HOME's ctr_h, and the mobile ends at its existing `e2e_ack_timeout`. ⛔ `presence_mark_deleg_fail` is
+        //    NOT called: it becomes `send_failed{no_route}`, which would be a FALSE claim about a DM that may deliver.
+        if (!ok) release_deleg_ack(DelegAckReleaseCause::activation_conflict);
         return ok;
     };
 #if MR_FEAT_TEAM
@@ -1683,13 +1698,13 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // used to be indistinguishable from a stored park (both returned 0 here).
             const bool stored = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                                           /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
-            if (!stored) release_deleg_ack();
+            if (!stored) release_deleg_ack(DelegAckReleaseCause::dispatch_refused);   // §B278 S1b: the team park ring was full — nothing was admitted
             if (out_dispatch) out_dispatch->admit = stored ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;
             emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note): want_pubkey stays FALSE, owner-ratified 2026-07-29
             return 0;
         }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
-        release_deleg_ack();
+        release_deleg_ack(DelegAckReleaseCause::dispatch_refused);   // §B278 S1b: no team resolution, so no outward carrier at all
         if (generic_lifecycle) push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
         return 0;
     }
@@ -1698,7 +1713,9 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
         const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane, out_dispatch);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
-        (void)commit_deleg_ack(ch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(id));
+        // §B278 S1b §4.3: RESOLVED-ID dispatch — a same-layer static outward DATA flight. This arm CARRIES custody.
+        (void)commit_deleg_ack(ch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(id),
+                               /*arm_carries_custody=*/true);
         return ch;
     }
 #if MR_FEAT_TEAM
@@ -1787,7 +1804,12 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // ★ §xl-deleg-ack: the THIRD site that stamped the mobile's SOURCE_HASH without mapping ctr_H->ctr_M. Reached
             // when a home hosts BOTH the delegating mobile and the target: the target acks to us with DST_HASH = M, and the
             // hosted-mobile last-mile fork's deleg_ack_translate missed, so M received the HOME's ctr. Same one-line shape.
-            (void)commit_deleg_ack(lch, out_dispatch, DelegAckPeer::node_id, _node_id);
+            // ⛔ §B278 S1b §4.3 ACK-ONLY ARM 1 of 4 — the DIRECT LAST MILE (`addr_len == 1`): this home hosts the
+            //    target too, so the outward carrier never leaves this node's own last-mile fork. The custody
+            //    generator itself excludes `addr_len == 1` (`node_cascade.cpp`), so an obligation here could NEVER
+            //    be discharged. The ACK obligation is kept; the provisional candidate is CLEARED.
+            (void)commit_deleg_ack(lch, out_dispatch, DelegAckPeer::node_id, _node_id,
+                                   /*arm_carries_custody=*/false);
             return lch;
         }
 #endif
@@ -1816,8 +1838,12 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // The fix is symmetric with the sibling: pass the mobile's hash, take the ctr the DM flew with from the
             // return, and map ctr_H -> ctr_M so the returning ack reaches the mobile with the ctr IT is waiting on.
             const uint16_t xch = send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, crypt, itype, /*override_source_hash=*/reply_to_hash);
-            if (xch != 0) (void)commit_deleg_ack(xch, nullptr, DelegAckPeer::key_hash, key_hash32);
-            else          release_deleg_ack();
+            // ⛔ §B278 S1b §4.3 ACK-ONLY ARM 2 of 4 — the CACHED-HOME CROSS-LAYER dispatch. §5(6) excludes a
+            //    cross-layer carrier outright: the failure would be reported on another layer, under another
+            //    layer's identity. ACK obligation kept, candidate CLEARED.
+            if (xch != 0) (void)commit_deleg_ack(xch, nullptr, DelegAckPeer::key_hash, key_hash32,
+                                                /*arm_carries_custody=*/false);
+            else          release_deleg_ack(DelegAckReleaseCause::dispatch_refused);
             // ⚠ DELIBERATELY still `return 0` (C1): send_by_hash's contract is "the ctr if sent immediately, else 0",
             // and this arm has always answered 0. `xch` is now available, but returning it would change what the
             // console/companion reports for a hash-addressed cross-layer send (and what on_command arms) — a separate
@@ -1831,7 +1857,9 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         // deleg_ack_translate, and a MISS forwarded the HOME's ctr to a mobile awaiting its own). The XL-CRYPT note that
         // sat here claimed this line already called deleg_ack_put; it did not — corrected per V1 while fixing it.
         const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::AUTO, out_dispatch);
-        (void)commit_deleg_ack(hch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(home));
+        // §B278 S1b §4.3: CACHED-HOME SAME-LAYER — an outward same-layer DATA to the target's home. Carries custody.
+        (void)commit_deleg_ack(hch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(home),
+                               /*arm_carries_custody=*/true);
         return hch;
     }
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
@@ -1853,18 +1881,28 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 #endif
     const bool parked_ok = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                                      /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
-    if (!parked_ok) release_deleg_ack();
+    if (!parked_ok) release_deleg_ack(DelegAckReleaseCause::dispatch_refused);   // §B278 S1b: the park ring was full
     if (out_dispatch) out_dispatch->admit = parked_ok ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;   // §UI-16 N6b
     emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior. §no-auto-reqpubkey (see the header note): a CRYPTED send to an unresolved hash fails loud with no_pubkey — it does NOT escalate to WANT_PUBKEY
     return 0;
 }
 
-// B251 reverse-ACK correlation. The old ring keyed only (mobile_hash,ctr_H) even though next_ctr is destination-scoped,
-// and overwrote the oldest LIVE row when full. Both properties can misdeliver an ACK. The strengthened ring has an
-// admission phase (RESERVED before the mobile's hop ACK) and an ACTIVE phase keyed by what the returning ACK actually
-// exposes. Its TTL is the existing delegated/cross-layer E2E deadline, not the old 180 s literal (the real deadline is
-// 300 s). Every scan prunes first; no live row is ever evicted.
-static constexpr uint64_t kDelegAckTtlMs = protocol::e2e_ack_deadline_xl_ms;
+// B251 reverse-ACK correlation, GENERALIZED by §B278 S1a into the ONE delegated-flight correlation ring. The old ring
+// keyed only (mobile_hash,ctr_H) even though next_ctr is destination-scoped, and overwrote the oldest LIVE row when
+// full. Both properties can misdeliver an ACK. The strengthened ring has an admission phase (RESERVED before the
+// mobile's hop ACK) and an ACTIVE phase keyed by what the returning ACK actually exposes. Its TTL is the existing
+// delegated/cross-layer E2E deadline, not the old 180 s literal (the real deadline is 300 s). Every scan prunes first;
+// no live row is ever evicted.
+// ★ §B278 S1a: the row's phase-dependent `peer` is SPLIT into `target`/`target_kind` (written at reservation, never
+//   overwritten) and `return_peer`/`return_kind` (written at activation) — see the struct note in node.h. ⛔ EVERY
+//   comparison below reads the pair its PHASE already read, so no decision moves; this file's only behavioural
+//   authority is the eight rows of the S1a decision table, all preserved byte-for-byte.
+// ★ §B278 §10.1: the TTL is now spelled with its own owner-ruled name, `delegated_custody_ttl_ms`, which is
+//   `e2e_ack_deadline_xl_ms` BY CONSTRUCTION (see protocol_constants.h) — the value is unchanged and there is still
+//   exactly ONE timestamp and ONE prune boundary per row.
+static constexpr uint64_t kDelegAckTtlMs = protocol::delegated_custody_ttl_ms;
+static_assert(kDelegAckTtlMs == protocol::e2e_ack_deadline_xl_ms,
+              "B278 S1a: the named custody TTL must remain the E2E-ACK XL deadline — one row, one clock");
 
 void Node::emit_deleg_originated(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) {
     if (mobile_hash == 0 || ctr_h == 0 || ctr_m == 0) return;
@@ -1874,8 +1912,24 @@ void Node::emit_deleg_originated(uint32_t mobile_hash, uint16_t ctr_h, uint16_t 
             EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m));
 }
 
+// ★★ §B278 S1b F6 — THE ONE EXPIRY AUTHORITY. All three prune sites (reserve / put / translate) call this and
+//    nothing else, so the `age >= delegated_custody_ttl_ms` comparison and the exclusive-bound edge exist ONCE.
+//    ⛔ IT CHANGES NO SCAN ORDER AND NO REFRESH BEHAVIOUR: it is still the first statement of each scan loop, it
+//    still clears the WHOLE row (`e = DelegAck{}` — ACK mapping, custody state and all), and prune-before-admit is
+//    preserved because the call sits exactly where the inline test sat. The ONLY addition is the emit, which
+//    reports the row's EXACT PRE-CLEAR values — a free row emits nothing, because there is nothing to report.
+void Node::deleg_ack_prune_expired(DelegAck& e, uint64_t now) {
+    if (e.state == DelegAckState::free || now - e.ts_ms < kDelegAckTtlMs) return;
+    MR_EMIT("deleg_ack_expired", EF_I("mobile_hash", static_cast<int64_t>(e.mobile_hash)),
+            EF_I("ctr_m", e.ctr_m), EF_I("ctr_h", e.ctr_h),
+            EF_I("target", static_cast<int64_t>(e.target)), EF_I("layer", e.layer),
+            EF_I("custody_state", static_cast<int>(e.custody_state)));
+    e = DelegAck{};
+}
+
 bool Node::deleg_ack_reserve(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
-                            uint32_t target, uint8_t layer, uint8_t& out_slot, uint32_t& retry_ms) {
+                            uint32_t target, uint8_t layer, DelegAckCustody custody,
+                            uint8_t& out_slot, uint32_t& retry_ms) {
     out_slot = kDelegAckNoSlot;
     retry_ms = protocol::nack_busy_quantum_ms;
     if (mobile_hash == 0 || ctr_m == 0 || target == 0) return false;
@@ -1884,11 +1938,14 @@ bool Node::deleg_ack_reserve(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer 
     uint64_t earliest_expiry = UINT64_MAX;
     for (uint8_t i = 0; i < kDelegAckCap; ++i) {
         DelegAck& e = _deleg_acks[i];
-        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        deleg_ack_prune_expired(e, now);
         if (e.state == DelegAckState::reserved
             && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
-            && e.peer_kind == target_kind && e.peer == target && e.layer == layer) {
+            && e.target_kind == target_kind && e.target == target && e.layer == layer) {
             e.ts_ms = now;                                      // exact retry: keep the same reservation
+            // ⛔ §B278 S1b: an exact retry PRESERVES the provisional custody state it was born with. The reserve
+            //    key carries no type term, so a retry brings no new §5 evidence — re-deciding here would let a
+            //    replayed carrier silently promote or demote a decision the first reservation already made.
             out_slot = i;
             return true;
         }
@@ -1907,12 +1964,20 @@ bool Node::deleg_ack_reserve(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer 
         return false;
     }
     DelegAck& e = _deleg_acks[free_slot];
-    e.ts_ms = now; e.mobile_hash = mobile_hash; e.peer = target;
+    e.ts_ms = now; e.mobile_hash = mobile_hash; e.target = target;
     e.ctr_h = 0; e.ctr_m = ctr_m; e.layer = layer;
-    e.peer_kind = target_kind; e.state = DelegAckState::reserved;
+    e.target_kind = target_kind; e.state = DelegAckState::reserved;
+    // The return identity is NOT known before the outward arm is chosen; it is written at activation and only there.
+    e.return_peer = 0; e.return_kind = DelegAckPeer::node_id; e.outward_type = 0;
+    // §B278 S1b at RESERVE: the caller's PHASE-1 verdict (`deleg_custody_reserve_verdict`), which can only be
+    // `none` or the provisional `candidate` — §5's remaining terms are activation-phase facts.
+    e.custody_state = custody;
     out_slot = free_slot;
+    // §B278 S1b F6: `target_kind` is APPENDED — every pre-existing field keeps its name and its position, which is
+    // what lets the s07/s22 movement be attributed line-by-line instead of merely observed.
     MR_EMIT("deleg_ack_reserved", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
-            EF_I("ctr_m", ctr_m), EF_I("target", static_cast<int64_t>(target)), EF_I("layer", layer));
+            EF_I("ctr_m", ctr_m), EF_I("target", static_cast<int64_t>(target)), EF_I("layer", layer),
+            EF_I("target_kind", static_cast<int>(target_kind)));
     return true;
 }
 
@@ -1926,8 +1991,18 @@ bool Node::deleg_ack_activation_available(uint8_t slot, uint16_t ctr_h, DelegAck
         if (i == slot) continue;
         const DelegAck& e = _deleg_acks[i];
         if (e.state != DelegAckState::active || now - e.ts_ms >= kDelegAckTtlMs) continue;
-        if (e.mobile_hash == _deleg_acks[slot].mobile_hash && e.ctr_h == ctr_h
-            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
+        // ★★★ §B278 S1b §4.3 — THE UNIQUENESS KEY IS `{ctr_h, return_kind, return_peer, layer}` AND IT IS
+        //     DELIBERATELY MOBILE-BLIND. ⛔ The `e.mobile_hash == _deleg_acks[slot].mobile_hash` term that stood
+        //     here through B251 and S1a is REMOVED, and that is this slice's admission change, measured as one:
+        //     the returning ACK and the §4.4 custody record both expose ONLY this key — neither carries a mobile
+        //     hash — so two live rows sharing it are wire-INDISTINGUISHABLE and choosing either would be a
+        //     misdelivery to the wrong mobile. ⛔ The incumbent is never overwritten, evicted or re-keyed: the
+        //     NEW flight is refused with the incumbent's own remaining lifetime as its retry hint.
+        //     ⓘ The corpus cannot exercise this (home counters are per destination — `node_mac.cpp` `next_ctr`),
+        //     which is exactly why it needs its own native cases + mutations; see `probe_ui_model_mutations.py`
+        //     D09i/D09j, which restore either half of the removed term and must be RED.
+        if (e.ctr_h == ctr_h
+            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {
             const uint64_t wait = kDelegAckTtlMs - (now - e.ts_ms);
             retry_ms = static_cast<uint32_t>(wait > UINT32_MAX ? UINT32_MAX : wait);
             return false;                                       // two live rows would be wire-indistinguishable
@@ -1937,13 +2012,20 @@ bool Node::deleg_ack_activation_available(uint8_t slot, uint16_t ctr_h, DelegAck
 }
 
 bool Node::deleg_ack_activate(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_kind,
-                             uint32_t return_peer, uint8_t layer) {
+                             uint32_t return_peer, uint8_t layer, uint8_t outward_type,
+                             DelegAckCustody custody) {
     uint32_t ignored_retry_ms = 0;
     if (!deleg_ack_activation_available(slot, ctr_h, return_kind, return_peer, layer,
                                         ignored_retry_ms)) return false;
     DelegAck& e = _deleg_acks[slot];
-    e.ts_ms = _hal.now(); e.ctr_h = ctr_h; e.peer = return_peer; e.layer = layer;
-    e.peer_kind = return_kind; e.state = DelegAckState::active;
+    // ⛔ `target` / `target_kind` are NOT touched here: the reservation's mobile-visible target SURVIVES activation.
+    //    That is the whole point of the §B278 S1a split — B251's single `peer` overwrote it at exactly this line.
+    e.ts_ms = _hal.now(); e.ctr_h = ctr_h; e.return_peer = return_peer; e.layer = layer;
+    e.return_kind = return_kind; e.outward_type = outward_type; e.state = DelegAckState::active;
+    // §B278 S1b at ACTIVATE: the ARM'S OWN phase-2 verdict CONFIRMS the provisional candidate as `eligible` or
+    // CLEARS it to `none`. ⛔ The write is unconditional, so a `candidate` can never survive into ACTIVE — the
+    // §4.5 invariant "an ACTIVE row is eligible or none" is structural here, not a convention.
+    e.custody_state = custody;
     MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(e.mobile_hash)),
             EF_I("ctr_h", ctr_h), EF_I("ctr_m", e.ctr_m),
             EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
@@ -1952,20 +2034,32 @@ bool Node::deleg_ack_activate(uint8_t slot, uint16_t ctr_h, DelegAckPeer return_
 
 bool Node::deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
                         DelegAckPeer target_kind, uint32_t target,
-                        DelegAckPeer return_kind, uint32_t return_peer, uint8_t layer) {
+                        DelegAckPeer return_kind, uint32_t return_peer, uint8_t layer,
+                        uint8_t outward_type, DelegAckCustody custody) {
     if (mobile_hash == 0 || ctr_h == 0 || ctr_m == 0 || target == 0 || return_peer == 0) return false;
     const uint64_t now = _hal.now();
     uint8_t free_slot = kDelegAckNoSlot;
     for (uint8_t i = 0; i < kDelegAckCap; ++i) {
         DelegAck& e = _deleg_acks[i];
-        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        deleg_ack_prune_expired(e, now);
         if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
-            && e.peer_kind == target_kind && e.peer == target && e.layer == layer)
-            return deleg_ack_activate(i, ctr_h, return_kind, return_peer, layer);
-        if (e.state == DelegAckState::active && e.mobile_hash == mobile_hash && e.ctr_h == ctr_h
-            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
-            if (e.ctr_m != ctr_m) return false;                    // same return key, different answer: ambiguous
+            && e.target_kind == target_kind && e.target == target && e.layer == layer)
+            return deleg_ack_activate(i, ctr_h, return_kind, return_peer, layer, outward_type, custody);
+        // ★★★ §B278 S1b §4.3 — the ACTIVE-match arm loses the `e.mobile_hash == mobile_hash` term for the same
+        //     reason `deleg_ack_activation_available` does: the return key is wire-visible and mobile-blind, so an
+        //     incumbent holding it refuses EVERY other flight. ⛔ THE HASH DID NOT DISAPPEAR — IT MOVED FROM THE
+        //     MATCH TO THE ANSWER: a foreign mobile now ENTERS this arm and is refused by the guard below, which
+        //     is the whole point. Letting it fall through to a free slot instead would create the second
+        //     indistinguishable row; letting it refresh would hand another mobile's row a new lifetime.
+        if (e.state == DelegAckState::active && e.ctr_h == ctr_h
+            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {
+            // Another mobile, or the same mobile with a different answer: both are wire-ambiguous. REFUSE, and
+            // leave the incumbent EXACTLY as it is — not evicted, not re-stamped, not re-keyed.
+            if (e.mobile_hash != mobile_hash || e.ctr_m != ctr_m) return false;
             e.ts_ms = now;                                        // exact active refresh, never a replacement
+            // ⛔ ONLY the stamp moves — an exact refresh is not a re-activation, so `outward_type`, `custody_state`
+            //    and every identity field keep the values the original activation wrote (B251's behaviour,
+            //    unchanged; §B278 S1b adds `custody_state` to that already-decided set).
             MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
                     EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m),
                     EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
@@ -1980,21 +2074,42 @@ bool Node::deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
         return false;                                             // every row is live: never evict one
     }
     DelegAck& e = _deleg_acks[free_slot];
-    e.ts_ms = now; e.mobile_hash = mobile_hash; e.peer = return_peer;
+    // §B278 S1a: a DIRECT put (no reservation preceded it) now RETAINS the target it was handed instead of
+    // collapsing it into the single `peer` B251 had. ⛔ Decision-inert: the row is ACTIVE from this instant, and
+    // every ACTIVE lookup reads the RETURN pair — nothing reads `target` on an active row in S1a.
+    e.ts_ms = now; e.mobile_hash = mobile_hash;
+    e.target = target;             e.target_kind = target_kind;
+    e.return_peer = return_peer;   e.return_kind = return_kind;
     e.ctr_h = ctr_h; e.ctr_m = ctr_m; e.layer = layer;
-    e.peer_kind = return_kind; e.state = DelegAckState::active;
+    e.outward_type = outward_type;
+    e.state = DelegAckState::active;
+    // §B278 S1b at DIRECT PUT: an activation with no preceding reservation, so its caller's phase-2 verdict is the
+    // ONLY custody authority this row ever sees. The three park-fire sites and the wrapper XL branch reach here.
+    e.custody_state = custody;
     MR_EMIT("deleg_ack_put", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
             EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m),
             EF_I("peer", static_cast<int64_t>(return_peer)), EF_I("layer", layer));
     return true;
 }
 
+// ★★ §B278 S1b F6 — THE ONE RELEASE EMIT, and it lives HERE rather than at the call sites for two reasons the
+//    brief makes gate conditions: (1) seventeen copies of an event drift, and (2) only THIS function knows whether
+//    a release actually matched — a no-match release must stay SILENT, and a call-site emit could not tell.
+//    ⛔ `cause` is `[[maybe_unused]]` because MR_EMIT is device-stripped (`MESHROUTE_NO_TELEMETRY`), so on the two
+//    `gateway_heltec*` census envs the parameter would otherwise be a `-Wunused-parameter` — the [[B169]] class,
+//    invisible to native AND to the corpus, caught only by `tools/warning_census.sh`. Same remedy and same reason
+//    as `enqueue_data(..., [[maybe_unused]] const char* tx_event, ...)` in `node_mac.cpp`.
 void Node::deleg_ack_release(uint32_t mobile_hash, uint16_t ctr_m, DelegAckPeer target_kind,
-                            uint32_t target, uint8_t layer) {
+                            uint32_t target, uint8_t layer,
+                            [[maybe_unused]] DelegAckReleaseCause cause) {
     for (DelegAck& e : _deleg_acks)
         if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m
-            && e.peer_kind == target_kind && e.peer == target && e.layer == layer) {
-            e = DelegAck{};
+            && e.target_kind == target_kind && e.target == target && e.layer == layer) {
+            MR_EMIT("deleg_ack_released", EF_I("mobile_hash", static_cast<int64_t>(mobile_hash)),
+                    EF_I("ctr_m", ctr_m), EF_I("target", static_cast<int64_t>(target)),
+                    EF_I("target_kind", static_cast<int>(target_kind)), EF_I("layer", layer),
+                    EF_I("cause", static_cast<int>(cause)));
+            e = DelegAck{};                                      // emit BEFORE the clear: the values are the row's
             return;
         }
 }
@@ -2003,10 +2118,10 @@ bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, DelegAc
                               uint32_t return_peer, uint8_t layer, uint16_t& out_mobile_ctr) {
     const uint64_t now = _hal.now();
     for (DelegAck& e : _deleg_acks) {
-        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};
+        deleg_ack_prune_expired(e, now);
         if (e.state != DelegAckState::active) continue;
         if (e.mobile_hash == mobile_hash && e.ctr_h == acked_ctr
-            && e.peer_kind == return_kind && e.peer == return_peer && e.layer == layer) {
+            && e.return_kind == return_kind && e.return_peer == return_peer && e.layer == layer) {
             out_mobile_ctr = e.ctr_m;
             e = DelegAck{};                                      // one-shot: this ACK consumed the correlation
             return true;
@@ -2256,9 +2371,16 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                 if (p.reply_to_hash != 0 && pch != 0 && p.type != DATA_TYPE_E2E_ACK) {
                     emit_deleg_originated(p.reply_to_hash, pch, p.mobile_ctr);
                     if (p.flags & DATA_FLAG_E2E_ACK_REQ)
+                        // §B278 S1a: `p.type` is the outward type this park fires with (already threaded above).
+                        // ⛔ §B278 S1b §4.3 ACK-ONLY ARM 4 of 4 — the CROSS-LAYER PARK FIRE, and its verdict is a
+                        //    STRUCTURAL/SYNTHETIC pin, NOT a covered production path: `p.reply_to_hash` is provably
+                        //    0 here today (see the note above — `park_send_layer` never stores it), so this block is
+                        //    a no-op. The `false` is routed anyway so a future park producer that DOES carry a
+                        //    delegation cannot silently acquire a cross-layer custody obligation §5(6) forbids.
                         (void)deleg_ack_put(p.reply_to_hash, pch, p.mobile_ctr,
                                             DelegAckPeer::key_hash, p.key_hash32,
-                                            DelegAckPeer::key_hash, p.key_hash32, active_layer_id());
+                                            DelegAckPeer::key_hash, p.key_hash32, active_layer_id(), p.type,
+                                            deleg_custody_activate_verdict(/*arm_carries_custody=*/false, p.type));
                 }
             } else {
                 MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("node", resolved_id));
@@ -2274,14 +2396,21 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                 if (p.reply_to_hash != 0 && dispatch.admit == SendDispatch::Admit::queued
                     && p.type != DATA_TYPE_E2E_ACK) {
                     emit_deleg_originated(p.reply_to_hash, ch, p.mobile_ctr);
+                    // §B278 S1b §4.3: SAME-LAYER PARK FIRE to a resolved id — an outward same-layer DATA flight
+                    // that carries custody when its own type is reportable.
                     if (delegated_e2e && !deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr,
                                                        DelegAckPeer::key_hash, p.key_hash32,
-                                                       DelegAckPeer::node_id, resolved_id, active_layer_id()))
+                                                       DelegAckPeer::node_id, resolved_id, active_layer_id(),
+                                                       /*outward_type=*/p.type,
+                                                       deleg_custody_activate_verdict(/*arm_carries_custody=*/true,
+                                                                                      p.type)))
                         deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
-                                          p.key_hash32, active_layer_id());
+                                          p.key_hash32, active_layer_id(),
+                                          DelegAckReleaseCause::activation_conflict);
                 } else if (delegated_e2e && dispatch.admit != SendDispatch::Admit::refused) {
                     deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
-                                      p.key_hash32, active_layer_id());
+                                      p.key_hash32, active_layer_id(),
+                                      DelegAckReleaseCause::dispatch_refused);
                 }
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
@@ -2328,14 +2457,20 @@ void Node::drain_resolved_parked_sends() {
                 if (p.reply_to_hash != 0 && dispatch.admit == SendDispatch::Admit::queued
                     && p.type != DATA_TYPE_E2E_ACK) {
                     emit_deleg_originated(p.reply_to_hash, ch, p.mobile_ctr);
+                    // §B278 S1b §4.3: SAME-LAYER fire on an AUTHORITATIVE binding — same shape, same verdict.
                     if (delegated_e2e && !deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr,
                                                        DelegAckPeer::key_hash, p.key_hash32,
-                                                       DelegAckPeer::node_id, static_cast<uint8_t>(id), active_layer_id()))
+                                                       DelegAckPeer::node_id, static_cast<uint8_t>(id), active_layer_id(),
+                                                       /*outward_type=*/p.type,
+                                                       deleg_custody_activate_verdict(/*arm_carries_custody=*/true,
+                                                                                      p.type)))
                         deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
-                                          p.key_hash32, active_layer_id());
+                                          p.key_hash32, active_layer_id(),
+                                          DelegAckReleaseCause::activation_conflict);
                 } else if (delegated_e2e && dispatch.admit != SendDispatch::Admit::refused) {
                     deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
-                                      p.key_hash32, active_layer_id());
+                                      p.key_hash32, active_layer_id(),
+                                      DelegAckReleaseCause::dispatch_refused);
                 }
             }
             continue;                                            // drop the parked entry (forwarded / sent)
@@ -2360,7 +2495,8 @@ void Node::age_out_parked_sends() {
             } else {
                 if (p.reply_to_hash != 0 && (p.flags & DATA_FLAG_E2E_ACK_REQ) && p.type != DATA_TYPE_E2E_ACK)
                     deleg_ack_release(p.reply_to_hash, p.mobile_ctr, DelegAckPeer::key_hash,
-                                      p.key_hash32, active_layer_id());
+                                      p.key_hash32, active_layer_id(),
+                                      DelegAckReleaseCause::park_giveup);
                 MR_EMIT("send_hash_giveup", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)));
             }
             continue;                                            // drop (handled: reported / gave up)
