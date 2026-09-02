@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B278 S3 — home correlation and translated-custody origination · dispatch brief · 2026-09-02
 
-**Status: QUALITY-AGENT PASS — ready for Opus dispatch.**
+**Status: COMPLETE — implementation and independent Quality Gate PASS 2026-09-02.**
 Dispatch model after PASS: **Opus**. Authority:
 `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`, especially
 §4.4–§7, §10–§13 and §12-S3. Pre-check input:

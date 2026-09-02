@@ -49,6 +49,22 @@ WHAT THIS IS
    or `ctr_h`, or carrying a non-integer one, REFUSES the whole run rather than silently reverting to a
    weaker binder. A missing field is not a zero.
 
+★★★ §B278 S3 (2026-09-02) — THE FORWARD LEDGER, AND A CORRECTION IN PLACE. ⛔ THIS FILE PREVIOUSLY MODELLED
+    `custody_state = 3 (forwarded)` AS AN END-STATE NOTHING COULD PRODUCE, because through S1b/S2 nothing
+    wrote it. **That statement is now FALSE** and is kept visible rather than deleted: S3's
+    `deleg_custody_mark_forwarded` (node_hashlocate.cpp) writes it, and only it, for a row whose translated
+    report was `queued` or `parked`.
+    ⇒ the census now CONSUMES `deleg_custody_forwarded{mobile_hash, dst, ctr_h, ctr_m, type}` and binds it by
+      the row's COMPLETE identity — `{mobile_hash, ctr_h, ctr_m}` plus the return peer the event calls `dst` —
+      to EXACTLY ONE live ACTIVE row that is not already forwarded. Zero or several matches is a FINDING
+      (`forward_unbound`), never resolved by guessing and never dropped from a denominator; a missing or
+      wrong-typed field REFUSES the whole run, exactly as the release/expiry readers do.
+    ⇒ an expiry reporting `custody_state = 3` is now ACCEPTED, and is CROSS-CHECKED: the row it closes must
+      carry a bound forward event, or the pair is reported as `forward_state_mismatch`. ⛔ A state the stream
+      claims but no event produced is precisely the "a success that isn't" shape this census exists to refuse.
+    ⓘ The 36-stream corpus contains ZERO forward events (no stream has a delegated eligible row AND a custody
+      receipt at the same node), so this ledger is empty there — which is why its controls are synthetic.
+
 ★★ THE CUSTODY BINDER. Receipt `custody_failure_rx{reporter, dst, ctr, seq}` at node N. Candidate outward
    origins AT THE SAME NODE N, at or before the receipt, matching on `{dst, ctr}`:
      · `tx_enqueue{origin, dst, ctr, depth}`             (the wrapper / own-origination path)
@@ -90,6 +106,8 @@ CUSTODY_TTL_MS = ACK_TTL_MS + SEEN_ORIGIN_TTL_MS      # the R2 ruled ceiling: 75
 RING_CAP = 8                               # Node::kDelegAckCap
 
 CUSTODY_AGE_THRESHOLD_MS = ACK_TTL_MS      # §10.2's "more than 300 s after outward origination"
+# ★ §B278 S3: `Node::DelegAckCustody::forwarded`, named once so no reader spells the integer 3 inline.
+CUSTODY_STATE_FORWARDED = 3
 
 
 class CensusRefusal(Exception):
@@ -230,6 +248,9 @@ class Row:
     end_at: int | None = None
     release_cause: int | None = None
     custody_at_end: int | None = None
+    # ★ §B278 S3: when a `deleg_custody_forwarded` bound to THIS row (None = never forwarded). It is a stamp,
+    #   ⛔ not an end: a forwarded row stays ACTIVE and is still closed by its ACK, release or expiry.
+    custody_forwarded_at: int | None = None
 
     def expiry(self, ttl_ms: int) -> int:
         return self.last_touch + ttl_ms
@@ -271,6 +292,10 @@ class NodeCensus:
     expiry_unbound: list[dict] = field(default_factory=list)
     release_causes: dict = field(default_factory=dict)           # cause -> count
     unclosed_rows: int = 0                                       # still live when the stream stopped
+    # ---- §B278 S3: the forward ledger ------------------------------------------------------------------
+    forwards: list[dict] = field(default_factory=list)            # bound `deleg_custody_forwarded`
+    forward_unbound: list[dict] = field(default_factory=list)     # ⛔ never dropped from a denominator
+    forward_state_mismatch: list[dict] = field(default_factory=list)   # expiry says 3, no forward event
 
 
 class Registry:
@@ -384,6 +409,31 @@ def build_node_census(events: list[Event]) -> dict[int, NodeCensus]:
                 c.release_unbound.append(dict(rec, candidates=len(matches),
                                               why="no live RESERVED row with that reserve key"
                                                   if not matches else "several"))
+        elif ev.kind == "deleg_custody_forwarded":
+            # ★ §B278 S3 — the ONE forward binder. The event names the row: its mobile hash, the HOME counter
+            #   it was keyed by, the mobile counter it will carry, and the return peer (`dst`). ⛔ FAIL LOUD on
+            #   a missing or wrong-typed field rather than binding on whatever is present.
+            c = census(ev.node)
+            for f in ("mobile_hash", "dst", "ctr_h", "ctr_m", "type"):
+                require(f in ev.data, f"`deleg_custody_forwarded` at node {ev.node} t={ev.t} carries no `{f}`")
+                require(type(ev.data[f]) is int,              # noqa: E721 — the type IDENTITY is the check
+                        f"`deleg_custody_forwarded.{f}` is {ev.data[f]!r}, not an integer")
+            rec = {"t": ev.t, "mobile_hash": int(ev.data["mobile_hash"]), "dst": int(ev.data["dst"]),
+                   "ctr_h": int(ev.data["ctr_h"]), "ctr_m": int(ev.data["ctr_m"]),
+                   "type": int(ev.data["type"])}
+            matches = [r for r in c.rows
+                       if r.end_kind is None and r.activated_at is not None
+                       and r.custody_forwarded_at is None
+                       and r.mobile_hash == rec["mobile_hash"] and r.ctr_h == rec["ctr_h"]
+                       and r.ctr_m == rec["ctr_m"] and r.peer == rec["dst"]]
+            if len(matches) == 1:
+                matches[0].custody_forwarded_at = ev.t
+                c.forwards.append(rec)
+            else:
+                c.forward_unbound.append(dict(rec, candidates=len(matches),
+                                              why="no live ACTIVE row with that complete identity"
+                                                  if not matches
+                                                  else "several live rows share it — never resolved by guessing"))
         elif ev.kind == "deleg_ack_expired":
             c = census(ev.node)
             for f in ("mobile_hash", "ctr_m", "ctr_h", "target", "layer", "custody_state"):
@@ -402,6 +452,14 @@ def build_node_census(events: list[Event]) -> dict[int, NodeCensus]:
                 matches[0].end_at = ev.t
                 matches[0].custody_at_end = int(ev.data["custody_state"])
                 c.expiries.append(rec)
+                # ★ §B278 S3 — `forwarded` (3) is now a REACHABLE final state, and it is ACCEPTED with a
+                #   cross-check: the row must carry a bound forward event, or the stream is claiming a state
+                #   no event produced.
+                if int(ev.data["custody_state"]) == CUSTODY_STATE_FORWARDED \
+                        and matches[0].custody_forwarded_at is None:
+                    c.forward_state_mismatch.append(
+                        dict(rec, why="the expiry reports `forwarded` but no `deleg_custody_forwarded` "
+                                      "ever bound to this row"))
             else:
                 c.expiry_unbound.append(dict(rec, candidates=len(matches),
                                              why="no live row with that identity" if not matches
@@ -596,6 +654,9 @@ def analyse(streams: dict[str, Path]) -> dict:
                 "release_causes": c.release_causes,
                 "expiries": c.expiries,
                 "expiry_unbound": c.expiry_unbound,
+                "forwards": c.forwards,
+                "forward_unbound": c.forward_unbound,
+                "forward_state_mismatch": c.forward_state_mismatch,
                 "unclosed_rows": c.unclosed_rows,
                 "ends_observed": sum(1 for r in c.rows if r.end_kind is not None),
                 "direct_puts": c.direct_puts,
@@ -696,7 +757,8 @@ def print_report(result: dict, banner: str = "") -> None:
     printed_lc = False
     for name, entry in sorted(result["streams"].items()):
         for node, n in sorted(entry["nodes"].items(), key=lambda kv: int(kv[0])):
-            if not (n["releases"] or n["expiries"] or n["unclosed_rows"]):
+            if not (n["releases"] or n["expiries"] or n["unclosed_rows"] or n["forwards"]
+                    or n["forward_unbound"] or n["forward_state_mismatch"]):
                 continue
             printed_lc = True
             print(f"    {name} node {node}: releases={len(n['releases'])} "
@@ -708,6 +770,16 @@ def print_report(result: dict, banner: str = "") -> None:
             for r in n["releases"]:
                 print(f"        released t={r['t']} mobile_hash={r['mobile_hash']} ctr_m={r['ctr_m']} "
                       f"target={r['target']} target_kind={r['target_kind']} cause={r['cause']}")
+            for f_ in n["forwards"]:
+                print(f"        forwarded t={f_['t']} mobile_hash={f_['mobile_hash']} dst={f_['dst']} "
+                      f"ctr_h={f_['ctr_h']} ctr_m={f_['ctr_m']} type={f_['type']}")
+            for f_ in n["forward_unbound"]:
+                print(f"        ⛔ FORWARD UNBOUND t={f_['t']} mobile_hash={f_['mobile_hash']} "
+                      f"dst={f_['dst']} ctr_h={f_['ctr_h']} ctr_m={f_['ctr_m']} "
+                      f"candidates={f_['candidates']} ({f_['why']})")
+            for f_ in n["forward_state_mismatch"]:
+                print(f"        ⛔ FORWARD STATE MISMATCH t={f_['t']} mobile_hash={f_['mobile_hash']} "
+                      f"ctr_h={f_['ctr_h']} ({f_['why']})")
     if not printed_lc:
         print("    (no stream in this input closes or leaves open a correlation row)")
 
@@ -969,6 +1041,71 @@ def selftest() -> int:
     c = build_node_census(orphan_exp)[9]
     check("O6s an orphan expiry is UNBOUND, never invented into a row",
           (len(c.expiries), len(c.expiry_unbound)), (0, 1))
+
+    # ---- (O7, §B278 S3) the FORWARD ledger: bind, refuse, and the expiry cross-check ---------------------------
+    def _row_pair(extra):
+        return _synth([(9, 0, "deleg_ack_reserved", {"mobile_hash": 0xF00D, "ctr_m": 1, "target": 30,
+                                                     "layer": 0, "target_kind": 0}),
+                       (9, 0, "deleg_ack_put", {"mobile_hash": 0xF00D, "ctr_h": 5, "ctr_m": 1, "peer": 30,
+                                                "layer": 0})] + extra)
+    fwd = {"mobile_hash": 0xF00D, "dst": 30, "ctr_h": 5, "ctr_m": 1, "type": 0x8B}
+    c = build_node_census(_row_pair([(9, 10, "deleg_custody_forwarded", dict(fwd))]))[9]
+    check("O7 a forward event binds to EXACTLY ONE live active row and stamps it",
+          (len(c.forwards), len(c.forward_unbound), c.rows[0].custody_forwarded_at, c.rows[0].end_kind),
+          (1, 0, 10, None))
+    # ⛔ the row is STAMPED, not CLOSED: a forwarded row is still ACTIVE and still owes its ACK.
+    c = build_node_census(_row_pair([(9, 10, "deleg_custody_forwarded", dict(fwd)),
+                                     (9, 20, "mobile_reverse_ack", {"local": 254, "ctr": 1,
+                                                                    "mobile_hash": 0xF00D, "ctr_h": 5})]))[9]
+    check("O7 a forwarded row is still closed by its later ACK",
+          (len(c.forwards), c.rows[0].end_kind, c.rows[0].custody_forwarded_at), (1, "ack", 10))
+    # ⛔ a forward naming NO live row is UNBOUND, never invented into one.
+    c = build_node_census(_synth([(9, 10, "deleg_custody_forwarded", dict(fwd))]))[9]
+    check("O7s an orphan forward is UNBOUND, never invented into a row",
+          (len(c.forwards), len(c.forward_unbound)), (0, 1))
+    # ⛔ a WRONG-IDENTITY forward (right counter, wrong return peer) is UNBOUND — counter-only binding is RED.
+    c = build_node_census(_row_pair([(9, 10, "deleg_custody_forwarded", dict(fwd, dst=31))]))[9]
+    check("O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)",
+          (len(c.forwards), len(c.forward_unbound)), (0, 1))
+    # ⛔ AMBIGUITY: two live rows the forward event cannot tell apart -> never resolved by guessing.
+    #    They differ only in `layer`, which the event deliberately does not carry (a same-layer duplicate would
+    #    be an exact ACTIVE refresh of one row under this model, i.e. not two rows at all).
+    amb = _synth([(9, 0, "deleg_ack_put", {"mobile_hash": 0xF00D, "ctr_h": 5, "ctr_m": 1, "peer": 30,
+                                           "layer": 0}),
+                  (9, 1, "deleg_ack_put", {"mobile_hash": 0xF00D, "ctr_h": 5, "ctr_m": 1, "peer": 30,
+                                           "layer": 1}),
+                  (9, 10, "deleg_custody_forwarded", dict(fwd))])
+    c = build_node_census(amb)[9]
+    check("O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND",
+          (len(c.forwards), len(c.forward_unbound), c.forward_unbound[0]["candidates"]), (0, 1, 2))
+    # ⛔ a MISSING or WRONG-TYPED field REFUSES the whole run — a missing field is not a zero.
+    for bad, label in ((dict(fwd), "type"), (dict(fwd), "ctr_m")):
+        broken = dict(bad); broken.pop(label)
+        try:
+            build_node_census(_row_pair([(9, 10, "deleg_custody_forwarded", broken)]))
+            failures += 1
+            print(f"  FAIL  O7s: a forward missing `{label}` did NOT refuse")
+        except CensusRefusal:
+            print(f"  ok    O7s a forward missing `{label}` REFUSES the run")
+    try:
+        build_node_census(_row_pair([(9, 10, "deleg_custody_forwarded", dict(fwd, ctr_h=True))]))
+        failures += 1
+        print("  FAIL  O7s: a BOOLEAN `ctr_h` did NOT refuse (bool subclasses int)")
+    except CensusRefusal:
+        print("  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it")
+    # ---- (O8, §B278 S3) `custody_state = 3` at expiry is ACCEPTED, and cross-checked ---------------------------
+    c = build_node_census(_row_pair([
+        (9, 10, "deleg_custody_forwarded", dict(fwd)),
+        (9, ACK_TTL_MS, "deleg_ack_expired", {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 5, "target": 30,
+                                              "layer": 0, "custody_state": CUSTODY_STATE_FORWARDED})]))[9]
+    check("O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row",
+          (len(c.expiries), c.rows[0].custody_at_end, len(c.forward_state_mismatch), c.rows[0].end_kind),
+          (1, CUSTODY_STATE_FORWARDED, 0, "expired"))
+    c = build_node_census(_row_pair([
+        (9, ACK_TTL_MS, "deleg_ack_expired", {"mobile_hash": 0xF00D, "ctr_m": 1, "ctr_h": 5, "target": 30,
+                                              "layer": 0, "custody_state": CUSTODY_STATE_FORWARDED})]))[9]
+    check("O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING",
+          (len(c.expiries), len(c.forward_state_mismatch)), (1, 1))
 
     # ---- (S1) the constant guard REFUSES on a mutated bound ----------------------------------------------------
     saved = ACK_TTL_MS

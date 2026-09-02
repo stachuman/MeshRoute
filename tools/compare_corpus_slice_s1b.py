@@ -52,10 +52,18 @@ THE CHECKS
   C6  THE EXPIRY EDGE. Every expired row's age is >= `delegated_custody_ttl_ms`, READ FROM
       `lib/core/protocol_constants.h` (V1), never retyped here; and no row survives a scan at that node once
       it is past the edge.
-  C7  FIELD DOMAINS. `target_kind` in {0,1}; `cause` in 0..6; `custody_state` in 0..2 — ⛔ `forwarded` (3) is
-      S3's and must be UNREACHABLE in S1b. Every new field must be an INTEGER: `type(v) is int` (a JSON
-      `false` and a `0.0` both compare equal to 0 in Python, and `isinstance(False, int)` is true because
-      `bool` subclasses `int`, so only the type identity rejects them — G's C5 lesson, applied here).
+  C7  FIELD DOMAINS. `target_kind` in {0,1}; `cause` in 0..6; `custody_state` in 0..3. Every new field must
+      be an INTEGER: `type(v) is int` (a JSON `false` and a `0.0` both compare equal to 0 in Python, and
+      `isinstance(False, int)` is true because `bool` subclasses `int`, so only the type identity rejects
+      them — G's C5 lesson, applied here).
+      ⚠ CORRECTED 2026-09-02 BY §B278 S3, AND THE SUPERSEDED STATEMENT IS KEPT VISIBLE RATHER THAN DELETED.
+      THIS LINE READ: *"`custody_state` in 0..2 — ⛔ `forwarded` (3) is S3's and must be UNREACHABLE in S1b."*
+      That was CORRECT WHEN WRITTEN: through S1b and S2 nothing wrote state 3. **S3 makes it reachable** —
+      `deleg_custody_mark_forwarded` (node_hashlocate.cpp) writes it for a row whose translated report was
+      queued or parked, and the SAME single 300 s prune then reports it at expiry. ⛔ WHAT DID NOT CHANGE: the
+      domain is still CLOSED and still fail-closed — **4 and above remain out of range**, the integer-identity
+      test is untouched, and every other C7 term stands. The controls below carry both halves: a state-3 row is
+      a POSITIVE control that must stay GREEN, and a state-4 row is still RED.
   C8  THE PER-STREAM TRAFFIC LEDGER, asserted with its OWN sentence even though C1 already carries it:
       delivered / duplicate / send_failed / tx / airtime-bearing counts identical per stream. A slice that
       changes admission must say this out loud, not leave it implied.
@@ -95,11 +103,14 @@ NEW_EVENTS = (RELEASED_EVENT, EXPIRED_EVENT)
 # The events whose emit can drive a prune scan, i.e. what an expiry line must be followed by (C5).
 SCAN_DRIVERS = (RESERVED_EVENT, PUT_EVENT, REVACK_EVENT)
 
-# Field domains (C7). `forwarded` == 3 is deliberately OUTSIDE the custody range: S1b must not reach it.
+# Field domains (C7). ⚠ `custody_state`'s upper bound moved 2 -> 3 on 2026-09-02 (§B278 S3): `forwarded` is a
+# reachable state now that S3 originates translated reports. ⛔ The domain stays CLOSED — 4 and above are still
+# out of range — and the header's C7 paragraph keeps the superseded S1b statement in place.
+CUSTODY_STATE_FORWARDED = 3
 DOMAINS = {
     "target_kind":   (0, 1),
     "cause":         (0, 6),
-    "custody_state": (0, 2),
+    "custody_state": (0, CUSTODY_STATE_FORWARDED),
 }
 
 # The traffic ledger C8 reports per stream. Chosen because each is a DIFFERENT axis an admission change could
@@ -443,8 +454,10 @@ def check_lifecycle(name, after_events, ttl_ms, out):
                     bad += 1
                 elif not (lo <= v <= hi):
                     out.append(f"  C7  FAIL {name}: `{ev}` field `{k}` = {v}, outside the ruled range "
-                               f"[{lo},{hi}]" + (" — `forwarded` is S3's and must be UNREACHABLE"
-                                                 if k == "custody_state" else ""))
+                               f"[{lo},{hi}]"
+                               + (" — the custody lifecycle has exactly four states (§B278 S3 made"
+                                  " `forwarded`=3 reachable; there is no fifth)"
+                                  if k == "custody_state" else ""))
                     bad += 1
         if ev == REVACK_EVENT or ev == RESERVED_EVENT:
             for k in APPENDED[ev]:
@@ -549,6 +562,7 @@ def run_selftest(before_dir: Path, after_dir: Path, out) -> int:
         return 1
 
     results = []
+    positives = []          # §B278 S3: the arms that must stay GREEN, counted on their own axis
 
     def control(label, mutate_after=None, mutate_before=None, use_rich=False):
         b = list(RB if use_rich else B)
@@ -569,6 +583,27 @@ def run_selftest(before_dir: Path, after_dir: Path, out) -> int:
         results.append(fired)
         out.append(f"  {'RED  (control fired)' if fired else 'GREEN — CONTROL DID NOT FIRE'}  {label}")
         if fired:
+            out.append(f"        {msgs[0].strip()}")
+
+    # ★ §B278 S3 — THE POSITIVE ARM. `control()` asserts a doctored view goes RED; a correction that makes a
+    #   previously-refused value LEGAL needs the opposite assertion, and it must be counted separately so the
+    #   "every control fired" derivation below stays exactly what it was.
+    def positive(label, mutate_after=None, use_rich=False):
+        b_ = list(RB if use_rich else B)
+        a_ = list(RA if use_rich else A)
+        nm = rich_name if use_rich else name
+        if mutate_after:
+            mutate_after(a_)
+        msgs: list = []
+        k, _, _, _, _ = compare_streams(nm, b_, a_, "aaaaaaaa", "bbbbbbbb", ttl_ms, msgs)
+        k += check_lifecycle(nm, read_after_events(a_), ttl_ms, msgs)
+        if ledger(b_) != ledger(a_):
+            msgs.append("  C8  FAIL: the traffic ledger moved")
+            k += 1
+        green = k == 0
+        positives.append(green)
+        out.append(f"  {'GREEN (accepted)' if green else 'RED  — POSITIVE CONTROL WRONGLY REFUSED'}  {label}")
+        if not green:
             out.append(f"        {msgs[0].strip()}")
 
     def first_index(lines, pred):
@@ -673,10 +708,22 @@ def run_selftest(before_dir: Path, after_dir: Path, out) -> int:
         a[exp_i] = json.dumps(o, separators=(",", ":"), sort_keys=True)
     control("a row expires BEFORE the named 300 s edge", early_edge, use_rich=True)
 
+    # ⚠ THE RETIRED CONTROL, NAMED RATHER THAN SILENTLY DELETED (§B278 S3, 2026-09-02). It read
+    #   *"a row reports `forwarded` — S3's state, unreachable in S1b"* and required a state-3 row to go RED.
+    #   S3 originates translated reports, so state 3 is now a legitimate final state and that control would
+    #   assert a falsehood. It is REPLACED by its two honest halves: state 3 must stay GREEN, and the domain
+    #   must still be CLOSED above it.
     def forwarded_state(a):
-        o = json.loads(a[exp_i]); (o.setdefault("data", {}))["custody_state"] = 3
+        o = json.loads(a[exp_i]); (o.setdefault("data", {}))["custody_state"] = CUSTODY_STATE_FORWARDED
         a[exp_i] = json.dumps(o, separators=(",", ":"), sort_keys=True)
-    control("a row reports `forwarded` — S3's state, unreachable in S1b", forwarded_state, use_rich=True)
+    positive("a row reports `forwarded` (3) — a REACHABLE state since §B278 S3, so C7 must stay GREEN",
+             forwarded_state, use_rich=True)
+
+    def out_of_range_state(a):
+        o = json.loads(a[exp_i]); (o.setdefault("data", {}))["custody_state"] = CUSTODY_STATE_FORWARDED + 1
+        a[exp_i] = json.dumps(o, separators=(",", ":"), sort_keys=True)
+    control("a row reports `custody_state` = 4 — there is no fifth lifecycle state, so the domain still closes",
+            out_of_range_state, use_rich=True)
 
     def float_field(a):
         o = json.loads(a[exp_i]); (o.setdefault("data", {}))["custody_state"] = 2.0
@@ -707,13 +754,19 @@ def run_selftest(before_dir: Path, after_dir: Path, out) -> int:
 
     fired = sum(1 for r in results if r)
     total = len(results)                      # ⛔ DERIVED, never written down in prose
+    green = sum(1 for r in positives if r)
+    p_total = len(positives)                  # ⛔ likewise DERIVED
     out.append("")
     if fired != total:
         out.append(f"SELFTEST FAIL — {total - fired} of {total} control(s) did not fire. "
                    f"The checks above are NOT evidence.")
         return 1
-    out.append(f"SELFTEST PASS — {fired}/{total} controls RED (count derived). "
-               f"The result above is a measurement.")
+    if green != p_total:
+        out.append(f"SELFTEST FAIL — {p_total - green} of {p_total} POSITIVE control(s) were wrongly "
+                   f"refused. A checker that rejects a legal value is not a measurement either.")
+        return 1
+    out.append(f"SELFTEST PASS — {fired}/{total} controls RED and {green}/{p_total} positive control(s) "
+               f"GREEN (both counts derived). The result above is a measurement.")
     return 0
 
 

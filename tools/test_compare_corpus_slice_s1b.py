@@ -275,12 +275,32 @@ class TestLifecycleControls(unittest.TestCase):
             a[i + 1] = json.dumps(o2, separators=(",", ":"), sort_keys=True)
         self.assertTrue(any("C6" in m for m in self._red(doctor)))
 
-    def test_forwarded_is_unreachable(self):
-        def doctor(a, i):
-            o = json.loads(a[i]); o["data"]["custody_state"] = 3
+    # ⚠ CORRECTED IN PLACE 2026-09-02 BY §B278 S3. THIS TEST WAS `test_forwarded_is_unreachable` and asserted
+    #   that a `custody_state` of 3 goes RED. That was TRUE THROUGH S1b/S2 — nothing wrote the state — and is
+    #   now FALSE: S3's `deleg_custody_mark_forwarded` writes it, so the comparator must ACCEPT it. ⛔ The
+    #   coverage did not go with it, it SPLIT: the reachable state is a POSITIVE control here, and the closed
+    #   domain above it keeps its own RED control. Renaming rather than deleting keeps the history readable.
+    def test_forwarded_is_now_a_reachable_state_and_the_domain_still_closes(self):
+        def doctor_ok(a, i):
+            o = json.loads(a[i]); o["data"]["custody_state"] = C.CUSTODY_STATE_FORWARDED
             a[i] = json.dumps(o, separators=(",", ":"), sort_keys=True)
-        out = self._red(doctor)
-        self.assertTrue(any("C7" in m and "forwarded" in m for m in out), out)
+        f = Fixture()
+        a = list(f.after)
+        i = next(k for k, ln in enumerate(a) if f'"emit_type":"{C.EXPIRED_EVENT}"' in ln)
+        doctor_ok(a, i)
+        bad, out = run(f.before, a)
+        self.assertEqual(bad, 0, "a `forwarded` row must be ACCEPTED since S3:\n" + "\n".join(out))
+        # …and the domain is still CLOSED one above it.
+        def doctor_bad(a2, i2):
+            o = json.loads(a2[i2]); o["data"]["custody_state"] = C.CUSTODY_STATE_FORWARDED + 1
+            a2[i2] = json.dumps(o, separators=(",", ":"), sort_keys=True)
+        out = self._red(doctor_bad)
+        self.assertTrue(any("C7" in m for m in out), out)
+
+    def test_the_custody_state_domain_is_exactly_the_four_lifecycle_values(self):
+        # DERIVED from the comparator's own table, so a future widening breaks here rather than silently.
+        self.assertEqual(C.DOMAINS["custody_state"], (0, C.CUSTODY_STATE_FORWARDED))
+        self.assertEqual(C.CUSTODY_STATE_FORWARDED, 3)
 
     def test_every_domain_rejects_out_of_range_and_non_integer(self):
         for key, (lo, hi) in C.DOMAINS.items():

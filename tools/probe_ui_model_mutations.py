@@ -613,7 +613,37 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2539, 107602    # ★★ RE-SYNCED 2026-09-02 by **§B278 S2** (the ADDITIVE translated-custody
+PIN_CASES, PIN_ASSERTS = 2559, 108102    # ★★ RE-SYNCED 2026-09-02 by **§B278 S3** (home correlation and
+                                         # translated-custody ORIGINATION — the first PRODUCER of the S2 form).
+                                         # DERIVATION, measured with the real binary and not assumed: the S2
+                                         # tree BEFORE = 2539 / 107602 / 0 failed; AFTER = 2559 / 108092 / 0
+                                         # failed ⇒ +20 cases / +500 assertions, and the delta closes EXACTLY
+                                         # as the sum of the TWENTY new cases, each measured on its own
+                                         # `-tc="§B278-S3/<n> *"` filter:
+                                         #   S3/1  14   S3/2  15   S3/3  73   S3/4  30   S3/5  30
+                                         #   S3/6  16   S3/7  34   S3/8  14   S3/9  19   S3/10 14
+                                         #   S3/11 39   S3/12 13   S3/13 33   S3/14 26   S3/15 13
+                                         #   S3/16 38   S3/17 18   S3/18 11   S3/19 41   S3/20  9
+                                         #                                                   = 500 ✓
+                                         # ⓘ TWO of these figures were EARNED BY THE BATTERY and are recorded
+                                         #   as such (the first full pass is what found them):
+                                         #   · S3/13 reads 33, not 25 — `b251hash` S47 (*"the commit marks the
+                                         #     FIRST candidate even when several match"*) SURVIVED, because the
+                                         #     commit's key is strictly stronger than §4.4's and no
+                                         #     receiver-driven fixture can present it with two candidates.
+                                         #     S3/13 gained arm (d), which forces exactly that state through
+                                         #     the labelled invariant seam.
+                                         #   · S3/7 reads 34, not 32 — `sliceGrx` S58 (*"the send becomes a
+                                         #     DELEGATED re-origination"*) SURVIVED, because nothing asserted
+                                         #     the outer SOURCE_HASH. S3/7 now pins it as H1's own key hash.
+                                         # BEFORE those two fixes: 2559 / 108092.
+                                         # ⛔ ZERO pre-existing cases changed their assertion count — the sum of
+                                         #   the new cases IS the whole delta, which is what proves it. The two
+                                         #   fixture edits S3 made (`GHal` now records emit FIELDS beside the
+                                         #   name; `GPair` gained an APPENDED `n1_lineage` defaulting to 0) are
+                                         #   additive by construction and are what that zero measures.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2539, 107602 — ★★ RE-SYNCED 2026-09-02 by **§B278 S2** (the ADDITIVE translated-custody
                                          # codec extension: `notice_flags` bit 6 + §6.2's 8-byte tail + the one
                                          # interim receiver refusal). DERIVATION, measured with the real binary
                                          # and not assumed: clean tree BEFORE (the uncommitted S1b tree, HEAD
@@ -6627,6 +6657,101 @@ MUTS_B251HASH = [
   "        if (e.state == DelegAckState::reserved\n"
   "            && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m\n"
   "            && e.return_kind == target_kind && e.return_peer == target && e.layer == layer) {"),
+ # ---- §B278 S3 (2026-09-02) — the CUSTODY-CORRELATION LOOKUP (§4.4) and the ONE `eligible -> forwarded`
+ #      writer (§4.5). Every entry below attacks ONE ruled decision of the two authorities this slice adds to
+ #      `node_hashlocate.cpp`; the RECEIVER's half (order, construction, dispatch mapping) is `sliceGrx`'s.
+ ("S30 B278 S3 the §4.4 lookup drops the COUNTER term, so any live eligible row answers any report",
+  "    if (e.ctr_h        != rec.failed_ctr)          return false;\n",
+  ""),
+ ("S31 B278 S3 the §4.4 lookup drops the RETURN-KIND term — a hash-addressed return key matches a node-id report",
+  "    if (e.return_kind  != DelegAckPeer::node_id)   return false;\n",
+  ""),
+ ("S32 B278 S3 THE COUNTER-ONLY MATCHER: the RETURN PEER is dropped, so a report about one destination "
+  "translates a flight to ANOTHER. Home counters are minted PER DESTINATION, so two live rows really can share "
+  "`ctr_h` — this is the defect the whole §4.4 key exists to prevent",
+  "    if (e.return_peer  != rec.failed_dst)          return false;\n",
+  ""),
+ ("S33 B278 S3 the §4.4 lookup drops the LAYER term, so a dual-layer gateway's other leaf answers",
+  "    if (e.layer        != rec.reporter_layer)      return false;\n",
+  ""),
+ ("S34 B278 S3 the §4.4 lookup drops the OUTWARD-TYPE cross-check, so a report about one carrier type "
+  "translates a flight that dispatched another",
+  "    if (e.outward_type != rec.failed_type)         return false;\n",
+  ""),
+ ("S35 B278 S3 the optional DST_HASH cross-check becomes MANDATORY — §4.4 says lookup must not fail merely "
+  "because the hash is unavailable, and the production direct-transit shape carries none",
+  "    if (e.target_kind == DelegAckPeer::key_hash\n"
+  "        && (rec.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0\n"
+  "        && e.target != rec.dst_hash32)             return false;",
+  "    if (e.target_kind == DelegAckPeer::key_hash\n"
+  "        && e.target != rec.dst_hash32)             return false;"),
+ ("S36 B278 S3 the DST_HASH cross-check is applied to a NODE-ID row too — a node id compared against a 32-bit "
+  "hash is a category error that happens to be arithmetic (the `HashQuerySeen::by_id` key-space lesson)",
+  "    if (e.target_kind == DelegAckPeer::key_hash\n"
+  "        && (rec.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0\n"
+  "        && e.target != rec.dst_hash32)             return false;",
+  "    if ((rec.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0\n"
+  "        && e.target != rec.dst_hash32)             return false;"),
+ ("S37 B278 S3 the lookup stops requiring `eligible`, so a `none` row — one whose arm carried NO custody "
+  "obligation — acquires one, and a `forwarded` row is translated a SECOND time",
+  "        if (e.state != DelegAckState::active || e.custody_state != DelegAckCustody::eligible) continue;\n"
+  "        ++live_eligible;",
+  "        if (e.state != DelegAckState::active) continue;\n"
+  "        ++live_eligible;"),
+ ("S38 B278 S3 PRUNE-BEFORE-SCAN IS REMOVED, so a report arriving at or after the 300 s edge matches a row "
+  "that should already be gone",
+  "        deleg_ack_prune_expired(e, now);                 // ⛔ PRUNE FIRST — §4.5's expiry rule, not an optimization\n",
+  ""),
+ ("S39 B278 S3 the SILENT zero-population case is collapsed into `no_map`, so every ordinary custody receipt "
+  "on a v1-only node emits a diagnostic (and four corpus streams move)",
+  "    if (live_eligible == 0) return DelegCustodyLookup::no_live_rows;",
+  "    if (false)              return DelegCustodyLookup::no_live_rows;"),
+ ("S40 B278 S3 an AMBIGUOUS ring is resolved by taking the FIRST match — the guess §4.4 forbids",
+  "    if (out_matches > 1)    return DelegCustodyLookup::ambiguous;   // ⛔ never resolved by guessing (§4.4)",
+  "    if (false)              return DelegCustodyLookup::ambiguous;   // ⛔ never resolved by guessing (§4.4)"),
+ ("S41 B278 S3 the outbound copy's `record_len` is NOT normalized, so a direct report carrying an unknown "
+  "future tail can never be translated at all (the S2 packer requires a direct-shaped 24)",
+  "    out_action.record.record_len = custody_record_v1_len;\n",
+  ""),
+ ("S42 B278 S3 the translated tail's `original_reporter` becomes the record's own `failed_origin` — i.e. the "
+  "TRANSLATING HOME — so the mobile is told H1 lost custody of its own message",
+  "    out_action.tail.original_reporter = reporter_origin;          // `pa.origin` — the OUTER reporting relay",
+  "    out_action.tail.original_reporter = rec.failed_origin;        // `pa.origin` — the OUTER reporting relay"),
+ ("S43 B278 S3 the translated tail carries the HOME counter as `mobile_ctr` — the mobile then correlates the "
+  "outcome to an operation it never started",
+  "    out_action.tail.mobile_ctr   = row.ctr_m;                     // ctrM — what the MOBILE is waiting on",
+  "    out_action.tail.mobile_ctr   = row.ctr_h;                     // ctrM — what the MOBILE is waiting on"),
+ ("S44 B278 S3 the tail's `target_value` is INFERRED from the return peer instead of the row's RETAINED "
+  "target — §6.2 exists precisely so a hash-addressed delegation stays representable",
+  "    out_action.tail.target_value = row.target;                    // the row's RETAINED mobile-visible target",
+  "    out_action.tail.target_value = row.return_peer;               // the row's RETAINED mobile-visible target"),
+ ("S45 B278 S3 the tail's `target_kind` is hard-wired to `node_id`, so a hash-addressed delegation's mobile-"
+  "visible identity is silently re-typed",
+  "    out_action.tail.target_kind = (row.target_kind == DelegAckPeer::key_hash)\n"
+  "                                    ? CustodyTranslatedTargetKind::key_hash\n"
+  "                                    : CustodyTranslatedTargetKind::node_id;",
+  "    out_action.tail.target_kind = CustodyTranslatedTargetKind::node_id;"),
+ ("S46 B278 S3 the COMMIT's complete-identity recheck collapses to the counter, so a row REPLACED between the "
+  "lookup and the send is marked as though it were the one that was sent",
+  "        if (e.mobile_hash != action.mobile_hash || e.ctr_h != action.ctr_h || e.ctr_m != action.ctr_m\n"
+  "            || e.layer != action.layer || e.outward_type != action.outward_type\n"
+  "            || e.target != action.target || e.target_kind != action.target_kind\n"
+  "            || e.return_peer != action.return_peer || e.return_kind != action.return_kind) continue;",
+  "        if (e.ctr_h != action.ctr_h) continue;"),
+ ("S47 B278 S3 the commit marks the FIRST candidate even when several match — an ambiguous commit is a "
+  "misdelivery to the wrong mobile",
+  "    if (hits != 1) return false;                       // zero = the row is gone; several = ambiguous. Mark NEITHER.",
+  "    if (hits < 1) return false;                        // zero = the row is gone; several = ambiguous. Mark NEITHER."),
+ ("S48 B278 S3 the commit will mark a row in ANY custody state, so a `none` row (one whose arm owed no "
+  "custody) is stamped `forwarded`",
+  "        if (e.state != DelegAckState::active || e.custody_state != DelegAckCustody::eligible) continue;\n"
+  "        if (e.mobile_hash != action.mobile_hash",
+  "        if (e.state != DelegAckState::active) continue;\n"
+  "        if (e.mobile_hash != action.mobile_hash"),
+ ("S49 B278 S3 the commit CLEARS the row instead of stamping it — the ACK obligation is destroyed, so the "
+  "later E2E ACK can no longer translate ctr_H -> ctr_M and the mobile times out",
+  "    _deleg_acks[slot].custody_state = DelegAckCustody::forwarded;",
+  "    _deleg_acks[slot] = DelegAck{};"),
 ]
 
 # ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================
@@ -8798,6 +8923,116 @@ MUTS_SLICEGRX = [
   "one line is now the whole of the product's refusal until S4 lands the real translated receiver",
   "    if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }\n",
   ""),
+ # ---- §B278 S3 (2026-09-02) — THE RECEIVER'S HALF: §7's step order, the construction, the ONE origination and
+ #      the dispatch->obligation mapping. ⛔ The LOOKUP's own decisions are `b251hash`'s (S30-S49); nothing is
+ #      attacked twice.
+ # ⛔ S50 WAS RESHAPED AFTER ITS FIRST MEASUREMENT, AND THE WITHDRAWN FORM IS RECORDED BECAUSE IT WENT
+ #   VACUOUS BY CONSTRUCTION. It merely HOISTED an extra `deleg_custody_lookup` above the store and left the
+ #   real one in place — and the lookup is idempotent within one call (the prune runs at the same `_hal.now()`
+ #   and materializing an action writes nothing), so the mutated receiver behaved identically and the entry was
+ #   a silent green. ★ THE ORDER IS ONLY OBSERVABLE THROUGH WHAT IT PROTECTS, so the entry now makes the local
+ #   diagnostic CONDITIONAL on a successful correlation — which is the defect §7's ordering exists to prevent.
+ ("S50 ★★★★ §B278 S3 THE LOCAL DIAGNOSTIC BECOMES CONDITIONAL ON CORRELATION — the lookup is hoisted above the "
+  "store and a successful correlation SUPPRESSES H1's own record. §7, verbatim: *\"Translation never suppresses "
+  "or rewrites H1's original diagnostic\"* — and the ONLY thing implementing that sentence is these lines "
+  "sitting BELOW the store and the Push",
+  "    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)",
+  "    DelegCustodyAction early{}; uint8_t early_matches = 0;\n"
+  "    const bool early_exact = deleg_custody_lookup(rec, pa.origin, early, early_matches)\n"
+  "                             == DelegCustodyLookup::exact;\n"
+  "    const uint32_t seq = early_exact ? 0u\n"
+  "                       : _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)"),
+ ("S51 ★★★★ §B278 S3 A **PARK** STOPS COUNTING AS FORWARDED — the row stays `eligible` although a 32-byte "
+  "outcome really is retained under the mobile's hash and will drain on the H answer, so the next report "
+  "translates it a SECOND time",
+  "            if (dispatch.admit == SendDispatch::Admit::queued\n"
+  "                || dispatch.admit == SendDispatch::Admit::parked)",
+  "            if (dispatch.admit == SendDispatch::Admit::queued)"),
+ ("S52 ★★★★ §B278 S3 A **REFUSAL** COUNTS AS FORWARDED — the obligation is discharged although nothing was "
+  "stored and nothing will ever air, so the genuinely fresh repeat report §4.5 allows can never retry",
+  "            if (dispatch.admit == SendDispatch::Admit::queued\n"
+  "                || dispatch.admit == SendDispatch::Admit::parked)\n"
+  "                forwarded = deleg_custody_mark_forwarded(action);",
+  "            forwarded = deleg_custody_mark_forwarded(action);"),
+ # ⛔⛔ S53 WAS WRITTEN, MEASURED **UNUSABLE**, AND IS RETIRED HERE RATHER THAN LEFT AS A SILENT GREEN. It read:
+ #     *"the identity RECHECK's answer is discarded and the row is reported forwarded regardless"*
+ #     (`forwarded = deleg_custody_mark_forwarded(action);` -> `forwarded = (…, true);`).
+ #   ★ WHY NOTHING CAN SEE IT, and it is a fact about the CODE rather than about the tests: the commit's
+ #     complete-identity predicate is STRICTLY STRONGER than §4.4's lookup key, and nothing mutates the ring
+ #     between the two calls (`reply_to_hash == 0` / `mobile_ctr == 0` keep `send_by_hash` out of it entirely).
+ #     So on the ONE path this line is reached — dispatch `queued`/`parked` — the recheck ALWAYS succeeds, and
+ #     discarding an answer that is always `true` changes nothing.
+ #   ⇒ THE DECISION IS STILL CONTROLLED, from both sides: `b251hash` S46 attacks the recheck PREDICATE itself
+ #     (RED), `b251hash` S47 attacks its exactly-one rule (RED), §B278-S3/13's four probe arms drive the
+ #     authority directly, and S63 below attacks reporting a refusal AS a success on the paths that ARE
+ #     reachable. The production line stays because a future slice that lets the send touch the ring would make
+ #     it live instantly.
+ ("S54 ★★★★ §B278 S3 A PACK REFUSAL STILL SENDS — the 32-byte buffer is aired with whatever the refusing "
+  "packer left in it. §6.3's refusal is fail-loud precisely so no caller hand-builds the bytes",
+  "        if (packed == custody_record_translated_len) {",
+  "        if (true) {                                     (void)packed;"),
+ # ⛔⛔ S55 WAS WRITTEN, MEASURED **UNUSABLE**, AND ITS GREEN IS THE SLICE'S OWN RULING RATHER THAN A GAP. It
+ #     read: *"THE PLANE BECOMES `AUTO`"* (`Plane::GLOBAL` -> `Plane::AUTO` at the one origination).
+ #   ★ WHY IT CANNOT REDDEN: spec §7 and the S3 brief RULE that, for a STATIC home, `flight_is_team_plane(AUTO,
+ #     dst)` resolves to the same answer as GLOBAL — the team-plane arm requires `_cfg.team_id != 0` and a
+ #     team-peer destination, and a translating home is static. §B278-S3/9 PINS exactly that equivalence, on
+ #     the very predicate that decides it. A mutation asserting the two differ would be asserting the opposite
+ #     of the ruling, so a GREEN here is the expected measurement, not a missing test.
+ #   ⇒ WHY THE EXPLICIT `Plane::GLOBAL` STAYS ANYWAY: §9.1 requires a v1 notice to STATE its plane rather than
+ #     inherit one, so that a future dual team-member home (or a team-id collision on the destination) cannot
+ #     silently move a static diagnostic onto the team plane. It is a stated invariant, not a behaviour this
+ #     tree can separate — and S3/9 is where that is measured.
+ ("S56 ★★★★ §B278 S3 THE TRANSLATED CARRIER REQUESTS AN E2E ACK — evidence is turned into a message awaiting a "
+  "reply, arming a deadline whose expiry is a user-visible `send_failed` about a diagnostic",
+  "            (void)send_by_hash(action.mobile_hash, body32, custody_record_translated_len, /*flags=*/0,",
+  "            (void)send_by_hash(action.mobile_hash, body32, custody_record_translated_len, DATA_FLAG_E2E_ACK_REQ,"),
+ ("S57 ★★★ §B278 S3 THE CARRIER IS SEALED — a CRYPTED 0x81 is refused by §13.1 at every receiver, so the "
+  "outcome can never be read; and a home that holds no pubkey for its own mobile fails loud instead",
+  "                               CryptIntent::off, /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,",
+  "                               CryptIntent::on,  /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,"),
+ ("S58 ★★★★ §B278 S3 THE SEND BECOMES A DELEGATED RE-ORIGINATION (`reply_to_hash`/`mobile_ctr` set), so the "
+  "diagnostic carrier RESERVES a correlation row of its own — a custody notice consuming the very ring it "
+  "reports on, and stamping SOURCE_HASH as though the mobile had asked for it",
+  "                               CryptIntent::off, /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,",
+  "                               CryptIntent::off, /*reply_to_hash=*/action.mobile_hash,\n"
+  "                               /*mobile_ctr=*/action.ctr_m, Plane::GLOBAL,"),
+ ("S59 ★★★ §B278 S3 THE TYPE BYTE IS DROPPED (`type = 0`), so the translated record arrives as an ORDINARY DM: "
+  "32 bytes of packed binary reach the app text surface, an INTRO prefix may auto-attach, and 0x81's "
+  "no-generic-lifecycle trait stops applying to the refusal path",
+  "                               DATA_TYPE_CUSTODY_FAILURE, /*suppress_intro=*/false, &dispatch);",
+  "                               /*type=*/0, /*suppress_intro=*/false, &dispatch);"),
+ # ⛔⛔ S60 WAS WRITTEN, MEASURED **UNUSABLE**, AND IS RETIRED WITH ITS MEASUREMENT. It read: *"A SECOND
+ #     `become_free()` IS ADDED INSIDE THE RECEIVER"*.
+ #   ★ WHY NOTHING CAN SEE IT: `become_free()` is IDEMPOTENT under its own first two lines
+ #     (`if (_active->_pending_tx || _active->_pending_rx) return;` and `if (_tx_queue_n == 0) return;`,
+ #     node_mac.cpp) — so once the translated item has been drained into a flight, or while the drain is
+ #     suspended, a second call is a no-op. A duplicated release therefore has no observable consequence on ANY
+ #     reachable fixture.
+ #   ⇒ THE SINGLE-OWNER RULE IS ENFORCED STRUCTURALLY, NOT BY THIS ENTRY: there is exactly ONE `become_free()`
+ #     for the received 0x81 (the arm in `do_post_ack`), S3 adds none, and §B278-S3/18 measures the observable
+ #     half — the PostAck is consumed once, so re-firing the post-ack timer changes nothing.
+ ("S61 ★★★ §B278 S3 THE AMBIGUOUS ARM ORIGINATES ANYWAY — a wire-indistinguishable pair is resolved by sending "
+  "to whichever row the lookup materialized, i.e. a misdelivery to the wrong mobile",
+  "    } else if (lookup == DelegCustodyLookup::ambiguous) {",
+  "    } else if (false) {"),
+ ("S62 ★★★ §B278 S3 THE SILENT `no_live_rows` ARM IS FOLDED INTO `no_map` AT THE RECEIVER, so every ordinary "
+  "custody receipt on a v1-only node emits a diagnostic (four corpus streams move)",
+  "    if (lookup == DelegCustodyLookup::no_match) {",
+  "    if (lookup != DelegCustodyLookup::exact) {"),
+ ("S63 ★★★ §B278 S3 THE REFUSAL IS REPORTED AS A SUCCESS — `deleg_custody_forwarded` is emitted on the path "
+  "where nothing was sent and nothing was marked",
+  "        if (forwarded)\n"
+  "            MR_EMIT(\"deleg_custody_forwarded\",",
+  "        if (true)\n"
+  "            MR_EMIT(\"deleg_custody_forwarded\","),
+ ("S64 ★★★ §B278 S3 the forwarded/refused events report the HOME counter as `ctr_m`, so the mobile-facing "
+  "correlation scalar names a counter the mobile never used",
+  "                    EF_I(\"ctr_m\", action.ctr_m), EF_I(\"type\", rec.failed_type));\n"
+  "        else",
+  "                    EF_I(\"ctr_m\", action.ctr_h), EF_I(\"type\", rec.failed_type));\n"
+  "        else"),
 ]
 
 MUTS_SLICEGINBOX = [

@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 + S1a + S1b + S2 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S3 brief Quality-Agent PASS, ready for Opus dispatch
+**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S4 brief awaiting Quality-Agent review
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -837,6 +837,19 @@ gate.
 4. Implement obligation transitions, no-map/ambiguous/refused telemetry and recursion proof.
 5. Leave the cached-home `Plane::AUTO` behavior unchanged and pin that a static home's AUTO
    resolution is equivalent to GLOBAL for this arm.
+
+**Completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s3.md`. The home now correlates a direct report
+only after its existing store and Push, prunes before scanning, requires exactly one ACTIVE
+eligible row on the complete return identity, originates one bounded 32-byte translation
+through `send_by_hash`, and marks that exact row `forwarded` only after a queued or parked
+dispatch and a complete identity recheck. ACK-first, custody-first, refusal, duplicate,
+expiry, ambiguous, stale and recursion cases passed. Native finished at 2559/108102/0; both
+touched mutation targets were fully RED (51 + 29, zero unusable); all 36 corpus anchors
+reproduce with every S3 event at zero; `Node` and ruled-board RAM are unchanged; and the
+measured receive-stack increase is static and fully attributed. S3 owes no re-anchor, owner
+ruling or bench part. The protocol producer/lifecycle text is landed; S4 remains the first
+translated receiver and presentation slice.
 
 ### S4 — mobile receive and surfaces
 

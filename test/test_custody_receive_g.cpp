@@ -72,11 +72,30 @@ struct GFrame { std::string label; std::vector<uint8_t> bytes; };
 
 class GHal : public mrtest::TestHalBase {
 public:
+    // ★ §B278 S3: the recorder gained the FIELDS beside the name — additively, so every pre-existing
+    //   `count(...)` reader is unchanged. S3's four events are pinned by field NAME, ORDER and integer TYPE,
+    //   and a recorder that kept only the event name could not say any of that.
+    struct EmitRec { std::string kind; std::vector<std::string> keys; std::vector<int> types;
+                     std::vector<int64_t> ivals; };
     std::vector<std::string> emits;
+    std::vector<EmitRec>     emit_recs;
     std::vector<GFrame>      tx_frames;
-    void emit(const char* kind, const EventField*, size_t) override { emits.push_back(kind ? kind : ""); }
+    void emit(const char* kind, const EventField* f, size_t n) override {
+        emits.push_back(kind ? kind : "");
+        EmitRec r; r.kind = kind ? kind : "";
+        for (size_t i = 0; i < n; ++i) {
+            r.keys.push_back(f[i].key ? f[i].key : "");
+            r.types.push_back(static_cast<int>(f[i].type));
+            r.ivals.push_back(f[i].type == EventField::T::i64 ? f[i].i : -1);
+        }
+        emit_recs.push_back(r);
+    }
     int  count(const char* k) const { int c = 0; for (const auto& e : emits) if (e == k) ++c; return c; }
-    void clear_emits() { emits.clear(); }
+    const EmitRec* first_emit(const char* k) const {
+        for (const auto& r : emit_recs) if (r.kind == k) return &r;
+        return nullptr;
+    }
+    void clear_emits() { emits.clear(); emit_recs.clear(); }
     TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
         tx_frames.push_back(GFrame{ p.label ? p.label : "", std::vector<uint8_t>(b, b + n) });
         return TxResult::ok;
@@ -115,9 +134,15 @@ struct GPair {
     Node n2{h2, /*id=*/2, 0x22222222u};
     RamInboxStore dm1{protocol::inbox_dm_store_bytes}, ch1{protocol::inbox_chan_store_bytes};
     uint64_t now = 100000;
-    explicit GPair(bool wire_inbox = true) {
+    // ★ §B278 S3: `n1_lineage` is APPENDED with a default, so every pre-existing construction is byte-identical.
+    //   A nonzero lineage with `config_epoch == 0` is the ONE production shape that makes `leaf_config_synced()`
+    //   false, i.e. the un-synced managed joiner whose `enqueue_data` refuses an `app_dm` origination SILENTLY —
+    //   the `SendDispatch::Admit::none` arm §B278 S3 must treat as a forward refusal (U1: the existing config
+    //   fields, not a new seam).
+    explicit GPair(bool wire_inbox = true, uint16_t n1_lineage = 0) {
         const NodeConfig cfg = g_cfg();
-        CHECK(n1.on_init(cfg)); CHECK(n2.on_init(cfg));
+        NodeConfig cfg1 = cfg; cfg1.lineage_id = n1_lineage;
+        CHECK(n1.on_init(cfg1)); CHECK(n2.on_init(cfg));
         if (wire_inbox) n1.inbox().on_init(&dm1, &ch1);   // ⛔ AFTER Node::on_init (node.h's contract)
         n1.test_learn_route(/*dest=*/2, /*via=*/2, 1, 40, false);
         n2.test_learn_route(/*dest=*/1, /*via=*/1, 1, 40, false);
@@ -1364,4 +1389,990 @@ TEST_CASE("§CUSTODY-G/7b custody_stage_of_flags: both directions, and FAIL-CLOS
     CHECK(meshroute::console::custodystage_name(CustodyRootStage::invalid) == std::string("invalid"));
     CHECK(meshroute::console::custodystage_name(CustodyRootStage::cts) == std::string("cts"));
     CHECK(meshroute::console::custodystage_name(CustodyRootStage::hop_ack) == std::string("ack"));
+}
+
+// =====================================================================================================
+// ★★★★ §B278 S3 (2026-09-02) — HOME CORRELATION AND TRANSLATED-CUSTODY ORIGINATION
+//      (design §4.4 the lookup identity · §4.5 the lifecycle · §6.1/§6.2 the translated form ·
+//       §7 the eight-step receive order · §10.1 the one 300 s row TTL)
+//
+// THE SIX CLAIMS THIS SECTION MEASURES, on the SAME §CUSTODY-G fixture and the SAME production receiver:
+//   (1) THE ORDER IS THE CONTRACT — the ORIGINAL direct record is stored and its live Push enqueued BEFORE
+//       any correlation happens, and a report that correlates to nothing still gets both local outcomes.
+//   (2) §4.4's KEY IS COMPLETE — counter, return kind, return peer, layer and outward type each fail
+//       INDEPENDENTLY, so a counter-only matcher is RED; and the `DST_HASH` cross-check applies exactly when
+//       the report carries one and only to a hash-addressed row.
+//   (3) THE FOUR DISPOSITIONS ARE DISTINCT — zero live eligible rows is SILENT (the normal v1-only state),
+//       a live population with no match and an ambiguity each emit their own bounded event and send nothing,
+//       and only an exact match originates.
+//   (4) THE TRANSLATED FORM IS THE S2 FORM — the 32 bytes the receiver airs are byte-for-byte
+//       `pack_custody_failure_translated`'s, with H1/ctrH unchanged, `pa.origin` as the original reporter and
+//       the ROW's mobile counter and retained target; a `record_len > 24` input is stored WHOLE and
+//       translated from a normalized 24-byte copy.
+//   (5) THE OBLIGATION TRANSITIONS — `queued`/`parked` mark the EXACT row `forwarded`; a refusal (pack, park
+//       ring full, TX queue full, the un-synced `none` arm) or a stale action marks NOTHING and leaves the row
+//       `eligible`.
+//   (6) THE LIFECYCLE — ACK-first translates nothing, custody-first still lets the later ACK translate and
+//       clear, a duplicate after `forwarded` produces no second send, the 300 s edge prunes BEFORE the scan,
+//       and a translated 0x81 can never produce a custody record about itself.
+//
+// ⛔ PRODUCTION-SHAPED WHEREVER THE PATH ALLOWS, exactly as this file's own banner requires: every arm below
+//    flies a REAL 0x81 from node 2 to node 1 over the real MAC and lets the real `do_post_ack` dispatch it.
+//    Rows are seeded through the PRODUCTION `deleg_ack_put` authority (a verbatim `test_*` pass-through), so a
+//    row under test is byte-for-byte what a real activation would have left. The TWO shapes production cannot
+//    reach — an ambiguous ring and a stale action — say so at their own case and use a labelled seam.
+// =====================================================================================================
+
+namespace {
+
+// The delegated flight the rows below describe. Every constant is tied to `g_base_record`'s own fields, so a
+// change there cannot silently make the match vacuous (the positive baseline in §B278-S3/3 is what proves it).
+constexpr uint32_t kS3MobileHash  = 0xC0FFEE01u;   // M1's stable key hash (the translated report's destination)
+constexpr uint32_t kS3MobileHash2 = 0xC0FFEE02u;   // a SECOND mobile, for the cross-row cases
+constexpr uint8_t  kS3MobileLocal = 200;           // M1's local id at H1 (the direct last mile's address)
+constexpr uint16_t kS3CtrM        = 0x0777;        // ctrM — what M1 is actually waiting on
+constexpr uint16_t kS3CtrM2       = 0x0888;
+constexpr uint8_t  kS3ReturnPeer  = 9;             // == g_base_record(...).failed_dst
+constexpr uint16_t kS3CtrH        = 0x0BEE;        // == g_base_record(...).failed_ctr
+constexpr uint8_t  kS3OutType     = DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY;   // == ....failed_type
+constexpr uint8_t  kS3Reporter    = 2;             // node 2 is the reporting relay here (i.e. `pa.origin`)
+constexpr uint8_t  kKindNodeId    = 0;             // Node::DelegAckPeer::node_id, flattened
+constexpr uint8_t  kKindKeyHash   = 1;             // Node::DelegAckPeer::key_hash, flattened
+
+// A well-formed direct report, packed. A nonzero `dst_hash` additionally sets CUSTODY_FLAG_HAS_DST_HASH.
+uint8_t s3_pack_report(uint8_t out[custody_record_v1_len], uint32_t dst_hash = 0) {
+    CustodyFailureRecord r = g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2);
+    if (dst_hash) {
+        r.dst_hash32   = dst_hash;
+        r.notice_flags = custody_notice_flags(CustodyRootStage::cts, /*repair_attempted=*/true,
+                                              /*next_was_one_way=*/false, /*has_dst_hash=*/true);
+    }
+    return g_pack(r, out);
+}
+
+// Seed ONE row through the PRODUCTION ring authority. The defaults describe the flight the report above is
+// about; each argument exists so a case can break exactly one §4.4 term.
+bool s3_seed(Node& n, uint32_t mobile_hash = kS3MobileHash, uint16_t ctr_h = kS3CtrH, uint16_t ctr_m = kS3CtrM,
+             uint8_t target_kind = kKindNodeId, uint32_t target = kS3ReturnPeer,
+             uint8_t return_kind = kKindNodeId, uint32_t return_peer = kS3ReturnPeer,
+             uint8_t outward_type = kS3OutType,
+             uint8_t custody = Node::test_custody_state_eligible()) {
+    return n.test_deleg_ack_put(mobile_hash, ctr_h, ctr_m, target_kind, target,
+                                return_kind, return_peer, outward_type, custody);
+}
+
+// Everything one S3 arm produced, in one value. The §CUSTODY-G local outcome (store + Push) is read on EVERY
+// case, so no S3 assertion can pass on a receiver that stopped doing its own job.
+struct S3Out {
+    int accepted = 0, rejected = 0, pushes = 0, stored = 0;
+    int no_map = 0, ambiguous = 0, forwarded = 0, refused = 0;
+    uint32_t seq = 0;
+    uint8_t  stored_len = 0;
+    std::vector<uint8_t> stored_body;
+    uint8_t  n_eligible = 0, n_forwarded = 0, live_rows = 0;
+    uint8_t  tx_n = 0, parked_n = 0;
+};
+
+S3Out s3_collect(GPair& p) {
+    S3Out o{};
+    o.accepted  = p.h1.count("custody_failure_rx");
+    o.rejected  = p.h1.count("custody_failure_reject");
+    o.no_map    = p.h1.count("deleg_custody_no_map");
+    o.ambiguous = p.h1.count("deleg_custody_ambiguous");
+    o.forwarded = p.h1.count("deleg_custody_forwarded");
+    o.refused   = p.h1.count("deleg_custody_forward_refused");
+    Push pu{};
+    while (p.n1.next_push(pu)) if (pu.kind == PushKind::custody_failure) { ++o.pushes; o.seq = pu.seq; }
+    StoreSink s{};
+    p.n1.inbox().pull(0, 0, store_cb, &s);
+    o.stored = s.custody; o.stored_len = s.body_len; o.stored_body = s.body;
+    o.n_eligible  = p.n1.test_deleg_custody_n(Node::test_custody_state_eligible());
+    o.n_forwarded = p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded());
+    o.live_rows   = p.n1.test_deleg_ack_live_n();
+    o.tx_n        = p.n1.test_tx_queue_n();
+    o.parked_n    = p.n1.test_parked_sends_n();
+    return o;
+}
+
+// The 32 bytes the receiver MUST have produced, built INDEPENDENTLY through the S2 packer from the ROW's
+// values and `pa.origin`. ⛔ Never read back off the encoder under test.
+std::vector<uint8_t> s3_expected_body(uint8_t target_kind = kKindNodeId, uint32_t target = kS3ReturnPeer,
+                                      uint16_t ctr_m = kS3CtrM, uint32_t dst_hash = 0) {
+    CustodyFailureRecord r = g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2);
+    if (dst_hash) {
+        r.dst_hash32   = dst_hash;
+        r.notice_flags = custody_notice_flags(CustodyRootStage::cts, true, false, /*has_dst_hash=*/true);
+    }
+    CustodyTranslatedTail t{};
+    t.original_reporter = kS3Reporter;
+    t.target_kind       = target_kind == kKindKeyHash ? CustodyTranslatedTargetKind::key_hash
+                                                      : CustodyTranslatedTargetKind::node_id;
+    t.mobile_ctr        = ctr_m;
+    t.target_value      = target;
+    std::vector<uint8_t> out(custody_record_translated_len, 0);
+    const size_t n = pack_custody_failure_translated(r, t, std::span<uint8_t>(out.data(), out.size()));
+    CHECK(n == custody_record_translated_len);
+    return out;
+}
+
+// Register M1 as a LIVE DIRECT hosted mobile of H1, so `send_by_hash` takes the direct last-mile arm.
+void s3_host(Node& n, uint32_t hash = kS3MobileHash, uint8_t local = kS3MobileLocal) {
+    uint8_t ed[32];
+    for (int i = 0; i < 32; ++i) ed[i] = static_cast<uint8_t>(0xA0 + i);
+    n.test_add_host_mobile(hash, local, ed);
+}
+
+// The BODY of a queued TxItem, read through the PRODUCTION unicast parser (⛔ never a second offset table).
+std::vector<uint8_t> s3_queued_body(Node& n, uint8_t i = 0) {
+    uint8_t len = 0;
+    const uint8_t* inner = n.test_tx_inner(i, len);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, len), n.test_tx_flags(i));
+    if (!ui) return {};
+    return std::vector<uint8_t>(ui->body.begin(), ui->body.end());
+}
+
+// Fly the report, then fire the post-ack with the TX drain SUSPENDED, so the originated item STAYS in the
+// queue for a wire-golden read. ⛔ THE ORDER MATTERS AND IS THE WHOLE POINT OF THE HELPER: `_pending_tx` is the
+// half-duplex guard, so a node holding it will not answer an RTS at all — suspending before the hop would
+// stall the delivery instead of holding its result.
+bool s3_send_and_hold(GPair& p, const uint8_t* body, uint8_t len) {
+    if (!p.send_typed(body, len, DATA_TYPE_CUSTODY_FAILURE, /*dst_hash=*/0, /*fire_post_ack=*/false))
+        return false;
+    p.n1.test_suspend_tx_drain(true);
+    p.step();
+    p.n1.on_timer(kPostAckTimerId);
+    return true;
+}
+
+// The parsed record for the default report, for the probe-driven cases.
+CustodyFailureRecord s3_parsed_report() {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    const std::optional<CustodyFailureRecord> parsed = parse_custody_failure(std::span<const uint8_t>(rec, n));
+    CHECK(parsed.has_value());
+    return parsed ? *parsed : CustodyFailureRecord{};
+}
+
+}  // namespace
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/1 — THE ORDER, AND THE SILENT NORMAL CASE
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE HEADLINE ORDER CLAIM, MEASURED AS A PAIR. A node with NO delegated obligation at all (every v1-only
+//      node, and every home whose row already ACKed, forwarded or expired) must behave EXACTLY as it did before
+//      S3: store, push, say nothing. ⛔ That silence is a RULED decision, not an omission — a `no_map` line
+//      behind every ordinary custody receipt would be noise on the node and would move four corpus streams.
+TEST_CASE("§B278-S3/1 zero live eligible rows: stored + pushed exactly as before, and S3 is SILENT") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p;
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.accepted == 1);                 // the §CUSTODY-G local outcome is UNCHANGED …
+    CHECK(o.pushes == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.stored_len == custody_record_v1_len);
+    CHECK(o.no_map == 0);                   // … and not one S3 event fires
+    CHECK(o.ambiguous == 0);
+    CHECK(o.forwarded == 0);
+    CHECK(o.refused == 0);
+    CHECK(o.tx_n == 0);                     // ⛔ nothing was originated
+    CHECK(o.parked_n == 0);
+}
+
+// ★★★ THE SAME CLAIM WITH A LIVE POPULATION THAT DOES NOT MATCH: the local outcomes STILL happen in full and
+//     the ONE bounded diagnostic fires. This is the case that says "S3 never suppresses H1's own diagnostic".
+TEST_CASE("§B278-S3/2 a live eligible population with no match: BOTH local outcomes, one bounded `no_map`, no send") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p;
+    s3_host(p.n1);
+    CHECK(s3_seed(p.n1, kS3MobileHash, /*ctr_h=*/0x0111));    // a live eligible row for a DIFFERENT flight
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.accepted == 1);
+    CHECK(o.pushes == 1);
+    CHECK(o.stored == 1);                   // ⛔ the local record is stored REGARDLESS of correlation
+    CHECK(o.no_map == 1);
+    CHECK(o.ambiguous == 0);
+    CHECK(o.forwarded == 0);
+    CHECK(o.refused == 0);
+    CHECK(o.tx_n == 0);
+    CHECK(o.n_eligible == 1);               // the unrelated row is untouched
+    CHECK(o.n_forwarded == 0);
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/3 — §4.4's KEY, ONE INDEPENDENT FALSIFIER PER TERM
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ EVERY TERM ON ITS OWN, AGAINST ONE POSITIVE BASELINE. ⛔ A COUNTER-ONLY MATCHER IS RED HERE: three of
+//      the four wire-driven arms keep `ctr_h` identical and change something else, so a matcher that looked
+//      only at the counter would forward every one of them. `failed_ctr` is a HOME counter, minted PER
+//      DESTINATION, so two live rows really can share it — the corpus cannot exercise that, which is exactly
+//      why this case exists.
+TEST_CASE("§B278-S3/3 §4.4's five key terms each fail INDEPENDENTLY (a counter-only matcher is RED)") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // ---- the POSITIVE baseline: the complete key matches and the report is forwarded.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 1);
+        CHECK(o.no_map == 0);
+        CHECK(o.n_forwarded == 1);
+    }
+    struct Arm { const char* term; uint16_t ctr_h; uint8_t return_kind; uint32_t return_peer; uint8_t out_type; };
+    const Arm arms[] = {
+        { "ctr_h",        0x0BEF,  kKindNodeId,  kS3ReturnPeer,     kS3OutType },
+        { "return_kind",  kS3CtrH, kKindKeyHash, kS3ReturnPeer,     kS3OutType },
+        { "return_peer",  kS3CtrH, kKindNodeId,  kS3ReturnPeer + 1, kS3OutType },
+        { "outward_type", kS3CtrH, kKindNodeId,  kS3ReturnPeer,     DATA_TYPE_MOBILE_KEY_FORWARD },
+    };
+    for (const Arm& a : arms) {
+        CAPTURE(a.term);
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, a.ctr_h, kS3CtrM, kKindNodeId, kS3ReturnPeer,
+                      a.return_kind, a.return_peer, a.out_type));
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);
+        CHECK(o.stored == 1);               // the local diagnostic never depends on the match
+        CHECK(o.forwarded == 0);            // ⛔ this term ALONE refused the correlation
+        CHECK(o.no_map == 1);
+        CHECK(o.tx_n == 0);
+        CHECK(o.n_eligible == 1);           // and the row keeps its obligation
+    }
+    // ---- THE LAYER TERM needs a record CLAIMING another layer, which §13.15 would reject at the receiver
+    //      before the lookup ever runs. It is therefore proven at the ONE authority that decides it, with its
+    //      own positive control in the same block so the arm cannot pass vacuously.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        const CustodyFailureRecord good = s3_parsed_report();
+        CustodyFailureRecord other = good;
+        other.reporter_layer = static_cast<uint8_t>(other.reporter_layer + 1);
+        const Node::TestCustodyProbe bad = p.n1.test_custody_lookup(other, kS3Reporter);
+        CHECK(bad.disposition == Node::test_custody_disposition_no_match());
+        CHECK(bad.matches == 0);
+        const Node::TestCustodyProbe ok = p.n1.test_custody_lookup(good, kS3Reporter);
+        CHECK(ok.disposition == Node::test_custody_disposition_exact());
+        CHECK(ok.matches == 1);
+    }
+    // ---- AND THE `eligible` TERM ITSELF: a `none` row of the same identity is never selected, so a row whose
+    //      arm carried no custody obligation can never acquire one here.
+    for (uint8_t state : { Node::test_custody_state_none(), Node::test_custody_state_forwarded() }) {
+        CAPTURE(int(state));
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindNodeId, kS3ReturnPeer,
+                      kKindNodeId, kS3ReturnPeer, kS3OutType, state));
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 0);
+        CHECK(o.no_map == 0);               // ⛔ SILENT: a non-eligible row is not a live population either
+        CHECK(o.refused == 0);
+        CHECK(o.tx_n == 0);
+    }
+}
+
+// ★★★ THE OPTIONAL `DST_HASH` CROSS-CHECK, BOTH DIRECTIONS AND ON THE RIGHT ROW KIND (§4.4). It is a
+//     cross-check, ⛔ NOT a lookup term: its ABSENCE may never refuse a match, and a NODE-ID row is never
+//     hash-compared at all (its `target` is a node id — comparing it to a 32-bit hash would be a category
+//     error that happens to be arithmetic).
+TEST_CASE("§B278-S3/4 DST_HASH agrees when carried, is not required when absent, and never touches a node-id row") {
+    constexpr uint32_t kTargetHash = 0xA1B2C3D4u;
+    uint8_t rec_hash[custody_record_v1_len];
+    const uint8_t nh = s3_pack_report(rec_hash, kTargetHash);
+    uint8_t rec_plain[custody_record_v1_len];
+    const uint8_t np = s3_pack_report(rec_plain);
+    // (a) hash-addressed row + a report carrying the SAME hash -> forwarded, and the tail carries the hash.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindKeyHash, kTargetHash));
+        CHECK(s3_send_and_hold(p, rec_hash, nh));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 1);
+        CHECK(o.tx_n == 1);
+        if (o.tx_n == 1)
+            CHECK(s3_queued_body(p.n1) == s3_expected_body(kKindKeyHash, kTargetHash, kS3CtrM, kTargetHash));
+    }
+    // (b) hash-addressed row + a report carrying a DIFFERENT hash -> refused by the cross-check alone.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindKeyHash, kTargetHash ^ 0xFFu));
+        CHECK(p.send_typed(rec_hash, nh));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 0);
+        CHECK(o.no_map == 1);
+        CHECK(o.n_eligible == 1);
+    }
+    // (c) hash-addressed row + a report with NO `HAS_DST_HASH` -> the match STILL succeeds (§4.4, verbatim:
+    //     "lookup does not fail merely because the hash is unavailable"), and the tail carries the ROW's hash.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindKeyHash, kTargetHash));
+        CHECK(s3_send_and_hold(p, rec_plain, np));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 1);
+        if (o.tx_n == 1)
+            CHECK(s3_queued_body(p.n1) == s3_expected_body(kKindKeyHash, kTargetHash, kS3CtrM, /*dst_hash=*/0));
+    }
+    // (d) NODE-ID row + a report carrying a hash -> still matched: the hash term does not apply to it at all.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));                       // node_id target == failed_dst
+        CHECK(p.send_typed(rec_hash, nh));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 1);
+        CHECK(o.no_map == 0);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/5 — AMBIGUITY (AN INVARIANT FAILURE), AND THE COMPLETE-IDENTITY COMMIT
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ TWO LIVE ROWS SHARING THE COMPLETE §4.4 KEY ARE WIRE-INDISTINGUISHABLE, so nothing is forwarded and
+//      nothing is guessed. ⛔ THE STATE IS UNREACHABLE IN PRODUCTION AND THIS CASE PROVES BOTH HALVES: the
+//      ring's own §B278 S1b activation uniqueness REFUSES the second row (measured first, so the seam is not
+//      papering over a real path), and the diagnostic is then driven through the labelled invariant seam.
+TEST_CASE("§B278-S3/5 ambiguity: the ring refuses the second row, and if one existed nothing would be sent") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // ---- half one: the PRODUCTION authority refuses to create the ambiguous state at all.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash,  kS3CtrH, kS3CtrM));
+        CHECK_FALSE(s3_seed(p.n1, kS3MobileHash2, kS3CtrH, kS3CtrM2));   // same return key, another mobile
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 1);
+        CHECK(p.n1.test_deleg_ack_live_n() == 1);                        // ⛔ the incumbent is not evicted
+    }
+    // ---- half two: FORCED into the impossible state, the lookup reports it and originates nothing.
+    {
+        GPair p; s3_host(p.n1);
+        p.n1.test_deleg_force_row(0, kS3MobileHash,  kS3CtrH, kS3CtrM,  kKindNodeId, kS3ReturnPeer,
+                                  kKindNodeId, kS3ReturnPeer, kS3OutType,
+                                  Node::test_custody_state_eligible());
+        p.n1.test_deleg_force_row(1, kS3MobileHash2, kS3CtrH, kS3CtrM2, kKindNodeId, kS3ReturnPeer,
+                                  kKindNodeId, kS3ReturnPeer, kS3OutType,
+                                  Node::test_custody_state_eligible());
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);              // the local diagnostic still happens in full …
+        CHECK(o.stored == 1);
+        CHECK(o.pushes == 1);
+        CHECK(o.ambiguous == 1);             // … and exactly ONE bounded ambiguity event fires
+        CHECK(o.forwarded == 0);
+        CHECK(o.no_map == 0);
+        CHECK(o.refused == 0);
+        CHECK(o.tx_n == 0);                  // ⛔ nothing was originated
+        CHECK(o.parked_n == 0);
+        CHECK(o.n_eligible == 2);            // ⛔ and NOTHING changed: neither row was marked, cleared or evicted
+        CHECK(o.n_forwarded == 0);
+        CHECK(o.live_rows == 2);
+        const GHal::EmitRec* r = p.h1.first_emit("deleg_custody_ambiguous");
+        CHECK(r != nullptr);
+        if (r) {
+            CHECK(r->keys == std::vector<std::string>{ "dst", "ctr_h", "type", "layer", "matches" });
+            CHECK(r->ivals == std::vector<int64_t>{ kS3ReturnPeer, kS3CtrH, kS3OutType, 2, 2 });
+            for (int t : r->types) CHECK(t == static_cast<int>(EventField::T::i64));
+        }
+    }
+}
+
+// ★★★★ THE COMPLETE-IDENTITY COMMIT, MEASURED WHERE A WEAKER ONE WOULD BREAK. Two live eligible rows share
+//      `ctr_h` (home counters are per DESTINATION, so this is genuinely reachable) but name different return
+//      peers. §4.4 selects exactly one; a commit predicate weakened to the counter would find TWO and mark
+//      NEITHER — so this case is RED for both a weakened lookup and a weakened `eligible -> forwarded` write.
+TEST_CASE("§B278-S3/6 two eligible rows share ctr_h: exactly the matching one is forwarded, the other untouched") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p; s3_host(p.n1);
+    CHECK(s3_seed(p.n1, kS3MobileHash,  kS3CtrH, kS3CtrM,  kKindNodeId, kS3ReturnPeer,
+                  kKindNodeId, kS3ReturnPeer));                       // the MATCH (return_peer 9)
+    CHECK(s3_seed(p.n1, kS3MobileHash2, kS3CtrH, kS3CtrM2, kKindNodeId, kS3ReturnPeer - 1,
+                  kKindNodeId, kS3ReturnPeer - 1));                   // same ctr_h, return_peer 8
+    CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 2);
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.forwarded == 1);
+    CHECK(o.ambiguous == 0);
+    CHECK(o.n_forwarded == 1);
+    CHECK(o.n_eligible == 1);                 // ⛔ the OTHER mobile's obligation is untouched
+    CHECK(o.live_rows == 2);                  // … and neither row was evicted or cleared
+    bool found = false;
+    for (uint8_t i = 0; i < p.n1.test_deleg_ack_cap(); ++i) {
+        const Node::TestDelegRow r = p.n1.test_deleg_row(i);
+        if (r.custody_state == Node::test_custody_state_forwarded()) {
+            found = true;
+            CHECK(r.mobile_hash == kS3MobileHash);     // the RIGHT row was marked
+            CHECK(r.return_peer == kS3ReturnPeer);
+            CHECK(r.ctr_m == kS3CtrM);
+        }
+    }
+    CHECK(found);
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/7 — THE TRANSLATED FORM ON THE WIRE
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE 32 BYTES, FIELD BY FIELD, AND THE DIRECT-HOST CARRIER AROUND THEM (§6.1/§6.2 + §8.2 rule 7).
+//      The expectation is built INDEPENDENTLY through the S2 packer from the ROW's values and `pa.origin`.
+TEST_CASE("§B278-S3/7 direct-host delivery: type 0x81, addr_len 1, no DST_HASH, and the literal 32-byte form") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p; s3_host(p.n1);
+    CHECK(s3_seed(p.n1));
+    CHECK(s3_send_and_hold(p, rec, n));        // keep the originated item queued for a wire-golden read
+    const S3Out o = s3_collect(p);
+    CHECK(o.forwarded == 1);
+    CHECK(o.refused == 0);
+    CHECK(o.n_forwarded == 1);
+    CHECK(o.tx_n == 1);
+    if (o.tx_n != 1) return;
+    CHECK(p.n1.test_tx_type(0) == DATA_TYPE_CUSTODY_FAILURE);
+    CHECK(p.n1.test_tx_dst(0) == kS3MobileLocal);            // the mobile's LOCAL id …
+    CHECK(p.n1.test_tx_addr_len(0) == 1);                    // … addressed by the 1-byte last mile
+    CHECK(p.n1.test_tx_origin(0) == 1);                      // outer origin stays H1
+    CHECK((p.n1.test_tx_flags(0) & DATA_FLAG_E2E_ACK_REQ) == 0);   // ⛔ evidence, not a message awaiting a reply
+    CHECK((p.n1.test_tx_flags(0) & DATA_FLAG_CRYPTED) == 0);       // ⛔ plaintext, exactly as the v1 notice is
+    uint8_t inner_len = 0;
+    const uint8_t* inner = p.n1.test_tx_inner(0, inner_len);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, inner_len), p.n1.test_tx_flags(0));
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK_FALSE(ui->has_dst_hash);                            // §8.2 rule 7: the direct form carries none
+    // ★ THE SOURCE HASH IS **H1's OWN**, and that is the proof this is NOT a delegated re-origination: a
+    //   `reply_to_hash` would stamp the MOBILE's hash here and would make the carrier look like something the
+    //   mobile asked H1 to send on its behalf — reserving a correlation row for a diagnostic about the ring.
+    CHECK(ui->has_source_hash);
+    CHECK(ui->source_hash == 0x11111111u);                    // node 1's key hash (GPair), ⛔ not kS3MobileHash
+    CHECK(ui->body.size() == custody_record_translated_len);
+    const std::vector<uint8_t> body = s3_queued_body(p.n1);
+    CHECK(body == s3_expected_body());
+    // ---- and the tail is the ROW's, read back through the production parser rather than by offset.
+    const std::optional<CustodyFailureRecord> parsed =
+        parse_custody_failure(std::span<const uint8_t>(body.data(), body.size()));
+    CHECK(parsed.has_value());
+    if (!parsed) return;
+    CHECK(custody_record_is_translated(parsed->notice_flags));
+    CHECK(parsed->record_len    == custody_record_translated_len);
+    CHECK(parsed->failed_origin == 1);                        // H1 — UNCHANGED from the direct report
+    CHECK(parsed->failed_ctr    == kS3CtrH);                  // ctrH — UNCHANGED
+    CHECK(parsed->failed_dst    == kS3ReturnPeer);
+    CHECK(parsed->failed_type   == kS3OutType);
+    const std::optional<CustodyTranslatedTail> tail =
+        parse_custody_translated_tail(std::span<const uint8_t>(body.data(), body.size()), *parsed);
+    CHECK(tail.has_value());
+    if (!tail) return;
+    CHECK(tail->original_reporter == kS3Reporter);            // `pa.origin` — the OUTER reporting relay
+    CHECK(tail->target_kind == CustodyTranslatedTargetKind::node_id);
+    CHECK(tail->mobile_ctr   == kS3CtrM);                     // the ROW's mobile counter
+    CHECK(tail->target_value == kS3ReturnPeer);               // the ROW's retained target
+}
+
+// ★★★ A `record_len > 24` DIRECT INPUT: stored WHOLE locally, translated from a NORMALIZED 24-byte copy into
+//     exactly 32 bytes. ⛔ The unknown direct tail is NOT forwarded — §6.2 defines bytes 24-31 and nothing else
+//     may occupy them — while §7.2's "retain any accepted future tail" is unchanged for the LOCAL record.
+TEST_CASE("§B278-S3/8 a direct record with an unknown tail is stored whole and translated from a 24-byte copy") {
+    uint8_t base[custody_record_v1_len];
+    const uint8_t bn = s3_pack_report(base);
+    std::vector<uint8_t> body(base, base + bn);
+    body.insert(body.end(), { 0xDE, 0xAD, 0xBE, 0xEF });
+    body[1] = static_cast<uint8_t>(body.size());              // record_len = 28 — the wire says so
+    GPair p; s3_host(p.n1);
+    CHECK(s3_seed(p.n1));
+    CHECK(s3_send_and_hold(p, body.data(), static_cast<uint8_t>(body.size())));
+    const S3Out o = s3_collect(p);
+    CHECK(o.accepted == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.stored_len == 28);                                // ⛔ the LOCAL record keeps all 28 bytes …
+    CHECK(o.stored_body == body);
+    CHECK(o.forwarded == 1);
+    CHECK(o.tx_n == 1);
+    if (o.tx_n != 1) return;
+    const std::vector<uint8_t> air = s3_queued_body(p.n1);
+    CHECK(air.size() == custody_record_translated_len);       // … and exactly 32 bytes were aired
+    CHECK(air == s3_expected_body());                         // byte-identical to the no-tail case
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/9 — THE CACHED-HOME ARM AND ITS PLANE
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ THE CACHED-HOME ARM IS UNCHANGED AND ITS `Plane::AUTO` IS **EQUIVALENT TO GLOBAL FOR A STATIC HOME**
+//     (spec §7's pinned sentence). ⛔ S3 does not touch that arm: it asks for `Plane::GLOBAL` and the arm still
+//     hands `Plane::AUTO` to `do_send`, exactly as it always did. The equivalence is pinned at the ONE
+//     predicate that decides it, and the delivered frame is checked to carry the mobile's DST_HASH.
+TEST_CASE("§B278-S3/9 cached-home delivery: AUTO ≡ GLOBAL for a static home, DST_HASH == the mobile hash") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p;
+    p.n1.mobile_home_set(kS3MobileHash, /*home_id=*/2, /*epoch=*/1, /*home_layer=*/2);
+    CHECK(s3_seed(p.n1));
+    // THE EQUIVALENCE, at the predicate the cached arm's plane ultimately resolves through.
+    CHECK(p.n1.flight_is_team_plane(Plane::AUTO,   /*dst=*/2) == false);
+    CHECK(p.n1.flight_is_team_plane(Plane::GLOBAL, /*dst=*/2) == false);
+    CHECK(p.n1.flight_is_team_plane(Plane::AUTO, 2) == p.n1.flight_is_team_plane(Plane::GLOBAL, 2));
+    CHECK(s3_send_and_hold(p, rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.forwarded == 1);
+    CHECK(o.n_forwarded == 1);
+    CHECK(o.tx_n == 1);
+    if (o.tx_n != 1) return;
+    CHECK(p.n1.test_tx_type(0) == DATA_TYPE_CUSTODY_FAILURE);
+    CHECK(p.n1.test_tx_dst(0) == 2);                          // routed to the cached HOME …
+    CHECK(p.n1.test_tx_addr_len(0) == 0);
+    uint8_t inner_len = 0;
+    const uint8_t* inner = p.n1.test_tx_inner(0, inner_len);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, inner_len), p.n1.test_tx_flags(0));
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK(ui->has_dst_hash);
+    CHECK(ui->dst_key_hash32 == kS3MobileHash);               // … which last-miles it to M1
+    CHECK(s3_queued_body(p.n1) == s3_expected_body());        // the SAME 32 bytes as the direct arm
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/10 — PARK, AND THE FOUR REFUSALS
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ AN UNRESOLVED HOME PARKS, AND A PARK IS *"the outcome is on its way"*: the row is marked `forwarded` and
+//     the parked send keeps its TYPE and its exact 32 bytes across the resolution.
+TEST_CASE("§B278-S3/10 unresolved home: `parked` marks forwarded, and the drain preserves type + the 32 bytes") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p;                                    // ⛔ no hosted row and no cached home -> park + H flood
+    CHECK(s3_seed(p.n1));
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.forwarded == 1);
+    CHECK(o.refused == 0);
+    CHECK(o.n_forwarded == 1);
+    CHECK(o.tx_n == 0);                          // nothing queued …
+    CHECK(o.parked_n == 1);                      // … one send retained behind the resolution
+    // the H answer arrives: the parked send flies with its type and body intact.
+    p.n1.test_suspend_tx_drain(true);
+    p.n1.test_drain_parked_sends(kS3MobileHash, /*resolved_id=*/2);
+    CHECK(p.n1.test_tx_queue_n() == 1);
+    if (p.n1.test_tx_queue_n() != 1) return;
+    CHECK(p.n1.test_tx_type(0) == DATA_TYPE_CUSTODY_FAILURE);
+    CHECK(s3_queued_body(p.n1) == s3_expected_body());
+}
+
+// ★★★★ THE THREE DISPATCH REFUSALS, EACH WITH ITS OWN DRIVER, ALL LEAVING THE ROW `eligible`. ⛔ A refusal
+//      never marks, never clears and never retries; the obligation survives to its own 300 s expiry so a
+//      genuinely fresh repeat report can retry (§4.5).
+TEST_CASE("§B278-S3/11 refusals: park-ring full, TX-queue full and the un-synced `none` arm all leave the row eligible") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // (a) PARK RING FULL -> `SendDispatch::Admit::refused` from `park_send`.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        // filled through the PUBLIC diagnostic `resolve` verb — a notify-only park, i.e. the same ring, and
+        // ⛔ not a private seam reaching in behind the API.
+        for (uint8_t i = 0; i < protocol::cap_parked_sends; ++i) {
+            Command c{}; c.kind = CmdKind::resolve;
+            c.u.resolve.dst_hash = 0x51000000u + i; c.u.resolve.dst_id = 0;
+            c.u.resolve.hard = false; c.u.resolve.plane = 0;
+            CHECK(p.n1.on_command(c).code == CmdCode::queued);
+        }
+        CHECK(p.n1.test_parked_sends_n() == protocol::cap_parked_sends);
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);
+        CHECK(o.stored == 1);
+        CHECK(o.forwarded == 0);
+        CHECK(o.refused == 1);
+        CHECK(o.n_forwarded == 0);
+        CHECK(o.n_eligible == 1);                 // ⛔ still owed
+    }
+    // (b) TX QUEUE FULL on the direct-host arm -> `refused` from `enqueue_data`.
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(rec, n, DATA_TYPE_CUSTODY_FAILURE, /*dst_hash=*/0, /*fire_post_ack=*/false));
+        p.n1.test_suspend_tx_drain(true);
+        const uint8_t filler[] = { 'f', 'i', 'l', 'l' };
+        for (uint8_t i = 0; i < 8; ++i)
+            (void)p.n1.test_do_send_typed(2, filler, sizeof filler, CryptIntent::off, 0, 0);
+        CHECK(p.n1.test_tx_queue_n() == 8);        // kTxQueueCap
+        p.step(); p.n1.on_timer(kPostAckTimerId);
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);
+        CHECK(o.forwarded == 0);
+        CHECK(o.refused == 1);
+        CHECK(o.n_eligible == 1);
+        CHECK(o.tx_n == 8);                        // ⛔ nothing was added — the frame really did not fly
+    }
+    // (c) THE UN-SYNCED MANAGED JOINER -> `enqueue_data` refuses SILENTLY and never sets a dispatch, i.e.
+    //     `Admit::none`. ⛔ `none` is a refusal too: 0x81 has no generic send lifecycle, so without this arm
+    //     the failure would be completely silent.
+    {
+        GPair p(/*wire_inbox=*/true, /*n1_lineage=*/7);
+        s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);
+        CHECK(o.forwarded == 0);
+        CHECK(o.refused == 1);
+        CHECK(o.n_eligible == 1);
+        CHECK(o.tx_n == 0);
+    }
+}
+
+// ★★★ A PACK REFUSAL IS A BOUNDED FORWARD REFUSAL, ⛔ never a licence to hand-build bytes. §6.3 requires a
+//     node-id `target_value` to equal `failed_dst`; a row whose retained node-id target disagrees therefore
+//     cannot be translated, and the receiver must say so and change nothing.
+TEST_CASE("§B278-S3/12 a translated-pack refusal is reported as a forward refusal and marks nothing") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p; s3_host(p.n1);
+    // the §4.4 key still matches (return_peer 9); the retained node-id TARGET is 8, which §6.3 refuses.
+    CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindNodeId, /*target=*/kS3ReturnPeer - 1,
+                  kKindNodeId, kS3ReturnPeer));
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.accepted == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.forwarded == 0);
+    CHECK(o.refused == 1);
+    CHECK(o.n_forwarded == 0);
+    CHECK(o.n_eligible == 1);
+    CHECK(o.tx_n == 0);
+    CHECK(o.parked_n == 0);                        // ⛔ nothing was even attempted
+}
+
+// ★★★★ THE STALE ACTION. ⛔ NO PRODUCTION PATH CAN PRODUCE ONE — inside `custody_failure_receive` nothing
+//      mutates the ring between the lookup and the commit (`reply_to_hash == 0` and `mobile_ctr == 0` keep
+//      `send_by_hash` out of the ring entirely) — so the complete-identity recheck is DEFENCE IN DEPTH, and
+//      this case is the probe that makes it measurable rather than merely claimed.
+TEST_CASE("§B278-S3/13 a stale action marks NOTHING: the commit re-selects by the complete identity") {
+    const CustodyFailureRecord rec = s3_parsed_report();
+    // (a) the POSITIVE control: an action materialized against a live row commits exactly once.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_exact());
+        CHECK(p.n1.test_custody_mark_forwarded(probe));
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 1);
+        CHECK_FALSE(p.n1.test_custody_mark_forwarded(probe));    // ⛔ only once: the row is no longer eligible
+    }
+    // (b) the row is REPLACED under the action by a DIFFERENT mobile's row on the same return key.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_exact());
+        uint16_t ignored = 0;
+        CHECK(p.n1.test_deleg_ack_translate(kS3MobileHash, kS3CtrH, kKindNodeId, kS3ReturnPeer, ignored));
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);                // the ACK consumed it
+        CHECK(s3_seed(p.n1, kS3MobileHash2, kS3CtrH, kS3CtrM2)); // a DIFFERENT mobile takes the return key
+        CHECK_FALSE(p.n1.test_custody_mark_forwarded(probe));    // ⛔ the replacement is NEVER marked
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 0);
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 1);
+    }
+    // (c) the row is simply GONE.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        uint16_t ignored = 0;
+        CHECK(p.n1.test_deleg_ack_translate(kS3MobileHash, kS3CtrH, kKindNodeId, kS3ReturnPeer, ignored));
+        CHECK_FALSE(p.n1.test_custody_mark_forwarded(probe));
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);                // ⛔ and nothing was created to mark
+    }
+    // (d) TWO rows now share the action's COMPLETE identity: the commit marks NEITHER. ⛔ Structurally
+    //     unreachable from the receiver — the commit's key is STRICTLY STRONGER than §4.4's, so a lookup that
+    //     answered `exact` cannot leave two commit candidates — and unreachable through the ring, whose
+    //     activation uniqueness refuses the duplicate. It is the invariant seam's second and last user, and it
+    //     is what makes "exactly one, or nothing" a measured rule rather than a comment.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_exact());
+        p.n1.test_deleg_force_row(1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindNodeId, kS3ReturnPeer,
+                                  kKindNodeId, kS3ReturnPeer, kS3OutType,
+                                  Node::test_custody_state_eligible());
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 2);
+        CHECK_FALSE(p.n1.test_custody_mark_forwarded(probe));    // ⛔ ambiguous -> mark NEITHER
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 0);
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 2);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/14 — THE LIFECYCLE (§4.5)
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ ACK-FIRST vs CUSTODY-FIRST, THE ORDERING PROPERTY B278 EXISTS TO ADD. Custody processing never consumes
+//      the ACK obligation: a forwarded row is still ACTIVE, so the later E2E ACK still translates ctrH -> ctrM
+//      and clears it. In the other order the ACK's one-shot has already cleared the row, so the later report is
+//      stored at H1 and produces no translated send and no B278 noise at all.
+TEST_CASE("§B278-S3/14 custody-first still lets the later ACK translate; ACK-first translates nothing later") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // ---- CUSTODY FIRST
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.forwarded == 1);
+        CHECK(o.n_forwarded == 1);
+        CHECK(o.live_rows == 1);                   // ⛔ the ACK obligation is RETAINED
+        uint16_t ctr_m = 0;
+        CHECK(p.n1.test_deleg_ack_translate(kS3MobileHash, kS3CtrH, kKindNodeId, kS3ReturnPeer, ctr_m));
+        CHECK(ctr_m == kS3CtrM);                   // … and still translates to the mobile's counter
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);  // … and then clears, exactly once
+    }
+    // ---- ACK FIRST
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        uint16_t ctr_m = 0;
+        CHECK(p.n1.test_deleg_ack_translate(kS3MobileHash, kS3CtrH, kKindNodeId, kS3ReturnPeer, ctr_m));
+        CHECK(ctr_m == kS3CtrM);
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);
+        CHECK(p.send_typed(rec, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);                    // the report is STILL stored and pushed at H1 …
+        CHECK(o.stored == 1);
+        CHECK(o.pushes == 1);
+        CHECK(o.no_map == 0);                      // … and produces NO B278 noise at all (zero live rows)
+        CHECK(o.ambiguous == 0);
+        CHECK(o.forwarded == 0);
+        CHECK(o.refused == 0);
+        CHECK(o.tx_n == 0);
+    }
+}
+
+// ★★★ A DUPLICATE REPORT AFTER `forwarded` PRODUCES NO SECOND TRANSLATION — because the lookup requires
+//     `eligible` and a forwarded row is not. ⛔ The local storage rules are unchanged: the second report is
+//     still received under §CUSTODY-G's own rules.
+TEST_CASE("§B278-S3/15 a duplicate report after forwarding: still received, but never a second translation") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // ⓘ Driven on the PARK arm (no hosted row, no cached home) DELIBERATELY: a queued direct last-mile would
+    //   put node 1 into its own TX flight, and a node holding `_pending_tx` cannot answer the second report's
+    //   RTS — the fixture would then be measuring a stalled hop rather than the duplicate rule.
+    GPair p;
+    CHECK(s3_seed(p.n1));
+    CHECK(p.send_typed(rec, n));
+    CHECK(p.h1.count("deleg_custody_forwarded") == 1);
+    CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 1);
+    p.h1.clear_emits();
+    // the SAME record again, over the real MAC (node 2 mints a fresh reporter ctr, so dedup admits it).
+    CHECK(p.send_typed(rec, n));
+    CHECK(p.h1.count("custody_failure_rx") == 1);                    // still received …
+    CHECK(p.h1.count("deleg_custody_forwarded") == 0);               // ⛔ … but no second translation
+    CHECK(p.h1.count("deleg_custody_no_map") == 0);                  // and no diagnostic either: a forwarded
+    CHECK(p.h1.count("deleg_custody_forward_refused") == 0);         //   row is not part of the live population
+    CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 1);
+}
+
+// ★★★★ THE 300 s EDGE, AND THE PRUNE-BEFORE-SCAN FALSIFIER — measured at the ONE authority so the edge is
+//      exact to the millisecond (a full MAC hop advances the clock several times and could not be). A report
+//      arriving AT or after the edge finds nothing, because the lookup's FIRST operation prunes.
+TEST_CASE("§B278-S3/16 the 300 s edge: prune-before-scan is exact, and a forwarded row expires reporting state 3") {
+    const CustodyFailureRecord rec = s3_parsed_report();
+    const uint64_t ttl = protocol::delegated_custody_ttl_ms;
+    // (a) ONE MILLISECOND BEFORE the edge the row is still live and still selected.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        p.h1._now = p.now + ttl - 1;
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_exact());
+        CHECK(p.h1.count("deleg_ack_expired") == 0);
+    }
+    // (b) AT the edge the row is pruned BEFORE the scan: the population is ZERO, so the answer is the SILENT
+    //     `no_live_rows` and not `no_match` — which is exactly what prune-FIRST buys.
+    {
+        GPair p;
+        CHECK(s3_seed(p.n1));
+        p.h1._now = p.now + ttl;
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_no_live_rows());
+        CHECK(probe.matches == 0);
+        CHECK(p.h1.count("deleg_ack_expired") == 1);            // the row really expired, in the lookup's prune
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);
+    }
+    // (c) the FULL production path past the edge: stored, pushed, and completely silent on the S3 side.
+    {
+        uint8_t body[custody_record_v1_len];
+        const uint8_t n = s3_pack_report(body);
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        p.h1._now = p.h2._now = (p.now += ttl + 1000);
+        CHECK(p.send_typed(body, n));
+        const S3Out o = s3_collect(p);
+        CHECK(o.accepted == 1);
+        CHECK(o.stored == 1);
+        CHECK(o.forwarded == 0);
+        CHECK(o.no_map == 0);
+        CHECK(o.refused == 0);
+        CHECK(o.tx_n == 0);
+        CHECK(o.live_rows == 0);
+    }
+    // (d) a FORWARDED row expires at the SAME edge, and its expiry reports `custody_state = 3`.
+    {
+        uint8_t body[custody_record_v1_len];
+        const uint8_t n = s3_pack_report(body);
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(body, n));
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 1);
+        p.h1.clear_emits();
+        p.h1._now = p.now + ttl;
+        const Node::TestCustodyProbe probe = p.n1.test_custody_lookup(rec, kS3Reporter);
+        CHECK(probe.disposition == Node::test_custody_disposition_no_live_rows());
+        CHECK(p.n1.test_deleg_ack_live_n() == 0);
+        CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 0);
+        const GHal::EmitRec* e = p.h1.first_emit("deleg_ack_expired");
+        CHECK(e != nullptr);
+        if (e) {
+            CHECK(e->keys == std::vector<std::string>{ "mobile_hash", "ctr_m", "ctr_h", "target", "layer",
+                                                       "custody_state" });
+            CHECK(e->ivals.back() == Node::test_custody_state_forwarded());   // ⛔ state 3, reported exactly
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/17 — RECURSION, RELEASE OWNERSHIP AND THE S2 INTERIM DROP
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE RECURSION GATE, MEASURED ON THE PRODUCED BYTES THEMSELVES. The 32-byte record S3 airs is handed
+//      straight back to a receiver: the §B278 S2 interim guard refuses it, so nothing is stored, nothing is
+//      pushed, and — critically — H1 never consumes its OWN translation even though `failed_origin` is H1's id
+//      and every one of §13's eighteen terms would otherwise pass.
+// ⛔ THIS IS THE RATIFIED S2->S4 INTERMEDIATE STATE. S4 replaces that guard; this case is one of the two that
+//    must be re-aimed then (the other is §CUSTODY-G/2.21).
+TEST_CASE("§B278-S3/17 the produced 32-byte record is refused by every receiver until S4, and spawns no custody") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    std::vector<uint8_t> produced;
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(s3_send_and_hold(p, rec, n));
+        CHECK(p.n1.test_tx_queue_n() == 1);
+        if (p.n1.test_tx_queue_n() != 1) return;
+        produced = s3_queued_body(p.n1);
+    }
+    CHECK(produced.size() == custody_record_translated_len);
+    CHECK(produced == s3_expected_body());
+    // hand the REAL produced bytes to the REAL receiver, on a node that would be their addressee.
+    const ArmOut o = run_arm(produced.data(), static_cast<uint8_t>(produced.size()));
+    CHECK(o.flew);
+    CHECK(o.accepted == 0);
+    CHECK(o.rejected == 1);              // the S2 interim guard, taken exactly once
+    CHECK(o.pushes == 0);
+    CHECK(o.stored == 0);
+    CHECK(o.delivered == 0);
+    CHECK(o.unsupported == 0);
+}
+
+// ★★★ THE CALLER REMAINS THE SOLE RELEASE OWNER. S3 adds no `become_free()` of its own: the received 0x81 is
+//     released exactly once by the 0x81 arm of `do_post_ack`, and the only additional pump on the path is
+//     `enqueue_data`'s own, which every admitted send has always run. Measured as: the translated item really
+//     drained into a flight, and re-firing the post-ack timer is a NO-OP (the PostAck was consumed once).
+TEST_CASE("§B278-S3/18 the caller still owns the single release; the translated send adds no second one") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p; s3_host(p.n1);
+    CHECK(s3_seed(p.n1));
+    CHECK(p.send_typed(rec, n));
+    const S3Out o = s3_collect(p);
+    CHECK(o.forwarded == 1);
+    CHECK(o.tx_n == 0);                          // drained into a flight, not left queued
+    CHECK(p.h1.label_count("RTS") >= 1);         // … and the flight really started
+    p.step(); p.n1.on_timer(kPostAckTimerId);    // re-firing the post-ack timer must change NOTHING
+    CHECK(p.h1.count("custody_failure_rx") == 1);
+    CHECK(p.h1.count("deleg_custody_forwarded") == 1);
+    CHECK(p.n1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 1);
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S3/19 — THE TELEMETRY SCHEMAS AND THE BOUNDED ACTION
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ THE THREE PRODUCTION-REACHABLE EVENT SHAPES, PINNED BY NAME, FIELD ORDER AND INTEGER TYPE. ⛔ Scalars
+//     only — never a record byte, never a string derived from one. (`deleg_custody_ambiguous` is pinned in
+//     §B278-S3/5, where its invariant-only state is produced.)
+TEST_CASE("§B278-S3/19 the S3 events: exact names, field order and integer types") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    // ---- `deleg_custody_forwarded`
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1));
+        CHECK(p.send_typed(rec, n));
+        const GHal::EmitRec* r = p.h1.first_emit("deleg_custody_forwarded");
+        CHECK(r != nullptr);
+        if (r) {
+            CHECK(r->keys == std::vector<std::string>{ "mobile_hash", "dst", "ctr_h", "ctr_m", "type" });
+            CHECK(r->ivals == std::vector<int64_t>{ static_cast<int64_t>(kS3MobileHash), kS3ReturnPeer,
+                                                    kS3CtrH, kS3CtrM, kS3OutType });
+            for (int t : r->types) CHECK(t == static_cast<int>(EventField::T::i64));
+        }
+        CHECK(p.h1.first_emit("deleg_custody_no_map") == nullptr);
+        CHECK(p.h1.first_emit("deleg_custody_forward_refused") == nullptr);
+        CHECK(p.h1.first_emit("deleg_custody_ambiguous") == nullptr);
+    }
+    // ---- `deleg_custody_no_map`
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, /*ctr_h=*/0x0111));
+        CHECK(p.send_typed(rec, n));
+        const GHal::EmitRec* r = p.h1.first_emit("deleg_custody_no_map");
+        CHECK(r != nullptr);
+        if (r) {
+            CHECK(r->keys == std::vector<std::string>{ "dst", "ctr_h", "type", "layer" });
+            CHECK(r->ivals == std::vector<int64_t>{ kS3ReturnPeer, kS3CtrH, kS3OutType, 2 });
+            for (int t : r->types) CHECK(t == static_cast<int>(EventField::T::i64));
+        }
+        CHECK(p.h1.first_emit("deleg_custody_forwarded") == nullptr);
+    }
+    // ---- `deleg_custody_forward_refused`
+    {
+        GPair p; s3_host(p.n1);
+        CHECK(s3_seed(p.n1, kS3MobileHash, kS3CtrH, kS3CtrM, kKindNodeId, kS3ReturnPeer - 1,
+                      kKindNodeId, kS3ReturnPeer));
+        CHECK(p.send_typed(rec, n));
+        const GHal::EmitRec* r = p.h1.first_emit("deleg_custody_forward_refused");
+        CHECK(r != nullptr);
+        if (r) {
+            CHECK(r->keys == std::vector<std::string>{ "mobile_hash", "dst", "ctr_h", "ctr_m", "type" });
+            CHECK(r->ivals == std::vector<int64_t>{ static_cast<int64_t>(kS3MobileHash), kS3ReturnPeer,
+                                                    kS3CtrH, kS3CtrM, kS3OutType });
+            for (int t : r->types) CHECK(t == static_cast<int>(EventField::T::i64));
+        }
+        CHECK(p.h1.first_emit("deleg_custody_forwarded") == nullptr);
+    }
+}
+
+// ★★★ THE BOUNDED ACTION'S SHAPE, PINNED WHERE IT IS DECLARED. It is a STACK object and must never become a
+//     `Node` member — `sizeof(Node)` is asserted in node.h and is unmoved by S3.
+TEST_CASE("§B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing") {
+    CHECK(Node::test_custody_action_size()  == 56);
+    CHECK(Node::test_custody_action_align() == 4);
+    CHECK(sizeof(CustodyFailureRecord) == 28);          // 24 wire bytes + the dst_hash32 4-alignment
+    CHECK(sizeof(CustodyTranslatedTail) == 8);
+    CHECK(sizeof(Node) == 222072);                      // ⛔ the S1a figure, unmoved: S3 adds no member
+    // and the four dispositions really are four distinct values (a collapsed enum would make three of the
+    // product decisions above indistinguishable).
+    CHECK(Node::test_custody_disposition_no_live_rows() == 0);
+    CHECK(Node::test_custody_disposition_no_match()     == 1);
+    CHECK(Node::test_custody_disposition_ambiguous()    == 2);
+    CHECK(Node::test_custody_disposition_exact()        == 3);
 }

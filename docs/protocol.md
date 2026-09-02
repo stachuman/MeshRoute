@@ -327,17 +327,33 @@ arrive, so no surface may call it a NACK. The report surfaces as `PushKind::cust
 and proven only at bench Part 53; the JSON is the host-proven surface); correlating it to a user send is
 Slice H's, currently parked.
 
-**The home-translated custody record (§B278 S2, 2026-09-02).** The `0x81` wire form now also has a 32-byte
+**The home-translated custody record (§B278 S2/S3, 2026-09-02).** The `0x81` wire form also has a 32-byte
 TRANSLATED shape — `notice_flags` bit 6 plus an eight-byte tail carrying the original outer reporter, the
 mobile's own counter and the mobile-visible target (byte layout in `docs/frames.md`) — and its first 24 bytes
 keep their exact direct meaning, so the record version stays 1 and `wire_version` is unchanged; an older
-receiver refuses bit 6 as reserved and cannot misread a translated record as an ordinary one. ⛔ **Nothing
-produces the translated form and every receiver explicitly refuses one until S4.** S2 landed the codec only:
-`Node::custody_failure_receive` rejects a translated record at a named interim guard, taking the same bounded
-`custody_failure_reject` a malformed record takes, **before** any plane, addressee, type, layer, domain,
-storage or Push logic runs — so no translated record is stored, pushed or user-exposed. S3 originates the form
-at a translating home; S4 replaces that guard with the split direct-vs-translated contextual validation. Until
-then a translated `0x81` is, by construction, behaviourally identical to one that was never sent.
+receiver refuses bit 6 as reserved and cannot misread a translated record as an ordinary one.
+**§B278 S3 makes it a live producer.** A HOME which has already validated, stored and pushed a *direct*
+report may correlate it — after those local steps, never before — to exactly one live delegated-flight row on
+the wire-derived return key `{failed_ctr, node_id, failed_dst, reporter_layer, failed_type}` (a carried
+`DST_HASH` is an additional cross-check on a hash-addressed row, never a lookup term, and its absence never
+refuses a match). Exactly one match originates the 32-byte form to that mobile through the ordinary
+`send_by_hash` locator: plaintext, static/global, no E2E ACK requested, and no generic send lifecycle. Zero
+matches, more than one match, and a row whose obligation was already discharged all originate nothing; a node
+holding no live delegated obligation behaves exactly as it did before. The correlation transitions on the
+send's own admission: **queued or parked marks the row `forwarded`** while leaving its ACK obligation intact,
+a **refusal leaves it eligible** so a genuinely fresh repeat report can retry, and the whole row still clears
+at the single 300 s expiry. An **ACK that arrives first** consumes the correlation, so a later report is
+stored at the home and translated nowhere; **custody first** does not break the later ACK, which still
+translates the home counter to the mobile's and clears the row. There is **no automatic retry and no generic
+`send_failed`** for a translated report — a refusal is a bounded diagnostic only.
+⛔ **Every receiver still refuses a translated record until S4**: `Node::custody_failure_receive` rejects one
+at a named interim guard, taking the same bounded `custody_failure_reject` a malformed record takes,
+**before** any plane, addressee, type, layer, domain, storage or Push logic runs — so no translated record is
+yet stored, pushed or user-exposed, including at the home that produced it. S4 replaces that guard with the
+split direct-vs-translated contextual validation.
+⚠ Like the direct form, a translated custody record is **unauthenticated and is not proof of loss**: the
+reporting relay's identity is a claim, the destination may still have the message, another path may have
+delivered a copy, and an end-to-end ACK may still arrive. No surface may call it a NACK or a delivery failure.
 
 ### 2.4 The DATA-type namespace, the reflash ruling and the inbox migration (§CUSTODY-A, 2026-08-29)
 

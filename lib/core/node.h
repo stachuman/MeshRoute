@@ -952,6 +952,56 @@ public:
         for (const auto& e : _deleg_acks) if (static_cast<uint8_t>(e.custody_state) == custody) ++n;
         return n;
     }
+    // ★★ §B278 S3 white-box seams, and the reason they are HERE rather than on `DualLayerTestAccess`: the home-side
+    //    correlation cases belong beside §CUSTODY-G's receiver cases in `test/test_custody_receive_g.cpp`, which is
+    //    not that friend. ⛔ Each forwards VERBATIM to the ONE production authority and adds no logic; the private
+    //    enums are flattened to integers so a case never has to name them, exactly as `test_deleg_custody_n` does.
+    bool              test_deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                                         uint8_t target_kind, uint32_t target,
+                                         uint8_t return_kind, uint32_t return_peer,
+                                         uint8_t outward_type, uint8_t custody) {
+        return deleg_ack_put(mobile_hash, ctr_h, ctr_m, static_cast<DelegAckPeer>(target_kind), target,
+                             static_cast<DelegAckPeer>(return_kind), return_peer, active_layer_id(),
+                             outward_type, static_cast<DelegAckCustody>(custody));
+    }
+    bool              test_deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint8_t return_kind,
+                                               uint32_t return_peer, uint16_t& out_mobile_ctr) {
+        return deleg_ack_translate(mobile_hash, acked_ctr, static_cast<DelegAckPeer>(return_kind),
+                                   return_peer, active_layer_id(), out_mobile_ctr);
+    }
+    // ⛔⛔ THE INVARIANT-VIOLATION SEAM, AND IT IS LABELLED AS ONE. §4.4's `ambiguous` disposition reports an
+    //    INVARIANT FAILURE — two live rows sharing the wire-visible return key — and §B278 S1b's activation
+    //    uniqueness makes that state structurally UNREACHABLE through every production path (`deleg_ack_put`
+    //    and `deleg_ack_activate` both refuse the second row; the S3 battery proves that refusal beside the
+    //    use of this seam). A diagnostic whose only input is an impossible state would otherwise be a claim no
+    //    test could redden. ⛔ This writes the row the ring would refuse and has EXACTLY ONE user: the S3
+    //    ambiguity case. Nothing in production calls it and it exists only under `MESHROUTE_NATIVE`.
+    void              test_deleg_force_row(uint8_t slot, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m,
+                                           uint8_t target_kind, uint32_t target,
+                                           uint8_t return_kind, uint32_t return_peer,
+                                           uint8_t outward_type, uint8_t custody) {
+        DelegAck& e = _deleg_acks[slot];
+        e = DelegAck{};
+        e.ts_ms = _hal.now(); e.mobile_hash = mobile_hash; e.ctr_h = ctr_h; e.ctr_m = ctr_m;
+        e.target_kind = static_cast<DelegAckPeer>(target_kind); e.target = target;
+        e.return_kind = static_cast<DelegAckPeer>(return_kind); e.return_peer = return_peer;
+        e.layer = active_layer_id(); e.outward_type = outward_type;
+        e.state = DelegAckState::active; e.custody_state = static_cast<DelegAckCustody>(custody);
+    }
+    // One row, flattened. The S3 identity assertions need every field (a count cannot say WHICH row moved), and
+    // `DelegAck` itself stays private — nothing here weakens access.
+    struct TestDelegRow { uint64_t ts_ms; uint32_t mobile_hash, target, return_peer; uint16_t ctr_h, ctr_m;
+                          uint8_t layer, outward_type, target_kind, return_kind, state, custody_state; };
+    TestDelegRow      test_deleg_row(uint8_t slot) const {
+        const auto& e = _deleg_acks[slot];
+        return TestDelegRow{e.ts_ms, e.mobile_hash, e.target, e.return_peer, e.ctr_h, e.ctr_m, e.layer,
+                            e.outward_type, static_cast<uint8_t>(e.target_kind),
+                            static_cast<uint8_t>(e.return_kind), static_cast<uint8_t>(e.state),
+                            static_cast<uint8_t>(e.custody_state)};
+    }
+    uint8_t           test_deleg_ack_cap() const { return kDelegAckCap; }
+    uint8_t           test_parked_sends_n() const { return _parked_sends_n; }
+    void              test_drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) { drain_parked_sends(key_hash32, resolved_id); }
     void              test_mark_mobile_peer(uint8_t id) { _active->_mobile_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7)); }   // simulate an is_mobile beacon setting the SET-only bit
     bool              test_id_bind_set(uint8_t id, uint32_t key_hash32, bool authoritative) { return id_bind_set(id, key_hash32, IdBindSource::bcn, authoritative ? IdBindConf::authoritative : IdBindConf::claimed); }
     // §CUSTODY-B: `type` APPENDED with a default, so every existing caller is byte-identical and the new cases can
@@ -2254,8 +2304,14 @@ private:
     // ⛔ NOT a second clock and NOT a second row (spec §10.1).
     // ★ §B278 S1b MOVES IT: `none -> candidate` at reservation (the §5 terms knowable BEFORE the mobile hop ACK),
     //   then `candidate -> eligible | none` at activation (the arm's own final verdict). `candidate` is valid ONLY
-    //   while RESERVED; an ACTIVE row is `eligible` or `none`. ⛔ `forwarded` is S3's and remains UNREACHABLE —
-    //   nothing writes it (the S3 translated-report origination is the only future writer).
+    //   while RESERVED; an ACTIVE row is `eligible` or `none`.
+    // ⚠ CORRECTED 2026-09-02 BY §B278 S3. THIS LINE READ: *"`forwarded` is S3's and remains UNREACHABLE — nothing
+    //   writes it (the S3 translated-report origination is the only future writer)"*. That was true through S2 and
+    //   is now FALSE: `deleg_custody_mark_forwarded` (node_hashlocate.cpp) writes it, and ONLY it, when a
+    //   translated report for that exact row was `queued` or `parked`. ⛔ WHAT DID **NOT** CHANGE: the state is
+    //   still reachable from `eligible` ALONE, still never from `candidate`/`none`, still never at reservation or
+    //   activation (D12/D15/D16 remain RED), and it is still cleared by the SAME single 300 s row prune — a
+    //   `forwarded` row expires at exactly the edge an `eligible` one does, reporting `custody_state = 3`.
     enum class DelegAckCustody : uint8_t { none = 0, candidate = 1, eligible = 2, forwarded = 3 };
     // ★★ §B278 S1b F6 — the NON-WIRE release-cause authority. It exists so ONE `deleg_ack_released` emit can live
     //    inside `deleg_ack_release` instead of being copied to its seventeen call sites, and so the cause is the
@@ -2328,6 +2384,101 @@ private:
     void     deleg_ack_prune_expired(DelegAck& e, uint64_t now);
     bool     deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, DelegAckPeer return_kind,
                                 uint32_t return_peer, uint8_t layer, uint16_t& out_mobile_ctr);
+    // ★★★★ §B278 S3 (2026-09-02) — THE CUSTODY-CORRELATION LOOKUP AND THE ONE `eligible -> forwarded` WRITER.
+    //   Both live in `node_hashlocate.cpp` BESIDE `deleg_ack_translate`, and that placement is the contract, not a
+    //   preference: `_deleg_acks` has exactly one scanning authority per question, and a receiver that walked the
+    //   ring itself would be a second one (spec §4.4 / brief S3-1).
+    // ⛔ THE DISPOSITION IS EXPLICIT AND NOT A NULLABLE ROW, because the four outcomes take four DIFFERENT product
+    //   actions: `no_live_rows` is the NORMAL v1-only state of a node that never delegated anything and is SILENT;
+    //   `no_match` is a live population that this report does not belong to and is one bounded diagnostic;
+    //   `ambiguous` is an invariant failure; only `exact` may originate. Collapsing the first two into "nullptr"
+    //   would put a `deleg_custody_no_map` line behind every ordinary custody receipt in the corpus.
+    enum class DelegCustodyLookup : uint8_t {
+        no_live_rows = 0,   // after the prune, this node holds NO ACTIVE `eligible` row at all -> silent
+        no_match     = 1,   // >=1 live eligible row, none matching §4.4's return key -> one bounded diagnostic
+        ambiguous    = 2,   // >1 exact match: wire-indistinguishable, so nothing is forwarded and nothing guessed
+        exact        = 3,   // exactly one -> `out_action` is materialized
+    };
+    // The BOUNDED, STACK-ONLY translation action (spec §7). ⛔ It holds NO `PostAck`, NO `PendingTx`, NO 241-byte
+    // payload buffer, NO ring reference and NO pointer into mutable row storage: the record is the 24-byte semantic
+    // prefix as a VALUE, the tail is §6.2's eight bytes as a VALUE, and everything else is a scalar. The row
+    // identity is carried IN FULL because the post-send commit re-selects the row by all of it — a slot index
+    // would be authority over whatever happens to sit there afterwards, which is the [[B172]] "identity is the
+    // whole tuple" defect.
+    struct DelegCustodyAction {
+        CustodyFailureRecord  record{};        // the ORIGINAL parsed record, COPIED, with `record_len` normalized to 24
+        CustodyTranslatedTail tail{};          // §6.2: original_reporter / target_kind / mobile_ctr / target_value
+        uint32_t mobile_hash = 0;              // the row's mobile — the `send_by_hash` destination
+        uint32_t target      = 0;              // ---- the COMPLETE row identity, for the post-send recheck ----
+        uint32_t return_peer = 0;
+        uint16_t ctr_h       = 0;
+        uint16_t ctr_m       = 0;
+        uint8_t  layer       = 0;
+        uint8_t  outward_type = 0;
+        DelegAckPeer target_kind = DelegAckPeer::node_id;
+        DelegAckPeer return_kind = DelegAckPeer::node_id;
+    };
+    // ★ THE BOUND, PINNED ON EVERY ABI THAT COMPILES THIS HEADER — not on the host alone, because the whole claim
+    //   is that this action is a small STACK object and stack is what the two board builds pay for. ARITHMETIC, and
+    //   it closes exactly: `CustodyFailureRecord` **28** (its `dst_hash32` forces 4-alignment, so the 24 WIRE bytes
+    //   occupy 0..25 with two bytes of tail pad) + `CustodyTranslatedTail` **8** + `mobile_hash`/`target`/
+    //   `return_peer` **12** + `ctr_h`/`ctr_m` **4** + four bytes of `layer`/`outward_type`/`target_kind`/
+    //   `return_kind` = **56**, alignof **4**, with NO padding anywhere between them.
+    // ⛔ IT IS NOT A `Node` MEMBER AND MUST NEVER BECOME ONE: every instance is a local in
+    //   `custody_failure_receive`, so `sizeof(Node)` and both ruled board RAM figures move by ZERO.
+    static_assert(sizeof(DelegCustodyAction) == 56,
+                  "B278 S3: the bounded translation action grew — re-measure the RX stack before accepting it");
+    static_assert(alignof(DelegCustodyAction) == 4, "B278 S3: the bounded action's alignment moved");
+    // PRUNE FIRST, exactly as `deleg_ack_reserve` / `deleg_ack_put` / `deleg_ack_translate` do — so a report that
+    // arrives at or after the 300 s edge cannot match a row the scan would otherwise still see. `out_matches` is
+    // the exact-match count (the `ambiguous` diagnostic's one scalar); `reporter_origin` is `pa.origin`, the outer
+    // reporting relay, and becomes the tail's `original_reporter`.
+    // §4.4's five key terms plus the OPTIONAL hash cross-check, as one predicate with one line per term
+    // (node_hashlocate.cpp). Static: it reads a row and a record and nothing else about this node.
+    static bool custody_row_matches_report(const DelegAck& e, const CustodyFailureRecord& rec);
+    DelegCustodyLookup deleg_custody_lookup(const CustodyFailureRecord& rec, uint8_t reporter_origin,
+                                            DelegCustodyAction& out_action, uint8_t& out_matches);
+    // The ONE `eligible -> forwarded` writer. Returns true IFF the complete materialized identity still selects
+    // EXACTLY ONE ACTIVE `eligible` row and that row was marked. ⛔ It never marks a replacement row, never
+    // creates, refreshes, evicts or clears one, and never touches a row in any other state.
+    bool     deleg_custody_mark_forwarded(const DelegCustodyAction& action);
+#ifdef MESHROUTE_NATIVE
+public:
+    // ★★ §B278 S3 white-box probe seams. They live HERE, immediately after the two authorities and their action
+    //    type, because `TestCustodyProbe` has a MEMBER of that type — a nested struct's member declarations are
+    //    not in complete-class context, so it cannot be declared beside the other `test_*` seams above.
+    // ★★ THE STALE-ACTION PROBE, and it is labelled a PROBE because that is what it is. Inside
+    //    `custody_failure_receive` nothing can mutate `_deleg_acks` between `deleg_custody_lookup` and
+    //    `deleg_custody_mark_forwarded` (the send path in between reserves, activates and releases nothing —
+    //    `reply_to_hash == 0` and `mobile_ctr == 0` keep `send_by_hash` out of the ring entirely), so the
+    //    commit's complete-identity recheck is DEFENCE IN DEPTH. ⛔ Defence in depth that no test can reach is
+    //    a claim rather than a guard, so these two seams let a case materialize an action, change the ring
+    //    underneath it, and then ask the commit what it does. `DelegCustodyAction` itself stays PRIVATE — the
+    //    case carries the opaque probe value and never names the type.
+    struct TestCustodyProbe { DelegCustodyAction action; uint8_t disposition; uint8_t matches; };
+    TestCustodyProbe  test_custody_lookup(const CustodyFailureRecord& rec, uint8_t reporter_origin) {
+        TestCustodyProbe p{};
+        uint8_t m = 0;
+        const DelegCustodyLookup d = deleg_custody_lookup(rec, reporter_origin, p.action, m);
+        p.disposition = static_cast<uint8_t>(d);
+        p.matches     = m;
+        return p;
+    }
+    bool              test_custody_mark_forwarded(const TestCustodyProbe& p) { return deleg_custody_mark_forwarded(p.action); }
+    static constexpr size_t test_custody_action_size()  { return sizeof(DelegCustodyAction); }
+    static constexpr size_t test_custody_action_align() { return alignof(DelegCustodyAction); }
+    // The four §4.4 dispositions, flattened, so a case never hard-codes an integer whose meaning could drift.
+    static uint8_t    test_custody_disposition_no_live_rows() { return static_cast<uint8_t>(DelegCustodyLookup::no_live_rows); }
+    static uint8_t    test_custody_disposition_no_match()     { return static_cast<uint8_t>(DelegCustodyLookup::no_match); }
+    static uint8_t    test_custody_disposition_ambiguous()    { return static_cast<uint8_t>(DelegCustodyLookup::ambiguous); }
+    static uint8_t    test_custody_disposition_exact()        { return static_cast<uint8_t>(DelegCustodyLookup::exact); }
+    // The four §4.5 custody states, likewise flattened (the `DualLayerTestAccess` idiom, for G's non-friend file).
+    static uint8_t    test_custody_state_none()      { return static_cast<uint8_t>(DelegAckCustody::none); }
+    static uint8_t    test_custody_state_candidate() { return static_cast<uint8_t>(DelegAckCustody::candidate); }
+    static uint8_t    test_custody_state_eligible()  { return static_cast<uint8_t>(DelegAckCustody::eligible); }
+    static uint8_t    test_custody_state_forwarded() { return static_cast<uint8_t>(DelegAckCustody::forwarded); }
+private:
+#endif
     // ★ E2E-ack DEADLINE (shelf item (i), 2026-07-24) — node_mac.cpp. Arm/clear are emit-free (byte-neutral when acks arrive).
     void     e2e_ack_arm(uint32_t key, bool is_xl, uint8_t dst, uint16_t ctr, uint32_t budget_ms);   // silent: a -a send minted its ctr -> track until send_e2e_acked or the deadline. Full ring -> skip + telemetry (the command path pre-refuses).
     void     e2e_ack_clear(uint8_t acker_origin, uint16_t acked_ctr, uint32_t sender_hash);          // silent: a send_e2e_acked arrived -> drop the matching pending entry (a late/unknown ack is a harmless no-op)

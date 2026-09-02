@@ -1725,6 +1725,87 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
     // only, the same bound the rejection carries.
     MR_EMIT("custody_failure_rx", EF_I("reporter", pa.origin), EF_I("dst", rec.failed_dst),
             EF_I("ctr", rec.failed_ctr), EF_I("seq", static_cast<int64_t>(seq)));
+
+    // =====================================================================================================
+    // ★★★★ §B278 S3 (2026-09-02) — HOME CORRELATION AND TRANSLATED-CUSTODY ORIGINATION (design §7 steps 4-7).
+    //
+    // ⛔⛔ THE POSITION IS THE CONTRACT, AND IT IS THE WHOLE OF S3's ORDERING CLAIM: everything above has
+    //     ALREADY happened — the ORIGINAL direct record is stored at its OWN received `record_len` and H1's
+    //     live Push carrying the assigned `seq` is enqueued — so translation can neither suppress, delay nor
+    //     rewrite this node's own diagnostic. A lookup placed before the store would make the local outcome
+    //     depend on whether a mobile happened to be correlated; §7's sentence *"Translation never suppresses
+    //     or rewrites H1's original diagnostic"* is implemented by these lines being BELOW those lines.
+    //
+    // ⛔ THIS FUNCTION STILL DOES NOT RELEASE THE RECEIVED CARRIER. Its caller (the 0x81 arm of `do_post_ack`)
+    //   owns the single `become_free()`, exactly as it did before S3, and the SEND-BEFORE-RELEASE order is the
+    //   landed MOBILE_SEND re-origination precedent a few hundred lines below: `become_free()` is also the
+    //   queue-drain pump, so releasing first would change WHEN the translated item may begin.
+    //   ⓘ `enqueue_data` runs its own `become_free()` at the end of every admitted send (node_mac.cpp) — that
+    //     indirect pump is established behaviour on this exact path and is NOT a second release of this frame.
+    //
+    // ⛔ NOTHING HERE CAN RECURSE. The outgoing carrier is itself `DATA_TYPE_CUSTODY_FAILURE`, and the custody
+    //   GENERATOR excludes 0x81 (`node_cascade.cpp` `type_reportable`), so a translated report that dies in
+    //   transit produces telemetry and never another notice; §13.14 above refuses a record ABOUT an 0x81 at the
+    //   receiving end. Both halves are proven by named cases rather than argued.
+    // =====================================================================================================
+    DelegCustodyAction action{};
+    uint8_t matches = 0;
+    const DelegCustodyLookup lookup = deleg_custody_lookup(rec, pa.origin, action, matches);
+    if (lookup == DelegCustodyLookup::no_match) {
+        // A live delegated population exists and this report belongs to none of it. ⛔ Scalars only.
+        MR_EMIT("deleg_custody_no_map", EF_I("dst", rec.failed_dst), EF_I("ctr_h", rec.failed_ctr),
+                EF_I("type", rec.failed_type), EF_I("layer", rec.reporter_layer));
+    } else if (lookup == DelegCustodyLookup::ambiguous) {
+        // Two live rows are wire-INDISTINGUISHABLE for this report. Forward NOTHING and guess NOTHING (§4.4).
+        MR_EMIT("deleg_custody_ambiguous", EF_I("dst", rec.failed_dst), EF_I("ctr_h", rec.failed_ctr),
+                EF_I("type", rec.failed_type), EF_I("layer", rec.reporter_layer),
+                EF_I("matches", matches));
+    } else if (lookup == DelegCustodyLookup::exact) {
+        // §6.2's 32 bytes, built by the ONE translated packer (§6.3) from the normalized 24-byte copy and the
+        // row's tail. ⛔ A pack refusal is a bounded FORWARD REFUSAL and never a licence to hand-build bytes.
+        uint8_t body32[custody_record_translated_len];
+        const size_t packed = pack_custody_failure_translated(action.record, action.tail,
+                                                              std::span<uint8_t>(body32, sizeof body32));
+        SendDispatch dispatch{};
+        bool forwarded = false;
+        if (packed == custody_record_translated_len) {
+            // ⛔ EXACTLY ONE ORIGINATION, THROUGH THE EXISTING MOBILE LOCATOR — `send_by_hash` owns direct
+            //   hosted delivery, the cached remote home, the park and H-resolution, and B278 creates no second
+            //   one and never inspects `_mobile_reg` itself (§7).
+            //   · `flags = 0`      -> NO `DATA_FLAG_E2E_ACK_REQ`: this is evidence, not a message awaiting a reply
+            //   · `CryptIntent::off` -> plaintext, exactly as the direct v1 notice it carries (§9.1)
+            //   · `reply_to_hash = 0` + `mobile_ctr = 0` -> NOT a delegated re-origination: no reverse-ACK row
+            //     is reserved, activated or released by this send, so it cannot consume a B278 row of its own
+            //   · `Plane::GLOBAL`  -> the static plane, stated rather than inferred (§9.1's rule for a notice)
+            //   · `type != 0`      -> no INTRO auto-attach; and 0x81's trait has NO generic send lifecycle, so a
+            //     refusal below cannot become a user-visible `send_failed`
+            (void)send_by_hash(action.mobile_hash, body32, custody_record_translated_len, /*flags=*/0,
+                               CryptIntent::off, /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,
+                               DATA_TYPE_CUSTODY_FAILURE, /*suppress_intro=*/false, &dispatch);
+            // QUEUED or PARKED are both "the outcome is on its way": a park is stored under the mobile's hash
+            // and drains on the H resolution with its type and its 32 bytes intact. ⛔ `refused`/`none` are NOT,
+            // and they leave the row `eligible` so a genuinely fresh repeat report can retry (§4.5).
+            if (dispatch.admit == SendDispatch::Admit::queued
+                || dispatch.admit == SendDispatch::Admit::parked)
+                forwarded = deleg_custody_mark_forwarded(action);
+        }
+        if (forwarded)
+            MR_EMIT("deleg_custody_forwarded",
+                    EF_I("mobile_hash", static_cast<int64_t>(action.mobile_hash)),
+                    EF_I("dst", rec.failed_dst), EF_I("ctr_h", rec.failed_ctr),
+                    EF_I("ctr_m", action.ctr_m), EF_I("type", rec.failed_type));
+        else
+            // ONE refusal vocabulary for all three causes (pack refusal, `none`/`refused` dispatch, a failed
+            // identity recheck) — the brief forbids inventing a second one without review. ⛔ No `send_failed`,
+            // no Push, no stored record, no retry, and NEVER a custody notice about this custody carrier.
+            MR_EMIT("deleg_custody_forward_refused",
+                    EF_I("mobile_hash", static_cast<int64_t>(action.mobile_hash)),
+                    EF_I("dst", rec.failed_dst), EF_I("ctr_h", rec.failed_ctr),
+                    EF_I("ctr_m", action.ctr_m), EF_I("type", rec.failed_type));
+    }
+    // ⓘ `DelegCustodyLookup::no_live_rows` falls through SILENTLY and that is the ruled shape: it is the normal
+    //   state of every v1-only node (and of a node whose row already ACKed, already forwarded, or expired), so a
+    //   diagnostic there would fire behind every ordinary custody receipt.
     // ---- step (5): return. ⛔ No `record_dm`, no `msg_recv`, no E2E ack. The caller calls `become_free()`.
 }
 

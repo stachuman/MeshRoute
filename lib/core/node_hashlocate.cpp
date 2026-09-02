@@ -2130,6 +2130,131 @@ bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, DelegAc
     return false;
 }
 
+// =========================================================================================================
+// ★★★★ §B278 S3 (2026-09-02) — THE CUSTODY CORRELATION LOOKUP (design §4.4) AND THE ONE
+//      `eligible -> forwarded` WRITER (design §4.5). Placed HERE, beside `deleg_ack_translate`, because
+//      `_deleg_acks` has exactly ONE scanning authority per question and the receiver may not become a
+//      second one: `Node::custody_failure_receive` (node_mac_rx.cpp) calls these two and reads nothing
+//      from the ring itself.
+//
+// ⛔⛔ §4.4's KEY IS THE WIRE-DERIVED RETURN KEY, AND EVERY TERM IS NAMED SEPARATELY — the same gate rule
+//     §CUSTODY-G's eighteen validations follow, for the same reason: the battery demands one falsifier per
+//     term, and a fused boolean would make *"which term refused this report"* unanswerable. ⛔ MATCHING BY
+//     COUNTER ALONE IS THE DEFECT THIS EXISTS TO PREVENT (`Push::ctr` carries the SAME warning at
+//     node_mac_rx.cpp): `failed_ctr` is a HOME counter, minted per destination, so two rows can share it.
+//
+//   ctr_h        == rec.failed_ctr        the home counter the outward carrier flew under
+//   return_kind  == node_id               a static same-layer relay reports about a node-id leg, always
+//   return_peer  == rec.failed_dst        the resolved static target the row activated on
+//   layer        == rec.reporter_layer    the reporting relay's active full layer
+//   outward_type == rec.failed_type       the DataType of the carrier the activation dispatched
+//
+// ★ `DST_HASH` IS A CROSS-CHECK, NOT A LOOKUP TERM (§4.4, verbatim): when the report carries
+//   `CUSTODY_FLAG_HAS_DST_HASH` a HASH-ADDRESSED row's retained `target` must agree; when the flag is ABSENT
+//   the lookup does NOT fail merely because the hash is unavailable — the direct-transit production shape has
+//   `target_kind == node_id` and is already complete through the return key. ⛔ A node-id row is never
+//   hash-checked: its `target` is a node id, and comparing it to a 32-bit hash would be a category error that
+//   happens to be arithmetic (the `HashQuerySeen::by_id` key-space lesson, node.h).
+//
+// ⛔ ONLY AN **ACTIVE** ROW WHOSE `custody_state` IS **`eligible`** CAN MATCH. That single term is what makes
+//   four of §4.5's lifecycle rules fall out with no new state at all:
+//     · ACK-FIRST — `deleg_ack_translate` cleared the row, so a later report finds nothing;
+//     · DUPLICATE AFTER FORWARDING — a `forwarded` row is not `eligible`, so there is no second send;
+//     · A `candidate`/`none` ROW — never delegated custody, so it can never acquire an obligation here;
+//     · A RESERVED ROW — its outward arm has not been chosen yet, so no report can be about it.
+// =========================================================================================================
+
+// §4.4's terms, as ONE predicate with one line per term. ⛔ Used by the LOOKUP ALONE: the post-send commit
+// deliberately uses a DIFFERENT (stronger, complete-identity) predicate — see below.
+bool Node::custody_row_matches_report(const DelegAck& e, const CustodyFailureRecord& rec) {
+    if (e.ctr_h        != rec.failed_ctr)          return false;
+    if (e.return_kind  != DelegAckPeer::node_id)   return false;
+    if (e.return_peer  != rec.failed_dst)          return false;
+    if (e.layer        != rec.reporter_layer)      return false;
+    if (e.outward_type != rec.failed_type)         return false;
+    // The optional hash cross-check, on a HASH-ADDRESSED row only, and only when the report carries one.
+    if (e.target_kind == DelegAckPeer::key_hash
+        && (rec.notice_flags & CUSTODY_FLAG_HAS_DST_HASH) != 0
+        && e.target != rec.dst_hash32)             return false;
+    return true;
+}
+
+Node::DelegCustodyLookup Node::deleg_custody_lookup(const CustodyFailureRecord& rec, uint8_t reporter_origin,
+                                                    DelegCustodyAction& out_action, uint8_t& out_matches) {
+    out_matches = 0;
+    const uint64_t now = _hal.now();
+    uint8_t live_eligible = 0;
+    uint8_t match_slot    = kDelegAckNoSlot;
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        DelegAck& e = _deleg_acks[i];
+        deleg_ack_prune_expired(e, now);                 // ⛔ PRUNE FIRST — §4.5's expiry rule, not an optimization
+        if (e.state != DelegAckState::active || e.custody_state != DelegAckCustody::eligible) continue;
+        ++live_eligible;
+        if (!custody_row_matches_report(e, rec)) continue;
+        ++out_matches;
+        if (match_slot == kDelegAckNoSlot) match_slot = i;
+    }
+    // ★★ THE ZERO-POPULATION CASE IS **SILENT**, AND THAT IS A RULED DECISION RATHER THAN AN OMISSION (brief
+    //    "Normal absence is silent"): a v1-only node that never delegated anything receives ordinary custody
+    //    reports as its normal operation, and a `no_map` line behind every one of them would be noise on the
+    //    node AND would move four corpus streams for no product benefit. The DIAGNOSTIC case is a node that
+    //    DOES hold live delegated obligations and got a report matching none of them.
+    if (live_eligible == 0) return DelegCustodyLookup::no_live_rows;
+    if (out_matches == 0)   return DelegCustodyLookup::no_match;
+    if (out_matches > 1)    return DelegCustodyLookup::ambiguous;   // ⛔ never resolved by guessing (§4.4)
+    const DelegAck& row = _deleg_acks[match_slot];
+    out_action = DelegCustodyAction{};
+    // §6.1: the first 24 bytes retain their meaning, UNREINTERPRETED. The ONLY edit is `record_len`, and it is
+    // made on the COPY: the original record — including any accepted future tail — was already stored and pushed
+    // at its own received length, and `pack_custody_failure_translated` requires a direct-shaped `record_len`
+    // (24) which it then stamps to 32 itself. ⛔ An unknown direct tail is NOT forwarded as if it were part of
+    // the translated record; §6.2 defines bytes 24-31 and nothing else may occupy them.
+    out_action.record = rec;
+    out_action.record.record_len = custody_record_v1_len;
+    out_action.tail.original_reporter = reporter_origin;          // `pa.origin` — the OUTER reporting relay
+    out_action.tail.target_kind = (row.target_kind == DelegAckPeer::key_hash)
+                                    ? CustodyTranslatedTargetKind::key_hash
+                                    : CustodyTranslatedTargetKind::node_id;
+    out_action.tail.mobile_ctr   = row.ctr_m;                     // ctrM — what the MOBILE is waiting on
+    out_action.tail.target_value = row.target;                    // the row's RETAINED mobile-visible target
+    out_action.mobile_hash  = row.mobile_hash;
+    out_action.target       = row.target;        out_action.target_kind = row.target_kind;
+    out_action.return_peer  = row.return_peer;   out_action.return_kind = row.return_kind;
+    out_action.ctr_h        = row.ctr_h;         out_action.ctr_m       = row.ctr_m;
+    out_action.layer        = row.layer;         out_action.outward_type = row.outward_type;
+    return DelegCustodyLookup::exact;
+}
+
+// ★★★ THE ONE `eligible -> forwarded` WRITER, and its predicate is the COMPLETE MATERIALIZED IDENTITY rather
+//     than the §4.4 record key: between the lookup and this call the receiver ran `send_by_hash`, which
+//     re-enters the MAC (`enqueue_data` -> `become_free`) and can therefore touch the ring. ⛔ A SLOT NUMBER IS
+//     NOT AUTHORITY — a row that was replaced in place would be marked as if it were the one that was sent.
+// ⛔ IT NEVER MARKS A REPLACEMENT: more than one match, or none, changes nothing and answers false, which the
+//    caller reports as a bounded forward refusal. `refused` leaves the row `eligible` on purpose (§4.5): the
+//    obligation survives to its own 300 s expiry so a genuinely fresh repeat report can retry.
+// ⓘ NO AGE TEST HERE, DELIBERATELY: `deleg_custody_lookup` pruned this ring at `_hal.now()` and the loop task
+//   is single-threaded, so the clock cannot have advanced between the two calls. An age term would be a branch
+//   no fixture could reach — a vacuous decision, which this repo's battery refuses to ship.
+bool Node::deleg_custody_mark_forwarded(const DelegCustodyAction& action) {
+    uint8_t slot = kDelegAckNoSlot;
+    uint8_t hits = 0;
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        const DelegAck& e = _deleg_acks[i];
+        if (e.state != DelegAckState::active || e.custody_state != DelegAckCustody::eligible) continue;
+        if (e.mobile_hash != action.mobile_hash || e.ctr_h != action.ctr_h || e.ctr_m != action.ctr_m
+            || e.layer != action.layer || e.outward_type != action.outward_type
+            || e.target != action.target || e.target_kind != action.target_kind
+            || e.return_peer != action.return_peer || e.return_kind != action.return_kind) continue;
+        ++hits;
+        if (slot == kDelegAckNoSlot) slot = i;
+    }
+    if (hits != 1) return false;                       // zero = the row is gone; several = ambiguous. Mark NEITHER.
+    // ⛔ THE ONLY FIELD THAT MOVES. The ACK obligation is untouched: `state`, `ts_ms` and every identity field
+    //    keep their values, so the later E2E ACK still translates ctr_H -> ctr_M and clears the row (§4.5).
+    _deleg_acks[slot].custody_state = DelegAckCustody::forwarded;
+    return true;
+}
+
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
 // ★★★ §id-hash S1b (QA P1c): it RETURNS its disposition now. See Node::HQueryOutcome for why — in short, this
 // function has four silent early-outs and its reqpubkey caller was reporting all of them to the app as a flood.
