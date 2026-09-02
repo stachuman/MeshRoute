@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DRAFT FOR OWNER + QUALITY-AGENT REVIEW — no implementation authorized by this document  
+**Status:** DESIGN PASS · S0 CLOSED 2026-09-02 · S1a BRIEF DRAFTED — awaiting Quality-Agent brief gate
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -33,12 +33,12 @@ The translation is a factual, unauthenticated custody observation. It is never a
 response, an authentication result, proof that the target missed the payload, or permission
 to retry automatically.
 
-### 1.1 Proposed rulings for this review
+### 1.1 Owner rulings (2026-09-01)
 
-The design recommends all four:
+The owner accepted the following design authority:
 
 1. **Reuse `DATA_TYPE_CUSTODY_FAILURE` (`0x81`).** Allocate one translated-record flag and
-   a four-byte v1 tail. Do not allocate another DataType or a private mobile control frame.
+   an eight-byte v1 tail. Do not allocate another DataType or a private mobile control frame.
 2. **Reuse normal mobile delivery.** The home calls the existing hash-addressed typed-DATA
    path. Direct hosting, a redirect/breadcrumb, a cached new home and H-resolution remain
    the routing authorities; B278 adds no second mobile locator.
@@ -46,11 +46,24 @@ The design recommends all four:
    custody report remains a correct diagnostic at the home but is not forwarded to the
    mobile. Delivery is already positively confirmed, so losing a later, nonterminal
    diagnostic cannot downgrade the mobile's state.
-4. **Use a derived 750 s correlation ceiling with no live-unconfirmed eviction.** The
-   proposed bound is `e2e_ack_deadline_xl_ms + seen_origin_ttl_ms` = 300 s + 450 s. Keep the
-   existing eight-row capacity initially; pressure refuses before the mobile hop ACK.
-   Slice S0 must measure the resulting live occupancy and board cost before the constants
-   become final.
+4. **R1 = Option A: custody translation is available only to delegated flights carrying
+   `DATA_FLAG_E2E_ACK_REQ`.** A plain non-E2E delegated send must remain byte-for-byte
+   admission-compatible and must not consume one of the eight correlation rows. This
+   preserves B251's explicit admission ruling and gives every custody-capable row a positive
+   ACK release path.
+5. **R2 REVISED after S0 (owner ruling 2026-09-02): one row, one 300 s lifetime.** Keep the
+   custody constant named—`delegated_custody_ttl_ms = e2e_ack_deadline_xl_ms`—but prune the
+   complete correlation row at that one boundary. The earlier 750 s proposal is withdrawn:
+   its extra 450 s was B159's receiver-side DATA-dedup retention, not a measured custody-chain
+   latency, while the originating mobile closes its own E2E operation at 300 s. A later
+   custody notice is post-mortem evidence with no live operation to update. The standing S0
+   census count of custody reports above 300 s is the trigger to revisit this ruling.
+6. **Capacity remains eight (owner ruling 2026-09-02).** S0 measured a maximum of five rows
+   even under the retired 750 s model and three under 300 s. Capacity is shared across every
+   mobile hosted by one home, but a row exists only for an outstanding delegated `-a` send.
+   Team creation/grants, registration, presence and key lookup consume no rows; a team-plane
+   OLED `-t -a` DM bypasses home delegation. Failed, unacknowledged `-a` sends are the pressure
+   case. S1b's correlation telemetry must make the occupancy observable on metal.
 
 ## 2. Problem and current truth
 
@@ -94,15 +107,16 @@ delivery path.
 
 The current row cannot simply be queried from the custody receiver:
 
-1. it is allocated only when `DATA_FLAG_E2E_ACK_REQ` is set; remote RPC and other internal
-   carriers do not necessarily request an E2E ACK;
+1. it is allocated only when `DATA_FLAG_E2E_ACK_REQ` is set; B278 deliberately preserves
+   that admission rule, so remote RPC and any other consumer which needs mobile custody
+   feedback must request an E2E ACK;
 2. its ACTIVE `peer` overwrites the originally requested target, while complete mobile-side
    correlation needs both the requested identity and the return discriminator;
 3. it carries no outward `DataType`;
 4. `deleg_ack_translate()` clears the row immediately, so a custody report arriving before
    an ACK would consume the ACK mapping if the same operation were reused; and
-5. its 300 s TTL is the delegated ACK deadline, not a derived outward-failure-plus-return
-   diagnostic horizon.
+5. its single 300 s TTL is the delegated ACK deadline, not a per-obligation
+   outward-failure-plus-return diagnostic horizon.
 
 ### 2.4 Why the 24-byte report cannot be forwarded unchanged
 
@@ -165,14 +179,15 @@ uint8   outward_type
 uint8   target_kind            node_id | key_hash
 uint8   return_kind            node_id | key_hash
 uint8   state                  free | reserved | active
-uint8   obligations            e2e_ack | custody | custody_forwarded
+uint8   custody_state          none | candidate | eligible | forwarded
 padding to the board ABI's verified size
 ```
 
-The row retains the original target instead of overwriting it at activation. The proposed
-layout is 32 bytes on the present ABIs, making the existing eight-row ring 256 bytes instead
-of 192 bytes. That **+64 B is a proposal, not an accepted estimate**: the ABI probe and both
-ruled board builds must measure it.
+The row retains the original target instead of overwriting it at activation. S0 measured the
+layout as 32 bytes on host, ARM and Xtensa, making the existing eight-row ring 256 bytes
+instead of 192 bytes: projected **+64 B**. S1a must still measure the real post-refactor
+`Node`; S0's mirror establishes the row layout, not the containing object's final padding.
+`custody_state` is lifecycle state under the one row TTL, not a second clock.
 
 ### 4.2 Reservation identity
 
@@ -194,16 +209,23 @@ can contain both values but cannot say which value names the mobile's pending op
 
 An exact same-flight retry refreshes the reservation. A different tuple never replaces it.
 
-The home reserves before it sends the hop ACK to the mobile when the prospective outward
-carrier needs either:
+The home reserves before it sends the hop ACK to the mobile only when the prospective
+outward carrier carries `DATA_FLAG_E2E_ACK_REQ`. That one admission condition creates the
+ACK obligation and, when the pre-activation portion of §5's predicate holds, a **provisional
+custody candidate**. Activation confirms that candidate as the custody obligation or clears
+it according to the actual outward arm. A plain non-E2E delegated send never reserves a row
+and must retain the pre-B278 admission behavior recorded by B251.
 
-- E2E-ACK translation; or
-- custody translation under §5.
-
-If no row is available, the home sends the existing retryable BUSY_RX NACK and does not ACK
-the mobile carrier. This is correlation-resource admission only. It does not claim that the
-future static route, parked-send admission or RPC target admission has succeeded; B112
-remains open for that wider first-hop truth.
+If no row is available, the home sends the existing BUSY_RX NACK and does not ACK the mobile
+carrier. “Retryable” is qualified: the NACK encodes 16 ms quanta capped at 255, so the sender
+observes at most 4.08 s even if the home's computed wait is longer. **S0 correction F4:** the
+long-busy arm does not honor that wait and does not reach the cascade's 60 s lifetime check;
+it preserves `enqueue_time_ms`/`requeue_count`, sets `next_attempt_ms = 0`, and can immediately
+repeat the full exchange while the receiver refuses. This unbounded retry-loop defect is
+registered separately as B280. The 300 s B278 ruling merely keeps its exposure at today's
+correlation lifetime; it does not fix or absorb B280. This is correlation-resource admission
+only. It does not claim that the future static route, parked-send admission or RPC target
+admission has succeeded; B112 remains open for that wider first-hop truth.
 
 ### 4.3 Activation identity
 
@@ -214,10 +236,34 @@ Activation occurs only after the outward item is genuinely queued/parked under t
 {ctrH, return_kind, return_peer, layer, outward_type}
 ```
 
+Activation is also the final custody-eligibility authority. It promotes the provisional
+candidate only for an actually same-layer static/global outward DATA flight. It clears the
+candidate, while retaining the ACK obligation, on all four presently ACK-only arms:
+
+1. the direct last-mile case where this home also hosts the target (`addr_len == 1`);
+2. the cached-home cross-layer `send_cross_layer` arm;
+3. the wrapper's own cross-layer branch in `node_mac_rx.cpp` (currently near `:1757`); and
+4. the corresponding cross-layer park-fire site in `node_hashlocate.cpp` (currently near
+   `:2259`). This fourth arm is source-proven unreachable today: a cross-layer parked send is
+   created with `reply_to_hash == 0`. It remains a synthetic structural pin so a future park
+   producer cannot silently acquire an impossible custody obligation.
+
+This finalization is mandatory because those facts are learned only after the mobile hop
+ACK/reservation boundary. An ACK-only row then follows the same 300 s row lifetime and never
+waits for a custody report which cannot exist.
+
 No two ACTIVE rows may have the same wire-visible return key
-`{ctrH, return_kind, return_peer, layer}`, **even when their mobile hashes differ**. A custody
-record does not carry the mobile hash, so allowing two such rows and choosing the first would
-be a misdelivery. This strengthens B251's present collision check.
+`{ctrH, return_kind, return_peer, layer}`, **even when their mobile hashes or outward types
+differ**. A custody record does not carry the mobile hash, so allowing two such rows and
+choosing the first would be a misdelivery. `outward_type` remains an additional lookup
+cross-check, not permission to alias the return key. This strengthens B251's present
+collision check. **S0 correction F3:** this is not current behavior—the existing check also
+requires equal `mobile_hash`, so two different hosted-mobile hashes may presently activate
+the same wire-visible return key. **Slice-boundary correction 2026-09-02:** S1a preserves
+that same-mobile-scoped decision byte-for-byte; S1b owns the stronger cross-mobile refusal
+and must flip the existing B251 test which currently admits both rows while proving only ACK
+lookup isolation. Putting the flip in the behavior-neutral refactor would violate C1, and
+the corpus cannot expose the mistake because home counters are per destination.
 
 Admission failure releases the reservation through the same one-owner cleanup path. A
 minted counter is not admission evidence.
@@ -232,11 +278,27 @@ return_kind      == node_id
 return_peer      == record.failed_dst
 layer            == record.reporter_layer
 outward_type     == record.failed_type
-target_kind/id   == record.failed_dst
-    OR
-target_kind/hash == record.dst_hash32 with HAS_DST_HASH set
 custody obligation remains set
 ```
+
+This wire-derived return key is the lookup authority. `DST_HASH` is an optional
+cross-check, not a mandatory lookup component:
+
+- if the failed record has `HAS_DST_HASH`, its `dst_hash32` must agree with a hash-addressed
+  row's retained `target`;
+- if `HAS_DST_HASH` is absent, lookup does not fail merely because the hash is unavailable;
+  and
+- the translated tail always carries the row's retained `target_kind` and full
+  `target_value`, so mobile-side identity remains complete in either case.
+
+The return-key authority remains correct when `DST_HASH` is absent, but the current
+production reachability is narrower than the codec permits. A same-layer wrapper body is at
+most 232 bytes after its DST_HASH/origin/SOURCE_HASH overhead, so its re-originated DATA
+still fits `DST_HASH`; the cached-home arm also forces one. The production absent-hash case
+is the direct-transit path, whose `target_kind == node_id` and `failed_dst` already complete
+the identity. A hash-addressed record without `HAS_DST_HASH` remains a valid synthetic codec
+vector and a future-compatible reason for retaining `target_value`; it is not claimed as a
+current production path.
 
 Zero matches means an uncorrelated H1 diagnostic. More than one match is an invariant
 failure and also means an uncorrelated H1 diagnostic. Neither case forwards anything or
@@ -244,45 +306,57 @@ guesses by counter.
 
 ### 4.5 Lifecycle
 
-- **ACK arrives first:** translate `ctrH -> ctrM`, queue the existing last-mile E2E ACK, and
-  clear the row. A later custody report is stored at H1 only. It cannot downgrade DELIVERED.
+- **ACK arrives first:** translate `ctrH -> ctrM`, queue the existing last-mile E2E ACK,
+  clear the ACK obligation and clear the custody obligation as positively superseded. The
+  row then frees. A later custody report is stored at H1 only and cannot downgrade DELIVERED.
 - **Custody report arrives first:** store/push it at H1, originate the translated report,
-  set `custody_forwarded` only when that send is queued or parked, and retain the row if an
-  E2E ACK is still owed. The later ACK still translates and then clears the row.
-- **Custody-only row:** a successfully admitted translated report clears the row. A refused
-  translation leaves it until expiry, allowing a genuinely fresh repeat report to retry.
+  set `custody_forwarded` only when that send is queued or parked, and retain the row while
+  the E2E ACK obligation remains. The later ACK still translates and then clears the row.
+- **No custody-only row exists.** R1=A requires the E2E-ACK flag for custody correlation;
+  a non-E2E flight does not reserve. A refused translated send leaves the custody obligation
+  until the row's 300 s expiry, allowing a genuinely fresh repeat report to retry while the
+  originating mobile can still be waiting.
 - **Duplicate report after `custody_forwarded`:** no second translated send. Existing raw
   diagnostic-storage rules may still retain a genuinely new report at H1.
-- **Expiry:** clear silently except for bounded scalar telemetry/counters. A subsequent
-  report remains a valid H1 diagnostic and is never attached to another mobile.
+- **Expiry:** at age 300 s clear the complete row—ACK mapping, custody eligibility and
+  forwarded state together. Expiry gains bounded scalar telemetry under S1b so the metal
+  occupancy census is exact. A subsequent report remains a valid H1 diagnostic and is never
+  attached to another mobile.
 
 Custody processing therefore never consumes the ACK obligation. That is the key ordering
 property B278 adds.
 
-## 5. Which mobile flights reserve custody correlation
+## 5. Which E2E-ACK mobile flights gain custody correlation
 
-The pre-ACK candidate predicate mirrors only facts knowable before the home constructs the
-outward `PendingTx`. It is one named predicate, not a second hand-written type list.
+Custody eligibility is one named, two-phase predicate, not two hand-written type lists. The
+reservation phase uses only facts knowable before the home constructs the outward
+`PendingTx`; it can set only a provisional candidate. The activation phase combines that
+candidate with the actual dispatch arm and either confirms or clears the custody obligation.
 
 It returns true only when the prospective outward carrier is:
 
 1. a verified direct hosted-mobile transit or a valid `DATA_TYPE_MOBILE_SEND` wrapper from
    a live hosted row;
-2. plaintext at the outward DATA-frame level;
-3. static/global and same-layer;
-4. a normal DATA carrier, not channel M/FLOOD;
-5. not cross-layer, team, gateway re-inject or hosted-mobile last-mile;
-6. not `DATA_TYPE_E2E_ACK` or `DATA_TYPE_CUSTODY_FAILURE`; and
-7. addressed to a nonzero target with a complete target identity.
+2. explicitly requesting an E2E ACK through `DATA_FLAG_E2E_ACK_REQ`;
+3. plaintext at the outward DATA-frame level;
+4. static/global and same-layer;
+5. prospectively a normal DATA carrier, not channel M/FLOOD;
+6. not already known to be cross-layer, team, gateway re-inject or hosted-mobile last-mile;
+7. not `DATA_TYPE_E2E_ACK` or `DATA_TYPE_CUSTODY_FAILURE`; and
+8. addressed to a nonzero target with a complete target identity.
 
 `DATA_TYPE_SEALED_RELAY` remains eligible because its **outer DATA frame** is plaintext; the
 application body being sealed does not hide the routing identity the custody record needs.
 Internal types, including `REMOTE_CMD` and `REMOTE_RESP`, are otherwise eligible exactly as
-custody §10.1 rules.
+custody §10.1 rules, but only when their mobile carrier requests the E2E ACK required by
+R1=A. This is why remote-admin v2 must set that flag; B278 does not change admission for a
+plain non-E2E message.
 
 The direct-mobile-transit and wrapper paths must both be tested. Adding the predicate only
 to `send_by_hash` would miss the counter-translating forward path in `handle_data`; adding it
-only to `handle_data` would miss the wrapper/park path.
+only to `handle_data` would miss the wrapper/park path. Activation must then clear the
+provisional candidate for every actual last-mile or cross-layer arm listed in §4.3; a
+reservation-time predicate alone is knowingly incomplete.
 
 ## 6. Wire extension: translated custody record
 
@@ -301,25 +375,31 @@ Allocate `notice_flags` bit 6:
 The current `0xC0` reserved mask becomes the bit-7 mask. A direct v1 transmitter still emits
 24 bytes with bit 6 clear.
 
-### 6.2 Four-byte translated tail
+### 6.2 Eight-byte translated tail
 
-When bit 6 is set, `record_len` is at least 28 and offsets 24–27 are:
+When bit 6 is set, `record_len` is at least 32 and offsets 24–31 are:
 
 ```text
 offset  size  field
 24      1     original_reporter   outer origin of the direct report received by H1
 25      1     target_kind         0 = node_id, 1 = key_hash
 26      2     mobile_ctr          ctrM, little-endian and nonzero
+28      4     target_value        original mobile-visible node id or key_hash32
 ```
 
-The rest of the complete identity already exists in the fixed prefix:
+The fixed prefix still carries:
 
 - translating home: `failed_origin`;
 - original static counter: `failed_ctr`;
-- mobile-visible target: `failed_dst` when `target_kind == node_id`, or `dst_hash32`
-  when `target_kind == key_hash`;
+- resolved static target: `failed_dst`, and optional carrier `dst_hash32` when present;
 - outward type: `failed_type`;
 - home/static layer: `reporter_layer`.
+
+`target_value` is deliberately not inferred from the fixed prefix. For node-id addressing it
+must equal `failed_dst`. For hash addressing it is the row's retained original target hash;
+when the direct report carries `HAS_DST_HASH`, both hashes must agree, while absence of that
+optional field remains valid. This keeps large-body delegation representable and makes the
+mobile-visible identity complete.
 
 No mobile hash is repeated in the body. The outer `DST_HASH`/direct hosted-row addressing is
 the recipient authority, and repeating it would create two values to cross-check.
@@ -329,13 +409,15 @@ the recipient authority, and repeating it would create two values to cross-check
 There remains one shared custody codec.
 
 - `pack_custody_failure` continues to produce only the direct 24-byte form.
-- Add one explicit translated pack operation using the same prefix writer and the four-byte
+- Add one explicit translated pack operation using the same prefix writer and the eight-byte
   tail; no caller writes offsets.
 - `parse_custody_failure` returns whether the translated flag is set plus the parsed tail.
 - bit 6 clear: the existing `record_len >= 24` future-tail rule remains unchanged.
-- bit 6 set: require `record_len >= 28`, valid `original_reporter`, a defined
-  `target_kind`, a target value consistent with that kind, and nonzero `mobile_ctr`;
-  preserve any bytes beyond 28 as a future tail.
+- bit 6 set: require `record_len >= 32`, valid `original_reporter`, a defined
+  `target_kind`, a nonzero and kind-valid `target_value`, and nonzero `mobile_ctr`; require a
+  node-id value in 1..254 which equals `failed_dst`, and require a hash value to equal
+  `dst_hash32` only when `HAS_DST_HASH` is set; preserve any bytes beyond 32 as a future
+  tail.
 - bit 7, malformed length and every existing v1 invariant remain fail-closed.
 
 The record version stays 1: the fixed prefix retains its meaning and the extension is
@@ -366,27 +448,32 @@ For a direct 24-byte report addressed to H1, the landed §CUSTODY-G order remain
 3. enqueue H1's existing live custody Push;
 4. look up the delegated correlation using §4.4;
 5. if exactly one row matches and is not already forwarded, materialize one bounded
-   translation action containing the 28-byte record and the exact row identity;
-6. release the received custody carrier through the existing `become_free()` order; and
-7. originate the translated record, then update the row only if its complete identity still
-   matches the materialized action.
+   translation action containing the 32-byte record and the exact row identity;
+6. call `send_by_hash` for that bounded action;
+7. update the row only if the send queued or parked and its complete identity still matches
+   the materialized action; and
+8. let the existing caller release the received custody carrier exactly once through
+   `become_free()`.
 
 Translation never suppresses or rewrites H1's original diagnostic. Storage failure at H1
 does not fabricate persistence, but it also does not suppress the live best-effort mobile
 outcome.
 
 There must be one owner of the receive-carrier release. Do not call `send_by_hash` from
-inside the current `custody_failure_receive()` and then let its caller call `become_free()`
-again. The bounded action may not copy `PostAck`, `PendingTx`, a 241-byte payload buffer or
-the complete correlation ring; its record is exactly 28 bytes and its remaining fields are
-scalars. The slice must measure the resulting RX-stack movement.
+inside the current `custody_failure_receive()` **and** add another release there: its caller
+already owns the single `become_free()`. The send-before-release order deliberately follows
+the landed MOBILE_SEND re-origination precedent; `become_free()` is also the queue-drain
+pump, so releasing first would change when the translated item can begin. The bounded action
+may not copy `PostAck`, `PendingTx`, a 241-byte payload buffer or the complete correlation
+ring; its record is exactly 32 bytes and its remaining fields are scalars. The slice must
+measure the resulting RX-stack movement.
 
 The translated send is:
 
 ```text
 destination       row.mobile_hash, through send_by_hash
 type              DATA_TYPE_CUSTODY_FAILURE
-body              28-byte translated custody record
+body              32-byte translated custody record
 plane             GLOBAL
 crypt             off
 E2E_ACK_REQ        clear
@@ -395,6 +482,12 @@ app inbox text    never
 ```
 
 `send_by_hash` owns direct hosted delivery, redirects, cached remote homes and H-resolution.
+Its cached-home arm currently uses `Plane::AUTO`. For a static home,
+`flight_is_team_plane(AUTO, dst)` resolves structurally to GLOBAL because the team-plane arm
+requires a mobile with a nonzero team id. B278 therefore changes no plane behavior: a pinned
+test must prove AUTO and GLOBAL equivalent for this static-home arm. Making the cached arm
+honor the supplied plane could change existing behavior for a dual team member and is
+explicitly outside B278; any suspected console mis-plane is a separate register decision.
 B278 must not inspect `_mobile_reg` and then hand-build a second `TxItem` except inside the
 existing helper's own implementation. A moved mobile may therefore receive the outcome
 through its new home; the DATA outer origin remains H1 and the destination hash remains M1.
@@ -424,16 +517,22 @@ Before storage or Push, all must hold:
    originated the failed static flight;
 4. `original_reporter` is a valid static node id;
 5. `mobile_ctr != 0`;
-6. target identity is complete: `target_kind == node_id` selects `failed_dst`; a
-   `target_kind == key_hash` requires `HAS_DST_HASH` and selects `dst_hash32`;
+6. target identity is complete: `target_kind == node_id` requires
+   `target_value == failed_dst`; `target_kind == key_hash` selects the tail's nonzero
+   `target_value`, and, only when `HAS_DST_HASH` is set, requires
+   `target_value == dst_hash32`;
 7. if the translated DATA carries `DST_HASH`, it equals this mobile's stable hash; or,
-   for the direct one-hop hosted form without `DST_HASH`, `pa.origin`, `reporter_layer` and
-   the current attachment agree with the selected home; and
+   for the normal direct one-hop hosted form without `DST_HASH`, the node is mobile, its
+   registration is active, `_my_mobile_reg.home_id == pa.origin`, and the report layer
+   agrees with the active attachment; and
 8. the record is not about an ACK or another custody report.
 
-For a re-homed mobile, the outer origin may be the old H1 while the last-mile carrier arrives
-through H2. The `DST_HASH == self` arm is what makes that valid. The record remains an
-unauthenticated claim; no trust, key, route, membership or retry decision follows from it.
+The direct-host form normally has no `DST_HASH`: `send_by_hash` passes
+`override_dst_hash=0`, and hosted local ids are deliberately absent from `_id_bind`, so
+`key_hash_of_id()` cannot reconstruct one. For a re-homed mobile, the outer origin may be
+the old H1 while the last-mile carrier arrives through H2. The `DST_HASH == self` arm is what
+makes that valid. The record remains an unauthenticated claim; no trust, key, route,
+membership or retry decision follows from it.
 
 ### 8.3 Persistence and Push mapping
 
@@ -477,9 +576,8 @@ existing direct fields:
   "dst": 48,
   "ctr": 912,
   "delegated": true,
-  "via_home": 11,
   "target_kind": "hash",
-  "home_ctr": 912,
+  "target_hash": "0xA1B2C3D4",
   "mobile_ctr": 77
 }
 ```
@@ -488,13 +586,16 @@ Here `ctr` retains the established custody meaning (`failed_ctr`/`ctrH`) for com
 `mobile_ctr` is the mobile correlation token. Consumers match the complete tuple:
 
 ```text
-{via_home, reporter_layer, target_kind,
- target=(dst_hash when hash, else dst), mobile_ctr, failed_type}
+{failed_origin, reporter_layer, target_kind, target_value, mobile_ctr, failed_type}
 ```
 
 Counter-only matching is forbidden. `reporter` is the original relay from the translated
-tail, while `via_home` is the translator/static-flight origin. USB uses the same names and
-must retain the existing “NOT proof the destination missed it” warning.
+tail, while the existing `failed_origin` field is the translator/static-flight origin and
+the existing `ctr` field is the home counter. Emit exactly one target-value field:
+`target_id` for node-id addressing or `target_hash` for hash addressing. Do not add aliases
+such as `via_home` or `home_ctr`; duplicate values create a second compatibility surface.
+USB uses the same semantic names and must retain the existing “NOT proof the destination
+missed it” warning.
 
 ## 9. User and protocol semantics
 
@@ -518,31 +619,39 @@ private home telemetry event.
 B278 never parses an RPC body. A custody report about `REMOTE_CMD` cannot satisfy
 `REMOTE_RESP`, become an auth failure or prove non-execution.
 
-To avoid successful mobile RPC requests occupying correlation rows until the long TTL,
-remote-admin v2 should request the existing E2E ACK on its delegated request carrier and its
+To qualify for B278 feedback and to release successful rows promptly, remote-admin v2 must
+request the existing E2E ACK on its delegated request carrier, and its
 explicit pre-tail `REMOTE_CMD` handler should send that ACK only after the request has crossed
 its defined admission boundary. That is a remote-admin design requirement, not code added by
-B278. If remote admin chooses a different positive-release mechanism, it needs a separately
-reviewed typed seam; B278 will not inspect request IDs or response bodies.
+B278. A different positive-release mechanism would require a separately reviewed typed seam
+and a new owner ruling; B278 will not inspect request IDs or response bodies.
 
 ## 10. Capacity and time
 
-### 10.1 Proposed TTL
+### 10.1 Single correlation lifetime
 
 ```text
-delegated_outcome_ttl_ms =
-    e2e_ack_deadline_xl_ms + seen_origin_ttl_ms
-  = 300000 + 450000
-  = 750000 ms
+delegated_custody_ttl_ms =
+    e2e_ack_deadline_xl_ms
+  = 300000 ms
 ```
 
-The first term is the current delegated/cross-layer positive-receipt patience. The second is
-the landed one-return-flight retention envelope, including the worst supported PHY exchange
-margin. This is a bounded product correlation horizon, not a claim that arbitrary 31-hop
-traffic completes within 750 seconds.
+This is the one TTL for the complete row. The name stays custody-specific so a future
+evidence-based retune is one named change, but there is no custody clock separate from the
+ACK clock.
 
-Expiry comparison is the existing exclusive-bound form (`age >= ttl` expires). No bare
-750000 literal may appear outside the named protocol constant and its tests.
+The retired 750 s proposal added `seen_origin_ttl_ms` (450 s), which B159 derived for a
+different question: how long a receiver must remember DATA to reject a duplicate. That
+constant combines the 150 s gateway doorstep window with one worst-legal-PHY exchange
+margin. It was never a custody-chain latency derivation; at the slow-PHY/deep-chain corner
+neither 300 s nor 750 s bounds the whole chain. The product authority is instead the mobile's
+own operation: it reports `e2e_ack_timeout` and closes at 300 s, after which translated
+custody is only a post-mortem diagnostic with no live state to update.
+
+Expiry comparison keeps the existing exclusive-bound form (`age >= ttl` expires) and clears
+the whole row. No bare `300000` literal may appear outside the named protocol constant and
+tests. The S0 census's count of custody reports arriving above 300 s is a standing trigger:
+a nonzero real count requests review of this ruling but never silently changes the constant.
 
 ### 10.2 Capacity policy
 
@@ -552,19 +661,20 @@ Start from the existing capacity of eight, with these rules:
 - exact retry refreshes its own row;
 - never evict a live unconfirmed row;
 - ACK-first clears promptly;
-- successfully forwarded custody clears a custody-only row; and
-- full capacity refuses the new qualifying mobile carrier before its hop ACK.
+- no custody-only row exists under R1=A; and
+- full capacity refuses only a new qualifying E2E-ACK-requesting mobile carrier before its
+  hop ACK. Plain non-E2E sends never consult the ring.
 
-S0 must measure:
+S0 discharged the capacity decision: maximum modeled occupancy was three rows at 300 s and
+five under the retired 750 s counterfactual, with zero corpus refusals. Four of the five peak
+rows belonged to one mobile whose targets never ACKed, confirming that failed `-a` sends—not
+team setup—are the pressure shape. Capacity is aggregated across every mobile hosted by the
+home. Eight remains the ruled cap; live rows are never evicted.
 
-- maximum live rows in every mobile-bearing corpus stream at the proposed TTL;
-- the existing B251 equal-counter/two-mobile cases;
-- an eight-command successful remote-control model with prompt E2E ACK release;
-- an eight-failure saturation followed by a ninth retryable refusal; and
-- row and `Node` sizes on host, ARM and Xtensa.
-
-If eight cannot cover the approved workload without ordinary false refusals, STOP for an
-owner capacity/RAM ruling. Do not silently evict or shorten the bound to make a test green.
+Team grantkey uses no E2E flag, registration/presence/key lookup are not E2E DMs, and a
+team-plane OLED `-t -a` DM goes directly on the team plane rather than through home
+delegation. S1b adds the scalar correlation lifecycle telemetry required to measure this same
+occupancy on metal. B280 separately owns the BUSY_RX retry-cost defect exposed by saturation.
 
 ## 11. Failure matrix
 
@@ -572,10 +682,13 @@ owner capacity/RAM ruling. Do not silently evict or shorten the bound to make a 
 | --- | --- | --- | --- |
 | no map / expired map | yes | none | absent |
 | ambiguous map | yes | none; loud invariant telemetry | unchanged until expiry |
-| exact map, translated send queued/parked | yes | best-effort translated record | custody marked; retain only if ACK owed |
-| exact map, translated send refused | yes | none; bounded telemetry | retain until expiry |
+| exact map, translated send queued/parked | yes | best-effort translated record | retain until ACK or the 300 s edge |
+| exact map, translated send refused | yes | none; bounded telemetry | retain until ACK or the 300 s edge |
 | custody first, then ACK | yes + mobile UNCERTAIN | ACK still translated; mobile may become DELIVERED | clear on ACK |
 | ACK first, then custody | later report still stored at H1 | no late translated diagnostic | already clear |
+| plain non-E2E delegated send | current behavior | no B278 feedback | no row; never a new BUSY_RX |
+| direct-transit carrier has no `DST_HASH` | yes | complete node-id target from retained row | match by return key; hash check skipped |
+| synthetic hash-addressed record has no `DST_HASH` | codec-valid only; not a current producer shape | complete hash target from translated tail | parser/consumer compatibility vector |
 | mobile moved to another home | yes | route by mobile hash through current home | normal lifecycle |
 | translated record malformed/wrong recipient | n/a at receiver | reject; no store/push | n/a |
 | H1 reboots before report | report may be stored at H1 | no translation | volatile map deliberately lost |
@@ -583,32 +696,74 @@ owner capacity/RAM ruling. Do not silently evict or shorten the bound to make a 
 
 ## 12. Implementation slices
 
-### S0 — characterization and fixed decisions; zero production behavior change
+### S0 — CLOSED 2026-09-02 · characterization and fixed decisions
 
 1. Enumerate every reserve/activate/put/release/translate call and both mobile delegation
    shapes.
 2. Reproduce ACK-first one-shot clearing and non-E2E absence on current code.
-3. Measure the proposed TTL/cap occupancy and all three ABI layouts.
-4. Predict corpus movers and prove which streams contain eligible mobile delegation plus a
+3. Measure occupancy at the ruled 300 s / 750 s obligation bounds and all three ABI layouts.
+4. Measure BUSY_RX retry amplification per refused `-a` send and count corpus custody
+   reports whose origination-to-report age exceeds 300 s.
+5. Predict corpus movers and prove which streams contain eligible mobile delegation plus a
    generated custody report.
-5. Record baseline native, mutation, corpus, board and warning figures.
+6. Record baseline native, mutation, corpus, board and warning figures.
 
 STOP if the eight-row/no-eviction design fails the approved workload or the 32-byte row is
 not the measured layout.
 
-### S1 — correlation authority
+**Completion:** PASS, neither STOP triggered. Evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s0.md`. The candidate row measured 32 bytes on
+host/ARM/Xtensa; capacity eight passed; the corpus contained no delegated-custody
+intersection and no custody receipt above 300 s. The owner consequently replaced the
+then-measured 750 s counterfactual with §10.1's single 300 s row lifetime. S0 also found B280
+(BUSY_RX retry bound) and B281 (board-runner output-path contradiction), and assigned the F3,
+F4, F6 and corpus-reachability corrections recorded in this spec.
+
+### S1a — behavior-neutral correlation refactor
 
 1. Generalize the one ring and preserve target + return identities.
-2. Add outward type and obligation bits.
-3. Strengthen activation uniqueness across all mobiles.
-4. Reserve custody candidates before ACK on both wrapper and direct-transit paths.
-5. Keep existing E2E ACK wire behavior and release ordering exact.
+2. Add outward type and custody lifecycle state without changing which flights reserve;
+   retain one timestamp and the one named 300 s row TTL—no per-obligation clocks.
+3. Preserve the current same-mobile-scoped activation-uniqueness decision byte-for-byte;
+   the stronger cross-mobile refusal and its B251 test flip belong to S1b.
+4. Route every current reserve/activate/release/translate site through the renamed authority.
+5. Prove all 36 corpus streams byte-identical, current E2E ACK wire behavior exact, and
+   measure the row/`Node` RAM movement independently of the admission change. Byte identity
+   includes keeping every existing telemetry event name and field verbatim:
+   `deleg_ack_reserved`, `deleg_ack_put`, `deleg_ack_put_refused`, and
+   `mobile_ctr_admission_refused`.
 
-No custody wire or receiver change in this slice.
+No custody admission, wire or receiver behavior changes in S1a.
+
+### S1b — R1/R2 admission and obligation behavior
+
+1. Add a provisional custody candidate only to rows already reserved by
+   `DATA_FLAG_E2E_ACK_REQ` and passing §5's reservation phase; confirm or clear it at every
+   activation arm.
+2. Preserve zero row allocation for every non-E2E delegated send.
+3. Strengthen activation uniqueness across all mobiles: refuse a second ACTIVE row sharing
+   `{ctr_h, return_kind, return_peer, layer}` even when `mobile_hash` differs, and flip the
+   existing B251 case which currently admits both rows. Measure this admission change in
+   S1b; do not describe it as refactor fallout.
+4. Pin all activation paths, not only the resolved-id arm: resolved-id dispatch, direct-host
+   counter translation, cached-home dispatch, and all three parked-send fire sites currently
+   near `node_hashlocate.cpp:2259`, `:2277` and `:2331`. Explicitly drive and clear the
+   provisional custody candidate on all four ACK-only arms: direct last-mile (`addr_len=1`),
+   cached-home `send_cross_layer`, the wrapper XL branch near `node_mac_rx.cpp:1757`, and the
+   XL park-fire site near `node_hashlocate.cpp:2259`. The last is synthetic: its current
+   producer structurally leaves `reply_to_hash == 0`.
+5. Apply `delegated_custody_ttl_ms == e2e_ack_deadline_xl_ms` to the complete row at the
+   exclusive 300 s edge; do not add separate ACK/custody timers.
+6. Land F6's scalar measurement surface: make release and expiry observable, include
+   `target_kind` on reservation, and include `mobile_hash` plus `ctr_h` on reverse-ACK
+   translation. Preserve all existing event names; attribute every added field/event and
+   corpus movement to S1b.
+
+No custody wire or receiver change in S1b.
 
 ### S2 — codec extension
 
-1. Allocate bit 6 and the 28-byte translated form.
+1. Allocate bit 6 and the 32-byte translated form.
 2. Implement the one pack/parse authority and all direct/translated golden vectors.
 3. Keep direct 24-byte output byte-identical.
 4. Update `docs/frames.md` and `docs/protocol.md` drafts in the same slice; land them only
@@ -620,6 +775,8 @@ No custody wire or receiver change in this slice.
 2. Match complete identity after local handling.
 3. Originate the translated `0x81` through `send_by_hash`.
 4. Implement obligation transitions, no-map/ambiguous/refused telemetry and recursion proof.
+5. Leave the cached-home `Plane::AUTO` behavior unchanged and pin that a static home's AUTO
+   resolution is equivalent to GLOBAL for this arm.
 
 ### S4 — mobile receive and surfaces
 
@@ -641,28 +798,36 @@ software-complete only after QG; it closes fully after Part 54.
 
 - same `{ctrM,target}` from two mobiles remains distinct;
 - same home `{ctrH,failed_dst,layer}` cannot activate twice across different mobiles;
-- target hash, target id, layer and type each fail independently when changed;
+- target hash (when present), target id, layer and type each fail independently when changed;
 - a counter-only matcher mutation is RED;
 - ring full produces BUSY_RX before hop ACK and never forwards without a row;
+- nine plain non-E2E delegated sends allocate zero rows and never gain a B278 BUSY_RX;
 - queue/park refusal releases the reservation;
 - exact retry refreshes only its row;
 - ACK translation remains byte-identical and clears the row;
-- custody-first does not break a later ACK translation; and
-- ACK-first prevents a later mobile custody translation.
+- custody-first does not break a later ACK translation;
+- ACK-first prevents a later mobile custody translation;
+- at `delegated_custody_ttl_ms-1` the complete row remains available for ACK and custody,
+  while at the exact 300 s edge the complete row is gone and neither result translates; and
+- every resolved-id, direct-host, XL, cached-home and parked-fire activation site is driven,
+  with four explicit ACK-only controls proving provisional custody is cleared: direct
+  last-mile, cached-home cross-layer, wrapper cross-layer, and a **synthetic-only**
+  cross-layer park-fire control (unreachable from today's producer).
 
 ### 13.2 Eligibility and boundaries
 
 Positive cases:
 
-- plain same-layer delegated DM;
-- plaintext outer `SEALED_RELAY`; and
-- `REMOTE_CMD` as an internal custody-eligible type.
+- E2E-ACK-requesting same-layer delegated DM;
+- E2E-ACK-requesting plaintext outer `SEALED_RELAY`; and
+- E2E-ACK-requesting `REMOTE_CMD` as an internal custody-eligible type.
 
 Negative cases, one falsifier each:
 
 - team plane;
 - cross-layer;
 - crypted outer DATA;
+- otherwise-eligible carrier without `DATA_FLAG_E2E_ACK_REQ`;
 - E2E ACK;
 - custody report itself;
 - hosted-mobile last-mile; and
@@ -675,17 +840,24 @@ as closing it.
 ### 13.3 Codec and receiver
 
 - direct 24-byte golden vector byte-identical;
-- translated 28-byte golden vector;
-- bit 6 with length 24–27 rejected;
+- translated 32-byte golden vector;
+- bit 6 with length 24–31 rejected;
 - bit 7 rejected;
-- translated target kind unknown, hash-without-`HAS_DST_HASH`, and node-id mismatch each
-  rejected;
+- translated target kind unknown, zero/invalid target, node-id mismatch, and
+  hash-with-`HAS_DST_HASH` mismatch each rejected;
+- hash target without `HAS_DST_HASH` accepted from the translated tail as a synthetic codec
+  vector, including a 237-byte-body construction explicitly labelled non-production;
+- the production same-layer wrapper maximum (232 bytes) retains `HAS_DST_HASH`, while a
+  direct-transit absent-hash case passes with `target_kind == node_id` and
+  `target_value == failed_dst`;
 - reporter invalid and `mobile_ctr==0` rejected;
 - direct unknown tail remains accepted and retained;
 - translated future tail remains accepted and retained;
 - translated form rejected by a static receiver;
 - wrong outer home, wrong DST_HASH and wrong direct selected-home relation each reject;
 - direct current-home delivery and moved-mobile-via-new-home delivery both pass;
+- the direct current-home form normally carries no `DST_HASH` and requires
+  `_my_mobile_reg.home_id == pa.origin`;
 - another unknown internal type still reaches Slice B's fail-closed guard; and
 - translated `0x81` failure produces no custody report about itself.
 
@@ -696,7 +868,8 @@ as closing it.
 - Push `ctr=ctrM`, body retains `ctrH`, and `seq` equals the stored sequence;
 - live and pulled JSON agree on every semantic field;
 - direct JSON is byte-identical;
-- translated JSON exposes both `home_ctr` and `mobile_ctr`;
+- translated JSON exposes `mobile_ctr`, the existing home `ctr`, and exactly one of
+  `target_id` / `target_hash`, with no `via_home` or `home_ctr` aliases;
 - ordinary OLED inbox rows and unread counts exclude both forms;
 - raw `pull_inbox` returns both forms; and
 - a target/counter-only UI/RPC matcher cannot promote a wrong operation.
@@ -719,7 +892,7 @@ as closing it.
 
 On implementation PASS, update together:
 
-- `docs/frames.md`: bit 6, the 28-byte translated tail and validation table;
+- `docs/frames.md`: bit 6, the 32-byte translated tail and validation table;
 - `docs/protocol.md`: delegated-custody correlation, monotonic ACK interaction and explicit
   unauthenticated/no-auto-retry language;
 - `docs/superpowers/specs/2026-08-23-internal-data-and-custody-outcome-design.md`: add the B278 extension without
@@ -733,6 +906,10 @@ On implementation PASS, update together:
 Active false comments in `node.h`, `node_hashlocate.cpp`, `node_mac_rx.cpp`, `frame_codec.h`,
 `console_json.cpp` and `fw_main.cpp` must be corrected in the slice which establishes their
 replacement truth. Historical statements remain visible with the correction idiom.
+The current `node_hashlocate.cpp:1869-1871` admission comment must be reviewed explicitly:
+its rule that a delegated non-E2E send consumes no correlation row remains authoritative
+under R1=A, while any `DelegAck`-only naming made false by the one-ring refactor must be
+corrected without weakening that policy.
 
 ## 15. Metal Part 54 — required closure shape
 
@@ -749,10 +926,12 @@ Required observations:
 1. establish M1 attachment to H1 and record M1's stable hash, local id and home layer;
 2. establish a positive plaintext/global `-a` control from M1 to T and prove the returned ACK
    uses M1's counter;
-3. send a fresh tagged message, let R ACK custody, then remove T before R transfers onward;
+3. send a fresh tagged `-a` message, let R ACK custody, then remove T before R transfers
+   onward;
 4. prove H1 receives and stores the direct report under `ctrH`;
-5. prove M1 receives exactly one translated report naming original reporter R, H1 as
-   `via_home`, the same target/type, and both `home_ctr=ctrH` and `mobile_ctr=ctrM`;
+5. prove M1 receives exactly one translated report naming original reporter R, H1 in the
+   existing `failed_origin`, the same target/type, the existing `ctr=ctrH`, and
+   `mobile_ctr=ctrM`, with exactly one `target_id` or `target_hash` field and no aliases;
 6. prove M1's ordinary OLED inbox/unread count does not gain a message row;
 7. power-cycle M1 and prove the translated record survives in raw `pull_inbox`;
 8. run the ACK-order control: custody first then a valid late ACK upgrades the live consumer

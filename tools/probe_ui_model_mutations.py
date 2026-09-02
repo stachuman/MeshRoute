@@ -613,7 +613,26 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2503, 103323    # ★★ RE-SYNCED 2026-08-31 by **§CUSTODY-G**, and it closes TWO gaps at
+PIN_CASES, PIN_ASSERTS = 2509, 103638    # ★★ RE-SYNCED 2026-09-02 by **§B278 S0** (characterization only — the
+                                         # slice changes ZERO production lines; the delta is entirely new
+                                         # `test/` cases). DERIVATION, measured with the real binary, not
+                                         # assumed: clean tree BEFORE = 2503 / 103323 / 0 failed; AFTER =
+                                         # 2509 / 103638 / 0 failed  ⇒  +6 cases / +315 assertions, and
+                                         # `./.pio/build/native/program -tc="*B278*"` reports EXACTLY
+                                         # 6 cases / 315 assertions, so the whole delta is attributed:
+                                         #   test/test_dual_layer.cpp  +3 cases
+                                         #     §B278 S0 ACK-first one-shot clearing
+                                         #     §B278 S0 R1=A non-E2E wrapper takes no row
+                                         #     §B278 S0 the 750 s bound vs the life a row gets today
+                                         #   test/test_node_r3.cpp     +3 cases
+                                         #     §B278 S0 nine non-E2E transits inside the 750 s window
+                                         #     §B278 S0 full-ring refusal + BUSY_RX amplification
+                                         #     §B278 S0 two senders refused concurrently
+                                         # ⛔ ZERO existing cases edited or removed; the one production-file
+                                         #   touch in the whole slice is NONE (`git diff --stat -- lib src`
+                                         #   is empty at report time).
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2503, 103323 — ★★ RE-SYNCED 2026-08-31 by **§CUSTODY-G**, and it closes TWO gaps at
                                          # once — both are written out because a re-sync that does not say what
                                          # it absorbed is exactly the "stale figure" this cross-check exists to
                                          # surface.
@@ -6221,6 +6240,20 @@ MUTS_B251RX = [
  ("X09 B251 completed-flight lookup drops the immediate sender, so two mobiles can alias before DATA",
   "        if (e.from != from || e.dst != dst || e.team_plane != team_plane) continue;",
   "        if (e.dst != dst || e.team_plane != team_plane) continue;"),
+ # ---- §B278 S0 (2026-09-02) — the controlled RED proofs for the S0 characterization cases. ⛔ THE SLICE CHANGES
+ #      NO PRODUCTION LINE; these entries exist so its new `test/` cases can be shown to FAIL for the behaviour
+ #      they claim, i.e. that they are instruments and not decoration (the §A0 precedent, spec §18.0.4).
+ ("X10 B278 R1=A is defeated: a plain non-E2E delegated transit now reserves a correlation row",
+  "    const bool wants_reverse_map = (d.flags & DATA_FLAG_E2E_ACK_REQ) != 0\n"
+  "                                && d.type != DATA_TYPE_E2E_ACK;",
+  "    const bool wants_reverse_map = d.type != DATA_TYPE_E2E_ACK;"),
+ ("X11 B278 the long-busy BUSY_RX REQUEUE is deleted, so a refused -a send dies on its first NACK",
+  "            if (_active->_tx_queue_n < kTxQueueCap) {\n"
+  "                _active->_tx_queue[_active->_tx_queue_n++] = it;\n"
+  "            } else {                                              // queue full -> can't requeue; give up loudly",
+  "            if (false && _active->_tx_queue_n < kTxQueueCap) {\n"
+  "                _active->_tx_queue[_active->_tx_queue_n++] = it;\n"
+  "            } else {                                              // queue full -> can't requeue; give up loudly"),
 ]
 
 MUTS_B251HASH = [
@@ -6252,6 +6285,29 @@ MUTS_B251HASH = [
  ("D05 B251 MOBILE_SEND treats a minted non-zero counter as admission and manufactures phantom evidence/state",
   "        const bool admitted = dispatch ? dispatch->admit == SendDispatch::Admit::queued : ctr_h != 0;",
   "        const bool admitted = ctr_h != 0;"),
+ # ---- §B278 S0 (2026-09-02) — see the matching note in MUTS_B251RX. Same rule: no production line moves in the
+ #      slice; these three attack the exact facts the S0 cases assert, one decision each.
+ ("D06 B278 a full ring EVICTS at RESERVATION instead of refusing, so the ninth -a send is never BUSY-NACKed",
+  "    if (free_slot == kDelegAckNoSlot) {\n"
+  "        if (earliest_expiry > now) {\n"
+  "            const uint64_t wait = earliest_expiry - now;\n"
+  "            retry_ms = static_cast<uint32_t>(wait > UINT32_MAX ? UINT32_MAX : wait);\n"
+  "        }\n"
+  "        return false;\n"
+  "    }",
+  "    if (free_slot == kDelegAckNoSlot) {\n"
+  "        free_slot = 0;                                            // mutant: evict a live reservation/answer\n"
+  "    }"),
+ ("D07 B278 ACK translation stops being ONE-SHOT: the row survives, so a duplicate ACK translates again",
+  "            out_mobile_ctr = e.ctr_m;\n"
+  "            e = DelegAck{};                                      // one-shot: this ACK consumed the correlation\n"
+  "            return true;",
+  "            out_mobile_ctr = e.ctr_m;\n"
+  "            return true;"),
+ ("D08 B278 prune-before-admit is removed from deleg_ack_put, so the ring never self-drains at its TTL",
+  "        if (e.state != DelegAckState::free && now - e.ts_ms >= kDelegAckTtlMs) e = DelegAck{};\n"
+  "        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m",
+  "        if (e.state == DelegAckState::reserved && e.mobile_hash == mobile_hash && e.ctr_m == ctr_m"),
 ]
 
 # ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================
