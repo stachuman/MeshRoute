@@ -10487,9 +10487,23 @@ no-movement STOP rule held). **[[B59]] was software-closed at this ruling and fu
 bench Part 53 subsequently passed the real static A→B→C USB, durable-record, OLED-exclusion, reboot and
 deletion checks.
 
+★★★ **TWO ROWS RE-ANCHORED 2026-09-02 ON THE §B278-S1b RULING ("Approve the seventh table ruling — re-anchor
+s07 and s22") — THE SEVENTH TABLE-AUTHORITY RULING; ⛔ NO AGENT EDITS THIS TABLE WITHOUT A NEW ONE.**
+s07/s22 from the proposal in `docs/superpowers/evidence/2026-09-02-b278-s1b.md` §6.5, reproduced by the Quality
+Agent's own before/after runs; **the s18 keystone is UNCHANGED at `32afbf11`/269517** for the third consecutive
+ruling. The delta is EXACTLY §B278 S1b's three permitted correlation-lifecycle transformations (the F6 telemetry):
+`target_kind` appended to every `deleg_ack_reserved` line (s07 11, s22 2), `mobile_hash`+`ctr_h` appended to
+every `mobile_reverse_ack` line (s07 2, s22 2), and four new `deleg_ack_expired` lines in s07 (111677 → 111681),
+each immediately before the prune-driving `deleg_ack_reserved` and each reporting `custody_state = eligible` —
+proven by the ordered whole-line residue comparator (`tools/compare_corpus_slice_s1b.py`, 19 derived controls,
+paired-append rule for the two grown-in-place events). Deliveries/duplicates/failures/airtime IDENTICAL on all 36
+streams (the C8 ledger); the cross-mobile admission refusal S1b also lands fired ZERO times (home counters are
+per-destination), so this ruling attributes telemetry only. s22's event count is unmoved at 1824 (fields grew in
+place; no line was added).
+
 ```
 s06_seattle_lifecycle                        e8f862b0 lus: 69039 events emitted, 0 assertion failure(s)
-s07_seattle_mobile_meshroute                 dab62874 lus: 111677 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                 16cc0dd1 lus: 111681 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway                        71120178 lus: 2266 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway_metal                  0182f858 lus: 2343 events emitted, 0 assertion failure(s)
 s10_two_layer_separation                     c44c0b39 lus: 2266 events emitted, 0 assertion failure(s)
@@ -10503,7 +10517,7 @@ s20_random_mesh                              db240065 lus: 40566 events emitted,
 s21_leaf_config_divergence                   d7db6a04 lus: 390 events emitted, 0 assertion failure(s)
 s21_mobile_dm_milestone_meshroute            fc466e77 lus: 678 events emitted, 0 assertion failure(s)
 s22_leaf_config_join                         baadfbed lus: 215 events emitted, 0 assertion failure(s)
-s22_mobile_team_meshroute                    a47a9f76 lus: 1824 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                    c406fb6a lus: 1824 events emitted, 0 assertion failure(s)
 s23_leaf_config_epoch_write                  0cd16bd5 lus: 219 events emitted, 0 assertion failure(s)
 s23_mobile_team_multihop_meshroute           568c684f lus: 924 events emitted, 0 assertion failure(s)
 s24_static_and_team_multihop_meshroute       d06536f4 lus: 1576 events emitted, 0 assertion failure(s)
