@@ -10517,6 +10517,321 @@ TEST_CASE("§B251 MOBILE_SEND admission — a full home queue releases the reser
     CHECK(target_rows == 1);
 }
 
+// ============================ §B278 S0 — CHARACTERIZATION ONLY (2026-09-02) ============================
+// ⛔ ZERO production change. These cases MEASURE current behaviour that B278's §10.2 capacity ruling rests on.
+// Authority: `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md` §1.1 R1/R2, §4.2, §10.2.
+namespace {
+
+static size_t admission_refusals_with_reason(const TestHal& hal, int reason) {
+    size_t n = 0;
+    for (const auto& e : hal.events)
+        if (e.type == "mobile_ctr_admission_refused" && e.reason == reason) ++n;
+    return n;
+}
+
+// Drive ONE hosted-mobile first hop that the home REFUSES. `drive_current_hop` cannot be reused: it CHECKs an ACK,
+// and the whole point here is that the BUSY_RX NACK replaces it. Every frame is a fresh radio hand-off, so a stale
+// captured CTS/DATA/NACK cannot make the amplification look smaller than it is.
+struct B278RefusedHop {
+    bool got_cts = false, got_data = false, got_nack = false;
+    uint8_t nack_reason = 0xFF, nack_payload = 0;
+};
+
+static B278RefusedHop b278_drive_refused_hop(Node& sender, TestHal& sh, Node& receiver, TestHal& rh,
+                                             const std::vector<uint8_t>& rts_wire, uint64_t& now) {
+    B278RefusedHop out{};
+    const RxMeta meta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+    const size_t cts0 = tx_label_count(rh, "CTS");
+    sh._now = rh._now = ++now;
+    receiver.on_recv(rts_wire.data(), rts_wire.size(), meta);
+    if (tx_label_count(rh, "CTS") != cts0 + 1) return out;
+    out.got_cts = true;
+    const std::vector<uint8_t> cts_wire = last_tx_copy(rh, "CTS");
+    sh._now = rh._now = ++now;
+    sender.on_recv(cts_wire.data(), cts_wire.size(), meta);
+
+    const size_t data0 = tx_label_count(sh, "DATA");
+    sh._now = rh._now = ++now;
+    sender.on_timer(kCtsToDataGapTimerId);
+    if (tx_label_count(sh, "DATA") != data0 + 1) return out;
+    out.got_data = true;
+    const std::vector<uint8_t> data_wire = last_tx_copy(sh, "DATA");
+
+    const size_t nack0 = tx_label_count(rh, "NACK");
+    sh._now = rh._now = ++now;
+    receiver.on_recv(data_wire.data(), data_wire.size(), meta);
+    if (tx_label_count(rh, "NACK") != nack0 + 1) return out;
+    out.got_nack = true;
+    const std::vector<uint8_t> nack_wire = last_tx_copy(rh, "NACK");
+    const auto parsed = parse_nack(std::span<const uint8_t>(nack_wire.data(), nack_wire.size()));
+    if (parsed) { out.nack_reason = parsed->reason; out.nack_payload = parsed->payload; }
+    sh._now = rh._now = ++now;
+    sender.on_recv(nack_wire.data(), nack_wire.size(), meta);
+    return out;
+}
+
+// Hold eight E2E correlations live at `home` using synthesized hosted-mobile transits — the §B251 full-ring shape,
+// lifted verbatim so the two files cannot drift apart (U1). Each accepted hop's outward flight is closed by an
+// exact terminal CTS, so the TX QUEUE is empty afterwards and only the correlation ring is under pressure.
+static void b278_fill_correlation_ring(Node& home, TestHal& hh, uint8_t HOME, uint8_t DEST, uint8_t MOBILE,
+                                       uint32_t MOBILE_HASH, uint64_t& now) {
+    const RxMeta meta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+    for (uint16_t ctr_m = 1; ctr_m <= 8; ++ctr_m) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, ctr_m, MOBILE_HASH, "hold", true);
+        const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), meta);
+        hh._now = ++now; home.on_recv(data.data(), data.size(), meta);
+        home.on_timer(kPostAckTimerId);
+        now += 5000; hh._now = now; home.on_timer(kQueueWakeupTimerId);
+        const std::vector<uint8_t> outward = last_tx_copy(hh, "RTS");
+        const auto pr = parse_rts(std::span<const uint8_t>(outward.data(), outward.size()));
+        CHECK(pr.has_value());
+        if (pr) {
+            cts_in terminal{}; terminal.already_received = true; terminal.tx_id = DEST; terminal.rx_id = HOME;
+            terminal.id = pr->id; terminal.team_plane = false;
+            std::array<uint8_t, 8> tw{}; const size_t tn = pack_cts(terminal, std::span<uint8_t>(tw.data(), tw.size()));
+            hh._now = ++now; home.on_recv(tw.data(), tn, meta);
+        }
+        CHECK_FALSE(home.has_pending_tx()); CHECK(home.test_tx_queue_n() == 0);
+    }
+}
+
+}  // namespace
+
+TEST_CASE("§B278 S0 — nine plain non-E2E delegated transits inside the ruled 750 s window take NO correlation row") {
+    // §1.1 ruling 4 (R1=A): "a plain non-E2E delegated send must remain byte-for-byte admission-compatible and must
+    // not consume one of the eight correlation rows". §10.2 asks for at least nine such sends inside 750 s with
+    // zero row allocation and no new BUSY_RX. The TX QUEUE is drained between sends so its INDEPENDENT capacity
+    // (reason 1) can never masquerade as correlation-ring pressure (reason 2) — the two are censused separately.
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u;
+    TestHal hh; Node home(hh, HOME, 0x10101010u);
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    c.leaf_id = 0; c.lbt_enabled = false; CHECK(home.on_init(c));
+    uint64_t now = 1000; hh._now = now; uint8_t pub[32]{};
+    home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub); home.route_inject(DEST, DEST, 1, 100);
+    const RxMeta meta{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+
+    // The window is DERIVED from the two named constants, never a literal (§10.1's "no bare 750000" rule).
+    const uint64_t custody_window_ms = static_cast<uint64_t>(protocol::e2e_ack_deadline_xl_ms)
+                                     + protocol::seen_origin_ttl_ms;
+    const uint64_t start = now;
+    const uint64_t step = custody_window_ms / 10;                   // nine sends land strictly inside the window
+
+    for (uint16_t ctr_m = 1; ctr_m <= 9; ++ctr_m) {
+        const std::vector<uint8_t> data = b251_mobile_data(HOME, DEST, ctr_m, MOBILE_HASH, "plain", /*e2e=*/false);
+        const std::vector<uint8_t> rts = b251_mobile_rts(MOBILE, HOME, DEST, data);
+        const size_t ack0 = tx_label_count(hh, "ACK"), nack0 = tx_label_count(hh, "NACK");
+        hh._now = ++now; home.on_recv(rts.data(), rts.size(), meta);
+        hh._now = ++now; home.on_recv(data.data(), data.size(), meta);
+        CHECK(tx_label_count(hh, "ACK") == ack0 + 1);               // the hop ACK is never withheld
+        CHECK(tx_label_count(hh, "NACK") == nack0);                 // ★ and no new BUSY_RX appears
+        home.on_timer(kPostAckTimerId);
+        const size_t out0 = tx_label_count(hh, "RTS");
+        now += 5000; hh._now = now; home.on_timer(kQueueWakeupTimerId);
+        CHECK(tx_label_count(hh, "RTS") == out0 + 1);
+        const std::vector<uint8_t> outward = last_tx_copy(hh, "RTS");
+        const auto pr = parse_rts(std::span<const uint8_t>(outward.data(), outward.size()));
+        CHECK(pr.has_value());
+        if (pr) {
+            cts_in terminal{}; terminal.already_received = true; terminal.tx_id = DEST; terminal.rx_id = HOME;
+            terminal.id = pr->id; terminal.team_plane = false;
+            std::array<uint8_t, 8> tw{}; const size_t tn = pack_cts(terminal, std::span<uint8_t>(tw.data(), tw.size()));
+            hh._now = ++now; home.on_recv(tw.data(), tn, meta);
+        }
+        CHECK_FALSE(home.has_pending_tx());
+        CHECK(home.test_tx_queue_n() == 0);                         // the queue is empty before the NEXT admission
+        now += step;
+    }
+
+    // The nine really did span more than the 300 s ACK bound, so this is a 750 s-window measurement.
+    CHECK(now - start > protocol::e2e_ack_deadline_xl_ms);
+    CHECK(now - start <= custody_window_ms);
+
+    CHECK(hh.count("mobile_ctr_translated") == 9);                  // all nine were admitted and translated
+    CHECK(hh.count("deleg_ack_reserved") == 0);                     // ★ R1=A: not one reservation
+    CHECK(hh.count("deleg_ack_put") == 0);
+    CHECK(hh.count("deleg_ack_put_refused") == 0);
+    CHECK(home.test_deleg_ack_live_n() == 0);
+    CHECK(home.mobile_ctr_admission_refused_count() == 0);
+    CHECK(admission_refusals_with_reason(hh, 1) == 0);              // reason 1 = TX queue  (queue pressure)
+    CHECK(admission_refusals_with_reason(hh, 2) == 0);              // reason 2 = correlation ring (B278's axis)
+    CHECK(tx_label_count(hh, "NACK") == 0);
+
+    // ★ THE DISCRIMINATOR. Without it the nine zeros above could be an inert fixture. One E2E flight through the
+    //   SAME node, the SAME mobile and the SAME destination DOES reserve — so the zeros measure the flag, not
+    //   a path that never runs.
+    const std::vector<uint8_t> e2e_data = b251_mobile_data(HOME, DEST, 10, MOBILE_HASH, "e2e", /*e2e=*/true);
+    const std::vector<uint8_t> e2e_rts = b251_mobile_rts(MOBILE, HOME, DEST, e2e_data);
+    hh._now = ++now; home.on_recv(e2e_rts.data(), e2e_rts.size(), meta);
+    hh._now = ++now; home.on_recv(e2e_data.data(), e2e_data.size(), meta);
+    home.on_timer(kPostAckTimerId);
+    CHECK(hh.count("deleg_ack_reserved") == 1);
+    CHECK(hh.count("deleg_ack_put") == 1);
+    CHECK(home.test_deleg_ack_live_n() == 1);
+}
+
+TEST_CASE("§B278 S0 — a full correlation ring refuses a fresh -a send BEFORE the hop ACK, and the refusal has no backoff") {
+    // §10.2 / §4.2: "an eight-failure saturation followed by a ninth BUSY_RX refusal, including the blocked
+    // sender's DATA retransmission count for each refused -a send". The sender is a REAL mobile Node, so the
+    // retransmissions are the production retry machinery rather than a hand-written model of it.
+    //
+    // ⛔⛔ WHAT THIS FIXTURE CAN AND CANNOT MEASURE, STATED BEFORE THE NUMBERS. TestHal's radio is INERT (tx()
+    //    always succeeds instantly) and `lbt_enabled=false`, so the per-attempt AIRTIME/LBT/duty cost is zero
+    //    here. ⇒ the attempt RATE below is a property of the driver, NOT of a real node. What IS measured, and
+    //    is a property of the code: whether anything in the BUSY_RX path BOUNDS the re-attempt at all.
+    constexpr uint8_t HOME = 10, DEST = 30, MOBILE = 70, FILLER = 71;
+    constexpr uint32_t MOBILE_HASH = 0x70707070u, FILLER_HASH = 0x71717171u;
+    TestHal hh, mh; Node home(hh, HOME, 0x10101010u), mobile(mh, MOBILE, MOBILE_HASH);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig mc = cfg; mc.is_mobile = true;
+    CHECK(home.on_init(cfg)); CHECK(mobile.on_init(mc));
+    uint8_t pub[32]{};
+    home.test_add_host_mobile(FILLER_HASH, FILLER, pub);            // the eight ring-fillers' identity
+    home.test_add_host_mobile(MOBILE_HASH, MOBILE, pub);            // the blocked sender's own host row
+    home.route_inject(DEST, DEST, 1, 100);
+    mobile.test_set_my_mobile_reg(HOME, MOBILE);
+    mobile.route_inject(DEST, HOME, 2, 100);                        // the mobile reaches DEST THROUGH its home
+    mobile.route_inject(HOME, HOME, 1, 100);
+
+    uint64_t now = 1000; hh._now = mh._now = now;
+    b278_fill_correlation_ring(home, hh, HOME, DEST, FILLER, FILLER_HASH, now);
+    CHECK(home.test_deleg_ack_live_n() == 8);
+    CHECK(home.mobile_ctr_admission_refused_count() == 0);
+    CHECK(tx_label_count(hh, "NACK") == 0);
+    CHECK(tx_label_count(hh, "ACK") == 8);
+
+    mh._now = hh._now = now;
+    const uint64_t send_start = now;
+    const CmdResult sent = send_e2e_global(mobile, DEST, "blocked");
+    CHECK(sent.code == CmdCode::queued);
+
+    // ---- MEASUREMENT 1: is the re-attempt bounded by anything on this path? -----------------------------------
+    // Drive back-to-back, never advancing the clock beyond the exchange itself. If ANY of the three candidate
+    // bounds applied — the advertised busy wait, `cascade_requeue_max`, or `cascade_requeue_total_max_ms` — the
+    // loop would stop below its ceiling.
+    size_t attempts = 0, busy_nacks = 0, handled_rts = 0;
+    uint8_t first_quanta = 0;
+    constexpr size_t kAttemptCeiling = 32;
+    while (attempts < kAttemptCeiling && (mobile.has_pending_tx() || mobile.test_tx_queue_n() > 0)) {
+        if (tx_label_count(mh, "RTS") > handled_rts) {               // the command itself already aired the first
+            handled_rts = tx_label_count(mh, "RTS");
+            const B278RefusedHop hop = b278_drive_refused_hop(mobile, mh, home, hh,
+                                                              last_tx_copy(mh, "RTS"), now);
+            if (!hop.got_data) break;
+            ++attempts;
+            if (hop.got_nack && hop.nack_reason == protocol::nack_reason_busy_rx) {
+                ++busy_nacks;
+                if (first_quanta == 0) first_quanta = hop.nack_payload;
+            }
+            continue;
+        }
+        now += 500; mh._now = hh._now = now;
+        mobile.on_timer(kQueueWakeupTimerId);
+        if (now - send_start > 2 * static_cast<uint64_t>(protocol::cascade_requeue_total_max_ms)) break;
+    }
+    const uint64_t burst_ms = now - send_start;
+
+    CHECK(attempts == kAttemptCeiling);          // ★ the loop did NOT self-terminate: nothing on this path caps it
+    CHECK(busy_nacks == attempts);               // ★ every attempt was refused; not one false first-hop success
+    CHECK(mh.count("tx_requeued") == static_cast<int>(attempts));   // ...via the long-busy REQUEUE arm each time
+    CHECK(mh.count("cascade_requeue") == 0);     // ★ NOT the cascade arm, so its count/age caps never even apply
+    CHECK(tx_label_count(hh, "ACK") == 8);       // only the eight fillers were ever ACKed
+    CHECK(home.mobile_ctr_admission_refused_count() == attempts);
+    CHECK(admission_refusals_with_reason(hh, 2) == attempts);        // ★ reason 2 = the correlation ring
+    CHECK(admission_refusals_with_reason(hh, 1) == 0);               // ★ NOT queue pressure
+    CHECK(home.test_deleg_ack_live_n() == 8);                        // no live row was evicted to make room
+    CHECK(hh.count("mobile_ctr_translated") == 8);                   // and the blocked flight never translated
+
+    // The encoded wait is the PROTOCOL's cap, not the home's computed one: `q` saturates at 255 quanta of
+    // `nack_busy_quantum_ms`, so a sender never observes more than 4.08 s however long the ring is really held.
+    CHECK(first_quanta == 255);
+    CHECK(static_cast<uint32_t>(first_quanta) * protocol::nack_busy_quantum_ms == 4080u);
+    CHECK(static_cast<uint32_t>(first_quanta) * protocol::nack_busy_quantum_ms
+          > protocol::nack_wait_threshold_ms);                       // > 2 s => the REQUEUE arm, not wait-same-hop
+
+    // ★★ THE FINDING, PINNED: the advertised wait is NOT enforced on the primary next hop. Thirty-two full
+    //    RTS/CTS/DATA/NACK exchanges completed inside the time ONE advertised wait would have covered.
+    CHECK(burst_ms < static_cast<uint64_t>(first_quanta) * protocol::nack_busy_quantum_ms);
+    CHECK(burst_ms < protocol::cascade_requeue_total_max_ms);        // ...and far inside the 60 s flight lifetime
+    CHECK(mobile.has_pending_tx());                                  // the flight is STILL alive at the ceiling
+
+    // ---- MEASUREMENT 2: the PACED amplification, if a sender did honour the advertised wait ---------------------
+    // This is the figure §10.2 asks for per refused `-a` send under the CURRENT 300 s bound: how many attempts fit
+    // between the refusal and the ring draining itself. It is derived, not assumed: `kDelegAckTtlMs` is
+    // `e2e_ack_deadline_xl_ms`, the rows were last touched during the fill loop, and the wait is the decoded 255
+    // quanta + the 1 ms the wait-arm adds. ⛔ The code does NOT impose this pace (measurement 1); it is the
+    // amplification a WELL-BEHAVED sender would produce, i.e. the floor, not the ceiling.
+    const uint32_t paced_wait_ms = static_cast<uint32_t>(first_quanta) * protocol::nack_busy_quantum_ms + 1;
+    const uint64_t ring_free_at  = send_start + protocol::e2e_ack_deadline_xl_ms;
+    const uint64_t paced_attempts = (ring_free_at > send_start)
+        ? ((ring_free_at - send_start) + paced_wait_ms - 1) / paced_wait_ms : 0;
+    CHECK(paced_wait_ms == 4081u);
+    CHECK(paced_attempts == 74);                                     // ★ MEASURED-BY-DERIVATION at the 300 s bound
+    // ...and the same arithmetic at R2's ruled custody ceiling, LABELLED PROJECTED because no code holds a row
+    // for 750 s today (measurement 1 above proves the ring self-drains at 300 s).
+    const uint64_t projected_750 = (static_cast<uint64_t>(protocol::e2e_ack_deadline_xl_ms)
+                                    + protocol::seen_origin_ttl_ms + paced_wait_ms - 1) / paced_wait_ms;
+    CHECK(projected_750 == 184);
+    CHECK(projected_750 > paced_attempts * 2);                       // R2 widens this window by 2.5x
+}
+
+TEST_CASE("§B278 S0 — a full ring refuses TWO independent senders concurrently; neither is ACKed or evicted") {
+    // §10.2's last question: "whether a full ring can synchronize multiple senders into repeated attempts".
+    // The answer this fixture CAN give: the refusal is per-arrival and stateless, so a second, unrelated hosted
+    // mobile arriving during the same full-ring interval is refused on exactly the same terms — the two are
+    // synchronized BY the shared resource, with no per-sender fairness or ordering between them.
+    // ⛔ WHAT IT CANNOT GIVE: whether their retries COLLIDE on air. TestHal's radio is inert and `lbt_enabled` is
+    //    false, so there is no channel for two senders to contend on. That half is stated as a limit, never
+    //    extrapolated from here.
+    constexpr uint8_t HOME = 10, DEST = 30, M_A = 70, M_B = 72, FILLER = 71;
+    constexpr uint32_t A_HASH = 0x70707070u, B_HASH = 0x72727272u, FILLER_HASH = 0x71717171u;
+    TestHal hh, ah, bh; Node home(hh, HOME, 0x10101010u), ma(ah, M_A, A_HASH), mb(bh, M_B, B_HASH);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig mcfg = cfg; mcfg.is_mobile = true;
+    CHECK(home.on_init(cfg)); CHECK(ma.on_init(mcfg)); CHECK(mb.on_init(mcfg));
+    uint8_t pub[32]{};
+    home.test_add_host_mobile(FILLER_HASH, FILLER, pub);
+    home.test_add_host_mobile(A_HASH, M_A, pub);
+    home.test_add_host_mobile(B_HASH, M_B, pub);
+    home.route_inject(DEST, DEST, 1, 100);
+    for (auto* pair : { &ma, &mb }) { pair->route_inject(DEST, HOME, 2, 100); pair->route_inject(HOME, HOME, 1, 100); }
+    ma.test_set_my_mobile_reg(HOME, M_A); mb.test_set_my_mobile_reg(HOME, M_B);
+
+    uint64_t now = 1000; hh._now = ah._now = bh._now = now;
+    b278_fill_correlation_ring(home, hh, HOME, DEST, FILLER, FILLER_HASH, now);
+    CHECK(home.test_deleg_ack_live_n() == 8);
+    const size_t acks_after_fill = tx_label_count(hh, "ACK");
+
+    ah._now = bh._now = hh._now = now;
+    CHECK(send_e2e_global(ma, DEST, "A-blocked").code == CmdCode::queued);
+    CHECK(send_e2e_global(mb, DEST, "B-blocked").code == CmdCode::queued);
+
+    size_t a_handled = 0, b_handled = 0, a_refused = 0, b_refused = 0;
+    for (int round = 0; round < 3; ++round) {
+        if (tx_label_count(ah, "RTS") > a_handled) {
+            a_handled = tx_label_count(ah, "RTS");
+            const B278RefusedHop hop = b278_drive_refused_hop(ma, ah, home, hh, last_tx_copy(ah, "RTS"), now);
+            if (hop.got_nack && hop.nack_reason == protocol::nack_reason_busy_rx) ++a_refused;
+        }
+        if (tx_label_count(bh, "RTS") > b_handled) {
+            b_handled = tx_label_count(bh, "RTS");
+            const B278RefusedHop hop = b278_drive_refused_hop(mb, bh, home, hh, last_tx_copy(bh, "RTS"), now);
+            if (hop.got_nack && hop.nack_reason == protocol::nack_reason_busy_rx) ++b_refused;
+        }
+    }
+    CHECK(a_refused == 3);                                           // ★ both senders, same terms
+    CHECK(b_refused == 3);
+    CHECK(admission_refusals_with_reason(hh, 2) == a_refused + b_refused);
+    CHECK(admission_refusals_with_reason(hh, 1) == 0);
+    CHECK(tx_label_count(hh, "ACK") == acks_after_fill);             // ★ neither sender got a hop ACK
+    CHECK(home.test_deleg_ack_live_n() == 8);                        // ★ and neither evicted a live row
+    CHECK(hh.count("mobile_ctr_translated") == 8);
+    CHECK(ma.has_pending_tx()); CHECK(mb.has_pending_tx());          // both still retrying, in lockstep
+}
+
 TEST_CASE("§B251 exclusions — ordinary static and team-plane transit preserve their original counters") {
     // Static control: even an immediate sender whose numeric id matches a hosted row is not translated unless the
     // RTS explicitly declares a mobile source.

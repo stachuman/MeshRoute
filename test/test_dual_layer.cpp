@@ -426,12 +426,15 @@ struct DualLayerTestAccess {
     // optional DATA_FLAG_MS_ENCLOSED_TYPE body prefix so a DELEGATED SEALED_RELAY (or INTRO) can be driven, not just a
     // plain 1-byte DM. Built with pack_unicast_inner exactly like the _xl variant (U1: extended rather than forked; the
     // 1-byte overload below keeps every pre-existing call site byte-for-byte).
+    // §B278 S0: `e2e` defaults TRUE, so every pre-existing caller is byte-identical. It exists because R1=A's
+    // whole admission claim is about the NON-E2E wrapper, and this driver could not build one.
     static void     drive_post_ack_mobile_send_typed(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M,
-                                                    uint8_t etype, const uint8_t* body, uint8_t len) {
+                                                    uint8_t etype, const uint8_t* body, uint8_t len,
+                                                    bool e2e = true) {
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;   // a registered mobile stamps origin=home_id (== this home)
         pa.ctr=ctr_M; pa.ctr_lo=static_cast<uint8_t>(ctr_M & 0x0F);
-        pa.flags=static_cast<uint8_t>(DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_E2E_ACK_REQ
+        pa.flags=static_cast<uint8_t>(DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|(e2e ? DATA_FLAG_E2E_ACK_REQ : 0)
                                       | (etype ? DATA_FLAG_MS_ENCLOSED_TYPE : 0));
         pa.type=DATA_TYPE_MOBILE_SEND;
         uint8_t wbody[protocol::max_payload_bytes_hard_cap]; uint8_t wl = 0;
@@ -443,8 +446,8 @@ struct DualLayerTestAccess {
         pa.inner_len=static_cast<uint8_t>(nn);
         n.do_post_ack();
     }
-    static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
-        drive_post_ack_mobile_send_typed(n, source_hash_M, dst_hash_X, ctr_M, /*etype=*/0, &body0, 1);
+    static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0, bool e2e = true) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
+        drive_post_ack_mobile_send_typed(n, source_hash_M, dst_hash_X, ctr_M, /*etype=*/0, &body0, 1, e2e);
     }
     static uint16_t delegate_send_layer(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t flags) { return n.delegate_send_layer(dst_hash, hops, hc, etype, body, len, flags); }   // §S1: mobile builds the XL wrapper to its home
     static void     drive_post_ack_mobile_send_xl(Node& n, uint32_t M, uint32_t X, uint16_t ctr, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t wrapper_flags) {   // §S1: a MOBILE_SEND+CROSS_LAYER wrapper arriving at the home
@@ -3773,6 +3776,118 @@ TEST_CASE("§GapB p2 Step 3 — a home translates a delegated target-ack (ctr_H)
         CHECK(pt->inner[6] == 0x00);
     }
     CHECK(hal.saw_emit("mobile_reverse_ack"));
+}
+
+// ============================ §B278 S0 — CHARACTERIZATION ONLY (2026-09-02) ============================
+// ⛔ ZERO production change. These cases REPRODUCE current behaviour that B278's design depends on, so a later
+//    slice cannot move it silently. They assert what the code does TODAY, never what S1a/S1b will make it do.
+//    Authority: `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md` §1.1 R1/R2, §4.5, §10.
+
+TEST_CASE("§B278 S0 — ACK-first clearing is ONE-SHOT: the row frees and a duplicate ACK cannot translate again") {
+    // §4.5 first bullet: "translate ctr_H -> ctr_M ... the row then frees". The DUPLICATE half is what makes it a
+    // one-shot rather than a cache, and it is the property §4.5 relies on to say a later custody report "cannot
+    // downgrade DELIVERED": with the row gone there is nothing left for a second arrival to consume.
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig hc; hc.routing_sf = 8; hc.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); hc.leaf_id = 4;
+    CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, /*M*/0xC0FFEEu, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u,
+                                             /*return node*/70));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);
+
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
+    const PendingTx* first = DualLayerTestAccess::pending(home);
+    CHECK(first != nullptr);
+    if (first) { CHECK(first->dst == 17); CHECK(first->inner[5] == 0x06); CHECK(first->inner[6] == 0x00); }
+    CHECK(hal.count("mobile_reverse_ack") == 1);
+    CHECK(hal.count("mobile_lastmile_fwd") == 1);
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 0);        // ★ consumed: the row is FREE, not merely stale
+
+    // The same ack again. It is still last-miled (the fork does not dedup), but with NO map it must carry the
+    // wire ctr_H verbatim — the pre-B251 defect shape, now the correct behaviour for a retired correlation.
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
+    CHECK(hal.count("mobile_reverse_ack") == 1);                    // ★ NOT 2 — the translation is one-shot
+    CHECK(hal.count("mobile_lastmile_fwd") == 2);                   // ...and the second forward really happened
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) >= 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) >= 1) {
+        const TxItem& second = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+        CHECK(second.dst == 17); CHECK(second.addr_len == 1); CHECK(second.type == DATA_TYPE_E2E_ACK);
+        CHECK(second.inner[5] == 0x0C);                             // ★ UNtranslated — the map is gone
+        CHECK(second.inner[6] == 0x00);
+    }
+    // The direct control on the correlation function itself, so the emit count above cannot be the only witness.
+    uint16_t translated = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, 0xC0FFEEu, 0x000Cu, 70, false, translated));
+}
+
+TEST_CASE("§B278 S0 — R1=A precondition: a plain non-E2E delegated wrapper allocates NO correlation row") {
+    // §1.1 ruling 4 / §4.5 third bullet: "a non-E2E flight does not reserve". The logical-origin evidence
+    // (`deleg_originated`) is DELIBERATELY independent of the ring, so its presence beside an absent
+    // `deleg_ack_put` is what proves the split rather than a dead code path.
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig hc; hc.routing_sf = 8; hc.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); hc.leaf_id = 4;
+    CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
+    DualLayerTestAccess::bind_authoritative(home, /*X id*/70, /*X hash*/0x7070u);
+    DualLayerTestAccess::learn_neighbor(home, 70);
+
+    DualLayerTestAccess::drive_post_ack_mobile_send(home, /*M*/0xC0FFEEu, /*X hash*/0x7070u, /*ctr_M*/0x0006,
+                                                    /*body*/0xAB, /*e2e=*/false);
+    CHECK(hal.saw_emit("deleg_originated"));                        // the mobile logical origin is still recorded
+    CHECK_FALSE(hal.saw_emit("deleg_ack_reserved"));
+    CHECK_FALSE(hal.saw_emit("deleg_ack_put"));                     // ★ and NO correlation row was taken
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 0);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);                                           // ...while the outward DM still flies
+    if (pt) { CHECK(pt->dst == 70); CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) != 0);
+              CHECK((pt->flags & DATA_FLAG_E2E_ACK_REQ) == 0); }
+
+    // The E2E twin at the SAME site, so the absence above is a discriminator rather than an inert fixture.
+    StubHal hal2; Node home2(hal2, 31, 0xAD20B6EAu);
+    CHECK(home2.on_init(hc));
+    DualLayerTestAccess::store_mobile(home2, 0xC0FFEEu, 17);
+    DualLayerTestAccess::bind_authoritative(home2, 70, 0x7070u);
+    DualLayerTestAccess::learn_neighbor(home2, 70);
+    DualLayerTestAccess::drive_post_ack_mobile_send(home2, 0xC0FFEEu, 0x7070u, 0x0006, 0xAB, /*e2e=*/true);
+    CHECK(hal2.saw_emit("deleg_ack_put"));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home2) == 1);
+}
+
+TEST_CASE("§B278 S0 — the ruled 750 s custody bound is 2.5x the life the ring gives a row TODAY") {
+    // §10.1: the ACK obligation expires at `e2e_ack_deadline_xl_ms` (300 s) and the custody obligation at
+    // `e2e_ack_deadline_xl_ms + seen_origin_ttl_ms` (750 s). TODAY there is ONE obligation and one TTL, so an
+    // eight-row ring fully self-drains at 300 s. This case MEASURES that boundary from the named constants —
+    // it is the concrete cost R2 asks the owner to accept, not an argument about it.
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;
+    CHECK(home.on_init(cfg));
+    constexpr uint32_t mobile_hash = 0xC0FFEEu;
+    const uint64_t t0 = 1000;
+    hal._now = t0;
+    for (uint16_t i = 1; i <= 8; ++i)
+        CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, /*ctrH*/i, /*ctrM*/(100 + i),
+                                                 /*return node*/static_cast<uint32_t>(60 + i)));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, 9, 109, 69));   // full: refused, not evicted
+    CHECK(hal.saw_emit("deleg_ack_put_refused"));
+    CHECK(home.mobile_ctr_admission_refused_count() == 1);
+
+    // One millisecond BEFORE the current TTL every row is still live and the ninth is still refused.
+    hal._now = t0 + protocol::e2e_ack_deadline_xl_ms - 1;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, 9, 109, 69));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 8);
+
+    // AT the current TTL (`age >= ttl`, the exclusive-bound form §10.1 keeps) the whole ring is reclaimed by the
+    // prune-before-admit in `deleg_ack_put`, and the ninth is admitted into a ring that now holds ONE row.
+    hal._now = t0 + protocol::e2e_ack_deadline_xl_ms;
+    CHECK(DualLayerTestAccess::deleg_ack_put(home, mobile_hash, 9, 109, 69));
+    CHECK(DualLayerTestAccess::deleg_ack_live_n(home) == 1);        // ★ today: 300 s and the ring is empty again
+    CHECK(home.mobile_ctr_admission_refused_count() == 2);          // the two refusals above, and no third
+
+    // The ruled custody ceiling is 2.5x that, and it is DERIVED from the two named constants — never a literal.
+    CHECK(protocol::e2e_ack_deadline_xl_ms == 300000u);
+    CHECK(protocol::seen_origin_ttl_ms == 450000u);
+    CHECK(static_cast<uint64_t>(protocol::e2e_ack_deadline_xl_ms) + protocol::seen_origin_ttl_ms == 750000u);
 }
 
 TEST_CASE("§B251 reverse key — destination scopes equal destination-local ctrH values for one hosted mobile") {
