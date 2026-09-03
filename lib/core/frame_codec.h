@@ -1017,10 +1017,10 @@ enum class CustodyRootStage : uint8_t {
 //   · RECORD VERSION STAYS 1 and `protocol::wire_version` is UNTOUCHED (§6.3): the prefix's meaning is unchanged
 //     and the extension is self-described by an allocated flag plus `record_len`. During a mixed-build reflash an
 //     older receiver refuses bit 6 as reserved — it cannot misread a translated record as an ordinary one.
-//   · ⓘ INTERMEDIATE STATE, STATED IN CODE BECAUSE DOCS ROT: after S2 the wire form EXISTS and NOTHING
-//     PRODUCES OR CONSUMES IT. S3 originates it at the translating home; S4 lands the mobile receiver. Until
-//     then `Node::custody_failure_receive` refuses every translated record at an explicit named guard — see
-//     `node_mac_rx.cpp`. ⇒ the codec accepting bit 6 changes no product behaviour, by construction.
+//   · ⓘ THE INTERMEDIATE STATE IS OVER; its old note read: *"after S2 the form EXISTS and NOTHING PRODUCES OR
+//     CONSUMES IT … the receiver refuses every translated record."* S3 made the home a PRODUCER; S4 landed the
+//     mobile RECEIVER. The codec truth is unchanged: it validates bit 6's prefix and every §6.3 tail term;
+//     whether this node is the intended consumer belongs to `node_mac_rx.cpp` §8.2, never to the codec.
 // =====================================================================================================
 
 inline constexpr uint8_t custody_record_version_v1 = 1;    // §9.2 offset 0
@@ -1054,7 +1054,7 @@ inline constexpr uint8_t custody_flags_reserved_mask = 0x80;   // §6.1: bit 7 r
 // ★★★★ §B278 S2-1(6) — THE ONE TRANSLATED PREDICATE AND THE ONE PREFIX-LENGTH AUTHORITY. Everything that needs
 //      to ask "is this the translated form?" or "how many bytes does this record's OWN known prefix occupy?"
 //      asks HERE: the parser, the future-tail accessor (`custody_record_tail` below), the translated packer, the
-//      §B278-S2 interim receiver guard (`node_mac_rx.cpp`) and the tests. ⛔ A second spelling of either is how
+//      §B278-S4 receiver (`node_mac_rx.cpp`), JSON, USB renderer (`firmware_custody_push.h`) and tests. ⛔ A second spelling of either is how
 //      a translated record ends up with its defined tail sliced at 24 and read as "unknown bytes".
 constexpr bool custody_record_is_translated(uint8_t notice_flags) {
     return (notice_flags & CUSTODY_FLAG_HOME_TRANSLATED) != 0;

@@ -77,6 +77,11 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 A received **custody-failure report** appears on USB as one `CUSTODY FAILURE reporter=… stage=… reason=… …`
 line and in `pull_inbox` as `{"ev":"custody_failure",…}`. It means a relay could not complete onward custody;
 it is not proof that the destination missed the message. Delete it with `del_msg dm <seq>` like any other record.
+A report your node's **home** translated on your behalf carries four extra fields on the same USB line and in
+the same `pull_inbox` event — `delegated=true`, `target_kind=node_id|hash`, **exactly one** of `target_id=` /
+`target_hash=` (8 lower-case hex digits, the same form as `dst_hash`), and `mobile_ctr=` (the counter your
+own send was given; the `ctr=` field keeps meaning the home's counter). It still means only that a relay
+could not complete onward custody, and still is not proof the destination missed the message.
 The OLED's normal inbox view hides protocol-internal outcome records, but `pull_inbox` deliberately includes them.
 
 All current hardware boards use the durable `SegmentedInboxStore`: nRF52 stores records in QSPI with metadata in

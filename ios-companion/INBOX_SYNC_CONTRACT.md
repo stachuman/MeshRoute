@@ -347,6 +347,22 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   `next_hop`, `requeues`, `alternatives`, `committed_hops`, `remaining_hops`, `repair_attempted`, `one_way`,
   and `dst_hash` only when its flag is valid. `seq` is omitted when the node's inbox is disabled. Correlate
   on the **pair** `{dst, ctr}` — ⛔ never the counter alone.
+  **Translated (home-delegated) reports (§B278 S4, 2026-09-02).** A report about a message the phone's node
+  sent **through its home** carries four extra fields on BOTH the live push and the pulled record, appended,
+  with every existing field keeping its meaning: `delegated` (boolean `true`), `target_kind` (`"node_id"` or
+  `"hash"`), **exactly one** of `target_id` (a number) / `target_hash` (the same canonical quoted 8-digit
+  lower-case hex `dst_hash` and `team_id` use), and `mobile_ctr` (the counter YOUR send was given). ⛔ There is
+  no `via_home` and no `home_ctr`: a duplicated value would be a second compatibility surface. `reporter` is
+  the ORIGINAL relay that reported to your home (⛔ not the home), `failed_origin` is the home that originated
+  the failed flight on your behalf, and `ctr` keeps its established meaning — the HOME's counter — so an
+  existing decoder is unaffected. **Correlate on the complete tuple** `{failed_origin, reporter_layer,
+  target_kind, target_value, mobile_ctr, failed_type}`; ⛔ never on a counter alone, and ⛔ never on the record
+  key `(origin, msg_id)` — an E2E-ack receipt for the SAME operation is stored under the acker's origin, so the
+  key cannot pair the two. A translated report may move a waiting operation to **UNCERTAIN**; it must never
+  show it as failed or delivered, and it must never trigger a retry.
+  **B277 compatibility is unchanged and still measured**: both forms are the same `custody_failure` event, so
+  an un-updated decoder's `default:` arm keeps treating them as a generic event — inert, never mistaken for an
+  outcome push — and the same DM-cursor cost and the same two close-by options apply verbatim.
   **COMPAT WITH AN UN-UPDATED COMPANION — MEASURED, not assumed** ([[B277]]): `Inbound.decodeEvent`'s
   `default:` falls through to the generic event arm, so both forms decode as a plain event and are inert —
   no crash, no misrender, never mistaken for an outcome push, and it cannot appear as an empty-body DM

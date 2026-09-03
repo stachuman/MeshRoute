@@ -346,11 +346,34 @@ at the single 300 s expiry. An **ACK that arrives first** consumes the correlati
 stored at the home and translated nowhere; **custody first** does not break the later ACK, which still
 translates the home counter to the mobile's and clears the row. There is **no automatic retry and no generic
 `send_failed`** for a translated report — a refusal is a bounded diagnostic only.
-⛔ **Every receiver still refuses a translated record until S4**: `Node::custody_failure_receive` rejects one
-at a named interim guard, taking the same bounded `custody_failure_reject` a malformed record takes,
-**before** any plane, addressee, type, layer, domain, storage or Push logic runs — so no translated record is
-yet stored, pushed or user-exposed, including at the home that produced it. S4 replaces that guard with the
-split direct-vs-translated contextual validation.
+⛔ **The translated record has exactly one intended consumer, and every other receiver refuses it** (§B278
+S4, 2026-09-02). `Node::custody_failure_receive` makes ONE frame-level entrance, ONE prefix parse and ONE
+tail read, and then branches on the translated bit. A **direct** record keeps its landed rules unchanged: the
+body's `failed_origin` must be this node's own static id and `reporter_layer` must be the active receiving
+layer. A **translated** record is accepted only by a node that is **a configured mobile**, only when the DATA
+carrying it comes from the very node the record names as the failed origin, and only when that carrier is
+really addressed to it — by its **stable key hash** when the DATA carries `DST_HASH`, or, on the ordinary
+hosted direct-transit form which carries none, by an **active registration to that same home on the matching
+layer**. The two are alternatives, not a conjunction: a re-homed mobile is reached through its NEW home while
+the report still originates at the OLD one, and only the hash identifies it there. Everything else — the
+record's own `static_same_layer` plane claim, arrival off the team plane, the never-about-an-ACK-or-a-notice
+rule and the four count/hop domains — applies to both forms unchanged, and every refusal takes the same one
+bounded diagnostic a malformed record takes, with no storage, no push and no body bytes.
+**What acceptance does.** The record is stored as a persistent internal outcome and pushed live on the
+existing `custody_failure` kind, in that order, the push carrying the sequence the store assigned. Its public
+identity is the **record's**, not the carrier's: the reporting relay is the tail's original reporter (the home
+is a translator, not a witness), the counter is the mobile's own **ctrM** (the home's ctrH stays readable
+inside the body and on the `ctr` field), the layer is the layer the flight died on, and the body is retained
+at its full `record_len` including any accepted future tail. A mobile then **returns**: it never runs the
+home's correlation lookup, never re-originates, never becomes an ordinary DM and never generates an
+end-to-end ACK. Ordinary inbox rows and unread counts exclude both forms by the landed internal-type trait,
+while the raw `pull_inbox` diagnostic still returns them.
+**How a consumer correlates.** On the complete tuple `{failed_origin, reporter_layer, target_kind,
+target_value, mobile_ctr, failed_type}` — ⛔ never on a counter alone, and never on the inbox record key
+`(origin, msg_id)`: an end-to-end ACK receipt for the same operation is stored under the acker's origin, so
+the key cannot pair the two.
+⚠ **Acceptance is not authentication and licenses nothing.** The reporting relay's identity is a claim, no
+trust, key, route, membership or retry decision follows from it, and there is **no automatic retry**.
 ⚠ Like the direct form, a translated custody record is **unauthenticated and is not proof of loss**: the
 reporting relay's identity is a claim, the destination may still have the message, another path may have
 delivered a copy, and an end-to-end ACK may still arrive. No surface may call it a NACK or a delivery failure.

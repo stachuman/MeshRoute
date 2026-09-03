@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S4 brief Quality-Agent PASS, ready for Opus dispatch
+**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 + S4 CLOSED 2026-09-03 · seventh corpus-table ruling landed · S5 pre-check next
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -598,7 +598,7 @@ existing direct fields:
   "ctr": 912,
   "delegated": true,
   "target_kind": "hash",
-  "target_hash": "0xA1B2C3D4",
+  "target_hash": "a1b2c3d4",
   "mobile_ctr": 77
 }
 ```
@@ -859,6 +859,19 @@ translated receiver and presentation slice.
 4. Re-run Slice C visibility and unread-budget gates.
 5. Add the generic exact-tuple consumer fixture; no OLED/RPC state machine is implemented
    here unless separately included by an approved amendment.
+
+**Completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-02-b278-s4.md`. A configured mobile now consumes the
+translated form only when the outer home and stable-hash or active-registration context
+agree with the codec-validated record. It stores the full record before the existing live
+Push, preserves the direct form byte-for-byte, and exposes one translated field authority
+across live JSON, pulled JSON and the executable USB renderer. Slice-C OLED/unread exclusion
+and raw pull remain intact, and the generic fixture proves the complete six-field body tuple
+rather than counter-only or store-key matching. Native finished at 2578/108904/0; all five
+mutation/dependency targets were RED; the new USB gate passed 27 checks and 10 controls;
+all 36 corpus anchors reproduce with eleven direct receipts unchanged; `Node` and ruled-board
+RAM are unchanged; and the static stack delta is fully attributed. S4 owes no re-anchor,
+owner ruling or bench part. Part 54 remains S5's end-to-end metal gate.
 
 ### S5 — full gates, docs and metal
 

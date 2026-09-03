@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B278 S4 — mobile receive and translated-custody surfaces · dispatch brief · 2026-09-02
 
-**Status: QUALITY-AGENT PASS — ready for Opus dispatch.**
+**Status: COMPLETE — implementation and independent Quality Gate PASS 2026-09-03.**
 Dispatch model after PASS: **Opus**. Authority:
 `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`, especially
 §8, §12-S4 and §13.3–§13.5. Pre-check input:
