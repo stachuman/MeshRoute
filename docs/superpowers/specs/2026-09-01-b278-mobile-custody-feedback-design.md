@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 + S4 CLOSED 2026-09-03 · seventh corpus-table ruling landed · S5 brief QUALITY-AGENT PASS 2026-09-03 · owner rulings R-S5-1 through R-S5-4 landed · ready for Opus dispatch
+**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 + S4 + S5 ALL CLOSED 2026-09-03 · seventh corpus-table ruling landed · owner rulings R-S5-1 through R-S5-4 landed · SOFTWARE-COMPLETE / METAL-PENDING — bench Part 54
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  
@@ -878,6 +878,20 @@ owner ruling or bench part. Part 54 remains S5's end-to-end metal gate.
 Run all gates below, propose any corpus re-anchor in-tree, and add bench Part 54. B278 becomes
 software-complete only after QG; it closes fully after Part 54.
 
+**Software completion:** PASS; evidence:
+`docs/superpowers/evidence/2026-09-03-b278-s5.md`. The consolidated final-tree gate reproduced
+native 2578/108904/0 with the PIN unchanged; ran the union of the mechanical changed-file
+selector and the custody-arc target list (22 mutation targets, all RED, zero unusable); held
+36/36 corpus anchors exactly with `s18` `32afbf11`/269517/0 and no translated-custody corpus
+reach; reproduced both ABI probes, all three wiring probes, both checkers, the six-environment
+warning census and 174 tool tests; and produced byte-identical gateway and heltec_mobile ELF
+and payload images with zero RAM movement. The only implementation-side edit was a comment
+correction in `test/test_custody_relay_f.cpp`, proven token-neutral apart from doctest
+`__LINE__` values. No production, wire, baseline or corpus-table change landed. Owner rulings
+R-S5-1 through R-S5-4 govern the conditional late-ACK observation, reboot no-map arm,
+straight-to-metal proof and independent B283 instrument work. **This is software completion,
+not B278 closure: bench Part 54 remains the sole undischarged §16 criterion.**
+
 ## 13. Required tests and falsifiers
 
 ### 13.1 Correlation
@@ -1020,10 +1034,16 @@ Required observations:
    `mobile_ctr=ctrM`, with exactly one `target_id` or `target_hash` field and no aliases;
 6. prove M1's ordinary OLED inbox/unread count does not gain a message row;
 7. power-cycle M1 and prove the translated record survives in raw `pull_inbox`;
-8. run the ACK-order control: custody first then a valid late ACK upgrades the live consumer
-   without a second translation or downgrade;
-9. run the no-map control after H1 reboot/expiry: H1 retains the direct diagnostic and M1
-   receives nothing, never a wrongly correlated record; and
+8. ⚠ **RULED R-S5-1 2026-09-03 — CONDITIONAL ON METAL.** This item originally required:
+   *"run the ACK-order control: custody first then a valid late ACK upgrades the live consumer
+   without a second translation or downgrade"*. That ordering is structurally unreachable on
+   the four-node line after R's terminal destroys its last copy. S1b/S3 remain the normative
+   proof. Record the upgrade/no-second-translation/no-downgrade result if a genuinely
+   independent copy produces it; absence is not a metal failure;
+9. ⚠ **RULED R-S5-2 2026-09-03 — H1 REBOOT ONLY.** This item originally allowed *"H1
+   reboot/expiry"*. Reboot H1 after R's hop ACK and before R's terminal report; H1 retains the
+   direct diagnostic and M1 receives nothing, never a wrongly correlated record. The 300 s
+   expiry variant is dropped because R's ≤60 s terminal necessarily precedes it; and
 10. if a fifth node is available, re-home M1 after origination but before translation and
     prove the same hash-addressed outcome reaches M1 through H2.
 

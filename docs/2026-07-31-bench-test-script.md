@@ -3810,3 +3810,204 @@ without an antenna or suitable load). B must be the only next hop by which A can
 and the simulator wires no inbox store — the host gates prove the JSON surface and that the PushKind arm is
 handled, never what USB prints. ⛔ Corrected 2026-08-31: the earlier compact step deleted `CF_SEQ` before
 asking a reboot to restore it. Persistence is now tested before deletion; a second reboot proves deletion.)*
+
+## Part 54 — §B278: a HOME-TRANSLATED custody report reaching the MOBILE that owns the flight (2026-09-03)
+
+⏳ **PENDING — this is B278's only outstanding closure item.** Its PASS is what closes B278; a software PASS
+never does (S5 evidence `docs/superpowers/evidence/2026-09-03-b278-s5.md`).
+
+**Why it is metal-only, stated so nobody re-tests what is already proven.** The USB line's CONTENT and the
+OLED's silence live outside every host gate (`fw_main.cpp` is compiled by neither the native suite nor the
+simulator), and the four-radio timing — a relay accepting custody, then failing onward, while a home still
+holds a live correlation row — has no host equivalent. ⛔ **JSON compatibility is HOST-PROVEN and is not
+re-tested by hand here** (`test_console_json.cpp` + `tools/probe_custody_usb/`, 27 checks / 10 controls).
+
+**Topology — four radios.** `M1 (mobile) — H1 (its home, static) — R (static relay) — T (static target)`,
+with **H1→T only through R** (Part 53's RF arrangement, with A=H1, B=R, C=T: distance, shielding or a rated
+attenuator; never transmit without an antenna or a suitable load). M1 must be a mobile build
+(`heltec_mobile` or `heltec_v4_mobile`); H1, R and T are static and **H1 must not be a gateway** ([[B132]]).
+An optional fifth node H2 serves step 12.
+
+**★ THE RUN'S VALIDITY CRITERION, checked before any verdict.** R's trace must show, in this order,
+`«rx DATA` from H1 → `»tx ACK` (the hop ACK = custody accepted) → its failed onward attempts → the terminal.
+A direct H1-origination failure — no hop ACK at R — is **not custody**: the run is invalid, neither PASS nor
+FAIL.
+
+1. **Baselines and identity.** On all four nodes:
+
+   ```text
+   version
+   whoami
+   mobile status
+   status
+   routes
+   debug on
+   pull_inbox 0 0
+   ```
+
+   `whoami` prints `[whoami] id=<id> hash=0x<hex> name="…" leaf=<n> gw=0 gwonly=0 mobile=<0|1>`. On a
+   REGISTERED mobile that `id` **is** the host-assigned local id (`node.h:3404`: *"our host-assigned local-id
+   (== `_node_id` once adopted)"*), and `mobile status`'s JSON `"local"` is the independent cross-check.
+   Record it as `M1_LOCAL` and the `hash=0x…` as `M1_HASH`; record `H1_ID`,
+   `R_ID`, `T_ID`. On M1 `mobile status` must print `  mobile-reg: REGISTERED home=<H1_ID>`, and its JSON
+   form must carry `"registered":true`, `"home":H1_ID`, `"local":M1_LOCAL` and `"home_layer":<L>` — record
+   `L`. H1/R/T must each report `"mobile":false`. From each `inbox_end` record `dm_seq`/`chan_seq`/`epoch`/
+   `count`; call M1's `M1_DM0`/`M1_CH0`/`M1_EPOCH0` and H1's `H1_DM0`/`H1_CH0`. Record M1's OLED unread
+   count and visible INBOX rows.
+   ⛔ Stop if H1's route to `T_ID` is direct or has any next hop other than R, or if R has no route to T.
+
+2. **Force the v1-supported plaintext carrier on M1, recording what to restore.** From M1's `cfg` record the
+   current `e2e_dm` and `intro_attach` as `M1_E2E0` and `M1_INTRO0`, then:
+
+   ```text
+   cfg set e2e_dm 0
+   cfg set intro_attach 0
+   cfg
+   ```
+
+   The final `cfg` must show `loc   : e2e_dm=0 … intro_attach=0`. These writes are persistent; step 13
+   restores them.
+
+3. **Positive control, T still on — and the proof the ACK uses M1's counter.** On M1:
+
+   ```text
+   send T_ID "part54-control-20260903" -a
+   ```
+
+   The reply is `queued ctr=<ctrM> depth=<n>` — record `ctrM_CONTROL`. T must receive that exact text, R's
+   trace must show it relayed the flight, and M1 must then print
+   `E2E-ACKED ctr=<ctrM_CONTROL> from=<T_ID>`. ⛔ **The printed `ctr` MUST equal the queued one** — that is
+   the existing `ctrH → ctrM` translation, and if it does not hold the rest of this part measures nothing.
+   The DATA trace must not say `CRYPTED`. Re-run `pull_inbox 0 0` on all four nodes and update every
+   `*_DM0/*_CH0` high-water so the control is outside the failure delta.
+
+4. **Create the custody failure.** Power **T** fully off. Do not wait for the H1→R→T route to age out.
+   Immediately, on M1:
+
+   ```text
+   send T_ID "part54-custody-20260903" -a
+   ```
+
+   Record the reply's `ctr=` as **`ctrM`**. Keep T off until the report reaches M1.
+
+5. **The trace order at R — the validity criterion.** R's trace must show `«rx DATA` from H1, then
+   `»tx ACK`, then failed CTS/onward attempts toward T, then cascade terminal. **Allow up to 180 seconds**
+   (Part 53's allowance). The cascade itself is bounded by `cascade_requeue_total_max_ms` = **60 000 ms**
+   (3 requeues, 5 s base, 30 s cap — `lib/core/protocol_constants.h:272-275`), so a terminal that has not
+   appeared well inside that is a topology or timing problem, not a matter of waiting longer.
+   ⛔ Without the order above the run is INVALID — neither PASS nor FAIL.
+
+6. **H1 keeps the DIRECT report — and its forward to M1 is silent on USB.** On H1:
+
+   ```text
+   pull_inbox H1_DM0 H1_CH0
+   ```
+
+   H1 must print exactly one live line of the form
+
+   ```text
+   CUSTODY FAILURE reporter=<R_ID> layer=<L> origin=<H1_ID> dst=<T_ID> ctr=<ctrH> stage=cts|ack reason=… prev=<H1_ID> next=<T_ID> repair=attempted|none one_way=0|1 seq=<N_H> — the relay could not complete onward custody; NOT proof the destination missed it (an e2e ack may still arrive)
+   ```
+
+   and return exactly one matching `{"ev":"custody_failure","seq":N_H,…}` record. Record `ctrH` and `N_H`.
+   ⛔ **`ctrH` is generally NOT equal to `ctrM`** — H1 re-mints the counter when it forwards
+   (`node_mac_rx.cpp:1447`), which is the whole reason the translated tail exists.
+   ⛔ H1's line and record must contain **no** `delegated`, `target_kind`, `target_id`, `target_hash` or
+   `mobile_ctr` field: H1 is static and its own report is the unchanged v1 direct form.
+   ⛔ **H1's forward to M1 prints NOTHING on USB** — there is no `src/` print site for it. Witness it in H1's
+   trace as `»tx RTS/DATA` addressed to `M1_LOCAL`, and by M1's receipt in step 7.
+
+7. **M1 receives exactly ONE translated report.** On M1 the live line must be
+
+   ```text
+   CUSTODY FAILURE reporter=<R_ID> layer=<L> origin=<H1_ID> dst=<T_ID> ctr=<ctrH> stage=… reason=… prev=<H1_ID> next=<T_ID> repair=… one_way=… delegated=true target_kind=node_id target_id=<T_ID> mobile_ctr=<ctrM> seq=<N_M> — the relay could not complete onward custody; NOT proof the destination missed it (an e2e ack may still arrive)
+   ```
+
+   Record `N_M`. Then:
+
+   ```text
+   pull_inbox M1_DM0 M1_CH0
+   ```
+
+   must return exactly one new record:
+
+   ```text
+   {"ev":"custody_failure","seq":N_M,"rx_ms":…,"reporter":R_ID,"reporter_layer":L,"failed_origin":H1_ID,"dst":T_ID,"ctr":ctrH,…,"delegated":true,"target_kind":"node_id","target_id":T_ID,"mobile_ctr":ctrM}
+   ```
+
+   ⛔ Assert all four: **`reporter` is R (not H1)**; **`failed_origin` is H1 and `ctr` is `ctrH`** (the home
+   identity survives inside); **`mobile_ctr` equals the `ctrM` recorded in step 4**; and **exactly one**
+   target field is present — `target_id` **XOR** `target_hash`, with **no** `via_home` and **no** `home_ctr`
+   alias. ⛔ M1 must print exactly ONE such line — a second is a duplicate-translation failure.
+   (If the flight was addressed by HASH — `send 0x<T_HASH> "…" -a`; ⛔ the old `sendhash` verb no longer
+   exists, `console_parse.cpp:259` — the same line reads `target_kind=hash target_hash=<8 lower-case hex>`
+   and everything else is identical.)
+
+8. **The OLED gains nothing.** M1's OLED INBOX rows and unread count must equal their step-1 values exactly.
+   A protocol-internal outcome record is trait-excluded from the ordinary inbox view; `pull_inbox`
+   deliberately includes it.
+
+9. **Persistence.** Physically power-cycle M1. After the boot banner reports the inbox enabled:
+
+   ```text
+   pull_inbox M1_DM0 M1_CH0
+   ```
+
+   The same single record must return with the same `N_M`, the same `ctr=ctrH` and the same
+   `mobile_ctr=ctrM`, still absent from the OLED inbox/unread count, and `epoch` must still equal
+   `M1_EPOCH0`.
+
+10. **ACK-order — a CONDITIONAL OBSERVATION, never a failure (owner ruling R-S5-1, 2026-09-03).**
+    ⛔ **Do not build a topology to force this.** The "custody first, then a valid late E2E ACK" sequence is
+    **structurally unreachable on this four-node line**: R emits the notice only at its cascade terminal and
+    resets the carrier there (`node_cascade.cpp:136`, `:171-173`), and with T off no copy ever reached T, so
+    no later ACK can exist. Producing it needs a second independently successful path — a fifth radio plus
+    timing control. **The normative proof of the monotonic rule is the host suite** (the §B278 S1b/S3
+    ACK-after-custody cases: the `forwarded` row still translates a later ACK and then clears), and it is
+    already green.
+    ⇒ **IF** an independent copy does happen to yield a late valid `E2E-ACKED ctr=<ctrM> from=<T_ID>` on M1,
+    then it MUST upgrade the live operation **with no second translated line and no downgrade** of the
+    already-shown custody evidence. **Its ABSENCE IS NOT A FAILURE** and is recorded as "not observed".
+
+11. **No-map control — the H1-REBOOT shape (owner ruling R-S5-2, 2026-09-03).**
+    ⛔ The 300 s expiry variant is **dropped as physically unreachable**: R's terminal always lands inside
+    60 s, well before `delegated_custody_ttl_ms` = 300 s (`protocol_constants.h:790`).
+    Power T off again, and on M1 send a fresh tagged flight:
+
+    ```text
+    send T_ID "part54-nomap-20260903" -a
+    ```
+
+    Then **reboot H1 inside the window: after R's `»tx ACK` for this flight and before R's terminal report
+    arrives at H1** (R's terminal lands 15-60 s after the hop ACK, so the window is wide). H1's correlation
+    ring is RAM-only, so the reboot empties it. Required outcome:
+    - H1 prints and stores the **DIRECT** diagnostic for this flight, exactly as in step 6 — no translated
+      fields; and
+    - ⛔ **M1 receives NOTHING**: no new live `CUSTODY FAILURE` line, and `pull_inbox M1_DM0 M1_CH0` returns
+      no record beyond `N_M`. A wrongly-correlated record here is a hard FAIL.
+
+    ⚠ H1's reboot may lose M1's registration. Before any later arm, re-run `mobile status` on M1 and, if it
+    no longer reads `REGISTERED home=<H1_ID>`, re-register M1 and confirm that line before continuing.
+
+12. **Optional fifth-node re-home arm (H2).** If a fifth static node H2 is available: after M1 originates a
+    fresh `-a` flight through H1 but before the translation returns, re-home M1 onto H2 and address the
+    target by hash (`send 0x<T_HASH> "part54-rehome-20260903" -a`). The same translated line must reach M1
+    through H2, identical except that `reporter_layer` may differ and the target renders as
+    `target_kind=hash target_hash=<8 hex>`. Skipping this arm is not a failure.
+
+13. **Restore.** On M1, substituting the exact values recorded in step 2:
+
+    ```text
+    cfg set e2e_dm M1_E2E0
+    cfg set intro_attach M1_INTRO0
+    cfg
+    ```
+
+    Confirm both match the step-2 originals, power T (and H2) back on, and restore the normal RF
+    arrangement. If M1 was re-homed in step 12, restore it to H1 and confirm
+    `mobile-reg: REGISTERED home=<H1_ID>`.
+
+*(Metal-only residue: the USB line's content, the OLED's silence, and the four-radio timing. ⛔ Step 10 is a
+conditional observation under R-S5-1 and step 11 takes the reboot shape under R-S5-2 — neither is a defect
+allowance, both are recorded physical limits of a four-node line. JSON compatibility stays host-proven and is
+not re-tested here.)*

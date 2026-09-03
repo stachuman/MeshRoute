@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-01**
+Last refreshed: **2026-09-03**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -16,6 +16,12 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 - `2026-08-23-internal-data-and-custody-outcome-design.md` — slices A0–G are implemented and QG-passed; B59 is
   fully closed after bench Part 53 passed on metal on 2026-09-01. Optional Slice H (`DM UNCERTAIN` user-send
   presentation) remains deliberately parked; adjacent findings stay in the bug register.
+
+- `2026-09-01-b278-mobile-custody-feedback-design.md` — the mobile/static custody extension on top of that v1
+  arc, **tracked separately from it**: slices S0–S5 are implemented and QG-passed and B278 is
+  **SOFTWARE-COMPLETE / METAL-PENDING**. It closes only when bench **Part 54** passes on real radios. It adds
+  no custody generator: team-plane, cross-layer and hosted-last-mile custody generation stay out of scope,
+  and [[B112]] remains open and separate.
 
 
 ## Backlog — priority order
@@ -46,6 +52,12 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 -  `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
 ## Bugs - suggested order
+
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; then (2) remote-admin v2
+  preparation (`2026-08-23-remote-admin-independent-rpc-design.md`), whose §14.1/Slice 9 B278 prerequisite is
+  now satisfied. [[B280]] (long-busy NACK lifetime), [[B281]] (measure_board output path), [[B282]] (leaked
+  XL reservation), [[B283]] (census blind to `-Wunused-parameter`, instrument slice, dispatched in parallel)
+  and [[B112]] remain independently tracked and none of them blocks Part 54.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 

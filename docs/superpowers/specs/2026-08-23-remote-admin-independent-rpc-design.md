@@ -1015,13 +1015,32 @@ The PRIMARY product controller topology is a mobile attached locally over USB (a
 carrier has two identities: the mobile delegates wrapper `{dstHome, ctrM}` to Home1, then Home1 re-originates
 the static/global RPC flight under `{dstTarget, ctrH}`. The wrapper and final hosted-mobile last mile are
 outside custody v1; the inter-home/static leg is eligible, but a request-loss notice names Home1/`ctrH` and
-terminates at Home1 while the controller pending record lives on the mobile under `ctrM`. There is currently
-no custody equivalent of the E2E-ACK `ctrH -> ctrM` translation. Therefore [[B278]] is a REQUIRED prerequisite
-for Slice 9, not optional polish: its reviewed design must prove the delegated-correlation record lives across
-every eligible terminal, translate the complete identity (never counter alone), forward a typed factual
-outcome to the correct hosted mobile, and leave an absent/expired mapping as an uncorrelated Home1 diagnostic.
-It must not broaden custody to team-plane or hosted-last-mile failures without a separate ruling. Until B278
-lands, a mobile controller may remain timeout-correct but must not claim custody-aware request evidence.
+terminates at Home1 while the controller pending record lives on the mobile under `ctrM`.
+
+⚠ **UPDATED 2026-09-03, OLD CLAIM KEPT VISIBLE.** This paragraph used to end: *"There is currently no
+custody equivalent of the E2E-ACK `ctrH -> ctrM` translation. Therefore [[B278]] is a REQUIRED prerequisite
+for Slice 9 … Until B278 lands, a mobile controller may remain timeout-correct but must not claim
+custody-aware request evidence."* **[[B278]] has landed (software-complete 2026-09-03; metal Part 54
+pending), so that carrier now EXISTS and this design consumes it rather than waiting for it.** The landed
+contract, and the whole of what a remote-admin consumer may rely on:
+
+- an RPC request sent from a mobile through its home requests the **existing E2E ACK**; B278 adds no new
+  request-progress mechanism and no new opcode;
+- a custody failure on the **static leg** returns to the mobile as the existing `custody_failure` event,
+  carrying the home's `ctrH` unchanged in `ctr` and the mobile's own counter in **`mobile_ctr`**, plus
+  `delegated=true`, `target_kind` and exactly one of `target_id` / `target_hash`;
+- a remote-admin consumer matches it on the **complete six-field body tuple**
+  `{failed_origin, reporter_layer, target_kind, target_value, mobile_ctr, failed_type}` — ⛔ never on a
+  counter alone and never on the inbox record key;
+- ⛔ it **cannot** become an RPC response, satisfy an RPC terminal, become an authentication or permission
+  failure, or prove that the target did not execute: another copy may already have arrived;
+- it **may** support the UNCERTAIN/retry policy designed elsewhere in this document, but only under that
+  design's exact-byte and idempotence rules — **B278 itself never retries**; and
+- ⛔ **[[B112]] remains OPEN and SEPARATE.** B278 does not resolve first-hop-ACK admission truthfulness and
+  must never be described as doing so.
+
+The v1 generator boundary is unchanged: custody is still generated only on static/global same-layer transit,
+and team-plane / hosted-last-mile generation still requires a separate ruling.
 
 ## 15. Bounded queues and backpressure
 
@@ -1213,9 +1232,12 @@ The complete design does not provide:
    exact-pair nonterminal evidence, never an RPC response/authentication result and never an automatic retry.
 9. **Mobile-delegated controller carrier:** add the forced-global, source-bound mobile route and its smaller
    packer-derived command/response caps as a separately gated slice.
-   Target acceptance remains static/gateway-only. B112's first-hop-ACK defect and [[B278]]'s exact
-   `ctrH -> ctrM` custody-outcome translation must be resolved before this slice can claim truthful
-   mobile-origin admission and custody-aware progress; neither blocks the preceding static-controller path.
+   Target acceptance remains static/gateway-only.
+   ⚠ **UPDATED 2026-09-03, old text kept visible: it read** *"B112's first-hop-ACK defect and [[B278]]'s
+   exact `ctrH -> ctrM` custody-outcome translation must be resolved before this slice…"*. **[[B278]] is
+   landed** (software-complete; metal Part 54 pending) and supplies that translation, so this slice consumes
+   the delivered `custody_failure` carrier under §14.1's updated rules. **[[B112]] alone remains outstanding**
+   for truthful mobile-origin admission; neither item blocks the preceding static-controller path.
 10. **Legacy deletion, companion integration, and durable docs:** delete every item in §17's replacement
     list, remove the dead main-NV fields through an attributable NV slice, and update `docs/frames.md`,
     `docs/protocol.md`, help/manual, companion plaintext event handling, and historical cross-references.
@@ -1353,7 +1375,9 @@ The following product decisions are no longer open:
     a separately reviewed physical-presence mechanism exists.
 28. The primary controller topology is a node reached locally over USB on a mobile build. Therefore the
     mobile-delegated carrier is product scope, not an optional adapter, and [[B278]]'s exact home-to-mobile
-    custody-outcome translation is a prerequisite for claiming custody-aware mobile request progress.
+    custody-outcome translation — ⚠ **updated 2026-09-03: previously written as a prerequisite, it is now
+    LANDED** (software-complete; metal Part 54 pending) — supplies that evidence. Claiming custody-aware
+    mobile request progress therefore depends on §14.1's consumption rules, not on further B278 work.
 
 ### 20.2 Work still required before implementation approval
 
@@ -1371,8 +1395,14 @@ guesses:
 - the quantified request-ID collision bound and final 64/96/128-bit choice;
 - exact command-byte validation, including embedded NUL/CR/LF rejection and USB/BLE length behaviour;
 - authenticated/open/bootstrap resource partitioning and rate limits that preserve owner recovery;
-- the [[B278]] delegated-custody mapping lifetime and exact home-to-mobile outcome carrier required by the
-  primary USB-attached mobile-controller topology, including the no-map and late-map verdicts;
+- ⚠ **RESOLVED 2026-09-03, kept visible: this line read** *"the [[B278]] delegated-custody mapping lifetime
+  and exact home-to-mobile outcome carrier required by the primary USB-attached mobile-controller topology,
+  including the no-map and late-map verdicts"*. **All four are now settled by the landed B278 design:** the
+  mapping lifetime is one named 300 s row (`delegated_custody_ttl_ms = e2e_ack_deadline_xl_ms`); the carrier
+  is the same `0x81` record with an eight-byte translated tail (32 B) returned through `send_by_hash`; a
+  **no-map** report stays an uncorrelated diagnostic at the home and nothing reaches the mobile; and a
+  **late-map** ACK upgrades the operation monotonically without a second translation or a downgrade. What
+  remains for THIS design is only how a pending RPC record consumes those facts (§14.1);
 - final compile-time feature names and dependency checks for client/transport/accept; and
 - precise packer-derived carrier caps, stable-source binding, route-metadata refresh, and failure reporting
   for static and later mobile-delegated paths.

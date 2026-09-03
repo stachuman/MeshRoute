@@ -33,6 +33,11 @@ Every recorded defect class in this codebase (masking holes, vacuous controls, "
 - The slice's fence: which paths may change; `git diff --stat` expectations; refactor XOR feature (C1); a `wire_version` bump is its own slice (C4/M3).
 - **Wiring-gate evidence** for any new verb, handler or push consumer: which instrument compiles the production TU and drives the real router. A "the glue makes no decisions" claim is rejected on sight.
 - Every figure **derived by the coder**, none quoted from the brief or the pre-check.
+- Mutation coverage must distinguish two selectors when both matter: (a) batteries whose
+  configured source file was changed by the slice/arc, and (b) dependency or historical
+  batteries that define that slice/arc's acceptance surface. These sets are not assumed equal
+  or nested; derive both, explain differences, and gate their union when the brief requires
+  complete arc coverage.
 - The durable evidence file path under `docs/superpowers/evidence/`; every new instrument named, added to a gate, and listed in the untracked-file inventory.
 - The report shape, including the exact line `PIN re-synced? YES — <derivation>`.
 - Rulings requested from the owner, listed explicitly, with a recommendation.

@@ -1345,3 +1345,49 @@ As each implementation slice lands:
 
 This first draft approves the architecture and bounded v1 scope only. It is not an
 implementation plan and does not mark B59 closed.
+
+## 20. B278 addendum — mobile-delegated custody feedback (2026-09-03)
+
+⛔ **THIS SECTION ADDS; IT REWRITES NOTHING ABOVE IT.** Sections 0-19 describe custody v1 as designed and as
+implemented in slices A0-G, and that description remains accurate. This addendum records the ONE extension
+[[B278]] landed on top of it, so a reader of this file is not left believing v1's boundary is still the whole
+truth. The authority for the extension is
+`docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`; only its landed contract is
+restated here.
+
+1. **What v1 deliberately excluded, and still excludes as a GENERATOR.** §10's eligibility is
+   static/global/same-layer transit. A mobile delegation (`M1 → Home1`) and a hosted-mobile last mile
+   (`Home2 → M2`) are excluded by construction — `not_mobile_delegation` at
+   `lib/core/node_cascade.cpp:279` is the term — and B278 does **not** widen that. No new relay generates a
+   custody notice. **Team-plane, cross-layer and last-mile custody GENERATION remain outside scope.**
+
+2. **What B278 adds is a RETURN PATH, not a new source of evidence.** After a home re-originates a delegated
+   flight, an eligible static relay between the homes already produced a v1 notice — it simply named the
+   HOME's `{dst, ctrH}` and stopped there. B278 forwards that same evidence to the mobile that owns the
+   operation.
+
+3. **It reuses the existing eight-row E2E correlation ring, and only for delegated `-a` flights.** There is
+   no second ring. Per owner ruling R1=A, only a delegated flight carrying `DATA_FLAG_E2E_ACK_REQ` reserves
+   a correlation row; a plain non-E2E delegated send allocates none and stays admission-compatible.
+
+4. **A static relay's direct report is unchanged and still terminates at H1.** H1 validates, stores and
+   pushes it exactly as v1 specifies. Only afterwards does H1 append the eight-byte translated tail to the
+   SAME `0x81` record (24 B direct → 32 B translated, `notice_flags` bit 6) and return it through the
+   existing `send_by_hash` mobile locator. There is no second DataType, no second locator and no second
+   codec: `pack_custody_failure_translated` / `parse_custody_translated_tail` are the one packer and the one
+   tail reader.
+
+5. **The correlation identity is COMPLETE, never a counter and never the record key.** A report is matched on
+   `{failed_origin, reporter_layer, target_kind, target_value, mobile_ctr, failed_type}` — all six. Counter-
+   only matching is explicitly refused, and the inbox record key is never used as an identity.
+
+6. **The configured mobile is the one intended consumer.** It validates its stable-hash or active-home
+   context before accepting, persists the complete record BEFORE the Push, and every other receiver — the
+   translating home included — refuses a translated record.
+
+7. **The report stays what v1 said a custody report is.** It is diagnostic and **unauthenticated**; it is not
+   a NACK, not proof of non-delivery, not an authentication or permission result, and it triggers **no
+   automatic retry**. §15's monotonic rules apply unchanged: a later valid E2E ACK upgrades the operation and
+   the custody evidence never downgrades it.
+
+8. **[[B59]] is not reopened and B112 is not closed by any of this.**
