@@ -560,11 +560,24 @@ TEST_CASE("§CUSTODY-F/1g the packer refuses a short buffer and every transmitte
 // =====================================================================================================
 // §CUSTODY-F/1i..1r — §B278 S2: THE HOME-TRANSLATED FORM (design §6.1/§6.2/§6.3)
 // =====================================================================================================
-// ⛔⛔ WHAT S2 IS AND IS NOT, so no case below is read as more than it measures: S2 allocates `notice_flags`
-//    bit 6 and the 32-byte translated record, and gives them ONE packer, ONE tail reader and ONE tail value.
-//    **NOTHING PRODUCES OR CONSUMES THE FORM.** S3 originates it at the translating home; S4 lands the mobile
-//    receiver. The production receiver's interim refusal is measured in `test_custody_receive_g.cpp`
-//    (§CUSTODY-G/2.21), not here — this file is the pure codec.
+// ⛔⛔ WHAT THIS SECTION IS AND IS NOT, so no case below is read as more than it measures: S2 allocates
+//    `notice_flags` bit 6 and the 32-byte translated record, and gives them ONE packer, ONE tail reader and
+//    ONE tail value. The cases below are the PURE CODEC — bytes, offsets, endianness and refusals — and they
+//    measure no receiver policy whatsoever.
+// ⚠⚠ CORRECTED IN PLACE 2026-09-03 BY §B278 S5, OLD CLAIM KEPT VISIBLE. This banner used to read:
+//    *"**NOTHING PRODUCES OR CONSUMES THE FORM.** S3 originates it at the translating home; S4 lands the
+//    mobile receiver. The production receiver's interim refusal is measured in `test_custody_receive_g.cpp`
+//    (§CUSTODY-G/2.21), not here — this file is the pure codec."*
+//    That was the ratified S2 INTERMEDIATE state and it is no longer true on two counts:
+//    · S3 LANDED THE PRODUCER — the translating home builds the 32 bytes with this file's
+//      `pack_custody_failure_translated` and originates them through `send_by_hash` (`node_mac_rx.cpp:1855`).
+//    · S4 LANDED THE CONSUMER — the CONFIGURED MOBILE reads the tail with this file's
+//      `parse_custody_translated_tail` (`node_mac_rx.cpp:1689`) and stores/pushes the record.
+//    · AND §CUSTODY-G/2.21 NO LONGER MEASURES AN INTERIM REFUSAL. S4 replaced that blanket guard with §8.1/§8.2's
+//      split direct-vs-translated validation, so what that case now measures is the PERMANENT STATIC-RECEIVER
+//      refusal (§8.2's configured-mobile term); the positive mobile acceptance is §B278-S4/4.
+//    What survives unchanged is the sentence this banner exists for: the pure codec is where bytes are proven,
+//    and receiver behaviour — refusal or acceptance — is proven in `test_custody_receive_g.cpp`, never here.
 
 // ★★★★ §6.1/§6.2 — THE TRANSLATED 32-BYTE GOLDEN VECTOR, EVERY OFFSET, against a hand-written array rather than
 //      the encoder's own output. ⛔ AND THE DIRECT VECTOR IS RE-ASSERTED IN THE SAME CASE: S2's headline promise
