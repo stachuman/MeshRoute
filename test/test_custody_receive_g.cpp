@@ -250,12 +250,23 @@ enum RecOff : uint8_t {
 struct ArmOut { int accepted = 0; int rejected = 0; int pushes = 0; int delivered = 0; int unsupported = 0;
                 uint32_t seq = 0; int stored = 0; bool flew = false; };
 
-struct StoreSink { int custody = 0; uint32_t seq = 0; uint8_t body_len = 0; std::vector<uint8_t> body; };
+// ★ §B278 S4: the sink gained the record's IDENTITY beside its bytes — ADDITIVELY, so every pre-existing reader
+//   (`o.custody`, `o.seq`, `o.body_len`, `o.body`) is byte-identical. §8.3 maps `origin` / `msg_id` / `layer`
+//   DIFFERENTLY for a translated record, and a sink that kept only the body could not say so; `visited` and
+//   `recs` exist because §S4-5's raw-pull pin has to see BOTH forms in ONE pull.
+struct StoreRec { uint32_t seq = 0, msg_id = 0; uint8_t origin = 0, layer_id = 0, body_len = 0;
+                  std::vector<uint8_t> body; };
+struct StoreSink { int custody = 0; uint32_t seq = 0; uint8_t body_len = 0; std::vector<uint8_t> body;
+                   int visited = 0; std::vector<StoreRec> recs; };
 bool store_cb(void* ctx, const InboxEntry& e) {
     auto* s = static_cast<StoreSink*>(ctx);
+    ++s->visited;
     if (e.type == DATA_TYPE_CUSTODY_FAILURE) {
         ++s->custody; s->seq = e.seq; s->body_len = e.body_len;
         s->body.assign(e.body, e.body + e.body_len);
+        StoreRec r{}; r.seq = e.seq; r.msg_id = e.msg_id; r.origin = e.origin; r.layer_id = e.layer_id;
+        r.body_len = e.body_len; r.body.assign(e.body, e.body + e.body_len);
+        s->recs.push_back(r);
     }
     return true;
 }
@@ -781,7 +792,14 @@ TEST_CASE("§CUSTODY-G/2.20 a VALID unknown tail is accepted, ignored by the v1 
 //   mask. S2 allocates bit 6, so without the guard the eighteen terms below would run on a translated record —
 //   and a translating home's own id sits in `failed_origin`, so a home could store and push its own translation
 //   as if it were a direct report about itself.
-TEST_CASE("§CUSTODY-G/2.21 §B278 S2 a WELL-FORMED translated record is REFUSED by the interim guard: no store, no push") {
+// ⚠⚠ CORRECTED IN PLACE 2026-09-02 BY §B278 S4, OLD CLAIM KEPT VISIBLE. This case was titled
+//    *"§B278 S2 a WELL-FORMED translated record is REFUSED by the interim guard"* and its body asserted the
+//    blanket S2 refusal. **S4 REPLACED THAT GUARD** with the split direct-vs-translated contextual
+//    validation, so "refused by every receiver" is no longer true and must not be left standing. What IS
+//    still true — and is what the identical assertions below now measure — is that this fixture's receiver
+//    is a STATIC node, and §8.2's configured-mobile term refuses a translated record there for ever
+//    (§B278-S4/4 is the same claim stated positively, with the mobile control beside it).
+TEST_CASE("§CUSTODY-G/2.21 §B278 S4 a WELL-FORMED translated record is REFUSED BY A STATIC RECEIVER: no store, no push") {
     // ---- the tail, valid against the baseline prefix: `failed_dst` is 9 and no `HAS_DST_HASH` is carried.
     CustodyTranslatedTail tail{};
     tail.original_reporter = 2;                                   // the relay this fixture reports from
@@ -804,7 +822,8 @@ TEST_CASE("§CUSTODY-G/2.21 §B278 S2 a WELL-FORMED translated record is REFUSED
         CHECK(parsed->reporter_layer == 2);                       // ⇒ §13.15's layer test WOULD pass
         CHECK(parse_custody_translated_tail(std::span<const uint8_t>(body, n), *parsed).has_value());
     }
-    // ---- the arm: exactly one bounded rejection, and nothing else happens at all.
+    // ---- the arm: exactly one bounded rejection, and nothing else happens at all. ⚠ §B278 S4: the refusing
+    //      term is no longer the interim guard but `_cfg.is_mobile` — `run_arm`'s node 1 is STATIC.
     const ArmOut o = run_arm(body, static_cast<uint8_t>(n));
     CHECK(o.flew);                 // ⛔ the frame really reached node 1 — a stalled chain is not a rejection
     CHECK(o.accepted == 0);
@@ -2248,16 +2267,27 @@ TEST_CASE("§B278-S3/16 the 300 s edge: prune-before-scan is exact, and a forwar
 }
 
 // -----------------------------------------------------------------------------------------------------
-// §B278-S3/17 — RECURSION, RELEASE OWNERSHIP AND THE S2 INTERIM DROP
+// §B278-S3/17 — RECURSION, RELEASE OWNERSHIP AND THE STATIC-RECEIVER DROP
 // -----------------------------------------------------------------------------------------------------
 
 // ★★★★ THE RECURSION GATE, MEASURED ON THE PRODUCED BYTES THEMSELVES. The 32-byte record S3 airs is handed
-//      straight back to a receiver: the §B278 S2 interim guard refuses it, so nothing is stored, nothing is
-//      pushed, and — critically — H1 never consumes its OWN translation even though `failed_origin` is H1's id
-//      and every one of §13's eighteen terms would otherwise pass.
-// ⛔ THIS IS THE RATIFIED S2->S4 INTERMEDIATE STATE. S4 replaces that guard; this case is one of the two that
-//    must be re-aimed then (the other is §CUSTODY-G/2.21).
-TEST_CASE("§B278-S3/17 the produced 32-byte record is refused by every receiver until S4, and spawns no custody") {
+//      straight back to a STATIC receiver, which refuses it — so nothing is stored, nothing is pushed, and
+//      — critically — H1 never consumes its OWN translation even though `failed_origin` is H1's id and every
+//      one of §13's eighteen terms would otherwise pass.
+// ⚠⚠ CORRECTED IN PLACE 2026-09-02 BY §B278 S4, OLD CLAIM KEPT VISIBLE. This paragraph said *"the §B278 S2
+//    interim guard refuses it"* and the block below said *"THIS IS THE RATIFIED S2->S4 INTERMEDIATE STATE.
+//    S4 replaces that guard; this case is one of the two that must be re-aimed then (the other is
+//    §CUSTODY-G/2.21)."* **BOTH have now been done**: S4 replaced the guard with the split contextual
+//    validation, and both cases were re-aimed. The refusing term here is `_cfg.is_mobile` (§8.2) — the
+//    receiver is a STATIC node — and §B278-S4/4 states the same claim positively, with arm (c) isolating
+//    that term from §8.2's rule 3.
+// ⚠⚠ CORRECTED IN PLACE 2026-09-02 BY §B278 S4, OLD CLAIM KEPT VISIBLE. This case was titled *"the produced
+//    32-byte record is refused by EVERY RECEIVER UNTIL S4"*. **S4 landed**, so that sentence is now false in
+//    general: the intended configured mobile ACCEPTS it (§B278-S4/2). What survives unchanged, and is what
+//    the untouched assertions below measure, is the half that S3 actually needed: **the translating HOME
+//    never consumes its own translation**, although its own static id sits in `failed_origin`. `run_arm`'s
+//    receiver is a STATIC node, and §8.2's configured-mobile term is what refuses it.
+TEST_CASE("§B278-S3/17 the produced 32-byte record is still refused by a STATIC receiver, and spawns no custody") {
     uint8_t rec[custody_record_v1_len];
     const uint8_t n = s3_pack_report(rec);
     std::vector<uint8_t> produced;
@@ -2275,7 +2305,7 @@ TEST_CASE("§B278-S3/17 the produced 32-byte record is refused by every receiver
     const ArmOut o = run_arm(produced.data(), static_cast<uint8_t>(produced.size()));
     CHECK(o.flew);
     CHECK(o.accepted == 0);
-    CHECK(o.rejected == 1);              // the S2 interim guard, taken exactly once
+    CHECK(o.rejected == 1);              // ⚠ §B278 S4: the EXISTING bounded exit, now taken on `_cfg.is_mobile`
     CHECK(o.pushes == 0);
     CHECK(o.stored == 0);
     CHECK(o.delivered == 0);
@@ -2375,4 +2405,1054 @@ TEST_CASE("§B278-S3/20 the bounded translation action is 56 B of value types an
     CHECK(Node::test_custody_disposition_no_match()     == 1);
     CHECK(Node::test_custody_disposition_ambiguous()    == 2);
     CHECK(Node::test_custody_disposition_exact()        == 3);
+}
+
+
+// =====================================================================================================
+// ★★★★ §B278 S4 (2026-09-02) — THE MOBILE RECEIVER AND THE PRESENTATION SURFACES
+//      (design §8.1 the mode split · §8.2 the translated contextual rules · §8.3 the store/Push mapping ·
+//       §8.4 JSON/USB · §13.3-§13.5; brief `docs/superpowers/plans/2026-09-02-b278-s4-mobile-receive-surfaces.md`).
+//
+// S4 is the first CONSUMER of the form §B278 S3 produces. The claims measured below:
+//   (a) a DIRECT record is byte- and behaviour-identical to §CUSTODY-G's — store, Push, telemetry and JSON;
+//   (b) a TRANSLATED record is consumed ONLY by its intended configured mobile, on either of §8.2 rule 7's two
+//       PRODUCTION arms (the hosted direct-transit form without `DST_HASH`; the re-homed form WITH it);
+//   (c) every receiver-owned term refuses INDEPENDENTLY, each with its own falsifier;
+//   (d) §8.3's mapping and order — store first, the Push carries the store's seq, the ORIGINAL reporter and
+//       ctrM, and the WHOLE `record_len` body including an accepted future tail;
+//   (e) translated mode RETURNS before S3's lookup/origination and never becomes a DM, an ACK or a send;
+//   (f) live and pulled JSON expose §8.4's same fields while the direct bytes do not move; and
+//   (g) the complete-tuple consumer contract is sufficient, and every one-field mismatch refuses.
+//
+// ⛔⛔ THE TWO TRANSPORTS, AND WHY THERE ARE TWO — stated because a reader must be able to see that neither is a
+//    convenience. `for_static_rts` (node_mac_rx.cpp) admits a unicast RTS at a MOBILE only when `addr_len == 1`,
+//    which is the mobile-plane mark that exactly TWO production senders set:
+//      A. THE HOSTED DIRECT LAST MILE — `send_by_hash` at the mobile's OWN home. This is the arm §B278 S3
+//         originates on, it carries NO `DST_HASH`, and its bytes are whatever the home's correlation produced.
+//         ⇒ the fully end-to-end case (§B278-S4/2) and every arm about the mobile's REGISTRATION run here.
+//      B. THE HOME LAST-MILE FORWARD — a `DST_HASH`-addressed DATA reaching the mobile's CURRENT home, which
+//         forwards it verbatim to the local id (the §CUSTODY-G/4b role). The origin stays the ORIGINATING home,
+//         which is precisely §8.2 rule 7's re-homed shape: `pa.origin == failed_origin == H1` while the last
+//         mile happens at H2. ⇒ the hash arm and every arm that must break a RECORD BYTE run here, because this
+//         transport can carry bytes a correlating home would never produce.
+//    ⛔ Three contexts NEITHER transport can install — a CRYPTED carrier, a TEAM-plane arrival and a FOREIGN
+//      `DST_HASH` (which `do_post_ack` redirects long before the receiver) — are driven through the
+//      `MESHROUTE_NATIVE` seam off a COPY of the LIVE `PostAck` the production MAC really left behind, with
+//      EXACTLY ONE field changed. That is §CUSTODY-G's own rule, applied unchanged.
+//
+// ⛔ THE USB HALF IS NOT HERE, and no case below claims it is: `src/fw_main.cpp` and
+//    `src/firmware_custody_push.h` are outside the native build (§B115). S4 moves the whole renderer into that
+//    header and `tools/probe_custody_usb/run.sh` COMPILES AND EXECUTES it against this same codec, with its own
+//    default negative controls. That probe is the USB gate; these cases are the receiver + JSON gate.
+// =====================================================================================================
+
+namespace {
+
+// A DIFFERENT current home, for the arms that must break the mobile's own registration relation.
+constexpr uint8_t kS4OtherHome = 3;
+
+NodeConfig g_mobile_cfg() { NodeConfig c = g_cfg(); c.is_mobile = true; return c; }
+
+// ---- THE CHAIN ---------------------------------------------------------------------------------------------
+// node 2 and node 1 are the pair §CUSTODY-G already drives; M1 is a configured mobile whose identity is EXACTLY
+// the one S3's ring row names (`kS3MobileHash` / `kS3MobileLocal`), so a fixture that stopped agreeing with the
+// row would stop DELIVERING rather than silently pass. Node 1 HOSTS M1 in every arm, which is what makes both
+// transports available on one chain: it is M1's own home (transport A) and it is the current home that performs
+// the last mile for a hash-addressed carrier originated at node 2 (transport B).
+struct S4Chain {
+    GPair p;
+    GHal  hm;
+    Node  m1{hm, kS3MobileLocal, kS3MobileHash};
+    RamInboxStore dm_m{protocol::inbox_dm_store_bytes}, ch_m{protocol::inbox_chan_store_bytes};
+    // `mobile_home = 0` leaves M1 deliberately UNREGISTERED — the one arm §8.2 rule 7's second half needs.
+    explicit S4Chain(uint8_t mobile_home = 1, bool wire_inbox = true) {
+        CHECK(m1.on_init(g_mobile_cfg()));
+        if (wire_inbox) m1.inbox().on_init(&dm_m, &ch_m);          // ⛔ AFTER on_init (node.h's contract)
+        if (mobile_home) m1.test_set_my_mobile_reg(mobile_home, kS3MobileLocal);
+        m1.test_learn_route(/*dest=*/1, /*via=*/1, 1, 40, false);
+        p.n1.test_learn_route(/*dest=*/kS3MobileLocal, /*via=*/kS3MobileLocal, 1, 40, false);
+        s3_host(p.n1);                                             // node 1 hosts M1 (both transports need it)
+        hm._now = p.h1._now;
+        drain(m1); hm.clear_emits(); p.h1.clear_emits(); p.h1.tx_frames.clear();
+    }
+    void step() { p.step(); hm._now = p.h1._now; }
+    // ONE COMPLETE HOP node 1 -> M1 over the real MAC — the mirror of `GPair::hop_2_to_1`. `fire_post_ack=false`
+    // leaves M1's `PostAck` PENDING, which is the window a seam arm reads a REAL one out of.
+    bool hop_to_m1(bool fire_post_ack = true) {
+        const std::vector<uint8_t> rts = p.h1.last("RTS");
+        if (rts.empty()) return false;
+        step(); m1.on_recv(rts.data(), rts.size(), kRx);
+        const std::vector<uint8_t> cts = hm.last("CTS");
+        if (cts.empty()) return false;
+        step(); p.n1.on_recv(cts.data(), cts.size(), kRx);
+        step(); p.n1.on_timer(kCtsToDataGapTimerId);
+        const std::vector<uint8_t> data = p.h1.last("DATA");
+        if (data.empty()) return false;
+        step(); m1.on_recv(data.data(), data.size(), kRx);
+        const std::vector<uint8_t> ack = hm.last("ACK");
+        if (!ack.empty()) { step(); p.n1.on_recv(ack.data(), ack.size(), kRx); }
+        if (fire_post_ack) { step(); m1.on_timer(kPostAckTimerId); }
+        return true;
+    }
+    // ---- TRANSPORT A: node 1 correlates a real direct report and originates the translated record itself.
+    bool deliver_via_home(bool fire_post_ack = true) {
+        uint8_t rec[custody_record_v1_len];
+        const uint8_t n = s3_pack_report(rec);
+        if (!s3_seed(p.n1)) return false;
+        if (!p.send_typed(rec, n)) return false;
+        return hop_to_m1(fire_post_ack);
+    }
+    // ---- TRANSPORT B: node 2 originates `body` hash-addressed; node 1 last-miles it to M1.
+    bool deliver_lastmile(const std::vector<uint8_t>& body, bool fire_post_ack = true) {
+        if (body.empty()) return false;
+        if (!p.send_typed(body.data(), static_cast<uint8_t>(body.size()), DATA_TYPE_CUSTODY_FAILURE,
+                          /*dst_hash=*/kS3MobileHash)) return false;
+        return hop_to_m1(fire_post_ack);
+    }
+};
+
+// ---- THE TWO PRODUCED RECORDS, BOTH BUILT BY THE REAL S3 PRODUCER — ⛔ never hand-assembled here ------------
+// (1) as node 1 produces it: `failed_origin` = 1, tail reporter = 2. This is the byte sequence transport A airs.
+std::vector<uint8_t> s4_produced_at_home1() {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair q; s3_host(q.n1);
+    CHECK(s3_seed(q.n1));
+    CHECK(s3_send_and_hold(q, rec, n));
+    CHECK(q.n1.test_tx_queue_n() == 1);
+    if (q.n1.test_tx_queue_n() != 1) return {};
+    const std::vector<uint8_t> body = s3_queued_body(q.n1);
+    CHECK(body == s3_expected_body());          // …and it really is the ruled form, independently rebuilt
+    return body;
+}
+// (2) the SAME production path run at node 2 instead: `failed_origin` = 2, tail reporter = 1. Transport B needs
+//     this one, because §8.2 rule 3 requires `pa.origin == failed_origin` and transport B's origin IS node 2.
+std::vector<uint8_t> s4_produced_at_home2() {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = g_pack(g_base_record(/*failed_origin=*/2, /*reporter_layer=*/2), rec);
+    GPair q; s3_host(q.n2);
+    CHECK(s3_seed(q.n2));
+    CHECK(q.send_typed_from_1(rec, n, /*fire_post_ack=*/false));
+    q.n2.test_suspend_tx_drain(true);
+    q.step();
+    q.n2.on_timer(kPostAckTimerId);
+    CHECK(q.h2.count("deleg_custody_forwarded") == 1);
+    CHECK(q.n2.test_tx_queue_n() == 1);
+    if (q.n2.test_tx_queue_n() != 1) return {};
+    return s3_queued_body(q.n2);
+}
+
+// Everything one S4 arm produced AT THE MOBILE, in one value. The local outcome is read on EVERY case, so no
+// assertion can pass on a receiver that stopped doing its own job.
+struct S4Out {
+    int accepted = 0, rejected = 0, pushes = 0, stored = 0, delivered = 0, unsupported = 0, notices = 0;
+    int other_pushes = 0;
+    int no_map = 0, ambiguous = 0, forwarded = 0, refused = 0;
+    uint32_t push_seq = 0;  uint8_t push_origin = 0, push_dst = 0, push_layer = 0;  uint16_t push_ctr = 0;
+    SendFailReason push_reason = SendFailReason::none;
+    std::vector<uint8_t> push_body;
+    uint32_t stored_seq = 0, stored_msg_id = 0;
+    uint8_t  stored_origin = 0, stored_layer = 0, stored_len = 0;
+    std::vector<uint8_t> stored_body;
+    int visited = 0;
+    uint8_t tx_n = 0, parked_n = 0;
+};
+
+S4Out s4_collect(S4Chain& c) {
+    S4Out o{};
+    o.accepted    = c.hm.count("custody_failure_rx");
+    o.rejected    = c.hm.count("custody_failure_reject");
+    o.delivered   = c.hm.count("delivered");
+    o.unsupported = c.hm.count("unsupported_internal");
+    o.notices     = c.hm.count("custody_notice_tx");
+    o.no_map      = c.hm.count("deleg_custody_no_map");
+    o.ambiguous   = c.hm.count("deleg_custody_ambiguous");
+    o.forwarded   = c.hm.count("deleg_custody_forwarded");
+    o.refused     = c.hm.count("deleg_custody_forward_refused");
+    Push pu{};
+    while (c.m1.next_push(pu)) {
+        if (pu.kind == PushKind::custody_failure) {
+            ++o.pushes; o.push_seq = pu.seq; o.push_origin = static_cast<uint8_t>(pu.origin);
+            o.push_dst = static_cast<uint8_t>(pu.dst); o.push_ctr = pu.ctr;
+            o.push_layer = pu.layer_id; o.push_reason = pu.reason;
+            o.push_body.assign(pu.body, pu.body + pu.body_len);
+        } else { ++o.other_pushes; }
+    }
+    StoreSink s{};
+    c.m1.inbox().pull(0, 0, store_cb, &s);
+    o.stored = s.custody; o.visited = s.visited;
+    if (!s.recs.empty()) {
+        const StoreRec& r = s.recs.back();
+        o.stored_seq = r.seq; o.stored_msg_id = r.msg_id; o.stored_origin = r.origin;
+        o.stored_layer = r.layer_id; o.stored_len = r.body_len; o.stored_body = r.body;
+    }
+    o.tx_n     = c.m1.test_tx_queue_n();
+    o.parked_n = c.m1.test_parked_sends_n();
+    return o;
+}
+
+// The one-line falsifier: break exactly ONE byte of the record transport B airs and require the mobile to
+// refuse — no acceptance, no push, no storage, no delivery, exactly one bounded reject.
+void s4_expect_rejected_byte(const char* term, uint8_t off, uint8_t value) {
+    CAPTURE(term); CAPTURE(off); CAPTURE(value);
+    std::vector<uint8_t> body = s4_produced_at_home2();
+    CHECK(body.size() == custody_record_translated_len);
+    if (body.size() != custody_record_translated_len) return;
+    body[off] = value;
+    S4Chain c;
+    CHECK(c.deliver_lastmile(body));
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 0);
+    CHECK(o.rejected == 1);      // the EXISTING bounded scalar exit, exactly once
+    CHECK(o.pushes == 0);
+    CHECK(o.stored == 0);
+    CHECK(o.delivered == 0);     // ⛔ never a fall-through to ordinary DM delivery
+    CHECK(o.unsupported == 0);   // ⛔ NOT `unsupported_internal` — 0x81 IS supported
+}
+
+// §8.4's field block, as one string, so the LIVE and the PULLED golden share it byte for byte.
+std::string s4_json_fields(uint8_t reporter, uint8_t failed_origin, uint8_t layer, const char* target,
+                           uint16_t ctr_m) {
+    return std::string(",\"reporter\":") + std::to_string(reporter)
+         + ",\"reporter_layer\":" + std::to_string(layer)
+         + ",\"failed_origin\":" + std::to_string(failed_origin)
+         + ",\"dst\":9,\"ctr\":3054,\"failed_type\":139"
+           ",\"stage\":\"cts\",\"reason\":\"cascade_count\",\"previous_hop\":1,\"next_hop\":9"
+           ",\"requeues\":" + std::to_string(protocol::cascade_requeue_max)
+         + ",\"alternatives\":1,\"committed_hops\":1,\"remaining_hops\":4"
+           ",\"repair_attempted\":true,\"one_way\":false"
+         + target
+         + ",\"mobile_ctr\":" + std::to_string(ctr_m);
+}
+
+std::string s4_live_json(const std::vector<uint8_t>& body, uint8_t origin, uint8_t dst, uint16_t ctr,
+                         uint8_t layer, uint32_t seq) {
+    Push p{};
+    p.kind = PushKind::custody_failure; p.origin = origin; p.dst = dst; p.ctr = ctr;
+    p.layer_id = layer; p.seq = seq;
+    p.body_len = static_cast<uint8_t>(body.size());
+    for (size_t i = 0; i < body.size(); ++i) p.body[i] = body[i];
+    char buf[1700];
+    const size_t m = meshroute::console::write_push(buf, sizeof buf, p, nullptr);
+    return std::string(buf, m);
+}
+
+std::string s4_pulled_json(const std::vector<uint8_t>& body, uint8_t origin, uint16_t msg_id, uint8_t layer,
+                           uint64_t rx_ms) {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    const uint32_t seq = ib.record_custody_failure(origin, msg_id, layer, body.data(),
+                                                  static_cast<uint8_t>(body.size()), rx_ms);
+    CHECK(seq == 1u);
+    struct Sink { std::string out; };
+    Sink sink;
+    ib.pull(0, 0, [](void* ctx, const InboxEntry& e) {
+        char b[1700];
+        const size_t m = meshroute::console::write_inbox_dm(
+            b, sizeof b, e.seq, e.origin, e.layer_id, uint16_t(e.msg_id), e.sender_hash, e.rx_time_ms,
+            reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type, e.origin_layer);
+        static_cast<Sink*>(ctx)->out.assign(b, m);
+        return true;
+    }, &sink);
+    return sink.out;
+}
+
+// ★★★★ §S4-5's GENERIC OPERATION CONSUMER — TEST-ONLY, and deliberately so: it demonstrates that §8.4's
+//      complete tuple is SUFFICIENT for Slice H / remote-admin Slice 9 without adding a product consumer or any
+//      state transition. It parses through the PRODUCTION codec and matches the COMPLETE body tuple.
+// ⛔⛔ IT MUST NOT USE THE STORE KEY `(origin, msg_id)` AS THE OPERATION IDENTITY (§8.4): an E2E-ACK receipt for
+//    the SAME operation is stored under a DIFFERENT origin (the acker) with `msg_id = ctrM`, so a consumer keyed
+//    on the record key alone would never pair the two — and one keyed on the counter alone would promote a
+//    different operation entirely.
+struct S4Operation {
+    uint8_t  failed_origin = 0;
+    uint8_t  reporter_layer = 0;
+    CustodyTranslatedTargetKind target_kind = CustodyTranslatedTargetKind::node_id;
+    uint32_t target_value = 0;
+    uint16_t mobile_ctr = 0;
+    uint8_t  failed_type = 0;
+};
+// How many pending operations this record matches. ⛔ ONE codec, no offsets, no record key.
+int s4_consume(const std::vector<S4Operation>& pending, const std::vector<uint8_t>& record) {
+    const std::optional<CustodyFailureRecord> rec =
+        parse_custody_failure(std::span<const uint8_t>(record.data(), record.size()));
+    if (!rec) return 0;
+    const std::optional<CustodyTranslatedTail> t =
+        parse_custody_translated_tail(std::span<const uint8_t>(record.data(), record.size()), *rec);
+    if (!t) return 0;
+    int hits = 0;
+    for (const S4Operation& op : pending)
+        if (op.failed_origin  == rec->failed_origin
+         && op.reporter_layer == rec->reporter_layer
+         && op.target_kind    == t->target_kind
+         && op.target_value   == t->target_value
+         && op.mobile_ctr     == t->mobile_ctr
+         && op.failed_type    == rec->failed_type) ++hits;
+    return hits;
+}
+
+}  // namespace
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/1 — THE DIRECT PATH DOES NOT MOVE
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE COMPATIBILITY CLAIM, MEASURED RATHER THAN ARGUED. S4 rewrites the receiver's contextual block and
+//      both JSON emitters; a direct record's store, Push, telemetry and JSON bytes must be exactly what
+//      §CUSTODY-G landed. ⛔ The JSON half is a BYTE comparison against §14.2's own transcribed example — the
+//      same `kSpecFields` golden §CUSTODY-G/5 uses — so "byte-identical" is a measurement, not a claim.
+TEST_CASE("§B278-S4/1 a DIRECT record is byte- and behaviour-identical to §CUSTODY-G's") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = g_pack(g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2), rec);
+    GPair p;
+    CHECK(p.send_typed(rec, n));
+    CHECK(p.h1.count("custody_failure_rx") == 1);
+    CHECK(p.h1.count("custody_failure_reject") == 0);
+    Push pu{}; int pushes = 0; uint32_t seq = 0;
+    while (p.n1.next_push(pu)) if (pu.kind == PushKind::custody_failure) {
+        ++pushes; seq = pu.seq;
+        CHECK(pu.origin   == 2);                       // §14.1: the OUTER reporting relay — UNCHANGED
+        CHECK(pu.dst      == 9);
+        CHECK(pu.ctr      == 0x0BEE);                  // ctrH, i.e. `failed_ctr` — UNCHANGED
+        CHECK(pu.layer_id == p.n1.active_layer_id());  // the ACTIVE layer — UNCHANGED
+        CHECK(pu.reason   == SendFailReason::none);
+        CHECK(pu.body_len == custody_record_v1_len);
+    }
+    CHECK(pushes == 1);
+    StoreSink s{};
+    p.n1.inbox().pull(0, 0, store_cb, &s);
+    CHECK(s.custody == 1);
+    CHECK(s.recs.size() == 1u);
+    if (s.recs.size() == 1u) {
+        CHECK(s.recs[0].origin   == 2);                          // §7.2: origin = the reporting relay
+        CHECK(s.recs[0].msg_id   == 0x0BEEu);                    // §7.2: msg_id = failed_ctr
+        CHECK(s.recs[0].layer_id == p.n1.active_layer_id());
+        CHECK(s.recs[0].seq      == seq);                        // record BEFORE push, still observable
+        CHECK(s.recs[0].body_len == custody_record_v1_len);
+    }
+    // ---- the telemetry, field for field: the corpus counts eleven of these receipts and none of them may move.
+    const GHal::EmitRec* e = p.h1.first_emit("custody_failure_rx");
+    CHECK(e != nullptr);
+    if (e) {
+        CHECK(e->keys.size() == 4u);
+        if (e->keys.size() == 4u) {
+            CHECK(e->keys[0] == "reporter");  CHECK(e->ivals[0] == 2);
+            CHECK(e->keys[1] == "dst");       CHECK(e->ivals[1] == 9);
+            CHECK(e->keys[2] == "ctr");       CHECK(e->ivals[2] == 0x0BEE);
+            CHECK(e->keys[3] == "seq");
+        }
+    }
+    // ---- the JSON, BYTE-IDENTICAL to §14.2's example on both surfaces, with NO translated field present.
+    uint8_t spec[custody_record_v1_len];
+    const uint8_t sn = g_pack(spec_example_record(), spec);
+    const std::vector<uint8_t> sbody(spec, spec + sn);
+    const std::string live = s4_live_json(sbody, /*origin=*/186, /*dst=*/48, /*ctr=*/3598, /*layer=*/1, /*seq=*/17);
+    CHECK(live == std::string("{\"ev\":\"custody_failure\",\"seq\":17") + kSpecFields + "}\n");
+    const std::string pulled = s4_pulled_json(sbody, /*origin=*/186, /*msg_id=*/3598, /*layer=*/1, /*rx_ms=*/77000);
+    CHECK(pulled == std::string("{\"ev\":\"custody_failure\",\"seq\":1,\"rx_ms\":77000") + kSpecFields + "}\n");
+    CHECK(live.find("delegated")   == std::string::npos);
+    CHECK(live.find("target_kind") == std::string::npos);
+    CHECK(live.find("mobile_ctr")  == std::string::npos);
+    CHECK(pulled.find("delegated") == std::string::npos);
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/2 — THE ARC CLOSES: H1 TRANSLATES, M1 CONSUMES (rule 7 arm two — no `DST_HASH`)
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE HEADLINE CASE, END TO END AND WITH NOTHING FABRICATED. A real relay reports a real failure to its
+//      home over the real MAC; the home stores, pushes, correlates and ORIGINATES the translated record through
+//      `send_by_hash`'s direct-host arm; that exact frame then flies to M1 over the real MAC, and M1 stores and
+//      pushes it. This is the first time §B278's chain is closed on host.
+TEST_CASE("§B278-S4/2 END TO END: the home's own translated record is accepted, stored and pushed by its mobile") {
+    S4Chain c;                                   // M1 is registered to home 1, which hosts it
+    CHECK(c.deliver_via_home());
+    CHECK(c.p.h1.count("deleg_custody_forwarded") == 1);   // the home really correlated and originated (S3)
+    // ---- the RECEIVED CONTEXT, pinned at the fields §8.2 actually reads.
+    const std::vector<uint8_t> aired = c.p.h1.last("DATA");
+    CHECK(!aired.empty());
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.rejected == 0);
+    CHECK(o.pushes == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.delivered == 0);          // ⛔ never an ordinary DM
+    CHECK(o.unsupported == 0);
+    CHECK(o.other_pushes == 0);       // ⛔ no msg_recv / send_failed / generic lifecycle
+    // ---- §8.3's mapping, on BOTH carriers.
+    CHECK(o.push_origin == kS3Reporter);          // the ORIGINAL reporter (node 2), NOT the translating home
+    CHECK(o.push_ctr    == kS3CtrM);              // ctrM — what the MOBILE is waiting on
+    CHECK(o.push_dst    == kS3ReturnPeer);        // the static destination the flight died toward
+    CHECK(o.push_layer  == 2);                    // `reporter_layer`
+    CHECK(o.push_reason == SendFailReason::none);
+    CHECK(o.push_body   == s3_expected_body());   // the WHOLE 32 bytes ride the Push
+    CHECK(o.stored_origin == kS3Reporter);
+    CHECK(o.stored_msg_id == kS3CtrM);
+    CHECK(o.stored_layer  == 2);
+    CHECK(o.stored_len    == custody_record_translated_len);
+    CHECK(o.stored_body   == s3_expected_body());
+    CHECK(o.stored_seq    == o.push_seq);         // ★ store BEFORE Push: the Push carries the assigned sequence
+    CHECK(o.push_seq != 0u);                      // this fixture WIRES a store, so it is a real sequence
+    // ---- (e): translated mode returned before every S3 step, and M1 sent nothing.
+    CHECK(o.no_map == 0); CHECK(o.ambiguous == 0); CHECK(o.forwarded == 0); CHECK(o.refused == 0);
+    CHECK(o.tx_n == 0); CHECK(o.parked_n == 0);
+    CHECK(c.hm.label_count("RTS") == 0);          // ⛔ nothing was re-originated
+    CHECK(o.notices == 0);                        // ⛔ and no custody notice ABOUT the custody carrier
+    // ---- the FACTUAL telemetry follows the SELECTED public identity, with its name, field order and integer
+    //      types unchanged. ★ The two identities are DISTINGUISHABLE here on purpose: the carrier's origin is
+    //      the home (1) while the record's reporter is node 2, and ctrH (0x0BEE) is not ctrM (0x0777) — so an
+    //      event that reported the carrier instead of the record would be visible rather than plausible.
+    const GHal::EmitRec* e = c.hm.first_emit("custody_failure_rx");
+    CHECK(e != nullptr);
+    if (e) {
+        CHECK(e->keys.size() == 4u);
+        if (e->keys.size() == 4u) {
+            CHECK(e->keys[0] == "reporter");  CHECK(e->ivals[0] == kS3Reporter);   // ⛔ NOT the carrier's origin (1)
+            CHECK(e->keys[1] == "dst");       CHECK(e->ivals[1] == kS3ReturnPeer);
+            CHECK(e->keys[2] == "ctr");       CHECK(e->ivals[2] == kS3CtrM);       // ⛔ NOT ctrH (0x0BEE)
+            CHECK(e->keys[3] == "seq");       CHECK(e->ivals[3] == static_cast<int64_t>(o.push_seq));
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/3 — RULE 7 ARM ONE: THE RE-HOMED MOBILE ACCEPTS BY STABLE HASH
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE SECOND PRODUCTION ARM, and it is why rule 7 has two. The record was produced by the home that owns
+//      the failed flight (node 2); the mobile's CURRENT home (node 1) performs the last mile. `pa.origin` is
+//      therefore still node 2 — which is `failed_origin`, so rule 3 holds — while the mobile's own selected home
+//      is node 1. The carried `DST_HASH == self` is the whole of the evidence, exactly as §8.2 says.
+TEST_CASE("§B278-S4/3 a RE-HOMED mobile accepts through a DIFFERENT home, by DST_HASH") {
+    const std::vector<uint8_t> body = s4_produced_at_home2();
+    CHECK(body.size() == custody_record_translated_len);
+    S4Chain c;                                            // M1's selected home is node 1, NOT the origin
+    CHECK(c.m1.mobile_home_id() == 1);
+    CHECK(c.deliver_lastmile(body, /*fire_post_ack=*/false));
+    // the received context, read off the LIVE PostAck the production MAC installed
+    const PostAck* live = c.m1.test_pending_post_ack();
+    CHECK(live != nullptr);
+    if (live) {
+        CHECK(live->origin == 2);                          // the ORIGINATING home, two hops back
+        CHECK((live->flags & DATA_FLAG_CRYPTED) == 0);     // plaintext
+        CHECK_FALSE(live->team_plane);                     // static plane
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(live->inner, live->inner_len), live->flags);
+        CHECK(ui.has_value());
+        if (ui) { CHECK(ui->has_dst_hash); CHECK(ui->dst_key_hash32 == kS3MobileHash); }
+    }
+    c.step(); c.m1.on_timer(kPostAckTimerId);
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.rejected == 0);
+    CHECK(o.pushes == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.push_origin == 1);                             // the tail's original reporter (node 1 reported to H)
+    CHECK(o.push_ctr    == kS3CtrM);
+    CHECK(o.push_layer  == 2);
+    CHECK(o.stored_body == body);
+    // …and rule 3 really is satisfied rather than skipped: `failed_origin` IS the DATA origin.
+    const std::optional<CustodyFailureRecord> parsed =
+        parse_custody_failure(std::span<const uint8_t>(body.data(), body.size()));
+    CHECK(parsed.has_value());
+    if (parsed) CHECK(parsed->failed_origin == 2);
+    // ---- ★ AND THE LAYER THE OUTCOME IS FILED UNDER IS THE **RECORD'S**, NOT THE ARRIVAL'S. That is the whole
+    //      reason the hash arm does not test the layer: a re-homed mobile is reached through a home that need
+    //      not be on the layer the flight died on, and §8.3 files the outcome under `reporter_layer`. Driven as
+    //      a real frame — the hash arm accepts it, and the stored/pushed layer is 5 rather than this mobile's
+    //      active 2.
+    {
+        std::vector<uint8_t> other_layer = body;
+        other_layer[kOffReporterLayer] = 5;
+        S4Chain d;
+        CHECK(d.m1.active_layer_id() == 2);
+        CHECK(d.deliver_lastmile(other_layer));
+        const S4Out r = s4_collect(d);
+        CHECK(r.accepted == 1);
+        CHECK(r.rejected == 0);
+        CHECK(r.push_layer   == 5);        // ⛔ the RECORD's reporter layer …
+        CHECK(r.stored_layer == 5);        // … on both carriers, never the receiving one
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/4 — A STATIC RECEIVER NEVER CONSUMES THE TRANSLATED FORM
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ §8.1, verbatim: *"A static node never treats a translated record as its direct report."* The strongest
+//      shape of the claim is the TRANSLATING HOME ITSELF: its own static id sits in `failed_origin`, so §13.11
+//      would pass — and `_cfg.is_mobile` is the single term that refuses it. ⛔ The positive control in the same
+//      case rules out a broken fixture: the identical bytes on a configured mobile are accepted.
+TEST_CASE("§B278-S4/4 the configured-mobile term: a STATIC node refuses the translated form, a mobile accepts it") {
+    const std::vector<uint8_t> body = s4_produced_at_home1();
+    // (a) the STATIC receiver of `run_arm` — node 1, whose id IS this record's `failed_origin`.
+    const ArmOut a = run_arm(body.data(), static_cast<uint8_t>(body.size()));
+    CHECK(a.flew);
+    CHECK(a.accepted == 0);
+    CHECK(a.rejected == 1);
+    CHECK(a.pushes == 0);
+    CHECK(a.stored == 0);
+    CHECK(a.delivered == 0);
+    CHECK(a.unsupported == 0);
+    // (b) the SAME production path on a configured mobile: accepted. The one variable is `NodeConfig::is_mobile`.
+    S4Chain c;
+    CHECK(c.deliver_via_home());
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.rejected == 0);
+    CHECK(o.stored == 1);
+    CHECK(o.push_body == body);          // ⛔ and it is the SAME 32 bytes the static node refused
+    CHECK(g_cfg().is_mobile == false);
+    CHECK(g_mobile_cfg().is_mobile == true);
+    // ---- (c) ★★★★ THE ARM THAT ISOLATES THE TERM, AND IT WAS **EARNED BY THE MUTATION BATTERY**: with (a)
+    //      alone, `sliceGrx` S66 (*"the configured-mobile term is dropped"*) SURVIVED. (a) is refused by §8.2
+    //      RULE 3, not by `_cfg.is_mobile` — `run_arm` delivers from node 2 while that record's `failed_origin`
+    //      is 1, so `pa.origin != failed_origin` and the mutant never reaches the term under test.
+    //      ⇒ this arm satisfies EVERY OTHER translated term on a STATIC receiver: the record originates at the
+    //      node that really is its `failed_origin` (node 2), and the carrier is hash-addressed to node 1's OWN
+    //      stable key hash, so rule 3 and rule 7's hash arm both hold. The ONLY thing left refusing it is that
+    //      node 1 is not a configured mobile — which is exactly §8.1's sentence, isolated.
+    {
+        const std::vector<uint8_t> from2 = s4_produced_at_home2();
+        const std::optional<CustodyFailureRecord> parsed =
+            parse_custody_failure(std::span<const uint8_t>(from2.data(), from2.size()));
+        CHECK(parsed.has_value());
+        if (parsed) CHECK(parsed->failed_origin == 2);      // PREMISE: rule 3 WILL hold at node 1 …
+        GPair q;
+        CHECK(q.n1.key_hash32() == 0x11111111u);            // … and the carrier is addressed to node 1's OWN hash
+        CHECK(q.send_typed(from2.data(), static_cast<uint8_t>(from2.size()), DATA_TYPE_CUSTODY_FAILURE,
+                           /*dst_hash=*/0x11111111u));
+        CHECK(q.h1.count("custody_failure_rx") == 0);       // ⛔ STILL refused …
+        CHECK(q.h1.count("custody_failure_reject") == 1);   // … through the one bounded exit
+        CHECK(q.h1.count("unsupported_internal") == 0);
+        CHECK(q.h1.count("delivered") == 0);
+        int pushes = 0; Push pu{};
+        while (q.n1.next_push(pu)) if (pu.kind == PushKind::custody_failure) ++pushes;
+        CHECK(pushes == 0);
+        StoreSink st{};
+        q.n1.inbox().pull(0, 0, store_cb, &st);
+        CHECK(st.custody == 0);
+        // …and the POSITIVE control on the SAME bytes and the SAME transport: a configured MOBILE holding that
+        // same hash accepts them. The one variable between the two is `NodeConfig::is_mobile`.
+        S4Chain d;
+        CHECK(d.deliver_lastmile(from2));
+        const S4Out r = s4_collect(d);
+        CHECK(r.accepted == 1);
+        CHECK(r.stored == 1);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/5 — EVERY RECEIVER-OWNED TERM REFUSES INDEPENDENTLY
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ ONE FALSIFIER PER TERM, on REAL frames through transport B. ⛔ The codec-owned terms (record length,
+//     version, the flag bits, the four id domains, the tail's own six rules) are NOT re-attacked here — they are
+//     `sliceFcodec` / `sliceGcodec`'s and are driven as positive dependencies in §B278-S4/6.
+TEST_CASE("§B278-S4/5 the COMMON receiver terms each refuse a translated record alone") {
+    // §13.10 — the record's own plane claim (a reserved value PARSES and is unsupported in v1).
+    s4_expect_rejected_byte("plane team",         kOffPlane,      static_cast<uint8_t>(CustodyFailurePlane::team));
+    s4_expect_rejected_byte("plane cross_layer",  kOffPlane,      static_cast<uint8_t>(CustodyFailurePlane::cross_layer));
+    // §13.14 — never about an ack, never about another notice.
+    s4_expect_rejected_byte("about an ack",       kOffFailedType, DATA_TYPE_E2E_ACK);
+    s4_expect_rejected_byte("about a notice",     kOffFailedType, DATA_TYPE_CUSTODY_FAILURE);
+    // §13.18 — the four count/hop domains, each against its own authority.
+    s4_expect_rejected_byte("requeues",   kOffRequeues,  protocol::cascade_requeue_max + 1);
+    s4_expect_rejected_byte("alts",       kOffAlts,      protocol::max_rt_candidates + 1);
+    s4_expect_rejected_byte("committed",  kOffCommitted, custody_committed_hops_max + 1);
+    s4_expect_rejected_byte("remaining",  kOffRemaining, protocol::hop_budget_max_initial + 1);
+    // §8.2 rule 3 — the translating DATA's origin must BE the record's failed origin.
+    s4_expect_rejected_byte("wrong outer origin", kOffFailedOrigin, 7);
+    s4_expect_rejected_byte("outer origin = 1",   kOffFailedOrigin, 1);   // a plausible neighbour, not just junk
+    // ---- THE POSITIVE CONTROL for the whole battery: the UNBROKEN record on the same transport is accepted.
+    {
+        S4Chain c;
+        CHECK(c.deliver_lastmile(s4_produced_at_home2()));
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 1);
+        CHECK(o.rejected == 0);
+        CHECK(o.stored == 1);
+    }
+}
+
+// ★★★ THE MOBILE'S OWN REGISTRATION RELATION — §8.2 rule 7's SECOND arm, on transport A, where the carrier
+//     really has no `DST_HASH`. Three arms: the right home accepts, a WRONG current home refuses, and an
+//     UNREGISTERED mobile refuses. ⛔ Nothing about the record changes between them; the one variable is the
+//     mobile's own `_my_mobile_reg`.
+TEST_CASE("§B278-S4/5b the no-hash arm needs an ACTIVE registration to the reporting home") {
+    { S4Chain c(/*mobile_home=*/1);            CHECK(c.deliver_via_home());
+      const S4Out o = s4_collect(c); CHECK(o.accepted == 1); CHECK(o.rejected == 0); CHECK(o.stored == 1); }
+    { S4Chain c(/*mobile_home=*/kS4OtherHome); CHECK(c.deliver_via_home());
+      const S4Out o = s4_collect(c); CHECK(o.accepted == 0); CHECK(o.rejected == 1); CHECK(o.stored == 0); }
+    { S4Chain c(/*mobile_home=*/0);            CHECK_FALSE(c.m1.mobile_registered());
+      CHECK(c.deliver_via_home());
+      const S4Out o = s4_collect(c); CHECK(o.accepted == 0); CHECK(o.rejected == 1); CHECK(o.stored == 0); }
+}
+
+// ★★★ THE LAYER TERM ON THE NO-HASH ARM. ⚠ It is the ONE receiver term neither transport can break with a real
+//     frame, and the reason is structural rather than an omission: on transport A the record's `reporter_layer`
+//     IS the reporting home's active layer and the mobile shares it by construction, and a mobile on a genuinely
+//     different FULL layer is not reachable by that home's carrier at all (the RTS leaf-nibble filter). ⇒ driven
+//     through the seam, over a COPY of the LIVE `PostAck` the production MAC really installed, with EXACTLY ONE
+//     RECORD BYTE changed — the same one-variable shape `expect_rejected_byte` uses at the wire.
+//     ⛔ The body's position inside `inner` is DERIVED from the production parser's own span, never a literal.
+TEST_CASE("§B278-S4/5c the no-hash arm refuses a report stamped with another layer (seam-driven)") {
+    for (int arm = 0; arm < 3; ++arm) {
+        const uint8_t layer = static_cast<uint8_t>(arm == 0 ? 0 : (arm == 1 ? 1 : 3));   // 0 = an UNWRITTEN byte
+        CAPTURE(layer);
+        S4Chain c;
+        CHECK(c.deliver_via_home(/*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        auto ui0 = parse_unicast_inner(std::span<const uint8_t>(live->inner, live->inner_len), live->flags);
+        CHECK(ui0.has_value());
+        if (!ui0) return;
+        CHECK_FALSE(ui0->has_dst_hash);                      // PREMISE: this really is the NO-HASH arm
+        const size_t body_off = static_cast<size_t>(ui0->body.data() - live->inner);
+        PostAck pa = *live;
+        pa.inner[body_off + kOffReporterLayer] = layer;       // ← THE ONE VARIABLE
+        c.hm.clear_emits();
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        CHECK(ui.has_value());
+        c.m1.test_custody_failure_receive(pa, ui ? &*ui : nullptr);
+        CHECK(c.hm.count("custody_failure_rx") == 0);
+        CHECK(c.hm.count("custody_failure_reject") == 1);
+    }
+    // —— the POSITIVE control through the identical seam, so the three refusals are one-variable results.
+    {
+        S4Chain c;
+        CHECK(c.deliver_via_home(/*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        c.hm.clear_emits();
+        const PostAck pa = *live;
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        c.m1.test_custody_failure_receive(pa, ui ? &*ui : nullptr);
+        CHECK(c.hm.count("custody_failure_rx") == 1);
+        CHECK(c.hm.count("custody_failure_reject") == 0);
+    }
+}
+
+// ★★★ THE THREE CONTEXTS NEITHER TRANSPORT CAN INSTALL, driven through the `MESHROUTE_NATIVE` seam off a COPY
+//     of the LIVE `PostAck` the production MAC really left behind, with EXACTLY ONE field changed.
+//     ⓘ The foreign-`DST_HASH` arm is here for a structural reason worth stating: `do_post_ack` REDIRECTS a
+//       foreign `DST_HASH` (`l2c_handle_misdelivery`) long before this function, so the receiver's own hash term
+//       is defence in depth — and only the seam can drive it.
+TEST_CASE("§B278-S4/5d crypted, team-plane and foreign-DST_HASH arrivals each refuse alone (seam-driven)") {
+    const std::vector<uint8_t> body = s4_produced_at_home2();
+    // (a) THE POSITIVE BASELINE, through the same seam, so the three refusals below are one-variable results.
+    {
+        S4Chain c;
+        CHECK(c.deliver_lastmile(body, /*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        c.hm.clear_emits();
+        const PostAck pa = *live;
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        CHECK(ui.has_value());
+        c.m1.test_custody_failure_receive(pa, ui ? &*ui : nullptr);
+        CHECK(c.hm.count("custody_failure_rx") == 1);
+        CHECK(c.hm.count("custody_failure_reject") == 0);
+    }
+    // (b) §13.1 — a CRYPTED carrier: its inner is ciphertext, so a record parsed out of it is built from noise.
+    {
+        S4Chain c;
+        CHECK(c.deliver_lastmile(body, /*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        c.hm.clear_emits();
+        PostAck pa = *live;
+        pa.flags = static_cast<uint8_t>(pa.flags | DATA_FLAG_CRYPTED);          // ← THE ONE VARIABLE
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(live->inner, live->inner_len), live->flags);
+        c.m1.test_custody_failure_receive(pa, ui ? &*ui : nullptr);
+        CHECK(c.hm.count("custody_failure_rx") == 0);
+        CHECK(c.hm.count("custody_failure_reject") == 1);
+    }
+    // (c) §13.10's receiver half — a TEAM-plane arrival contradicts the record's own static plane byte.
+    {
+        S4Chain c;
+        CHECK(c.deliver_lastmile(body, /*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        c.hm.clear_emits();
+        PostAck pa = *live;
+        pa.team_plane = true;                                                    // ← THE ONE VARIABLE
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        c.m1.test_custody_failure_receive(pa, ui ? &*ui : nullptr);
+        CHECK(c.hm.count("custody_failure_rx") == 0);
+        CHECK(c.hm.count("custody_failure_reject") == 1);
+    }
+    // (d) §8.2 rule 7 arm one — a carried `DST_HASH` that is NOT this mobile's stable hash.
+    {
+        S4Chain c;
+        CHECK(c.deliver_lastmile(body, /*fire_post_ack=*/false));
+        const PostAck* live = c.m1.test_pending_post_ack();
+        CHECK(live != nullptr);
+        if (!live) return;
+        c.hm.clear_emits();
+        const PostAck pa = *live;
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        CHECK(ui.has_value());
+        if (!ui) return;
+        CHECK(ui->has_dst_hash);
+        CHECK(ui->dst_key_hash32 == kS3MobileHash);       // PREMISE: the real carrier really is hash-addressed
+        data_unicast_inner foreign = *ui;
+        foreign.dst_key_hash32 = kS3MobileHash2;                                 // ← THE ONE VARIABLE
+        c.m1.test_custody_failure_receive(pa, &foreign);
+        CHECK(c.hm.count("custody_failure_rx") == 0);
+        CHECK(c.hm.count("custody_failure_reject") == 1);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/6 — THE CODEC-OWNED TERMS ARE CITED, NOT RE-IMPLEMENTED
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ THE STRUCTURAL CLAIM S4-1 MAKES: the receiver CONSULTS the codec rather than importing a second offset
+//     table. Driven as POSITIVE DEPENDENCIES — a malformed prefix and a malformed TAIL both reach the mobile as
+//     the SAME bounded refusal, and the receiver contributes no second verdict of its own.
+TEST_CASE("§B278-S4/6 codec-owned malformed prefix and tail reach the mobile as the one bounded refusal") {
+    const std::vector<uint8_t> good = s4_produced_at_home2();
+    CHECK(good.size() == custody_record_translated_len);
+    if (good.size() != custody_record_translated_len) return;
+    struct Break { const char* what; uint8_t off; uint8_t val; };
+    const Break breaks[] = {
+        { "version",                   kOffVersion,   2 },                                             // §13.4
+        { "reserved flag bit 7",       kOffFlags,     static_cast<uint8_t>(good[kOffFlags] | 0x80) },  // §13.6
+        { "record_len below 32",       kOffRecordLen, custody_record_v1_len },        // §6.2's translated floor
+        { "tail target_kind unknown",  24 + 1,        9 },                            // §6.3, the tail's domain
+        { "tail original_reporter 0",  24 + 0,        0 },                            // §6.3
+        { "tail target_value != dst",  24 + 4,        static_cast<uint8_t>(kS3ReturnPeer + 1) },       // §6.3
+    };
+    for (const Break& b : breaks) {
+        CAPTURE(b.what);
+        std::vector<uint8_t> bad = good;
+        bad[b.off] = b.val;
+        // the CODEC really is what refuses it …
+        CHECK_FALSE(parse_custody_failure(std::span<const uint8_t>(bad.data(), bad.size())).has_value());
+        // … and the mobile answers with the SAME bounded exit, no store, no push.
+        S4Chain c;
+        CHECK(c.deliver_lastmile(bad));
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 0);
+        CHECK(o.rejected == 1);
+        CHECK(o.stored == 0);
+        CHECK(o.pushes == 0);
+    }
+    // ⛔ AND THE COHERENCE TRIPWIRE: a record the PREFIX parser accepted always yields a tail (the prefix parser
+    //    validates a bit-6 record THROUGH the same reader), so the receiver's `!tail` refusal is unreachable by
+    //    construction rather than untested — asserted here on every break plus the good record.
+    CHECK(parse_custody_translated_tail(std::span<const uint8_t>(good.data(), good.size()),
+              *parse_custody_failure(std::span<const uint8_t>(good.data(), good.size()))).has_value());
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/7 — THE TWO ARMS ARE ALTERNATIVES, NOT A CONJUNCTION
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE THREE SENTENCES THE BRIEF SPELLS OUT, EACH ITS OWN ARM: the ABSENCE of `DST_HASH` does not reject
+//      the valid direct-host form; a wrong current home DOES reject that form; and a CORRECT carried hash does
+//      not require the home relation at all.
+TEST_CASE("§B278-S4/7 absent hash accepts on the right home, rejects on the wrong one, and a correct hash needs neither") {
+    {   // (a) NO hash, RIGHT current home -> accepted. Absence of DST_HASH is not itself a refusal.
+        S4Chain c(/*mobile_home=*/1);
+        CHECK(c.deliver_via_home());
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 1); CHECK(o.rejected == 0);
+        // …and the carrier really did arrive WITHOUT a DST_HASH, which is what makes (a) the no-hash arm.
+        const std::vector<uint8_t> aired = c.p.h1.last("DATA");
+        CHECK(!aired.empty());
+    }
+    {   // (b) NO hash, WRONG current home -> refused.
+        S4Chain c(/*mobile_home=*/kS4OtherHome);
+        CHECK(c.deliver_via_home());
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 0); CHECK(o.rejected == 1);
+    }
+    {   // (c) a CORRECT carried hash, on a mobile whose selected home is NOT the record's origin -> accepted.
+        S4Chain c(/*mobile_home=*/kS4OtherHome);
+        CHECK(c.m1.mobile_home_id() == kS4OtherHome);
+        CHECK(c.deliver_lastmile(s4_produced_at_home2()));
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 1); CHECK(o.rejected == 0); CHECK(o.stored == 1);
+    }
+    {   // (d) …and a correct carried hash does not need a registration either.
+        S4Chain c(/*mobile_home=*/0);
+        CHECK_FALSE(c.m1.mobile_registered());
+        CHECK(c.deliver_lastmile(s4_produced_at_home2()));
+        const S4Out o = s4_collect(c);
+        CHECK(o.accepted == 1); CHECK(o.rejected == 0); CHECK(o.stored == 1);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/8 — THE FAIL-CLOSED GUARD IS UNTOUCHED
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ THE TRANSITION, STATED AS A PAIR (the §CUSTODY-G/1 idiom): S4 widens the 0x81 consumer, and every OTHER
+//     unhandled internal type still dies at Slice B's fail-closed tail guard — on a MOBILE too.
+//     ⓘ `0x87` is the same control §CUSTODY-G/1 uses: an UNALLOCATED value inside the internal range.
+TEST_CASE("§B278-S4/8 another unknown internal type still takes Slice B's fail-closed guard at the mobile") {
+    S4Chain c;
+    CHECK(c.deliver_lastmile(s4_produced_at_home2()));
+    CHECK(c.hm.count("custody_failure_rx") == 1);
+    CHECK(c.hm.count("unsupported_internal") == 0);
+    // the OTHER half: a DIFFERENT addressed internal type, same mobile, same MAC, same last-mile transport.
+    c.hm.clear_emits();
+    const uint8_t junk[] = { 'x', 'y', 'z' };
+    CHECK(c.p.send_typed(junk, sizeof junk, /*type=*/0x87, /*dst_hash=*/kS3MobileHash));
+    CHECK(c.hop_to_m1());
+    CHECK(c.hm.count("unsupported_internal") == 1);
+    CHECK(c.hm.count("custody_failure_rx") == 0);
+    CHECK(c.hm.count("custody_failure_reject") == 0);
+    CHECK(data_type_is_internal(0x87));
+    CHECK_FALSE(data_type_traits(0x87).known);
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/9 — PERSISTENCE: THE FUTURE TAIL AND DISABLED STORAGE
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ §8.3's *"including every accepted future byte"*, on a record a FUTURE reporter could produce: the
+//      32-byte form plus eight bytes this build cannot interpret, `record_len = 40`. A v1 reader interprets the
+//      32 it knows and RETAINS all 40 — truncating would destroy the tail on the one node that had it.
+TEST_CASE("§B278-S4/9 a translated record with an accepted FUTURE tail is stored and pushed WHOLE") {
+    std::vector<uint8_t> body = s4_produced_at_home2();
+    CHECK(body.size() == custody_record_translated_len);
+    if (body.size() != custody_record_translated_len) return;
+    for (uint8_t i = 0; i < 8; ++i) body.push_back(static_cast<uint8_t>(0xE0 + i));
+    body[kOffRecordLen] = static_cast<uint8_t>(body.size());      // 40 — the record says how long it is
+    S4Chain c;
+    CHECK(c.deliver_lastmile(body));
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.stored_len == 40);
+    CHECK(o.stored_body == body);                 // ⛔ all forty bytes, not the 32 this build understands
+    CHECK(o.push_body == body);
+    CHECK(o.push_origin == 1);                    // …and the identity is still the TAIL's, not the carrier's
+    CHECK(o.push_ctr == kS3CtrM);
+    // …and presentation still reads only the KNOWN 32-byte prefix (§8.4): the JSON of the 40-byte record and of
+    // its 32-byte prefix are identical.
+    const std::string j40 = s4_live_json(body, o.push_origin, o.push_dst, o.push_ctr, o.push_layer, 5);
+    std::vector<uint8_t> prefix(body.begin(), body.begin() + custody_record_translated_len);
+    prefix[kOffRecordLen] = custody_record_translated_len;       // the same record, WITHOUT the future tail
+    const std::string j32 = s4_live_json(prefix, o.push_origin, o.push_dst, o.push_ctr, o.push_layer, 5);
+    CHECK(j40 == j32);
+}
+
+// ★★★ STORAGE DISABLED: one live Push still fires, carrying `seq = 0` (§7.3, unchanged for the new form).
+TEST_CASE("§B278-S4/9b storage disabled: the translated record still pushes, with seq 0 and nothing stored") {
+    S4Chain c(/*mobile_home=*/1, /*wire_inbox=*/false);
+    CHECK(c.deliver_via_home());
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.pushes == 1);
+    CHECK(o.push_seq == 0u);          // ⛔ 0 IFF storage is disabled — never a persistence proof
+    CHECK(o.stored == 0);
+    CHECK(o.push_origin == kS3Reporter);
+    CHECK(o.push_ctr == kS3CtrM);
+    CHECK(o.push_body == s3_expected_body());
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/10 — TRANSLATED MODE RETURNS BEFORE S3's BLOCK
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE `return` IS THE CONTRACT. A mobile that DOES hold a delegated-flight row — an unreachable state made
+//      measurable through the ring's own production seam — must still emit NONE of S3's four events and
+//      originate nothing: the translated branch never reaches the lookup at all.
+//      ⛔ Without this arm a receiver that fell through into S3's block would look identical on every other case
+//        in this file, because a mobile's ring is normally empty.
+TEST_CASE("§B278-S4/10 a translated record never reaches S3's lookup, even on a node holding a live row") {
+    S4Chain c;
+    CHECK(s3_seed(c.m1));                                  // a live eligible row that WOULD match this report
+    CHECK(c.m1.test_deleg_ack_live_n() == 1);
+    CHECK(c.deliver_lastmile(s4_produced_at_home2()));
+    const S4Out o = s4_collect(c);
+    CHECK(o.accepted == 1);
+    CHECK(o.stored == 1);
+    CHECK(o.no_map == 0);
+    CHECK(o.ambiguous == 0);
+    CHECK(o.forwarded == 0);          // ⛔ the row is NOT consumed …
+    CHECK(o.refused == 0);
+    CHECK(c.m1.test_deleg_custody_n(Node::test_custody_state_forwarded()) == 0);
+    CHECK(c.m1.test_deleg_custody_n(Node::test_custody_state_eligible()) == 1);   // … it is untouched
+    CHECK(o.tx_n == 0);
+    CHECK(o.parked_n == 0);
+    CHECK(c.hm.label_count("RTS") == 0);
+    // ---- the DIRECT control: on the same seeded ring a DIRECT report DOES reach S3's block. The pair is what
+    //      proves the `return` is a decision rather than an empty ring.
+    {
+        uint8_t rec[custody_record_v1_len];
+        const uint8_t n = s3_pack_report(rec);
+        GPair q;
+        CHECK(s3_seed(q.n1));
+        CHECK(q.send_typed(rec, n));
+        CHECK(q.h1.count("deleg_custody_forwarded") + q.h1.count("deleg_custody_forward_refused")
+              + q.h1.count("deleg_custody_no_map") == 1);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/11 — §8.4's JSON, LIVE AND PULLED
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ THE TWO SURFACES ARE ONE FIELD AUTHORITY. Both target kinds, both transports, with the shared field
+//      block compared BYTE for BYTE — and the forbidden shapes asserted ABSENT rather than assumed.
+TEST_CASE("§B278-S4/11 live and pulled JSON expose §8.4's translated fields identically, for both target kinds") {
+    // ---- (a) the NODE-ID form — the shape S3's direct-host arm actually produces.
+    const std::vector<uint8_t> node_form = s4_produced_at_home1();
+    const std::string want_node = s4_json_fields(kS3Reporter, /*failed_origin=*/1, 2,
+        ",\"delegated\":true,\"target_kind\":\"node_id\",\"target_id\":9", kS3CtrM);
+    const std::string live_node = s4_live_json(node_form, kS3Reporter, kS3ReturnPeer, kS3CtrM, 2, /*seq=*/4);
+    CHECK(live_node == std::string("{\"ev\":\"custody_failure\",\"seq\":4") + want_node + "}\n");
+    const std::string pull_node = s4_pulled_json(node_form, kS3Reporter, kS3CtrM, 2, /*rx_ms=*/9000);
+    CHECK(pull_node == std::string("{\"ev\":\"custody_failure\",\"seq\":1,\"rx_ms\":9000") + want_node + "}\n");
+    CHECK(live_node.find(want_node) != std::string::npos);      // ★ ONE decoder serves both transports
+    CHECK(pull_node.find(want_node) != std::string::npos);
+    // ---- (b) the HASH form — §6.2's other target kind, built through the same production packer.
+    const std::vector<uint8_t> hash_form =
+        s3_expected_body(kKindKeyHash, /*target=*/0xA1B2C3D4u, kS3CtrM, /*dst_hash=*/0);
+    CHECK(hash_form.size() == custody_record_translated_len);
+    const std::string want_hash = s4_json_fields(kS3Reporter, /*failed_origin=*/1, 2,
+        ",\"delegated\":true,\"target_kind\":\"hash\",\"target_hash\":\"a1b2c3d4\"", kS3CtrM);
+    const std::string live_hash = s4_live_json(hash_form, kS3Reporter, kS3ReturnPeer, kS3CtrM, 2, /*seq=*/4);
+    CHECK(live_hash == std::string("{\"ev\":\"custody_failure\",\"seq\":4") + want_hash + "}\n");
+    const std::string pull_hash = s4_pulled_json(hash_form, kS3Reporter, kS3CtrM, 2, /*rx_ms=*/9000);
+    CHECK(pull_hash == std::string("{\"ev\":\"custody_failure\",\"seq\":1,\"rx_ms\":9000") + want_hash + "}\n");
+    // ---- (c) EXACTLY ONE target field, NO aliases, and `ctr` still means ctrH.
+    for (const std::string* s : { &live_node, &pull_node, &live_hash, &pull_hash }) {
+        CHECK(s->find("\"via_home\"") == std::string::npos);
+        CHECK(s->find("\"home_ctr\"") == std::string::npos);
+        CHECK(s->find("\"ctr\":3054") != std::string::npos);            // 0x0BEE — the HOME counter, unmoved
+        CHECK(s->find("\"mobile_ctr\":1911") != std::string::npos);     // 0x0777 — ctrM, in its OWN field
+    }
+    CHECK(live_node.find("\"target_hash\"") == std::string::npos);
+    CHECK(pull_node.find("\"target_hash\"") == std::string::npos);
+    CHECK(live_hash.find("\"target_id\"") == std::string::npos);
+    CHECK(pull_hash.find("\"target_id\"") == std::string::npos);
+    // ---- (d) TYPE IDENTITY: `delegated` is a JSON boolean, `target_kind`/`target_hash` are strings,
+    //          `target_id`/`mobile_ctr` are integers. A quoted number here is a different wire contract.
+    CHECK(live_node.find("\"delegated\":true")   != std::string::npos);
+    CHECK(live_node.find("\"delegated\":\"true\"") == std::string::npos);
+    CHECK(live_node.find("\"target_id\":9,")     != std::string::npos);
+    CHECK(live_hash.find("\"target_hash\":\"a1b2c3d4\"") != std::string::npos);
+    // ---- (e) THE FAIL-LOUD ARM: a bit-6 record whose length claims the DIRECT form never renders as a direct
+    //          event — the codec refuses it and the emitter says so.
+    {
+        std::vector<uint8_t> torn = node_form;
+        torn[kOffRecordLen] = custody_record_v1_len;
+        const std::string got = s4_live_json(torn, kS3Reporter, kS3ReturnPeer, kS3CtrM, 2, /*seq=*/4);
+        CHECK(got.find("unparseable_record") != std::string::npos);
+        CHECK(got.find("\"delegated\"") == std::string::npos);
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/12 — THE COMPLETE-TUPLE CONSUMER CONTRACT (test-only fixture)
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★★ §8.4's rule, proven SUFFICIENT and proven NECESSARY. The positive consumes exactly one operation; each
+//      of the six fields, changed alone, refuses; and the two forbidden shortcuts — counter-only and the store
+//      key `(origin, msg_id)` — are shown to select the WRONG operation, which is why they are forbidden.
+TEST_CASE("§B278-S4/12 the generic consumer needs the COMPLETE six-field tuple, and every one-field miss refuses") {
+    const std::vector<uint8_t> body = s4_produced_at_home1();
+    S4Operation good{};
+    good.failed_origin = 1; good.reporter_layer = 2;
+    good.target_kind = CustodyTranslatedTargetKind::node_id;
+    good.target_value = kS3ReturnPeer; good.mobile_ctr = kS3CtrM; good.failed_type = kS3OutType;
+    CHECK(s4_consume({ good }, body) == 1);            // the positive: exactly ONE matching operation
+    // ---- six independent one-field misses.
+    { S4Operation m = good; m.failed_origin  = 5;                                  CHECK(s4_consume({ m }, body) == 0); }
+    { S4Operation m = good; m.reporter_layer = 3;                                  CHECK(s4_consume({ m }, body) == 0); }
+    { S4Operation m = good; m.target_kind = CustodyTranslatedTargetKind::key_hash; CHECK(s4_consume({ m }, body) == 0); }
+    { S4Operation m = good; m.target_value   = kS3ReturnPeer + 1;                  CHECK(s4_consume({ m }, body) == 0); }
+    { S4Operation m = good; m.mobile_ctr     = kS3CtrM2;                           CHECK(s4_consume({ m }, body) == 0); }
+    { S4Operation m = good; m.failed_type    = DATA_TYPE_INTRO;                    CHECK(s4_consume({ m }, body) == 0); }
+    // ---- the FORBIDDEN counter-only matcher, demonstrated wrong on the same input: a second operation differs
+    //      from the first ONLY in its target, so a counter-only matcher selects two and cannot say which.
+    {
+        S4Operation other = good; other.target_value = kS3ReturnPeer + 1;
+        int counter_only = 0;
+        for (const S4Operation& op : { good, other }) if (op.mobile_ctr == kS3CtrM) ++counter_only;
+        CHECK(counter_only == 2);                       // ⛔ ambiguous — this is why §8.4 forbids it
+        CHECK(s4_consume({ good, other }, body) == 1);  // …while the complete tuple still selects exactly one
+    }
+    // ---- and the STORE KEY is not the operation identity: an E2E-ACK receipt for the SAME operation is stored
+    //      under the ACKER's origin, so `(origin, msg_id)` never pairs the two records.
+    {
+        RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+        Inbox ib; ib.on_init(&dm, &ch);
+        (void)ib.record_custody_failure(kS3Reporter, kS3CtrM, 2, body.data(),
+                                        static_cast<uint8_t>(body.size()), 1000);
+        (void)ib.record_ack(/*from_origin=*/kS3ReturnPeer, /*acked_ctr=*/kS3CtrM, /*layer_id=*/2, /*now=*/1100);
+        StoreSink s{};
+        ib.pull(0, 0, store_cb, &s);
+        CHECK(s.visited == 2);
+        CHECK(s.custody == 1);
+        CHECK(s.recs.size() == 1u);
+        if (s.recs.size() == 1u) CHECK(s.recs[0].origin != kS3ReturnPeer);   // ⛔ different origins, one operation
+    }
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/13 — RAW PULL RETURNS BOTH FORMS
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ §7.4's diagnostic pull stays RAW for the new form too, pinned with BOTH forms in ONE pull — two separate
+//     pulls over two stores could both pass while the two forms were never seen together.
+//     ⓘ The OLED/unread half is re-proved in `test/test_custody_internal_c.cpp` (§B278-S4/13b) against Slice C's
+//       own mirror, budget and unread router — re-PROVED there, ⛔ never re-implemented here.
+TEST_CASE("§B278-S4/13 one raw pull returns the DIRECT and the TRANSLATED record, both verbatim") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    uint8_t direct[custody_record_v1_len];
+    const uint8_t dn = g_pack(g_base_record(/*failed_origin=*/1, /*reporter_layer=*/2), direct);
+    const std::vector<uint8_t> translated = s4_produced_at_home1();
+    (void)ib.record_custody_failure(/*reporter=*/2, /*failed_ctr=*/0x0BEE, /*layer=*/2, direct, dn, 1000);
+    (void)ib.record_custody_failure(kS3Reporter, kS3CtrM, 2, translated.data(),
+                                    static_cast<uint8_t>(translated.size()), 1100);
+    StoreSink s{};
+    ib.pull(0, 0, store_cb, &s);
+    CHECK(s.visited == 2);
+    CHECK(s.custody == 2);
+    CHECK(s.recs.size() == 2u);
+    if (s.recs.size() != 2u) return;
+    CHECK(s.recs[0].body_len == custody_record_v1_len);
+    CHECK(s.recs[0].body == std::vector<uint8_t>(direct, direct + dn));
+    CHECK(s.recs[1].body_len == custody_record_translated_len);
+    CHECK(s.recs[1].body == translated);
+    // …and the two really ARE the two forms, read through the codec rather than by eye.
+    const std::optional<CustodyFailureRecord> a =
+        parse_custody_failure(std::span<const uint8_t>(s.recs[0].body.data(), s.recs[0].body.size()));
+    const std::optional<CustodyFailureRecord> b =
+        parse_custody_failure(std::span<const uint8_t>(s.recs[1].body.data(), s.recs[1].body.size()));
+    CHECK(a.has_value()); CHECK(b.has_value());
+    if (a) CHECK_FALSE(custody_record_is_translated(a->notice_flags));
+    if (b) CHECK(custody_record_is_translated(b->notice_flags));
+}
+
+// -----------------------------------------------------------------------------------------------------
+// §B278-S4/14 — NON-RECURSION
+// -----------------------------------------------------------------------------------------------------
+
+// ★★★ A TRANSLATED CARRIER THAT DIES PRODUCES NO NOTICE AND NO GENERIC PUSH, from both ends: the GENERATOR
+//     excludes 0x81 (`type_reportable`, node_cascade.cpp) and the RECEIVER refuses a record ABOUT an 0x81
+//     (§13.14). Measured at the mobile: consuming one produces exactly ONE push and no send lifecycle at all.
+TEST_CASE("§B278-S4/14 consuming a translated record spawns no custody notice and no generic send lifecycle") {
+    S4Chain c;
+    CHECK(c.deliver_via_home());
+    const S4Out o = s4_collect(c);
+    CHECK(o.pushes == 1);
+    CHECK(o.other_pushes == 0);            // ⛔ no send_aired / send_failed / msg_recv of any kind
+    CHECK(o.notices == 0);                 // ⛔ no custody notice about the custody carrier
+    CHECK(c.hm.count("e2e_ack_tx") == 0);  // ⛔ and no E2E ACK is generated for a notice (§9.1)
+    CHECK(o.delivered == 0);
+    // …and a record ABOUT an 0x81 is refused at this receiver too — the other half of never-about-itself.
+    s4_expect_rejected_byte("about a notice", kOffFailedType, DATA_TYPE_CUSTODY_FAILURE);
 }

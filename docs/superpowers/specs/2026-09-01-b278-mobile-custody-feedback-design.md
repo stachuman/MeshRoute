@@ -1,6 +1,6 @@
 # B278 — Mobile feedback for home-originated static custody failures
 
-**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S4 brief awaiting Quality-Agent review
+**Status:** DESIGN PASS · S0 + S1a + S1b + S2 + S3 CLOSED 2026-09-02 · seventh corpus-table ruling landed · S4 brief Quality-Agent PASS, ready for Opus dispatch
 **Date:** 2026-09-01  
 **Depends on:** §CUSTODY A–G (landed), B251 (closed)  
 **Required before:** remote-admin v2 Slice 9; any metal claim for custody-aware mobile send presentation  

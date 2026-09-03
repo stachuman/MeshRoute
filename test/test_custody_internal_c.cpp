@@ -665,3 +665,89 @@ TEST_CASE("§CUSTODY-C/5b one custody report: the live push fires AND the stored
     CHECK(mrui::ui_route_recv_push(ctr, model, dm_push, 1, false, "peer", 1000));
     CHECK(ctr.unread_dm() == 1);
 }
+
+// =====================================================================================================
+// ★★★★ §B278-S4/13b (2026-09-02) — THE **TRANSLATED** CUSTODY RECORD IS EXCLUDED BY THE SAME LANDED TRAIT
+// =====================================================================================================
+
+// ★★★ §B278 S4 CHANGES NO OLED, HISTORY OR UNREAD CODE, AND THIS CASE IS THE PROOF RATHER THAN THE PROMISE.
+//     §CUSTODY-C's exclusion is `inbox_record_is_internal(e.type)` -> `data_type_traits(type).internal`
+//     (`lib/core/inbox.h`), and it is keyed on the DataType byte alone. A translated record is the SAME type
+//     `0x81` with a longer body, so it is hidden BY CONSTRUCTION — but "by construction" is exactly the kind of
+//     claim this project requires to be measured, so the two forms are put in ONE store together and asked.
+// ⛔ RE-PROVED, NEVER RE-IMPLEMENTED: this uses §CUSTODY-C's own `OledList` mirror, its `InboxRowBudget` and its
+//    `ui_route_recv_push` unread router — the same three seams §CUSTODY-C/2e and /5b drive.
+TEST_CASE("§B278-S4/13b a stored TRANSLATED custody record is excluded from rows, totals and unread — like the direct one") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, /*origin=*/7, 100, "hello", 1000);
+    rec_custody(ib, /*reporter=*/5, /*failed_ctr=*/0x1111, 1500);          // the DIRECT form (24 B)
+    // …and the TRANSLATED form (32 B), packed by the PRODUCTION §B278 S2 packer. ⛔ Not a hand-laid array.
+    uint8_t direct[custody_record_v1_len];
+    const uint8_t dn = g_valid_record(direct, /*failed_origin=*/1, /*reporter_layer=*/0);
+    const std::optional<CustodyFailureRecord> base =
+        parse_custody_failure(std::span<const uint8_t>(direct, dn));
+    CHECK(base.has_value());
+    if (!base) return;
+    CustodyTranslatedTail tail{};
+    tail.original_reporter = 5;
+    tail.target_kind       = CustodyTranslatedTargetKind::node_id;
+    tail.mobile_ctr        = 0x0777;
+    tail.target_value      = 9;                                            // == the record's `failed_dst`
+    uint8_t translated[custody_record_translated_len];
+    const size_t tn = pack_custody_failure_translated(*base, tail,
+                          std::span<uint8_t>(translated, sizeof translated));
+    CHECK(tn == custody_record_translated_len);
+    if (tn != custody_record_translated_len) return;
+    ib.record_custody_failure(/*reporter=*/tail.original_reporter, /*failed_ctr=*/tail.mobile_ctr,
+                              /*layer_id=*/0, translated, static_cast<uint8_t>(tn), 1600);
+    rec_dm(ib, /*origin=*/7, 101, "world", 1800);
+
+    // ① THE VIEW — four records in the store, two of them custody, and the panel shows only the two messages.
+    OledList oled;
+    const mrui::UiSnapshot s = oled.fill(ib);
+    CHECK(oled.raw_visited == 4);            // ★ the RAW pull visits all four, BOTH custody forms included …
+    CHECK(s.inbox_shown == 2);               // … and the panel shows only the two messages
+    CHECK(s.inbox_total == 2);               // ⛔ NOT 4 — two diagnostics are not mailbox contents
+    CHECK(oled.sanitized == 2);              // ★★ THE PIN: neither binary body met the byte sanitizer
+
+    // ② THE RAW DIAGNOSTIC still carries BOTH, verbatim and at their OWN lengths (§7.4: pull stays raw).
+    const std::vector<PulledRec> raw = raw_pull(ib);
+    int direct_seen = 0, translated_seen = 0;
+    for (const auto& r : raw)
+        if (r.type == DATA_TYPE_CUSTODY_FAILURE) {
+            const std::optional<CustodyFailureRecord> got = parse_custody_failure(
+                std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(r.body.data()), r.body.size()));
+            CHECK(got.has_value());
+            if (!got) continue;
+            if (custody_record_is_translated(got->notice_flags)) {
+                ++translated_seen;
+                CHECK(r.body_len == custody_record_translated_len);
+                CHECK(r.origin == 5);                                  // §8.3: origin = the ORIGINAL reporter
+                CHECK(r.msg_id == 0x0777u);                            // §8.3: msg_id = ctrM
+            } else {
+                ++direct_seen;
+                CHECK(r.body_len == custody_record_v1_len);
+            }
+        }
+    CHECK(direct_seen == 1);
+    CHECK(translated_seen == 1);
+
+    // ③ THE UNREAD COUNT — a translated report is not an arrival either; the DM counter never moves for it.
+    mrui::UiInboxCounters ctr{};
+    mrui::UiModel model;
+    Push cf{}; cf.kind = PushKind::custody_failure; cf.origin = 5; cf.dst = 9; cf.ctr = 0x0777;
+    cf.body_len = static_cast<uint8_t>(tn);
+    for (size_t i = 0; i < tn; ++i) cf.body[i] = translated[i];
+    CHECK_FALSE(mrui::ui_route_recv_push(ctr, model, cf, /*ui_team_channel_id=*/1,
+                                         /*same_team_post=*/false, "peer", 1000));
+    CHECK(ctr.unread_dm() == 0);
+    CHECK_FALSE(ctr.have_dm);
+    // …and the SAME control §CUSTODY-C/5b uses, so the zero is a measurement and not a dead counter.
+    Push dm_push{}; dm_push.kind = PushKind::msg_recv; dm_push.origin = 2; dm_push.ctr = 9;
+    CHECK(mrui::ui_route_recv_push(ctr, model, dm_push, 1, false, "peer", 1000));
+    CHECK(ctr.unread_dm() == 1);
+    // ④ …and the exclusion's OWN authority, asked directly: it is the TYPE byte, so both forms answer the same.
+    CHECK(inbox_record_is_internal(DATA_TYPE_CUSTODY_FAILURE));
+    CHECK(data_type_traits(DATA_TYPE_CUSTODY_FAILURE).internal);
+}

@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B278 S4 — mobile receive and translated-custody surfaces · dispatch brief · 2026-09-02
 
-**Status: DRAFT — awaiting Quality-Agent review.**
+**Status: QUALITY-AGENT PASS — ready for Opus dispatch.**
 Dispatch model after PASS: **Opus**. Authority:
 `docs/superpowers/specs/2026-09-01-b278-mobile-custody-feedback-design.md`, especially
 §8, §12-S4 and §13.3–§13.5. Pre-check input:
@@ -66,7 +66,8 @@ STOP and report before widening the slice if any of these occurs:
 10. any production matcher uses the store key `(origin,msg_id)`, target/counter only, or a
     private home telemetry event as the operation identity;
 11. any corpus stream differs from the seventh owner-ruled table after a proven simulator
-    relink—including a direct JSON formatting change;
+    relink, including movement in the direct `custody_failure_rx` or store/Push events on
+    the eleven direct receipts;
 12. `sizeof(Node)`, ruled-board RAM, or another persistent ABI moves; compiler stack output
     is missing/dynamic/incomparable or an increase is not bounded and attributed;
 13. any touched mutation/probe target has an unmatched, multi-matched, vacuous, unusable or
@@ -234,7 +235,9 @@ renderer—direct and translated—into one narrow production header such as
 exactly once; it retains no parsing, target selection or wording decision of its own.
 
 `tools/probe_custody_usb/` must compile and execute that exact production helper against the
-real custody codec and the repository's faithful Arduino `Print` fake. It must drive:
+real custody codec and the existing faithful Arduino `Print`/`F()` fake at
+`tools/probe_console_sink/fakes/Arduino.h`—never a second fake. The helper takes a `Print&`,
+the same output seam used by `dispatch()`. The probe must drive:
 
 - the pre-S4 direct golden line byte-for-byte;
 - translated node-id and hash golden lines;
@@ -337,8 +340,12 @@ place with the old claim visible and the S4 replacement named; never silently de
 ## Corpus gate
 
 Prediction: **36/36 byte-identical** to the seventh owner-ruled table. S3 proved that the
-corpus has zero translated transmissions and all four S3 events are zero. Direct receipt
-and direct JSON exist, so conditional formatting errors remain observable.
+corpus has zero translated transmissions and all four S3 events are zero. The corpus does
+exercise eleven direct receipts through their `custody_failure_rx` and store/Push events,
+which must remain unchanged. It does **not** render custody JSON: the simulator links
+`console_json.cpp` only for `pushkind_name`, and the streams carry only the structured Push
+emit. Direct JSON compatibility is therefore owned by G/5's exact golden case and the
+complete `sliceGjson` battery, not inferred from corpus identity.
 
 1. prove the simulator relinked after the final S4 production edit; a zero-action rebuild is
    evidence only after a changed-binary/recompile control has fired for this tree;

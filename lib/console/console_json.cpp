@@ -162,6 +162,23 @@ const char* custodystage_name(MESHROUTE_NS::CustodyRootStage s) {
     }
     return "invalid";   // ⛔ the SENTINEL, never a plausible-looking guess: an unreadable stage must LOOK unreadable
 }
+// ★★ §B278 S4 (design §8.4) — THE THIRD NAME TABLE, in the same shape and for the same reason as the two around
+// it: the target KIND is a wire enum and it is rendered on all three surfaces, so exactly one place decides what
+// each value is called. It takes the ENUM, so -Wswitch fails the build if §6.2 ever grows a third kind.
+// ⛔ The two words are `"node_id"` and `"hash"` (spec §8.4's example), and `src/firmware_custody_push.h` prints
+//    the SAME two on USB. That file cannot include this one (a `lib/` TU may not depend on `src/`), so the USB
+//    renderer carries its own switch — and `tools/probe_custody_usb/` compiles BOTH and asserts, at run time,
+//    that the word the USB line prints is the word this table produced for the same record. A drift is RED.
+// ⓘ `static`, UNLIKE ITS TWO NEIGHBOURS, and that is deliberate: they are declared in `console_json.h` because
+//   `src/fw_main.cpp` links them; this one has NO external consumer (the USB side is cross-pinned by executing
+//   both renderers, which is a stronger check than sharing a symbol), so it stays TU-local.
+static const char* custodytarget_name(MESHROUTE_NS::CustodyTranslatedTargetKind k) {
+    switch (k) {
+        case MESHROUTE_NS::CustodyTranslatedTargetKind::node_id:  return "node_id";   // §6.2: `target_value` is the mobile-visible STATIC id
+        case MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash: return "hash";      // §6.2: `target_value` is the retained target key_hash32
+    }
+    return "invalid";   // ⛔ the SENTINEL, same policy as the two tables around it. `custody_target_kind_is_defined`
+}                       //    has already refused anything else inside the codec, so this arm is a tripwire.
 const char* custodyreason_name(MESHROUTE_NS::CustodyFailureReason r) {
     switch (r) {
         case MESHROUTE_NS::CustodyFailureReason::one_way_throttled: return "one_way_throttled";   // §9.4/1: the MF4 reprobe window refused another burst
@@ -183,8 +200,16 @@ const char* custodyreason_name(MESHROUTE_NS::CustodyFailureReason r) {
 //    quantity. ⚠ It is UNAUTHENTICATED (§13's closing paragraph) and must be rendered as a claim.
 // ⛔ THE UNKNOWN ACCEPTED TAIL IS NOT COPIED INTO JSON (§14.2, verbatim). A v1 reader interprets 24 bytes; the
 //    tail is retained in STORAGE for a future reader and is deliberately invisible here.
+// ★★★★ §B278 S4 (design §8.4) — THE TRANSLATED FIELDS RIDE **HERE**, INSIDE THE ONE SHARED EMITTER, and that is
+// the whole of "live and pulled JSON stay one semantic surface": both callers hand in the SAME `body` span they
+// already parsed the record from, so neither can grow a field the other lacks and neither owns a second tail
+// reader. ⛔ `body` is an ADDED PARAMETER, not a second decode: `parse_custody_translated_tail` is the codec's
+// one tail reader and the only thing that ever touches offsets 24-31.
+// ⛔ NOTHING ABOUT THE DIRECT FORM MOVES. A direct record has bit 6 clear, so the block below does not run and
+//    the bytes are the pre-S4 bytes, field for field and character for character.
 static void emit_custody_failure_fields(JsonBuf& j, uint32_t reporter,
-                                        const MESHROUTE_NS::CustodyFailureRecord& r) {
+                                        const MESHROUTE_NS::CustodyFailureRecord& r,
+                                        std::span<const uint8_t> body) {
     j.lit(",\"reporter\":");         j.u32(reporter);
     j.lit(",\"reporter_layer\":");   j.u32(r.reporter_layer);
     j.lit(",\"failed_origin\":");    j.u32(r.failed_origin);
@@ -205,6 +230,28 @@ static void emit_custody_failure_fields(JsonBuf& j, uint32_t reporter,
     // already cross-checked the flag against the value in BOTH directions (§13.16), so `has_dst_hash` set
     // implies nonzero — the test below is the flag, which is the field that carries the meaning.
     if (r.notice_flags & MESHROUTE_NS::CUSTODY_FLAG_HAS_DST_HASH) { j.lit(",\"dst_hash\":"); key_hex32(j, r.dst_hash32); }
+    // ---- §8.4's TRANSLATED ADDITIONS. APPENDED, never a rename: `reporter` (= the tail's original reporter,
+    //      because §8.3 stored/pushed it as the record's `origin`), `failed_origin` (= H1, the translator and
+    //      the static flight's origin) and `ctr` (= ctrH, the HOME counter) all keep their established meaning
+    //      so an existing decoder is unaffected. ⛔ EXACTLY ONE target-value field is emitted, and ⛔ there is
+    //      no `via_home` / `home_ctr` alias: a duplicated value is a second compatibility surface (§8.4).
+    if (MESHROUTE_NS::custody_record_is_translated(r.notice_flags)) {
+        const std::optional<MESHROUTE_NS::CustodyTranslatedTail> t =
+            MESHROUTE_NS::parse_custody_translated_tail(body, r);
+        // C2 — LOUD, and structurally unreachable: `parse_custody_failure` validated this very record THROUGH
+        // this very reader, so a record that parsed has a tail that reads. It is spelled anyway, in the same
+        // shape as the live emitter's `unparseable_record`, because the honest answer to "the two readers
+        // disagree" is to say so, never to emit a translated event that silently looks direct.
+        if (!t) { j.lit(",\"error\":\"unparseable_tail\""); return; }
+        j.lit(",\"delegated\":true");                       // the ONE boolean an app switches its decoder on
+        j.lit(",\"target_kind\":\""); j.lit(custodytarget_name(t->target_kind)); j.ch('"');
+        if (t->target_kind == MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash) {
+            j.lit(",\"target_hash\":"); key_hex32(j, t->target_value);   // the SAME hex helper `dst_hash` uses (U1)
+        } else {
+            j.lit(",\"target_id\":");   j.u32(t->target_value);          // a node id — a NUMBER, like every other id here
+        }
+        j.lit(",\"mobile_ctr\":"); j.u32(t->mobile_ctr);    // ctrM. ⛔ `ctr` above stays ctrH (§8.4, verbatim)
+    }
 }
 // E2E §5: send_failed.reason — the app maps no_pubkey -> "Request key / Scan QR"; the permanent reasons -> plain fail.
 const char* sendfailreason_name(SendFailReason r) {
@@ -467,7 +514,7 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }   // existing live-push convention: OMITTED when 0 = storage disabled (§14.2)
         const std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =
             MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));
-        if (rec) emit_custody_failure_fields(j, p.origin, *rec);
+        if (rec) emit_custody_failure_fields(j, p.origin, *rec, std::span<const uint8_t>(p.body, body_n));
         else     j.lit(",\"error\":\"unparseable_record\"");   // C2: loud and structurally unreachable, never a silent empty event
     } else if (p.kind == PushKind::send_aired) {   // ★ §T3: the attempt-level airing fact — dst + ctr, nothing else
         // ⛔ AN EXPLICIT BRANCH, NOT A FALLTHROUGH, AND THE DIFFERENCE IS THE WHOLE POINT. Without it `send_aired`
@@ -642,7 +689,8 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8
         j.lit("{\"ev\":\"custody_failure\"");
         j.lit(",\"seq\":");   j.u32(seq);
         j.lit(",\"rx_ms\":"); j.i64(static_cast<int64_t>(rx_ms));   // §14.2: "a pulled record may additionally carry its receive timestamp"
-        emit_custody_failure_fields(j, origin, *rec);               // §7.2 stored `origin` = the reporting relay = the live push's `reporter`
+        emit_custody_failure_fields(j, origin, *rec,                // §7.2 stored `origin` = the reporting relay = the live push's `reporter`
+                                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(body), body_len));
         j.ch('}');
         return j.finish();
     }

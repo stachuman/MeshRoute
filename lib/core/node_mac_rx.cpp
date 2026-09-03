@@ -1593,7 +1593,10 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 //
 //   CODEC-OWNED (`parse_custody_failure`, frame_codec.cpp — ELEVEN terms behind ONE `nullopt`)
 //     §13.3 body >= 24 · §13.4 version == 1 · §13.5 `record_len` in [24, body] · §13.6 flag bit 7 zero (bit 6
-//     is ALLOCATED as of §B278 S2 and is refused HERE, at the interim guard below, not by the codec) ·
+//     is ALLOCATED as of §B278 S2. ⚠ CORRECTED 2026-09-02 BY §B278 S4 — this line used to read *"and is
+//     refused HERE, at the interim guard below, not by the codec"*, and the guard it named no longer exists:
+//     bit 6 now SELECTS THE MODE below rather than refusing the record, and the codec validates the whole
+//     §6.2 tail before returning it) ·
 //     §13.7 `forwarded` set · §13.8 exactly one stage bit · §13.9 a known nonzero reason · §13.12 the four
 //     ids in 1..254 · §13.13 `failed_ctr` nonzero · §13.16 the hash flag agrees with the hash, BOTH ways ·
 //     §13.17 reserved bytes zero.
@@ -1658,37 +1661,99 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
     const std::optional<CustodyFailureRecord> parsed = parse_custody_failure(ui->body);
     if (!parsed) { reject(); return; }
     const CustodyFailureRecord& rec = *parsed;
-    // ★★★★ §B278 S2 — THE INTERIM HOME-TRANSLATED REFUSAL. ⛔⛔ THIS IS THE RATIFIED S2→S4 INTERMEDIATE STATE,
-    //   NOT AN OVERSIGHT AND NOT A PERMANENT RULE — the same F-before-G idiom §CUSTODY-F used and §CUSTODY-G
-    //   replaced. **S4 ("mobile receive and surfaces") IS THE SLICE THAT REPLACES THIS LINE** with the split
-    //   direct-vs-translated contextual validation of design §8.1/§8.2; S3 is what first puts a translated
-    //   record on the air. Until S4 lands, nothing produces this form and NOTHING may consume it.
-    //   ⓘ WHY IT MUST BE EXPLICIT NOW, in one sentence: before S2 a bit-6 record died at the codec's reserved
-    //     mask; S2 allocated bit 6, so without this line §13's eighteen terms below would run on a translated
-    //     record and could ACCEPT one — the translating home's own id sits in `failed_origin`, so a home would
-    //     store and push its own translation as if it were a direct report about itself.
-    //   ⛔ It takes the EXISTING bounded `custody_failure_reject` exit, exactly once, and returns BEFORE
-    //     `plane_supported` / `addressed_to_us` / type / layer / domain / store / Push. ⛔ G's eighteen
-    //     validations below are neither duplicated nor modified here.
-    if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }
+    // ★★★★ §B278 S4 (2026-09-02) — THE MODE SPLIT. ⚠⚠ **CORRECTION IN PLACE, OLD CLAIM KEPT VISIBLE**: from
+    //   §B278 S2 until this slice this spot carried the INTERIM REFUSAL
+    //     `if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }`
+    //   whose comment said *"Until S4 lands, nothing produces this form and NOTHING may consume it"*. S3 made
+    //   the home a PRODUCER; **S4 is the slice that was named there, and it is now landed** — the blanket
+    //   refusal is REPLACED by design §8.1/§8.2's split direct-vs-translated contextual validation. A
+    //   translated record is still refused by every node that is not its intended configured mobile, and the
+    //   DIRECT path below keeps §CUSTODY-G's landed terms byte-for-byte.
+    //   ⓘ WHY THE FLAG STILL DECIDES SOMETHING HERE: before S2 a bit-6 record died at the codec's reserved
+    //     mask; S2 allocated bit 6, so without a split §13's eighteen terms would run on a translated record —
+    //     the TRANSLATING HOME's own static id sits in `failed_origin`, so §13.11 would pass AT THAT HOME and
+    //     it would store and push its own translation as a direct report about itself. The split is what keeps
+    //     that false: `addressed_to_us` is a DIRECT-ONLY term, and the translated arm demands
+    //     `_cfg.is_mobile` (§8.2 rule 3's `pa.origin == failed_origin` is satisfied at H1, and it is the
+    //     configured-mobile term — not the origin term — that refuses H1's own translation; §B278-S4/4).
+    const bool translated = custody_record_is_translated(rec.notice_flags);
+    // ⛔ THE ONE TAIL READER (§6.3), CALLED EXACTLY ONCE, AND ⛔ NOT A SECOND VALIDATION TABLE. Every §6.3 tail
+    //   term (reporter in 1..254, a defined `target_kind`, nonzero `mobile_ctr`, nonzero and kind-valid
+    //   `target_value`, the node-id `== failed_dst` equality and the optional hash cross-check) was ALREADY
+    //   applied by `parse_custody_failure` above, which validates a bit-6 record THROUGH THIS SAME READER.
+    //   ⇒ a translated record that parsed HAS a tail that reads, so the refusal below is a codec-COHERENCE
+    //   tripwire (the two would have to disagree), never a receiver-owned policy term. ⓘ It is the reason the
+    //   receiver never spells a byte offset: the offsets live in frame_codec.cpp and nowhere else.
+    std::optional<CustodyTranslatedTail> tail;
+    if (translated) {
+        tail = parse_custody_translated_tail(ui->body, rec);
+        if (!tail) { reject(); return; }
+    }
     // ---- §13.10 — v1 plane SUPPORT, in its two halves (see the banner). The reserved plane values PARSE;
     //      refusing them is this layer's job, not the codec's.
     const bool plane_supported = rec.failed_plane == CustodyFailurePlane::static_same_layer;
     const bool arrived_static  = !pa.team_plane;
     // ---- §13.11 — the ADDRESSEE test. `_node_id` is the active leaf's static id (node.h).
+    //      ★ §B278 S4: **DIRECT-ONLY.** A translated record is not about a flight THIS node originated — it is
+    //      about the HOME's outward flight — so `failed_origin` is H1's id there and this term must not run.
     const bool addressed_to_us = rec.failed_origin == _node_id;
     // ---- §13.14 — never about an ack, never about another notice.
     const bool type_reportable = rec.failed_type != DATA_TYPE_E2E_ACK
                               && rec.failed_type != DATA_TYPE_CUSTODY_FAILURE;
     // ---- §13.15 — the same-layer v1 case: the reporter's layer IS our receiving layer.
+    //      ★ §B278 S4: SHARED — direct mode requires it outright, and §8.2 rule 7's NO-HASH arm requires it
+    //      too (the hosted last mile is same-layer by construction). ⛔ The HASH arm deliberately does NOT:
+    //      a re-homed mobile may be reached through a different home, and the stable hash is what identifies
+    //      it there. ONE spelling for both (U1) — a second `reporter_layer == active_layer_id()` is how the
+    //      two arms would drift apart.
     const bool layer_matches   = rec.reporter_layer == active_layer_id();
     // ---- §13.18 — the four count/hop domains, each against its EXISTING authority (frame_codec.h).
     const bool counts_in_domain = rec.requeue_count      <= protocol::cascade_requeue_max
                                && rec.alternatives_tried <= protocol::max_rt_candidates
                                && rec.committed_hops     <= custody_committed_hops_max
                                && rec.remaining_hops     <= protocol::hop_budget_max_initial;
-    if (!(plane_supported && arrived_static && addressed_to_us && type_reportable
-          && layer_matches && counts_in_domain)) { reject(); return; }
+    // =====================================================================================================
+    // ★★★★ §B278 S4 — THE TWO CONTEXTS. Everything above is COMMON (design §8.2 rule 1: *"every common
+    //   frame/codec/count/type rule from the direct receiver"*, plus rule 2's plaintext/static arrival, which
+    //   `is_plaintext` and `arrived_static` already own). Only the ADDRESSEE question differs, because the two
+    //   forms answer *"is this report mine?"* with different evidence:
+    //     DIRECT      — I originated the failed flight, so my own static id is in the record (§13.11) and the
+    //                   reporting relay shares my layer (§13.15). UNCHANGED from §CUSTODY-G, byte for byte.
+    //     TRANSLATED  — the failed flight was the HOME's, on my behalf. My evidence is therefore (a) that I am
+    //                   a configured mobile at all, (b) that the DATA carrying the report comes from the very
+    //                   node the record names as the failed origin, and (c) that this carrier really is
+    //                   addressed to ME — by my stable hash when one is carried, or, on the ordinary hosted
+    //                   direct-transit form which carries none, by an ACTIVE registration to that same home
+    //                   on the matching layer.
+    // ⛔⛔ IT IS NOT AUTHENTICATION AND NOTHING MAY BE INFERRED FROM ACCEPTANCE (§8.2's closing sentence,
+    //    verbatim: *"The record remains an unauthenticated claim; no trust, key, route, membership or retry
+    //    decision follows from it."*). Acceptance means only "this is plausibly about my operation".
+    // =====================================================================================================
+    // ---- §8.2 rule 7, arm one: the carrier is HASH-addressed. `send_by_hash` reaches a re-homed mobile
+    //      through its CURRENT home with `DST_HASH == the mobile hash` while `pa.origin` is still the OLD home
+    //      H1 that owns the failed flight — so the hash, not the home relation, is what makes it ours here.
+    //      ⓘ `do_post_ack` already redirects a DST_HASH that is not ours (`l2c_handle_misdelivery`) far above,
+    //        so on the production path this term is defence in depth; it is named anyway because it is a
+    //        §8.2 REQUIREMENT, and the white-box seam drives the case the MAC cannot deliver.
+    const bool hash_addressed  = ui->has_dst_hash;
+    const bool hash_is_ours    = ui->dst_key_hash32 == _key_hash32;
+    // ---- §8.2 rule 7, arm two: NO `DST_HASH` — the ordinary direct-host form. `send_by_hash` passes
+    //      `override_dst_hash = 0` and hosted local ids are deliberately absent from `_id_bind`, so the home
+    //      cannot reconstruct one. The mobile's evidence is then its OWN live registration to that home.
+    //      ⛔ `mobile_registered()` / `mobile_home_id()` are the EXISTING accessors and have inert
+    //        `false`/`0` stubs when `MR_FEAT_MOBILE` is compiled out, so a gateway build is inert here by
+    //        construction (C3) rather than by a second `#if`.
+    const bool homed_to_reporter = mobile_registered() && mobile_home_id() == pa.origin;
+    // ---- §8.2 rule 3 — the translating DATA's origin IS the home which originated the failed static flight.
+    const bool home_originated   = pa.origin == rec.failed_origin;
+    // ---- §8.2's configured-mobile requirement. ★ THIS is the term that refuses H1's own translation, and it
+    //      is why a STATIC node can never consume this form no matter what the record says.
+    const bool mobile_receiver   = _cfg.is_mobile;
+    const bool direct_context     = addressed_to_us && layer_matches;
+    const bool translated_context = mobile_receiver && home_originated
+                                 && (hash_addressed ? hash_is_ours : (homed_to_reporter && layer_matches));
+    if (!(plane_supported && arrived_static && type_reportable && counts_in_domain
+          && (translated ? translated_context : direct_context))) { reject(); return; }
 
     // =====================================================================================================
     // §7.3's FIVE STEPS. ⛔⛔ THE ORDER IS THE CONTRACT, not an implementation detail: the Push carries the
@@ -1708,23 +1773,46 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
     //    is exactly `protocol::inbox_max_body` and exactly `sizeof(Push::body)`.
     const uint8_t  rec_len = rec.record_len;
     const uint8_t* rec_bytes = ui->body.data();
-    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),
+    // ★★★★ §B278 S4 — §8.3's TWO MAPPINGS, DERIVED ONCE AND THEN USED EVERYWHERE (U2: one conversion path, never
+    //   a carrier rebuilt field-by-field at a second site). The store, the Push and the factual telemetry all
+    //   read THESE THREE VALUES, so the public identity of a report cannot differ between the record the app
+    //   pulls, the push it receives live and the event the corpus counts.
+    //     direct      origin = `pa.origin` (the OUTER reporting relay) · ctr = `failed_ctr` (ctrH)
+    //                 · layer = the ACTIVE receiving layer                       — §CUSTODY-G, UNCHANGED.
+    //     translated  origin = `tail.original_reporter` (the relay that reported to the HOME — the outer origin
+    //                 here is the home, which is a translator and not the reporter) · ctr = `tail.mobile_ctr`
+    //                 (ctrM — the counter the MOBILE is waiting on; ctrH stays readable inside the body)
+    //                 · layer = `rec.reporter_layer` (the layer the failure happened on, which need not be the
+    //                 layer this carrier arrived over — the hash arm may cross homes).
+    //   ⛔ `Push::dst` is `rec.failed_dst` in BOTH forms: it is the static destination the flight died toward.
+    //      §8.4's mobile-visible target is a BODY field and is rendered from the tail, never smuggled in here.
+    const uint8_t  out_origin = translated ? tail->original_reporter : pa.origin;
+    const uint16_t out_ctr    = translated ? tail->mobile_ctr        : rec.failed_ctr;
+    const uint8_t  out_layer  = translated ? rec.reporter_layer      : active_layer_id();
+    const uint32_t seq = _inbox.record_custody_failure(out_origin, out_ctr, out_layer,
                                                        rec_bytes, rec_len, _hal.now());   // steps (2)+(3)
     // ---- step (4): §14.1's carrier mapping, verbatim. ⛔ `Push` does not grow and ⛔ `reason` stays `none`.
     Push pu{};
     pu.kind     = PushKind::custody_failure;
-    pu.origin   = pa.origin;              // the OUTER reporting relay — unauthenticated, recorded as a claim
+    pu.origin   = out_origin;             // the reporting relay — unauthenticated, recorded as a claim
     pu.dst      = rec.failed_dst;         // §15.2's correlation pair, half one
-    pu.ctr      = rec.failed_ctr;         //   … half two. ⛔ never matched by counter alone
-    pu.layer_id = active_layer_id();
+    pu.ctr      = out_ctr;                //   … half two. ⛔ never matched by counter alone
+    pu.layer_id = out_layer;
     pu.seq      = seq;                    // 0 IFF storage is disabled (§7.3) — ⛔ never a persistence proof
-    pu.body_len = rec_len;
+    pu.body_len = rec_len;                // ⛔ `record_len`, so an accepted FUTURE tail rides whole (§8.3)
     for (uint8_t i = 0; i < rec_len; ++i) pu.body[i] = rec_bytes[i];
     enqueue_push(pu);
     // KEEP for the sim analyzer + the corpus instrument (free on metal — MR_EMIT is device-stripped). Scalars
-    // only, the same bound the rejection carries.
-    MR_EMIT("custody_failure_rx", EF_I("reporter", pa.origin), EF_I("dst", rec.failed_dst),
-            EF_I("ctr", rec.failed_ctr), EF_I("seq", static_cast<int64_t>(seq)));
+    // only, the same bound the rejection carries. ⛔ Its NAME, FIELD ORDER and integer types are unchanged, and
+    // for a DIRECT record every value is the one §CUSTODY-G emitted — the corpus's eleven receipts must not move.
+    MR_EMIT("custody_failure_rx", EF_I("reporter", out_origin), EF_I("dst", rec.failed_dst),
+            EF_I("ctr", out_ctr), EF_I("seq", static_cast<int64_t>(seq)));
+    // ★★★★ §B278 S4 — TRANSLATED MODE ENDS HERE, AND THE `return` IS THE CONTRACT. Everything below is S3's
+    //   HOME-side lookup and origination: a MOBILE holds no delegated-flight ring at all, so entering it would
+    //   at best scan an empty ring and at worst let a report about someone else's flight re-originate a third
+    //   copy. ⛔ Neither mode reaches ordinary DM delivery and neither generates an E2E ACK — that is still the
+    //   function's own final `return` (§7.3 step 5), which this one mirrors.
+    if (translated) return;
 
     // =====================================================================================================
     // ★★★★ §B278 S3 (2026-09-02) — HOME CORRELATION AND TRANSLATED-CUSTODY ORIGINATION (design §7 steps 4-7).

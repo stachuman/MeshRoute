@@ -48,6 +48,7 @@ using mrfw::team_fnv1a32;
 #include "firmware_config.h"         // §cleanup 2026-07-14: config/provisioning cluster
 #include "firmware_team_keyring.h"   // §UI-16 K1/K2 ([[B240]]): mrfw::KeyringRestore — the boot forward's five OUTCOMES (firmware_config.h declares the enum opaquely; the startup switch needs its enumerators)
 #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
+#include "firmware_custody_push.h"  // §B278 S4: the custody USB renderer (direct + translated) — lifted OUT of the push switch below so a host probe can EXECUTE it
 using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
 using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
@@ -1664,37 +1665,16 @@ static void mesh_service_once() {
                 if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // the granter's optional label (NOT persisted)
                 mrcon.println(F(" — this node can now read the team channel")); break;   // ⚠ the KEY itself is never printed; `team exportkey` is its one disclosure
             // ★★★★ §CUSTODY-G (design §14.3) — THE OPERATOR-FACING CUSTODY REPORT, in ONE bounded line.
-            // ⛔⛔ *"No output may call it a NACK or claim non-delivery"* (§14.3, verbatim). The wording below is
-            //    therefore about CUSTODY TRANSFER at a named relay and says nothing about the destination: the
-            //    DATA may well have arrived, another path may have delivered a copy, and an E2E ack may still
-            //    land. `E2E-ACKED` remains the only line on this console that means delivery.
-            // ⛔ THE RECORD IS PARSED THROUGH F's ONE CODEC (§9.2) — ⛔ no offset indexing of `pu.body` here.
-            //    `fw_main.cpp` is outside the native gate, so a hand-decoded copy would be the one reader nothing
-            //    could catch disagreeing; and the two words `stage`/`reason` come from console_json's SINGLE name
-            //    table (U1 — the same rule `sendfailreason_name` follows two arms above).
-            // ⓘ `origin=` is the FAILED DATA's origin, which §13.11 has already proven is THIS node — it is
-            //   printed anyway because an operator reading a log needs the report to be self-contained.
-            case meshroute::PushKind::custody_failure: {
-                const std::optional<meshroute::CustodyFailureRecord> cf =
-                    meshroute::parse_custody_failure(std::span<const uint8_t>(pu.body, pu.body_len));
-                if (!cf) { mrcon.println(F("CUSTODY FAILURE (unparseable record)")); break; }   // C2: loud; structurally unreachable
-                mrcon.print(F("CUSTODY FAILURE reporter=")); mrcon.print(pu.origin);
-                mrcon.print(F(" layer="));  mrcon.print(cf->reporter_layer);
-                mrcon.print(F(" origin=")); mrcon.print(cf->failed_origin);
-                mrcon.print(F(" dst="));    mrcon.print(cf->failed_dst);
-                mrcon.print(F(" ctr="));    mrcon.print(cf->failed_ctr);
-                mrcon.print(F(" stage="));  mrcon.print(meshroute::console::custodystage_name(
-                                                meshroute::custody_stage_of_flags(cf->notice_flags)));
-                mrcon.print(F(" reason=")); mrcon.print(meshroute::console::custodyreason_name(cf->terminal_reason));
-                mrcon.print(F(" prev="));   mrcon.print(cf->previous_hop);
-                mrcon.print(F(" next="));   mrcon.print(cf->failed_next_hop);
-                mrcon.print(F(" repair=")); mrcon.print((cf->notice_flags & meshroute::CUSTODY_FLAG_REPAIR_ATTEMPTED)
-                                                        ? F("attempted") : F("none"));
-                mrcon.print(F(" one_way=")); mrcon.print((cf->notice_flags & meshroute::CUSTODY_FLAG_NEXT_WAS_ONE_WAY) ? 1 : 0);
-                if (pu.seq) { mrcon.print(F(" seq=")); mrcon.print(pu.seq); }   // omitted when storage is disabled, matching the JSON convention
-                mrcon.println(F(" — the relay could not complete onward custody; NOT proof the destination missed it (an e2e ack may still arrive)"));
+            // ⚠ §B278 S4 (2026-09-02) — **THE WHOLE RENDERER MOVED OUT**, direct and translated alike, to
+            //   `src/firmware_custody_push.h`. It used to live here as ~18 print calls; S4 gives the line a MODE
+            //   selection, a target-KIND selection and a second fail-loud arm, and `fw_main.cpp` is compiled by
+            //   neither the native suite nor the simulator — so those decisions would have been unreachable by
+            //   every automated gate (§B115). `tools/probe_custody_usb/` now compiles and EXECUTES that header
+            //   against the real codec. ⛔ THIS ARM KEEPS NO PARSING, NO SELECTION AND NO WORDING: exactly one
+            //   call, which is what the probe's structural pin asserts.
+            case meshroute::PushKind::custody_failure:
+                mrfw::print_custody_failure(mrcon, pu);
                 break;
-            }
             case meshroute::PushKind::team_channel_no_key:   // §chan-crypt CL2a: an ENCRYPTED team post arrived that this node cannot read. Rate-limited node-side, so this line is a prompt, not a flood.
                 mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
                 mrcon.print(F(" from=")); mrcon.print(pu.origin);

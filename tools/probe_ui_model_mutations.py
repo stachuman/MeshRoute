@@ -613,7 +613,49 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2559, 108102    # ★★ RE-SYNCED 2026-09-02 by **§B278 S3** (home correlation and
+PIN_CASES, PIN_ASSERTS = 2578, 108904    # ★★ RE-SYNCED 2026-09-02 by **§B278 S4** (mobile receive and the
+                                         # presentation surfaces — the first CONSUMER of the translated form).
+                                         # DERIVATION, measured with the real binary and not assumed: the S3
+                                         # tree BEFORE = 2559 / 108102 / 0 failed; AFTER = 2578 / 108904 / 0
+                                         # failed ⇒ +19 cases / +802 assertions, and the delta closes EXACTLY
+                                         # as the sum of the NINETEEN new cases, each measured on its own
+                                         # `-tc="§B278-S4/<n> *"` filter:
+                                         #   S4/1  37   S4/2  47   S4/3  39   S4/4  53   S4/5  194
+                                         #   S4/5b 25   S4/5c 41   S4/5d 39   S4/6  63   S4/7   45
+                                         #   S4/8  20   S4/9  20   S4/9b 13   S4/10 30   S4/11  44
+                                         #   S4/12 21   S4/13 20   S4/13b 23  S4/14 28
+                                         #                                                   = 802 ✓
+                                         # ★ ONE OF THESE FIGURES WAS **EARNED BY THE BATTERY** and is recorded
+                                         #   as such: S4/4 reads 53 rather than 28. Its first two arms left
+                                         #   `sliceGrx` S66 (*"the configured-mobile term is dropped"*)
+                                         #   SURVIVING, because `run_arm`'s static receiver is refused by §8.2
+                                         #   RULE 3 (`pa.origin` 2 vs `failed_origin` 1), never reaching the
+                                         #   term under test. S4/4 gained arm (c): a STATIC node satisfying
+                                         #   EVERY other translated term — the record originates at the node
+                                         #   that IS its `failed_origin`, hash-addressed to that node's own
+                                         #   stable hash — so `_cfg.is_mobile` is the only thing left refusing
+                                         #   it. S66 is RED on the re-run. BEFORE that fix: 2578 / 108879.
+                                         # ⓘ S4/5 reads 194 because it is TEN one-byte falsifiers, each of
+                                         #   which drives a COMPLETE production chain (produce the record at a
+                                         #   real home, last-mile it to a real mobile) and then asserts six
+                                         #   outcomes — plus the positive control that keeps the ten
+                                         #   non-vacuous. S4/13b is the ONE new case outside
+                                         #   `test_custody_receive_g.cpp`: it re-proves Slice C's OLED/unread
+                                         #   exclusion for the translated form using C's OWN mirror.
+                                         # ⛔ ZERO pre-existing cases changed their assertion count — the sum
+                                         #   of the new cases IS the whole delta, which is what proves it. The
+                                         #   one fixture edit S4 made (`StoreSink` gained `visited` + a
+                                         #   `recs` vector beside its existing fields, because §8.3 maps
+                                         #   origin/msg_id/layer differently for a translated record and a
+                                         #   sink that kept only the body could not say so) is additive by
+                                         #   construction, and that zero is what measures it.
+                                         # ⓘ Two case TITLES changed without their counts moving, and both are
+                                         #   corrections rather than edits: §CUSTODY-G/2.21 and §B278-S3/17
+                                         #   said the translated form is *"refused by every receiver until
+                                         #   S4"*. S4 landed, so both now say what they actually measure — a
+                                         #   STATIC receiver refuses it — with the old claim kept visible.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2559, 108102 — ★★ RE-SYNCED 2026-09-02 by **§B278 S3** (home correlation and
                                          # translated-custody ORIGINATION — the first PRODUCER of the S2 form).
                                          # DERIVATION, measured with the real binary and not assumed: the S2
                                          # tree BEFORE = 2539 / 107602 / 0 failed; AFTER = 2559 / 108092 / 0
@@ -8886,10 +8928,13 @@ MUTS_SLICEGRX = [
  ("G22 ★★★★ **PUSH BEFORE RECORD** — the ORDER DEFECT §7.3 exists to prevent. The sequence is read BEFORE the "
   "append instead of being the append's return value, so the live push carries a sequence that names a "
   "DIFFERENT record (or none). The app unifies live + pulled BY SEQ, so this silently mis-joins every report",
-  "    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  # ⚠ RE-ANCHORED 2026-09-02 BY §B278 S4 (the claim is UNCHANGED). The store call's three identity arguments
+  #   became `out_origin / out_ctr / out_layer` — §8.3's ONE derived mapping — so the anchor text moved with them.
+  #   The OLD anchor read `(pa.origin, rec.failed_ctr, active_layer_id(),`.
+  "    const uint32_t seq = _inbox.record_custody_failure(out_origin, out_ctr, out_layer,\n"
   "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)",
   "    const uint32_t seq = _inbox.dm_newest_seq();\n"
-  "    (void)_inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "    (void)_inbox.record_custody_failure(out_origin, out_ctr, out_layer,\n"
   "                                        rec_bytes, rec_len, _hal.now());"),
  ("G23 ★★★★ **THE TAIL IS DROPPED FROM STORAGE** — only the 24-byte v1 prefix is retained, so a newer "
   "reporter's appended tail is destroyed on the one node that received it. §9.2's tail rule exists so a v1 "
@@ -8899,8 +8944,11 @@ MUTS_SLICEGRX = [
  ("G24 ★★★★ **THE CUSTODY REASON IS PLACED IN `Push::reason`** — §14.1, verbatim: *\"Do not place the custody "
   "reason in `Push::reason`; that field is a `SendFailReason` and the wire enum is deliberately independent.\"* "
   "The two vocabularies COLLIDE on `queue_full` with different meanings, so this makes one read as the other",
-  "    pu.layer_id = active_layer_id();",
-  "    pu.layer_id = active_layer_id();\n"
+  # ⚠ RE-ANCHORED 2026-09-02 BY §B278 S4 (claim UNCHANGED): the Push's layer is now §8.3's derived `out_layer`
+  #   (`active_layer_id()` for a direct record, `reporter_layer` for a translated one). Old anchor:
+  #   `pu.layer_id = active_layer_id();`.
+  "    pu.layer_id = out_layer;",
+  "    pu.layer_id = out_layer;\n"
   "    pu.reason   = static_cast<SendFailReason>(rec.terminal_reason);"),
  ("G25 ★★★ THE LIVE PUSH IS SUPPRESSED WHEN STORAGE IS DISABLED — §7.3 rules the opposite: the receipt still "
   "emits ONE push carrying `seq = 0`. A node with no inbox backend (every simulator node, and any board built "
@@ -8914,15 +8962,18 @@ MUTS_SLICEGRX = [
  # ⛔ This is the ONE production line S2 adds to `node_mac_rx.cpp`, and it is a ratified S2->S4 intermediate
  #    state rather than final behaviour. When S4 replaces the guard with the split direct/translated contextual
  #    validation, THIS ENTRY IS THE ONE TO RE-AIM — exactly as F17 was re-aimed when G landed.
- ("X68 ★★★★ §B278 S2 THE INTERIM HOME-TRANSLATED GUARD IS REMOVED — a translated record falls through to §13's "
-  "eighteen terms, every one of which it satisfies (the tail is INVISIBLE to all eighteen), so the receiver "
-  "STORES it and PUSHES it as if it were a direct report. ★★ The consequence is not academic: the translating "
-  "home's own static id is what sits in `failed_origin`, so §13.11's addressee test PASSES at that home and it "
-  "consumes its own translation — a node reporting to itself that it lost custody of someone else's message. "
-  "⛔ Before S2 this could not happen because the codec refused bit 6 as reserved; S2 allocated the bit, so this "
-  "one line is now the whole of the product's refusal until S4 lands the real translated receiver",
-  "    if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }\n",
-  ""),
+ # ⛔⛔ X68 IS **RETIRED IN PLACE, WITH ITS ORIGINAL CLAIM VISIBLE** (2026-09-02, by §B278 S4). It read:
+ #     *"§B278 S2 THE INTERIM HOME-TRANSLATED GUARD IS REMOVED — a translated record falls through to §13's
+ #      eighteen terms, every one of which it satisfies (the tail is INVISIBLE to all eighteen), so the receiver
+ #      STORES it and PUSHES it as if it were a direct report … this one line is now the whole of the product's
+ #      refusal UNTIL S4 LANDS THE REAL TRANSLATED RECEIVER"*, and it deleted the line
+ #      `if (custody_record_is_translated(rec.notice_flags)) { reject(); return; }`.
+ #   ★ S4 HAS LANDED, and that line no longer exists: the blanket refusal was REPLACED by design §8.1/§8.2's
+ #     split contextual validation. The entry is therefore not merely re-anchored — its subject is gone.
+ #   ⇒ THE CLAIM IT CARRIED IS NOW **S65** BELOW ("the mode split is forced to DIRECT"), which is the same
+ #     defect in the post-S4 code: a translated record judged by §13's direct terms. The consequence X68 named
+ #     — the translating home consuming its own translation — is now attacked by **S66** (the configured-mobile
+ #     term) and measured by §B278-S4/4.
  # ---- §B278 S3 (2026-09-02) — THE RECEIVER'S HALF: §7's step order, the construction, the ONE origination and
  #      the dispatch->obligation mapping. ⛔ The LOOKUP's own decisions are `b251hash`'s (S30-S49); nothing is
  #      attacked twice.
@@ -8936,13 +8987,14 @@ MUTS_SLICEGRX = [
   "store and a successful correlation SUPPRESSES H1's own record. §7, verbatim: *\"Translation never suppresses "
   "or rewrites H1's original diagnostic\"* — and the ONLY thing implementing that sentence is these lines "
   "sitting BELOW the store and the Push",
-  "    const uint32_t seq = _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  # ⚠ RE-ANCHORED 2026-09-02 BY §B278 S4 (claim UNCHANGED) — same reason as G22 above.
+  "    const uint32_t seq = _inbox.record_custody_failure(out_origin, out_ctr, out_layer,\n"
   "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)",
   "    DelegCustodyAction early{}; uint8_t early_matches = 0;\n"
   "    const bool early_exact = deleg_custody_lookup(rec, pa.origin, early, early_matches)\n"
   "                             == DelegCustodyLookup::exact;\n"
   "    const uint32_t seq = early_exact ? 0u\n"
-  "                       : _inbox.record_custody_failure(pa.origin, rec.failed_ctr, active_layer_id(),\n"
+  "                       : _inbox.record_custody_failure(out_origin, out_ctr, out_layer,\n"
   "                                                       rec_bytes, rec_len, _hal.now());   // steps (2)+(3)"),
  ("S51 ★★★★ §B278 S3 A **PARK** STOPS COUNTING AS FORWARDED — the row stays `eligible` although a 32-byte "
   "outcome really is retained under the mobile's hash and will drain on the H answer, so the next report "
@@ -9033,6 +9085,93 @@ MUTS_SLICEGRX = [
   "        else",
   "                    EF_I(\"ctr_m\", action.ctr_h), EF_I(\"type\", rec.failed_type));\n"
   "        else"),
+ # ---- §B278 S4 (2026-09-02) — THE MODE SPLIT, THE TRANSLATED CONTEXTUAL TERMS, §8.3's MAPPING AND THE
+ #      DIRECT-ONLY S3 TAIL. ⛔ The CODEC-owned terms (record length, version, the flag bits, the four id
+ #      domains and every §6.3 tail rule) are NOT attacked here — they are `sliceFcodec`/`sliceGcodec`'s, and
+ #      §B278-S4/6 drives them through this receiver as positive dependencies instead. Nothing is attacked twice.
+ ("S65 ★★★★ §B278 S4 THE MODE SPLIT IS FORCED TO **DIRECT** — the successor to the retired X68. A translated "
+  "record is judged by §13's direct terms again, so the intended mobile refuses its own outcome (its "
+  "`_node_id` is a host-assigned local id and `failed_origin` is the home's) and the whole S3->S4 chain goes "
+  "silent while every direct case still passes",
+  "    const bool translated = custody_record_is_translated(rec.notice_flags);",
+  "    const bool translated = false;"),
+ ("S66 ★★★★ §B278 S4 THE CONFIGURED-MOBILE TERM IS DROPPED — §8.1, verbatim: *\"A static node never treats a "
+  "translated record as its direct report.\"* Without it the TRANSLATING HOME consumes its own translation: its "
+  "static id sits in `failed_origin`, so `pa.origin == failed_origin` holds at that home and a node ends up "
+  "reporting to itself that it lost custody of someone else's message. ★ This is the consequence the retired "
+  "X68 named, attacked at the term that now prevents it",
+  "    const bool mobile_receiver   = _cfg.is_mobile;",
+  "    const bool mobile_receiver   = true;"),
+ ("S67 ★★★★ §B278 S4 §8.2 RULE 3 IS DROPPED — the DATA carrying the report no longer has to BE the home that "
+  "originated the failed flight, so any relay can hand a mobile an outcome about a flight it never delegated",
+  "    const bool home_originated   = pa.origin == rec.failed_origin;",
+  "    const bool home_originated   = true;"),
+ ("S68 ★★★★ §B278 S4 THE `DST_HASH` EQUALITY IS DROPPED — a hash-addressed translated record is consumed by "
+  "whichever mobile the frame happens to reach, which is the one term that makes the re-homed arm safe at all",
+  "    const bool hash_is_ours    = ui->dst_key_hash32 == _key_hash32;",
+  "    const bool hash_is_ours    = true;"),
+ ("S69 ★★★★ §B278 S4 THE NO-HASH ARM'S REGISTRATION RELATION IS DROPPED — a mobile with no live registration, "
+  "or one registered to a DIFFERENT home, consumes a report from any home that can address its local id. "
+  "⓵ Local ids are per-home and are RE-USED, so this is the plane-collision shape, not a theoretical one",
+  "    const bool homed_to_reporter = mobile_registered() && mobile_home_id() == pa.origin;",
+  "    const bool homed_to_reporter = true;"),
+ ("S70 ★★★★ §B278 S4 RULE 7'S TWO ARMS BECOME A **CONJUNCTION** — the ordinary hosted direct-transit form "
+  "carries NO `DST_HASH` by construction (`send_by_hash` passes `override_dst_hash = 0` and hosted local ids "
+  "are absent from `_id_bind`), so demanding both refuses every record the production producer actually emits",
+  "                                 && (hash_addressed ? hash_is_ours : (homed_to_reporter && layer_matches));",
+  "                                 && (hash_is_ours && homed_to_reporter && layer_matches);"),
+ ("S71 ★★★ §B278 S4 THE HASH ARM ALSO DEMANDS THE HOME RELATION — which locks out exactly the case the hash "
+  "arm exists for: a RE-HOMED mobile whose report still originates at the OLD home and arrives through the new "
+  "one. The stable hash is the identity there; the selected-home relation is not",
+  "                                 && (hash_addressed ? hash_is_ours : (homed_to_reporter && layer_matches));",
+  "                                 && (hash_addressed ? (hash_is_ours && homed_to_reporter)\n"
+  "                                                    : (homed_to_reporter && layer_matches));"),
+ ("S72 ★★★ §B278 S4 THE LAYER TERM IS DROPPED FROM THE NO-HASH ARM — the hosted last mile is same-layer by "
+  "construction, so a report stamped with another layer arriving on that arm is an outer/body contradiction; "
+  "and 0 is what an UNWRITTEN `reporter_layer` byte looks like",
+  "                                 && (hash_addressed ? hash_is_ours : (homed_to_reporter && layer_matches));",
+  "                                 && (hash_addressed ? hash_is_ours : homed_to_reporter);"),
+ ("S73 ★★★★ §B278 S4 §8.3's ORIGIN MAPPING COLLAPSES TO THE CARRIER — the stored record and the live Push name "
+  "the TRANSLATING HOME as the reporting relay instead of the relay that actually reported. The home is a "
+  "translator, not a witness, and the tail carries the witness precisely because the outer origin cannot",
+  "    const uint8_t  out_origin = translated ? tail->original_reporter : pa.origin;",
+  "    const uint8_t  out_origin = pa.origin;"),
+ ("S74 ★★★★ §B278 S4 §8.3's COUNTER MAPPING COLLAPSES TO ctrH — the mobile is handed the HOME's counter as its "
+  "own correlation token, so its pending operation (keyed on ctrM) never matches and the outcome is orphaned. "
+  "⓵ ctrH stays readable INSIDE the body, which is why this is a silent mis-join rather than a lost field",
+  "    const uint16_t out_ctr    = translated ? tail->mobile_ctr        : rec.failed_ctr;",
+  "    const uint16_t out_ctr    = rec.failed_ctr;"),
+ ("S75 ★★★ §B278 S4 §8.3's LAYER MAPPING COLLAPSES TO THE RECEIVING LAYER — the outcome is filed under the "
+  "layer the CARRIER arrived over rather than the layer the flight died on. They differ exactly when the hash "
+  "arm is in use (a re-homed mobile reached through a home on another layer), which is why the hash arm does "
+  "not test the layer at all",
+  "    const uint8_t  out_layer  = translated ? rec.reporter_layer      : active_layer_id();",
+  "    const uint8_t  out_layer  = active_layer_id();"),
+ ("S76 ★★★★ §B278 S4 THE TRANSLATED BRANCH FALLS THROUGH INTO S3's BLOCK — a MOBILE runs the HOME's "
+  "correlation lookup over a ring it structurally does not have, and a report about someone else's flight can "
+  "re-originate a third copy. The `return` is the whole of the mode's containment",
+  "    if (translated) return;",
+  "    if (false) return;"),
+ ("S77 ★★★ §B278 S4 THE FACTUAL TELEMETRY REPORTS THE CARRIER'S ORIGIN — `custody_failure_rx` names the "
+  "translating home as the reporter, so the corpus instrument and the operator see a different identity from "
+  "the one the store and the Push carry. ⛔ One selected identity, three surfaces",
+  "    MR_EMIT(\"custody_failure_rx\", EF_I(\"reporter\", out_origin), EF_I(\"dst\", rec.failed_dst),\n"
+  "            EF_I(\"ctr\", out_ctr), EF_I(\"seq\", static_cast<int64_t>(seq)));",
+  "    MR_EMIT(\"custody_failure_rx\", EF_I(\"reporter\", pa.origin), EF_I(\"dst\", rec.failed_dst),\n"
+  "            EF_I(\"ctr\", out_ctr), EF_I(\"seq\", static_cast<int64_t>(seq)));"),
+ ("S78 ★★★ §B278 S4 THE FACTUAL TELEMETRY REPORTS ctrH AS `ctr` — the same divergence as S77 on the other "
+  "half of the identity pair",
+  "    MR_EMIT(\"custody_failure_rx\", EF_I(\"reporter\", out_origin), EF_I(\"dst\", rec.failed_dst),\n"
+  "            EF_I(\"ctr\", out_ctr), EF_I(\"seq\", static_cast<int64_t>(seq)));",
+  "    MR_EMIT(\"custody_failure_rx\", EF_I(\"reporter\", out_origin), EF_I(\"dst\", rec.failed_dst),\n"
+  "            EF_I(\"ctr\", rec.failed_ctr), EF_I(\"seq\", static_cast<int64_t>(seq)));"),
+ # ⛔⛔ ONE ARM WAS CONSIDERED AND **DELIBERATELY NOT WRITTEN**, recorded so the gap is a decision: the
+ #     tail-coherence refusal `if (!tail) { reject(); return; }`. It is UNREACHABLE BY CONSTRUCTION —
+ #     `parse_custody_failure` validates a bit-6 record THROUGH the very reader that refusal calls, so a record
+ #     that parsed has a tail that reads (§B278-S4/6 asserts exactly that on the good record and on all six
+ #     codec breaks). Removing the refusal would leave `tail->` dereferencing an empty `std::optional`, i.e. the
+ #     mutant would CRASH rather than redden — an `abnormal`/unusable control by this project's own [[B237]]
+ #     rule. The coherence is instead controlled at the codec, by `sliceFcodec`'s tail battery.
 ]
 
 MUTS_SLICEGINBOX = [
@@ -9068,13 +9207,17 @@ MUTS_SLICEGJSON = [
   "up meaning two different things, and the JSON golden is what catches it. ⓘ The golden that catches it is "
   "§CUSTODY-G/5d's, NOT §14.2's own example: the spec's counter 3598 is `0x0E0E`, whose two wire bytes are "
   "IDENTICAL, so this arm SURVIVED against it until a non-palindromic 0x1234 was pinned",
+  # ⚠ RE-ANCHORED 2026-09-02 BY §B278 S4 (the claim is UNCHANGED). The ONE shared field emitter now also takes
+  #   the BODY SPAN the caller already parsed the record from — that is what keeps the live and the pulled
+  #   surface a single field authority — so the call site's text moved. The OLD anchor's last line read
+  #   `if (rec) emit_custody_failure_fields(j, p.origin, *rec);`.
   "        const std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =\n"
   "            MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));\n"
-  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec);",
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec, std::span<const uint8_t>(p.body, body_n));",
   "        std::optional<MESHROUTE_NS::CustodyFailureRecord> rec =\n"
   "            MESHROUTE_NS::parse_custody_failure(std::span<const uint8_t>(p.body, body_n));\n"
   "        if (rec && body_n >= 8) rec->failed_ctr = uint16_t((p.body[6] << 8) | p.body[7]);\n"
-  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec);"),
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec, std::span<const uint8_t>(p.body, body_n));"),
  ("G41 ★★★★ **THE BINARY RECORD REACHES THE ORDINARY TEXT ENCODER** — the pulled-record fork is removed, so a "
   "stored custody report renders as `inbox_dm` with its 24 packed bytes JSON-escaped into a `\"body\"` string. "
   "§7.2/§14.2 forbid exactly this: *\"The ordinary `inbox_dm` text encoder must not stringify the binary "
@@ -9105,6 +9248,63 @@ MUTS_SLICEGJSON = [
   "(sequences are 1-based; 0 is the before-everything pull cursor)",
   "        if (p.seq) { j.lit(\",\\\"seq\\\":\"); j.u32(p.seq); }   // existing live-push convention: OMITTED when 0 = storage disabled (§14.2)",
   "        { j.lit(\",\\\"seq\\\":\"); j.u32(p.seq); }"),
+ # ---- §B278 S4 (2026-09-02) — §8.4's TRANSLATED FIELDS, ON ONE SHARED EMITTER. ⛔ The direct half is attacked
+ #      by G40-G46 above and by §CUSTODY-G/5's byte golden; these arms attack the ADDITIONS and, in G53/G54/G55,
+ #      the property that makes them ONE surface rather than two.
+ ("G47 ★★★★ §B278 S4 THE TRANSLATED BLOCK NEVER RUNS — every translated record renders as an ordinary DIRECT "
+  "event. The app cannot tell a report about its OWN static flight from one translated on its behalf, and the "
+  "mobile-visible target and ctrM simply vanish. This is the \"a success that isn't\" shape on a surface",
+  "    if (MESHROUTE_NS::custody_record_is_translated(r.notice_flags)) {",
+  "    if (false) {"),
+ ("G48 ★★★ §B278 S4 THE TARGET-KIND NAME TABLE COLLAPSES — a hash-addressed report says `\"target_kind\":"
+  "\"node_id\"` while carrying `target_hash`, so the two fields contradict each other. The same enum->string "
+  "defect class this file's history already carries three of",
+  "        case MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash: return \"hash\";      // §6.2: `target_value` is the retained target key_hash32",
+  "        case MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash: return \"node_id\";"),
+ ("G49 ★★★★ §B278 S4 **BOTH** TARGET FIELDS ARE EMITTED — §8.4 forbids it in as many words (*\"Emit exactly one "
+  "target-value field\"*): a duplicated value is a second compatibility surface, and one of the two is always "
+  "meaningless (a node id rendered as an 8-digit hash, or a hash rendered as a node id)",
+  "        if (t->target_kind == MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash) {",
+  "        { j.lit(\",\\\"target_id\\\":\"); j.u32(t->target_value); }\n"
+  "        if (t->target_kind == MESHROUTE_NS::CustodyTranslatedTargetKind::key_hash) {"),
+ ("G50 ★★★ §B278 S4 THE `via_home` ALIAS IS ADDED — the exact alias §8.4 names and refuses. A second spelling "
+  "of a value the event already carries is a second thing a decoder can key on, and they drift exactly once",
+  "        j.lit(\",\\\"mobile_ctr\\\":\"); j.u32(t->mobile_ctr);",
+  "        j.lit(\",\\\"via_home\\\":\"); j.u32(r.failed_origin);\n"
+  "        j.lit(\",\\\"mobile_ctr\\\":\"); j.u32(t->mobile_ctr);"),
+ ("G51 ★★★★ §B278 S4 `mobile_ctr` CARRIES ctrH — the app is handed the HOME's counter as the mobile's "
+  "correlation token, so a pending operation keyed on ctrM never matches. Both numbers are plausible counters, "
+  "which is precisely why only a golden can see it",
+  "        j.lit(\",\\\"mobile_ctr\\\":\"); j.u32(t->mobile_ctr);",
+  "        j.lit(\",\\\"mobile_ctr\\\":\"); j.u32(r.failed_ctr);"),
+ ("G52 ★★★ §B278 S4 `target_hash` STOPS USING THE HASH HELPER — it becomes a bare decimal integer instead of "
+  "the canonical quoted 8-digit lower-case hex every other key on this surface uses (`dst_hash`, `team_id`, "
+  "`key`). A TYPE change on the app boundary, not a formatting preference",
+  "            j.lit(\",\\\"target_hash\\\":\"); key_hex32(j, t->target_value);   // the SAME hex helper `dst_hash` uses (U1)",
+  "            j.lit(\",\\\"target_hash\\\":\"); j.u32(t->target_value);"),
+ ("G53 ★★★★ §B278 S4 THE TRANSLATED BLOCK RUNS FOR **DIRECT** RECORDS TOO — a direct report grows a trailing "
+  "`\"error\":\"unparseable_tail\"` (bit 6 is clear, so the tail reader refuses), which BREAKS the direct "
+  "event's byte compatibility. ★ This is the arm that proves S4 left the direct bytes alone",
+  "    if (MESHROUTE_NS::custody_record_is_translated(r.notice_flags)) {",
+  "    if (true) {"),
+ ("G54 ★★★★ §B278 S4 THE **PULLED** EMITTER HANDS THE FIELD AUTHORITY AN EMPTY BODY — the live event keeps its "
+  "translated fields and the pulled one loses them, so the two surfaces disagree about the SAME record and an "
+  "app needs two decoders. §18.5.3 requires the identical semantic tuple on both",
+  "        emit_custody_failure_fields(j, origin, *rec,                // §7.2 stored `origin` = the reporting relay = the live push's `reporter`\n"
+  "                                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(body), body_len));",
+  "        emit_custody_failure_fields(j, origin, *rec,\n"
+  "                                    std::span<const uint8_t>());"),
+ ("G55 ★★★ §B278 S4 THE **LIVE** EMITTER HANDS THE FIELD AUTHORITY ONLY THE v1 PREFIX — the mirror image of "
+  "G54, on the other call site: the tail reader refuses a 32-byte record sliced at 24 and the live event loses "
+  "the fields the pulled one keeps",
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec, std::span<const uint8_t>(p.body, body_n));",
+  "        if (rec) emit_custody_failure_fields(j, p.origin, *rec,\n"
+  "                     std::span<const uint8_t>(p.body, MESHROUTE_NS::custody_record_v1_len));"),
+ # ⛔⛔ ONE ARM WAS CONSIDERED AND **DELIBERATELY NOT WRITTEN**: removing the `if (!t) { …unparseable_tail…; return; }`
+ #     fail-loud line. It is unreachable by construction (a bit-6 record that PARSED has a tail that READS —
+ #     `parse_custody_failure` validates it through that same reader), so the mutant would behave identically on
+ #     every reachable input and be a silent GREEN. The receiver-side twin of this note is `sliceGrx`'s, and
+ #     §B278-S4/6 is where the coherence itself is measured.
 ]
 
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
