@@ -3,8 +3,8 @@
 
 **Status: DESIGN PASS 2026-09-04 — IMPLEMENTATION AUTHORITY; round-1 findings A1-A8/B1-B6/C1-C14,
 round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. Slices proceed
-independently through §19; none is authorized until its own brief passes. Slice 0d has landed, and Slice 0e has
-completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
+independently through §19; none is authorized until its own brief passes. Slices 0d and 0f have landed; Slice 0e
+has completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -1010,10 +1010,13 @@ paragraph said that the universal value necessarily shortened the 1024-byte USB 
 different boundaries and would have made a full 239-byte local DM impossible. The current authorities are:
 
 1. `dm_max_body_bytes == 239` remains the normal-DM BODY authority;
-2. `console_line_max_bytes` is per transport: USB remains 1024 bytes including NUL, while Slice 0f derives the
-   BLE storage from the longest canonical product line this ruling must carry. The binding grammar is
-   `send 0xffffffff "<239>" -a -e -t -K -l` = 272 bytes, hence 273 bytes including NUL. This is a derivation,
-   never a bare 273; and
+2. `console_line_max_bytes` is per transport: USB remains 1024 bytes including NUL. ⚠ **CORRECTED AGAIN by the
+   executed Slice-0f producer census; the superseded 272+NUL=273 `send`-only derivation is kept visible here:** the
+   current BLE authority is `max(send 272, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. Its
+   binding definition is the canonical parser-accepted spelling of each product verb, each accepted option once,
+   carrying the largest body its carrier admits. The 274-byte `send_layer` boundary vector is transport-admitted
+   and returns `err_unsupported`; the 268-byte plaintext form is the queue-positive. This is a derivation, never a
+   bare 275; and
 3. `remote_command_max_bytes` counts only the exact command TAIL after `--`. It is derived from the smallest
    authenticated v2 carrier: 226 available request bytes minus the 25-byte authenticated request envelope =
    201 bytes today.
@@ -1033,6 +1036,16 @@ loudly on BLE. The withdrawn “USB must shorten” conclusion therefore does no
 where it overrides the configured encryption default, but R-RA-18 makes it mandatory on authenticated
 `remote`. The manual and help must state that difference, and `remote open -e` or `remote` with neither
 security statement refuses.
+
+⚠ **SECOND SAME-DAY CORRECTION / IMPLEMENTED BY SLICE 0f:** the preceding 273-byte conclusion priced `send` alone
+even though the product BLE surface also exposes `send_layer`. BLE `console_line_max_bytes` is now derived in
+`src/device_ble.h` from the console grammar's named terms—`max(send 272, send_layer 274, remote 261) + 1`—and is
+**275 including NUL**. The binding producer is `send_layer` at its depth-4 cross-layer carrier cap (226 B, a
+labelled transitional mirror of `pack_unicast_inner`'s sizing, pinned by an executed pack-at-cap / cap-plus-one
+check). Bounds 1 (`dm_max_body_bytes` = 239) and 3 (`remote_command_max_bytes` = 201) are unchanged; the longest
+canonical `remote` line (261 + NUL = 262) is statically proved to fit. USB's 1024-byte buffer is untouched.
+Measured cost: **+120 B of nRF52 `.bss`** (+115 `g_line`, +5 alignment), 0 flash; `heltec_mobile` is byte-identical.
+See [[B288]] for the derivation defect this corrects.
 
 ⚠ **CORRECTED 2026-09-04:** the legacy remote path's 56/63-byte truncating buffers are not evidence for this
 authority and do not receive a compatibility cap. Characterization uses the actual USB/BLE inputs, the real
@@ -1570,14 +1583,15 @@ The complete design does not provide:
      the unconditional outer-`CRYPTED` claim is corrected in §8.11. The coder-owned evidence and instruments were
      produced in the isolated 0e worktree and must be integrated from that worktree as one exact package before
      any later brief consumes them; and
-   - **0f, BLE line capacity:** implement only R-RA-24′ bound 2. Replace `device_ble.h`'s 160-byte inbound line
-     buffer with one source-derived capacity that admits the longest canonical product line required by the ruling
-     (the earlier “longest syntactically legal” claim is withdrawn because whitespace/options can repeat):
-     `send 0xffffffff "<239>" -a -e -t -K -l` = 272 bytes, hence 273 bytes including NUL. Pin that the longest
-     legal remote wrapper plus its 201-byte tail also fits. Preserve the byte-at-a-time newline intake, loud
-     overflow refusal and USB behavior. A host wiring probe must execute the real BLE intake under several ATT
-     chunkings; native tests own parser/command-path boundaries; the ruled pair attributes the nRF52-only RAM
-     change. This capacity behavior change is not folded into 0c's dispatcher refactor.
+   - **0f, BLE line capacity — ✅ LANDED / QA-PASSED 2026-09-04, Part 61 metal pending:** implemented only
+     R-RA-24′ bound 2. ⚠ The launch text derived 273 bytes from `send` alone; that conclusion is superseded and
+     remains visible in §12. The production authority in `device_ble.h` is
+     `max(send 272, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. The 274-byte `send_layer`
+     transport-positive reaches `err_unsupported`, the 268-byte plaintext form queues, 275 bytes refuses loudly,
+     and byte-at-a-time newline intake, USB behavior and companion ATT chunking are unchanged. The real-intake
+     probe executed 1-, 20- and 244-byte chunkings with 40 checks / 8 controls RED. Native is
+     2604/109619/0; corpus 36/36 with s18 `32afbf11`/269517/0; gateway RAM +120 B fully attributed (+115 `g_line`,
+     +5 alignment), flash ±0; `heltec_mobile` byte-identical.
 
    Do not combine any of these fixes/refactors with each other or with remote execution (C1).
 1. **Feature-boundary scaffold:** add
@@ -1679,7 +1693,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
 | 0d | ✅ landed: four home-bound arms, `lib/core/node_hashlocate.cpp` | predicted 0 movers; measured 36/36 byte-identical; no re-anchor; ruled pair RAM +0 | none |
 | 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
-| 0f | BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | 36/36 unchanged; gateway RAM attributed, heltec byte-identical | **Part 61:** 272-byte line over real BLE under multiple write chunkings; 273-byte line refuses loudly |
+| 0f | ✅ landed: BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | native **2604 / 109619 / 0** (+7 / +85); corpus **36/36 anchors**, s18 `32afbf11`/269517/0, `lus` `eb298576` unchanged with 0 build actions (recompile control fired); `sizeof(Node)` 222072/117912/148680 unmoved; `gateway` RAM **+120 B** fully attributed to `g_line` (+115) and alignment (+5), flash ±0; `heltec_mobile` byte-identical in every measured field; census 6/6 at pin; probe **40 checks / 8 controls RED / 0 unusable**; tools sweep 238 OK | **Part 61:** the 274-byte `send_layer` line over real BLE under multiple write chunkings returns `err_unsupported`; the 268-byte plaintext form queues; a 275-byte line refuses loudly |
 | 1 | `lib/core/mr_features.h` plus legacy compile owners | 36/36 unchanged; both endpoint-disabled builds and ruled pair | none |
 | 1b | capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp` | prediction-first 36/36 identity; four role-by-type native arms; ruled pair | none |
 | 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |
@@ -1948,9 +1962,10 @@ The following product decisions are no longer open:
 51. **R-RA-23:** the first-hop budget sums CTS-wait windows for every RTS attempt. The characterized zero-slop
     reference is 7,006 ms floor / 14,012 ms default; production remains cfg/PHY/slop-derived.
 52. **R-RA-24′:** three named bounds replace R-RA-24's incorrect universal literal: DM body 239; transport line
-    storage derived per transport (USB 1024 including NUL, BLE 273 including NUL after Slice 0f); and remote
-    command tail 201 from the smallest authenticated carrier. One validator enforces the supplied boundary and
-    NUL/CR/LF policy.
+    storage derived per transport (USB 1024 including NUL, BLE **275** including NUL after Slice 0f); and remote
+    command tail 201 from the smallest authenticated carrier. ⚠ The earlier 273 figure, retained in §12, priced
+    `send` but omitted `send_layer`; the current syntactic authority is `max(send 272, send_layer 274, remote 261)
+    + 1`. One validator enforces the supplied boundary and NUL/CR/LF policy.
 
 ### 20.2 Derived artefacts and later measurement rulings
 

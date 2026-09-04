@@ -4011,3 +4011,47 @@ FAIL.
 conditional observation under R-S5-1 and step 11 takes the reboot shape under R-S5-2 — neither is a defect
 allowance, both are recorded physical limits of a four-node line. JSON compatibility stays host-proven and is
 not re-tested here.)*
+
+## Part 61 — BLE inbound line capacity on an nRF52 gateway (2026-09-04)
+
+⏳ **PENDING — metal residue for remote-admin Slice 0f.** Slice 0f grew `g_line` from 160 to a derived
+**275 bytes**, so the firmware now accepts up to **274 payload bytes** per line. Native tests and the executed
+host probe prove the grammar, command outcomes, overflow state machine and chunk-independence against the real
+header, but only this part exercises the actual BLE/ATT path.
+
+**Prerequisites.** A provisioned two-layer bench with an nRF52 `gateway` serving the first hop's leaf, a routable
+plaintext hash target, BLE secured, and the iOS companion or an equivalent NUS client capable of forcing write
+chunk sizes. Substitute the target's eight lower-case hex hash for `H` and run every length check before sending:
+
+```sh
+H=<8 hex digits of the target's key hash>
+B226=$(python3 -c "print('X'*226)"); B239=$(python3 -c "print('X'*239)")
+printf 'send_layer 0x%s 255,255,255 "%s" -a -e -K -l\n' "$H" "$B226" | awk '{print length($0)}'   # 274
+printf 'send_layer 0x%s 255,255,255 "%s" -a -K\n'       "$H" "$B226" | awk '{print length($0)}'   # 268
+printf 'send 0x%s "%s" -a -e -t -K -l\n'                "$H" "$B239" | awk '{print length($0)}'   # 272
+python3 -c "print('Z'*275)" | awk '{print length($0)}'                                            # 275
+```
+
+1. **The 274-byte transport-positive.** Send
+   `send_layer 0x<H> 255,255,255 "<226>" -a -e -K -l`.
+   Expect on BLE: `{"ev":"ack","code":"err_unsupported",…}`—never `{"err":"line_too_long"}`.
+   Expect on USB: `location_refused … reason=send_layer` and
+   `push{send_failed, reason:unsealable}`. The line is admitted and the verb answers by name.
+2. **The 268-byte queue-positive.** Send
+   `send_layer 0x<H> 255,255,255 "<226>" -a -K`.
+   Expect on BLE: `{"ev":"ack","code":"queued","ctr":<n>,…}` or the ordinary named routing refusal
+   `err_no_gateway` if the bench has no gateway for the first hop. Expect the matching `tx_enqueue`/RTS trace on
+   USB, proving the LoRa consequence occurred.
+3. **The sealed DM reaches its semantic refusal.** Send
+   `send 0x<H> "<239>" -a -e -t -K -l` (272 bytes). Expect
+   `push{send_failed, reason:"too_large"}` and `e2e_seal_too_large` on USB—the seal's verdict, not
+   `line_too_long`.
+4. **Chunking invariance.** Send the exact 274-byte line from step 1 twice: once forced to 20-byte ATT writes and
+   once with a 244-byte first write. Require byte-identical replies. Then send the 272-byte line from step 3 the
+   same two ways.
+5. **The overflow refusal.** Send 275 non-newline bytes (`python3 -c "print('Z'*275)"`) followed by `\n`.
+   Require exactly one `{"err":"line_too_long"}`, no ack, no `tx_enqueue` on USB and no counter burned.
+6. **Overflow recovery.** Immediately send `status`. Require the normal status object, proving the intake reset.
+
+ⓘ `heltec_mobile`/ESP32 needs no Part-61 arm: it compiles no BLE transport and its image was byte-identical.
+B278 Part 54 and the remote-admin RPC metal parts remain separate.

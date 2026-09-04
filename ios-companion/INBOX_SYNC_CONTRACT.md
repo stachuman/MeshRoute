@@ -1013,6 +1013,24 @@ via homes won't see each other's positions (fine for hike mode; note in the desi
    folded into a future known-nodes surface) — the app's directory already stores `latE7/lonE7/positionAt` per node.
 4. Bounded staleness semantics (TTL / age) so the app can grey out old fixes.
 
+## BLE line capacity — implemented by remote-admin Slice 0f (2026-09-04)
+
+NUS writes to the RXD characteristic may be ATT-chunked arbitrarily; the firmware reassembles them byte-at-a-time
+into one newline-delimited line, and **chunk boundaries never affect the result** (measured at 1-, 20- and
+244-byte writes, whole-line writes, an uneven final chunk, and a boundary immediately before the newline). `\r`
+is discarded, `\n` dispatches, and an empty line dispatches nothing. The firmware accepts up to **274 payload
+bytes** per line and reserves byte 275 for the terminating NUL; a line of **275** or more payload bytes is refused
+loudly with `{"err":"line_too_long"}` and dropped in full—never truncated, never split into a second command—and
+the next line is processed normally.
+
+The capacity is derived from the console grammar, not chosen: it is the canonical parser-accepted spelling of
+the longest product verb, each accepted option at most once, carrying the largest body its carrier admits. That
+verb is `send_layer`: `send_layer 0x<hash> <l1,l2,l3> "<226-byte body>" -a -e -K -l` = 274 bytes. That boundary
+vector is transport-admitted and then answers `err_unsupported` (`-l` is refused on a cross-layer send); the
+268-byte plaintext form `send_layer 0x<hash> <l1,l2,l3> "<226>" -a -K` is the one that queues. This capacity also
+admits the complete 239-byte DM body in the maximal `send` form (272 bytes), whose sealed variant then refuses
+with the seal's own `too_large` rather than a transport error.
+
 ## Adjacent BLE surface — implemented, not strictly "inbox" (2026-06-29)
 
 These firmware→app events ride the same BLE TXD line, so the app's parser will see them; documented so it handles (or cleanly ignores) them. Not part of the inbox sync model.

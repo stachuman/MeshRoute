@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0f — derived BLE line capacity · dispatch brief · 2026-09-04
 
-**Status: RE-ISSUED 2026-09-04 AFTER THE OWNER'S R-RA-24′ POLICY-B CORRECTION AND SYNTACTIC-WORDING CONFIRMATION — AWAITING QUALITY-AGENT RE-GATE.** Dispatch model after PASS: **Opus**.
+**Status: IMPLEMENTED / QUALITY-AGENT PASS 2026-09-04 / SOFTWARE-COMPLETE — Bench Part 61 metal pending.** Dispatch model: **Opus**.
 Authority: R-RA-24′ in
 `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md` and §§12/19 of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`. Pre-check input:
