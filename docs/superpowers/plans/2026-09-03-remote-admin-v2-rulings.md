@@ -1,5 +1,5 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
-# Remote-admin v2 — owner rulings R-RA-1..20 (2026-09-03 through 2026-09-04)
+# Remote-admin v2 — owner rulings R-RA-1..24 (2026-09-03 through 2026-09-04)
 
 **What this file is.** The authoritative record of the owner's rulings, relayed in chat on 2026-09-03 and
 2026-09-04, beginning with the
@@ -280,3 +280,162 @@ preserve the same defect under a different caller."*
 **Settled:** `lib/core/node_hashlocate.cpp:1773`, `:1785`, `:1788` (the mobile's delegation wrappers) AND `:1859` (the
 cached-home arm) all stamp `Plane::GLOBAL`; the §B278-S3 equivalence pin (`test/test_custody_receive_g.cpp:1926-1928`)
 is re-aimed from "AUTO ≡ GLOBAL for a static home" to "GLOBAL, explicitly", claim kept visible.
+
+## Post-0e owner rulings (owner, 2026-09-04) — R-RA-21..R-RA-24
+
+**Owner, covering all four decisions below:** *"Agree - and document that in a way that QA can confirm - 1,2,3,4
+- the last one - universal command limit - does it mean that companion connected to node through BLE will not be
+able to utilize whole allowed text length?"*
+
+The answer to the final question is **yes on the current implementation, but no in the completed v2 design**.
+Today BLE's `g_line[160]` admits 159 bytes including the whole textual `remote ... -- ` wrapper, so a command tail
+behind that wrapper cannot itself use all 159 bytes. R-RA-24 requires the remote BLE ingress to grow from a
+derived wrapper bound so the full universal command tail remains usable; it does not reduce the command limit by
+the wrapper length.
+
+### R-RA-21 — command authority policy and generated-table gate
+
+**Settled policy:** the generated command/subcommand inventory receives one minimum authority per semantic row:
+
+- **open:** only exact, argument-free `status` and `routes`;
+- **operator:** target-applicable ordinary diagnostics, configuration, network create/join/leave/switch,
+  routing/gateway/radio operations, and operational reboot/prep-restart, subject to §13 scheduling;
+- **owner:** target identity/security/ACL/key material, destructive inbox/storage operations, factory reset,
+  fault injection and OTA; and
+- **physical:** first-owner/recovery/root-identity operations on a managed target and management-private-seed
+  generate/import/export/replace/remove on a controller. These remain local USB-only in v2.
+
+Controller-only wrappers and trust-store commands do not become recursively target-dispatchable merely because
+they occur in the generated inventory. Anything genuinely ambiguous or absent from the classified table refuses
+closed.
+
+**QA confirmation:** the current 177-row 0e rendering is not yet the ratified policy table: it renders two
+different `peers` parser decisions as indistinguishable duplicate rows in both `dispatch` and
+`ble_dispatch_line`. Before classification lands, the generator must either merge true duplicates or expose the
+semantic discriminator. QA then requires every target-applicable semantic command/subcommand exactly once,
+exactly one authority on every such row, no unclassified/multiply-classified row, and mutation controls for a
+missing row, a duplicate semantic row, and an unclassified row.
+
+### R-RA-22 — exact bounded-state capacities and one shared expiry timer
+
+**Settled controller/mobile profile:** 4 `PendingRequestInline`, 4 `SessionCacheEntry`, 2
+`ResponseAssemblyHeader`, 8 `ResponseChunk`, 2 `RetainedResultHeader`, and 8 `AckDebtEntry` rows: **4,272 bytes**
+from the 0e candidate layouts. Inline sealed bytes are chosen; there is no separate `SealedRequestSlot` pool.
+
+**Settled managed static/gateway profile:** 16 `SeenRequestRecord`, 4 `TranscriptHeader`, 8 `TranscriptChunk`,
+2 `IngressOperationHeader`, 2 `IngressBodySlot`, 4 `OpenStagingSlot`, and 2 `DeferredActionRecord` rows:
+**2,968 bytes** from the 0e candidate layouts.
+
+The two authenticated ingress rows are partitioned so at least one is always available to owner/control work;
+the four open/bootstrap staging rows have a peer-local maximum of one open response. Open/bootstrap work cannot
+borrow authenticated transcript/ingress capacity, and authenticated ordinary work cannot consume the reserved
+owner/control admission.
+
+Expiry uses **one shared earliest-deadline scan**. `TimerWheel::kCap` grows once, 91 → 92, measured as +8 bytes
+on host, ARM and Xtensa in the 0e mirror; no class receives a private timer ID. The scan visits only the bounded
+rows resident in that product profile and re-arms to the true earliest deadline.
+
+**QA confirmation:** the implementation pins every configured row count, proves both partition-starvation
+directions, measures the production RAM delta independently on `gateway` and `heltec_mobile`, proves the inline
+ownership/lifetime rules, and verifies one timer ID, `kCap == 92`, earliest-deadline re-arm, expiry at the exact
+edge, and no per-class timer IDs. Candidate-layout totals are the ruling input, not permission for an unexplained
+larger production delta.
+
+### R-RA-23 — activation budget sums every CTS-wait attempt
+
+**Settled:** the CTS-wait term in `remote_scheduled_reply_path_budget_ms(cfg)` is the sum of the wait windows for
+attempts 0, 1 and 2, not merely the largest final-attempt window. At the characterized host/default PHY with zero
+slop this changes the reference floor/default from the withdrawn 6,506/13,012 ms interpretation to
+**7,006/14,012 ms**. Production remains derived from the configured PHY and includes the configured RX-window
+slop in every timer term; the reference numbers are not literals.
+
+**QA confirmation:** independent term-by-term recomputation must reproduce 7,006/14,012 ms for the characterized
+zero-slop case; mutating away any one attempt window, counting only attempt 2, omitting a slop occurrence, or
+hard-coding the reference value is RED. The floor remains one budget, the default exactly twice it, and the
+ceiling 299,999 ms; an impossible configured interval refuses rather than clamps.
+
+### R-RA-24 — 159-byte universal command TAIL and full BLE usability
+
+**Settled:** `common_command_max_bytes = 159`, counted over the exact command line passed to the common command
+dispatcher. It excludes the local `remote <target> ... -- ` wrapper and excludes the terminating NUL. The bound
+is the current minimum of USB (1,023 accepted payload bytes), BLE (159 accepted whole-line bytes), and the
+smallest authenticated v2 carrier's 201-byte command capacity.
+
+The current BLE buffer therefore cannot expose the full remote allowance: the wrapper consumes some of its 159
+bytes. The completed implementation must preserve all 159 command-tail bytes over BLE by deriving the maximum
+legal remote-wrapper length (maximum target selector plus `-e`, `using=keyN`, optional `-a`, separators and
+`--`) and satisfying:
+
+```text
+ble_remote_ingress_capacity_bytes
+    >= remote_wrapper_max_bytes + common_command_max_bytes + 1  // terminating NUL
+```
+
+The same textual grammar is retained; no BLE-only RPC language is invented. If the measured static-RAM cost of
+that derived buffer is unacceptable, the slice STOPS for a new owner ruling instead of shortening the command,
+truncating it, or silently accepting a smaller BLE limit.
+
+**QA confirmation:** derive rather than type `remote_wrapper_max_bytes`; prove the longest legal wrapper plus a
+159-byte command is accepted through real BLE framing and reaches the common dispatcher byte-exact; prove a
+160-byte command refuses through BLE, USB and RPC; prove embedded NUL/CR/LF refuse identically; pin no silent
+truncation; and attribute the BLE-buffer RAM delta on the ruled board pair. The 0e package needs a corrective
+addendum for this boundary because its original evidence did not publish the universal cap.
+
+### QA position on the R-RA-24 correction proposed by the Author (2026-09-04) — awaiting the owner's word
+
+**What the Author found, verified at the source (`HEAD 66eb4cf`):** BLE reassembles ATT chunks into `g_line[160]`
+(`src/device_ble.h:79`; `:181-182` keeps eating until `\n` then fails LOUD on overflow, `:93-96` — no silent
+truncation), so a BLE line carries at most 159 bytes; USB carries 1023 (`src/fw_main.cpp:1071`). The longest
+SYNTACTICALLY legal local send line is `send 0xffffffff "<239-byte body>" -a -e -t -l` = **269 bytes** (5 + 10 + 1 +
+1 + 239 + 1 + 4×3), i.e. a 270-byte buffer with the NUL. `dm_max_body_bytes` = 239 (`protocol_constants.h:1062`).
+`device_ble.h` is compiled only on nRF52 (`MRBLE_NRF52`, `:24-35`), so the +110 B `.bss` lands on `gateway`/`xiao`
+builds only (gateway 195724 → ≈195834, measured by the ruled pair), never on the ESP32 envs.
+
+**Why R-RA-24 as recorded cannot stand:** `common_command_max_bytes = 159` "counted over the exact command line
+passed to the common dispatcher" for USB, BLE and RPC alike would refuse every local DM line longer than 159 bytes —
+today USB accepts a full 239-byte body (a 263-269-byte line). The minimum was taken across three surfaces that play
+different roles (a transport's LINE buffer, the DM BODY authority, and the smallest RPC CARRIER's command
+capacity), and the smallest of them is the transport's, not the command's.
+
+**The split the Author proposes, and QA agrees with (proposed R-RA-24′, three named bounds, ONE validator):**
+1. `dm_max_body_bytes` = 239 — the DM body authority, unchanged, enforced where it is today (`on_command`/the
+   seal path: an over-long sealed body refuses with `SealOutcome::too_large`, `node_hashlocate.cpp:825`).
+2. `console_line_max_bytes` per transport — USB 1024 (unchanged); BLE `g_line` 160 → **270**, DERIVED as the
+   longest syntactically legal local line + NUL, so that every legal `send`/`send_channel`/`send_layer` line and
+   every legal `remote` line fit. Check for the remote line: wrapper max = `remote ` 7 + selector ≤ 32 (a label,
+   `device_nv.h:149`) or 10 (`0x` hash) + ` -e` 3 + ` using=key9` 11 + ` -a` 3 + ` -- ` 4 = **60** + tail 201 + NUL =
+   262 ≤ 270 ✓ (the coder derives it).
+3. `remote_command_max_bytes` = the command TAIL after `--` = the smallest authenticated carrier's command
+   capacity = 226 − 25 = **201** (0e's cap table: cross-layer by hash, depth 4) — NOT 159; enforced by the one
+   shared validator (R-RA-7: NUL/CR/LF + a length) which takes the bound as a parameter per surface.
+⚠ Two precisions for the gate: (a) the 239-byte body WITH `-e` is refused SEMANTICALLY (`too_large`, named), and
+that is the desired outcome — the buffer must be big enough that the refusal comes from the parser/`on_command`
+with its reason, never from a BLE overflow drop; the "longest valid command" that QUEUES is the plaintext form.
+(b) The proof "BLE chunk boundaries do not affect the result" needs a host probe that compiles `device_ble.h`
+against the existing Arduino fake (the `probe_console_sink` idiom) and drives the same 269-byte line under
+several chunkings (1, 20, 244 bytes), plus 270 refusing loudly.
+**Slice placement:** a separate preparatory slice ("0f — BLE line capacity", a `src/device_ble.h` capacity change
+with the ruled pair as its RAM gate), after 0c and before Slice 6 (which lands the validator with bounds 2 and 3).
+Not folded into 0c (C1: 0c is a refactor).
+
+### R-RA-24′ (owner, 2026-09-04) — three named bounds, one validator; SUPERSEDES R-RA-24
+
+**Owner:** *"Agree - record R-RA-24' as the ruling."*
+**Settled (the QA position above becomes the ruling; R-RA-24's "`common_command_max_bytes = 159` for USB, BLE and
+RPC alike" is retired, kept visible above):**
+1. `dm_max_body_bytes` = 239 stays the DM body authority, enforced where it is today (an over-long sealed body
+   refuses with `SealOutcome::too_large`).
+2. `console_line_max_bytes` is PER TRANSPORT: USB 1024 (unchanged); BLE `g_line` grows 160 → **270**, DERIVED as the
+   longest syntactically legal local line + NUL. ⚠ QA CORRECTION (same day, after re-reading the flag grammar at
+   `lib/console/console_parse.cpp:119-124`, `:352-353`): the by-hash `send` also accepts `-K`, so the longest legal
+   line is `send 0xffffffff "<239>" -a -e -t -K -l` = **272** (not 269) and the derived buffer is **273** (not 270);
+   the ruling is the DERIVATION, so the number follows it (the brief `static_assert`s the buffer ≥ the grammar's
+   maximum; a bare literal is a structural RED). The longest legal `remote` line still fits (wrapper ≤ 60 + tail
+   201 + NUL = 262). The +113 B `.bss` lands on nRF52 builds only and is measured by the ruled pair (Slice 0f).
+3. `remote_command_max_bytes` = the command TAIL after `--` = the smallest authenticated carrier's command capacity,
+   **201** today (0e: cross-layer by hash, depth 4, RPC cap 226 − 25), derived by Slice 2's `remote_body_cap` and
+   enforced by the ONE shared validator (R-RA-7: NUL/CR/LF + a length), which takes its bound per surface.
+Consequences: R-RA-14's "one universal cap" reads as "one validator, three named bounds"; design §12's paragraph
+"That universal value cannot exceed the smallest accepted command carrier, so it necessarily shortens the current
+1024-byte USB command surface" is WITHDRAWN (USB local lines are not shortened); the companion contract states the
+BLE line capacity after 0f. Slice **0f — BLE line capacity** is added to §19 after 0c and before Slice 6.

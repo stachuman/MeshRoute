@@ -2,7 +2,7 @@
 # Remote administration v2 — compact independent RPC (revised proposal)
 
 **Status: DESIGN PASS 2026-09-04 — IMPLEMENTATION AUTHORITY; round-1 findings A1-A8/B1-B6/C1-C14,
-round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-20 incorporated. Slices proceed
+round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. Slices proceed
 independently through §19; none is authorized until its own brief passes. Slice 0d has landed, and Slice 0e has
 completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
@@ -11,7 +11,7 @@ and remains subject to independent review. If ratified, it replaces the implemen
 `2026-07-26-remote-admin-challenge-response-design.md`; that document remains a historical decision record,
 not a compatibility requirement. The completed v2 implementation must remove the current `rcmd` mechanism
 rather than support both protocols indefinitely. The verbatim owner record for this revision is
-`docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md` (R-RA-1..R-RA-20).
+`docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md` (R-RA-1..R-RA-24).
 
 ## 1. Decision in one paragraph
 
