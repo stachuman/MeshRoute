@@ -31,7 +31,8 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   auto-OFF scenarios, finish S6 product integration and then evaluate narrowed B178 proactive roaming. B184 and
   B186b remain separate adjacent follow-ups.
 
--  reviewed and ready - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2
+-  round-3 review ready - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2; findings
+  H1-H3/F1-F11 and owner rulings R-RA-18..20 folded in, implementation still unauthorized
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
@@ -54,7 +55,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 ## Bugs - suggested order
 
 - **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; then (2) remote-admin v2
-  preparation (`2026-08-23-remote-admin-independent-rpc-design.md`), whose §14.1/Slice 9 B278 prerequisite is
+  preparation (`2026-08-23-remote-admin-independent-rpc-design.md`), whose §14.1/Slice 8b B278 prerequisite is
   now satisfied. [[B280]] (long-busy NACK lifetime), [[B281]] (measure_board output path), [[B282]] (leaked
   XL reservation), [[B283]] (census blind to `-Wunused-parameter`, instrument slice, dispatched in parallel)
   and [[B112]] remain independently tracked and none of them blocks Part 54.
