@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-03**
+Last refreshed: **2026-09-04**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -32,8 +32,11 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   B186b remain separate adjacent follow-ups.
 
 -  **DESIGN PASS 2026-09-04** - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2;
-  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. Slice
-  0d and 0e pre-checks are complete and their Author briefs are awaiting review.
+  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. Slice 0d is
+  landed and QG-passed; Slice 0e characterization is complete in its isolated worktree and its Author-owned
+  carrier constraint is landed, while the exact coder-owned evidence/instrument package still needs integration.
+  Next: Quality-Agent pre-check ledgers for 0a, 0b and 0c; B283 may proceed as soon as its brief carries the ruled
+  negative-control fold-in.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the

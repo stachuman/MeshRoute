@@ -3,7 +3,8 @@
 
 **Status: DESIGN PASS 2026-09-04 — IMPLEMENTATION AUTHORITY; round-1 findings A1-A8/B1-B6/C1-C14,
 round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-20 incorporated. Slices proceed
-independently through §19; none is authorized until its own brief passes, and none has been dispatched.**
+independently through §19; none is authorized until its own brief passes. Slice 0d has landed, and Slice 0e has
+completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -109,10 +110,12 @@ The following are code facts, not inherited assumptions from an older design:
   241-byte STORAGE bound (`lib/core/protocol_constants.h`, `lib/core/node_carriers.h`). The on-air authority
   is `data_inner_cap()` / `data_frame_len()` (`lib/core/frame_codec.h:738-747`, the landed [[B20]]/[[B21]] rule), so
   every carrier's governing cap is the minimum of the storage bound and the actual packer's air-fit answer.
-  The 241-byte term governs only the approved plaintext RPC carriers. Setting `DATA_FLAG_CRYPTED` on a
-  nonzero typed carrier lowers `data_inner_cap()` to 238; a codec control must make that flag change redden
-  every 241/231/206-byte cap claim. RPC confidentiality lives inside the authenticated RPC body, not in the
-  outer DATA `CRYPTED` flag.
+  The 241-byte term governs only the approved plaintext RPC carriers. ⚠ **CORRECTED 2026-09-04 by Slice 0e-C;
+  prior unconditional claim kept visible:** this paragraph said setting `DATA_FLAG_CRYPTED` on a nonzero typed
+  carrier lowers `data_inner_cap()` to 238 and must redden every 241/231/206-byte cap claim. That lower cap exists
+  only for a hash-addressed carrier; a by-node-id carrier has no legal outer-`CRYPTED` form because `pack_data`
+  requires the clear `DST_HASH` used by the per-DM nonce. RPC confidentiality lives inside the authenticated RPC
+  body, not in the outer DATA `CRYPTED` flag.
 - The supported normal-DM body ceiling is the deliberately conservative `dm_max_body_bytes = 239`.
 - `DATA_TYPE_REMOTE_CMD = 0xA0` and `DATA_TYPE_REMOTE_RESP = 0xA1` already carry remote request/response bodies
   (⛔ corrected 2026-08-29: ordinals 6/7 were RETIRED by the §CUSTODY-A namespace transition — the values now sit
@@ -154,12 +157,15 @@ The following are code facts, not inherited assumptions from an older design:
   before any cross-layer path overhead (`lib/core/node_hashlocate.cpp`, `lib/core/node_mac_rx.cpp`). Therefore
   239/214-byte direct-body arithmetic is not a carrier-independent contract.
 - A mobile's registered **home is always a static node**, never a gateway ([[B132]]), and the wrapper toward
-  that home is therefore global-plane traffic by definition. ⚠ **CORRECTED 2026-09-04:** the current
-  `send_by_hash` implementation does not make this invariant explicit: all three delegation arms stamp
-  `Plane::AUTO`, which can resolve to team plane on an ID collision. R-RA-12 requires those three source arms
-  to stamp `Plane::GLOBAL` in their own attributable preparatory slice before the v2 carrier lands. The
-  source proof is `can_host_mobiles()` (`lib/core/node.h:639`), the `flight_is_team_plane()` AUTO resolver
-  (`lib/core/node.h:446-452`), and `is_team_peer()` (`lib/core/node_routing.cpp:823`).
+  that home is therefore global-plane traffic by definition. ✅ **LANDED 2026-09-04 by Slice 0d; prior required
+  state kept visible:** the pre-slice correction said the current `send_by_hash` implementation did not make this
+  invariant explicit, that three delegation arms stamped `Plane::AUTO`, and that R-RA-12 required those arms to
+  stamp `Plane::GLOBAL`. Per D-0d-1 the landed slice covered **four** arms, not three: the registered-mobile plain,
+  enclosed-type and sealed-relay wrappers plus the cached-home send all stamp `Plane::GLOBAL`. The source proof
+  remains `can_host_mobiles()` (`lib/core/node.h:639`), the `flight_is_team_plane()` AUTO resolver
+  (`lib/core/node.h:446-452`), and `is_team_peer()` (`lib/core/node_routing.cpp:823`). A prediction-first four-site
+  instrument measured `is_team_peer(home_id)` false at all eight corpus occurrences; the final corpus was 36/36
+  byte-identical, with no re-anchor (`docs/superpowers/evidence/2026-09-04-radmin-0d.md`).
 - The legacy `send_remote_cmd` / `send_remote_response` helpers call `enqueue_data(..., app_dm=false, ...)`
   and therefore attach no `SOURCE_HASH`. They are not v2 carrier precedent. R-RA-13 requires every v2 request
   and response to use the `send_by_hash` / `do_send` application-DM path (`app_dm=true`) so the clear inner
@@ -826,10 +832,24 @@ additional carrier bytes and must publish its own lower bound. The home-originat
 response, hosted-mobile last mile, and every cross-layer variant receive the same packer-derived treatment
 in the carrier slice; there is no direct static-controller carrier.
 
-Those figures depend on the outer RPC DATA carrier remaining plaintext: setting `DATA_FLAG_CRYPTED` makes
-the real air-fit authority return 238 before carrier fields, so the cap battery must include that mutation.
-Every request and response carrier also requires `SOURCE_HASH`; no implementation may drop it to recover
-body capacity. The encrypted object is the RPC body, while `SOURCE_HASH` remains clear and AEAD-bound.
+⚠ **CORRECTED 2026-09-04; prior unconditional wording kept visible:** this paragraph said *"setting
+`DATA_FLAG_CRYPTED` makes the real air-fit authority return 238 before carrier fields, so the cap battery must
+include that mutation."* That is true only where outer encryption is structurally legal. Every request and response
+carrier still requires `SOURCE_HASH`; no implementation may drop it to recover body capacity. The encrypted object
+is the RPC body, while `SOURCE_HASH` remains clear and AEAD-bound.
+
+⚠ **Measured 2026-09-04 by Slice 0e-C: outer `CRYPTED` is available only to a hash-addressed carrier.**
+`pack_data` (`lib/core/frame_codec.cpp:900`) refuses a `CRYPTED` frame carrying no `DST_HASH`, because the per-DM
+nonce derives from the cleartext `dst_key_hash32`. For the six by-node-id carriers the sealed variant therefore
+has **no cap at all**, rather than a lower one; the cap battery's outer-`CRYPTED` mutation applies to the eight
+hash-addressed carriers only.
+
+The same Slice 0e real-packer table independently confirms the registered-mobile example above and measures
+plaintext RPC-body caps spanning **226 through 236 bytes** across all fourteen carriers. The minimum is the
+cross-layer, key-hash-addressed carrier at legal path depth 4 (**226 bytes**); later carrier slices must design
+their authenticated command/output budgets against their own row, never promote the largest row to a universal
+cap. Slice 2 owns the production `remote_body_cap(RemoteCarrier)` authority; the characterization table is its
+accepted KAT input, not a second runtime authority.
 
 The 16-byte authentication tag and 8-byte request identity are the two load-bearing authenticated envelope
 costs; the transmitted one-byte control is the remaining RPC metadata. Open diagnostics omit the tag by
@@ -1490,7 +1510,13 @@ The complete design does not provide:
      never gateway” and the mixed-ID collision
      that previously selected team plane; predict and attribute every corpus delta before accepting it. Its
      source fence includes the correction-idiom rewrite of `lib/core/node_mac.cpp:159-161`, whose claim that
-     the named paths are “the only producers of GLOBAL” becomes false when these four producers land; and
+     the named paths are “the only producers of GLOBAL” becomes false when these four producers land.
+     ✅ **LANDED 2026-09-04.** All four arms now stamp `Plane::GLOBAL`; the B278-S3 static-sender pin was re-aimed
+     to explicit GLOBAL and gained a mixed-ID collision control, while the stale producer census was corrected
+     with its old claim visible. Native moved 2578/108904/0 → 2587/109106/0; corpus was predicted and measured
+     36/36 byte-identical; 63 mutations were RED with zero unusable; `Node` and ruled-board RAM were unchanged,
+     and both ruled images were size/section/symbol identical. No re-anchor, owner ruling or metal step is owed;
+     and
    - **0e, characterization and generated authorities:** generate and pin the complete command/subcommand
      inventory for the later owner classification (R-RA-1); define candidate value types for every
      controller/target bounded state record and measure their cap/RAM/timer cost on host, ARM and Xtensa
@@ -1500,6 +1526,12 @@ The complete design does not provide:
      windows, and reports the resulting `remote_scheduled_reply_path_budget_ms(cfg)` and default/floor
      feasibility. This slice reports facts; it neither guesses authority nor lands capacities,
      configuration, or the production function—Slice 7a owns that authority.
+     ✅ **MEASURED 2026-09-04.** The characterization produced a 177-row blank-authority command inventory,
+     host/ARM/Xtensa candidate-layout and timer-cost sheets, fourteen real-packer carrier rows, and the first
+     source-derived activation budget. Its owner classification/capacity/timer choices remain separate rulings;
+     the unconditional outer-`CRYPTED` claim is corrected in §8.11. The coder-owned evidence and instruments were
+     produced in the isolated 0e worktree and must be integrated from that worktree as one exact package before
+     any later brief consumes them.
 
    Do not combine any of these fixes/refactors with each other or with remote execution (C1).
 1. **Feature-boundary scaffold:** add
@@ -1599,8 +1631,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0a | help dispatch, `src/firmware_commands.cpp` | semantic identity; ruled pair unconditionally | none |
 | 0b | supplied-sink `regen`, `src/firmware_config.cpp` + caller seam | semantic identity; ruled pair | none |
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
-| 0d | four home-bound arms, `lib/core/node_hashlocate.cpp` | prediction-first 36-row delta; re-anchor ruling if hashes move; ruled pair | none |
-| 0e | generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair | none |
+| 0d | ✅ landed: four home-bound arms, `lib/core/node_hashlocate.cpp` | predicted 0 movers; measured 36/36 byte-identical; no re-anchor; ruled pair RAM +0 | none |
+| 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
 | 1 | `lib/core/mr_features.h` plus legacy compile owners | 36/36 unchanged; both endpoint-disabled builds and ruled pair | none |
 | 1b | capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp` | prediction-first 36/36 identity; four role-by-type native arms; ruled pair | none |
 | 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |

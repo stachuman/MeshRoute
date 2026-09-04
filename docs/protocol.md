@@ -560,6 +560,16 @@ mesh resolves hash → its current **home** (§10 proxy), routes the DM to the h
 and E2E-acks route back (the delegated ctr map translates them). Registration rides the J family (leaf-exempt
 DISCOVER + targeted, jitter-stashed OFFER + CLAIM); a reprovision (`join`/`create`/`leave`) wipes the host's
 registry + suspends OFFERs and rosters while `_node_id == 0`.
+
+**The wrapper to a mobile's home is global-plane by definition.** A mobile's home is only ever a static node
+(`can_host_mobiles()` requires `!is_mobile && !is_gateway && n_layers == 1`), so every `send_by_hash` arm whose
+*immediate destination* is a home — the registered mobile's three `DATA_TYPE_MOBILE_SEND` wrapper arms (plain,
+enclosed-type and sealed-relay) and the cached-home send to a target mobile's home — stamps `Plane::GLOBAL`, never
+`Plane::AUTO`. `AUTO` resolves through `is_team_peer(dst)`, a bitmap over the team-id namespace; a teammate whose
+team-local id numerically equalled the home's static id could otherwise capture the wrapper onto the team routing
+table. `GLOBAL` forces the static table, a static RTS and the home-id origin stamp, matching the cross-layer
+delegation wrapper's established choice.
+
 - **Source:** `node_mobile.cpp` (the FSM) · `node_join.cpp` (host side) · `node_hashlocate.cpp` (delegation, `:866`) · `node_mac_rx.cpp` (`MOBILE_SEND` unwrap, last-mile)
 - **Spec:** `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` · `2026-07-17-cross-layer-mobile-first-contact-design.md`
 

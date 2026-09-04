@@ -20,7 +20,10 @@ Every recorded defect class in this codebase (masking holes, vacuous controls, "
 1. **Pre-check (Quality Agent → Author, via owner).** Before a brief is written, the Quality Agent verifies the slice's source facts (file:line), runs corpus and native, and hands the Author a short ledger of facts, obstacles and a corpus-mover prediction. Ask for it; do not write a brief without it.
 2. **Brief (Author).** Written against the spec and the pre-check ledger. Status line: `DRAFT — awaiting Quality-Agent review`.
 3. **Brief gate (Quality Agent).** Verdict PASS or HOLD, numbered corrections each anchored `file:line`, plus a "verified independently" list. The Author folds corrections in and flips the status to `QUALITY-AGENT PASS <date> — AUTHORIZED FOR DISPATCH`.
-4. **Dispatch (Quality Agent).** `model: opus`, from the brief as written. Fix rounds: same agent, resumed.
+4. **Dispatch (Quality Agent).** `model: opus`, from the brief as written. Fix rounds: same agent, resumed. Before
+   starting work in an isolated worktree, the dispatched agent verifies and records `git rev-parse HEAD` against
+   the brief's named base commit; a mismatch is a STOP to the dispatcher, never a stale-tree measurement or a
+   silent worktree repair.
 5. **Slice gate (Quality Agent).** Re-runs native, corpus, ABI, boards and warning census itself. PASS/HOLD to the owner and Author.
 6. **Second read (Author).** Reads the evidence file for narrative and doc consistency; findings go to the register, never into the evidence file directly.
 7. **Rulings (owner).** Anything marked `OWNER RULING REQUESTED` is decided by the owner alone: anchor-table edits, delivery movement, capacity/RAM, design forks, wire bumps.
