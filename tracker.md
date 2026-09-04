@@ -31,8 +31,9 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   auto-OFF scenarios, finish S6 product integration and then evaluate narrowed B178 proactive roaming. B184 and
   B186b remain separate adjacent follow-ups.
 
--  round-3 review ready - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2; findings
-  H1-H3/F1-F11 and owner rulings R-RA-18..20 folded in, implementation still unauthorized
+-  **DESIGN PASS 2026-09-04** - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2;
+  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. Slice
+  0d and 0e pre-checks are complete and their Author briefs are awaiting review.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the

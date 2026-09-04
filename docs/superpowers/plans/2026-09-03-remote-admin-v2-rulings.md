@@ -271,3 +271,12 @@ ceiling = e2e_ack_deadline_xl_ms - 1                                   (:780, 29
 Rough magnitude at SF8/125 kHz: budget ≈ 7-8 s ⇒ default ≈ 15 s. ⛔ The design states the FORMULA; the number is
 published by Slice 0e's characterization; the "≈30 s" example is deleted. `cfg.remote_action_activation_ms` stays
 runtime-configurable within [floor, ceiling] (R-RA-16, Slice 7a).
+
+### D-0d-1 (owner, 2026-09-04) — Slice 0d covers all FOUR home-bound arms
+
+**Owner (relayed with the Author's statement):** *"D-0d-1 is recorded: 0d covers all four home-bound arms. The
+cached-home arm has the same ID-collision failure for an unregistered team mobile, so leaving it on AUTO would
+preserve the same defect under a different caller."*
+**Settled:** `lib/core/node_hashlocate.cpp:1773`, `:1785`, `:1788` (the mobile's delegation wrappers) AND `:1859` (the
+cached-home arm) all stamp `Plane::GLOBAL`; the §B278-S3 equivalence pin (`test/test_custody_receive_g.cpp:1926-1928`)
+is re-aimed from "AUTO ≡ GLOBAL for a static home" to "GLOBAL, explicitly", claim kept visible.

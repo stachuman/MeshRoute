@@ -1,9 +1,9 @@
 <!-- Author: OpenAI Codex; owner review draft -->
 # Remote administration v2 — compact independent RPC (revised proposal)
 
-**Status: REVIEW DRAFT — round-1 findings A1-A8/B1-B6/C1-C14, round-2 findings H1-H3/F1-F11,
-and owner rulings R-RA-1..R-RA-20 incorporated through 2026-09-04; awaiting round-3 independent
-review; not implementation authority.**
+**Status: DESIGN PASS 2026-09-04 — IMPLEMENTATION AUTHORITY; round-1 findings A1-A8/B1-B6/C1-C14,
+round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-20 incorporated. Slices proceed
+independently through §19; none is authorized until its own brief passes, and none has been dispatched.**
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -1480,12 +1480,17 @@ The complete design does not provide:
    - **0b:** fix B279's source-confirmed `regen` supplied-sink defect;
    - **0c:** make the existing dispatcher/caller output path transport-neutral without adding remote context
      or policy;
-   - **0d, static-home plane invariant:** implement R-RA-12 as the only behaviour change: the three
-     `send_by_hash` delegation arms that send a wrapper toward the mobile's static home stamp
-     `Plane::GLOBAL` instead of `Plane::AUTO`. Pin “home is static, never gateway” and the mixed-ID collision
+   - **0d, static-home plane invariant:** implement R-RA-12 as the only behaviour change. ⚠ **SCOPE
+     CORRECTION D-0d-1, 2026-09-04; the passed three-arm wording remains visible:** the passed design said
+     “the three `send_by_hash` delegation arms that send a wrapper toward the mobile's static home stamp
+     `Plane::GLOBAL` instead of `Plane::AUTO`.” The same invariant also governs the cached-home arm that sends
+     to a target mobile's static home (`lib/core/node_hashlocate.cpp:1859` at pre-check): an unregistered team
+     mobile has the same local-ID collision exposure. Slice 0d therefore changes all **four** home-bound arms
+     together and re-aims B278-S3's static-sender AUTO-equivalence pin to explicit GLOBAL. Pin “home is static,
+     never gateway” and the mixed-ID collision
      that previously selected team plane; predict and attribute every corpus delta before accepting it. Its
      source fence includes the correction-idiom rewrite of `lib/core/node_mac.cpp:159-161`, whose claim that
-     the named paths are “the only producers of GLOBAL” becomes false when these three producers land; and
+     the named paths are “the only producers of GLOBAL” becomes false when these four producers land; and
    - **0e, characterization and generated authorities:** generate and pin the complete command/subcommand
      inventory for the later owner classification (R-RA-1); define candidate value types for every
      controller/target bounded state record and measure their cap/RAM/timer cost on host, ARM and Xtensa
@@ -1594,7 +1599,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0a | help dispatch, `src/firmware_commands.cpp` | semantic identity; ruled pair unconditionally | none |
 | 0b | supplied-sink `regen`, `src/firmware_config.cpp` + caller seam | semantic identity; ruled pair | none |
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
-| 0d | three home arms, `lib/core/node_hashlocate.cpp` | prediction-first 36-row delta; re-anchor ruling if hashes move; ruled pair | none |
+| 0d | four home-bound arms, `lib/core/node_hashlocate.cpp` | prediction-first 36-row delta; re-anchor ruling if hashes move; ruled pair | none |
 | 0e | generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair | none |
 | 1 | `lib/core/mr_features.h` plus legacy compile owners | 36/36 unchanged; both endpoint-disabled builds and ruled pair | none |
 | 1b | capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp` | prediction-first 36/36 identity; four role-by-type native arms; ruled pair | none |
@@ -1612,7 +1617,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 10 | main config/NV + `Node` legacy fields only | 36/36 unchanged; ABI/NV migration and ruled pair | **Part 57f:** boot migration line reports the new schema healthy, legacy fields absent, and all four replacement stores retained |
 
 ⚠ **CORRECTED 2026-09-04, prior gate claims kept visible:** the old 0a row said the ruled pair ran only “if
-production bytes move”; it is now unconditional. The old Part 55 assigned `/mrtargets` exchange to Slice 3,
+production bytes move”; it is now unconditional. Before D-0d-1 the 0d row said “three home arms”; the current
+four-arm scope is authoritative. The old Part 55 assigned `/mrtargets` exchange to Slice 3,
 before that controller store exists; it is split into target-side 55a and controller-side 55b. The old table
 assigned one undifferentiated “Part 57” to Slices 7a through 10; Parts 57a-f now give every owning slice an
 executable observation and expected console/contract line.
