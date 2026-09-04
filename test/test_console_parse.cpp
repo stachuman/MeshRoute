@@ -525,6 +525,126 @@ TEST_CASE("parse_command — send 0x00000000 (all-zero hash) -> bad_args (mirror
 
 // L2: parse_u32_tok(max=0xFFFFFFFF) must REJECT an over-u32 token (accumulator wrap), not parse it as 0.
 // (parse_cfg — the lying dead twin of the live `cfg set` — was DELETED §3-A.7; this now drives the guard directly.)
+// =====================================================================================================================
+// §0f (remote-admin v2, R-RA-24' bound 2) — THE PARSER HALF OF THE DERIVED BLE LINE CAPACITY.
+//
+// Slice 0f grows `src/device_ble.h`'s inbound line buffer from a 160-byte literal to a capacity DERIVED from this
+// grammar, so that the canonical parser-accepted spelling of each product verb — each accepted option at most once,
+// carrying the largest body its carrier admits — reaches `parse_command` instead of being refused by the transport
+// as `line_too_long`.
+//
+// ⛔ THESE CASES DELIBERATELY DO NOT ASSERT A BUFFER SIZE. They pin the two things the derivation is built out of —
+//    WHICH OPTIONS EACH VERB ACCEPTS, and THAT A MAXIMAL BODY SURVIVES THE PARSE BYTE-FOR-BYTE — so that a flag
+//    silently disappearing from `parse_send_tail`, or a body being truncated, breaks HERE rather than shrinking a
+//    transport constant nobody re-derives. The line lengths are stated in the assertions because they ARE the
+//    grammar's output; `src/device_ble.h` recomputes them from the same named terms and its own probe re-measures
+//    them (`tools/probe_ble_line`).
+//
+// ★ LAYER OWNERSHIP, WHICH THIS FILE MUST NOT BLUR:
+//     BLE line transport  — `src/device_ble.h`'s intake + overflow branch (moved by 0f).
+//     command parser      — `console_parse.cpp:110` CLAMPS a quoted body to `max_payload_bytes_hard_cap` (241).
+//                           Characterized below and LEFT UNCHANGED; it is not a DM cap and not a BLE cap.
+//     DM semantic admission — `node.cpp` refuses `body_len > dm_max_body_bytes` (239) with `err_too_large`.
+// =====================================================================================================================
+
+namespace {
+// The canonical maximal spellings, built from the SAME named authorities `src/device_ble.h` derives from.
+std::string body_of(size_t n, char c) { return std::string(n, c); }
+
+std::string canonical_send_max() {          // `send <0xhash> "<239>" -a -e -t -K -l` — five accepted flags
+    return "send 0xffffffff \"" + body_of(protocol::dm_max_body_bytes, 'S') + "\" -a -e -t -K -l";
+}
+// The depth-4 cross-layer carrier cap, mirrored from pack_unicast_inner's sizing terms (origin 1 + DST_HASH 4 +
+// SOURCE_HASH 4 + [n_layers][cur] 2 + one id per layer) against the hard cap. `tools/probe_ble_line` EXECUTES the
+// real packer at this value and at value+1; here it is only the body length the parser must carry intact.
+constexpr size_t kXlBodyCapAtMaxDepth =
+    protocol::max_payload_bytes_hard_cap - (1u + 4u + 4u + 2u + protocol::gw_env_max_hops);
+
+std::string canonical_send_layer_max() {    // `send_layer <0xhash> <l1,l2,l3> "<226>" -a -e -K -l` — four accepted flags
+    return "send_layer 0xffffffff 255,255,255 \"" + body_of(kXlBodyCapAtMaxDepth, 'X') + "\" -a -e -K -l";
+}
+std::string canonical_send_layer_queue() {  // the PLAINTEXT form that actually queues: `-a -K` only
+    return "send_layer 0xffffffff 255,255,255 \"" + body_of(kXlBodyCapAtMaxDepth, 'X') + "\" -a -K";
+}
+}  // namespace
+
+TEST_CASE("§0f — the canonical maximal by-hash `send` line parses whole: a full 239-B body + all five accepted flags") {
+    const std::string line = canonical_send_max();
+    CHECK(line.size() == 272);                             // 5 + 10 + 2 + 239 + 1 + 5*3 — the derivation's `send` term
+    Command c{};
+    CHECK(parse_command(line.c_str(), line.size(), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send);
+    CHECK(c.u.send.dst_hash == 0xffffffffu);
+    CHECK(c.body_len == protocol::dm_max_body_bytes);       // the FULL DM body survives, un-truncated
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len)
+          == body_of(protocol::dm_max_body_bytes, 'S'));    // ...byte-for-byte
+    CHECK((c.u.send.flags & DATA_FLAG_E2E_ACK_REQ) != 0);   // -a
+    CHECK(c.crypt == CryptIntent::on);                      // -e
+    CHECK(c.u.send.plane == 1);                             // -t (TEAM)
+    CHECK(c.no_intro);                                      // -K
+    CHECK((c.u.send.flags & DATA_FLAG_LOCATION) != 0);      // -l
+    // ★ ALL FIVE ARE LOAD-BEARING: dropping any one shortens the derived maximum by exactly 3 bytes.
+    const std::string four = line.substr(0, line.size() - 3);
+    Command c2{};
+    CHECK(parse_command(four.c_str(), four.size(), c2) == ParseErr::ok);
+    CHECK((c2.u.send.flags & DATA_FLAG_LOCATION) == 0);
+    CHECK(four.size() == 269);
+}
+
+TEST_CASE("§0f — the canonical maximal three-hop `send_layer` line parses whole: a 226-B body + its four accepted flags") {
+    const std::string line = canonical_send_layer_max();
+    CHECK(kXlBodyCapAtMaxDepth == 226);                     // the transitional mirror, restated from named constants
+    CHECK(line.size() == 274);                              // 11 + 10 + 1 + 11 + 2 + 226 + 1 + 4*3 — the BINDING producer
+    CHECK(line.size() > canonical_send_max().size());       // ★ `send_layer`, NOT `send`, is the longest product line
+    Command c{};
+    CHECK(parse_command(line.c_str(), line.size(), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.u.layer.dst_hash == 0xffffffffu);
+    CHECK(c.u.layer.hop_count == protocol::gw_env_max_hops - 1);          // the parser's own hop cap
+    CHECK(c.u.layer.hops[0] == 255); CHECK(c.u.layer.hops[1] == 255); CHECK(c.u.layer.hops[2] == 255);
+    CHECK(c.body_len == kXlBodyCapAtMaxDepth);
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == body_of(kXlBodyCapAtMaxDepth, 'X'));
+    CHECK((c.u.layer.flags & DATA_FLAG_E2E_ACK_REQ) != 0);  // -a
+    CHECK(c.crypt == CryptIntent::on);                      // -e
+    CHECK(c.no_intro);                                      // -K
+    CHECK((c.u.layer.flags & DATA_FLAG_LOCATION) != 0);     // -l — ACCEPTED here, refused BY NAME in on_command
+    // ⚠ A FOURTH HOP IS REFUSED, so the path term cannot grow: the line above is the grammar's longest, not merely
+    //   the longest anyone tried.
+    Command c4{};
+    const std::string four_hops = "send_layer 0xffffffff 255,255,255,255 \"x\" -a";
+    CHECK(parse_command(four_hops.c_str(), four_hops.size(), c4) == ParseErr::bad_args);
+}
+
+TEST_CASE("§0f — the 268-byte plaintext `send_layer` form (`-a -K`) is the queue-positive: same body, two fewer options") {
+    const std::string line = canonical_send_layer_queue();
+    CHECK(line.size() == 268);                              // 274 - len(" -e") - len(" -l")
+    Command c{};
+    CHECK(parse_command(line.c_str(), line.size(), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.body_len == kXlBodyCapAtMaxDepth);
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == body_of(kXlBodyCapAtMaxDepth, 'X'));
+    CHECK(c.crypt == CryptIntent::def);                     // no -e -> plaintext (the node's e2e_dm default)
+    CHECK((c.u.layer.flags & DATA_FLAG_LOCATION) == 0);     // no -l -> nothing for on_command to refuse
+    CHECK((c.u.layer.flags & DATA_FLAG_E2E_ACK_REQ) != 0);
+    CHECK(c.no_intro);
+}
+
+TEST_CASE("§0f — the parser's body CLAMP is its own layer: 240 and 241 survive the parse, 242 is clamped to 241") {
+    // ⛔ CHARACTERIZED, NOT CHANGED. `console_parse.cpp:110` clamps a quoted body to `max_payload_bytes_hard_cap`.
+    // That is the CARRIER buffer's bound, not the DM's — the 239-byte DM cap belongs to `Node::on_command`, which is
+    // what must refuse 240/241 (see test_node_hashlocate.cpp §0f). Attributing this clamp to BLE, or "fixing" it
+    // here so the parser refuses at 239, would move a semantic verdict into the wrong layer.
+    Command c{};
+    for (size_t n : { size_t(protocol::dm_max_body_bytes + 1), size_t(protocol::max_payload_bytes_hard_cap) }) {
+        const std::string line = "send 0xffffffff \"" + body_of(n, 'B') + "\" -a";
+        CHECK(parse_command(line.c_str(), line.size(), c) == ParseErr::ok);
+        CHECK(c.body_len == n);                             // preserved as far as the parser permits
+    }
+    const std::string over = "send 0xffffffff \"" + body_of(protocol::max_payload_bytes_hard_cap + 1, 'B') + "\" -a";
+    CHECK(parse_command(over.c_str(), over.size(), c) == ParseErr::ok);
+    CHECK(c.body_len == protocol::max_payload_bytes_hard_cap);   // clamped, not refused — the existing behaviour
+}
+
 namespace meshroute::console { struct Tok { const char* s; size_t n; };
                                bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out); }
 TEST_CASE("parse_u32_tok — over-u32 token rejected (no mod-2^32 wrap)") {

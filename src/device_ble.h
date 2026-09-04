@@ -54,6 +54,7 @@ inline bool connected() { return false; }
 // ===== device implementation (XIAO nRF52840) — header-inline, included by the one device TU (fw_main) =====
 #include <bluefruit.h>
 #include "companion_policy.h"   // meshroute::CompanionPolicy / BleMode (lib/core) — the off/on/periodic scheduler
+#include "protocol_constants.h" // meshroute::protocol:: — the NAMED terms the inbound line capacity is derived from
 #include "device_rng.h"         // mrrng::sd_enabled() — the SD-RNG keystone flag
 #include "console_sink.h"       // `mrcon` guarded sink (the BLE-path debug prints route through it too)
 #include <string.h>
@@ -76,7 +77,126 @@ volatile uint8_t           g_conn_count  = 0;
 volatile uint16_t          g_conn_handle = BLE_CONN_HANDLE_INVALID;   // for getMtu() — chunk long tx_line replies
 char                       g_pin_str[7]  = {0}; // the 6-digit MITM passkey as a string. setPIN() stores it BY
                                                 // POINTER (no copy), so it MUST outlive pairing -> a static.
-char                       g_line[160];       // inbound line buffer (mirrors the USB console)
+
+// ===================================================================================================================
+// ★★ THE INBOUND LINE CAPACITY IS DERIVED FROM THE CONSOLE GRAMMAR — NEVER A LITERAL (R-RA-24' bound 2).
+//
+// WHY IT MOVED. This buffer is the BLE transport's admission edge, and whatever it refuses the operator sees as
+// `line_too_long` — a TRANSPORT verdict — instead of the verb's own named result. At 160 B it refused the longest
+// product lines outright: a full 239-byte DM body (`send`) and any `send_layer` carrying a real body never reached
+// `parse_command` at all. USB (`fw_main.cpp`, 1024 B) has no such edge, so the two transports disagreed about which
+// commands exist. Closing that disagreement is the whole change; the intake state machine below is untouched.
+//
+// ★ THE DEFINITION IS SYNTACTIC (owner-ruled 2026-09-04): the storage admits THE CANONICAL PARSER-ACCEPTED SPELLING
+// OF EACH PRODUCT VERB — EACH ACCEPTED OPTION AT MOST ONCE — CARRYING THE LARGEST BODY ITS CARRIER ADMITS. It is
+// deliberately NOT "every line that can succeed": the seal's overhead, `-l` being refused on a cross-layer send, a
+// plane that needs a key, are SEMANTIC rules owned by `Node::on_command`, which refuses each of them BY NAME. Pricing
+// them here would make a transport constant depend on protocol semantics and would hide those named refusals behind
+// `line_too_long` — the exact failure this capacity exists to remove.
+// ⚠ SAID PLAINLY SO IT IS NOT READ AS A PROMISE: the two BINDING lines below do NOT succeed. The maximal `send_layer`
+// spelling returns `err_unsupported` (`-l` is refused on a cross-layer send — node.cpp's send_layer arm emits
+// `location_refused`), and the maximal `send` spelling carries `-e`, so it refuses `SealOutcome::too_large`. They are
+// TRANSPORT positives: their bytes must reach the dispatcher so the NAMED refusal is what comes back. The longest
+// line that actually queues is the plaintext `send_layer 0x… 255,255,255 "<226-B body>" -a -K`.
+// ⓘ The grammar also admits UNBOUNDED permissive spellings — a repeated flag (`parse_send_tail` de-duplicates only
+// the body), runs of whitespace (`skip_ws`), leading zeros in a numeric token. Those have NO finite syntax maximum,
+// so they are bounded by this transport BY DESIGN and are not (and cannot be) priced below.
+//
+// ⛔ NO NAKED NUMBER BELONGS IN THIS BLOCK. Every term is `sizeof("literal") - 1` or a named protocol constant, so
+// deleting a flag, renaming a verb or moving `gw_env_max_hops` moves the buffer automatically. Two earlier passes
+// priced `send` alone and derived 269, then 272; the verb that actually binds is `send_layer`. A literal freezes
+// that class of mistake — which is why the checks below assert the RELATIONSHIP, not the value.
+// ===================================================================================================================
+
+// ---- shared grammar atoms -----------------------------------------------------------------------------------------
+constexpr size_t kFlagTermBytes  = sizeof(" -a") - 1;   // " -X": the separating space + '-' + one letter (lone token)
+constexpr size_t kBodyOpenBytes  = sizeof(" \"") - 1;   // the separating space + the opening quote
+constexpr size_t kBodyCloseBytes = sizeof("\"") - 1;    // the closing quote
+// `parse_hex32_0x` wants the `0x` prefix; `parse_hex32_tok` refuses more than 8 hex digits (one per u32 nibble).
+constexpr size_t kHashTokenBytes = (sizeof("0x") - 1) + 2 * sizeof(uint32_t);
+
+// ---- producer 1: `send <0xhash> "<body>" -a -e -t -K -l` -----------------------------------------------------------
+// The by-hash call site accepts all five flags (allow_a, allow_e=by_hash, team, no_intro, loc); the body term is the
+// DM semantic authority, which is what `Node::on_command` admits.
+constexpr size_t kSendFlagCount    = 5;
+constexpr size_t kSendLineMaxBytes = (sizeof("send ") - 1)
+                                   + kHashTokenBytes
+                                   + kBodyOpenBytes
+                                   + meshroute::protocol::dm_max_body_bytes
+                                   + kBodyCloseBytes
+                                   + kSendFlagCount * kFlagTermBytes;
+
+// ---- producer 2: `send_layer <0xhash> <l1,…,ln> "<body>" -a -e -K -l` — THE BINDING ONE ----------------------------
+// `-t`/`-g` are refused on this verb (team/global are passed as nullptr), so four flags, not five.
+// The hop path: the parser caps `hop_count` at `gw_env_max_hops - 1` and each hop id at 1..255 (three decimal digits),
+// with one comma between hops. `originate_layer_path` then PREPENDS our own layer, so n_layers == gw_env_max_hops at
+// that maximum. Depth is what binds: one more hop costs 4 line bytes (",255") and buys back only 1 body byte, so the
+// DEEPEST path is also the LONGEST line.
+constexpr size_t kLayerHopsMax      = meshroute::protocol::gw_env_max_hops - 1;
+constexpr size_t kLayerHopDigitsMax = 3;                                            // "255" — the parser rejects > 255
+constexpr size_t kLayerPathBytes    = kLayerHopsMax * kLayerHopDigitsMax + (kLayerHopsMax - 1);   // digits + commas
+// ⚠ TRANSITIONAL MIRROR — there is NO named compile-time authority for the cross-layer body cap today.
+// `pack_unicast_inner` (lib/core/frame_codec.cpp) sizes it at RUNTIME from the flag set `enqueue_cross_layer` uses
+// (CROSS_LAYER | DST_HASH | SOURCE_HASH, lib/core/node_mac.cpp) against `TxItem.inner[]`, which is
+// `max_payload_bytes_hard_cap`. ⛔ `data_inner_cap()` in frame_codec.h is the OUTER cap and is NOT this number.
+// The five sizing terms are mirrored EXACTLY here, and `tools/probe_ble_line` PINS the mirror by executing the real
+// packer at this cap (must succeed) and at cap+1 (must refuse). Extracting a shared constexpr inner-overhead helper
+// beside the packer is a named lib/core follow-up, deliberately outside this slice.
+constexpr size_t kXlInnerOriginBytes     = 1;                                          // [origin]
+constexpr size_t kXlInnerDstHashBytes    = 4;                                          // DATA_FLAG_DST_HASH
+constexpr size_t kXlInnerSourceHashBytes = 4;                                          // DATA_FLAG_SOURCE_HASH
+constexpr size_t kXlInnerPathHdrBytes    = 2;                                          // [n_layers][cur]
+constexpr size_t kXlInnerPathIdBytes     = meshroute::protocol::gw_env_max_hops;        // one id per layer, at max depth
+constexpr size_t kXlInnerOverheadBytes   = kXlInnerOriginBytes + kXlInnerDstHashBytes + kXlInnerSourceHashBytes
+                                         + kXlInnerPathHdrBytes + kXlInnerPathIdBytes;
+constexpr size_t kSendLayerBodyCapBytes  = meshroute::protocol::max_payload_bytes_hard_cap - kXlInnerOverheadBytes;
+constexpr size_t kSendLayerFlagCount     = 4;
+constexpr size_t kSendLayerLineMaxBytes  = (sizeof("send_layer ") - 1)
+                                         + kHashTokenBytes
+                                         + (sizeof(" ") - 1)
+                                         + kLayerPathBytes
+                                         + kBodyOpenBytes
+                                         + kSendLayerBodyCapBytes
+                                         + kBodyCloseBytes
+                                         + kSendLayerFlagCount * kFlagTermBytes;
+
+// ---- producer 3: `remote <target> -e using=key9 -a -- <cmd>` (R-RA-18) — a CAPACITY PIN, not an implementation -----
+// ⚠ Both widths below are TRANSITIONAL and labelled as such. The management-target label has no production authority
+// yet (the target-book record is deferred to its own storage slice, and device_nv.h's node-name field is a DIFFERENT
+// record — do not attribute it there); `using=keyN` is grounded in the design's exact slot names `key0`..`key9`, so a
+// wider key-name grammar would invalidate that term. 201 mirrors R-RA-24' bound 3 (the smallest authenticated
+// carrier's command capacity) until Slice 2 lands the production `remote_body_cap` and this becomes a reference.
+constexpr size_t kRemoteTargetLabelBytes = 32;    // TRANSITIONAL design pin — replace with the target-book constant
+constexpr size_t kRemoteCommandMaxBytes  = 201;   // TRANSITIONAL mirror of R-RA-24' bound 3 (Slice 2 owns the real one)
+constexpr size_t kRemoteWrapperMaxBytes  = (sizeof("remote ") - 1)
+                                         + kRemoteTargetLabelBytes
+                                         + (sizeof(" -e") - 1)
+                                         + (sizeof(" using=key9") - 1)
+                                         + (sizeof(" -a") - 1)
+                                         + (sizeof(" -- ") - 1);
+constexpr size_t kRemoteLineMaxBytes     = kRemoteWrapperMaxBytes + kRemoteCommandMaxBytes;
+
+// ---- the storage ---------------------------------------------------------------------------------------------------
+constexpr size_t larger_of(size_t a, size_t b) { return a > b ? a : b; }
+constexpr size_t kProductLineMaxBytes = larger_of(larger_of(kSendLineMaxBytes, kSendLayerLineMaxBytes),
+                                                 kRemoteLineMaxBytes);
+constexpr size_t kLineStorageBytes    = kProductLineMaxBytes + 1;   // + the NUL dispatch_current_line() writes
+
+static_assert(kLineStorageBytes == kProductLineMaxBytes + 1,
+              "the storage is EXACTLY the grammar maximum plus its NUL — no slack, no literal");
+static_assert(kSendLayerLineMaxBytes == kProductLineMaxBytes,
+              "`send_layer` is the binding producer; if another verb overtakes it, RE-DERIVE the maximum here "
+              "rather than padding the buffer");
+static_assert(kLineStorageBytes > kSendLineMaxBytes,
+              "the maximal by-hash `send` line (a full dm_max_body_bytes body + its five accepted flags) must fit "
+              "with its NUL, or a complete DM cannot be submitted over BLE");
+static_assert(kLineStorageBytes > kRemoteLineMaxBytes,
+              "the longest R-RA-18 `remote` wrapper plus its command tail must fit with its NUL");
+static_assert(kSendLayerBodyCapBytes < meshroute::protocol::dm_max_body_bytes,
+              "the cross-layer CARRIER is stricter than the DM semantic cap — that is why the send_layer term is "
+              "derived from pack_unicast_inner's overhead and not from dm_max_body_bytes");
+
+char                       g_line[kLineStorageBytes];   // inbound line: one derived product line + its NUL
 size_t                     g_pos        = 0;
 bool                       g_overflow   = false;
 char                       g_out[256];        // outbound JSON scratch (one NDJSON line)

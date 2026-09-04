@@ -466,3 +466,19 @@ expression keeps `send_layer` as a first-class term (`gw_env_max_hops`, the dept
 change moves the buffer automatically; 240/241-byte `send` bodies (273/274-byte lines) now reach the Node's
 `err_too_large` over BLE, which resolves the brief's 0f-3 contradiction; B288 (Author) records the derivation
 defect; the 0f brief is re-issued around 275; design §12/§19 and the companion contract state 275.
+
+**R-RA-24′ bound 2 — WORDING CONFIRMED BY THE OWNER 2026-09-04 (number unchanged):** *"Confirmed - keep 275 with the
+syntactic wording."* The phrase "every canonical product line that can succeed" above is IMPRECISE and is replaced
+by: **the canonical parser-accepted spelling of each product verb — each accepted option at most once — carrying
+the largest body its carrier admits.** Neither binding form succeeds semantically: the 274-byte `send_layer` form
+refuses by name (`-l` on a cross-layer send → `location_refused` / `err_unsupported`, `lib/core/node.cpp` send_layer
+arm; `-e` with a 226-byte body → `too_large`, the sealed relay body adds [seal_ctr 2][seed8 8][origin+source_hash
+5][tag 16]), and the 272-byte `send` form with `-e` refuses `SealOutcome::too_large`. The line that queues is the
+268-byte plaintext `send_layer 0x… 255,255,255 "<226>" -a -K`. The definition is deliberately SYNTACTIC so the
+derivation stays a compile-time expression over grammar terms and carrier caps; the strict "can succeed" reading
+(≈269) would import semantic rules (loc needs crypt, seal overhead, `-l` refused cross-layer) into a transport
+constant and is REJECTED. Also settled at the re-gate: the 226-byte term has NO named compile-time authority
+(`pack_unicast_inner`'s sizing is runtime arithmetic, `lib/core/frame_codec.cpp:1084-1091`: 1 origin + 4 DST_HASH +
+4 SOURCE_HASH + 2 + n_layers against `max_payload_bytes_hard_cap` 241; `data_inner_cap` is the OUTER cap), so 0f
+carries it as a labelled transitional mirror pinned by the executed cap/cap+1 packing check; a shared `constexpr`
+inner-overhead function beside the packer is a lib/core follow-up slice.

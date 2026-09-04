@@ -858,6 +858,84 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     CHECK(node.on_command(ok).code == CmdCode::queued);
 }
 
+// =====================================================================================================================
+// §0f (remote-admin v2, R-RA-24' bound 2) — THE DM SEMANTIC-ADMISSION HALF OF THE DERIVED BLE LINE CAPACITY.
+//
+// Slice 0f makes the BLE transport ADMIT the canonical maximal `send` line (272 B, a full 239-byte body plus its five
+// accepted flags). That only matters if the layer BELOW keeps owning the verdict, so this case pins exactly that:
+// 239 is admitted here, 240 and 241 are refused HERE by name, and the sealed form's size refusal is the SEAL's — not
+// a transport drop. ⛔ A `line_too_long` in place of any of these would be a transport overflow impersonating a
+// semantic result, which is the defect the capacity change exists to remove.
+//
+// The sibling halves: `test_console_parse.cpp` §0f (the grammar), `test_dual_layer.cpp` §0f (the cross-layer carrier),
+// and `tools/probe_ble_line` (the executed BLE intake).
+// =====================================================================================================================
+TEST_CASE("§0f DM admission: 239 is accepted, 240 AND 241 refuse `err_too_large` at the Node — never at the transport") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    hal.events.clear();
+
+    // A production-shaped body: `max_payload_bytes_hard_cap` is the largest the PARSER can hand over (its clamp), so
+    // the Node must adjudicate every length from there down.
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> big{};
+    for (auto& b : big) b = 'x';
+
+    auto by_hash = [&](uint8_t len) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = 0x0000EEEE;
+        c.body = big.data(); c.body_len = len;
+        return node.on_command(c);
+    };
+
+    // 239 — the exact DM cap the canonical maximal `send` line carries. NOT a size refusal.
+    const CmdResult ok = by_hash(protocol::dm_max_body_bytes);
+    CHECK(ok.code != CmdCode::err_too_large);
+    CHECK(ok.code == CmdCode::queued);                      // unresolved hash -> parks; the point is that SIZE did not refuse
+
+    // 240 and 241 — both reachable over BLE now, and both refused HERE, by name.
+    CHECK(by_hash(static_cast<uint8_t>(protocol::dm_max_body_bytes + 1)).code == CmdCode::err_too_large);
+    CHECK(by_hash(protocol::max_payload_bytes_hard_cap).code    == CmdCode::err_too_large);
+
+    // The id-addressed twin takes the same bound (the DM cap is the Node's, not the addressing mode's).
+    Command over_id{}; over_id.kind = CmdKind::send; over_id.u.send.dst_id = 2;
+    over_id.body = big.data(); over_id.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
+    CHECK(node.on_command(over_id).code == CmdCode::err_too_large);
+}
+
+TEST_CASE("§0f sealed DM: a full 239-byte body reaches the SEAL and refuses through its own named `too_large`") {
+    // ⛔ The BLE transport must not preempt this: the operator has to see the SEAL's verdict, not `line_too_long`.
+    // The seal's bound is 4 (aad) + 1 (origin) + 4 (source_hash) + body + 16 (tag) <= cap, so a 239-byte body cannot
+    // fit any DM carrier — and `e2e_seal_inner` says so by name instead of truncating.
+    TestHal halA, halB;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 11); sB[i] = uint8_t(70 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (auto& b : body) b = 'z';
+    uint8_t inner[protocol::max_payload_bytes_hard_cap], seed[8];
+    Node::SealOutcome oc = Node::SealOutcome::ok;
+
+    const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32, /*origin=*/1,
+                                      /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0,
+                                      body.data(), protocol::dm_max_body_bytes, oc);
+    CHECK(n == 0);
+    CHECK(oc == Node::SealOutcome::too_large);              // ★ the NAMED refusal, reached because the bytes arrived
+
+    // ...and the same fixture DOES seal a body that fits, so the assertion above is a measurement, not a broken setup.
+    Node::SealOutcome oc_ok = Node::SealOutcome::ok;
+    const size_t m = A.e2e_seal_inner(inner, sizeof inner, seed, flags, idB.key_hash32, 1, 8, idA.key_hash32, 0, 0,
+                                      body.data(), /*body_len=*/200, oc_ok);
+    CHECK(m == 4 + (1 + 4 + 200) + 16);
+    CHECK(oc_ok == Node::SealOutcome::ok);
+}
+
 // Reconstruct the queried hash from a hash_resolved push (body[0..3] = hash LE).
 static uint32_t push_hash(const Push& p) {
     return (uint32_t)p.body[0] | ((uint32_t)p.body[1] << 8) | ((uint32_t)p.body[2] << 16) | ((uint32_t)p.body[3] << 24);

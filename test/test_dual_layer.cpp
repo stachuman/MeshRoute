@@ -2746,6 +2746,76 @@ TEST_CASE("send_layer: on_command returns the full send-handle (ctr + dst_hash +
     CHECK(r.layer_path == 0x0203u);                          // hops packed MSB-first (hops[0] high byte)
 }
 
+// =====================================================================================================================
+// §0f (remote-admin v2, R-RA-24' bound 2) — THE CROSS-LAYER HALF OF THE DERIVED BLE LINE CAPACITY.
+//
+// `send_layer` is the BINDING producer of Slice 0f's derived BLE line capacity: its canonical parser-accepted
+// spelling — `send_layer <0xhash> 255,255,255 "<226>" -a -e -K -l`, 274 B — is longer than the maximal `send` line.
+// That spelling is a TRANSPORT positive only. This case pins WHO answers once the bytes arrive, so no transport
+// overflow can ever impersonate one of these named verdicts:
+//   · the plaintext form at the depth-4 carrier cap QUEUES              -> the semantic queue-positive (268 B on the wire);
+//   · the same send with `-l` refuses `err_unsupported` BY NAME         -> the 274-byte form's actual result;
+//   · one byte past the carrier cap refuses `err_too_large` at the CARRIER, with `xl_send_too_large`.
+// The sibling halves: `test_console_parse.cpp` §0f (the grammar), `test_node_hashlocate.cpp` §0f (the DM cap and the
+// seal), and `tools/probe_ble_line` (the executed BLE intake).
+// =====================================================================================================================
+TEST_CASE("§0f send_layer: the depth-4 carrier cap QUEUES; `-l` refuses by name; cap+1 refuses at the CARRIER") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);                    // G serves leaves 1+2 -> hops[0] = 2 routes
+
+    // The depth-4 body cap, mirrored from pack_unicast_inner's sizing terms exactly as `src/device_ble.h` derives it
+    // (origin 1 + DST_HASH 4 + SOURCE_HASH 4 + [n_layers][cur] 2 + one id per layer) against the hard cap.
+    constexpr uint8_t kCap = static_cast<uint8_t>(protocol::max_payload_bytes_hard_cap
+                                                  - (1u + 4u + 4u + 2u + protocol::gw_env_max_hops));
+    CHECK(kCap == 226);
+    uint8_t body[protocol::max_payload_bytes_hard_cap];
+    for (auto& b : body) b = 'X';
+
+    auto layer_cmd = [&](uint8_t len, uint8_t flags) {
+        Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x9999u;
+        c.u.layer.hop_count = protocol::gw_env_max_hops - 1;              // 3 hops -> n_layers 4 once ours is prepended
+        c.u.layer.hops[0] = 2; c.u.layer.hops[1] = 3; c.u.layer.hops[2] = 4;
+        c.u.layer.flags = flags; c.no_intro = true;                        // `-K`
+        c.body = body; c.body_len = len;
+        return c;
+    };
+
+    // (1) THE QUEUE-POSITIVE — the plaintext `-a -K` form carrying the full depth-4 body.
+    const CmdResult q = x.on_command(layer_cmd(kCap, DATA_FLAG_E2E_ACK_REQ));
+    CHECK(q.code == CmdCode::queued);
+    CHECK(q.ctr != 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    {
+        const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+        CHECK(it.inner_len == protocol::max_payload_bytes_hard_cap);       // the inner is FULL — this is the real edge
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+        CHECK(ui.has_value());
+        if (ui) { CHECK(ui->n_layers == protocol::gw_env_max_hops); CHECK(ui->cur == 1); CHECK(ui->body.size() == kCap); }
+    }
+
+    // (2) `-l` REFUSES BY NAME — the 274-byte transport-positive's real answer. Synchronous, before any ctr is burned.
+    StubHal ghal2; Node gw2(ghal2, 1, 0xABCDu);
+    StubHal hal2;  Node y(hal2, 7, 0x7777u);
+    make_x_learning_gw(ghal2, gw2, hal2, y);
+    const CmdResult l = y.on_command(layer_cmd(kCap, static_cast<uint8_t>(DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_LOCATION)));
+    CHECK(l.code == CmdCode::err_unsupported);
+    CHECK(l.dst_hash == 0x9999u);
+    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);                      // nothing enqueued
+    { Push p{}; CHECK(y.next_push(p)); CHECK(p.kind == PushKind::send_failed);
+      CHECK(p.reason == SendFailReason::unsealable); }
+
+    // (3) CAP+1 REFUSES AT THE CARRIER — `err_too_large`, from the packer, not from the DM cap (227 < 239) and not
+    //     from the BLE transport.
+    StubHal ghal3; Node gw3(ghal3, 1, 0xABCDu);
+    StubHal hal3;  Node z(hal3, 7, 0x7777u);
+    make_x_learning_gw(ghal3, gw3, hal3, z);
+    const CmdResult big = z.on_command(layer_cmd(static_cast<uint8_t>(kCap + 1), DATA_FLAG_E2E_ACK_REQ));
+    CHECK(big.code == CmdCode::err_too_large);
+    CHECK(static_cast<uint8_t>(kCap + 1) < protocol::dm_max_body_bytes);   // the DM cap did NOT refuse this
+    CHECK(DualLayerTestAccess::leaf_tx_n(z, 0) == 0);
+}
+
 TEST_CASE("send handle: sendhash echoes dst_hash (layer_path 0); plain send echoes neither") {
     StubHal hal; Node x(hal, /*id*/ 7, 0x7777u);
     NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;

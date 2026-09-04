@@ -613,7 +613,29 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2597, 109534    # ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0e**, and this is the
+PIN_CASES, PIN_ASSERTS = 2604, 109619    # ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0f** (derived BLE line
+                                         # capacity, `src/device_ble.h`). ⛔ 0f changes NO file this battery mutates — its one
+                                         # production edit is `src/device_ble.h`, which NO configured target names, and whose
+                                         # executed cover is `tools/probe_ble_line` (11 structural + 3 packer + 26 intake checks,
+                                         # 8 negative controls). This pin is re-synced because the SUITE grew, not because a
+                                         # mutation target moved.
+                                         # DERIVATION, measured with the real binary on this tree and not assumed:
+                                         #   base `23aa46d` (clean, before the slice)   2597 / 109534 / 0 failed
+                                         #   + Slice 0f                                    +7 /     +85
+                                         #   = measured AFTER                          2604 / 109619 / 0 failed  ✓
+                                         # The +7/+85 closes as the sum of the seven §0f cases, each measured on its own
+                                         # `-tc=` filter (`program -tc='*0f*'` = 7 / 85 exactly):
+                                         #   test_console_parse   canonical maximal by-hash `send` (272 B)          14
+                                         #   test_console_parse   canonical maximal three-hop `send_layer` (274 B)  17
+                                         #   test_console_parse   the 268-B plaintext queue-positive                 9
+                                         #   test_console_parse   the parser's own 241-B body clamp, characterized   6
+                                         #   test_node_hashlocate §0f DM admission 239 ok / 240 / 241 too_large      5
+                                         #   test_node_hashlocate §0f sealed 239 -> SealOutcome::too_large           4
+                                         #   test_dual_layer      §0f send_layer cap queues / `-l` / cap+1          30
+                                         #   14+17+9+6+5+4+30 = 85 over 7 cases ✓
+                                         #
+                                         # ---- the previous pin, kept as the derivation it replaces --------------------------
+                                         # PIN_CASES, PIN_ASSERTS = 2597, 109534 — ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0e**, and this is the
                                          # COMBINED 0d+0e figure — 0e was the SECOND of the two parallel branches to land, so per the
                                          # 0e brief's parallel-dispatch discipline it rebased onto 0d's commit `0ee0f9b` and RE-DERIVED
                                          # this number from its own clean run rather than adding the two deltas together.

@@ -1,16 +1,18 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0f — derived BLE line capacity · dispatch brief · 2026-09-04
 
-**Status: RE-ISSUED 2026-09-04 AFTER THE OWNER'S R-RA-24′ POLICY-B CORRECTION — AWAITING QUALITY-AGENT RE-GATE.** Dispatch model after PASS: **Opus**.
+**Status: RE-ISSUED 2026-09-04 AFTER THE OWNER'S R-RA-24′ POLICY-B CORRECTION AND SYNTACTIC-WORDING CONFIRMATION — AWAITING QUALITY-AGENT RE-GATE.** Dispatch model after PASS: **Opus**.
 Authority: R-RA-24′ in
 `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md` and §§12/19 of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`. Pre-check input:
 `docs/superpowers/plans/2026-09-04-radmin-0f-precheck.md`.
 
 0f is one nRF52 BLE **capacity behavior change**. It replaces the 160-byte inbound line buffer with a
-source-derived 275-byte buffer so BLE admits every canonical product line that can succeed. The binding maximum
-is the 274-byte, three-hop `send_layer` form with its 226-byte depth-4 carrier body; the complete 239-byte DM
-still fits in the canonical maximal `send` form. It does not add remote RPC, change the command parser, change a DM/frame cap,
+source-derived 275-byte buffer so BLE admits the canonical parser-accepted spelling of each product verb—each
+accepted option at most once—carrying the largest body its carrier admits. The binding maximum is the 274-byte,
+three-hop `send_layer` form with its 226-byte depth-4 carrier body; it is the transport positive and then refuses
+semantically as `err_unsupported`, while the 268-byte plaintext form is the queue-positive control. The complete
+239-byte DM still fits in the canonical maximal `send` form. It does not add remote RPC, change the command parser, change a DM/frame cap,
 change USB, or refactor the BLE intake.
 
 ## Contract and owner correction
@@ -47,7 +49,8 @@ R-RA-24′ still supplies the three-bound fence. Its first recorded bound-2 deri
 >    **201** today (0e: cross-layer by hash, depth 4, RPC cap 226 − 25), derived by Slice 2's `remote_body_cap` and
 >    enforced by the ONE shared validator (R-RA-7: NUL/CR/LF + a length), which takes its bound per surface.
 
-The current implementation authority is the later owner ruling, quoted verbatim from the ruling ledger:
+The first policy-B wording is kept visible because it selected 275, but its phrase “can succeed” is withdrawn by
+the owner's subsequent syntactic clarification:
 
 > **Owner:** *"Agree - go with B."* ⇒ **policy B: the BLE line storage admits every canonical product
 > line that can succeed = 274 + NUL = 275 bytes** (nRF52 `.bss` +115 B, ruled-pair measured). Policy A (288: also
@@ -58,6 +61,24 @@ The current implementation authority is the later owner ruling, quoted verbatim 
 > `err_too_large` over BLE, which resolves the brief's 0f-3 contradiction; B288 (Author) records the derivation
 > defect; the 0f brief is re-issued around 275; design §12/§19 and the companion contract state 275.
 
+The final current authority, quoted verbatim from the ruling ledger, is:
+
+> **R-RA-24′ bound 2 — WORDING CONFIRMED BY THE OWNER 2026-09-04 (number unchanged):** *"Confirmed - keep 275 with the
+> syntactic wording."* The phrase "every canonical product line that can succeed" above is IMPRECISE and is replaced
+> by: **the canonical parser-accepted spelling of each product verb — each accepted option at most once — carrying
+> the largest body its carrier admits.** Neither binding form succeeds semantically: the 274-byte `send_layer` form
+> refuses by name (`-l` on a cross-layer send → `location_refused` / `err_unsupported`, `lib/core/node.cpp` send_layer
+> arm; `-e` with a 226-byte body → `too_large`, the sealed relay body adds [seal_ctr 2][seed8 8][origin+source_hash
+> 5][tag 16]), and the 272-byte `send` form with `-e` refuses `SealOutcome::too_large`. The line that queues is the
+> 268-byte plaintext `send_layer 0x… 255,255,255 "<226>" -a -K`. The definition is deliberately SYNTACTIC so the
+> derivation stays a compile-time expression over grammar terms and carrier caps; the strict "can succeed" reading
+> (≈269) would import semantic rules (loc needs crypt, seal overhead, `-l` refused cross-layer) into a transport
+> constant and is REJECTED. Also settled at the re-gate: the 226-byte term has NO named compile-time authority
+> (`pack_unicast_inner`'s sizing is runtime arithmetic, `lib/core/frame_codec.cpp:1084-1091`: 1 origin + 4 DST_HASH +
+> 4 SOURCE_HASH + 2 + n_layers against `max_payload_bytes_hard_cap` 241; `data_inner_cap` is the OUTER cap), so 0f
+> carries it as a labelled transitional mirror pinned by the executed cap/cap+1 packing check; a shared `constexpr`
+> inner-overhead function beside the packer is a lib/core follow-up slice.
+
 Only bound 2 changes production in this slice. Bounds 1 and 3 are regression/derivation pins; Slice 0f neither
 moves their authorities nor anticipates Slice 2 or Slice 6.
 
@@ -67,15 +88,18 @@ moves their authorities nor anticipates Slice 2 or Slice 6.
 
 - the longest canonical `send` line is derived as 272 bytes from named grammar terms, including all five accepted
   flags `-a -e -t -K -l`;
-- the longest canonical product line that can succeed is independently derived as the 274-byte three-hop
-  `send_layer` form with its 226-byte depth-4 body and four accepted flags `-a -e -K -l`;
+- the canonical parser-accepted `send_layer` spelling—each accepted option once—carrying the largest body its
+  carrier admits is independently derived as the 274-byte three-hop form with its 226-byte depth-4 body and four
+  accepted flags `-a -e -K -l`; this is a transport bound, not a claim that those combined options succeed;
 - `g_line` uses the maximum of the named `send`, `send_layer`, and transitional `remote` derivations plus one byte
   for NUL; no naked `275`, copied `239`/`226`, or second capacity formula controls
   admission;
 - the longest legal `remote` line is independently derived as at most 261 bytes before NUL and statically proved
   to fit the same buffer;
-- the exact 274-byte successful `send_layer` line reaches the supplied dispatch function byte-for-byte under 1-,
-  20-, and 244-byte BLE writes, with the 272-byte maximal `send` form retained as a separate positive case;
+- the exact 274-byte `send_layer` transport-positive reaches the supplied dispatch function byte-for-byte under
+  1-, 20-, and 244-byte BLE writes and then returns the named `err_unsupported`; the 268-byte plaintext
+  `send_layer` form with `-a -K` is the queue-positive, and the 272-byte maximal `send` form remains a separate
+  transport-positive case;
 - a 275-byte line dispatches nothing, emits exactly `{"err":"line_too_long"}\n`, consumes through newline, and
   leaves the next valid line usable;
 - CR filtering, newline dispatch, empty-line suppression and the existing reply path remain unchanged;
@@ -94,8 +118,9 @@ STOP and report before widening the slice if any of these occurs:
 
 1. the full 239-byte DM cannot be admitted without changing `dm_max_body_bytes`, DATA packing, encryption,
    routing, command grammar or companion framing;
-2. another non-debug product producer has a canonical line that can succeed above 274 bytes, or the source-derived
-   `send_layer` maximum no longer equals 274 before NUL;
+2. another non-debug product producer has a canonical parser-accepted spelling with each option once and its
+   largest carrier-admitted body above 274 bytes, or the source-derived `send_layer` maximum no longer equals 274
+   before NUL;
 3. the longest R-RA-18 `remote` form plus its 201-byte tail does not fit the same derived buffer;
 4. compiling or executing the real BLE intake requires a production extraction/refactor rather than a
    probe-local platform fake;
@@ -150,8 +175,8 @@ Those documentation landings remain Author-owned after QG PASS. The only board e
 Before editing, enumerate every non-debug product line producer that can carry a variable payload and calculate
 its canonical maximum from source. Separately list permissive-parser forms and USB-oriented diagnostic grammars
 (`testsend` in particular) as intentionally bounded by BLE transport rather than falsely assigning them a finite
-   syntax maximum. Publish the full comparison table; `send_layer`, not `send`, is the ruled binding producer. The
-   binding derivation is:
+   syntax maximum. Publish the full comparison table; `send_layer`, not `send`, is the ruled binding producer under
+   the syntactic transport definition. The binding derivation is:
 
 ```text
 send_line_max_bytes =
@@ -179,12 +204,17 @@ ble_line_storage_bytes = max(send_line_max_bytes, send_layer_line_max_bytes,
                        = 275
 ```
 
-Bind the 239 term to `protocol::dm_max_body_bytes`; do not copy its value as an independent authority. Express
-the 226 term from `gw_env_max_hops` and the depth-4 cross-layer-by-hash carrier calculation, cross-checked by
-packing cap and cap-plus-one; do not copy it as an independent authority. Express fixed grammar terms with
-`sizeof("literal") - 1` or equivalently reviewable named constants, so deleting or adding a flag changes the
-expression. Pin the five accepted by-hash `send` flags and the four accepted `send_layer` flags. Add compile-time
-assertions that storage is exactly maximum-plus-NUL and that the derived `send` and remote forms fit.
+Bind the 239 term to `protocol::dm_max_body_bytes`; do not copy its value as an independent authority. No named
+compile-time authority exists for the 226-byte depth-4 cross-layer-by-hash body cap: `pack_unicast_inner` owns the
+five sizing terms at `lib/core/frame_codec.cpp:1084-1091` (origin 1 + DST_HASH 4 + SOURCE_HASH 4 + layer-count 2 +
+`n_layers`, against `max_payload_bytes_hard_cap` 241), while `data_inner_cap` is only the outer cap. **0f may carry
+226 only as a labelled transitional mirror of that exact arithmetic**, derived with `gw_env_max_hops` and pinned
+by an executed pack-at-cap success / cap-plus-one refusal check. Extracting a shared `constexpr` inner-overhead
+function beside the packer is a named lib/core follow-up outside 0f; do not widen this slice to create it.
+Express fixed grammar terms with `sizeof("literal") - 1` or equivalently reviewable named constants, so deleting
+or adding a flag changes the expression. Pin the five accepted by-hash `send` flags and the four accepted
+`send_layer` flags. Add compile-time assertions that storage is exactly maximum-plus-NUL and that the derived
+`send` and remote forms fit.
 
 The remote derivation is a capacity pin, not an implementation of `remote`:
 
@@ -216,8 +246,9 @@ Create `tools/probe_ble_line/` in the standing probe idiom. Its runner must:
 
 Required positive cases:
 
-- the same exact 274-byte successful `send_layer` line under chunk sizes 1, 20 and 244 produces one byte-identical
-  dispatch each;
+- the same exact 274-byte `send_layer` transport-positive under chunk sizes 1, 20 and 244 produces one
+  byte-identical dispatch each; the command result is the expected `err_unsupported`, not a queue claim;
+- the 268-byte plaintext `send_layer` form with `-a -K` dispatches and reaches the ordinary queue/routing result;
 - the exact 272-byte maximal `send` line dispatches byte-identically as its own positive control;
 - a single write, uneven final chunk and a chunk boundary immediately before newline behave identically;
 - CRLF and LF forms produce the same line bytes, with CR absent;
@@ -251,8 +282,11 @@ In native tests, separate syntax, transport and semantic capacity:
 - `console::parse_command` accepts the exact 272-byte by-hash line, preserves a 239-byte body byte-for-byte and
   sets ACK, encryption, team, no-intro and location intent;
 - `console::parse_command` accepts the exact 274-byte three-hop `send_layer` line, preserves its 226-byte body
-  byte-for-byte and sets ACK, encryption, no-intro and location intent; the production command path reaches its
-  ordinary queue/routing result rather than a size refusal;
+  byte-for-byte and sets ACK, encryption, no-intro and location intent; the real command path returns the named
+  `err_unsupported` because location is refused on a cross-layer send—the line is a transport positive, not a
+  semantic-success claim;
+- the 268-byte plaintext three-hop `send_layer` form with the same 226-byte body and `-a -K` reaches its ordinary
+  queue/routing result and is the semantic queue-positive control;
 - a plaintext production-shaped 239-byte DM reaches `Node::on_command` and does not return a size refusal;
 - 240- and 241-byte `send` bodies are preserved by parsing as far as the existing parser permits and are refused
   by `Node::on_command` as `err_too_large`—the Node's 239-byte DM authority, not a newly invented parser limit;
@@ -298,8 +332,9 @@ The evidence must draft Part 61 but the coder does not edit the bench script. On
 secured and the iOS companion or an equivalent NUS client:
 
 1. establish a routable plaintext hash target and prepare an exact 239-byte ASCII body;
-2. send the exact 274-byte successful `send_layer 0x<hash> 255,255,255 "<226>" -a -e -K -l` form and require the
-   ordinary named queue/routing result, never `line_too_long`;
+2. send the exact 274-byte `send_layer 0x<hash> 255,255,255 "<226>" -a -e -K -l` transport-positive and require
+   the named `err_unsupported`, never `line_too_long`; then send the 268-byte plaintext form with `-a -K` and
+   require the ordinary queue/routing result;
 3. send the 239-byte sealed form and require its semantic size refusal, never `line_too_long`;
 4. send the exact 274-byte `send_layer` line once as 20-byte writes and once with a 244-byte first write; require
    identical reply, and separately send the 272-byte maximal `send` line;
@@ -317,7 +352,9 @@ The evidence file must contain ready-to-land drafts for:
 
 - `ios-companion/INBOX_SYNC_CONTRACT.md`: BLE NUS writes may be ATT-chunked arbitrarily; firmware accumulates one
   newline-delimited line up to 274 bytes, reserves byte 275 for NUL, and refuses 275 payload bytes as
-  `line_too_long`; this permits the full 239-byte DM body;
+  `line_too_long`; the 274-byte `send_layer` boundary vector is transport-admitted and then returns its named
+  `err_unsupported`, while the 268-byte plaintext `send_layer` form is the queue-positive. This also permits the
+  full 239-byte DM body;
 - this design §12: R-RA-24′ bound 2 marked implemented without changing bounds 1 or 3;
 - this design §19 and gate table: Slice 0f marked landed with actual native/board/probe evidence; and
 - Bench Part 61 as above.
