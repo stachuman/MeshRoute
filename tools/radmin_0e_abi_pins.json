@@ -1,0 +1,422 @@
+{
+  "_what": "Remote-admin v2 slice 0e-B extra-pins manifest (R-RA-2). Read by `tools/probe_board_abi.py --extra-pins tools/radmin_0e_abi_pins.json`. It pins the CANDIDATE value types declared in test/radmin_0e_candidate_types.h on host, ARM (gateway) and Xtensa (heltec_mobile). These are MEASUREMENTS, not decisions: no capacity, timer or production type is ruled by this file.",
+  "_derivation": "Measured 2026-09-04 at HEAD ecef942 by the probe's own compile-and-read mechanism (generate_tu + measure) on each env's real `pio run -t idedata` toolchain and flag set. Every candidate is fixed-width and pointer-free, so all three ABIs agree; `radmin0e::AbiWitnessNotACandidate` is the deliberate control that DOES diverge (host 24/8 vs both boards 12/4), which is what proves the overlay can see an ABI difference.",
+  "_not_a_residency_claim": "A sizeof here is the cost of ONE row in that ABI. It is not a claim that any instance is resident; residency is the per-board RAM_used diff's answer, exactly as probe_board_abi.py's own header states.",
+  "include_dirs": [
+    "lib/hal",
+    "test"
+  ],
+  "headers": [
+    "timer_wheel.h",
+    "radmin_0e_candidate_types.h"
+  ],
+  "types": [
+    {
+      "name": "radmin0e::PendingRequestCore",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::PendingRequestInline",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::PendingRequestRef",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::SealedRequestSlot",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::SessionCacheEntry",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::ResponseAssemblyHeader",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::ResponseChunk",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::RetainedResultHeader",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::AckDebtEntry",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::SeenRequestRecord",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::TranscriptHeader",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::TranscriptChunk",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::IngressOperationHeader",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::IngressBodySlot",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::OpenStagingSlot",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::DeferredActionRecord",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::TimerWheelStorageAtCap",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::TimerWheelStorageAtCapP1",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::TimerWheelStorageAtCapP8",
+      "included_if": "1"
+    },
+    {
+      "name": "meshroute::TimerWheel",
+      "included_if": "1"
+    },
+    {
+      "name": "radmin0e::AbiWitnessNotACandidate",
+      "included_if": "1"
+    }
+  ],
+  "pins": {
+    "native": {
+      "radmin0e::PendingRequestCore": [
+        104,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestInline": [
+        336,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestRef": [
+        112,
+        8,
+        true
+      ],
+      "radmin0e::SealedRequestSlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::SessionCacheEntry": [
+        144,
+        8,
+        true
+      ],
+      "radmin0e::ResponseAssemblyHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::ResponseChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::RetainedResultHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::AckDebtEntry": [
+        72,
+        8,
+        true
+      ],
+      "radmin0e::SeenRequestRecord": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::IngressOperationHeader": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::IngressBodySlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::OpenStagingSlot": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::DeferredActionRecord": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCap": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP1": [
+        832,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP8": [
+        896,
+        8,
+        true
+      ],
+      "meshroute::TimerWheel": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::AbiWitnessNotACandidate": [
+        24,
+        8,
+        true
+      ]
+    },
+    "heltec_mobile": {
+      "radmin0e::PendingRequestCore": [
+        104,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestInline": [
+        336,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestRef": [
+        112,
+        8,
+        true
+      ],
+      "radmin0e::SealedRequestSlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::SessionCacheEntry": [
+        144,
+        8,
+        true
+      ],
+      "radmin0e::ResponseAssemblyHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::ResponseChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::RetainedResultHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::AckDebtEntry": [
+        72,
+        8,
+        true
+      ],
+      "radmin0e::SeenRequestRecord": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::IngressOperationHeader": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::IngressBodySlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::OpenStagingSlot": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::DeferredActionRecord": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCap": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP1": [
+        832,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP8": [
+        896,
+        8,
+        true
+      ],
+      "meshroute::TimerWheel": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::AbiWitnessNotACandidate": [
+        12,
+        4,
+        true
+      ]
+    },
+    "gateway": {
+      "radmin0e::PendingRequestCore": [
+        104,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestInline": [
+        336,
+        8,
+        true
+      ],
+      "radmin0e::PendingRequestRef": [
+        112,
+        8,
+        true
+      ],
+      "radmin0e::SealedRequestSlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::SessionCacheEntry": [
+        144,
+        8,
+        true
+      ],
+      "radmin0e::ResponseAssemblyHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::ResponseChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::RetainedResultHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::AckDebtEntry": [
+        72,
+        8,
+        true
+      ],
+      "radmin0e::SeenRequestRecord": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptHeader": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TranscriptChunk": [
+        210,
+        2,
+        true
+      ],
+      "radmin0e::IngressOperationHeader": [
+        32,
+        8,
+        true
+      ],
+      "radmin0e::IngressBodySlot": [
+        236,
+        2,
+        true
+      ],
+      "radmin0e::OpenStagingSlot": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::DeferredActionRecord": [
+        24,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCap": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP1": [
+        832,
+        8,
+        true
+      ],
+      "radmin0e::TimerWheelStorageAtCapP8": [
+        896,
+        8,
+        true
+      ],
+      "meshroute::TimerWheel": [
+        824,
+        8,
+        true
+      ],
+      "radmin0e::AbiWitnessNotACandidate": [
+        12,
+        4,
+        true
+      ]
+    }
+  }
+}

@@ -321,6 +321,100 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     },
 }
 
+# ---- the OPTIONAL extra-pins overlay (remote-admin v2 slice 0e-B) -------------------------------------------------
+# ★ ADDITIVE AND BACKWARDS-COMPATIBLE, BY CONSTRUCTION. With no `--extra-pins` these three stay empty and
+#   `active_pins()` returns the very `PIN_TABLE` object above, so the default invocation compiles the same TU, checks
+#   the same pins and runs the same controls it did before this interface existed.
+# ★ WHY IT EXISTS: R-RA-2 requires candidate records that DO NOT EXIST YET to be measured on host, ARM and Xtensa
+#   before the owner rules their capacities. Those candidates must not live under `lib/` or `src/` (that would be
+#   production), so the probe needs a way to include a `test/` header and pin types declared there.
+# ⛔ BOTH COVERAGE REFUSALS STILL APPLY TO EVERY EXTRA, unchanged: `check_target` requires each pinned name to emit
+#   its size/alignment symbols (a candidate that quietly stopped compiling is a coverage LOSS, not a zero) and
+#   requires the object to carry NO symbol the merged pin table does not govern. A compile failure still raises.
+EXTRA_HEADERS: tuple[str, ...] = ()
+EXTRA_INCLUDE_DIRS: tuple[str, ...] = ()
+EXTRA_PINS: dict[str, dict[str, tuple[int, int, bool]]] = {}
+
+
+def active_pins() -> dict[str, dict[str, tuple[int, int, bool]]]:
+    """PIN_TABLE, plus the extra-pins overlay when one is loaded. Identity when no overlay is active."""
+    if not EXTRA_PINS:
+        return PIN_TABLE
+    merged = {target: dict(block) for target, block in PIN_TABLE.items()}
+    for target, block in EXTRA_PINS.items():
+        merged.setdefault(target, {}).update(block)
+    return merged
+
+
+def load_extra_pins(path: str) -> tuple[tuple[str, ...], tuple[str, ...],
+                                        tuple[tuple[str, str], ...],
+                                        dict[str, dict[str, tuple[int, int, bool]]]]:
+    """Read an extra-pins manifest. Returns (headers, include_dirs, entries, pins).
+
+    Manifest shape:
+        {"include_dirs": ["test"],
+         "headers": ["radmin_0e_candidate_types.h"],
+         "types": [{"name": "radmin0e::PendingRequestCore", "included_if": "1"}],
+         "pins": {"native": {"radmin0e::PendingRequestCore": [104, 8, true]}, ...}}
+
+    ⛔ `pins` is MANDATORY for every probed target. An extra that names no expected value would turn the overlay
+       into a printout instead of a pin, and "measured something, checked nothing" is the disarmed-instrument shape
+       [[B217]] recorded.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise ProbeRefusal(f"--extra-pins {path}: {exc}")
+    if not isinstance(manifest, dict):
+        raise ProbeRefusal(f"--extra-pins {path}: the manifest must be a JSON object")
+
+    headers = tuple(manifest.get("headers", ()))
+    include_dirs = tuple(manifest.get("include_dirs", ()))
+    raw_types = manifest.get("types", ())
+    if not headers or not raw_types:
+        raise ProbeRefusal(f"--extra-pins {path}: a manifest with no headers or no types measures nothing")
+    for rel in include_dirs:
+        if not (ROOT / rel).is_dir():
+            raise ProbeRefusal(f"--extra-pins {path}: include dir '{rel}' does not exist under {ROOT}")
+    for header in headers:
+        if not any((ROOT / rel / header).is_file() for rel in include_dirs):
+            raise ProbeRefusal(f"--extra-pins {path}: header '{header}' is in none of {list(include_dirs)}")
+
+    entries: list[tuple[str, str]] = []
+    known = {name for name, _ in PINNED}
+    for item in raw_types:
+        if not isinstance(item, dict) or "name" not in item:
+            raise ProbeRefusal(f"--extra-pins {path}: every entry of 'types' needs a 'name'")
+        name = item["name"]
+        if name in known:
+            raise ProbeRefusal(f"--extra-pins {path}: '{name}' is already in the built-in PINNED set")
+        if any(name == existing for existing, _ in entries):
+            raise ProbeRefusal(f"--extra-pins {path}: '{name}' is listed twice")
+        entries.append((name, str(item.get("included_if", "1"))))
+
+    raw_pins = manifest.get("pins", {})
+    if not isinstance(raw_pins, dict) or not raw_pins:
+        raise ProbeRefusal(f"--extra-pins {path}: 'pins' is mandatory — an unpinned extra checks nothing")
+    pins: dict[str, dict[str, tuple[int, int, bool]]] = {}
+    for target, block in raw_pins.items():
+        if target not in TARGETS:
+            raise ProbeRefusal(f"--extra-pins {path}: unknown target '{target}'. Known: {sorted(TARGETS)}")
+        pins[target] = {}
+        for name, triple in block.items():
+            if not any(name == existing for existing, _ in entries):
+                raise ProbeRefusal(f"--extra-pins {path}: pin for '{name}' names no probed type")
+            if not (isinstance(triple, list) and len(triple) == 3):
+                raise ProbeRefusal(f"--extra-pins {path}: pin for '{name}' must be [size, align, included]")
+            pins[target][name] = (int(triple[0]), int(triple[1]), bool(triple[2]))
+    for target in TARGETS:
+        missing = [name for name, _ in entries if name not in pins.get(target, {})]
+        if missing:
+            raise ProbeRefusal(f"--extra-pins {path}: target '{target}' pins nothing for {missing} — "
+                               f"every requested candidate must be pinned for the run that probes it")
+    return headers, include_dirs, tuple(entries), pins
+
+
 # ---- the probe TU -----------------------------------------------------------------------------------------------
 SYMBOL_PREFIX = "mr_abi_"
 
@@ -338,7 +432,7 @@ def generate_tu(entries: tuple[tuple[str, str], ...], fixture_source: str = FIXT
     on a device and nothing has to be linked. `extra` exists for the controls."""
     lines = ["// GENERATED by tools/probe_board_abi.py -- compile-only, never linked, never written into the tree.",
              "#include <cstddef>", "#include <cstdint>"]
-    lines += [f'#include "{header}"' for header in PROBE_HEADERS]
+    lines += [f'#include "{header}"' for header in (*PROBE_HEADERS, *EXTRA_HEADERS)]
     lines.append(fixture_source.rstrip("\n"))
     for cpp_name, included_if in (*entries, (FIXTURE_NAME, "1")):
         name = slug(cpp_name)
@@ -395,7 +489,8 @@ def compile_command(data: dict, source: Path, obj: Path, defines: list[str] | No
       ships one `"-DCHIP_ADDRESS_RESOLVE_IMPL_INCLUDE_HEADER=<...>"`); passed verbatim as one argv element it
       reads as a filename and the compile fails for a reason that has nothing to do with a struct.
     """
-    includes = list(data["includes"]["build"]) + list(data["includes"].get("compatlib", []))
+    includes = (list(data["includes"]["build"]) + list(data["includes"].get("compatlib", []))
+                + [str(ROOT / rel) for rel in EXTRA_INCLUDE_DIRS])
     flags = [token for entry in data["cxx_flags"] for token in shlex.split(entry) if token != "-MMD"]
     macros = data["defines"] if defines is None else defines
     return ([data["cxx_path"], "-c", "-o", str(obj), str(source)]
@@ -632,7 +727,7 @@ def control_fixture_replaced(entries, targets) -> str:
 
 def control_pin_mutated(measured, entries, targets) -> str:
     """(2) One pinned size is moved by 8 — the [[B246]] delta exactly. Pure: no recompile, the pins are a COPY."""
-    pins = copy.deepcopy(PIN_TABLE)
+    pins = copy.deepcopy(active_pins())
     target = targets[-1]
     victim = entries[0][0]
     size, align, included = pins[target][victim]
@@ -644,7 +739,7 @@ def control_pin_mutated(measured, entries, targets) -> str:
 def control_align_mutated(measured, entries, targets) -> str:
     """(2b) One pinned alignof is moved. `mrui::UiProvAnswer` really does change alignment between the ABIs, so
     the alignment half is not decorative."""
-    pins = copy.deepcopy(PIN_TABLE)
+    pins = copy.deepcopy(active_pins())
     target = targets[-1]
     victim = entries[0][0]
     size, align, included = pins[target][victim]
@@ -660,7 +755,7 @@ def control_struct_dropped(entries, targets) -> str:
     tu = generate_tu(reduced)
     target = targets[-1]
     sizes = measure(target, tu)
-    check_target(target, sizes, entries, PIN_TABLE)      # still the FULL pin set
+    check_target(target, sizes, entries, active_pins())  # still the FULL pin set
     return ""
 
 
@@ -671,7 +766,7 @@ def control_extra_struct(entries, targets) -> str:
              f"char {SYMBOL_PREFIX}size__MrAbiUnpinnedStray[sizeof(MrAbiUnpinnedStray)];\n")
     tu = generate_tu(entries, extra=extra)
     target = targets[-1]
-    check_target(target, measure(target, tu), entries, PIN_TABLE)
+    check_target(target, measure(target, tu), entries, active_pins())
     return ""
 
 
@@ -685,7 +780,7 @@ def control_profile_flag_dropped(entries, targets) -> str:
     if len(broken) == len(data["defines"]):
         raise AssertionError("MR_PROFILE_GATEWAY is not in the derived defines — the control cannot apply")
     tu = generate_tu(entries)
-    check_target(target, measure(target, tu, defines=broken), entries, PIN_TABLE)
+    check_target(target, measure(target, tu, defines=broken), entries, active_pins())
     return ""
 
 
@@ -699,7 +794,7 @@ def control_oled_flag_dropped(entries, targets) -> str:
     if len(broken) == len(data["defines"]):
         raise AssertionError("MR_FEAT_OLED is not in the derived defines — the control cannot apply")
     tu = generate_tu(entries)
-    check_target(target, measure(target, tu, defines=broken), entries, PIN_TABLE)
+    check_target(target, measure(target, tu, defines=broken), entries, active_pins())
     return ""
 
 
@@ -809,11 +904,24 @@ def main() -> None:
                         help="skip the negative controls -- NOT a gate, use only while iterating")
     parser.add_argument("--repin", action="store_true",
                         help="print a PIN_TABLE block from the current measurement (paste it WITH a derivation)")
+    parser.add_argument("--extra-pins", metavar="MANIFEST", default=None,
+                        help="ADDITIONALLY probe the types named by a JSON manifest (remote-admin v2 slice 0e-B). "
+                             "Additive: the built-in PINNED set and its controls are unchanged.")
     args = parser.parse_args()
+
+    # ⛔ Loaded BEFORE the selector validation below so `--struct` can name an extra candidate too.
+    global EXTRA_HEADERS, EXTRA_INCLUDE_DIRS, EXTRA_PINS
+    extra_entries: tuple[tuple[str, str], ...] = ()
+    if args.extra_pins:
+        try:
+            EXTRA_HEADERS, EXTRA_INCLUDE_DIRS, extra_entries, EXTRA_PINS = load_extra_pins(args.extra_pins)
+        except ProbeRefusal as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            raise SystemExit(8)
 
     # ⛔ A SELECTION THAT MATCHES NOTHING IS A LOUD REFUSAL, NEVER A QUIET "0 problems" ([[B235]]).
     try:
-        known = {name for name, _ in PINNED}
+        known = {name for name, _ in PINNED} | {name for name, _ in extra_entries}
         unknown = [s for s in args.struct if s not in known]
         if unknown:
             raise ProbeRefusal(f"unknown --struct: {unknown}. Pinned: {sorted(known)}")
@@ -824,14 +932,14 @@ def main() -> None:
         print(f"REFUSED: {exc}", file=sys.stderr)
         raise SystemExit(8)
 
-    entries = tuple(e for e in PINNED if not args.struct or e[0] in args.struct)
+    entries = tuple(e for e in (*PINNED, *extra_entries) if not args.struct or e[0] in args.struct)
     targets = [t for t in TARGETS if not args.target or t in args.target]
     filtered = bool(args.struct or args.target or args.no_neg)
 
     try:
         tu = generate_tu(entries)
         measured = {target: measure(target, tu) for target in targets}
-        checks = sum(check_target(t, measured[t], entries, PIN_TABLE) for t in targets)
+        checks = sum(check_target(t, measured[t], entries, active_pins()) for t in targets)
         config = effective_config()
         environments = check_oled_feature_tu_derivation(config)
         checks += environments

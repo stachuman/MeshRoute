@@ -613,7 +613,39 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2587, 109106    # ★★ RE-SYNCED 2026-09-04 by **§RADMIN-0d** (remote-admin v2 Slice 0d —
+PIN_CASES, PIN_ASSERTS = 2597, 109534    # ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0e**, and this is the
+                                         # COMBINED 0d+0e figure — 0e was the SECOND of the two parallel branches to land, so per the
+                                         # 0e brief's parallel-dispatch discipline it rebased onto 0d's commit `0ee0f9b` and RE-DERIVED
+                                         # this number from its own clean run rather than adding the two deltas together.
+                                         # ⛔ 0e changes NO production file (`lib/`, `src/`, `variants/`, `simulation/`, `ios-companion/`,
+                                         #   `platformio.ini` all untouched), so this pin is the ONLY gate figure it moves; 0d owns the
+                                         #   corpus and board evidence for the `lib/core` change underneath it.
+                                         # DERIVATION, measured with the real binary on the rebased tree and not assumed:
+                                         #   base `ecef942`                        2578 / 108904 / 0 failed
+                                         #   + Slice 0d (`0ee0f9b`)                  +9 /   +202     (its own block below)
+                                         #   + Slice 0e                             +10 /   +428
+                                         #   = measured AFTER at `0ee0f9b` + 0e    2597 / 109534 / 0 failed  ✓
+                                         # 0d's half re-measured on THIS tree to confirm the sum rather than trusting it:
+                                         #   `program -tc='*RADMIN-0d*'`  =  8 cases / 184 assertions, plus 0d's ninth case
+                                         #   §B278-S3/9b (18) which that filter does not match  =>  9 / 202 ✓
+                                         # 0e's half, `program -tc='radmin 0e*'` = 10 cases / 428 assertions, closing as the sum of
+                                         # its ten cases, each measured on its own filter:
+                                         #   0e-B candidate value types                      19
+                                         #   0e-B the timer-wheel mirror is FAITHFUL          7
+                                         #   0e-C every carrier's cap through the packers   268
+                                         #   0e-C outer CRYPTED unavailable by node id        5
+                                         #   0e-C registered-mobile field accounting         12
+                                         #   0e-C hash vs node-id differ only by DST_HASH     6
+                                         #   0e-C every legal cross-layer depth              32
+                                         #   0e-C dropping SOURCE_HASH/DST_HASH/path         21
+                                         #   0e-D the first-hop budget, term by term         31
+                                         #   0e-D every input moves it the right way         27
+                                         #                                                = 428 ✓
+                                         # ⛔ ZERO pre-existing cases changed their assertion count on either side — 0d's +202 and 0e's
+                                         #   +428 are each wholly accounted for by their own new cases, which is what makes the two
+                                         #   slices independently attributable inside one combined figure.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2587, 109106 — ★★ RE-SYNCED 2026-09-04 by **§RADMIN-0d** (remote-admin v2 Slice 0d —
                                          # the static-home plane invariant, R-RA-12 + owner decision D-0d-1: the
                                          # FOUR `send_by_hash` arms whose immediate destination is a mobile's home
                                          # stamp `Plane::GLOBAL` instead of `Plane::AUTO`).

@@ -348,5 +348,177 @@ class FailingVerdicts(unittest.TestCase):
         self.assertIn("REFUSED", completed.stderr)
 
 
+class ExtraPinsOverlay(unittest.TestCase):
+    """★ The `--extra-pins` overlay (remote-admin v2 slice 0e-B). Two properties matter and both are checked here:
+    it is ADDITIVE (the default invocation is untouched) and it inherits BOTH coverage refusals unchanged."""
+
+    MANIFEST = str(Path(abi.ROOT) / "tools" / "radmin_0e_abi_pins.json")
+
+    def tearDown(self) -> None:
+        abi.EXTRA_HEADERS = ()
+        abi.EXTRA_INCLUDE_DIRS = ()
+        abi.EXTRA_PINS = {}
+
+    # ---- additive by construction ------------------------------------------------------------------------------
+    def test_no_overlay_means_active_pins_IS_the_builtin_table(self) -> None:
+        self.assertEqual(abi.EXTRA_PINS, {})
+        self.assertIs(abi.active_pins(), abi.PIN_TABLE)
+
+    def test_no_overlay_means_the_generated_tu_includes_only_the_builtin_headers(self) -> None:
+        tu = abi.generate_tu(abi.PINNED)
+        for header in abi.PROBE_HEADERS:
+            self.assertIn(f'#include "{header}"', tu)
+        self.assertNotIn("radmin_0e_candidate_types.h", tu)
+
+    def test_no_overlay_means_no_extra_include_dirs_reach_the_compiler(self) -> None:
+        data = {"cxx_path": "/x/g++", "cxx_flags": [], "defines": [],
+                "includes": {"build": ["/b"], "toolchain": ["/t"]}}
+        command = abi.compile_command(data, Path("s.cpp"), Path("o.o"))
+        self.assertEqual([t for t in command if t.startswith("-I")], ["-I/b"])
+
+    # ---- the overlay itself -------------------------------------------------------------------------------------
+    def test_the_tracked_manifest_loads_and_pins_every_type_on_every_target(self) -> None:
+        headers, dirs, entries, pins = abi.load_extra_pins(self.MANIFEST)
+        # `timer_wheel.h` rides along so 0e-B can price the REAL wheel beside its mirror; the candidate header is
+        # the manifest's own.
+        self.assertEqual(headers, ("timer_wheel.h", "radmin_0e_candidate_types.h"))
+        self.assertEqual(dirs, ("lib/hal", "test"))
+        self.assertTrue(entries)
+        names = {n for n, _ in entries}
+        self.assertIn("radmin0e::PendingRequestCore", names)
+        self.assertIn("meshroute::TimerWheel", names)
+        for target in abi.TARGETS:
+            self.assertEqual(set(pins[target]), names, f"{target} must pin every requested candidate")
+
+    def test_the_overlay_merges_without_disturbing_a_builtin_pin(self) -> None:
+        abi.EXTRA_PINS = abi.load_extra_pins(self.MANIFEST)[3]
+        merged = abi.active_pins()
+        self.assertIsNot(merged, abi.PIN_TABLE)
+        for target, block in abi.PIN_TABLE.items():
+            for name, triple in block.items():
+                self.assertEqual(merged[target][name], triple)
+        self.assertIn("radmin0e::PendingRequestCore", merged["gateway"])
+
+    def test_the_overlay_reaches_the_generated_tu_and_the_include_path(self) -> None:
+        headers, dirs, entries, _ = abi.load_extra_pins(self.MANIFEST)
+        abi.EXTRA_HEADERS, abi.EXTRA_INCLUDE_DIRS = headers, dirs
+        tu = abi.generate_tu((*abi.PINNED, *entries))
+        self.assertIn('#include "radmin_0e_candidate_types.h"', tu)
+        for name, _ in entries:
+            self.assertIn(f"sizeof({name})", tu)
+            self.assertIn(f"alignof({name})", tu)
+        data = {"cxx_path": "/x/g++", "cxx_flags": [], "defines": [],
+                "includes": {"build": ["/b"], "toolchain": ["/t"]}}
+        command = abi.compile_command(data, Path("s.cpp"), Path("o.o"))
+        self.assertIn(f"-I{Path(abi.ROOT) / 'test'}", command)
+
+    def test_the_candidates_are_abi_invariant_and_the_witness_is_not(self) -> None:
+        """★ The measurement's own control: if EVERY extra pin agreed across the three ABIs and nothing disagreed,
+        a broken overlay would look exactly like a correct one."""
+        _, _, entries, pins = abi.load_extra_pins(self.MANIFEST)
+        witness = "radmin0e::AbiWitnessNotACandidate"
+        self.assertIn(witness, {n for n, _ in entries})
+        host = pins["native"][witness][0]
+        for board in abi.BOARD_TARGETS:
+            self.assertNotEqual(pins[board][witness][0], host, "the witness must diverge host vs board")
+        for name, _ in entries:
+            if name == witness:
+                continue
+            for board in abi.BOARD_TARGETS:
+                self.assertEqual(pins[board][name], pins["native"][name],
+                                 f"{name} is fixed-width and pointer-free; every ABI must agree")
+
+    # ---- BOTH coverage refusals still apply to an extra ---------------------------------------------------------
+    def test_a_candidate_that_emits_nothing_is_coverage_LOSS_not_a_zero(self) -> None:
+        _, _, entries, pins = abi.load_extra_pins(self.MANIFEST)
+        abi.EXTRA_PINS = pins
+        all_entries = (*abi.PINNED, *entries)
+        merged = abi.active_pins()
+        sizes = fake_measurement(all_entries, merged[HOST_TARGET])
+        victim = abi.slug(entries[0][0])
+        del sizes[f"{abi.SYMBOL_PREFIX}size__{victim}"]
+        with self.assertRaises(abi.ProbeFailure) as caught:
+            abi.check_target(HOST_TARGET, sizes, all_entries, merged)
+        self.assertIn("coverage lost", str(caught.exception))
+
+    def test_an_unrequested_extra_symbol_is_still_red(self) -> None:
+        _, _, entries, pins = abi.load_extra_pins(self.MANIFEST)
+        abi.EXTRA_PINS = pins
+        all_entries = (*abi.PINNED, *entries)
+        merged = abi.active_pins()
+        sizes = fake_measurement(all_entries, merged[HOST_TARGET])
+        sizes[f"{abi.SYMBOL_PREFIX}size__radmin0e_NotRequested"] = 8
+        with self.assertRaises(abi.ProbeFailure) as caught:
+            abi.check_target(HOST_TARGET, sizes, all_entries, merged)
+        self.assertIn("unpinned probe symbols", str(caught.exception))
+
+    def test_a_moved_candidate_size_is_red(self) -> None:
+        _, _, entries, pins = abi.load_extra_pins(self.MANIFEST)
+        abi.EXTRA_PINS = pins
+        all_entries = (*abi.PINNED, *entries)
+        merged = abi.active_pins()
+        sizes = fake_measurement(all_entries, merged["gateway"])
+        sizes[f"{abi.SYMBOL_PREFIX}size__{abi.slug(entries[0][0])}"] += 8
+        with self.assertRaises(abi.ProbeFailure) as caught:
+            abi.check_target("gateway", sizes, all_entries, merged)
+        self.assertIn("delta +8", str(caught.exception))
+
+    # ---- a malformed manifest REFUSES, it never measures half of itself ------------------------------------------
+    def _refuses(self, manifest: dict, fragment: str) -> None:
+        import json
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump(manifest, handle)
+            path = handle.name
+        with self.assertRaises(abi.ProbeRefusal) as caught:
+            abi.load_extra_pins(path)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_a_manifest_without_pins_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["radmin_0e_candidate_types.h"],
+                       "types": [{"name": "radmin0e::OpenStagingSlot"}]},
+                      "'pins' is mandatory")
+
+    def test_a_manifest_missing_a_target_block_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["radmin_0e_candidate_types.h"],
+                       "types": [{"name": "radmin0e::OpenStagingSlot"}],
+                       "pins": {"native": {"radmin0e::OpenStagingSlot": [24, 8, True]}}},
+                      "pins nothing for")
+
+    def test_a_manifest_naming_a_missing_header_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["no_such_header.h"],
+                       "types": [{"name": "radmin0e::OpenStagingSlot"}],
+                       "pins": {t: {"radmin0e::OpenStagingSlot": [24, 8, True]} for t in abi.TARGETS}},
+                      "is in none of")
+
+    def test_a_manifest_reusing_a_builtin_name_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["radmin_0e_candidate_types.h"],
+                       "types": [{"name": "meshroute::Node"}],
+                       "pins": {t: {"meshroute::Node": [1, 1, True]} for t in abi.TARGETS}},
+                      "already in the built-in PINNED set")
+
+    def test_a_manifest_with_an_unknown_target_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["radmin_0e_candidate_types.h"],
+                       "types": [{"name": "radmin0e::OpenStagingSlot"}],
+                       "pins": {"heltec_v3": {"radmin0e::OpenStagingSlot": [24, 8, True]}}},
+                      "unknown target")
+
+    def test_a_manifest_with_no_types_refuses(self) -> None:
+        self._refuses({"include_dirs": ["test"], "headers": ["radmin_0e_candidate_types.h"],
+                       "types": [], "pins": {}},
+                      "measures nothing")
+
+    def test_a_missing_manifest_file_refuses(self) -> None:
+        with self.assertRaises(abi.ProbeRefusal):
+            abi.load_extra_pins("/nonexistent/radmin_0e_abi_pins.json")
+
+    def test_an_unreadable_extra_pins_path_exits_8_not_zero(self) -> None:
+        completed = subprocess.run([sys.executable, str(Path(abi.__file__)),
+                                    "--extra-pins", "/nonexistent/manifest.json"],
+                                   capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 8)
+        self.assertIn("REFUSED", completed.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
