@@ -156,9 +156,28 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // the flight stamps `mob ? home_id : _node_id`, and the second conjunct below has already established there is NO
     // routable home — so the stamped origin is 0 or our own mobile LOCAL id, i.e. an address no static node can route.
     // rt_find(dst, GLOBAL) meanwhile routes on the STATIC _rt. The E2E ack therefore CANNOT return: refusing loud is
-    // the whole reason this guard exists. No internal caller is affected — the ONLY producers of Plane::GLOBAL on a DM
-    // flight are console_parse.cpp:259 and the sim wrapper; every lib/core enqueue_data/do_send call passes AUTO or
-    // TEAM (node_mac.cpp:371/:555 and node_channel.cpp:47 hand GLOBAL to stamp_origin directly, not through here).
+    // the whole reason this guard exists.
+    // ⚠⚠ CORRECTED 2026-09-04 (remote-admin v2 Slice 0d, R-RA-12). ⛔ THE OLD CLAIM IS KEPT VISIBLE because it is the
+    // sentence the paragraph's "no internal caller is affected" rested on: *"No internal caller is affected — the ONLY
+    // producers of Plane::GLOBAL on a DM flight are console_parse.cpp:259 and the sim wrapper; every lib/core
+    // enqueue_data/do_send call passes AUTO or TEAM (node_mac.cpp:371/:555 and node_channel.cpp:47 hand GLOBAL to
+    // stamp_origin directly, not through here)."* ⇒ THAT CENSUS IS FALSE, and V1 says so twice over:
+    //   · it was ALREADY false before 0d — §CUSTODY-F's notice originator (`node_cascade.cpp`,
+    //     `enqueue_data(..., Plane::GLOBAL, ...)`) and its hash-addressed twin (`node_mac_rx.cpp`,
+    //     `send_by_hash(..., Plane::GLOBAL, ...)`) both landed 2026-08-31, both in lib/core, both GLOBAL; and
+    //   · Slice 0d adds FOUR more in `node_hashlocate.cpp` — the three registered-mobile MOBILE_SEND wrapper arms and
+    //     the cached-home arm — because a mobile's home is only ever a static node (R-RA-12 / D-0d-1).
+    // ⓘ WHAT THE CENSUS WAS STANDING IN FOR, restated as the property that actually holds — the TRUTH TABLE ABOVE IS
+    //   UNCHANGED; only the inventory of who reaches it moved:
+    //   · the two custody producers pass `app_dm = false` (cascade) or `flags = 0` with no `DATA_FLAG_E2E_ACK_REQ`
+    //     (both), so neither reaches this `if` at all;
+    //   · 0d's arms 1-3 are inside `_my_mobile_reg.active`, so the LAST conjunct (not the plane term) decides them —
+    //     unchanged under either plane; and
+    //   · 0d's arm 4 IS the first real internal producer to reach the truth table's one delta cell
+    //     (`GLOBAL + is_team_peer(dst)`), and reaching it is CORRECT: that sender is an unregistered mobile with no
+    //     routable home, which this guard already refused on every NON-colliding send. GLOBAL only makes the
+    //     colliding send agree with it, instead of admitting a DM whose E2E ack can never return.
+    // ⛔ Do not re-derive a "who produces GLOBAL" list from this comment: grep the source (V1).
     // Static reduction: on a static node the whole guard is dead (`_cfg.is_mobile` is false); with MR_FEAT_TEAM 0
     // flight_is_team_plane() returns false unconditionally (node.h:193), leaving the pre-T1 `!false` shape, and a
     // mobile on AUTO reads exactly the pre-T1 `!is_team_peer(dst)`.

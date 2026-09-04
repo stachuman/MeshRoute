@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0e — characterization and generated authorities · dispatch brief · 2026-09-04
 
-**Status: DRAFT — awaiting Quality-Agent review.** Dispatch model after PASS: **Opus**.
+**Status: QUALITY-AGENT PASS 2026-09-04 (one fold-in applied in place) — AUTHORIZED FOR DISPATCH.** Dispatch model after PASS: **Opus**.
 Authority: the design-pass
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`, especially
 R-RA-1/R-RA-2/R-RA-3/R-RA-20 and §§12–15. Pre-check input:
@@ -318,9 +318,12 @@ Run and record:
 
 1. the clean native suite and real binary, deriving all new case/assertion movement and PIN;
 2. `tools/run_corpus.py --jobs=8 --require-anchors` for all 36 streams against the current
-   ruled table. Since no production source changes, the simulator build is expected to take
-   zero actions and retain its binary hash; report those facts honestly and use the runner's
-   validation rather than claiming an unnecessary relink;
+   ruled table. ⚠ **QA fold-in 2026-09-04 (owner-agreed):** 0e runs in an isolated worktree, which has NO
+   simulator build (the simulator is bound to the main tree through `MESHROUTE_DIR`). Do not claim a
+   zero-action rebuild. Instead prove the worktree's `lib/core` and `lib/console` byte-identical to the
+   main tree's HEAD (a directory md5 over both), then run the corpus with the main tree's binary:
+   `run_corpus.py --lus /home/staszek/lora-universal-simulator/build/orchestrator/lus`, recording that binary's
+   md5 as the one the S5 gate validated. The runner's own validation is the identity proof;
 3. the full existing ABI probe unchanged, then its extra candidate-pins mode on host, ARM
    and Xtensa, with all coverage controls;
 4. deterministic `tools/measure_board.py pair --jobs=2` for exactly `gateway` and

@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0d — static-home plane invariant · dispatch brief · 2026-09-04
 
-**Status: DRAFT — awaiting Quality-Agent review.** Dispatch model after PASS: **Opus**.
+**Status: QUALITY-AGENT PASS 2026-09-04 (two fold-ins applied in place) — AUTHORIZED FOR DISPATCH.** Dispatch model after PASS: **Opus**.
 Authority: the design-pass
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`, R-RA-12, and the
 D-0d-1 scope decision below. Pre-check input:
@@ -34,7 +34,7 @@ The gate ownership row is also authority:
 
 ## D-0d-1 — include the fourth cached-home arm
 
-**AUTHOR DECISION 2026-09-04:** include the cached-home send at the pre-check's
+**OWNER DECISION D-0d-1, 2026-09-04 (confirmed in chat; recorded in the ruling ledger — ⚠ QA correction 2026-09-04: this line read "AUTHOR DECISION"):** include the cached-home send at the pre-check's
 `lib/core/node_hashlocate.cpp:1859` as the fourth arm. B278-S3 proved `AUTO` equivalent to
 GLOBAL only for a static sender; that attribution pin was not a permanent policy ruling.
 An unregistered team mobile can take this arm and has the same ID-collision exposure as the
@@ -119,7 +119,12 @@ The only board environments are `gateway` and `heltec_mobile`. The warning censu
 pinned environment set is the sole standing exception.
 
 0d may dispatch in parallel with 0e only in an isolated worktree with private build/output
-roots. Their production fences do not overlap. Both may mechanically update the native PIN;
+roots. ⚠ **QA fold-in 2026-09-04 (owner-agreed): 0d runs in the MAIN tree.** It needs two simulator rebuilds
+(the throwaway BEFORE instrument and the AFTER), and the simulator is bound to one MeshRoute path through the
+`MESHROUTE_DIR` CMake cache variable (`../lora-universal-simulator/CMakeLists.txt:39`, cache
+`MESHROUTE_DIR:PATH=…/MeshRoute`); a worktree could only do this through a private build directory
+(`cmake -S ../lora-universal-simulator -B <private> -DMESHROUTE_DIR=<worktree>` + `run_corpus.py --lus
+<private>/orchestrator/lus`), which this slice does not attempt. 0e is the slice that runs in the worktree. Their production fences do not overlap. Both may mechanically update the native PIN;
 the second branch to land must rebase, rerun the real native binary and derive the combined
 PIN rather than choosing one side of a conflict. Any corpus or board comparison made across
 worktree paths must respect B262's heltec-mobile payload-hash limitation.

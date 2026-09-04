@@ -613,7 +613,34 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2578, 108904    # ★★ RE-SYNCED 2026-09-02 by **§B278 S4** (mobile receive and the
+PIN_CASES, PIN_ASSERTS = 2587, 109106    # ★★ RE-SYNCED 2026-09-04 by **§RADMIN-0d** (remote-admin v2 Slice 0d —
+                                         # the static-home plane invariant, R-RA-12 + owner decision D-0d-1: the
+                                         # FOUR `send_by_hash` arms whose immediate destination is a mobile's home
+                                         # stamp `Plane::GLOBAL` instead of `Plane::AUTO`).
+                                         # DERIVATION, measured with the real binary and not assumed: the tree
+                                         # BEFORE = 2578 / 108904 / 0 failed; AFTER = 2587 / 109106 / 0 failed
+                                         # ⇒ +9 cases / +202 assertions, and the delta closes EXACTLY as the sum
+                                         # of the NINE new cases, each measured on its own `-tc` filter:
+                                         #   §RADMIN-0d/1  19   (arm 3, plain MOBILE_SEND, collision)
+                                         #   §RADMIN-0d/2  23   (arm 1, sealed relay, collision)
+                                         #   §RADMIN-0d/3  22   (arm 2, enclosed type, collision)
+                                         #   §RADMIN-0d/4  56   (the no-collision twins, all three arms)
+                                         #   §RADMIN-0d/5  21   (the enqueue guard + origin stamp, both planes)
+                                         #   §RADMIN-0d/6  26   (arm 4, cached home, unregistered team mobile)
+                                         #   §RADMIN-0d/7   6   (arm 4's E2E guard cell, both planes)
+                                         #   §RADMIN-0d/8  11   (end to end: the real home unwraps the wrapper)
+                                         #   §B278-S3/9b   18   (the cached-home collision CONTROL)
+                                         #                             19+23+22+56+21+26+6+11+18 = 202 ✓
+                                         # ⛔ ZERO pre-existing cases changed their assertion count — the sum of
+                                         #   the new cases IS the whole delta, which is what proves it. §B278-S3/9
+                                         #   was RE-AIMED in place (its "AUTO ≡ GLOBAL for a static home" pin
+                                         #   became "the arm stamps GLOBAL explicitly", old claim kept visible)
+                                         #   and its three plane CHECKs stayed three, so its 19 did not move.
+                                         # ⓘ §RADMIN-0d/4 reads 56 because it is THREE arms × (a held-in-queue
+                                         #   wrapper read whole + the same fixture flown), i.e. the pre-slice
+                                         #   BYTES and route compared for every arm that 0d touched.
+                                         #
+                                         # PIN_CASES, PIN_ASSERTS = 2578, 108904 — ★★ RE-SYNCED 2026-09-02 by **§B278 S4** (mobile receive and the
                                          # presentation surfaces — the first CONSUMER of the translated form).
                                          # DERIVATION, measured with the real binary and not assumed: the S3
                                          # tree BEFORE = 2559 / 108102 / 0 failed; AFTER = 2578 / 108904 / 0
@@ -6794,6 +6821,28 @@ MUTS_B251HASH = [
   "later E2E ACK can no longer translate ctr_H -> ctr_M and the mobile times out",
   "    _deleg_acks[slot].custody_state = DelegAckCustody::forwarded;",
   "    _deleg_acks[slot] = DelegAck{};"),
+ # ---- §RADMIN-0d (2026-09-04) — R-RA-12 / D-0d-1: the FOUR home-bound plane arguments ---------------------------
+ # ⓘ THESE FOUR LIVE HERE AND NOT UNDER A NEW `radm0d` TARGET, and the reason is the runner's own rule rather than
+ #   taste: a battery is per-SOURCE-FILE (the mutate/restore/build guards are file-keyed), `b251hash`'s configured
+ #   source IS `lib/core/node_hashlocate.cpp`, and a second target on the same file would give two batteries the
+ #   same restore lock. Same file ⇒ same target.
+ # ⛔ ONE ENTRY PER ARM, NOT ONE ALL-ARMS ENTRY. A single mutation restoring `AUTO` everywhere would be RED from any
+ #   one surviving case and would prove nothing about site coverage — the exact laundering the four separate arms of
+ #   §RADMIN-0d/1-/3 and /6 exist to prevent. Each anchor carries its own `arm N/4` tag, so each matches EXACTLY once.
+ ("R01 §RADMIN-0d arm 1/4 (the delegated SEALED_RELAY wrapper) is restored to Plane::AUTO, so a teammate whose "
+  "team-local id equals the home's static id captures the sealed wrapper onto _rt_team",
+  "                           /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 1/4 (sealed relay): the home is static — see the note at the top of this block",
+  "                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);     // mutant: arm 1/4 back on AUTO"),
+ ("R02 §RADMIN-0d arm 2/4 (the nonzero enclosed-type wrapper) is restored to Plane::AUTO",
+  "                           /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 2/4 (enclosed type): the home is static — see the note at the top of this block",
+  "                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);     // mutant: arm 2/4 back on AUTO"),
+ ("R03 §RADMIN-0d arm 3/4 (the plain MOBILE_SEND wrapper) is restored to Plane::AUTO",
+  "                       /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 3/4 (plain MOBILE_SEND): the home is static — see the note at the top of this block",
+  "                       /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);     // mutant: arm 3/4 back on AUTO"),
+ ("R04 §RADMIN-0d arm 4/4 (the cached-home send) is restored to Plane::AUTO, so an unregistered team mobile's DM "
+  "to a target's home is captured by a colliding teammate (the arm D-0d-1 added)",
+  "        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 4/4 (cached home)",
+  "        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::AUTO, out_dispatch);   // mutant: arm 4/4 back on AUTO"),
 ]
 
 # ===== §UI-10/11 P1 — src/firmware_ui_presets.h ====================================================================

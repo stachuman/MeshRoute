@@ -1923,20 +1923,31 @@ TEST_CASE("§B278-S3/8 a direct record with an unknown tail is stored whole and 
 // §B278-S3/9 — THE CACHED-HOME ARM AND ITS PLANE
 // -----------------------------------------------------------------------------------------------------
 
-// ★★★ THE CACHED-HOME ARM IS UNCHANGED AND ITS `Plane::AUTO` IS **EQUIVALENT TO GLOBAL FOR A STATIC HOME**
+// ★★★ RE-AIMED 2026-09-04 BY REMOTE-ADMIN v2 SLICE 0d (R-RA-12 + owner decision D-0d-1). ⛔ THE OLD CLAIM IS
+//     KEPT VISIBLE, because it was TRUE of what it measured and is exactly what D-0d-1 had to rule on:
+//     *"THE CACHED-HOME ARM IS UNCHANGED AND ITS `Plane::AUTO` IS EQUIVALENT TO GLOBAL FOR A STATIC HOME
 //     (spec §7's pinned sentence). ⛔ S3 does not touch that arm: it asks for `Plane::GLOBAL` and the arm still
-//     hands `Plane::AUTO` to `do_send`, exactly as it always did. The equivalence is pinned at the ONE
-//     predicate that decides it, and the delivered frame is checked to carry the mobile's DST_HASH.
-TEST_CASE("§B278-S3/9 cached-home delivery: AUTO ≡ GLOBAL for a static home, DST_HASH == the mobile hash") {
+//     hands `Plane::AUTO` to `do_send`, exactly as it always did."*
+//     ⇒ That equivalence was a statement about B278's ATTRIBUTION — "S3 changed nothing here" — never a policy
+//     that the arm must stay `AUTO`. It holds only for a STATIC sender: the same arm is taken by an
+//     UNREGISTERED team mobile, for which `is_team_peer(home)` can be TRUE and `AUTO` then routes the notice to
+//     a TEAMMATE. Slice 0d makes the arm stamp `Plane::GLOBAL` EXPLICITLY, so this case's asserted authority is
+//     now the invariant ("a home is static, so this flight is global by definition") rather than a coincidence.
+//     ⓘ B278 is untouched by the change: correlation, custody state, destination hash, source hash, counter and
+//       ACK behaviour are not functions of the plane, and every byte asserted below is unmoved. §B278-S3/9b is
+//       the control that makes the difference OBSERVABLE on this very fixture.
+TEST_CASE("§B278-S3/9 cached-home delivery: the arm stamps GLOBAL explicitly, DST_HASH == the mobile hash") {
     uint8_t rec[custody_record_v1_len];
     const uint8_t n = s3_pack_report(rec);
     GPair p;
     p.n1.mobile_home_set(kS3MobileHash, /*home_id=*/2, /*epoch=*/1, /*home_layer=*/2);
     CHECK(s3_seed(p.n1));
-    // THE EQUIVALENCE, at the predicate the cached arm's plane ultimately resolves through.
-    CHECK(p.n1.flight_is_team_plane(Plane::AUTO,   /*dst=*/2) == false);
+    // ★ THE INVARIANT the arm now names: GLOBAL can NEVER resolve to the team plane, whatever the id collides.
     CHECK(p.n1.flight_is_team_plane(Plane::GLOBAL, /*dst=*/2) == false);
-    CHECK(p.n1.flight_is_team_plane(Plane::AUTO, 2) == p.n1.flight_is_team_plane(Plane::GLOBAL, 2));
+    // ⓘ ...and the OLD pin, kept as a measurement rather than an authority: for THIS static sender, with no
+    //   `_team_peer` bit on the home's id, `AUTO` happened to agree. §B278-S3/9b removes that coincidence.
+    CHECK(p.n1.is_team_peer(/*id=*/2) == false);
+    CHECK(p.n1.flight_is_team_plane(Plane::AUTO, 2) == false);
     CHECK(s3_send_and_hold(p, rec, n));
     const S3Out o = s3_collect(p);
     CHECK(o.forwarded == 1);
@@ -1954,6 +1965,44 @@ TEST_CASE("§B278-S3/9 cached-home delivery: AUTO ≡ GLOBAL for a static home, 
     CHECK(ui->has_dst_hash);
     CHECK(ui->dst_key_hash32 == kS3MobileHash);               // … which last-miles it to M1
     CHECK(s3_queued_body(p.n1) == s3_expected_body());        // the SAME 32 bytes as the direct arm
+}
+
+// ★★★ §B278-S3/9b — THE CONTROL THAT MAKES S3/9's AUTHORITY NON-VACUOUS (Slice 0d, D-0d-1). S3/9 above cannot
+//     tell `AUTO` from `GLOBAL`, because its reporter has no `_team_peer` bit on the cached home's id — which is
+//     precisely why the old "AUTO ≡ GLOBAL" sentence was safe to write and unsafe to keep. Here the reporter is
+//     a TEAM node whose teammate's team-local id NUMERICALLY EQUALS the cached home's static id (§18's mixed-id
+//     collision), so the two planes are DIFFERENT decisions, and `stamp_origin` (node.h) is where the queued
+//     frame says which one was taken: a team-plane flight stamps `team_local_id()`, a global one stamps
+//     `_node_id`. ⛔ THE COLLISION IS INSTALLED AFTER THE REPORT IS RECEIVED AND BEFORE THE FORWARD IS
+//     ENQUEUED — `s3_send_and_hold` is inlined for exactly that reason — so nothing about the inbound hop moves.
+TEST_CASE("§B278-S3/9b cached-home CONTROL — a colliding teammate does not capture the notice: origin stays the reporter's STATIC id") {
+    uint8_t rec[custody_record_v1_len];
+    const uint8_t n = s3_pack_report(rec);
+    GPair p;
+    p.n1.mobile_home_set(kS3MobileHash, /*home_id=*/2, /*epoch=*/1, /*home_layer=*/2);
+    CHECK(s3_seed(p.n1));
+    CHECK(p.send_typed(rec, n, DATA_TYPE_CUSTODY_FAILURE, /*dst_hash=*/0, /*fire_post_ack=*/false));
+    p.n1.test_suspend_tx_drain(true);
+    p.step();
+    // ---- the §18 collision, installed on the ENQUEUE side only ----
+    p.n1.set_team_local_id(/*our team id=*/9);
+    p.n1.test_learn_route(/*dest=*/2, /*via=*/2, 1, 40, /*team_plane=*/true);   // a teammate whose TEAM id is 2
+    CHECK(p.n1.is_team_peer(/*id=*/2) == true);                                  // ⛔ the premise: the ids collide
+    CHECK(p.n1.flight_is_team_plane(Plane::AUTO,   /*dst=*/2) == true);          // ...so AUTO now means TEAM ...
+    CHECK(p.n1.flight_is_team_plane(Plane::GLOBAL, /*dst=*/2) == false);         // ...and GLOBAL still means static
+    p.n1.on_timer(kPostAckTimerId);
+    CHECK(p.n1.test_tx_queue_n() == 1);
+    if (p.n1.test_tx_queue_n() != 1) return;
+    CHECK(p.n1.test_tx_type(0)   == DATA_TYPE_CUSTODY_FAILURE);
+    CHECK(p.n1.test_tx_dst(0)    == 2);                       // still addressed to the cached HOME ...
+    CHECK(p.n1.test_tx_origin(0) == 1);                       // ★★ ...under the reporter's OWN STATIC id.
+    CHECK(p.n1.test_tx_origin(0) != 9);                       // ★★ NOT team_local_id() — the arm is GLOBAL.
+    uint8_t inner_len = 0;
+    const uint8_t* inner = p.n1.test_tx_inner(0, inner_len);
+    auto cui = parse_unicast_inner(std::span<const uint8_t>(inner, inner_len), p.n1.test_tx_flags(0));
+    CHECK(cui.has_value());
+    if (cui) { CHECK(cui->has_dst_hash); CHECK(cui->dst_key_hash32 == kS3MobileHash); }
+    CHECK(s3_queued_body(p.n1) == s3_expected_body());        // ★ and the 32 custody bytes are UNMOVED
 }
 
 // -----------------------------------------------------------------------------------------------------

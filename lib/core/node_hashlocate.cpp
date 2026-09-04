@@ -1734,6 +1734,24 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // (=our hash, stamped by stamp_origin). The HOME re-originating (reply_to_hash!=0) falls through to the resolve+flood below.
 #if MR_FEAT_MOBILE
     if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active) {
+        // ★★★ §R-RA-12 (owner ruling, 2026-09-04; remote-admin v2 Slice 0d) — ALL THREE WRAPPER ARMS BELOW STAMP
+        // `Plane::GLOBAL`. ⚠ THE OLD CODE, KEPT VISIBLE: each passed `/*plane=*/Plane::AUTO` from the day it landed.
+        // A mobile's HOME is only ever a STATIC node — `can_host_mobiles()` (node.h) is
+        // `host_mobiles && !is_mobile && !is_gateway && n_layers == 1`, enforced at every node_join.cpp hosting site —
+        // so a wrapper whose immediate destination is `home_id` is a static-plane flight BY DEFINITION. `AUTO` did not
+        // say that: it resolves through `flight_is_team_plane(AUTO, dst) == is_team_peer(dst)` (node.h), and
+        // `_team_peer` (node_routing.cpp) is a bare 256-bit id BITMAP over the TEAM id namespace. A teammate whose
+        // team-local id NUMERICALLY EQUALS our home's static id therefore made this wrapper a TEAM flight: routed on
+        // `_rt_team` to that TEAMMATE, RTS `src = team_local_id()`, `stamp_origin` stamping the team id — never to the
+        // home, and with NO `send_failed` (a delegated app DM's failure surfaces only as an E2E timeout). §18's
+        // mixed-id collision, on the default path. `GLOBAL` forces `_rt` (rt_find, node_routing.cpp), a static RTS and
+        // stamp_origin's `mob ? home_id : _node_id` — i.e. exactly what the CROSS-LAYER sibling of these arms has
+        // always done (`enqueue_cross_layer` stamps `Plane::GLOBAL` explicitly, node_mac.cpp, for this same reason).
+        // The same-layer arms now agree with it; nothing else about any arm moves.
+        // ⓘ The `enqueue_data` mobile/no-home E2E guard (node_mac.cpp) is NOT newly tripped here: its last conjunct
+        //   `!(_my_mobile_reg.active && home_id != 0 && home_id != _node_id)` is FALSE for a registered mobile with a
+        //   real home, under either plane, so the plane term cannot decide it. (The degenerate `home_id == _node_id`
+        //   shape already refused on every non-collision send; GLOBAL only makes the collision case agree.)
         // §team-ch-key T-K3 (C2): a TEAM KEY GRANT cannot be DELEGATED in v1. Both arms below spend the MOBILE_SEND
         // wrapper's SINGLE enclosed-type byte — the sealed arm on DATA_TYPE_SEALED_RELAY, the plaintext arm on `itype`
         // — so a TEAM_KEY_GRANT either loses its TYPE (the home re-originates a plain sealed DM and the recipient files 37
@@ -1770,7 +1788,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(rn + 1),
                            static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), CryptIntent::off,
                            /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
-                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
+                           /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 1/4 (sealed relay): the home is static — see the note at the top of this block
         }
         if (itype != 0) {
             // §S2 same-layer delegated INTRO (spec §3b): the SAME-LAYER MOBILE_SEND wrapper has no enclosed-type byte,
@@ -1782,10 +1800,10 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(sblen + 1),
                            static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), crypt,
                            /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
-                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
+                           /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 2/4 (enclosed type): the home is static — see the note at the top of this block
         }
         return do_send(_my_mobile_reg.home_id, sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
-                       /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
+                       /*override_source_hash=*/0, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 3/4 (plain MOBILE_SEND): the home is static — see the note at the top of this block
     }
     // §mobile: a mobile WE HOST (in our _mobile_reg) is reached by a DIRECT last-mile (addr_len=1 -> its local id), NOT an H
     // query — the home is BOTH the querier and the proxy, so a flood deadlocks (the registered mobile suppresses its own-hash
@@ -1856,7 +1874,19 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         // (the target acks to the home with DST_HASH = M, the last-mile fork rewrites the ctr via
         // deleg_ack_translate, and a MISS forwarded the HOME's ctr to a mobile awaiting its own). The XL-CRYPT note that
         // sat here claimed this line already called deleg_ack_put; it did not — corrected per V1 while fixing it.
-        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::AUTO, out_dispatch);
+        // ★★★ §R-RA-12 + owner decision D-0d-1 (2026-09-04) — Slice 0d's FOURTH home-bound arm, and it is
+        // `Plane::GLOBAL` for the SAME invariant as the three wrapper arms above: `home` is a mobile's home, so it is
+        // a STATIC node (`can_host_mobiles()`), so this flight is static-plane by definition.
+        // ⚠ THE OLD CODE + THE OLD PIN, KEPT VISIBLE: this arm passed `/*plane=*/Plane::AUTO`, and §B278-S3 pinned
+        // that as *"AUTO ≡ GLOBAL for a static home"* (test_custody_receive_g.cpp). That equivalence was TRUE for the
+        // static sender S3 measured — and it was a statement about B278's attribution, never a ruling that this arm
+        // must stay AUTO. It does NOT hold for every sender that reaches here: this arm is taken by ANY sender that is
+        // not a registered mobile, including an UNREGISTERED (off-grid) team mobile, for which `is_team_peer(home)`
+        // can be TRUE and AUTO then routes the DM to a TEAMMATE on `_rt_team` instead of to the target's home.
+        // D-0d-1: one invariant, one slice, all four arms — leaving this one on AUTO would preserve the same defect
+        // under a different caller. B278 correlation, custody state, destination hash, source hash, counter and ACK
+        // behaviour are untouched (the plane is not an input to any of them).
+        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::GLOBAL, out_dispatch);   // §R-RA-12 arm 4/4 (cached home)
         // §B278 S1b §4.3: CACHED-HOME SAME-LAYER — an outward same-layer DATA to the target's home. Carries custody.
         (void)commit_deleg_ack(hch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(home),
                                /*arm_carries_custody=*/true);

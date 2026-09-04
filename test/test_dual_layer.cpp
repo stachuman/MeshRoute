@@ -246,6 +246,18 @@ struct DualLayerTestAccess {
         return n.send_by_hash(h, body, len, flags, CryptIntent::off, reply_to_hash, mobile_ctr, Plane::AUTO, type);
     }
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
+    // ★ §RADMIN-0d seams (2026-09-04, remote-admin v2 Slice 0d / R-RA-12). Three readers, no production change:
+    //   · `tx_plane` is the QUEUED flight's plane — the field the four home-bound arms actually set. `pending()`
+    //     above only exists once become_free has issued a flight, and the plane must be assertable BEFORE that.
+    //   · `rts_marks` is `rts_wire_marks(pt)` VERBATIM — the one production derivation of the RTS's src/addr_len
+    //     shape (node_mac.cpp). Re-implementing "is this a team RTS?" in the test is exactly the duplicate-predicate
+    //     drift U1 forbids, and it would not fail if the production rule moved.
+    // ⓘ NO team-peer bit SETTER is added: the §18 collision is built through the PRODUCTION learn path instead
+    //   (`test_learn_route(dest, via, hops, snr, /*team_plane=*/true)` — `learn_route_via`, node_beacon.cpp, sets
+    //   `_team_peer[dest]` itself, the §6.2 `is_team_peer <-> _rt_team` invariant). A hand-set bit would have been
+    //   a second, weaker spelling of a membership the code already refuses to manufacture.
+    static Plane            tx_plane(Node& n, uint8_t i)  { return n._active->_tx_queue[i].plane; }
+    static Node::RtsWireMarks rts_marks(Node& n, const PendingTx& pt) { return n.rts_wire_marks(pt); }
     // B161: reuse the existing DualLayerTestAccess friend for controlled zero-corpus typed-answer producers.
     static void     send_typed_hash_answer(Node& n, uint8_t to, uint8_t layer, uint8_t id, uint32_t key,
                                            bool verifiable, bool mobile, uint8_t epoch, bool team) {
@@ -8490,4 +8502,329 @@ TEST_CASE("[[B266]] the retired 0x94 scaffolding now drives §CUSTODY-B's fail-c
     Push pu{}; bool as_msg = false;
     while (n.next_push(pu)) if (pu.kind == PushKind::msg_recv) as_msg = true;
     CHECK_FALSE(as_msg);                              // ⛔ and the 32 raw key bytes are NOT inbox text (A0-F10b)
+}
+
+// =====================================================================================================
+// §RADMIN-0d — THE STATIC-HOME PLANE INVARIANT (remote-admin v2 Slice 0d, R-RA-12 + owner decision D-0d-1)
+//
+// ★★★ THE DEFECT, in one sentence: all four `send_by_hash` arms whose IMMEDIATE destination is a mobile's
+//     HOME stamped `Plane::AUTO`, and `AUTO` resolves through `flight_is_team_plane(AUTO, dst) ==
+//     is_team_peer(dst)` — a bare 256-bit id BITMAP over the TEAM id namespace. A teammate whose team-local
+//     id numerically EQUALS the home's static id therefore made the wrapper a TEAM flight: routed on
+//     `_rt_team` to that TEAMMATE, with a team RTS and a team origin — never to the home, and with NO
+//     `send_failed` (a delegated app DM's failure surfaces only as an E2E timeout). §18's mixed-id collision.
+// ★★★ THE FIX: a home is only ever a STATIC node (`can_host_mobiles()`), so all four arms stamp
+//     `Plane::GLOBAL`, which forces `_rt` / the registered-mobile home leg and a static RTS.
+//
+// ⓘ THE COLLISION IS BUILT THROUGH THE PRODUCTION LEARN PATH: `test_learn_route(dest, via, hops, snr,
+//   team_plane=true)` is `learn_route_via`, which sets `_team_peer[dest]` itself. Installing an `_rt_team`
+//   route to the id 5 IS a teammate whose team-local id is 5 — exactly what a same-team beacon would leave.
+// ⓘ WHY THE THREE REGISTERED-MOBILE ARMS ASSERT `pt->next == HOME` RATHER THAN "a candidate out of `_rt`":
+//   `issue_send`'s selector (node_mac.cpp) reads
+//     `team_route ? pick_next_cascade_hop : mobile_registered() ? mobile_home_id() : pick_next_cascade_hop`,
+//   so for a REGISTERED mobile the non-team arm is the home leg itself, which is the stronger statement. The
+//   FOURTH arm's sender is NOT a registered mobile, so it is the one that proves "the hop came out of `_rt`".
+// =====================================================================================================
+namespace {
+
+// ⓘ The ONE seam the sealed arm needs: `TestHalBase::rand_bytes` deliberately returns ALL-ZERO, which
+//   `e2e_seal_inner` REFUSES (the R7 bad-RNG guard). The usual fixture spelling — `hal._rand_ret = 7` — also
+//   forces every OTHER `rand_range` draw in the send path, which measurably pushes the flight's
+//   `next_attempt_ms` past `now` so `become_free` never issues it (the queue holds the wrapper and `pending()`
+//   stays null). Overriding ONLY the crypto stream leaves every timing draw at its default.
+class R0dHal : public StubHal {
+public:
+    void rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(0xA5u + i); }
+};
+
+constexpr uint8_t  kR0dHome     = 5;             // the mobile's static HOME id
+constexpr uint32_t kR0dHomeHash = 0x00005555u;
+constexpr uint8_t  kR0dLocal    = 20;            // the mobile's own local id
+constexpr uint8_t  kR0dTeamSelf = 33;            // the mobile's team-DAD'd local id
+constexpr uint8_t  kR0dTeamHop  = 77;            // the first hop of the TEAM route toward the COLLIDING teammate
+constexpr uint8_t  kR0dStaticHop= 60;            // the first hop of the STATIC route (arm 4's sender is not homed)
+constexpr uint32_t kR0dTeamId   = 0x7EA31D00u;
+constexpr uint32_t kR0dTarget   = 0x4444AAAAu;   // an UNRESOLVED target hash (never in _id_bind / _team_keys)
+
+NodeConfig r0d_cfg() {
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; cfg.is_mobile = true; cfg.team_id = kR0dTeamId; cfg.lbt_enabled = false;
+    return cfg;
+}
+
+// A REGISTERED mobile on a team. `collide` installs the §18 shape: a teammate whose TEAM-local id is
+// numerically the home's STATIC id, reachable in 2 team hops via another heard teammate.
+void r0d_make_mobile(Node& M, bool collide) {
+    CHECK(M.on_init(r0d_cfg()));
+    DualLayerTestAccess::make_registered_mobile(M, kR0dLocal, kR0dHome, kR0dHomeHash);
+    M.set_team_local_id(kR0dTeamSelf);
+    M.test_learn_route(kR0dTeamHop, kR0dTeamHop, 1, 40, /*team_plane=*/true);   // a heard teammate, 1 hop
+    if (collide)
+        M.test_learn_route(kR0dHome, kR0dTeamHop, 2, 40, /*team_plane=*/true); // ★ the COLLIDING teammate (team id == 5)
+    M.test_learn_route(kR0dHome, kR0dHome, 1, 40, /*team_plane=*/false);        // the real STATIC route to the home
+}
+
+// The premise every collision case rests on, asserted rather than assumed.
+void r0d_check_collision_premise(Node& M, bool collide) {
+    CHECK(DualLayerTestAccess::is_team_peer(M, kR0dHome) == collide);            // the bitmap really does hold the home's id
+    CHECK(M.flight_is_team_plane(Plane::AUTO,   kR0dHome) == collide);           // ...so AUTO judges the wrapper a TEAM flight
+    CHECK(M.flight_is_team_plane(Plane::GLOBAL, kR0dHome) == false);             // ...and GLOBAL never does (the whole fix)
+    if (collide) CHECK(DualLayerTestAccess::team_primary(M, kR0dHome) == kR0dTeamHop);   // the hop AUTO would have taken
+}
+
+// The four AFTER consequences the brief names, for a REGISTERED mobile's wrapper.
+void r0d_check_wrapper_flight(Node& M, StubHal&) {
+    const PendingTx* pt = DualLayerTestAccess::pending(M);
+    CHECK(pt != nullptr);
+    if (!pt) return;
+    CHECK(pt->type  == DATA_TYPE_MOBILE_SEND);
+    CHECK(pt->dst   == kR0dHome);                       // addressed to the HOME ...
+    CHECK(pt->plane == Plane::GLOBAL);                  // ★ (1) the queued/flying plane
+    CHECK(M.flight_is_team_plane(pt->plane, pt->dst) == false);   // ★ (2) not a team flight
+    CHECK(pt->next  == kR0dHome);                       // ★ (3) the registered-mobile home leg, NOT _rt_team's 77
+    CHECK(pt->next  != kR0dTeamHop);
+    const auto m = DualLayerTestAccess::rts_marks(M, *pt);   // `auto`: RtsWireMarks is private to Node and only the friend may NAME it
+    CHECK(m.team_src   == false);                       // ★ (4) a STATIC RTS: src stays _node_id, not team_local_id()
+    CHECK(m.addr_len   == 0);                           //     ...and it is NOT re-marked as a local-id last mile
+    CHECK(m.mobile_src == true);                        //     the pre-existing registered-mobile mark is untouched
+    CHECK(pt->origin     == kR0dHome);                  // stamp_origin: home_id, not team_local_id()
+    CHECK(pt->origin     != kR0dTeamSelf);
+    CHECK(pt->mobile_src == true);
+}
+
+}  // namespace
+
+// -------- ARM 3 of 4: the PLAIN same-layer MOBILE_SEND wrapper -----------------------------------------
+TEST_CASE("§RADMIN-0d/1 arm 3 (plain MOBILE_SEND) — a colliding teammate no longer steals the wrapper: GLOBAL, home leg, static RTS") {
+    StubHal hal; Node M(hal, kR0dLocal, 0x0000AAA1u);
+    r0d_make_mobile(M, /*collide=*/true);                     // no crypto identity -> no INTRO attach -> the PLAIN arm
+    r0d_check_collision_premise(M, /*collide=*/true);
+    const uint8_t msg[4] = { 'p','i','n','g' };
+    (void)DualLayerTestAccess::send_by_hash_intent(M, kR0dTarget, msg, 4, CryptIntent::off);
+    r0d_check_wrapper_flight(M, hal);
+    const PendingTx* pt = DualLayerTestAccess::pending(M);
+    if (pt) CHECK((pt->flags & DATA_FLAG_MS_ENCLOSED_TYPE) == 0);   // the plain arm sets no enclosed-type marker
+}
+
+// -------- ARM 1 of 4: the delegated SEALED_RELAY wrapper -----------------------------------------------
+TEST_CASE("§RADMIN-0d/2 arm 1 (sealed relay) — the sealed wrapper takes the same static-home plane") {
+    R0dHal hal;   // a non-degenerate crypto stream ONLY -> e2e_seal_inner's R7 bad_rng refusal does not fire
+    uint8_t sM[32]; for (int i = 0; i < 32; ++i) sM[i] = static_cast<uint8_t>(i + 9);
+    uint8_t sX[32]; for (int i = 0; i < 32; ++i) sX[i] = static_cast<uint8_t>(i + 71);
+    Identity idM{}, idX{}; identity_from_seed(idM, sM); identity_from_seed(idX, sX);
+    Node M(hal, kR0dLocal, idM.key_hash32);
+    r0d_make_mobile(M, /*collide=*/true);
+    M.set_crypto_identity(idM.x_secret, idM.ed_pub);
+    CHECK(M.peer_key_set(idX.key_hash32, idX.ed_pub, Node::PeerKeyConf::authoritative));   // the target's key -> the seal succeeds
+    r0d_check_collision_premise(M, /*collide=*/true);
+    const uint8_t msg[6] = { 's','e','c','r','e','t' };
+    (void)DualLayerTestAccess::send_by_hash_intent(M, idX.key_hash32, msg, 6, CryptIntent::on);
+    r0d_check_wrapper_flight(M, hal);
+    const PendingTx* pt = DualLayerTestAccess::pending(M);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK((pt->flags & DATA_FLAG_MS_ENCLOSED_TYPE) != 0);       // the sealed arm marks the enclosed type ...
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui && !ui->body.empty()) CHECK(ui->body[0] == DATA_TYPE_SEALED_RELAY);   // ... = SEALED_RELAY (unchanged by 0d)
+    }
+}
+
+// -------- ARM 2 of 4: the nonzero enclosed-type (INTRO) wrapper ----------------------------------------
+TEST_CASE("§RADMIN-0d/3 arm 2 (enclosed type) — the INTRO-carrying wrapper takes the same static-home plane") {
+    StubHal hal;
+    uint8_t sM[32]; for (int i = 0; i < 32; ++i) sM[i] = static_cast<uint8_t>(i + 5);
+    Identity idM{}; identity_from_seed(idM, sM);
+    Node M(hal, kR0dLocal, idM.key_hash32);
+    r0d_make_mobile(M, /*collide=*/true);
+    M.set_crypto_identity(idM.x_secret, idM.ed_pub);   // identity but NO cached target key -> first contact -> INTRO attach
+    r0d_check_collision_premise(M, /*collide=*/true);
+    const uint8_t msg[4] = { 'p','i','n','g' };
+    (void)DualLayerTestAccess::send_by_hash_intent(M, kR0dTarget, msg, 4, CryptIntent::off);
+    r0d_check_wrapper_flight(M, hal);
+    const PendingTx* pt = DualLayerTestAccess::pending(M);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK((pt->flags & DATA_FLAG_MS_ENCLOSED_TYPE) != 0);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui && !ui->body.empty()) CHECK(ui->body[0] == DATA_TYPE_INTRO);   // the enclosed type is unchanged by 0d
+    }
+}
+
+// -------- THE NO-COLLISION TWINS: the pre-slice bytes and route are preserved --------------------------
+// ★ `AUTO` and `GLOBAL` are PROVABLY the same decision when the home id is not a teammate's, so the wrapper
+//   the overwhelming majority of the fleet airs is untouched. The wrapper's INNER BYTES are compared whole.
+TEST_CASE("§RADMIN-0d/4 the no-collision twins — identical wrapper bytes and identical route on all three arms") {
+    struct Arm { const char* name; bool crypto; bool peer_key; CryptIntent ci; };
+    const Arm arms[3] = { { "plain",  false, false, CryptIntent::off },
+                          { "intro",  true,  false, CryptIntent::off },
+                          { "sealed", true,  true,  CryptIntent::on  } };
+    for (const Arm& a : arms) {
+        CAPTURE(a.name);
+        uint8_t sM[32]; for (int i = 0; i < 32; ++i) sM[i] = static_cast<uint8_t>(i + 9);
+        uint8_t sX[32]; for (int i = 0; i < 32; ++i) sX[i] = static_cast<uint8_t>(i + 71);
+        Identity idM{}, idX{}; identity_from_seed(idM, sM); identity_from_seed(idX, sX);
+        const uint32_t tgt = a.peer_key ? idX.key_hash32 : kR0dTarget;
+        const uint8_t msg[4] = { 'p','i','n','g' };
+        // (i) the QUEUED wrapper, held in the tx queue so its bytes can be read before a flight consumes it
+        R0dHal hq;   // the SAME deterministic crypto stream on both nodes, so the sealed arm's seal_ctr+seed8
+        Node Q(hq, kR0dLocal, a.crypto ? idM.key_hash32 : 0x0000AAA1u);   // are equal and the wrapper bytes compare
+        r0d_make_mobile(Q, /*collide=*/false);
+        if (a.crypto)   Q.set_crypto_identity(idM.x_secret, idM.ed_pub);
+        if (a.peer_key) CHECK(Q.peer_key_set(idX.key_hash32, idX.ed_pub, Node::PeerKeyConf::authoritative));
+        r0d_check_collision_premise(Q, /*collide=*/false);
+        // ★ THE EQUIVALENCE, at the ONE predicate the arm's plane resolves through: with no collision the two
+        //   planes are the SAME decision, so 0d cannot have moved a single byte of this wrapper.
+        CHECK(Q.flight_is_team_plane(Plane::AUTO, kR0dHome) == Q.flight_is_team_plane(Plane::GLOBAL, kR0dHome));
+        Q.test_suspend_tx_drain(true);
+        (void)DualLayerTestAccess::send_by_hash_intent(Q, tgt, msg, 4, a.ci);
+        CHECK(Q.test_tx_queue_n() == 1);
+        if (Q.test_tx_queue_n() != 1) continue;
+        CHECK(Q.test_tx_type(0)  == DATA_TYPE_MOBILE_SEND);
+        CHECK(Q.test_tx_dst(0)   == kR0dHome);
+        CHECK(Q.test_tx_origin(0)== kR0dHome);
+        CHECK(Q.test_tx_addr_len(0) == 0);
+        CHECK(DualLayerTestAccess::tx_plane(Q, 0) == Plane::GLOBAL);
+        uint8_t ql = 0; const uint8_t* qi = Q.test_tx_inner(0, ql);
+        const std::vector<uint8_t> queued(qi, qi + ql);
+        const uint8_t qflags = Q.test_tx_flags(0);
+        // (ii) the same fixture allowed to fly: same bytes, and the route is the home leg
+        R0dHal hf;
+        Node F(hf, kR0dLocal, a.crypto ? idM.key_hash32 : 0x0000AAA1u);
+        r0d_make_mobile(F, /*collide=*/false);
+        if (a.crypto)   F.set_crypto_identity(idM.x_secret, idM.ed_pub);
+        if (a.peer_key) CHECK(F.peer_key_set(idX.key_hash32, idX.ed_pub, Node::PeerKeyConf::authoritative));
+        (void)DualLayerTestAccess::send_by_hash_intent(F, tgt, msg, 4, a.ci);
+        const PendingTx* pt = DualLayerTestAccess::pending(F);
+        CHECK(pt != nullptr);
+        if (!pt) continue;
+        CHECK(pt->flags == qflags);
+        CHECK(std::vector<uint8_t>(pt->inner, pt->inner + pt->inner_len) == queued);   // ★ the wrapper bytes, whole
+        CHECK(pt->next == kR0dHome);
+        CHECK(DualLayerTestAccess::rts_marks(F, *pt).team_src == false);
+        CHECK(DualLayerTestAccess::rts_marks(F, *pt).addr_len == 0);
+    }
+}
+
+// -------- THE TWO PINS THE BRIEF NAMES: the enqueue guard and the origin stamp -------------------------
+// ★ `enqueue_data`'s mobile/no-home E2E guard (node_mac.cpp) reads
+//     `app_dm && E2E_ACK_REQ && is_mobile && !flight_is_team_plane(plane,dst)
+//      && !(_my_mobile_reg.active && home_id != 0 && home_id != _node_id)`.
+//   For a REGISTERED mobile with a real home the LAST conjunct is false, so the plane term cannot decide it
+//   and 0d cannot newly refuse anything here — under collision or not, with or without E2E_ACK_REQ.
+TEST_CASE("§RADMIN-0d/5 the registered-mobile enqueue guard and origin stamp are UNMOVED by the plane change") {
+    for (bool collide : { false, true }) {
+        CAPTURE(collide);
+        StubHal hal; Node M(hal, kR0dLocal, 0x0000AAA1u);
+        r0d_make_mobile(M, collide);
+        r0d_check_collision_premise(M, collide);
+        const uint8_t msg[4] = { 'p','i','n','g' };
+        // E2E_ACK_REQ set => the guard's first three conjuncts are all TRUE; only the last one answers.
+        (void)DualLayerTestAccess::send_by_hash_deleg(M, kR0dTarget, msg, 4, DATA_FLAG_E2E_ACK_REQ,
+                                                      /*reply_to_hash=*/0, /*mobile_ctr=*/0, /*type=*/0);
+        CHECK_FALSE(hal.saw_emit("send_failed"));     // ★ the guard did NOT fire on either plane
+        const PendingTx* pt = DualLayerTestAccess::pending(M);
+        CHECK(pt != nullptr);                          // ★ the wrapper really flew
+        if (!pt) continue;
+        CHECK(pt->plane      == Plane::GLOBAL);
+        CHECK(pt->origin     == kR0dHome);             // ★ stamp_origin still the HOME id ...
+        CHECK(pt->mobile_src == true);                 // ★ ... with mobile_src, exactly as before 0d
+        CHECK((pt->flags & DATA_FLAG_E2E_ACK_REQ) != 0);
+    }
+}
+
+// -------- ARM 4 of 4: the CACHED-HOME send, and its formerly vulnerable caller -------------------------
+// ★★★ THE ARM THE THREE ABOVE DO NOT COVER (owner decision D-0d-1). Its sender is anyone who is NOT a
+//     registered mobile — including an UNREGISTERED (off-grid) team mobile, which has the SAME collision
+//     exposure. Because this sender is not homed, `issue_send` takes `pick_next_cascade_hop`, so this is
+//     also the case that proves the hop comes out of the STATIC `_rt` and never `_rt_team`.
+TEST_CASE("§RADMIN-0d/6 arm 4 (cached home) — an UNREGISTERED team mobile routes to the target's home on _rt, not to a colliding teammate") {
+    for (bool collide : { false, true }) {
+        CAPTURE(collide);
+        StubHal hal; Node U(hal, /*id=*/kR0dTeamSelf, 0x0000BBB1u);   // off-grid: node_id IS the team local id
+        NodeConfig cfg = r0d_cfg();
+        CHECK(U.on_init(cfg));
+        U.set_team_local_id(kR0dTeamSelf);
+        CHECK_FALSE(U.mobile_registered());                            // ⛔ the premise: NOT a registered mobile
+        U.mobile_home_set(kR0dTarget, /*home_id=*/kR0dHome, /*epoch=*/1, /*home_layer=*/0);   // the TARGET's cached home
+        U.test_learn_route(kR0dTeamHop, kR0dTeamHop, 1, 40, /*team_plane=*/true);
+        if (collide) U.test_learn_route(kR0dHome, kR0dTeamHop, 2, 40, /*team_plane=*/true);   // ★ the colliding teammate
+        U.test_learn_route(kR0dHome, kR0dStaticHop, 2, 40, /*team_plane=*/false);             // the STATIC route to the home
+        CHECK(DualLayerTestAccess::is_team_peer(U, kR0dHome) == collide);
+        CHECK(U.flight_is_team_plane(Plane::AUTO,   kR0dHome) == collide);
+        CHECK(U.flight_is_team_plane(Plane::GLOBAL, kR0dHome) == false);
+        const uint8_t msg[4] = { 'p','i','n','g' };
+        (void)DualLayerTestAccess::send_by_hash_intent(U, kR0dTarget, msg, 4, CryptIntent::off);
+        const PendingTx* pt = DualLayerTestAccess::pending(U);
+        CHECK(pt != nullptr);
+        if (!pt) continue;
+        CHECK(pt->dst   == kR0dHome);                       // to the TARGET's home ...
+        CHECK(pt->plane == Plane::GLOBAL);                  // ★ explicitly global (was AUTO)
+        CHECK(pt->next  == kR0dStaticHop);                  // ★ the hop came out of the STATIC _rt ...
+        CHECK(pt->next  != kR0dTeamHop);                    // ★ ... never out of _rt_team
+        CHECK(DualLayerTestAccess::rts_marks(U, *pt).team_src == false);   // ★ a static RTS, src == _node_id
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) CHECK(ui->dst_key_hash32 == kR0dTarget);    // the home last-miles it to the target mobile (unchanged)
+    }
+}
+
+// ★★ THE ONE OUTCOME 0d GENUINELY MOVES, MEASURED RATHER THAN HIDDEN. Arm 4's unregistered-mobile sender is
+//    the FIRST real internal producer to reach the `enqueue_data` truth table's one delta cell
+//    (`GLOBAL + is_team_peer(dst)`, node_mac.cpp). With E2E_ACK_REQ the guard now refuses the COLLIDING send —
+//    which is exactly what it already did for the NON-colliding twin, because this sender has no routable
+//    home and its E2E ack can never return. 0d makes the two agree instead of admitting a mis-routed DM.
+TEST_CASE("§RADMIN-0d/7 arm 4's E2E guard — a colliding unregistered-mobile send is now refused LOUD, exactly like its non-colliding twin") {
+    for (bool collide : { false, true }) {
+        CAPTURE(collide);
+        StubHal hal; Node U(hal, kR0dTeamSelf, 0x0000BBB1u);
+        CHECK(U.on_init(r0d_cfg()));
+        U.set_team_local_id(kR0dTeamSelf);
+        U.mobile_home_set(kR0dTarget, kR0dHome, 1, 0);
+        U.test_learn_route(kR0dTeamHop, kR0dTeamHop, 1, 40, /*team_plane=*/true);
+        if (collide) U.test_learn_route(kR0dHome, kR0dTeamHop, 2, 40, /*team_plane=*/true);
+        U.test_learn_route(kR0dHome, kR0dStaticHop, 2, 40, /*team_plane=*/false);
+        const uint8_t msg[4] = { 'p','i','n','g' };
+        (void)DualLayerTestAccess::send_by_hash_deleg(U, kR0dTarget, msg, 4, DATA_FLAG_E2E_ACK_REQ,
+                                                      /*reply_to_hash=*/0, /*mobile_ctr=*/0, /*type=*/0);
+        CHECK(hal.saw_emit("send_failed"));                       // ★ refused LOUD on BOTH arms now
+        CHECK(DualLayerTestAccess::pending(U) == nullptr);        // ★ and nothing was aired
+    }
+}
+
+// -------- THE REAL HOME RECEIVES AND UNWRAPS THE WRAPPER THE MOBILE PRODUCED ---------------------------
+// ★ The routing assertions above stop at the mobile's own MAC. This closes the loop through the PRODUCTION
+//   receive path (`do_post_ack`): the wrapper the colliding mobile aired is handed to the real home, which
+//   strips it and re-originates to the target under its own identity.
+TEST_CASE("§RADMIN-0d/8 end to end — the colliding mobile's wrapper reaches the real home, which unwraps and re-originates it") {
+    StubHal hm; Node M(hm, kR0dLocal, 0x00C0FFEEu);
+    r0d_make_mobile(M, /*collide=*/true);
+    const uint8_t msg[1] = { 0xAB };
+    (void)DualLayerTestAccess::send_by_hash_intent(M, kR0dTarget, msg, 1, CryptIntent::off);
+    const PendingTx* pt = DualLayerTestAccess::pending(M);
+    CHECK(pt != nullptr);
+    if (!pt) return;
+    CHECK(pt->dst == kR0dHome);                      // ⛔ the premise: it went to the HOME, not to teammate 77
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK(ui->has_dst_hash);
+    CHECK(ui->dst_key_hash32 == kR0dTarget);
+    CHECK(ui->source_hash    == 0x00C0FFEEu);        // the MOBILE's stable hash (the reply's return address)
+    // ...and now the real home, hosting M, receives exactly those wrapper fields through do_post_ack.
+    StubHal hh; Node H(hh, kR0dHome, kR0dHomeHash);
+    NodeConfig hc; hc.routing_sf = 8; hc.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); hc.leaf_id = 4;
+    CHECK(H.on_init(hc));
+    DualLayerTestAccess::store_mobile(H, /*M*/0x00C0FFEEu, kR0dLocal);            // the home hosts M
+    DualLayerTestAccess::bind_authoritative(H, /*target id*/70, kR0dTarget);       // ...and knows the target
+    DualLayerTestAccess::learn_neighbor(H, 70);                                    // ...1 hop away, so it resolves now
+    DualLayerTestAccess::drive_post_ack_mobile_send(H, /*M*/ui->source_hash, /*X*/ui->dst_key_hash32,
+                                                    /*ctr_M*/pt->ctr, /*body*/0xAB);
+    const PendingTx* hp = DualLayerTestAccess::pending(H);
+    CHECK(hp != nullptr);                                                          // ★ the home re-originated
+    if (hp) {
+        CHECK(hp->dst == 70);                                                      // ★ ...to the real target
+        CHECK((hp->flags & DATA_FLAG_SOURCE_HASH) != 0);                           // ★ carrying M's return identity
+    }
 }
