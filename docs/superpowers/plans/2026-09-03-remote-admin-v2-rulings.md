@@ -439,3 +439,30 @@ Consequences: R-RA-14's "one universal cap" reads as "one validator, three named
 "That universal value cannot exceed the smallest accepted command carrier, so it necessarily shortens the current
 1024-byte USB command surface" is WITHDRAWN (USB local lines are not shortened); the companion contract states the
 BLE line capacity after 0f. Slice **0f — BLE line capacity** is added to §19 after 0c and before Slice 6.
+
+**Author verification correction before the 0f brief (2026-09-04; numeric ruling unchanged):** “longest
+syntactically legal local line” is not literally finite in the current parser: `skip_ws` accepts repeated
+whitespace, `parse_send_tail` accepts repeated option tokens, and the BLE console fallback can offer the debug
+`testsend` grammar whose schedule list is intentionally USB-buffer-sized. The ruled 272/273 derivation therefore
+means the **longest canonical product line required here**: the normal `send` spelling with each distinct accepted
+option at most once and a full 239-byte DM body. It also covers the canonical v2 `remote` spelling. Non-canonical
+padding/repeated options and USB-oriented diagnostic workloads do not gain an unbounded BLE promise; they meet the
+explicit 272-byte BLE line boundary and refuse loudly above it. This correction prevents a false universal claim
+without changing the owner's capacity, DM-body, or remote-tail choices.
+
+**R-RA-24′ bound 2 — SECOND same-day correction, OWNER-RULED 2026-09-04 (policy B; supersedes the 273 figure above,
+kept visible):** the 0f coder's producer census (evidence `docs/superpowers/evidence/2026-09-04-radmin-0f.md` §2,
+STOP 2) measured, on the real parser + `pack_unicast_inner`, that the ruling's own sentence ("every legal
+`send`/`send_channel`/`send_layer` line … fit") was never honoured by the derivation: `send_layer` is a product verb
+(operator help, BLE-reachable, no `MR_FEAT_*`) whose longest line that can SUCCEED is
+`send_layer 0xffffffff 255,255,255 "<226>" -a -e -K -l` = **274** (226 = the measured cross-layer-by-hash body cap at
+depth 4, the deepest legal path; each hop dropped saves 4 chars but frees only 1 body byte, so depth 4 is the
+maximum). QA owns the miss: the 269→272 `-K` correction re-enumerated `send`'s flags and again never priced
+`send_layer`. **Owner:** *"Agree - go with B."* ⇒ **policy B: the BLE line storage admits every canonical product
+line that can succeed = 274 + NUL = 275 bytes** (nRF52 `.bss` +115 B, ruled-pair measured). Policy A (288: also
+admit lines that only reach a named semantic refusal) is REJECTED — both refusals are loud and named, and A buys a
+different wording for `send_layer` bodies that can never be sent at any depth. Consequences: the derived
+expression keeps `send_layer` as a first-class term (`gw_env_max_hops`, the depth-4 carrier cap, its flag set) so a
+change moves the buffer automatically; 240/241-byte `send` bodies (273/274-byte lines) now reach the Node's
+`err_too_large` over BLE, which resolves the brief's 0f-3 contradiction; B288 (Author) records the derivation
+defect; the 0f brief is re-issued around 275; design §12/§19 and the companion contract state 275.

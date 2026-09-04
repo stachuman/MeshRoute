@@ -1002,18 +1002,34 @@ The exact type layout is an implementation decision, but these semantics are req
   state;
 - local serial/BLE behaviour remains unchanged unless a separately reviewed command correction is needed.
 
-Command bytes pass one shared validator before local or remote dispatch. It rejects embedded NUL, CR, and LF,
-and enforces one named `common_command_max_bytes` limit for USB, secured BLE, authenticated RPC, and open RPC;
-there is no more-permissive remote parser. The preparatory characterization must derive that value against the
-current 1024-byte USB input, 160-byte BLE input, carrier-specific RPC caps, and existing command corpus before
-implementation freezes it. Every path tests the boundary and cap-plus-one, and a rejection is explicit rather
-than truncation or newline splitting. Response/transcript limits remain separate.
+Command bytes pass one shared validator before local or remote dispatch. It rejects embedded NUL, CR, and LF
+and takes the applicable named bound as an argument; there is no second, more-permissive remote parser.
+⚠ **CORRECTED 2026-09-04 by R-RA-24′; superseded claim kept visible:** this paragraph formerly required one
+`common_command_max_bytes` literal across the USB line, BLE line, DM body and remote RPC tail, and the next
+paragraph said that the universal value necessarily shortened the 1024-byte USB surface. That mixed three
+different boundaries and would have made a full 239-byte local DM impossible. The current authorities are:
 
-That universal value cannot exceed the smallest accepted command carrier, so it necessarily shortens the
-current 1024-byte USB command surface: even the current registered-mobile example permits only 206 command
-bytes, and a measured cross-layer carrier may lower the common value further. The characterization must
-report the exact `1024 → common_command_max_bytes` change and obtain the capacity ruling knowingly; it may
-not hide the product change behind “common”. In command syntax, `-e` remains optional for ordinary `send`,
+1. `dm_max_body_bytes == 239` remains the normal-DM BODY authority;
+2. `console_line_max_bytes` is per transport: USB remains 1024 bytes including NUL, while Slice 0f derives the
+   BLE storage from the longest canonical product line this ruling must carry. The binding grammar is
+   `send 0xffffffff "<239>" -a -e -t -K -l` = 272 bytes, hence 273 bytes including NUL. This is a derivation,
+   never a bare 273; and
+3. `remote_command_max_bytes` counts only the exact command TAIL after `--`. It is derived from the smallest
+   authenticated v2 carrier: 226 available request bytes minus the 25-byte authenticated request envelope =
+   201 bytes today.
+
+Every path tests its own boundary and cap-plus-one, and rejection is explicit rather than truncation or newline
+splitting. The one validator owns NUL/CR/LF rejection and the supplied bound; three named bounds do not justify
+three validators. Response/transcript limits remain separate. A full local DM remains usable over USB and BLE,
+while a remotely executed command is honestly bounded by its radio carrier.
+
+⚠ **AUTHOR VERIFICATION CORRECTION 2026-09-04:** the earlier phrase “longest syntactically legal local line” is
+withdrawn. The permissive parser accepts repeated whitespace/options, and the debug `testsend` schedule can be
+USB-buffer-sized, so no finite maximum follows from syntax alone. The 272-byte authority is the canonical normal
+`send` spelling with each distinct option once and a full DM body; above-bound non-canonical/debug lines refuse
+loudly on BLE. The withdrawn “USB must shorten” conclusion therefore does not apply. The BLE buffer must instead grow from
+160 to the derived 273 bytes in Slice 0f; the longest legal remote line also fits because its wrapper is at most
+60 bytes and `60 + 201 + 1 == 262`. In command syntax, `-e` remains optional for ordinary `send`,
 where it overrides the configured encryption default, but R-RA-18 makes it mandatory on authenticated
 `remote`. The manual and help must state that difference, and `remote open -e` or `remote` with neither
 security statement refuses.
@@ -1035,6 +1051,13 @@ not a hand-written table, owns completeness and makes an added/removed verb or s
 the generated inventory exists, the owner assigns exactly one minimum authority to every row in a separate
 ruling; code generation does not guess policy from names. The implementation gate fails on an unclassified
 or multiply classified row.
+
+R-RA-21 now fixes that classification policy in §12.1, but the first 177-row 0e rendering is not yet the
+ratified authority table: it renders two different `peers` parser decisions as indistinguishable duplicate rows
+in both `dispatch` and `ble_dispatch_line`. Its correction must merge a true duplicate or expose the semantic
+discriminator, then prove every target-applicable semantic command/subcommand appears exactly once with exactly
+one authority. Controller-only wrappers and physical trust-store operations remain local surfaces; presence in
+the inventory never makes them recursively remote-dispatchable.
 
 ### 12.1 Three authority levels
 
@@ -1121,7 +1144,8 @@ remote_scheduled_reply_path_budget_ms(cfg) =
   + airtime_ms(ACK at cfg PHY)
   + cts_to_data_gap_ms
   + rts_max_retries * rts_busy_retry_ms
-  + MAC CTS-wait window at cfg PHY     (production authority named by Slice 0e)
+  + MAC CTS-wait windows for every RTS attempt at cfg PHY
+                                        (production authority `start_rts_timeout()` named by Slice 0e)
   + MAC ACK-wait window at cfg PHY     (production authority named by Slice 0e)
   + cascade_requeue_base_ms
 ```
@@ -1129,10 +1153,14 @@ remote_scheduled_reply_path_budget_ms(cfg) =
 `cts_to_data_gap_ms` is 5 ms (`lib/core/protocol_constants.h:133`), the busy term is
 `2 * 30 ms` (`rts_max_retries` at `:135`, `rts_busy_retry_ms` at `:134`), and
 `cascade_requeue_base_ms` is 5 s (`:273`). The final term prices exactly one first requeue; it is not the
-30-second cascade backoff cap and not `send_defer_ttl_ms`. Slice 0e must name the production CTS-wait and
-ACK-wait authorities, derive the terminal DATA length through the actual packer, independently recompute
-every airtime term with `airtime_ms()` (`lib/core/airtime.h`), and publish the first concrete budget/default
-values. Slice 7a—not
+30-second cascade backoff cap and not `send_defer_ttl_ms`. Slice 0e names `start_rts_timeout()` and
+`start_ack_timeout()` as the production wait authorities, derives the terminal DATA length through the actual
+packer, and independently recomputes every airtime term with `airtime_ms()` (`lib/core/airtime.h`).
+⚠ **R-RA-23, 2026-09-04:** the CTS term sums attempts 0, 1 and 2. The discarded interpretation counted only the
+largest final-attempt window and produced 6,506/13,012 ms. At the characterized default PHY with host slop zero,
+the complete sum is **7,006 ms floor / 14,012 ms default**. Production values remain derived from configured PHY
+and include configured RX-window slop at every occurrence; these two numbers are a reference vector, never
+production literals. Slice 7a—not
 Slice 0e—owns the production `remote_scheduled_reply_path_budget_ms(cfg)` authority and its persisted cfg
 consumer.
 
@@ -1349,18 +1377,28 @@ open diagnostic may receive a clear refusal, but it never bypasses the shared bo
 Before production state lands, the controller pending/session/result records and target
 seen/transcript/ingress records are written as candidate value types and measured through
 `tools/probe_board_abi.py` on host, ARM (`gateway`) and Xtensa (`heltec_mobile`). The characterization reports
-each `sizeof`/alignment, aggregate cap cost, remaining board RAM, and timer cost. Exact capacities are then an
-owner ruling; they are not guessed or silently reduced to fit. The current gateway measurement is already
-about 83% RAM and `TimerWheel::kCap == 91` has no free ID, so expiry work must explicitly choose and measure a
-cap increase or a shared scan timer.
+each `sizeof`/alignment, aggregate cap cost, remaining board RAM, and timer cost. Exact capacities are an owner
+ruling; they are not guessed or silently reduced to fit.
 
-The resource partition rule is fixed even though its numbers await that measurement: open/bootstrap traffic
-has a bounded peer-local admission (provisionally no more than one open response in flight per peer), and at
-least one authenticated owner/control slot is reserved where open traffic cannot take it. Open work may
-neither starve authenticated recovery nor consume transcript state already promised to an authenticated
-request. The measurement slice replaces the provisional quantities with exact reviewed numbers and attacks
-both starvation directions. A full retained BLE result causes loud local backpressure; it is not an excuse
-to acknowledge the target early or discard an older result.
+⚠ **R-RA-22, 2026-09-04; the earlier “numbers await measurement” state is withdrawn:** the mobile/client profile
+owns 4 inline pending requests, 4 session entries, 2 response-assembly headers, 8 response chunks, 2 retained-
+result headers and 8 ACK-debt entries: **4,272 candidate bytes**. Inline sealed requests are chosen; there is no
+separate sealed-request pool. The managed static/gateway profile owns 16 seen-request rows, 4 transcript
+headers, 8 transcript chunks, 2 ingress-operation headers, 2 ingress-body slots, 4 open/bootstrap staging rows
+and 2 deferred-action rows: **2,968 candidate bytes**. Product-role exclusivity means no board pays both totals.
+The production RAM deltas must be measured and attributed independently; these candidate totals do not excuse
+padding, ownership or auxiliary-state drift.
+
+The two authenticated ingress rows are partitioned so at least one remains available to owner/control work.
+The four open/bootstrap staging rows permit at most one open response per peer. Neither class borrows the
+other's reserved admission/transcript state, and tests attack starvation in both directions. A full retained
+BLE result causes loud local backpressure; it is not an excuse to acknowledge the target early or discard an
+older result.
+
+Expiry uses one shared earliest-deadline scan. `TimerWheel::kCap` grows exactly once, 91 → 92, which the 0e
+faithful mirror measures as +8 bytes on all three ABIs. No record class receives a private timer ID. The scan
+walks the bounded records resident in the current product profile and re-arms to the true earliest deadline;
+exact-edge expiry and re-arm behavior are mutation-pinned.
 
 ## 16. End-to-end flow
 
@@ -1494,7 +1532,7 @@ The complete design does not provide:
 
 ## 19. Proposed review/implementation slices (not yet authorized)
 
-0. **Pre-feature phase — five independent slices, each with its own brief, gate and commit:**
+0. **Pre-feature phase — six independent slices, each with its own brief, gate and commit:**
 
    - **0a:** complete B208's bounded help-topic split;
    - **0b:** fix B279's source-confirmed `regen` supplied-sink defect;
@@ -1531,7 +1569,15 @@ The complete design does not provide:
      source-derived activation budget. Its owner classification/capacity/timer choices remain separate rulings;
      the unconditional outer-`CRYPTED` claim is corrected in §8.11. The coder-owned evidence and instruments were
      produced in the isolated 0e worktree and must be integrated from that worktree as one exact package before
-     any later brief consumes them.
+     any later brief consumes them; and
+   - **0f, BLE line capacity:** implement only R-RA-24′ bound 2. Replace `device_ble.h`'s 160-byte inbound line
+     buffer with one source-derived capacity that admits the longest canonical product line required by the ruling
+     (the earlier “longest syntactically legal” claim is withdrawn because whitespace/options can repeat):
+     `send 0xffffffff "<239>" -a -e -t -K -l` = 272 bytes, hence 273 bytes including NUL. Pin that the longest
+     legal remote wrapper plus its 201-byte tail also fits. Preserve the byte-at-a-time newline intake, loud
+     overflow refusal and USB behavior. A host wiring probe must execute the real BLE intake under several ATT
+     chunkings; native tests own parser/command-path boundaries; the ruled pair attributes the nRF52-only RAM
+     change. This capacity behavior change is not folded into 0c's dispatcher refactor.
 
    Do not combine any of these fixes/refactors with each other or with remote execution (C1).
 1. **Feature-boundary scaffold:** add
@@ -1633,6 +1679,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
 | 0d | ✅ landed: four home-bound arms, `lib/core/node_hashlocate.cpp` | predicted 0 movers; measured 36/36 byte-identical; no re-anchor; ruled pair RAM +0 | none |
 | 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
+| 0f | BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | 36/36 unchanged; gateway RAM attributed, heltec byte-identical | **Part 61:** 272-byte line over real BLE under multiple write chunkings; 273-byte line refuses loudly |
 | 1 | `lib/core/mr_features.h` plus legacy compile owners | 36/36 unchanged; both endpoint-disabled builds and ruled pair | none |
 | 1b | capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp` | prediction-first 36/36 identity; four role-by-type native arms; ruled pair | none |
 | 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |
@@ -1869,8 +1916,10 @@ The following product decisions are no longer open:
 41. **R-RA-13:** every v2 request and response carrier contains mandatory clear-inner `SOURCE_HASH` through
     the `send_by_hash` / `do_send` `app_dm=true` path. The field is AEAD-bound and the surrounding RPC body is
     encrypted; the legacy hash-less helpers are deleted.
-42. **R-RA-14:** `common_command_max_bytes` and its shared validator are universal across USB, secured BLE and
-    RPC. The legacy 56/63-byte silent truncation is a defect to remove, not compatibility evidence or a cap.
+42. **R-RA-14, superseded in its one-literal reading by R-RA-24′:** command validation is shared across USB,
+    secured BLE and RPC. The legacy 56/63-byte silent truncation is a defect to remove, not compatibility
+    evidence or a cap. The validator takes the applicable named boundary rather than conflating line, DM-body
+    and remote-tail capacity.
 43. **R-RA-15:** the carrier E2E ACK is optional per RPC request and defaults off. The local wrapper reuses
     `-a` for it (`-e` remains encryption). Without it the response is receipt and no B278 row/feedback exists;
     with it, the request pays one return flight and one of eight shared correlation rows for up to 300 s.
@@ -1890,10 +1939,22 @@ The following product decisions are no longer open:
     for RTS/CTS/maximum scheduled-terminal DATA/ACK, the CTS→DATA gap, bounded busy retry, MAC CTS/ACK waits,
     and one 5-second first requeue. The floor is one budget, the owner's default is twice it, and the ceiling
     remains one millisecond below the 300-second outer bound.
+49. **R-RA-21:** the generated semantic command table is classified once under §12.1's open/operator/owner/
+    physical policy. The indistinguishable duplicate `peers` rows in the first 0e rendering must be merged or
+    disambiguated before that table can be ratified; missing, duplicate and unclassified rows fail the gate.
+50. **R-RA-22:** the client and accept profiles use the exact bounded row counts and inline-request choice in
+    §15, with owner/control admission isolated from open/bootstrap pressure. Expiry uses one shared earliest-
+    deadline scan and grows `TimerWheel::kCap` only from 91 to 92.
+51. **R-RA-23:** the first-hop budget sums CTS-wait windows for every RTS attempt. The characterized zero-slop
+    reference is 7,006 ms floor / 14,012 ms default; production remains cfg/PHY/slop-derived.
+52. **R-RA-24′:** three named bounds replace R-RA-24's incorrect universal literal: DM body 239; transport line
+    storage derived per transport (USB 1024 including NUL, BLE 273 including NUL after Slice 0f); and remote
+    command tail 201 from the smallest authenticated carrier. One validator enforces the supplied boundary and
+    NUL/CR/LF policy.
 
 ### 20.2 Derived artefacts and later measurement rulings
 
-The owner-decision list through round 2 is closed by R-RA-1..R-RA-20. What remains before the relevant
+The owner-decision list through the post-0e rulings is closed by R-RA-1..R-RA-24′. What remains before the relevant
 implementation slices may land is evidence and generated authority, not permission to reopen those product
 choices:
 
@@ -1908,8 +1969,9 @@ choices:
   `2^16`-request random-64 collision calculation and nonce-separation controls (R-RA-4/R-RA-5);
 - specify and ABI-measure the exact versioned `/mracl`, `/mrmkeys`, `/mradmid`, and `/mrtargets` records in the
   fixed-slot transaction idiom, followed later by the separate main-NV cleanup slice (R-RA-6);
-- derive `common_command_max_bytes` from the characterized USB, BLE and carrier boundaries, then pin identical
-  NUL/CR/LF and length rejection at every dispatcher entry (R-RA-7);
+- implement the three R-RA-24′ boundaries without conflating them: Slice 0f derives and pins BLE line storage;
+  Slice 2 derives `remote_command_max_bytes` from `remote_body_cap(carrier)`; Slice 6 lands the one validator
+  with the supplied bound and identical NUL/CR/LF rejection at every applicable dispatcher entry (R-RA-7);
 - derive `remote_scheduled_reply_path_budget_ms(cfg)` term-by-term from the exact §13 first-hop formula,
   including the named MAC CTS/ACK windows and one first-price requeue; prove that the current
   default/floor/ceiling interval is feasible, then land the production authority and configurable field in
@@ -1923,5 +1985,5 @@ choices:
 None of those derived artefacts changes the settled independent-request model, three-level authority,
 mobile-only client/static-gateway-only accept split, node-owned key/crypto boundary, four-store trust split,
 legacy removal, random 64-bit request identity, optional-default-off carrier ACK, static-only home invariant,
-mandatory source hash, universal command validator, authenticated-remote `-e` requirement, capability-owned
+mandatory source hash, one parameterized command validator, authenticated-remote `-e` requirement, capability-owned
 pre-tail handlers, or carrier-specific first-hop budget rule.
