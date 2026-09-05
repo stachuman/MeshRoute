@@ -57,6 +57,11 @@ trap 'rm -rf "$OUT"' EXIT
 FW_CMDS="$ROOT/src/firmware_commands.cpp"   # THE ROUTER   — controls C1/C2 mutate this
 FW_INBOX="$ROOT/src/firmware_inbox.cpp"     # THE HANDLER  — controls C3/C4 mutate this
 FW_ACK="$ROOT/lib/console/console_json.h"   # the verdict -> lexeme mapping — control C5 mutates this
+# §RADMIN-0b / [[B279]] — the files the `regen` supplied-sink half is asserted over.
+FW_CMDS_H="$ROOT/src/firmware_commands.h"   # the ONE exported print_identity(..., Print&) declaration
+LINE_SINK="$ROOT/src/dispatch_sink.h"       # the PRODUCTION LineSink the BLE arm ships through — control C11
+FAKE_PREFS="$HERE/fakes/Preferences.h"      # the probe-local NV medium — controls C12/C13 make it LIE
+FAKE_RNG="$HERE/fakes/esp_random.h"         # the probe-local deterministic entropy stream
 
 DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
 INCS=(-I"$HERE/fakes" -I"$ROOT/tools/probe_board_ui/fakes" -I"$ROOT/tools/probe_device_radio/fakes"
@@ -86,8 +91,25 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #     W10 del_msg 1 · W10b mark_read 1 · W10c pull_inbox 1
 #     2+4+7+8+4+2+3+4+2+3 = 39. ✓
 # PIN_CONTROLS = 8: the [[B237]] control-of-the-controls + C1..C7.
-PIN_CHECKS=39
-PIN_CONTROLS=8
+#
+# ★★ §RADMIN-0b / [[B279]] RE-PIN: 39 -> 71 checks, 8 -> 14 controls. The R block adds THIRTY-TWO checks, counted
+#    from the clean probe's own `  ok  ` lines and derived here so a deleted one is visible:
+#      R1..R8   the /mrid SAVE FAILURE on the BLE-shaped sink   8  (owned · exact error bytes · no USB leak ·
+#               no success prefix · identity unchanged · no crypto install · exactly one refused write ·
+#               the record retained byte-for-byte)
+#      R9..R10  the same failure on `mrcon`                     2  (byte-identical on USB · BLE stayed empty)
+#      R11..R22 the SUCCESS on the BLE-shaped sink             12  (owned · exact success bytes · no USB leak ·
+#               8 UPPERCASE hex · g_identity · node routing id · crypto_ready · one write · magic/version ·
+#               fresh seed · name preserved · the medium retained exactly what production wrote)
+#      R23..R24 the SUCCESS on `mrcon`                          2  (byte-identical to the BLE arm · BLE empty)
+#      R25..R26 the optional-name boundary                      2  (no name · a MAXIMUM 32-B name)
+#      R27..R30 the router boundary                             4  (`regen `, `regenerate`, `REGEN`, `rege`)
+#      R31..R32 the BOOT formatter in its production shape      2  (exact banner bytes through `mrcon` · BLE empty)
+#      8+2+12+2+2+4+2 = 32.  39 + 32 = 71. ✓
+#    PIN_CONTROLS = 14 = the [[B237]] control-of-the-controls + C1..C7 (the §CUSTODY-D seven) + C8..C13 (the six
+#    §0b ones: three production sink-restorations, one never-shipping LineSink, two DISHONEST storage fakes).
+PIN_CHECKS=71
+PIN_CONTROLS=14
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -96,7 +118,8 @@ PIN_CONTROLS=8
 md5_sources() {
   cat "$FW_CMDS" "$FW_INBOX" "$FW_ACK" "$HERE/probe_main.cpp" \
       "$ROOT/tools/probe_board_ui/fakes/Arduino.h" "$ROOT/tools/probe_device_radio/fakes/RadioLib.h" \
-      "$ROOT/src/firmware_config_parse.h" "$ROOT/lib/core/inbox.h" | md5sum | cut -d' ' -f1
+      "$ROOT/src/firmware_config_parse.h" "$ROOT/lib/core/inbox.h" \
+      "$FW_CMDS_H" "$LINE_SINK" "$FAKE_PREFS" "$FAKE_RNG" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -132,14 +155,17 @@ build_support() {
   return 0
 }
 
-# build_variant <router.cpp> <handler.cpp> <ack.h-dir-or-empty> <out-binary>
+# build_variant <router.cpp> <handler.cpp> <shadow-include-dir-or-empty> <out-binary>
 # ⛔ The two production TUs are passed as PATHS so a control can hand in a MUTATED COPY of either without the probe
-#   ever writing to the repository. A mutated `console_json.h` is handed in as an include DIR that shadows the real
-#   one — same principle, applied to a header.
+#   ever writing to the repository. A mutated HEADER is handed in as an include DIR that shadows the real one —
+#   same principle, applied to a header, and §0b generalised the parameter from "the ack dir" to "the shadow dir"
+#   because there are now THREE headers a control shadows: `console_json.h` (C5), `dispatch_sink.h` (C11) and the
+#   probe's own `fakes/Preferences.h` (C12/C13). The dir is placed FIRST on the include path, ahead of both
+#   `$HERE/fakes` and `$ROOT/src`, so the copy wins for every consumer in the build.
 build_variant() {
-  local router=$1 handler=$2 ackdir=$3 bin=$4
+  local router=$1 handler=$2 shadowdir=$3 bin=$4
   local pre=()
-  [ -n "$ackdir" ] && pre=(-I"$ackdir")
+  [ -n "$shadowdir" ] && pre=(-I"$shadowdir")
   : > "$OUT/build.log"
   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
@@ -184,19 +210,27 @@ classify_control() {   # classify_control <exit-code> <fail-line-count> -> red |
   fi
 }
 
-# ctl <label> <which:router|handler|ack> <sed-script>
+# ctl <label> <which:router|handler|ack|sink|prefs> <sed-script>
+# ⓘ §0b added three SHADOW-HEADER kinds beside `ack`. Each writes ONE mutated copy under $OUT/shadow (wiped first,
+#   so a stale header from a previous control can never join a later build) and hands that dir to build_variant.
 ctl() {
   local label=$1 which=$2 script=$3
-  local router="$FW_CMDS" handler="$FW_INBOX" ackdir=""
+  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir=""
+  shadow_hdr() {   # shadow_hdr <real-header> <basename> -> writes $OUT/shadow/<basename>, sets shadowdir
+    rm -rf "$OUT/shadow"; mkdir -p "$OUT/shadow"
+    sed "$script" "$1" > "$OUT/shadow/$2"; shadowdir="$OUT/shadow"
+    cmp -s "$1" "$OUT/shadow/$2"
+  }
   case "$which" in
     router)  sed "$script" "$FW_CMDS"  > "$OUT/mutant_cmds.cpp";  router="$OUT/mutant_cmds.cpp"
              cmp -s "$FW_CMDS" "$router"  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     handler) sed "$script" "$FW_INBOX" > "$OUT/mutant_inbox.cpp"; handler="$OUT/mutant_inbox.cpp"
              cmp -s "$FW_INBOX" "$handler" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
-    ack)     mkdir -p "$OUT/ackinc"; sed "$script" "$FW_ACK" > "$OUT/ackinc/console_json.h"; ackdir="$OUT/ackinc"
-             cmp -s "$FW_ACK" "$OUT/ackinc/console_json.h" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    ack)     shadow_hdr "$FW_ACK"    console_json.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    sink)    shadow_hdr "$LINE_SINK" dispatch_sink.h && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    prefs)   shadow_hdr "$FAKE_PREFS" Preferences.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
   esac
-  if ! build_variant "$router" "$handler" "$ackdir" "$OUT/mutant.bin"; then
+  if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin"; then
     n_bad=$((n_bad+1))
     printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
@@ -211,7 +245,12 @@ ctl() {
     passes)   n_bad=$((n_bad+1)); printf '  FAIL %s — the probe still PASSES against the mutant (measures nothing)\n' "$label" ;;
     abnormal) n_bad=$((n_bad+1)); printf '  FAIL %s — the mutant DIED (exit %s, %s failure(s)); a crash measures nothing\n' "$label" "$rc_m" "$fails" ;;
     silent)   n_bad=$((n_bad+1)); printf '  FAIL %s — non-zero exit with ZERO named failures; nothing to attribute\n' "$label" ;;
-    red)      n_ctl=$((n_ctl+1)); printf '  ok   %s -> RED (%s check(s) failed)\n' "$label" "$fails" ;;
+    # ⓘ §0b: the failing rows are NAMED, the `tools/probe_ble_line/run.sh` idiom (U3) — "RED (5 failed)" cannot be
+    #   audited against the claim a control makes, and a control that reddens the WRONG rows is a control that
+    #   measures something other than what its label says.
+    red)      n_ctl=$((n_ctl+1))
+              local red_rows; red_rows=$(grep '^  FAIL ' "$OUT/mutant.out" | awk '{print $2}' | tr '\n' ' ')
+              printf '  ok   %s -> RED (%s check(s) failed: %s)\n' "$label" "$fails" "$red_rows" ;;
   esac
 }
 
@@ -270,6 +309,45 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ---- C7: THE ARM ROUTES TO THE WRONG HANDLER — the "insert beside its neighbours" property, attacked directly.
   ctl 'C7  the dispatch arm routes `clear_inbox` to `handle_del_msg` instead' router \
       's/{ handle_clear_inbox(line + 11, len - 11, out); return true; }/{ handle_del_msg(line + 11, out); return true; }/'
+
+  # ============================================================ §RADMIN-0b / [[B279]] — THE SUPPLIED-SINK CONTROLS
+  # ⛔ C8/C9/C10 are the THREE HALVES of the defect, each restored on its own. They are deliberately separate: the
+  #    defect had three independent places where the global console could come back (the dispatch arm, do_regen's
+  #    own two writes, and the shared formatter), and a single combined control would let two of them regress
+  #    unnoticed behind the third.
+
+  # ---- C8: THE ARM DISCARDS ITS SINK AGAIN — [[B279]] exactly as it was found. The USB drive stays green and the
+  #          BLE drive goes EMPTY while `Serial` receives the leak, which is why a USB-only gate never saw it.
+  ctl 'C8  the dispatch arm hands `do_regen` the GLOBAL console instead of its supplied `out` ([[B279]] restored)' router \
+      's|{ do_regen(out); return true; }|{ do_regen(mrcon); return true; }|'
+
+  # ---- C9: do_regen's OWN writes (the success prefix + the nv_save_failed line) go back to the global console,
+  #          while the delegated formatter still honours the sink -> a SPLIT response, the shape a partial fix takes.
+  ctl 'C9  `do_regen`'"'"'s own success/error writes are routed back to `mrcon`' router \
+      '/^static void do_regen(Print& out) {$/,/^}$/ s/\bout\./mrcon./g'
+
+  # ---- C10: the shared FORMATTER goes back to the global console. ★ The boot banner (R31) stays GREEN under this
+  #           mutation — which is the entire reason the BLE-shaped rows had to exist: only they catch it.
+  ctl 'C10 `print_identity`'"'"'s body is routed back to `mrcon` (the identity tail leaks, the prefix does not)' router \
+      '/^void print_identity(const mrnv::IdBlob& idb, Print& out) {$/,/^}$/ s/\bout\./mrcon./g'
+
+  # ---- C11: THE SINK NEVER SHIPS. Proves the BLE rows observe bytes that LEFT the sink through its flush callback,
+  #           not bytes staged inside it. ⓘ BOTH ship paths are neutered on purpose, and that is a MEASURED
+  #           correction to the brief's literal "suppress LineSink::flush()": every `regen` line ends `\r\n` and
+  #           `LineSink::write` ships on '\n' (src/dispatch_sink.h), so suppressing flush() ALONE is provably
+  #           vacuous here — it would be a control that proves nothing, which is the one thing a control may not be.
+  ctl 'C11 the production `LineSink` never ships (neither on newline nor on flush)' sink \
+      's|_flush(_buf, _len); _len = 0; }   // ship on newline|_len = 0; }   // ship on newline|;
+       s|void flush() { if (_len) { _flush(_buf, _len); _len = 0; } }|void flush() { if (_len) { _len = 0; } }|'
+
+  # ---- C12/C13: THE PROBE REFUSES ITS OWN DISHONEST STORAGE INSTRUMENT. A fake that keeps bytes it reported as
+  #               unwritten, or reports a write it never made, would let a broken `regen` read as correct. Each
+  #               switch is flipped in a COPY of the probe's own Preferences fake and must turn the probe RED.
+  ctl 'C12 the NV fake RETAINS the record while reporting the write FAILED (dishonest storage)' prefs \
+      's|bool retain_on_fail = false;|bool retain_on_fail = true;|'
+
+  ctl 'C13 the NV fake reports a SUCCESSFUL write while retaining nothing (dishonest storage)' prefs \
+      's|bool drop_on_ok     = false;|bool drop_on_ok     = true;|'
 fi
 
 MD5_AFTER=$(md5_sources)

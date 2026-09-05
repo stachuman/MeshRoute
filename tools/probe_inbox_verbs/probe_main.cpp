@@ -44,6 +44,12 @@
 #include "identity.h"
 #include "fault_log.h"
 #include "board_rf_provider.h"   // meshroute::board_rf_instance() — the same seam fw_main.cpp:177 passes
+// §RADMIN-0b / [[B279]] — the two SINKS the slice is about, and the two subsystems `regen` moves:
+#include "console_sink.h"        // `mrcon`, the REAL guarded global console — the sink `regen` must NOT choose
+#include "dispatch_sink.h"       // `LineSink`, the PRODUCTION BLE sink (fw_main.cpp:598) — the sink it must USE
+#include "device_nv.h"           // mrnv::IdBlob / load_id / save_id — /mrid, the record `regen` rewrites
+#include "device_rng.h"          // mrrng::fill — the seed draw `regen` makes
+#include <cctype>                // isxdigit (the "8 UPPERCASE hex digits" row, pinned without the format string)
 
 #include <cstdio>
 #include <cstring>
@@ -235,6 +241,72 @@ static void seed_inbox(unsigned n_dm, unsigned n_ch) {
 // ⛔ DRIVE THE ROUTER. Never `handle_clear_inbox` — see the header note.
 static bool route(const char* line) { return mrfw::dispatch(line, std::strlen(line), g_sink); }
 
+// ================================================================================================================
+// §RADMIN-0b / [[B279]] FIXTURES — the SECOND transport, the NV medium's controls and the RNG replay.
+// ⛔ The BLE side is the PRODUCTION `LineSink` over a probe capture — the exact shape `fw_main.cpp`'s
+//    `ble_dispatch_line` uses (`LineSink ls(ble_sink); if (dispatch(line, len, ls)) { ls.flush(); }`). A bespoke
+//    capture would prove the router writes SOMEWHERE; only the real sink proves it writes what BLE would ship.
+// ================================================================================================================
+static char   g_ble[4096] = {};
+static size_t g_ble_n     = 0;
+static void   ble_capture(const char* s, size_t n) {          // stands in for fw_main.cpp's `ble_sink` (mrble::tx_line)
+    for (size_t i = 0; i < n && g_ble_n + 1 < sizeof g_ble; ++i) g_ble[g_ble_n++] = s[i];
+    g_ble[g_ble_n] = '\0';
+}
+static void   ble_reset() { g_ble_n = 0; g_ble[0] = '\0'; }
+
+// Reset the probe's deterministic entropy stream (fakes/esp_random.h).
+static void rng_reset() { mrprobe_rng() = MrProbeRng(); }
+
+// The seed `regen` MUST mint next, and the identity it MUST derive — computed by replaying the probe's own
+// deterministic stream through the REAL `mrrng::fill` + the REAL `identity_from_seed`. ⛔ The probe models the
+// entropy STREAM and nothing else: if production skipped the draw, drew a different count, or persisted the seed
+// it had loaded, the bytes below stop matching.
+static void expected_next_identity(uint8_t seed_out[32], meshroute::Identity& id_out) {
+    rng_reset();
+    mrrng::fill(seed_out, 32);
+    meshroute::identity_from_seed(id_out, seed_out);
+    rng_reset();                                  // put the stream back so production draws exactly these bytes
+}
+
+// Seed a VALID `/mrid` through `mrnv::save_id` — PRODUCTION'S OWN WRITER (U2: never a hand-built carrier), so the
+// record `regen` later loads is one production produced. Leaves the medium healthy and the counters zeroed.
+static mrnv::IdBlob seed_id(const char* name, uint16_t name_len, uint8_t seed_byte) {
+    MrProbeNv& nv = mrprobe_nv();
+    nv.reset();
+    nv.ns_present = true; nv.rw_ok = true;                    // a written namespace on a healthy medium
+    mrnv::IdBlob idb{};
+    idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+    idb.name_len = name_len;
+    for (uint16_t i = 0; i < name_len && i < sizeof idb.name; ++i) idb.name[i] = name[i];
+    for (size_t i = 0; i < sizeof idb.seed; ++i) idb.seed[i] = uint8_t(seed_byte + i);
+    (void)mrnv::save_id(idb);
+    nv.writes = 0; nv.reads = 0;                              // the seeding write is the fixture's, not the verb's
+    return idb;
+}
+
+// "`key_hash32= 0x` + EXACTLY 8 UPPERCASE hex digits" — pinned WITHOUT reusing the `%08lX` that builds the golden
+// line, so the format specifier and the assertion cannot agree with each other while both being wrong.
+static bool hash_field_is_8_upper_hex(const char* s) {
+    const char* p = std::strstr(s, "key_hash32= 0x");
+    if (!p) return false;
+    p += std::strlen("key_hash32= 0x");
+    int n = 0; bool lower = false;
+    while (std::isxdigit(static_cast<unsigned char>(p[n]))) {
+        if (p[n] >= 'a' && p[n] <= 'f') lower = true;
+        ++n;
+    }
+    return n == 8 && !lower;
+}
+
+// Drive the router with a BLE-shaped transport, exactly as `ble_dispatch_line` does. Returns dispatch()'s verdict.
+static bool route_ble(const char* line) {
+    LineSink ls(ble_capture);
+    const bool owned = mrfw::dispatch(line, std::strlen(line), ls);
+    ls.flush();                       // ship any trailing partial line — the production call site does this too
+    return owned;
+}
+
 int main() {
     printf("== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==\n");
 
@@ -382,6 +454,200 @@ int main() {
     CHK(g_sink.has("\"ack\":\"mark_read\""), "W10b `mark_read` still reaches its own REAL handler [%s]", g_sink.buf);
     seed_inbox(1, 1); route("pull_inbox 0 0");
     CHK(g_sink.has("\"ev\":\"inbox_end\""), "W10c `pull_inbox` still reaches its own REAL handler [%s]", g_sink.buf);
+
+
+    // ==============================================================================================================
+    // R — §RADMIN-0b / [[B279]]: `regen` ANSWERS ON THE SINK `dispatch()` HANDED IT.
+    //
+    // ⛔ THE DEFECT, STATED AS THE MEASUREMENT THAT FOUND IT: `dispatch(line, len, Print& out)` recognised `regen`
+    //    and called a PARAMETERLESS `do_regen()`, whose error line, success prefix and shared `print_identity()`
+    //    all wrote to the global `mrcon`. Over BLE that is a matched command with an EMPTY `LineSink` — the
+    //    companion sees no answer at all — while the response leaks onto USB. Every check below fails against that
+    //    shape and passes against the fixed one; run.sh's controls C8/C9/C10 restore each half of it in turn.
+    // ⛔ THE ROUTER IS DRIVEN, NEVER `do_regen` — it is `static`, and calling the formatter directly would re-open
+    //    exactly the wiring hole this section exists to close. The ONE direct call below is the BOOT formatter,
+    //    which is a caller in its own right (`fw_main.cpp`'s `setup()`), and it is labelled as such.
+    // ==============================================================================================================
+    {
+    static const char kName[]   = "probe-node";                       // a realistic operator label (10 B)
+    const uint16_t    kNameLen  = uint16_t(sizeof kName - 1);
+    static const char kMaxName[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"; // EXACTLY sizeof(IdBlob::name) = 32
+    char want[192];
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R1..R8 — THE SAVE FAILURE, THROUGH THE BLE-SHAPED SINK. It runs FIRST on purpose: `crypto_ready()` is still
+    //          false here, so "no crypto identity was installed" is an OBSERVED transition rather than a claim
+    //          about a flag that was already true.
+    // ---------------------------------------------------------------------------------------------------------
+    const mrnv::IdBlob before = seed_id(kName, kNameLen, 0x10);
+    meshroute::identity_from_seed(g_identity, before.seed);           // the identity the node is running on
+    g_node.set_identity(7, g_identity.key_hash32);
+    const uint32_t hash_before   = g_identity.key_hash32;
+    const bool     crypto_before = g_node.crypto_ready();
+
+    mrprobe_nv().fail_write = true;              // the medium accepts the open and then REFUSES the record
+    rng_reset(); ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
+    const bool own_fail_ble = route_ble("regen");
+    mrcon.service();                             // drain the REAL guarded console — a leak would surface here
+    CHK(own_fail_ble, "R1  dispatch() OWNS `regen` on a BLE-shaped LineSink");
+    CHK(std::strcmp(g_ble, "> regen err nv_save_failed\r\n") == 0,
+        "R2  a REFUSED /mrid save answers EXACTLY the error line on the SUPPLIED sink [%s]", g_ble);
+    CHK(Serial.n_out == 0,
+        "R3  ...and NOT ONE byte reached the global console (%u B on Serial)", unsigned(Serial.n_out));
+    CHK(!std::strstr(g_ble, "regen ok") && !std::strstr(g_ble, "key_hash32"),
+        "R4  ...no success prefix and no identity line accompany the failure");
+    CHK(g_identity.key_hash32 == hash_before && g_node.key_hash32() == hash_before,
+        "R5  ...the installed identity is UNCHANGED (0x%08lX)", (unsigned long)g_node.key_hash32());
+    CHK(g_node.crypto_ready() == crypto_before,
+        "R6  ...and NO crypto identity was installed (crypto_ready=%d)", int(g_node.crypto_ready()));
+    CHK(mrprobe_nv().writes == 1,
+        "R7  ...exactly ONE write was attempted and refused (writes=%d)", mrprobe_nv().writes);
+    CHK(mrprobe_nv().holds("mr", "id", &before, sizeof before),
+        "R8  ...and /mrid still holds EXACTLY the pre-command record — a refused write retained NOTHING");
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R9..R10 — THE SAME FAILURE ON THE USB SINK. Same bytes, other transport, and the BLE side stays silent.
+    // ---------------------------------------------------------------------------------------------------------
+    seed_id(kName, kNameLen, 0x10);
+    mrprobe_nv().fail_write = true;
+    rng_reset(); ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
+    const bool own_fail_usb = mrfw::dispatch("regen", 5, mrcon);
+    mrcon.service();
+    CHK(own_fail_usb && std::strcmp(Serial.out, "> regen err nv_save_failed\r\n") == 0,
+        "R9  the SAME failure through `mrcon` is byte-identical on USB [%s]", Serial.out);
+    CHK(g_ble_n == 0, "R10 ...and the BLE sink received nothing during the USB drive (%u B)", unsigned(g_ble_n));
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R11..R22 — THE SUCCESS, THROUGH THE BLE-SHAPED SINK: the exact line, the persisted record, and the three
+    //            identity installs. The expected hash is derived from the probe's own entropy stream, so it is
+    //            not read back out of the very global the command writes.
+    // ---------------------------------------------------------------------------------------------------------
+    const mrnv::IdBlob rec = seed_id(kName, kNameLen, 0x10);
+    uint8_t             exp_seed[32] = {};
+    meshroute::Identity exp{};
+    expected_next_identity(exp_seed, exp);
+    ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
+    const bool own_ok_ble = route_ble("regen");
+    mrcon.service();
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n",
+                  (unsigned long)exp.key_hash32, kName);
+    CHK(own_ok_ble, "R11 dispatch() owns `regen` on the success path too");
+    CHK(std::strcmp(g_ble, want) == 0,
+        "R12 the BLE sink receives EXACTLY the success line [%s]", g_ble);
+    CHK(Serial.n_out == 0,
+        "R13 ...and NOT ONE byte leaked to the global console (%u B on Serial)", unsigned(Serial.n_out));
+    CHK(hash_field_is_8_upper_hex(g_ble),
+        "R14 ...the key_hash32 field is exactly EIGHT UPPERCASE hex digits");
+    CHK(g_identity.key_hash32 == exp.key_hash32,
+        "R15 ...g_identity was re-derived from the FRESH seed (0x%08lX)", (unsigned long)g_identity.key_hash32);
+    CHK(g_node.key_hash32() == exp.key_hash32,
+        "R16 ...the node's ROUTING identity was re-installed with it");
+    CHK(g_node.crypto_ready(),
+        "R17 ...and the E2E crypto identity was installed (crypto_ready false -> true)");
+    CHK(mrprobe_nv().writes == 1, "R18 exactly ONE /mrid write was made (writes=%d)", mrprobe_nv().writes);
+    {
+        mrnv::IdBlob got{};
+        const bool loaded = mrnv::load_id(got);
+        CHK(loaded && got.magic == mrnv::kIdMagic && got.version == mrnv::kIdVersion,
+            "R19 ...the saved record re-loads and carries the same magic/version");
+        CHK(std::memcmp(got.seed, exp_seed, sizeof exp_seed) == 0 &&
+            std::memcmp(got.seed, rec.seed, sizeof rec.seed) != 0,
+            "R20 ...its seed is the FRESH draw, not the one it replaced");
+        CHK(got.name_len == kNameLen && std::memcmp(got.name, kName, kNameLen) == 0,
+            "R21 ...and the operator name was PRESERVED across the mint");
+        // ⛔ THE STORAGE-HONESTY ROW. `expect_rec` is built INDEPENDENTLY — the seeded record with only its seed
+        //    replaced by the modelled draw — so it answers "did the medium retain exactly what production wrote?"
+        //    rather than "does the medium agree with itself?". Controls C12/C13 make the fake lie in both
+        //    directions and this row (with R8) is what refuses the lie.
+        mrnv::IdBlob expect_rec = rec;
+        std::memcpy(expect_rec.seed, exp_seed, sizeof expect_rec.seed);
+        CHK(mrprobe_nv().holds("mr", "id", &expect_rec, sizeof expect_rec),
+            "R22 the medium retained EXACTLY the record production wrote (name/magic/version kept, seed fresh)");
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R23..R24 — THE SAME COMMAND ON USB. Same deterministic seed and name ⇒ the bytes must be IDENTICAL to the
+    //            BLE-shaped success. This is the one measurement that makes "both transports get the same text"
+    //            a fact rather than an argument about two call sites.
+    // ---------------------------------------------------------------------------------------------------------
+    seed_id(kName, kNameLen, 0x10);
+    expected_next_identity(exp_seed, exp);
+    ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
+    const bool own_ok_usb = mrfw::dispatch("regen", 5, mrcon);
+    mrcon.service();
+    CHK(own_ok_usb && std::strcmp(Serial.out, want) == 0,
+        "R23 the USB console receives BYTE-IDENTICAL bytes through `mrcon` [%s]", Serial.out);
+    CHK(g_ble_n == 0, "R24 ...and the BLE sink stayed empty during the USB drive (%u B)", unsigned(g_ble_n));
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R25..R26 — THE OPTIONAL-NAME BOUNDARY. `print_identity` emits the name segment only for
+    //            `0 < name_len <= sizeof name`; both ends keep today's exact bytes.
+    // ---------------------------------------------------------------------------------------------------------
+    seed_id("", 0, 0x20);
+    expected_next_identity(exp_seed, exp);
+    ble_reset(); Serial.reset();
+    route_ble("regen");
+    mrcon.service();
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX\r\n", (unsigned long)exp.key_hash32);
+    CHK(std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
+        "R25 a record with NO name emits no `name=` segment, and still nothing on USB [%s]", g_ble);
+
+    seed_id(kMaxName, 32, 0x30);
+    expected_next_identity(exp_seed, exp);
+    ble_reset(); Serial.reset();
+    route_ble("regen");
+    mrcon.service();
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n",
+                  (unsigned long)exp.key_hash32, kMaxName);
+    CHK(std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
+        "R26 a MAXIMUM-length (32 B) name is emitted in full, and still nothing on USB [%s]", g_ble);
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R27..R30 — THE ROUTER BOUNDARY. `regen` is owned EXACTLY; the neighbours keep their existing non-ownership
+    //            and must leave the identity and the medium alone.
+    // ---------------------------------------------------------------------------------------------------------
+    {
+        struct { const char* line; const char* why; } not_regen[] = {
+            { "regen ",     "a trailing space" },
+            { "regenerate", "a longer word starting with it" },
+            { "REGEN",      "the wrong case" },
+            { "rege",       "a short prefix" },
+        };
+        int idx = 0;
+        for (auto& r : not_regen) {
+            seed_id(kName, kNameLen, 0x40);
+            const uint32_t h = g_node.key_hash32();
+            rng_reset(); ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
+            const bool owned = route_ble(r.line);
+            mrcon.service();
+            CHK(!owned && g_ble_n == 0 && Serial.n_out == 0 && mrprobe_nv().writes == 0
+                    && g_node.key_hash32() == h,
+                "R%d `%s` (%s) is NOT owned as `regen` — no output, no NV write, no identity change",
+                27 + idx, r.line, r.why);
+            ++idx;
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // R31..R32 — THE BOOT FORMATTER, IN ITS PRODUCTION SHAPE. `setup()` is the formatter's OTHER caller and it
+    //            now NAMES its sink: `print_identity(idb, mrcon)`. The bytes must be the identity tail of the
+    //            success line, unchanged. (`fw_main.cpp` itself is not host-compilable; that the call site really
+    //            reads `print_identity(idb, mrcon)` is pinned STRUCTURALLY by
+    //            `tools/probe_console_sink/structural.py` S21, with its own control.)
+    // ---------------------------------------------------------------------------------------------------------
+    {
+        mrnv::IdBlob boot{};
+        const bool loaded = mrnv::load_id(boot);
+        ble_reset(); Serial.reset();
+        mrfw::print_identity(boot, mrcon);                 // ⓘ the BOOT caller's shape, verbatim
+        mrcon.service();
+        std::snprintf(want, sizeof want, "  key_hash32= 0x%08lX  name=\"%s\"\r\n",
+                      (unsigned long)g_identity.key_hash32, kName);
+        CHK(loaded && std::strcmp(Serial.out, want) == 0,
+            "R31 the canonical formatter emits the boot banner line through the sink it is GIVEN [%s]", Serial.out);
+        CHK(g_ble_n == 0, "R32 ...and nothing reached the BLE sink (%u B)", unsigned(g_ble_n));
+    }
+    }
 
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");

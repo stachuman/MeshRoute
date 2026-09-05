@@ -48,15 +48,16 @@ import gen_command_inventory as GEN  # noqa: E402
 #     profiles   — len(gen_command_inventory.PROFILES); the six real board macro sets.
 #     checks     — the summed `N total` the probe binary prints per profile: 120 on EVERY profile (52 §B95 sink rows
 #                  + 68 §0g help rows), so 120*6 = 720. §0a's 972 is retired with the per-topic rows that scaled it.
-#     structural — the row count structural.py reports (S1..S20).
+#     structural — the row count structural.py reports (S1..S21; §0b/[[B279]] added S21, the boot sink owner).
 #     ble_guard  — the executed BLE help-refusal rows: 53 corpus lines x 4 assertions (B1..B4) = 212.
-#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 5 source + 6 B214 + 13 help rendered-index + 2 help
-#                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 47.
+#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 6 source + 6 B214 + 13 help rendered-index + 2 help
+#                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 48. (§0b/[[B279]] took
+#                  the source family 5 -> 6 with X12, the control that reddens S21.)
 PIN_PROFILES = 6
 PIN_CHECKS = 720
-PIN_STRUCTURAL = 20
+PIN_STRUCTURAL = 21
 PIN_BLE_GUARD = 212
-PIN_CONTROLS = 47
+PIN_CONTROLS = 48
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 

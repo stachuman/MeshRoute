@@ -230,6 +230,13 @@ SRC_CTL = [
     ('X4 remove the per-pass mrcon.service() from service_console', FWMAIN,
      '    mrcon.service();\n}', '}', ('S9',)),
 
+    # ⓘ §0b/[[B279]]: the boot caller must NAME its sink. Routing it to a DIFFERENT Print& is compile-valid in the
+    #   real build (`Serial` is a Print), so no compiler, no native test and no board build would refuse it — which
+    #   is exactly why S21 has to. ⛔ Deliberately NOT "delete the argument": after 0b that would not compile, and a
+    #   compile failure is not a behavioural result (the sibling probe's [[B237]] rule, applied to a source control).
+    ('X12 route the boot identity formatter to a different sink', FWMAIN,
+     '    print_identity(idb, mrcon);', '    print_identity(idb, Serial);', ('S21',)),
+
     # ⓘ §0a re-aim: the help text moved to firmware_help.h and S4 now asks whether every RESPONSE ends
     #   terminated. Making the index's LAST emission a bare print() is exactly the shape S4 must reject.
     ('X5 leave the index unterminated (print instead of println on its last line)', HELP,

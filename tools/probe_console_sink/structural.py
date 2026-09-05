@@ -222,6 +222,20 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
                 bad.append(f'{path.split("/")[-1]}:{txt[:m.start()].count(chr(10)) + 1}')
     add('S8', 'EVERY print_sf_list site passes a sink', not bad, ';'.join(bad))
 
+    # ---- §0b/[[B279]]: the BOOT caller NAMES its sink ---------------------------------------------------------------
+    # ⛔ WHY A STRUCTURAL ROW AND NOT A BEHAVIOURAL ONE — the same reason S5..S8 are structural. `print_identity` has
+    #    exactly two callers: `do_regen`, which `tools/probe_inbox_verbs` drives THROUGH THE REAL `dispatch()` (its
+    #    R1..R32 rows are the behavioural half, including the formatter's own bytes), and `setup()`'s boot banner,
+    #    which lives in `fw_main.cpp` — a TU no host build compiles. So "boot passes `mrcon`, explicitly, exactly
+    #    once" is asserted against the SOURCE, and negctl X12 is its control.
+    # ⓘ The count is what carries it: after 0b there is NO parameterless overload and NO default sink, so a call site
+    #   that named no sink would not compile — but one that named a DIFFERENT sink would, and only this row refuses it.
+    pid_args = [_args_of(fwm, m.start()) for m in re.finditer(r'\bprint_identity\s*\(', fwm)]
+    pid_boot = [a for a in pid_args if re.fullmatch(r'\s*idb\s*,\s*mrcon\s*', a)]
+    add('S21', 'fw_main.cpp passes the boot identity formatter its sink EXPLICITLY, exactly once',
+        len(pid_args) == 1 and len(pid_boot) == 1,
+        f'call_sites={len(pid_args)} explicit_mrcon={len(pid_boot)}')
+
     # ---- the sink's per-pass service is wired into the console loop -------------------------------------------------
     try:
         sc = _body(fwm, 'static void service_console() {')

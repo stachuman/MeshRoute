@@ -80,7 +80,8 @@ void print_banner(Print& out);                                      // setup() +
 extern const char kBuildStamp[];                                    // one device-image build timestamp authority
 extern const char kGitRevision[];                                   // one device-image Git-revision authority
 void print_rf_diagnostics(Print& out);                              // setup() + USB `status`; no structured/BLE contract
-void print_identity(const mrnv::IdBlob& idb);                       // setup()
+void print_identity(const mrnv::IdBlob& idb, Print& out);           // §0b/[[B279]]: takes its sink — setup() passes
+                                                                    //   mrcon, do_regen passes the dispatch `out`
 void print_sf_list(Print& out, uint16_t bitmap);                    // §B95: takes its sink — setup() + mesh_service_once() pass mrcon, dump_cfg passes `out`
 const char* board_name();                                           // ble_dispatch_line `version`
 void handle_routes(Print& out);                                     // ble_dispatch_line `routes`

@@ -1,16 +1,16 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0b — `regen` uses its supplied sink · dispatch brief · 2026-09-05
 
-**Status: DRAFT — awaiting Quality-Agent review.** Dispatch model after PASS: **Opus**.
+**Status: QUALITY-AGENT PASS 2026-09-05 — AUTHORIZED FOR DISPATCH.** Dispatch model: **Opus**.
 
 Authority: B279 in `docs/2026-07-30-open-bug-register.md`, §19 Slice 0b of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`, and the Quality-Agent pre-check
 `docs/superpowers/plans/2026-09-04-radmin-0b-precheck.md`.
 
-Dispatch base is exactly **`dec8417`** (subject `0h`). The coder verifies and records that commit before reading or
-editing the implementation, including in every isolated worktree, and STOPs if it differs. Author-owned 0h doc
-landings may be dirty beside that commit; they are not coder inputs and must remain untouched. The pre-check was
-measured on an older tree, so every source anchor and figure in it is a hypothesis to relocate and re-derive.
+Dispatch base is exactly **`dc55fdf`** (the clean, docs-only Author landing on top of `dec8417`, subject `0b`). The
+coder verifies and records that commit before reading or editing the implementation, including in every isolated
+worktree, and STOPs if it differs. The pre-check was measured on an older tree, so every source anchor and figure
+in it is a hypothesis to relocate and re-derive.
 
 0b is one small `src/` wiring correction. `regen` already mutates identity correctly, but it discards the
 `Print&` selected by `dispatch()` and writes its result to global `mrcon`. The slice threads the selected sink
@@ -63,7 +63,7 @@ From B279:
 
 STOP and report before widening the slice if any of these occurs:
 
-1. the dispatch base differs from `dec8417`;
+1. the dispatch base differs from `dc55fdf`;
 2. preserving the success or failure bytes requires changing the command syntax, parser, response text, line
    endings, identity derivation, RNG source, NV record, save order, node identity API or crypto identity API;
 3. the BLE path requires an edit to `device_ble.h`, `dispatch_sink.h`, `console_sink.h`, a second parser, or a new
@@ -124,7 +124,7 @@ Before changing production code, the coder re-derives and records:
 6. a prediction written before implementation: native, simulator and all 36 streams byte-identical; command
    inventory semantically identical; Node/RAM unchanged; only board code bytes may move.
 
-Do not copy the pre-check's caller count, writer count, output length or line anchors. Derive them from `dec8417`.
+Do not copy the pre-check's caller count, writer count, output length or line anchors. Derive them from `dc55fdf`.
 
 ## 0b-1 — thread the sink through one canonical path
 

@@ -880,7 +880,7 @@ void setup() {
     // NB g_ctr_lease is primed on the on_init-SUCCESS path below (after restore_channel_ctr), NOT here: if on_init is
     // REFUSED the live ctr stays 0 while a here-primed lease (nv.channel_ctr) would read as "due" and REGRESS the
     // persisted lease to 64. Priming only alongside the restore keeps live ctr == lease -> no spurious/regressing write.
-    print_identity(idb);                                        // key_hash32 (hex) + name
+    print_identity(idb, mrcon);                                 // key_hash32 (hex) + name
     mrcon.print(F("  node id   = ")); mrcon.print(node_id);
     mrcon.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
     mrcon.print(F("  control sf= ")); mrcon.print(cfg.routing_sf); mrcon.println(F("  (RTS/CTS/ACK + beacons)"));

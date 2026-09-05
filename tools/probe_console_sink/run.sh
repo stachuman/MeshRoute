@@ -92,17 +92,19 @@ PROFILES=(
 #                                            the SAME rows — a gated name changes the LIST, not the row count —
 #                                            which is why one per-profile constant is enough. (§0a was 166/160: the
 #                                            per-topic rows scaled with topic availability.)
-#     PIN_STRUCTURAL = 20                    structural.py's S1..S20.
+#     PIN_STRUCTURAL = 21                    structural.py's S1..S21 (§0b/[[B279]] added S21: fw_main.cpp passes
+#                                            the boot identity formatter its sink explicitly, exactly once).
 #     PIN_BLE_GUARD  = 53 corpus lines x 4   the executed BLE help-refusal assertions B1..B4.
-#     PIN_CONTROLS   = 47 = 8 sink + 11 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL);
+#     PIN_CONTROLS   = 48 = 8 sink + 12 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL); §0b/[[B279]]
+#                      added ONE source control, X12, whose only job is to redden S21.
 #                                            the 23 help = 13 rendered-index mutations + 2 structural + 3 router
 #                                            + 5 oracle.
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=20
+PIN_STRUCTURAL=21
 PIN_BLE_GUARD=212
-PIN_CONTROLS=47
+PIN_CONTROLS=48
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE

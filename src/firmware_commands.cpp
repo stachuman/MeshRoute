@@ -14,7 +14,11 @@
 #include "firmware_config.h"   // dispatch re-fans-out to mrfw:: config verbs (gateway/join/create/team/mobile/leave/cfg_set)
 #include "firmware_remote.h"   // dispatch: rcmd + (MR_FEAT_REMOTE_MGMT) password/unlock/lock
 #include "firmware_inbox.h"    // dispatch/ble: pull_inbox / mark_read / del_msg
-#include "console_sink.h"      // mrcon (inline, ODR-merged) — do_regen + handlers print through it
+#include "console_sink.h"      // mrcon (inline, ODR-merged). ⛔ V1 CORRECTION (§0b/[[B279]]): this note read
+                              //   "do_regen + handlers print through it" — WITHDRAWN. `do_regen` and every
+                              //   dispatcher-reachable handler print through the sink they are HANDED; the
+                              //   direct `mrcon` writers left in this TU are the BOOT-ONLY ones
+                              //   (peer_store_restore's one-line summary, preset_boot_restore_console).
 #include "firmware_help.h"     // §0a/[[B208]]: the console help authority — index, the nine `help <topic>`
                               //   sections and the ONE `help`/`?` recognition. dispatch() keeps only the call.
 #include "console_json.h"      // write_status/write_cfg/write_limits/write_route + StatusFields/CfgExtras
@@ -637,33 +641,41 @@ static void dump_duty(Print& out) {
 // radio (freq/SF/BW/CR changed); a tx_power-only change skips the re-tune (it's set per-TX via the Hal).
 // apply_radio_live moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment A); `using mrfw::apply_radio_live` (top).
 
-// Print the node's key_hash32 (hex, from g_identity) + name (from /mrid). Shared by boot, `status`, `regen`.
-void print_identity(const mrnv::IdBlob& idb) {
+// Print the node's key_hash32 (hex, from g_identity) + name (from /mrid).
+// ⛔ V1 COMMENT CORRECTION (§0b/[[B279]]): this line used to end *"Shared by boot, `status`, `regen`"* — WITHDRAWN.
+//    The source has exactly TWO callers — `setup()`'s boot banner (fw_main.cpp) and `do_regen` below; `dump_status`
+//    never calls it. ⇒ it is shared by BOOT and `regen`, and each caller now NAMES ITS OUTPUT AUTHORITY (boot passes
+//    `mrcon`, the dispatcher passes the `Print&` it was handed). There is deliberately NO parameterless overload and
+//    NO default sink: a formatter that can silently choose the global console is exactly what [[B279]] was.
+void print_identity(const mrnv::IdBlob& idb, Print& out) {
     char hx[9];
     snprintf(hx, sizeof hx, "%08lX", (unsigned long)g_identity.key_hash32);
-    mrcon.print(F("  key_hash32= 0x")); mrcon.print(hx);
+    out.print(F("  key_hash32= 0x")); out.print(hx);
     if (idb.name_len > 0 && idb.name_len <= sizeof idb.name) {
-        mrcon.print(F("  name=\""));
-        for (uint16_t i = 0; i < idb.name_len; ++i) mrcon.print(idb.name[i]);
-        mrcon.print(F("\""));
+        out.print(F("  name=\""));
+        for (uint16_t i = 0; i < idb.name_len; ++i) out.print(idb.name[i]);
+        out.print(F("\""));
     }
-    mrcon.println();
+    out.println();
 }
 
 // `regen` — mint a NEW identity (fresh HW-RNG seed) -> persist /mrid -> re-derive -> re-seed the node's
 // self binding. Keeps `name` + `node_id` (the short address is independent of the keypair). The new
 // key_hash32 propagates on the next beacon; peers re-bind by it (the old one ages out of their id_bind).
-static void do_regen() {
+// §0b/[[B279]]: it answers on the sink `dispatch()` HANDED it — USB `mrcon`, or the BLE `LineSink` — never the
+// global console. ⛔ The operation ORDER below is untouched and load-bearing: identity + crypto identity are
+// installed only AFTER a successful `save_id`, so a refused write leaves the running node exactly as it was.
+static void do_regen(Print& out) {
     mrnv::IdBlob idb{};
     mrnv::load_id(idb);                                          // preserve the existing name (if any)
     mrrng::fill(idb.seed, sizeof idb.seed);
     idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-    if (!mrnv::save_id(idb)) { mrcon.println(F("> regen err nv_save_failed")); return; }
+    if (!mrnv::save_id(idb)) { out.println(F("> regen err nv_save_failed")); return; }
     meshroute::identity_from_seed(g_identity, idb.seed);
     g_node.set_identity(g_node.node_id(), g_identity.key_hash32);
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: re-install the E2E crypto identity
-    mrcon.print(F("> regen ok"));
-    print_identity(idb);
+    out.print(F("> regen ok"));
+    print_identity(idb, out);
 }
 
 // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
@@ -1115,7 +1127,7 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if (len == 6 && !strncmp(line, "limits", 6))   { dump_limits(out); return true; }   // companion anti-spam/headroom snapshot (local-only)
     if (len == 6 && !strncmp(line, "reboot", 6))   { fw_reboot();   return true; }
     if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13, out); return true; }
-    if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
+    if (len == 5 && !strncmp(line, "regen", 5))    { do_regen(out); return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { fw_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8, out); return true; }
 #if MR_N_LAYERS < 2

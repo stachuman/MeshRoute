@@ -12,66 +12,66 @@ Total rows: **177**.
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1146` |  |
-| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1145` |  |
-| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1175` |  |
-| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1101` |  |
-| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1126` |  |
-| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1148` |  |
-| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1172` |  |
-| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1114` |  |
-| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1117` |  |
-| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1092` |  |
-| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1120` |  |
-| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1169` |  |
-| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1122` |  |
-| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1132` |  |
-| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1125` |  |
-| `joinprofile` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1139` |  |
-| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1144` |  |
-| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1115` |  |
-| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1179` |  |
-| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1167` |  |
-| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1171` |  |
-| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1129` |  |
-| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1168` |  |
-| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1119` |  |
-| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1177` |  |
-| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1109` |  |
-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1105` |  |
-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1106` |  |
-| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1093` |  |
-| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1170` |  |
-| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1094` |  |
-| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1116` |  |
-| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1118` |  |
-| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1112` |  |
-| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1102` |  |
-| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1147` |  |
-| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1113` |  |
-| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1127` |  |
-| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1099` |  |
-| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1095` |  |
-| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1097` |  |
-| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1096` |  |
-| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1164` |  |
-| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1178` |  |
-| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1091` |  |
-| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1166` |  |
+| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1158` |  |
+| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1157` |  |
+| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1187` |  |
+| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1113` |  |
+| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1138` |  |
+| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1160` |  |
+| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1184` |  |
+| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1126` |  |
+| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1129` |  |
+| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1104` |  |
+| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1132` |  |
+| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1181` |  |
+| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1134` |  |
+| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1144` |  |
+| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1137` |  |
+| `joinprofile` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1151` |  |
+| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1156` |  |
+| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1127` |  |
+| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1191` |  |
+| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1179` |  |
+| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1183` |  |
+| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1141` |  |
+| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1180` |  |
+| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1131` |  |
+| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1189` |  |
+| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1121` |  |
+| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1117` |  |
+| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1118` |  |
+| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1105` |  |
+| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1182` |  |
+| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1106` |  |
+| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1128` |  |
+| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1130` |  |
+| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1124` |  |
+| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1114` |  |
+| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1159` |  |
+| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1125` |  |
+| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1139` |  |
+| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1111` |  |
+| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1107` |  |
+| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1109` |  |
+| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1108` |  |
+| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1176` |  |
+| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1190` |  |
+| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1103` |  |
+| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1178` |  |
 | `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:149` |  |
 
 ## Surface 2 — sub-verb dispatchers
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:711` |  |
-| `factory_reset` | `confirm` | `handle_factory_reset` | serial,ble | — | `src/firmware_commands.cpp:673` |  |
-| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:243` |  |
-| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:256` |  |
-| `sleep` | `off` | `handle_sleep` | serial,ble | — | `src/firmware_commands.cpp:698` |  |
-| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1026` |  |
-| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1027` |  |
-| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1028` |  |
+| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:723` |  |
+| `factory_reset` | `confirm` | `handle_factory_reset` | serial,ble | — | `src/firmware_commands.cpp:685` |  |
+| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:247` |  |
+| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:260` |  |
+| `sleep` | `off` | `handle_sleep` | serial,ble | — | `src/firmware_commands.cpp:710` |  |
+| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1038` |  |
+| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1039` |  |
+| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1040` |  |
 | `cfg set` | `active_fraction` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:402` |  |
 | `cfg set` | `beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:331` |  |
 | `cfg set` | `ble_mode` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:490` |  |
