@@ -299,6 +299,24 @@ struct DualLayerTestAccess {
     static uint16_t do_send_override(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint32_t oh) { return n.do_send(dst, body, len, 0, CryptIntent::def, oh); }  // §mobile 3c: DM with override_dst_hash
     static void     emit_rreq(Node& n, uint8_t dst) { n.emit_route_request(dst, 16); }  // §mobile: drive route-discovery (test the mobile-local-id RREQ guard)
     static uint16_t send_by_hash(Node& n, uint32_t h, const uint8_t* body, uint8_t len) { return n.send_by_hash(h, body, len, 0, CryptIntent::def); }  // §mobile 3c: send-by-hash trigger
+    // ★ §0h — the TYPED form: a non-zero `type` is what makes the delegated wrapper take arm 2 and prefix its body
+    //   with the single enclosed-TYPE byte, which is the ONE production shape that can still overflow the inner
+    //   from an ADMITTED (<= cap) user body. `suppress_intro` keeps the INTRO auto-attach out of the measurement.
+    static uint16_t send_by_hash_typed(Node& n, uint32_t h, const uint8_t* body, uint8_t len, uint8_t type) {
+        return n.send_by_hash(h, body, len, /*flags=*/0, CryptIntent::off, /*reply_to_hash=*/0, /*mobile_ctr=*/0,
+                              Plane::AUTO, type, /*suppress_intro=*/true, nullptr);
+    }
+    // ★ §0h — a DIRECT reach of the origination function itself, BELOW the admission cap that normally guards it.
+    //   It exists for one measurement no production path can make: whether the plaintext pack refusal's
+    //   `push_send_failed` really is gated on the CARRIER type's `generic_send_lifecycle` trait, or fires blindly.
+    //   Every production caller of this arm passes a carrier type that DOES own the lifecycle, so the negative half
+    //   of that gate is unreachable from outside — and an ungated push on an internal carrier is exactly the orphan
+    //   the §CUSTODY-B ruling forbids.
+    static uint16_t enqueue_data_direct(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint8_t type,
+                                        uint32_t override_dst_hash) {
+        return n.enqueue_data(dst, body, len, /*flags=*/0, "tx_enqueue", /*app_dm=*/true, type, CryptIntent::off,
+                              override_dst_hash, /*override_source_hash=*/0, /*addr_len=*/0, Plane::AUTO, nullptr);
+    }
     static uint16_t send_by_hash_plane(Node& n, uint32_t h, const uint8_t* body, uint8_t len, Plane plane) { return n.send_by_hash(h, body, len, 0, CryptIntent::def, 0, 0, plane); }  // §F-TR-1: drive an EXPLICIT-plane send-by-hash (`-t` => Plane::TEAM)
     static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr, uint32_t sender_hash = 0) { n.send_e2e_ack(to_origin, ctr, sender_hash); }  // §mobile Fix 5: originate an E2E-ACK to an origin; sender_hash a hosted mobile -> last-mile
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
@@ -559,6 +577,24 @@ struct DualLayerTestAccess {
         const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, dst_hash_X,
                                              /*layer_ids*/nullptr, /*n_layers*/0, /*cur*/0, n._node_id, source_hash_M,
                                              wbody, wl, 0, 0);
+        pa.inner_len=static_cast<uint8_t>(nn);
+        n.do_post_ack();
+    }
+    // ★ §0h (R-RA-25 / [[B296]] shape 2) — THE SAME DRIVE WITH **ONLY** `DATA_FLAG_SOURCE_HASH` REMOVED. It is a
+    //   deliberate near-copy of `drive_post_ack_mobile_send_typed` above rather than a parameter on it: the wrapper
+    //   this builds is MALFORMED, and a `bool omit_source_hash` on the shared driver would put a malformed shape one
+    //   typo away from every well-formed call site. Everything else — flags, type, origin, ctr, the packer — is the
+    //   production drive verbatim, so the ONLY difference between the two cases is the field under test.
+    static void     drive_post_ack_mobile_send_no_source_hash(Node& n, uint32_t dst_hash_X, uint16_t ctr_M,
+                                                              const uint8_t* body, uint8_t len) {
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;
+        pa.ctr=ctr_M; pa.ctr_lo=static_cast<uint8_t>(ctr_M & 0x0F);
+        pa.flags=static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_E2E_ACK_REQ);   // ⛔ NO DATA_FLAG_SOURCE_HASH
+        pa.type=DATA_TYPE_MOBILE_SEND;
+        const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, dst_hash_X,
+                                             /*layer_ids*/nullptr, /*n_layers*/0, /*cur*/0, n._node_id, /*source_hash*/0,
+                                             body, len, 0, 0);
         pa.inner_len=static_cast<uint8_t>(nn);
         n.do_post_ack();
     }
@@ -829,6 +865,14 @@ struct DualLayerTestAccess {
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
     static bool           parked_cross_layer(Node& n, uint8_t i) { return n._parked_sends[i].cross_layer; }
+    // ★ §0h (R-RA-25 addendum 2, 2026-09-05) — DIRECT reach of the two park helpers and of a parked slot's stored
+    //   length. Both helpers are private and `park_send_layer` is `void`, so its "refuse, store NOTHING" property is
+    //   observable ONLY from inside: `on_command` refuses over-cap input one layer up, which is exactly why that
+    //   owning check cannot be the instrument for the backstop beneath it.
+    static bool           park_send(Node& n, uint32_t key, const uint8_t* b, uint8_t len) { return n.park_send(key, b, len, /*flags=*/0, CryptIntent::off); }
+    static void           park_send_layer(Node& n, uint32_t key, const uint8_t* b, uint8_t len) { n.park_send_layer(key, b, len, /*flags=*/0); }
+    static uint8_t        parked_body_len(Node& n, uint8_t i)    { return n._parked_sends[i].body_len; }
+    static const uint8_t* parked_body(Node& n, uint8_t i)        { return n._parked_sends[i].body; }
     static void           set_pending_rx(Node& n, uint8_t from, uint8_t ctr_lo, uint8_t sf, uint8_t payload_len,
                                         int origin = -1, int ctr = -1, bool team_plane = false) {  // simulate a prior RTS/CTS so handle_data accepts the DATA
         PendingRx pr{}; pr.from = from; pr.ctr_lo = ctr_lo; pr.chosen_data_sf = sf; pr.payload_len = payload_len;
@@ -2812,9 +2856,258 @@ TEST_CASE("§0f send_layer: the depth-4 carrier cap QUEUES; `-l` refuses by name
     make_x_learning_gw(ghal3, gw3, hal3, z);
     const CmdResult big = z.on_command(layer_cmd(static_cast<uint8_t>(kCap + 1), DATA_FLAG_E2E_ACK_REQ));
     CHECK(big.code == CmdCode::err_too_large);
+    // ★ THE ATTRIBUTION, RE-CHECKED AT THE NEW CAP (Slice 0h / R-RA-25 moved `dm_max_body_bytes` 239 -> 232): the
+    //   refusal above must come from the CARRIER, so cap+1 has to remain BELOW the DM admission cap or this case
+    //   would be measuring the wrong layer. 227 < 232 — still true, and now asserted as a RELATION with both terms
+    //   named so a future cap move reddens here instead of silently re-attributing the verdict.
     CHECK(static_cast<uint8_t>(kCap + 1) < protocol::dm_max_body_bytes);   // the DM cap did NOT refuse this
+    CHECK(protocol::dm_max_body_bytes - (kCap + 1) == 5);                  // ...with 5 bytes of margin, measured
+    const bool xl_named = ghal3.saw_emit("xl_send_too_large") || hal3.saw_emit("xl_send_too_large");
+    CHECK(xl_named);                                                       // ...and the CARRIER said so by name
     CHECK(DualLayerTestAccess::leaf_tx_n(z, 0) == 0);
 }
+
+// =====================================================================================================================
+// §0h (remote-admin v2, R-RA-25 · registers [[B296]]/[[B297]]) — THE DELEGATED WRAPPER, THE PARK BACKSTOPS, AND THE
+// HOME'S REFUSAL OF A MALFORMED WRAPPER.
+//
+// The durable form of the pass-2 review's executed reproduction (§S1 Measurement A) plus the RX-side half the review
+// could only trace in source. Pre-fix, MEASURED on a registered mobile sending by an unresolved hash:
+//     body=232 -> flags 0x06  inner_len 241          <- correct
+//     body=233 -> flags 0x02  inner_len 238          <- SOURCE_HASH dropped; the HOME then cannot delegate...
+//     body=237 -> flags 0x02  inner_len   0          <- ...and here the item is QUEUED WITH AN EMPTY INNER, airs its
+//                                                       RTS, and dies in the deliberately-silent TX pack bail
+// and at the home a 233..236 wrapper — missing the source hash the delegation fork REQUIRES, yet application-bearing
+// so the fail-closed internal guard never sees it — fell through to ORDINARY DELIVERY and was stored in the home's
+// own inbox. The mobile saw `queued`; the target saw nothing; nothing was pushed anywhere.
+// =====================================================================================================================
+
+TEST_CASE("§0h registered mobile: a 232-byte delegated DM queues with BOTH hashes and a FULL inner; 233 refuses") {
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>('M');
+
+    auto drive = [&](uint8_t len, CmdResult& out_r, uint8_t& out_qn, uint8_t& out_flags, uint8_t& out_inner,
+                     uint8_t& out_type, bool& out_body_ok, StubHal& hal, Node& m) {
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+        CHECK(m.on_init(cfg));
+        DualLayerTestAccess::make_registered_mobile(m, /*local_id=*/5, /*home_id=*/2, /*home_hash=*/0x22222222u);
+        m.test_suspend_tx_drain(true);                       // hold the item so its carrier stays readable
+        const uint8_t before = m.test_tx_queue_n();
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = 0xDEADBEEFu;   // an UNRESOLVED target -> the wrapper arm
+        c.no_intro = true;                                                       // `-K`: no INTRO prefix perturbing the body
+        c.body = body.data(); c.body_len = len;
+        out_r = m.on_command(c);
+        out_qn = static_cast<uint8_t>(m.test_tx_queue_n() - before);
+        out_body_ok = false;
+        if (out_qn) {
+            const uint8_t i = static_cast<uint8_t>(m.test_tx_queue_n() - 1);
+            out_flags = m.test_tx_flags(i); out_type = m.test_tx_type(i);
+            const uint8_t* inner = m.test_tx_inner(i, out_inner);
+            const uint8_t prefix = protocol::dm_inner_dst_hash_bytes + protocol::dm_inner_origin_bytes
+                                 + protocol::dm_inner_source_hash_bytes;
+            out_body_ok = (out_inner == prefix + len);
+            for (uint8_t k = 0; out_body_ok && k < len; ++k) if (inner[prefix + k] != body[k]) out_body_ok = false;
+        }
+        (void)hal;
+    };
+
+    // ---- AT the cap: the shape the review measured as CORRECT, now pinned -----------------------------------------
+    {
+        StubHal hal; Node m(hal, /*id=*/5, 0x11111111u);
+        CmdResult r{}; uint8_t qn = 0, fl = 0, il = 0, ty = 0; bool ok = false;
+        drive(protocol::dm_max_body_bytes, r, qn, fl, il, ty, ok, hal, m);
+        CHECK(r.code == CmdCode::queued);
+        CHECK(qn == 1);                                                   // exactly ONE queue item
+        CHECK(ty == DATA_TYPE_MOBILE_SEND);                               // the delegated wrapper (0x02 in the review)
+        CHECK((fl & DATA_FLAG_DST_HASH) != 0);                            // supplied by the wrapper arm
+        CHECK((fl & DATA_FLAG_SOURCE_HASH) != 0);                         // ★ MANDATORY — this is the field that vanished
+        CHECK(il == protocol::max_payload_bytes_hard_cap);                // the COMPLETE 241-byte inner
+        CHECK(ok);                                                        // ...and the body is intact
+        CHECK(data_frame_len(fl, ty, il) <= protocol::lora_max_frame_bytes);   // ...and the frame is transmissible
+    }
+    // ---- cap + 1: refused SYNCHRONOUSLY. No ctr, no queue slot, no park, no push, no zero inner -------------------
+    {
+        StubHal hal; Node m(hal, /*id=*/5, 0x11111111u);
+        CmdResult r{}; uint8_t qn = 0, fl = 0, il = 0, ty = 0; bool ok = false;
+        drive(static_cast<uint8_t>(protocol::dm_max_body_bytes + 1), r, qn, fl, il, ty, ok, hal, m);
+        CHECK(r.code == CmdCode::err_too_large);
+        CHECK(r.ctr == 0);
+        CHECK(qn == 0);
+        CHECK(DualLayerTestAccess::parked_count(m) == 0);
+        Push pu{}; CHECK_FALSE(m.next_push(pu));
+        CHECK_FALSE(hal.saw_emit("dm_inner_too_large"));                  // refused ABOVE enqueue_data
+        CHECK_FALSE(hal.saw_emit("data_pack_failed"));                    // ★ [[B297]]: the TX bail is never reached
+    }
+}
+
+TEST_CASE("§0h delegated wrapper: a pack refusal NEVER queues a zero inner, and owns the lifecycle truthfully") {
+    // [[B296]] shape 3, and the ONE production shape that can still overflow the inner from a body the admission cap
+    // ADMITTED: the delegated wrapper's arm 2 (`itype != 0`, `node_hashlocate.cpp`) prefixes the wrapper body with a
+    // single enclosed-TYPE byte, so a user body AT the 232-byte cap builds a 233-byte wrapper body and
+    // `pack_unicast_inner` refuses (9 + 233 = 242 > 241). Pre-0h that return value was DISCARDED: the item was queued
+    // with `inner_len = 0`, its RTS aired, and the TX-time bail then dropped it in deliberate silence.
+    // ⛔ THIS IS ALSO WHY CONTROL 0h-3 IS MEASURABLE AT ALL — without this shape the plaintext pack check would be
+    //    unreachable from any test, i.e. a backstop nothing could redden.
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>('W');
+
+    auto mobile = [&](StubHal& hal, Node& m) {
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+        CHECK(m.on_init(cfg));
+        DualLayerTestAccess::make_registered_mobile(m, /*local_id=*/5, /*home_id=*/2, /*home_hash=*/0x22222222u);
+        m.test_suspend_tx_drain(true);
+        hal.emits.clear();
+    };
+
+    // ---- (1) ONE BYTE BELOW: 231 + the type byte = 232 -> the inner is exactly FULL and it queues ----------------
+    {
+        StubHal hal; Node m(hal, 5, 0x11111111u); mobile(hal, m);
+        const uint16_t ctr = DualLayerTestAccess::send_by_hash_typed(m, 0xDEADBEEFu, body.data(),
+                                 static_cast<uint8_t>(protocol::dm_max_body_bytes - 1), DATA_TYPE_INTRO);
+        CHECK(ctr != 0);
+        CHECK(m.test_tx_queue_n() == 1);
+        CHECK(m.test_tx_type(0) == DATA_TYPE_MOBILE_SEND);
+        uint8_t il = 0; (void)m.test_tx_inner(0, il);
+        CHECK(il == protocol::max_payload_bytes_hard_cap);            // 9 + 232 = 241 exactly
+        CHECK((m.test_tx_flags(0) & DATA_FLAG_SOURCE_HASH) != 0);
+        CHECK_FALSE(hal.saw_emit("dm_inner_too_large"));
+    }
+    // ---- (2) AT the cap: 232 + the type byte = 233 -> the packer refuses, and so does the enqueue ----------------
+    {
+        StubHal hal; Node m(hal, 5, 0x11111111u); mobile(hal, m);
+        const uint16_t ctr = DualLayerTestAccess::send_by_hash_typed(m, 0xDEADBEEFu, body.data(),
+                                 protocol::dm_max_body_bytes, DATA_TYPE_INTRO);
+        CHECK(hal.count("dm_inner_too_large") == 1);                  // ★ the NAMED cause-specific emit, exactly once
+        CHECK(ctr != 0);                                              // ★ the minted handle is RETURNED (sealed sibling)
+        CHECK(m.test_tx_queue_n() == 0);                              // ★ NOTHING admitted — no zero-inner item
+        CHECK_FALSE(hal.saw_emit("tx_enqueue"));                      // ★ ...and no admission was reported
+        CHECK_FALSE(hal.saw_emit("data_pack_failed"));                // ★ [[B297]]: the TX bail is never reached
+        Push pu{}; bool pushed = false; SendFailReason why = SendFailReason::none;
+        while (m.next_push(pu)) if (pu.kind == PushKind::send_failed) { pushed = true; why = pu.reason; }
+        CHECK(pushed);                                                // INTRO owns the generic lifecycle...
+        CHECK(why == SendFailReason::too_large);                      // ...and `too_large` is the TRUE condition
+    }
+    // ---- (3) THE LIFECYCLE GATE ITSELF, both ways — measured where the production path cannot reach ------------
+    //      §CUSTODY-B §6.2(5) and the brief's STOP 4: an internal carrier must never earn a user-send `send_failed`.
+    //      ⓘ THE WRAPPER ARM ABOVE CANNOT MEASURE THIS, and the first cut of this case wrongly assumed it could:
+    //        `send_by_hash`'s delegation passes `type = DATA_TYPE_MOBILE_SEND` to `do_send` — the ENCLOSED type
+    //        rides inside the body — and MOBILE_SEND owns the generic lifecycle, so case (2)'s push is CORRECT and
+    //        no enclosed type can change it. The gate is a property of the CARRIER, so it is driven directly.
+    {
+        CHECK(data_type_traits(DATA_TYPE_MOBILE_SEND).generic_send_lifecycle);                // case (2)'s premise
+        CHECK_FALSE(data_type_traits(DATA_TYPE_MOBILE_KEY_FORWARD).generic_send_lifecycle);   // this case's premise
+        const uint8_t kOver = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);          // 9 + 233 = 242 > 241
+        for (const uint8_t ty : { uint8_t{0x00}, static_cast<uint8_t>(DATA_TYPE_MOBILE_KEY_FORWARD) }) {
+            CAPTURE(ty);
+            StubHal hal; Node x(hal, 7, 0x7777u);
+            NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+            CHECK(x.on_init(cfg));
+            x.test_suspend_tx_drain(true);
+            hal.emits.clear();
+            const uint16_t ctr = DualLayerTestAccess::enqueue_data_direct(x, /*dst=*/2, body.data(), kOver, ty,
+                                                                          /*override_dst_hash=*/0x1234u);
+            CHECK(hal.count("dm_inner_too_large") == 1);              // ★ the loud emit ALWAYS fires (C2)...
+            CHECK(ctr != 0);
+            CHECK(x.test_tx_queue_n() == 0);
+            Push pu{}; bool pushed = false;
+            while (x.next_push(pu)) if (pu.kind == PushKind::send_failed) pushed = true;
+            CHECK(pushed == data_type_traits(ty).generic_send_lifecycle);   // ★ ...the generic push ONLY when owned
+        }
+    }
+}
+
+TEST_CASE("§0h park backstops: both helpers REFUSE an over-cap body — never a clamp, never a stored prefix") {
+    // R-RA-25 addendum 2, verbatim: *"`park_send` / `park_send_layer` stop clamping the body to the cap; a body over
+    // the cap is REFUSED (named emit, `return false` …), never truncated."* Reached DIRECTLY (friend), because
+    // `on_command` refuses over-cap input one layer above and would hide the property being measured.
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>('P' + (i % 7));
+
+    // ---- park_send: `false` is the existing caller-visible refusal ------------------------------------------------
+    {
+        StubHal hal; Node x(hal, /*id=*/7, 0x7777u);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+        CHECK(x.on_init(cfg));
+        // AT the cap: parks, and stores the body WHOLE.
+        CHECK(DualLayerTestAccess::park_send(x, 0xAAAAu, body.data(), protocol::dm_max_body_bytes));
+        CHECK(DualLayerTestAccess::parked_count(x) == 1);
+        CHECK(DualLayerTestAccess::parked_body_len(x, 0) == protocol::dm_max_body_bytes);
+        CHECK(hal.saw_emit("send_parked_for_hash"));
+        // cap + 1: REFUSED. No slot, no prefix, and the named emit.
+        CHECK_FALSE(DualLayerTestAccess::park_send(x, 0xBBBBu, body.data(),
+                                                   static_cast<uint8_t>(protocol::dm_max_body_bytes + 1)));
+        CHECK(DualLayerTestAccess::parked_count(x) == 1);                 // ★ still ONE — nothing was allocated
+        CHECK(DualLayerTestAccess::parked_body_len(x, 0) == protocol::dm_max_body_bytes);   // ...and untouched
+        CHECK(hal.saw_emit("send_park_refused"));                         // ★ loud (C2), not a silent truncation
+    }
+    // ---- park_send_layer: `void`, so the property is "stores nothing" ---------------------------------------------
+    {
+        StubHal hal; Node x(hal, /*id=*/7, 0x7777u);
+        NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+        CHECK(x.on_init(cfg));
+        DualLayerTestAccess::park_send_layer(x, 0xCCCCu, body.data(), protocol::dm_max_body_bytes);
+        CHECK(DualLayerTestAccess::parked_count(x) == 1);
+        CHECK(DualLayerTestAccess::parked_body_len(x, 0) == protocol::dm_max_body_bytes);
+        CHECK(DualLayerTestAccess::parked_cross_layer(x, 0));
+        DualLayerTestAccess::park_send_layer(x, 0xDDDDu, body.data(),
+                                            static_cast<uint8_t>(protocol::dm_max_body_bytes + 1));
+        CHECK(DualLayerTestAccess::parked_count(x) == 1);                 // ★ no second slot
+        CHECK(DualLayerTestAccess::parked_body_len(x, 0) == protocol::dm_max_body_bytes);
+        CHECK(hal.saw_emit("send_layer_park_refused"));
+        // ⛔ THE CLAMP, ASSERTED AWAY: a truncated store would have produced a SECOND slot holding exactly `cap`
+        //    bytes of an over-cap message. Both readings above forbid it.
+    }
+}
+
+TEST_CASE("§0h home receive: a MOBILE_SEND wrapper WITHOUT its source hash is REFUSED, never inboxed") {
+    // [[B296]] shape 2, the receiver half. The delegation fork REQUIRES `ui->has_source_hash` (it is the identity the
+    // home delegates UNDER and checks against its own roster), and `DATA_TYPE_MOBILE_SEND` is APPLICATION-bearing, so
+    // the fail-closed unknown-internal guard never sees a wrapper either: a source-hash-less wrapper used to be
+    // SKIPPED by the fork and then DELIVERED by the ordinary tail — `delivered` + `record_dm` + `msg_recv` in the
+    // home's OWN inbox, sender_hash 0, while the mobile held a `queued` and a link ACK.
+    const uint8_t text[] = { 'p','a','y','l','o','a','d' };
+    const uint32_t kMobile = 0x0A0B0C0Du, kTarget = 0x0E0F1011u;
+
+    StubHal hal; Node home(hal, /*id=*/2, 0x2222u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 0;
+    CHECK(home.on_init(cfg));
+    uint8_t ed[32]; for (int i = 0; i < 32; ++i) ed[i] = static_cast<uint8_t>(i + 3);
+    home.test_add_host_mobile(kMobile, /*local_id=*/9, ed);        // this home HOSTS the mobile
+    hal.emits.clear();
+
+    // ---- (1) THE MALFORMED WRAPPER — exactly one named refusal, and nothing else happens ------------------------
+    DualLayerTestAccess::drive_post_ack_mobile_send_no_source_hash(home, kTarget, /*ctr_M=*/0x0011, text, sizeof text);
+    CHECK(hal.count("mobile_send_no_source_hash") == 1);           // ★ ONE refusal, by name
+    CHECK_FALSE(hal.saw_emit("delivered"));                        // ★ the payload-carrying deliver emit that
+                                                                   //   IMMEDIATELY precedes record_dm never fired
+                                                                   //   => the ordinary-delivery tail was not reached
+    { Push pu{}; bool as_msg = false;
+      while (home.next_push(pu)) if (pu.kind == PushKind::msg_recv) as_msg = true;
+      CHECK_FALSE(as_msg); }                                       // ★ no msg_recv
+    CHECK(home.test_tx_queue_n() == 0);                            // ★ nothing enqueued outward
+    CHECK(DualLayerTestAccess::parked_count(home) == 0);           // ★ ...and nothing parked either
+    CHECK_FALSE(hal.saw_emit("unsupported_internal"));             // ⛔ NOT the fail-closed guard: it is untouched
+    CHECK_FALSE(hal.saw_emit("send_failed"));                      // ⛔ no synthetic lifecycle event was invented
+
+    // ---- (2) THE VALID SIBLING STILL DELEGATES — so (1) is attributable to the MISSING FIELD, not to the type ----
+    //      This is also the "carrier freed" proof: the refusal left the MAC able to take the next flight.
+    hal.emits.clear();
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, kMobile, kTarget, /*ctr_M=*/0x0012,
+                                                          /*etype=*/0, text, sizeof text);
+    CHECK_FALSE(hal.saw_emit("mobile_send_no_source_hash"));       // ★ the well-formed wrapper is NOT refused
+    CHECK_FALSE(hal.saw_emit("delivered"));                        // ...and is still never delivered locally
+    CHECK(DualLayerTestAccess::parked_count(home) == 1);           // ★ it was RE-ORIGINATED (the target hash is
+    CHECK(hal.saw_emit("send_parked_for_hash"));                   //   unresolved, so delegation parks + floods H)
+
+    // ---- (3) A NON-HOST is byte-identical: the refusal is gated on hosting, never on the type alone --------------
+    StubHal hal2; Node plain(hal2, /*id=*/3, 0x3333u);
+    NodeConfig cfg2; cfg2.routing_sf = 8; cfg2.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg2.leaf_id = 0;
+    CHECK(plain.on_init(cfg2));                                    // ⛔ hosts NO mobile -> _mobile_reg_n == 0
+    hal2.emits.clear();
+    DualLayerTestAccess::drive_post_ack_mobile_send_no_source_hash(plain, kTarget, /*ctr_M=*/0x0013, text, sizeof text);
+    CHECK_FALSE(hal2.saw_emit("mobile_send_no_source_hash"));      // the home-consumer guard did not run
+}
+
 
 TEST_CASE("send handle: sendhash echoes dst_hash (layer_path 0); plain send echoes neither") {
     StubHal hal; Node x(hal, /*id*/ 7, 0x7777u);

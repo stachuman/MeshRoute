@@ -2367,6 +2367,16 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t query_key32, bool hard, bool 
 // ⓘ Every pre-existing caller ignores the value deliberately — they are best-effort parks whose failure is already
 //   covered by the H re-flood and the giveup, and giving them outcome handling would be a behaviour change (C1).
 bool Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type, bool reflood, bool reflood_hard, Plane reflood_plane) {
+    // ★★ R-RA-25 addendum 2 (owner, 2026-09-05) — **REFUSE, NEVER CLAMP.** This used to TRUNCATE an over-cap body
+    //   silently at the copy below; see the corrected note there. Tested BEFORE the ring check and before the slot
+    //   is taken, so an over-cap body never allocates a park slot, never recycles one, and never stores a prefix.
+    //   It rides the caller-visible refusal this function already has (`false` — the same answer a full ring
+    //   gives), so no new PushKind, event family, return channel or signature appears (0h-3).
+    if (body_len > protocol::dm_max_body_bytes) {
+        MR_EMIT("send_park_refused", EF_I("key_hash32", static_cast<int64_t>(key_hash32)),
+                EF_I("body_len", body_len), EF_S("reason", "too_large"));
+        return false;
+    }
     if (_parked_sends_n >= protocol::cap_parked_sends) return false;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
@@ -2386,10 +2396,15 @@ bool Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
         p.reflood = true; p.reflood_hard = reflood_hard; p.reflood_plane = reflood_plane;
         p.reflood_at_ms = p.parked_at_ms + protocol::park_reflood_retry_ms;
     }
-    // Clamp to the DM body cap (NOT the 241-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
-    // writes body at inner[2+i], so a >239 body would overrun inner[]. on_command already rejects oversize
-    // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
-    p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
+    // ⛔ CORRECTED 2026-09-05 (R-RA-25 addendum 2), old decision kept visible. This line WAS:
+    //       `p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;`
+    //    under the heading *"Clamp to the DM body cap … defense-in-depth so a parked body can never exceed the
+    //    deliverable size"*. Defence in depth is right; a SILENT TRUNCATION is not the shape of it (C2) — a parked
+    //    message would have been delivered short, with no refusal anywhere in the chain. The guard at the top of
+    //    this function now REFUSES that input instead, so by the time we reach here the length is admissible and
+    //    the copy is unconditional. (Unreachable from the console since `on_command` refuses > 232 first; kept as
+    //    the C2 backstop for every non-console caller of this helper.)
+    p.body_len = body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
     MR_EMIT("send_parked_for_hash", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
     if (reflood) park_reflood_arm();
@@ -2440,11 +2455,26 @@ void Node::park_reflood_fire() {
 // Slice 4d: park a CROSS-LAYER-capable send. Identical to park_send but marks cross_layer, so when the H-answer
 // resolves (node_id, target_layer) the drain originates a CROSS_LAYER DM via a gateway iff target_layer != our leaf.
 void Node::park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+    // ★★ R-RA-25 addendum 2 — the same REFUSE-NEVER-CLAMP rule as `park_send`, in the shape THIS helper's contract
+    //   allows. ⛔ It is `void`, and it stays `void`: the SYNCHRONOUS, caller-visible refusal for an over-cap
+    //   `send_layer` body is `on_command`'s own `err_too_large` (node.cpp:2085), which fires before this helper is
+    //   ever called — making this a defensive backstop, not a second reporting channel. Growing a return value (or
+    //   `node.h`) to "propagate" a refusal nobody can observe would widen the slice for no truthfulness gained
+    //   (0h-3 / brief STOP 10). So: refuse LOUDLY, store NOTHING, allocate NOTHING, and let the owning check own
+    //   the answer. The direct/friend native case measures exactly this no-store property.
+    if (body_len > protocol::dm_max_body_bytes) {
+        MR_EMIT("send_layer_park_refused", EF_I("key_hash32", static_cast<int64_t>(key_hash32)),
+                EF_I("body_len", body_len), EF_S("reason", "too_large"));
+        return;
+    }
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now(); p.cross_layer = true;   // 4d/e2e: keep the app's flags (E2E_ACK_REQ) -> the drain threads them onto the cross-layer DM
-    p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
+    // ⛔ CORRECTED 2026-09-05 (R-RA-25 addendum 2), old decision kept visible. This line WAS the same silent clamp
+    //    `park_send` carried: `p.body_len = (body_len > dm_max_body_bytes) ? dm_max_body_bytes : body_len;`. The
+    //    guard above refuses that input now, so the copy is unconditional and no prefix of an over-cap body exists.
+    p.body_len = body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
     MR_EMIT("send_layer_parked", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
 }

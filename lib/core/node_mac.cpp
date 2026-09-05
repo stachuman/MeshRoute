@@ -204,26 +204,40 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     item.addr_len = addr_len;   // §mobile: 1 => `dst` is a hosted mobile's LOCAL id -> route as a direct 1-hop last-mile (node_mac.cpp:529). 0 for every normal origination (byte-identical).
     item.plane = plane;         // Wave 2: the addressing plane forced by the caller (AUTO for every existing caller -> byte-identical)
     // Inner = [dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body] — NO payload-flags byte. DST_HASH (L2c
-    // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
-    // +4 B still fits the inner buffer — when present, set the byte-1 HEADER flag (item.flags) and prefix the
-    // hash. Else plain ([origin][body]). NOT for internal DATA (E2E acks): app_dm=false.
-    // Decide the optional inner fields (the SAME fit-checks as before), then build the bytes via the shared
-    // pack_unicast_inner (Slice 4b — the single source of inner byte ORDER; proves byte-identical for this
-    // non-cross-layer path). Inner = [dst_key_hash32 (iff DST_HASH)][origin][source_hash (iff SOURCE_HASH)][body].
-    // DST_HASH (L2c verify-on-delivery) is default-on for app DMs when we know the recipient's stable key + it fits;
-    // SOURCE_HASH carries the sender's STABLE key_hash32 AFTER origin (the 8-bit origin is reassignable). NOT for
-    // internal DATA (E2E acks): app_dm=false. NO CROSS_LAYER here — that path is Slice 4d (origination) / 4c (bridge).
+    // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) — when
+    // present, set the byte-1 HEADER flag (item.flags) and prefix the hash. Else plain ([origin][body]). NOT for
+    // internal DATA (E2E acks): app_dm=false.
+    // ⛔ V1 (2026-09-05): this note used to add *"and the +4 B still fits the inner buffer"*. That clause described
+    //   the [[B296]] fit-check and is GONE with it — the cap reserves the field instead (see the block below).
+    // Decide the optional inner fields, then build the bytes via the shared pack_unicast_inner (Slice 4b — the
+    // single source of inner byte ORDER). Inner = [dst_key_hash32 (iff DST_HASH)][origin][source_hash (iff
+    // SOURCE_HASH)][body]. DST_HASH (L2c verify-on-delivery) is on for an app DM whenever we KNOW the recipient's
+    // stable key; SOURCE_HASH carries the sender's STABLE key_hash32 AFTER origin (the 8-bit origin is
+    // reassignable). NOT for internal DATA (E2E acks): app_dm=false. NO CROSS_LAYER here — that path is Slice 4d
+    // (origination) / 4c (bridge).
+    // ★★★ R-RA-25 (owner, 2026-09-05) — **NEITHER FIELD IS OPTIONAL-FOR-SIZE ANY MORE. THAT WAS [[B296]].**
+    //   Both decisions used to carry a `… + body_len <= max_payload_bytes_hard_cap` term, so a body the (then 239-B)
+    //   admission cap let through was made to fit by DROPPING identity instead of refusing: at 233..236 the carrier
+    //   lost SOURCE_HASH (receiver `sender_hash` = 0 — inbox dedup and cross-layer E2E-ack identity gone), and at
+    //   237..239 it lost DST_HASH too, i.e. **a by-HASH send silently became a by-ID send** and could be delivered
+    //   to whoever holds that id. Reproduced by execution against the native core before the fix.
+    //   ⇒ The cap now RESERVES both fields (`protocol::dm_max_body_bytes` = 241 - 4 - 1 - 4 = 232) and these two
+    //   decisions are UNCONDITIONAL, exactly as the cross-layer sibling `enqueue_cross_layer` has always set
+    //   `DST_HASH|SOURCE_HASH` (:641). An over-long body is REFUSED — synchronously at `on_command`, and by the
+    //   pack backstop below — never quietly downgraded.
+    // ⓘ "DERIVABLE" IS NARROW, AND DELIBERATELY SO (R-RA-25 addendum 1): the ONLY destination-hash sources are the
+    //   caller's `override_dst_hash` and the two lookups THIS function already performs. No new lookup, no new
+    //   override parameter, and in particular the hosted-mobile last-mile enqueue (node_hashlocate.cpp:1820) keeps
+    //   its current hash-less shape — putting DST_HASH on those flights is a wire change on corpus-exercised
+    //   traffic and would be its own ruled slice. A genuine by-ID send to an id we hold no binding for therefore
+    //   still airs WITHOUT DST_HASH — and gains not one byte of extra body for it.
     uint32_t dh = 0;
     if (override_dst_hash) {                                    // §mobile 3c: carry the QUERIED (mobile) hash M so the home last-mile-forwards (dst_hash != home's key) instead of consuming
         dh = override_dst_hash; item.flags |= DATA_FLAG_DST_HASH;
-    } else if (app_dm && (key_hash_of_id(dst, dh) || team_key_of_id(dst, dh))   // §enc: a team peer's key isn't in _id_bind (static plane) -> fall back to the team-scoped key cache so an ENCRYPTED send BY team_local_id gets DST_HASH (and a plaintext team DM gains verify-on-delivery). team_key_of_id is false for a static node / non-team-peer dst -> s18 byte-identical.
-        && static_cast<size_t>(4 + 1 + body_len) <= protocol::max_payload_bytes_hard_cap) {
+    } else if (app_dm && (key_hash_of_id(dst, dh) || team_key_of_id(dst, dh))) {   // §enc: a team peer's key isn't in _id_bind (static plane) -> fall back to the team-scoped key cache so an ENCRYPTED send BY team_local_id gets DST_HASH (and a plaintext team DM gains verify-on-delivery). team_key_of_id is false for a static node / non-team-peer dst -> s18 byte-identical.
         item.flags |= DATA_FLAG_DST_HASH;
     }
-    const uint8_t after_origin = static_cast<uint8_t>((item.flags & DATA_FLAG_DST_HASH ? 4 : 0) + 1);
-    if (app_dm && static_cast<size_t>(after_origin + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
-        item.flags |= DATA_FLAG_SOURCE_HASH;
-    }
+    if (app_dm) item.flags |= DATA_FLAG_SOURCE_HASH;            // R-RA-25: MANDATORY on every application carrier
     // E2E SEAL (Phase 1 §4): when this node originates an app DM with e2e_dm on, the inner is SEALED (CRYPTED).
     // CRYPTED requires the cleartext dst_key_hash32 (DST_HASH) AND the recipient's AUTHORITATIVE pubkey. If either
     // is missing -> FAIL LOUD (emit e2e_no_pubkey, do NOT enqueue — NEVER cleartext). [#38b: park + HARD WANT_PUBKEY.]
@@ -312,20 +326,26 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (will_seal) {   // §loc-per-send: `app_dm && want_crypt`, named once above so the LOCATION gate tests the SAME condition (U1)
         if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
             // ★★ §B21 (2026-08-28) — **TWO DIFFERENT CONDITIONS LAND HERE AND THE ARM REPORTED ONE OF THEM FOR
-            // BOTH, ASYNCHRONOUSLY REPORTING NEITHER.** `dh` (:180) is written by the lookup at :183 BEFORE the
-            // size term is evaluated (`&&` short-circuits left-to-right), so it distinguishes them exactly:
+            // BOTH, ASYNCHRONOUSLY REPORTING NEITHER.** `dh` is written by the DST_HASH lookup above BEFORE the
+            // (then-present) size term was evaluated (`&&` short-circuits left-to-right), so it distinguishes them:
             //   · dh == 0 — the lookup FAILED: we hold no key for `dst`. `no_pubkey` is TRUE; the remedy is
             //               `reqpubkey`/a QR scan. This is the arm the old emit named.
             //   · dh != 0 — the lookup SUCCEEDED and the **fit** term `4 + 1 + body_len <= 241` failed, i.e. from
             //               body_len 237 up the DST_HASH flag was dropped for SIZE. The key is fine; the body is
             //               too big. Reporting `no_pubkey` sent the operator after a key he already had.
-            // ⓘ NO deliverable message is lost by refusing the second arm rather than "keeping the flag": with
-            // DST_HASH forced on, the seal's own inner would be 4+1+4+body+16 = 262 at body 237 against a cap of
-            // 239, so `too_large` is what the seal would have answered one step later anyway. The arm is a
-            // SHORTCUT to the same true verdict, not a substitute for a send that could have flown.
             // ★ AND BOTH ARMS NOW **PUSH**. Neither did: this `return ctr` was the only refusal in the whole seal
             // block without a `push_send_failed`, so its sibling `SealOutcome::no_pubkey` twenty lines below
             // reported to the app while this one did not. That silence was the second half of B21.
+            // ⛔⛔ STATE-OF-PLAY 2026-09-05 (Slice 0h / R-RA-25), stated IN CODE rather than left to be rediscovered:
+            //   **the `key_known == true` arm is now UNREACHABLE, BY CONSTRUCTION, and it is KEPT anyway.** The size
+            //   term that produced it is gone ([[B296]]): `dh != 0` now implies `DATA_FLAG_DST_HASH` is set, so a
+            //   frame entering this branch necessarily has `dh == 0`. ⓘ Nothing is lost — the condition it reported
+            //   (`too_large`) is now answered EARLIER and more loudly: `on_command` refuses body > 232 synchronously,
+            //   and the seal's own `SealOutcome::too_large` (twenty lines below) still owns every shape it admits.
+            //   ⛔ It is NOT deleted here: removing a live-looking refusal is a separate decision from the field
+            //   ruling (C1), and the branch remains the honest answer if a future caller ever reaches this function
+            //   with DST_HASH cleared while holding a key. ⚠ Consequence for the tests: the §B21 237/238/239 band
+            //   now refuses at the COMMAND boundary (no ctr, no push), and `test_node_r3.cpp` says so in place.
             const bool key_known = (dh != 0);
             if (key_known) {
                 MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
@@ -395,16 +415,35 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         item.inner_len = static_cast<uint8_t>(n);
         for (int i = 0; i < 8; ++i) item.nonce_seed[i] = seed[i];
     } else {
-        item.inner_len = static_cast<uint8_t>(
+        const size_t plain_n =
             pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
                                /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, item.origin,   // §mobile: item.origin (stamp_origin) = home_id for a registered mobile -> the INNER origin is the ROUTABLE home, so the target's E2E-ack routes to the home (which last-miles it), not to our static-invisible node_id. == _node_id for a static node -> s18 byte-identical.
                                override_source_hash ? override_source_hash : _key_hash32,   // §mobile delegate: the HOME re-originating for its mobile stamps SOURCE_HASH = the mobile's hash so the target's E2E-ack routes back to the mobile (0 = our own hash, byte-identical)
-                               body, body_len, _cfg.lat_e7, _cfg.lon_e7));   // ✖ MISSING / DEAD BY CONSTRUCTION (§loc-per-send): this is the UNSEALED arm, and the
-                                                                             // LOCATION gate above REFUSES any `-l` send that would land here, so pack_unicast_inner
-                                                                             // can no longer see DATA_FLAG_LOCATION on a DM and never writes these two. The lat/lon
-                                                                             // args are RETAINED deliberately: pack_unicast_inner is SHARED (frame_codec.cpp's
-                                                                             // unsealed LOCATION pack path is still live for its other callers/tests), so removing
-                                                                             // the parameter here is a codec cleanup slice of its own, not part of the leak fix (C1).
+                               body, body_len, _cfg.lat_e7, _cfg.lon_e7);   // ✖ MISSING / DEAD BY CONSTRUCTION (§loc-per-send): this is the UNSEALED arm, and the
+                                                                            // LOCATION gate above REFUSES any `-l` send that would land here, so pack_unicast_inner
+                                                                            // can no longer see DATA_FLAG_LOCATION on a DM and never writes these two. The lat/lon
+                                                                            // args are RETAINED deliberately: pack_unicast_inner is SHARED (frame_codec.cpp's
+                                                                            // unsealed LOCATION pack path is still live for its other callers/tests), so removing
+                                                                            // the parameter here is a codec cleanup slice of its own, not part of the leak fix (C1).
+        // ★★★ R-RA-25 / [[B296]] shape 3 — **THE PLAINTEXT ARM NOW CHECKS ITS PACKER, LIKE EVERY SIBLING DOES.**
+        //   This return value was DISCARDED. `pack_unicast_inner` answers 0 on overflow, so a wrapper body that no
+        //   longer fit its own inner was stored as `inner_len = 0`, ADMITTED to the queue, and aired an RTS — after
+        //   which `pack_data` refused and the TX-time `dlen == 0` bail (:2232) dropped it, deliberately silently
+        //   ([[B268]]). "A success that isn't", one layer down. ⛔ A zero-length inner is never admitted again.
+        // ⓘ THE OWNERSHIP IS THE SEALED SIBLING'S, COPIED DELIBERATELY AND NOT INVENTED (the `if (key_known)` / `SealOutcome::too_large` arms above): a named
+        //   cause-specific emit ALWAYS, `push_send_failed(too_large)` only when this TYPE owns the generic user-send
+        //   lifecycle (§CUSTODY-B §6.2(5) — an INTERNAL type must not get an orphan `send_failed`), the minted `ctr`
+        //   RETURNED so the app can correlate the refusal with its handle, and NOTHING enqueued or pumped.
+        // ⓘ `too_large` is the TRUE and ONLY condition here, unlike the TX-time bail: `pack_unicast_inner`'s single
+        //   failure mode is the size term (`frame_codec.cpp` — it computes the prefix, then refuses when
+        //   prefix + body exceeds the span), so this is not [[B21]]'s "confident, wrong condition" repeated.
+        if (plain_n == 0) {
+            MR_EMIT("dm_inner_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len),
+                    EF_I("flags", item.flags), EF_I("type", type));
+            if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
+            return ctr;                                                    // not enqueued, no RTS, no zero inner
+        }
+        item.inner_len = static_cast<uint8_t>(plain_n);
     }
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
@@ -2195,9 +2234,19 @@ void Node::do_data_tx() {
         // `_pending_tx` with `awaiting_ack` false and nothing armed to re-fire it, while the RTS this flight had
         // ALREADY aired had burned real airtime. That was the visible half of register [[B20]] — a send that
         // "disappeared" and took the node's MAC with it.
-        // ⓘ IT IS NOW UNREACHABLE FROM AN ORIGINATION: enqueue_data sizes the seal against `data_inner_cap`, the
-        //   packer's own bound, so no same-layer DM can be built too long for its own frame any more. It stays as
-        //   the C2 backstop for every other producer (forwarders, the XL builders) and now matches its two
+        // ⛔⛔ [[B297]] — **THE CLAIM THAT USED TO STAND HERE WAS ONLY HALF TRUE, AND IT IS CORRECTED IN PLACE
+        //   RATHER THAN QUIETLY REWRITTEN.** It read, verbatim:
+        //       *"IT IS NOW UNREACHABLE FROM AN ORIGINATION: enqueue_data sizes the seal against `data_inner_cap`,
+        //        the packer's own bound, so no same-layer DM can be built too long for its own frame any more."*
+        //   True of the SEALED arm only. The PLAINTEXT arm discarded `pack_unicast_inner`'s return, so a body that
+        //   overflowed its own inner was queued with `inner_len = 0`, aired its RTS, and arrived HERE — the exact
+        //   path [[B296]] shape 3 reproduced (registered mobile, wrapper body 237..239).
+        // ✅ AFTER Slice 0h THE CLAIM IS TRUE AS WRITTEN, and for a stated reason rather than by assertion: BOTH
+        //   arms of `enqueue_data` now check their packer (the seal against `data_inner_cap`, the plaintext arm
+        //   against `pack_unicast_inner`'s own answer — :440), and neither admits a zero-length inner. Native proof
+        //   that no origination reaches this line: `test_node_r3.cpp` §B20/B21 asserts `pack_failed == false` for
+        //   EVERY carrier shape across the whole body-length band.
+        //   It stays as the C2 backstop for every other producer (forwarders, the XL builders) and matches its two
         //   siblings in this function: report, tear the flight down, become free.
         // ⛔ NO `push_send_failed` HERE, DELIBERATELY, and this is the one candidate the slice reports rather
         //   than invents: pack_data has FOUR refusals (addr_len > 1 · CRYPTED without DST_HASH · a wrong-sized

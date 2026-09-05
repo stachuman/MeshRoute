@@ -839,7 +839,9 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     std::array<uint8_t, 240> big{};
     for (auto& b : big) b = 'x';
 
-    // body of dm_max_body_bytes + 1 (240) would overrun TxItem.inner[] at enqueue_data's inner[2+i].
+    // A body of dm_max_body_bytes + 1 does not fit the application-DM inner ([dst_key_hash32][origin][source_hash]
+    // + body). ⛔ SYMBOLIC, AND THE VALUE MOVED: the cap was 239 (so this was 240) until Slice 0h / R-RA-25 derived
+    // it as 241 - 4 - 1 - 4 = 232 (so this is 233). The case follows the constant; it never restates it.
     Command over{}; over.kind = CmdKind::send; over.u.send.dst_hash = 0x0000EEEE;
     over.body = big.data(); over.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
     const CmdResult ro = node.on_command(over);
@@ -852,7 +854,7 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     over_id.body = big.data(); over_id.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
     CHECK(node.on_command(over_id).code == CmdCode::err_too_large);
 
-    // and the exact cap (239) is accepted (unknown hash -> parks).
+    // ...and the exact cap (232 since Slice 0h; was 239) is accepted (unknown hash -> parks).
     Command ok{}; ok.kind = CmdKind::send; ok.u.send.dst_hash = 0x0000EEEE;
     ok.body = big.data(); ok.body_len = protocol::dm_max_body_bytes;
     CHECK(node.on_command(ok).code == CmdCode::queued);
@@ -861,16 +863,16 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
 // =====================================================================================================================
 // §0f (remote-admin v2, R-RA-24' bound 2) — THE DM SEMANTIC-ADMISSION HALF OF THE DERIVED BLE LINE CAPACITY.
 //
-// Slice 0f makes the BLE transport ADMIT the canonical maximal `send` line (272 B, a full 239-byte body plus its five
-// accepted flags). That only matters if the layer BELOW keeps owning the verdict, so this case pins exactly that:
-// 239 is admitted here, 240 and 241 are refused HERE by name, and the sealed form's size refusal is the SEAL's — not
-// a transport drop. ⛔ A `line_too_long` in place of any of these would be a transport overflow impersonating a
+// Slice 0f makes the BLE transport ADMIT the canonical maximal `send` line (a full `dm_max_body_bytes` body plus its
+// five accepted flags — 272 B when 0f landed, 265 B since Slice 0h moved the cap 239 -> 232). That only matters if
+// the layer BELOW keeps owning the verdict, so this case pins exactly that: the cap is admitted here, cap+1 and 241
+// are refused HERE by name, and the sealed form's size refusal is the SEAL's — not a transport drop. ⛔ A `line_too_long` in place of any of these would be a transport overflow impersonating a
 // semantic result, which is the defect the capacity change exists to remove.
 //
 // The sibling halves: `test_console_parse.cpp` §0f (the grammar), `test_dual_layer.cpp` §0f (the cross-layer carrier),
 // and `tools/probe_ble_line` (the executed BLE intake).
 // =====================================================================================================================
-TEST_CASE("§0f DM admission: 239 is accepted, 240 AND 241 refuse `err_too_large` at the Node — never at the transport") {
+TEST_CASE("§0f DM admission: the cap is accepted, cap+1 AND 241 refuse `err_too_large` at the Node — never at the transport") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
@@ -888,12 +890,13 @@ TEST_CASE("§0f DM admission: 239 is accepted, 240 AND 241 refuse `err_too_large
         return node.on_command(c);
     };
 
-    // 239 — the exact DM cap the canonical maximal `send` line carries. NOT a size refusal.
+    // The exact DM cap the canonical maximal `send` line carries (232 since Slice 0h; 239 when 0f wrote this).
+    // NOT a size refusal.
     const CmdResult ok = by_hash(protocol::dm_max_body_bytes);
     CHECK(ok.code != CmdCode::err_too_large);
     CHECK(ok.code == CmdCode::queued);                      // unresolved hash -> parks; the point is that SIZE did not refuse
 
-    // 240 and 241 — both reachable over BLE now, and both refused HERE, by name.
+    // cap+1 (233) and 241 — both reachable over BLE now, and both refused HERE, by name.
     CHECK(by_hash(static_cast<uint8_t>(protocol::dm_max_body_bytes + 1)).code == CmdCode::err_too_large);
     CHECK(by_hash(protocol::max_payload_bytes_hard_cap).code    == CmdCode::err_too_large);
 
@@ -903,10 +906,11 @@ TEST_CASE("§0f DM admission: 239 is accepted, 240 AND 241 refuse `err_too_large
     CHECK(node.on_command(over_id).code == CmdCode::err_too_large);
 }
 
-TEST_CASE("§0f sealed DM: a full 239-byte body reaches the SEAL and refuses through its own named `too_large`") {
+TEST_CASE("§0f sealed DM: a full-cap body reaches the SEAL and refuses through its own named `too_large`") {
     // ⛔ The BLE transport must not preempt this: the operator has to see the SEAL's verdict, not `line_too_long`.
-    // The seal's bound is 4 (aad) + 1 (origin) + 4 (source_hash) + body + 16 (tag) <= cap, so a 239-byte body cannot
-    // fit any DM carrier — and `e2e_seal_inner` says so by name instead of truncating.
+    // The seal's bound is 4 (aad) + 1 (origin) + 4 (source_hash) + body + 16 (tag) <= cap, so a full-cap body
+    // (232 since Slice 0h; 239 when 0f wrote this) cannot fit any SEALED DM carrier — and `e2e_seal_inner` says so
+    // by name instead of truncating.
     TestHal halA, halB;
     uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 11); sB[i] = uint8_t(70 - i); }
     Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
@@ -934,6 +938,117 @@ TEST_CASE("§0f sealed DM: a full 239-byte body reaches the SEAL and refuses thr
                                       body.data(), /*body_len=*/200, oc_ok);
     CHECK(m == 4 + (1 + 4 + 200) + 16);
     CHECK(oc_ok == Node::SealOutcome::ok);
+}
+
+// =====================================================================================================================
+// §0h (remote-admin v2, R-RA-25 · registers [[B296]]/[[B297]]) — THE APPLICATION-DM BOUNDARY, SENDER SIDE.
+//
+// The durable form of the pass-2 review's executed reproduction
+// (`docs/superpowers/plans/2026-09-05-fable-review-pass2.md` §S1 Measurement B). Pre-fix, a static sender with an
+// authoritative id->hash binding produced, MEASURED:
+//     body=232 -> flags 0x06 (DST_HASH|SOURCE_HASH) inner_len 241     <- correct
+//     body=233 -> flags 0x02 (DST_HASH only)        inner_len 238     <- SOURCE_HASH silently dropped
+//     body=237 -> flags 0x00 (NEITHER)              inner_len 238     <- a by-HASH send became a by-ID send
+// i.e. identity was traded for body length, and the only thing the gate asserted about those lengths was that they
+// "aired". These cases assert the CARRIER, not the fact of transmission.
+// ⛔ They drive `Node::on_command` — the real public command boundary — not a lookalike packer, and they read the
+//    queued TxItem through the existing `test_tx_*` hooks. Sibling halves: `test_node_r3.cpp` §B20/B21 (the same
+//    boundary read OFF THE WIRE, for every carrier shape) and `test_dual_layer.cpp` §0h (the registered mobile, the
+//    park refusals and the home's malformed-wrapper refusal).
+// =====================================================================================================================
+
+namespace {
+// One `send` at `len`, with the TX drain suspended so the queued item's flags/inner stay inspectable.
+struct DmShape { CmdResult r; uint8_t qn_before = 0, qn_after = 0, flags = 0, inner_len = 0; bool body_intact = false; };
+DmShape drive_send_0h(Node& node, const Command& base, const uint8_t* body, uint8_t len) {
+    DmShape o{};
+    Command c = base; c.body = body; c.body_len = len;
+    o.qn_before = node.test_tx_queue_n();
+    o.r = node.on_command(c);
+    o.qn_after = node.test_tx_queue_n();
+    if (o.qn_after > o.qn_before) {
+        const uint8_t i = static_cast<uint8_t>(o.qn_after - 1);
+        o.flags = node.test_tx_flags(i);
+        const uint8_t* inner = node.test_tx_inner(i, o.inner_len);
+        const uint8_t prefix = static_cast<uint8_t>(((o.flags & DATA_FLAG_DST_HASH) ? protocol::dm_inner_dst_hash_bytes : 0)
+                                                    + protocol::dm_inner_origin_bytes
+                                                    + ((o.flags & DATA_FLAG_SOURCE_HASH) ? protocol::dm_inner_source_hash_bytes : 0));
+        o.body_intact = (o.inner_len == prefix + len);
+        for (uint8_t k = 0; o.body_intact && k < len; ++k) if (inner[prefix + k] != body[k]) o.body_intact = false;
+    }
+    return o;
+}
+}  // namespace
+
+TEST_CASE("§0h static sender, authoritative binding: 232 queues with BOTH hashes and a FULL 241-byte inner") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x11111111u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    CHECK(node.test_id_bind_set(/*id=*/3, 0x33333333u, /*authoritative=*/true));
+    node.test_suspend_tx_drain(true);                       // keep the item queued so its carrier is readable
+
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>('A' + (i % 23));
+    Command base{}; base.kind = CmdKind::send; base.u.send.dst_hash = 0x33333333u;
+
+    // ---- AT the cap ---------------------------------------------------------------------------------------------
+    const DmShape at = drive_send_0h(node, base, body.data(), protocol::dm_max_body_bytes);
+    CHECK(at.r.code == CmdCode::queued);
+    CHECK(at.qn_after == at.qn_before + 1);                 // exactly ONE queue item
+    CHECK((at.flags & DATA_FLAG_DST_HASH) != 0);            // ★ the routing instruction survives...
+    CHECK((at.flags & DATA_FLAG_SOURCE_HASH) != 0);         // ★ ...and so does the sender identity
+    CHECK((at.flags & (DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH))
+          == (DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH));                 // == 0x06 in the measured shape
+    CHECK(at.inner_len == protocol::max_payload_bytes_hard_cap);            // the COMPLETE 241-byte inner
+    CHECK(at.body_intact);                                                  // ...and the body is byte-for-byte intact
+    // ★ AND IT IS TRANSMISSIBLE — asked of the packer's own arithmetic, not of a copied number.
+    CHECK(data_frame_len(at.flags, node.test_tx_type(static_cast<uint8_t>(at.qn_after - 1)), at.inner_len)
+          <= protocol::lora_max_frame_bytes);
+    CHECK(data_frame_len(at.flags, 0, at.inner_len) != 0);
+
+    // ---- cap + 1: refused SYNCHRONOUSLY, before anything exists -------------------------------------------------
+    const DmShape over = drive_send_0h(node, base, body.data(),
+                                       static_cast<uint8_t>(protocol::dm_max_body_bytes + 1));
+    CHECK(over.r.code == CmdCode::err_too_large);
+    CHECK(over.r.ctr == 0);                                 // ★ no counter is minted
+    CHECK(over.qn_after == over.qn_before);                 // ★ no queue slot
+    CHECK(node.test_parked_sends_n() == 0);                 // ★ no park (the binding is authoritative anyway)
+    Push pu{}; CHECK_FALSE(node.next_push(pu));             // ★ no failure push — the app holds the CmdResult
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);          // ★ and no airtime of any kind
+    CHECK(find_ev(hal.events, "dm_inner_too_large") == nullptr);   // refused ABOVE enqueue_data, not inside it
+}
+
+TEST_CASE("§0h unknown-by-ID destination: SOURCE_HASH is still mandatory, DST_HASH may be absent, capacity is the SAME") {
+    // R-RA-25, verbatim: *"a genuine by-ID send for which no destination hash is known may omit that field, but it
+    // still uses the 232-byte cap"*. Both halves are asserted: the field is genuinely absent (there is no binding to
+    // derive it from), and the body allowance does NOT grow by the four bytes the absent field would have cost.
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x11111111u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    node.test_suspend_tx_drain(true);
+    std::array<uint8_t, protocol::max_payload_bytes_hard_cap> body{};
+    for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>('a' + (i % 19));
+    Command base{}; base.kind = CmdKind::send; base.u.send.dst_id = 7;    // ⛔ NO id_bind for 7 -> no derivable hash
+
+    const DmShape at = drive_send_0h(node, base, body.data(), protocol::dm_max_body_bytes);
+    CHECK(at.r.code == CmdCode::queued);
+    CHECK(at.qn_after == at.qn_before + 1);
+    CHECK((at.flags & DATA_FLAG_SOURCE_HASH) != 0);         // ★ MANDATORY — never optional-for-size
+    CHECK((at.flags & DATA_FLAG_DST_HASH) == 0);            // ★ genuinely unknown: nothing was invented
+    CHECK(at.inner_len == protocol::dm_inner_origin_bytes + protocol::dm_inner_source_hash_bytes
+                          + protocol::dm_max_body_bytes);   // 1 + 4 + 232 = 237 — SHORT of 241, deliberately
+    CHECK(at.inner_len < protocol::max_payload_bytes_hard_cap);
+    CHECK(at.body_intact);
+
+    // ★ THE "NO EXTRA CAPACITY" HALF: the four unspent bytes buy nothing. cap+1 refuses exactly as it does for a
+    //   carrier that DOES spend them.
+    const DmShape over = drive_send_0h(node, base, body.data(),
+                                       static_cast<uint8_t>(protocol::dm_max_body_bytes + 1));
+    CHECK(over.r.code == CmdCode::err_too_large);
+    CHECK(over.qn_after == over.qn_before);
+    CHECK(over.r.ctr == 0);
 }
 
 // Reconstruct the queried hash from a hash_resolved push (body[0..3] = hash LE).

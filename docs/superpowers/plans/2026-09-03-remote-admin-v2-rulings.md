@@ -537,3 +537,17 @@ records the current Slice-1b seam obligations from Fable pass 2: legacy staging 
 the behaviour-neutral split; v2 handlers later require `SOURCE_HASH`, use the 32-bit source hash rather than the
 legacy 8-bit origin, refuse rather than clamp, role-own the legacy slot, and retain internal DataType allocation
 so a disabled role reaches the fail-closed tail.
+
+### R-RA-25 addenda (owner, 2026-09-05) — "derivable" is NARROW; the park clamps REFUSE
+
+**Owner:** *"Agree - narrow reading and refuse."* (open points 4.1 and 4.2 of the 0h pre-check ledger; 4.3 agreed
+earlier: derive 232 from the named terms `1 origin + 4 DST_HASH + 4 SOURCE_HASH`.)
+1. **Narrow "derivable":** a destination hash is DERIVABLE only through the lookups `enqueue_data` ALREADY performs
+   (`key_hash_of_id(dst)` / `team_key_of_id(dst)`, `lib/core/node_mac.cpp:219`). 0h adds NO new lookup and passes NO
+   new `override_dst_hash`; in particular the hosted-mobile last-mile enqueue (`lib/core/node_hashlocate.cpp:1820`)
+   keeps its current shape. Putting DST_HASH on last-mile flights would be a wire change on corpus-exercised flights
+   and is its OWN ruled slice if ever wanted. ⇒ the 0h wire prediction is 36/36 byte-identical.
+2. **Park clamps REFUSE:** `park_send` / `park_send_layer` (`node_hashlocate.cpp:2392`, `:2447`) stop clamping the
+   body to the cap; a body over the cap is REFUSED (named emit, `return false` on the callers' existing refused-park
+   path — the same path a full park ring takes today), never truncated. Unreachable from the console after the 232
+   cap, kept as the C2 backstop.

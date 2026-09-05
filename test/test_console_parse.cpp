@@ -544,14 +544,18 @@ TEST_CASE("parse_command — send 0x00000000 (all-zero hash) -> bad_args (mirror
 //     BLE line transport  — `src/device_ble.h`'s intake + overflow branch (moved by 0f).
 //     command parser      — `console_parse.cpp:110` CLAMPS a quoted body to `max_payload_bytes_hard_cap` (241).
 //                           Characterized below and LEFT UNCHANGED; it is not a DM cap and not a BLE cap.
-//     DM semantic admission — `node.cpp` refuses `body_len > dm_max_body_bytes` (239) with `err_too_large`.
+//     DM semantic admission — `node.cpp` refuses `body_len > dm_max_body_bytes` with `err_too_large`. ⛔ That cap
+//                             is **232** since Slice 0h / R-RA-25 (was 239): the application-DM body now reserves
+//                             the [dst_key_hash32][origin][source_hash] prefix instead of dropping those fields to
+//                             make an over-long body fit ([[B296]]). Every length below is SYMBOLIC for exactly
+//                             that reason — the grammar's maximum follows the cap, it does not re-state it.
 // =====================================================================================================================
 
 namespace {
 // The canonical maximal spellings, built from the SAME named authorities `src/device_ble.h` derives from.
 std::string body_of(size_t n, char c) { return std::string(n, c); }
 
-std::string canonical_send_max() {          // `send <0xhash> "<239>" -a -e -t -K -l` — five accepted flags
+std::string canonical_send_max() {          // `send <0xhash> "<dm_max_body_bytes>" -a -e -t -K -l` — five accepted flags
     return "send 0xffffffff \"" + body_of(protocol::dm_max_body_bytes, 'S') + "\" -a -e -t -K -l";
 }
 // The depth-4 cross-layer carrier cap, mirrored from pack_unicast_inner's sizing terms (origin 1 + DST_HASH 4 +
@@ -568,13 +572,19 @@ std::string canonical_send_layer_queue() {  // the PLAINTEXT form that actually 
 }
 }  // namespace
 
-TEST_CASE("§0f — the canonical maximal by-hash `send` line parses whole: a full 239-B body + all five accepted flags") {
+TEST_CASE("§0f — the canonical maximal by-hash `send` line parses whole: a full 232-B body + all five accepted flags") {
     const std::string line = canonical_send_max();
-    CHECK(line.size() == 272);                             // 5 + 10 + 2 + 239 + 1 + 5*3 — the derivation's `send` term
+    // ⛔ MOVED WITH THE SYMBOL, 2026-09-05 (Slice 0h / R-RA-25), old value kept visible: this read `== 272` while
+    //    `dm_max_body_bytes` was 239. The cap is now 232, so the canonical maximal `send` line is 265 bytes:
+    //    5 (`send `) + 10 (`0xffffffff`) + 2 ( `"`) + 232 (body) + 1 (`"`) + 5*3 (five ` -x` flags) = 265.
+    //    `src/device_ble.h` recomputes the SAME expression from the SAME constant and needs no edit; its probe
+    //    (`tools/probe_ble_line`) re-measures it independently.
+    CHECK(line.size() == 265);                             // 5 + 10 + 2 + 232 + 1 + 5*3 — the derivation's `send` term
     Command c{};
     CHECK(parse_command(line.c_str(), line.size(), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send);
     CHECK(c.u.send.dst_hash == 0xffffffffu);
+    CHECK(protocol::dm_max_body_bytes == 232);              // ★ the cap this line is built from, stated once
     CHECK(c.body_len == protocol::dm_max_body_bytes);       // the FULL DM body survives, un-truncated
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len)
           == body_of(protocol::dm_max_body_bytes, 'S'));    // ...byte-for-byte
@@ -588,7 +598,7 @@ TEST_CASE("§0f — the canonical maximal by-hash `send` line parses whole: a fu
     Command c2{};
     CHECK(parse_command(four.c_str(), four.size(), c2) == ParseErr::ok);
     CHECK((c2.u.send.flags & DATA_FLAG_LOCATION) == 0);
-    CHECK(four.size() == 269);
+    CHECK(four.size() == 262);                              // was 269 at the 239-byte cap
 }
 
 TEST_CASE("§0f — the canonical maximal three-hop `send_layer` line parses whole: a 226-B body + its four accepted flags") {
@@ -629,11 +639,12 @@ TEST_CASE("§0f — the 268-byte plaintext `send_layer` form (`-a -K`) is the qu
     CHECK(c.no_intro);
 }
 
-TEST_CASE("§0f — the parser's body CLAMP is its own layer: 240 and 241 survive the parse, 242 is clamped to 241") {
+TEST_CASE("§0f — the parser's body CLAMP is its own layer: cap+1 (233) and 241 survive the parse, 242 is clamped to 241") {
     // ⛔ CHARACTERIZED, NOT CHANGED. `console_parse.cpp:110` clamps a quoted body to `max_payload_bytes_hard_cap`.
-    // That is the CARRIER buffer's bound, not the DM's — the 239-byte DM cap belongs to `Node::on_command`, which is
-    // what must refuse 240/241 (see test_node_hashlocate.cpp §0f). Attributing this clamp to BLE, or "fixing" it
-    // here so the parser refuses at 239, would move a semantic verdict into the wrong layer.
+    // That is the CARRIER buffer's bound, not the DM's — the 232-byte DM cap (was 239 before Slice 0h) belongs to
+    // `Node::on_command`, which is what must refuse everything above it (see test_node_hashlocate.cpp §0f/§0h).
+    // Attributing this clamp to BLE, or "fixing" it here so the parser refuses at the DM cap, would move a semantic
+    // verdict into the wrong layer.
     Command c{};
     for (size_t n : { size_t(protocol::dm_max_body_bytes + 1), size_t(protocol::max_payload_bytes_hard_cap) }) {
         const std::string line = "send 0xffffffff \"" + body_of(n, 'B') + "\" -a";

@@ -347,7 +347,23 @@ TEST_CASE("radmin 0e-C: every carrier's cap is derived through the real DATA pac
         CHECK(cap == gov - immut);
 
         // ---- control: no copied universal literal may be the answer (R-RA-3, verbatim) --------------------------
-        CHECK(cap != P::dm_max_body_bytes);                    // 239
+        // ⛔⛔ RE-AIMED 2026-09-05 (Slice 0h / R-RA-25), OLD FORM KEPT VISIBLE. The first line here read
+        //     `CHECK(cap != P::dm_max_body_bytes);   // 239`. That inequality was never the claim — it was a PROXY
+        //     for *"this cap was derived through the real packers, not copied from an unrelated DM literal"*, and it
+        //     only worked while the DM literal happened to be 239. R-RA-25 re-derives the application-DM cap as
+        //     `241 - 4 (DST_HASH) - 1 (origin) - 4 (SOURCE_HASH)` = **232**, which is EXACTLY the arithmetic the
+        //     same-layer by-key-hash carriers perform, so three rows of this table now legitimately equal it.
+        //     Keeping the old line would have kept a FALSE inequality green by shrinking the table or by pinning a
+        //     number nobody re-derives — the failure this whole fixture exists to prevent.
+        // ⇒ The claim is asserted DIRECTLY instead: a coincidence with the DM cap is permitted if and ONLY IF this
+        //   carrier spends the very same immutable terms the DM cap reserves. A carrier that spent a DIFFERENT
+        //   prefix and still landed on 232 would be a copied literal, and this reddens. (The executed cap /
+        //   cap+1 packing probe below is the second, independent half of the same proof.)
+        CHECK((cap == P::dm_max_body_bytes)
+              == (immut == P::dm_inner_origin_bytes + P::dm_inner_dst_hash_bytes + P::dm_inner_source_hash_bytes));
+        CHECK(P::dm_max_body_bytes == P::max_payload_bytes_hard_cap
+                                      - (P::dm_inner_origin_bytes + P::dm_inner_dst_hash_bytes
+                                         + P::dm_inner_source_hash_bytes));   // the DM cap's own derivation, named
         CHECK(cap != P::max_payload_bytes_hard_cap);           // 241
         CHECK(cap != 214);
         CHECK(cap != 213);

@@ -1911,6 +1911,31 @@ void Node::do_post_ack() {
         // SOURCE_HASH = the requesting mobile's hash (ui->source_hash) so the target's E2E-ack routes back to the MOBILE,
         // not us. VERIFY source_hash is one of OUR mobiles (else the reply couldn't return here + reject a spoof). Checked
         // BEFORE the last-mile fork so a MOBILE_SEND wrapper is never forwarded verbatim. _mobile_reg_n>0 -> non-host inert.
+        // ★★★ R-RA-25 / [[B296]] SHAPE 2 — **A MOBILE WRAPPER WITHOUT ITS MANDATORY SOURCE HASH IS REFUSED HERE,
+        //   NOT DELIVERED.** The fork below REQUIRES `has_source_hash` (it is the delegation identity: whose reply
+        //   this home must last-mile, and whose spoof it must reject). When the field was absent the fork was simply
+        //   SKIPPED — and because `DATA_TYPE_MOBILE_SEND` is APPLICATION-bearing (`frame_codec.h`, `internal =
+        //   false`), the fail-closed unknown-internal guard below (`data_type_traits(pa.type).internal`) does not catch it either. So the wrapper
+        //   fell all the way to the ORDINARY DELIVERY TAIL and the raw wrapper body was `record_dm`'d + `msg_recv`'d
+        //   into THIS HOME'S OWN INBOX, from the mobile's local id, with `sender_hash = 0`. The mobile saw `queued`
+        //   and a link ACK; the target saw nothing; no `send_failed` anywhere. The sender-side half is fixed in
+        //   `enqueue_data` (SOURCE_HASH is now unconditional), and THIS is the receiver-side half — the two are
+        //   independent, because a malformed wrapper can also arrive from a peer this node does not control.
+        // ⛔ SCOPE, STATED: `pa.type == DATA_TYPE_MOBILE_SEND` and `_mobile_reg_n > 0` — the HOME-CONSUMER boundary
+        //   only, inside the `!pa.is_forward` (we are the destination) block, so a TRANSIT relay is untouched and a
+        //   non-host node is byte-identical. It does NOT alter the hosted last mile: that fork serves ORDINARY DMs
+        //   addressed to a mobile we host, and a MOBILE_SEND wrapper was never a legal payload for it (the note
+        //   above: *"a MOBILE_SEND wrapper is never forwarded verbatim"*) — refusing is the completion of that rule,
+        //   not an exception to it. ⛔ `ui->has_dst_hash` is deliberately NOT hoisted into this guard: R-RA-25 rules
+        //   on the SOURCE hash, and widening the refusal is a separate decision (C1).
+        // ⓘ ONE named, SCALAR-ONLY emit and `become_free()`. No body telemetry (the delivery tail's `payload` field
+        //   is precisely what must not be reproduced on a refusal path), no Push, no record, no synthetic lifecycle,
+        //   no change to the type-trait table or to the fail-closed guard.
+        if (pa.type == DATA_TYPE_MOBILE_SEND && _active->_mobile_reg_n > 0 && !(ui && ui->has_source_hash)) {
+            MR_EMIT("mobile_send_no_source_hash", EF_I("origin", pa.origin), EF_I("dst", pa.dst), EF_I("ctr", pa.ctr));
+            become_free();
+            return;
+        }
         if (pa.type == DATA_TYPE_MOBILE_SEND && _active->_mobile_reg_n > 0 && ui && ui->has_dst_hash && ui->has_source_hash) {
             // ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14) — **"OURS" IS A LIVE DIRECT ROW, NOT A HASH MATCH.**
             // This scan had NO row-kind test at all, so a redirect or expired row licensed full UPSTREAM DELEGATION

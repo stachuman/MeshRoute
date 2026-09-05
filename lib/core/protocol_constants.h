@@ -1054,12 +1054,36 @@ inline constexpr uint8_t  data_inner_overhead = 6;
 inline constexpr uint8_t  lora_max_frame_bytes = 255;  // SX126x/SX127x 8-bit length register
 inline constexpr uint8_t  max_payload_bytes_hard_cap =
     lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 241 (the TxItem.inner[] buffer size)
-// A normal DM inner is [origin][body...] (enqueue_data writes body at inner[off+i]; no payload-flags byte
-// anymore — DST_HASH/etc. are byte-1 header flags). The app body must fit in the inner buffer MINUS the
-// prefix; kept at a conservative 2 (covers the [origin] prefix and leaves headroom; the DST_HASH variant's
-// [dst_key_hash32 4][origin]=5-B prefix has its own explicit fit-check in enqueue_data). Exceeding it overruns inner[].
-inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // conservative cap (>= the [origin] prefix)
-inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 239
+// ---- THE ONE APPLICATION-DM BODY CAP (R-RA-25, owner-ruled 2026-09-05; registers [[B296]]/[[B297]]) ---------
+// An application DM's inner is  [dst_key_hash32 4 (iff DST_HASH)][origin 1][source_hash 4 (iff SOURCE_HASH)][body]
+// — frame_codec.h's locked field order, written by pack_unicast_inner. R-RA-25 makes BOTH identity fields
+// MANDATORY on an `app_dm = true` carrier: SOURCE_HASH always, and DST_HASH whenever the destination hash is
+// supplied by the caller or derivable from the two lookups `enqueue_data` already performs. So the admission cap
+// must RESERVE both — one conservative cap shared by `send`, `send_layer`, the delegation wrappers and the later
+// RPC carriers. ⛔ A carrier that happens not to spend a reserved field earns NO larger body allowance: that is
+// the ruling, not an oversight, and it is why the terms below are unconditional.
+// ⛔ CORRECTED HISTORY, KEPT VISIBLE (V1). This used to read:
+//       `dm_inner_prefix_bytes = 2  // conservative cap (>= the [origin] prefix)`  ⇒ dm_max_body_bytes = 239,
+//    with the comment *"kept at a conservative 2 … the DST_HASH variant's [dst_key_hash32 4][origin] = 5-B prefix
+//    has its own explicit fit-check in enqueue_data"*. That 2 was NOT conservative — it was 7 bytes SHORT of the
+//    real prefix, and the "explicit fit-check" it deferred to was exactly the defect: `enqueue_data` DROPPED
+//    DST_HASH and then SOURCE_HASH to make an over-long body fit, so a by-hash send silently degraded into a
+//    by-ID send and the receiver's `sender_hash` became 0 ([[B296]], reproduced by execution). The prefix is now
+//    named term by term and the cap is DERIVED from it, so no field can ever be traded for body length again.
+inline constexpr uint8_t  dm_inner_origin_bytes      = 1;   // [origin]          — always present
+inline constexpr uint8_t  dm_inner_dst_hash_bytes    = 4;   // [dst_key_hash32]  — DATA_FLAG_DST_HASH, 4 B LE
+inline constexpr uint8_t  dm_inner_source_hash_bytes = 4;   // [source_hash]     — DATA_FLAG_SOURCE_HASH, 4 B LE
+inline constexpr uint8_t  dm_inner_prefix_bytes =
+    dm_inner_origin_bytes + dm_inner_dst_hash_bytes + dm_inner_source_hash_bytes;                  // = 9
+inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 241 - 9 = 232
+static_assert(dm_inner_prefix_bytes == 9,
+              "the application-DM inner prefix is [dst_key_hash32 4][origin 1][source_hash 4]");
+static_assert(dm_max_body_bytes == 232, "R-RA-25: the application-DM body cap is 241 - 4 - 1 - 4 = 232");
+// ★ THE FULL-INNER EQUALITY — the property that makes 232 a CAP rather than a margin: a body AT the cap, carrying
+//   both identity fields, occupies the COMPLETE inner buffer, so there is nothing left to reserve and nothing
+//   wasted. (Reading it the other way: one more body byte cannot fit without dropping a field, which is refused.)
+static_assert(static_cast<unsigned>(dm_max_body_bytes) + dm_inner_prefix_bytes == max_payload_bytes_hard_cap,
+              "a full-cap application DM must fill the whole 241-byte inner exactly");
 
 // ---- Overheard-reserve YIELD (spec 2026-06-28-overheard-reserve-yield.md) ----------------------------------
 // When a node mid-handshake (awaiting_cts/awaiting_ack) overhears its NEXT-HOP get reserved (an overheard CTS the

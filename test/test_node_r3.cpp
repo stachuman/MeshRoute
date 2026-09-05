@@ -7120,6 +7120,14 @@ struct OrigLoc {
     int      tx_calls = 0;             // every HAL tx ATTEMPT — RTS included, so "nothing aired" is measured, not inferred
     bool     pack_failed = false;      // the `_hal.log("DATA pack failed")` line = the TX-time refusal that pushes nothing
     bool     next_send_aired = false;  // a FOLLOW-UP 2-B DM on the same node flew => the first send left no wedged flight
+    // ★ §0h / R-RA-25 (2026-09-05) — THE IDENTITY FIELDS AS THEY LEFT THE NODE, plus the packed inner length. The
+    // §B20/B21 matrix used to assert only that a length "AIRS"; that is exactly why [[B296]] was invisible to the
+    // gate for so long — a frame that airs having silently shed DST_HASH/SOURCE_HASH passes an airs-only test.
+    uint8_t  wire_flags = 0;           // the DATA byte-1 flags actually on the wire
+    bool     dst_hash = false;         // ...DATA_FLAG_DST_HASH
+    bool     src_hash = false;         // ...DATA_FLAG_SOURCE_HASH
+    uint8_t  inner_len = 0;            // the packed inner length (241 = a full-cap application DM)
+    uint8_t  body_out = 0;             // the body length the UNSEALED reader recovers (0 for a CRYPTED frame)
 };
 // Drive a REAL app-DM origination (node 1 -> node 2) all the way to the DATA frame and read the outcome OFF THE WIRE.
 // `want_loc` sets DATA_FLAG_LOCATION in the command flags word exactly as console_parse's `-l` does — no signature
@@ -7210,12 +7218,17 @@ static OrigLoc originate_dm_loc(bool want_loc, int32_t lat, int32_t lon, bool se
     if (d) {
         r.crypted = d->crypted;
         r.flag = (d->flags & DATA_FLAG_LOCATION) != 0;
+        r.wire_flags = d->flags;                          // §0h
+        r.dst_hash = (d->flags & DATA_FLAG_DST_HASH) != 0;
+        r.src_hash = (d->flags & DATA_FLAG_SOURCE_HASH) != 0;
         r.ctr  = d->ctr;
         auto inner = data_inner(std::span<const uint8_t>(r.frame.data(), r.frame.size()), *d);
         auto mac   = data_mac(std::span<const uint8_t>(r.frame.data(), r.frame.size()), *d);
         r.plen = static_cast<uint8_t>(inner.size() + mac.size());
+        r.inner_len = static_cast<uint8_t>(inner.size());      // §0h
         if (!d->crypted) {                                    // only an UNSEALED inner is parseable in the clear
             auto ui = parse_unicast_inner(inner, d->flags);
+            if (ui) r.body_out = static_cast<uint8_t>(ui->body.size());   // §0h
             if (ui && ui->has_location) { r.cleartext_loc = true; r.lat = ui->lat_e7; r.lon = ui->lon_e7; }
         }
     }
@@ -7340,15 +7353,19 @@ TEST_CASE("§loc-per-send — an ORDINARY DM (no `-l`) never sets LOCATION, seal
 // -----------------------------------------------------------------------------
 namespace {
 // The carrier shapes reachable from the PUBLIC `send` command, with the LARGEST body each one airs.
-// ⓘ The plaintext caps are 239 because a plaintext trailer is 4 B: such a frame tops out at 8 + 240 + 4 = 252,
-//   so the FRAME bound is never the binding one and `dm_max_body_bytes` (239, the inner[] buffer guard in
-//   on_command) refuses first. The CRYPTED caps are the ones the frame bound sets: inner <= 239 and
+// ⓘ The plaintext caps are `dm_max_body_bytes` because a plaintext trailer is 4 B: such a frame tops out at
+//   8 + 241 + 4 = 253, so the FRAME bound is never the binding one and the ADMISSION cap in on_command refuses
+//   first. The CRYPTED caps are the ones the frame bound sets: inner <= 239 and
 //   inner = 4 (aad) + 1 (origin) + 4 (SOURCE_HASH) + [6 (LOCATION)] + body + 16 (tag).
+// ⛔ MOVED WITH THE SYMBOL 2026-09-05 (Slice 0h / R-RA-25), old values kept visible: the three plaintext caps were
+//   hand-written **239**. `dm_max_body_bytes` is now **232** — the admission cap RESERVES the
+//   [dst_key_hash32 4][origin 1][source_hash 4] prefix instead of dropping those fields to make a longer body fit
+//   ([[B296]]) — so they are written symbolically here and can never drift from the constant again.
 struct DmVariant { const char* name; bool loc; bool sealed; bool ack; bool bind; int cap; };
 constexpr DmVariant kDmVariants[] = {
-    { "plaintext, no DST_HASH", false, false, false, false, 239 },
-    { "plaintext + DST_HASH",   false, false, false, true,  239 },
-    { "plaintext + `-a`",       false, false, true,  true,  239 },
+    { "plaintext, no DST_HASH", false, false, false, false, protocol::dm_max_body_bytes },
+    { "plaintext + DST_HASH",   false, false, false, true,  protocol::dm_max_body_bytes },
+    { "plaintext + `-a`",       false, false, true,  true,  protocol::dm_max_body_bytes },
     { "CRYPTED",                false, true,  false, true,  214 },
     { "CRYPTED + `-a`",         false, true,  true,  true,  214 },
     { "CRYPTED + `-l`",         true,  true,  false, true,  208 },
@@ -7389,19 +7406,54 @@ TEST_CASE("§B20 — data_frame_len/data_inner_cap ARE pack_data's arithmetic (n
 // ★★★ THE MATRIX. Every carrier shape × every body length across the boundary, with the demand the register rows
 //     make: NOTHING may be accepted-but-never-aired, and every refusal must carry the TRUE condition. The old tree
 //     failed this at 15 cells (6 in B20's bands, 9 in B21's).
-TEST_CASE("§B20/B21 — every body length lands exactly ONE of two honest outcomes, for every carrier shape") {
+TEST_CASE("§B20/B21 + §0h — every body length lands exactly ONE of THREE honest outcomes, for every carrier shape") {
+    // ★★★ §0h (R-RA-25, 2026-09-05) — **THE MATRIX GAINS A THIRD OUTCOME AND A SET OF FLAG ASSERTIONS, AND BOTH
+    //     ADDITIONS ARE THE POINT.** As written before, this case asserted `r.code == CmdCode::queued` for ALL of
+    //     200..239 with the comment *"the shape-blind dm_max_body_bytes guard admits all of 200..239"*, and for an
+    //     accepted length it asserted only that the frame AIRED. Both were true and both were blind:
+    //       · the admission cap is now **232** (it reserves the identity prefix instead of shedding it), so
+    //         233..239 is a THIRD outcome — a SYNCHRONOUS `err_too_large` at the command boundary, before a counter,
+    //         a queue slot, a park or a single byte of airtime exists; and
+    //       · "it aired" is exactly what [[B296]] satisfied while silently dropping DST_HASH and then SOURCE_HASH,
+    //         so every ACCEPTED cell now asserts the identity fields and the packed inner as well.
     for (const DmVariant& v : kDmVariants) {
         CAPTURE(v.name);
         for (int b = 200; b <= 239; ++b) {
             CAPTURE(b);
             const OrigLoc r = originate_dm_loc(v.loc, 523000000, 134050000, v.sealed,
                                                static_cast<uint8_t>(b), v.ack, v.bind);
-            CHECK(r.code == CmdCode::queued);              // the synchronous answer is unchanged: the shape-blind
-                                                           // dm_max_body_bytes guard admits all of 200..239
+            if (b > protocol::dm_max_body_bytes) {
+                // (3) SYNCHRONOUS REFUSAL — the admission cap owns it, for every shape alike.
+                CHECK(r.code == CmdCode::err_too_large);
+                CHECK_FALSE(r.aired);
+                CHECK(r.tx_calls == 0);                    // not even an RTS
+                CHECK(r.qn == 0);                          // no queue slot
+                CHECK_FALSE(r.failed);                     // ★ and NO push: the app already holds the CmdResult
+                CHECK(r.next_send_aired);                  // ...and the node is not wedged by the refusal
+                CHECK_FALSE(r.pack_failed);
+                continue;
+            }
+            CHECK(r.code == CmdCode::queued);              // (1)/(2) admitted — the carrier now decides
             if (b <= v.cap) {
                 CHECK(r.aired);                            // AIRS
                 CHECK(r.crypted == v.sealed);
                 CHECK_FALSE(r.failed);                     // ...and says nothing failed
+                // ★★ §0h — IDENTITY IS NEVER TRADED FOR LENGTH. SOURCE_HASH rides EVERY application DM; DST_HASH
+                //    rides it whenever the id→hash binding exists (`bind`), and its ABSENCE in the unbound shape is
+                //    the genuine "no destination hash is derivable" case R-RA-25 exempts — which still earns no
+                //    extra body capacity, as the shared `v.cap` above proves.
+                CHECK(r.src_hash);
+                CHECK(r.dst_hash == v.bind);
+                if (!v.sealed) {
+                    // The packed inner is exactly [dst_hash?][origin][source_hash][body] — asserted as an equality,
+                    // so a dropped field would show up as a SHORT inner rather than as a still-passing "it aired".
+                    const int prefix = (v.bind ? protocol::dm_inner_dst_hash_bytes : 0)
+                                     + protocol::dm_inner_origin_bytes + protocol::dm_inner_source_hash_bytes;
+                    CHECK(r.inner_len == prefix + b);
+                    CHECK(r.body_out == b);                // ...and the body came back whole, un-truncated
+                    if (v.bind && b == protocol::dm_max_body_bytes)
+                        CHECK(r.inner_len == protocol::max_payload_bytes_hard_cap);   // the full-inner equality
+                }
             } else {
                 CHECK_FALSE(r.aired);                      // REFUSES
                 CHECK(r.failed);                           // ...LOUDLY (this is the whole of B20/B21)
@@ -7410,7 +7462,8 @@ TEST_CASE("§B20/B21 — every body length lands exactly ONE of two honest outco
                 CHECK(r.qn == 0);                          // ...and no tx-queue slot was burned
             }
             // ⛔ THE SILENT CLASS, ASSERTED AWAY EVERYWHERE: `pack_failed` is the TX-time `dlen == 0` bail, the one
-            //    path that used to drop a DM with nothing pushed. No length may reach it from an origination.
+            //    path that used to drop a DM with nothing pushed. No length may reach it from an origination — which
+            //    is precisely the claim [[B297]]'s corrected comment at `node_mac.cpp` now rests on.
             CHECK_FALSE(r.pack_failed);
         }
     }
@@ -7446,17 +7499,39 @@ TEST_CASE("§B20 — a sealed DM in the 215-216 band refuses `too_large`; NOTHIN
 // ★★ [[B21]] — THE FLIPPED REPRODUCTION, AND IT IS A DIFFERENT CAUSE AT A DIFFERENT SITE. Pre-fix, body_len 237-239
 //    emitted `e2e_no_pubkey` (about a key the node HELD and had just looked up) and pushed NOTHING. The distinction
 //    the row demands is preserved below: the same guard still answers `no_pubkey` when the key genuinely is missing.
-TEST_CASE("§B21 — an oversized sealed DM reports `too_large`, not `no_pubkey`, and it PUSHES") {
+// ⛔⛔ RE-AIMED 2026-09-05 (Slice 0h / R-RA-25), AND THE OLD DECISION IS KEPT VISIBLE RATHER THAN QUIETLY REPLACED.
+//    This case USED to drive body_len 237/238/239 and assert `failed / reason == too_large / no no_pubkey`. Both
+//    halves of its premise are gone, for the same one reason — B21's `key_known` arm existed ONLY because
+//    `enqueue_data` dropped DST_HASH for SIZE at 237+:
+//      · the ADMISSION cap is now 232, so 237..239 never reaches `enqueue_data` at all — it is refused
+//        SYNCHRONOUSLY at the command boundary (no ctr, no push, no airtime), which is strictly earlier and louder
+//        than the asynchronous push this case used to demand; and
+//      · with the size term gone, `dh != 0` now implies DST_HASH is SET, so the `key_known` arm at
+//        `node_mac.cpp:344` is unreachable by construction (said in-source there, not deleted).
+//    ⇒ The row's actual claim — *"a size problem is never reported as a missing key"* — is asserted BELOW in the
+//    form it now takes, and its live sibling (the 215/216 sealed band, §B20 above) still proves the pushing
+//    `too_large` refusal that B21 added. ⛔ The `no_pubkey` half of the distinction is untouched: the next case.
+TEST_CASE("§B21/§0h — the 237-239 band is refused SYNCHRONOUSLY by the cap, and never as `no_pubkey`") {
     for (uint8_t body : { uint8_t{237}, uint8_t{238}, uint8_t{239} }) {
         CAPTURE(body);
         const OrigLoc r = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true, body);
+        CHECK(body > protocol::dm_max_body_bytes);          // ★ the band is ABOVE the cap — that is why it refuses
+        CHECK(r.code == CmdCode::err_too_large);            // ...synchronously, at the command boundary
+        CHECK(r.code != CmdCode::queued);                   // ★ pre-0h this was `queued` and the verdict came later
         CHECK_FALSE(r.aired);
-        CHECK(r.failed);                                   // ★ pre-fix: NO push at all
-        CHECK(r.reason == SendFailReason::too_large);       // ★ pre-fix: the operator was sent after a key he had
-        CHECK(r.reason != SendFailReason::no_pubkey);
+        CHECK_FALSE(r.failed);                              // no push is owed: the app holds the CmdResult
+        CHECK(r.reason != SendFailReason::no_pubkey);       // ★ B21's claim, preserved: never a key story
         CHECK(r.tx_calls == 0);
         CHECK(r.qn == 0);
+        CHECK_FALSE(r.pack_failed);
     }
+    // ★ THE CONTROL that keeps this attributable to the CAP and not to "sealed sends are broken": one byte at the
+    //   cap still flies through the very same shape (it is plaintext-refused only above 232).
+    const OrigLoc at_cap = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/false,
+                                            protocol::dm_max_body_bytes);
+    CHECK(at_cap.code == CmdCode::queued);
+    CHECK(at_cap.aired); CHECK(at_cap.dst_hash); CHECK(at_cap.src_hash);
+    CHECK(at_cap.inner_len == protocol::max_payload_bytes_hard_cap);
 }
 
 // ★★ [[B21]]'s OTHER ARM, kept truthful — the distinction is the point of the fix, not a side effect. With the

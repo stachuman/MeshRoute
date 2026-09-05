@@ -64,7 +64,7 @@ the reference shape.
 - Prediction: **36/36 byte-identical**, and the throwaway instrument must show 0 `SOURCE_HASH`-dropped and 0
   `DST_HASH`-dropped decisions across the corpus BEFORE the change (so identity is explained, not hoped).
 
-## 4. Open points for the brief (owner/Author)
+## 4. Open points for the brief — ALL RULED by the owner 2026-09-05 ("Agree - narrow reading and refuse"; 4.3 agreed): 4.1 NARROW, 4.2 REFUSE, 4.3 named terms. Recorded as R-RA-25 addenda in the rulings ledger.
 
 - **4.1 "derivable"**: define it as "the destination hash `enqueue_data` ALREADY looks up" (`key_hash_of_id` /
   `team_key_of_id`). Adding lookups (e.g. passing the mobile's hash on the hosted last-mile `:1820`) is a wire change

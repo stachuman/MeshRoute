@@ -613,7 +613,40 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2604, 109619    # ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0f** (derived BLE line
+PIN_CASES, PIN_ASSERTS = 2610, 110269    # ★★ RE-SYNCED 2026-09-05 by **remote-admin v2 Slice 0h** (application-DM hash
+                                         # preservation — R-RA-25, registers [[B296]]/[[B297]]). ⚠ UNLIKE 0f, THIS SLICE
+                                         # DOES CHANGE FILES THIS BATTERY MUTATES: `protocol_constants.h` (b159const),
+                                         # `node_mac.cpp` (grantadmit/b161mac/b20mac/b159mac/sliceBmac),
+                                         # `node_hashlocate.cpp` (grantpark/b161hash/b251hash) and `node_mac_rx.cpp`
+                                         # (b161rx/b251rx/b159rx/a0rx/sliceBrx/sliceGrx) — the union was run in full and
+                                         # six NEW controls were added (0h-1..0h-6 below).
+                                         # DERIVATION, measured with the real binary on this tree and not assumed:
+                                         #   base `006f358` (clean, before the slice)   2604 / 109619 / 0 failed
+                                         #   + six NEW §0h cases                           +6 /    +101
+                                         #   + five MOVED/STRENGTHENED cases               +0 /    +549
+                                         #   = measured AFTER                           2610 / 110269 / 0 failed  ✓
+                                         # The +101 closes over the six new cases, each measured on its own `-tc=` filter
+                                         # (`program -tc='§0h *'` = 6 / 101 exactly):
+                                         #   test_node_hashlocate §0h static sender, both hashes @232 / 233 refuses    17
+                                         #   test_node_hashlocate §0h unknown-by-ID: SOURCE_HASH kept, no extra cap     10
+                                         #   test_dual_layer      §0h registered mobile 232 wrapper / 233 refuses       17
+                                         #   test_dual_layer      §0h delegated-wrapper pack refusal + lifecycle gate   27
+                                         #   test_dual_layer      §0h park backstops REFUSE (both helpers, direct)      16
+                                         #   test_dual_layer      §0h home refuses a source-hash-less MOBILE_SEND       14
+                                         #   17+10+17+27+16+14 = 101 over 6 cases ✓
+                                         # The +549 closes over the five cases whose EXISTING assertions moved with the
+                                         # cap or gained the flag/inner checks the [[B296]] defect slipped through
+                                         # (each measured on its own filter; the old value is derived from the assertion
+                                         # shape it replaced — see each case's in-file correction note):
+                                         #   test_console_parse   canonical maximal by-hash `send`      14 ->   15   +1
+                                         #   test_node_r3         §B20/B21 length matrix              1362 -> 1880 +518
+                                         #   test_node_r3         §B21 oversized-sealed band            18 ->   32  +14
+                                         #   test_radmin_..._0e   0e-C carrier cap table               344 ->  358  +14
+                                         #   test_dual_layer      §0f send_layer cap/-l/cap+1           30 ->   32   +2
+                                         #   1+518+14+14+2 = 549 over 0 new cases ✓
+                                         #
+                                         # ---- the previous pin, kept as the derivation it replaces --------------------------
+                                         # PIN_CASES, PIN_ASSERTS = 2604, 109619 — ★★ RE-SYNCED 2026-09-04 by **remote-admin v2 Slice 0f** (derived BLE line
                                          # capacity, `src/device_ble.h`). ⛔ 0f changes NO file this battery mutates — its one
                                          # production edit is `src/device_ble.h`, which NO configured target names, and whose
                                          # executed cover is `tools/probe_ble_line` (11 structural + 3 packer + 26 intake checks,
@@ -6371,6 +6404,27 @@ MUTS_GRANTPARK = [
   "behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37)",
   "    if (_parked_sends_n >= protocol::cap_parked_sends) return false;   // full -> drop (the app can retry)",
   "    if (_parked_sends_n >= protocol::cap_parked_sends) return true;"),
+ # ★★★ SLICE 0h (R-RA-25 addendum 2) — THE TWO PARK CLAMPS, RESTORED ONE AT A TIME. Each mutation turns the REFUSAL
+ #     back into the SILENT TRUNCATION it replaced, in one contiguous edit (the guard becomes the clamp), so the
+ #     over-cap body is parked and delivered short with nothing said anywhere. ⛔ Removing the guard WITHOUT
+ #     restoring the clamp is deliberately NOT the mutation: `ParkedSend::body` is 241 B, so it would measure a
+ #     different (still-safe) behaviour and not the clamp the ruling names.
+ ("K02 ★★★ `park_send` RESTORES ITS CLAMP: an over-cap parked body is silently truncated to the cap and parked "
+  "anyway, so the message is delivered short and every layer reports success",
+  "    if (body_len > protocol::dm_max_body_bytes) {\n"
+  "        MR_EMIT(\"send_park_refused\", EF_I(\"key_hash32\", static_cast<int64_t>(key_hash32)),\n"
+  "                EF_I(\"body_len\", body_len), EF_S(\"reason\", \"too_large\"));\n"
+  "        return false;\n"
+  "    }",
+  "    if (body_len > protocol::dm_max_body_bytes) body_len = protocol::dm_max_body_bytes;"),
+ ("K03 ★★★ `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing — the sibling "
+  "defect, attacked separately so neither park can pass on the other's assertion",
+  "    if (body_len > protocol::dm_max_body_bytes) {\n"
+  "        MR_EMIT(\"send_layer_park_refused\", EF_I(\"key_hash32\", static_cast<int64_t>(key_hash32)),\n"
+  "                EF_I(\"body_len\", body_len), EF_S(\"reason\", \"too_large\"));\n"
+  "        return;\n"
+  "    }",
+  "    if (body_len > protocol::dm_max_body_bytes) body_len = protocol::dm_max_body_bytes;"),
 ]
 
 # ===== B161 — canonical typed-answer producers / consumers / hybrid identity =====================================
@@ -6567,6 +6621,19 @@ MUTS_B251RX = [
  #       every site at once and is RED, D21 attacks a cause emitted with no release behind it, and the four
  #       causes that ARE reachable from a production-shaped fixture (`park_giveup`, `dispatch_refused`,
  #       `carrier_ineligible`, `activation_conflict`) are each driven by a native case.
+ # ★★★ SLICE 0h (R-RA-25 · [[B296]] shape 2) — THE RECEIVER HALF, IN THE BATTERY THAT ALREADY OWNS THE `MOBILE_SEND`
+ #     HOME CONSUMER (B251's whole subject is the wrapper arriving at its home). ⛔ No second parser and no new
+ #     cross-file target was invented for it: the decision lives in `node_mac_rx.cpp`, and this is that file's
+ #     wrapper-consumer battery.
+ ("X24 ★★★ [[B296]] SHAPE 2: the home's refusal of a MOBILE_SEND wrapper WITHOUT its mandatory source hash is "
+  "removed — the wrapper skips the delegation fork (which requires the field), is application-bearing so the "
+  "fail-closed internal guard never sees it, and lands in the HOME'S OWN INBOX as an ordinary message",
+  "        if (pa.type == DATA_TYPE_MOBILE_SEND && _active->_mobile_reg_n > 0 && !(ui && ui->has_source_hash)) {\n"
+  "            MR_EMIT(\"mobile_send_no_source_hash\", EF_I(\"origin\", pa.origin), EF_I(\"dst\", pa.dst), EF_I(\"ctr\", pa.ctr));\n"
+  "            become_free();\n"
+  "            return;\n"
+  "        }\n",
+  ""),
 ]
 
 MUTS_B251HASH = [
@@ -7130,17 +7197,30 @@ MUTS_B20MAC = [
   "carrier will drop. The brief's named failure: a laxer check re-admitting past the carrier cap",
   "        const size_t seal_cap  = frame_cap < sizeof item.inner ? frame_cap : sizeof item.inner;",
   "        const size_t seal_cap  = frame_cap > sizeof item.inner ? frame_cap : sizeof item.inner;"),
- ("B04 ★★★ [[B21]]'s WRONG CONDITION RESTORED: the guard stops distinguishing 'no key' from 'the key did not fit', "
-  "so an oversized sealed DM sends the operator after a key he already holds",
+ # ⛔⛔ B04 RE-AIMED 2026-09-05 (Slice 0h / R-RA-25) — OLD DECISION KEPT VISIBLE. It read:
+ #      ("B04 … the guard stops distinguishing 'no key' from 'the key did not fit' …",
+ #       "            const bool key_known = (dh != 0);", "            const bool key_known = false;")
+ #    and it went RED because body 237-239 reached this guard with `dh != 0` (DST_HASH dropped for SIZE). 0h removed
+ #    that size term, so `dh != 0` now implies the flag IS set and the `key_known == true` arm is UNREACHABLE (said
+ #    in-source at node_mac.cpp) — the old mutation became a NO-OP, i.e. a control that stays green. ⇒ the SAME
+ #    distinction is attacked from its surviving side: forcing `key_known` TRUE makes the genuinely keyless send
+ #    report `too_large` instead of `no_pubkey`, which is [[B21]]'s wrong condition in mirror image.
+ ("B04 ★★★ [[B21]]'s WRONG CONDITION, MIRRORED: the guard stops distinguishing 'no key' from 'the key did not fit' "
+  "the other way round, so a send to a peer whose key we do NOT hold is reported as a size problem",
   "            const bool key_known = (dh != 0);",
-  "            const bool key_known = false;"),
- ("B05 ★★ [[B21]]'s SILENCE, HALF ONE: the size arm emits but no longer PUSHES — the app is told nothing, which is "
-  "exactly the 'no send_failed' the register row names",
-  # ⓘ RE-ANCHORED 2026-08-30 (§CUSTODY-B wrapped both B21 pushes in the §6.2(5) lifecycle gate). The MUTATION
-  #   IS UNCHANGED — it still deletes the push and leaves the emit — only the anchor text moved.
-  "                if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)\n"
-  "            } else {",
-  "            } else {"),
+  "            const bool key_known = true;"),
+ # ⛔⛔ B05 RE-AIMED 2026-09-05 (Slice 0h / R-RA-25) — OLD DECISION KEPT VISIBLE. It read:
+ #      ("B05 … the size arm emits but no longer PUSHES …",
+ #       "                if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)\n            } else {",
+ #       "            } else {")
+ #    Same cause as B04: that arm is unreachable after 0h, so deleting its push measures nothing. The DEFECT SHAPE
+ #    — "a size refusal that emits but never reaches the app" — moved to the site that inherited the behaviour: the
+ #    PLAINTEXT pack refusal 0h added beside the sealed one. The claim is unchanged; only its live address is.
+ ("B05 ★★ [[B21]]'s SILENCE, at its new address: the PLAINTEXT size refusal emits but no longer PUSHES — the app is "
+  "told nothing, which is exactly the 'no send_failed' the register row names",
+  "            if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)\n"
+  "            return ctr;                                                    // not enqueued, no RTS, no zero inner",
+  "            return ctr;                                                    // not enqueued, no RTS, no zero inner"),
  ("B06 ★★ [[B21]]'s SILENCE, HALF TWO: the genuinely-keyless arm emits but no longer PUSHES — the sibling defect, "
   "removed separately so neither half can pass on the other's assertion",
   # ⓘ RE-ANCHORED 2026-08-30 (§CUSTODY-B), same reason as B05 above; the mutation itself is unchanged.
@@ -7165,6 +7245,33 @@ MUTS_B20MAC = [
   "        return;",
   "        _active->_pending_tx.reset();\n"
   "        return;"),
+ # ★★★ SLICE 0h (R-RA-25 · [[B296]]/[[B297]]) — THE THREE SENDER-SIDE DECISIONS, EACH ATTACKED ALONE.
+ #     ⓘ WHY THESE ARE NOT "restore the old fit-check verbatim": the OLD terms (`4 + 1 + body <= 241` and
+ #       `after_origin + 4 + body <= 241`) are SATISFIED by every body the 232-byte cap now admits, so pasting them
+ #       back would be a control that stays green — vacuous, and a false reassurance. The defect R-RA-25 forbids is
+ #       *a size condition on an identity field AT ALL*, so each mutation reinstates one that BITES at the cap.
+ ("H01 ★★★ [[B296]] HALF ONE: `SOURCE_HASH` becomes OPTIONAL-FOR-SIZE again — a full-cap application DM airs with "
+  "the sender's stable identity stripped, so the receiver's `sender_hash` is 0 and inbox dedup / XL ack identity die",
+  "    if (app_dm) item.flags |= DATA_FLAG_SOURCE_HASH;            // R-RA-25: MANDATORY on every application carrier",
+  "    if (app_dm && static_cast<size_t>(body_len) + protocol::dm_inner_prefix_bytes\n"
+  "                  < protocol::max_payload_bytes_hard_cap)\n"
+  "        item.flags |= DATA_FLAG_SOURCE_HASH;"),
+ ("H02 ★★★ [[B296]] HALF TWO: a DERIVED `DST_HASH` becomes OPTIONAL-FOR-SIZE again — a by-HASH send silently "
+  "degrades into a by-ID send, deliverable to whoever happens to hold that id",
+  "    } else if (app_dm && (key_hash_of_id(dst, dh) || team_key_of_id(dst, dh))) {",
+  "    } else if (app_dm && (key_hash_of_id(dst, dh) || team_key_of_id(dst, dh))\n"
+  "               && static_cast<size_t>(body_len) + protocol::dm_inner_prefix_bytes\n"
+  "                  < protocol::max_payload_bytes_hard_cap) {"),
+ ("H03 ★★★ [[B296]] HALF THREE / [[B297]]: the PLAINTEXT arm stops checking its packer, so an inner that did not "
+  "pack is queued as `inner_len = 0`, the RTS airs, and the TX-time bail drops it in silence",
+  "        if (plain_n == 0) {\n"
+  "            MR_EMIT(\"dm_inner_too_large\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"body_len\", body_len),\n"
+  "                    EF_I(\"flags\", item.flags), EF_I(\"type\", type));\n"
+  "            if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)\n"
+  "            return ctr;                                                    // not enqueued, no RTS, no zero inner\n"
+  "        }\n"
+  "        item.inner_len = static_cast<uint8_t>(plain_n);",
+  "        item.inner_len = static_cast<uint8_t>(plain_n);"),
 ]
 
 # ===== §B20 — lib/core/frame_codec.h: THE ONE LENGTH AUTHORITY ====================================================
