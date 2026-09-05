@@ -31,7 +31,8 @@ owner roles and permits several owners. A compact authenticated discovery bootst
 public key to its target ACL slot without adding bytes to normal requests. Each managed target also has one
 stable administration identity, separate from its ordinary `/mrid`, so ordinary identity regeneration does
 not break management trust. The target epoch is likewise kept out of normal authenticated commands. Exact
-command/output limits are carrier-specific rather than falsely inheriting the 239-byte direct-DM ceiling.
+command/output limits are carrier-specific rather than falsely inheriting the former 239-byte direct-DM
+ceiling; R-RA-25's one application-DM admission authority is now 232 bytes.
 Carrier E2E acknowledgement is an optional per-request `-a`, default off; the authenticated RPC response is
 the ordinary receipt.
 
@@ -116,7 +117,15 @@ The following are code facts, not inherited assumptions from an older design:
   only for a hash-addressed carrier; a by-node-id carrier has no legal outer-`CRYPTED` form because `pack_data`
   requires the clear `DST_HASH` used by the per-DM nonce. RPC confidentiality lives inside the authenticated RPC
   body, not in the outer DATA `CRYPTED` flag.
-- The supported normal-DM body ceiling is the deliberately conservative `dm_max_body_bytes = 239`.
+- ⚠ **CORRECTED 2026-09-05 by R-RA-25; prior 239-byte authority kept visible:** the supported normal-DM body
+  ceiling was the deliberately conservative `dm_max_body_bytes = 239`, but executable Fable pass 2 proved that
+  `enqueue_data()` then silently discarded `SOURCE_HASH` for bodies 233..236 and both known hash fields for
+  237..239; a delegated mobile wrapper could instead be stored in its home node's inbox or be queued with an
+  empty inner. The one application-DM BODY authority is therefore **232 bytes**, derived as
+  `241 - DST_HASH(4) - origin(1) - SOURCE_HASH(4)`. Every `app_dm=true` carrier includes `SOURCE_HASH`; a supplied
+  or derivable destination hash is also mandatory and may never be dropped for size. A truly unbound by-ID send
+  may omit the unknown `DST_HASH`, but receives no larger cap. Slice 0h lands and gates the behaviour change before
+  any v2 carrier consumes this path.
 - `DATA_TYPE_REMOTE_CMD = 0xA0` and `DATA_TYPE_REMOTE_RESP = 0xA1` already carry remote request/response bodies
   (⛔ corrected 2026-08-29: ordinals 6/7 were RETIRED by the §CUSTODY-A namespace transition — the values now sit
   in the internal range's administration/security block `0xA0..`. Reusability is unchanged; no third DATA type is
@@ -1009,7 +1018,10 @@ and takes the applicable named bound as an argument; there is no second, more-pe
 paragraph said that the universal value necessarily shortened the 1024-byte USB surface. That mixed three
 different boundaries and would have made a full 239-byte local DM impossible. The current authorities are:
 
-1. `dm_max_body_bytes == 239` remains the normal-DM BODY authority;
+1. ⚠ **CORRECTED 2026-09-05 by R-RA-25; the former 239-byte decision remains visible in the history below:**
+   `dm_max_body_bytes == 232` is the one conservative application-DM BODY authority, reserving destination hash,
+   origin and source hash. Unknown by-ID addressing may omit a genuinely unavailable destination hash but does
+   not gain extra body capacity;
 2. `console_line_max_bytes` is per transport: USB remains 1024 bytes including NUL. ⚠ **CORRECTED AGAIN by the
    executed Slice-0f producer census; the superseded 272+NUL=273 `send`-only derivation is kept visible here:** the
    current BLE authority is `max(send 272, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. Its
@@ -1042,7 +1054,9 @@ even though the product BLE surface also exposes `send_layer`. BLE `console_line
 `src/device_ble.h` from the console grammar's named terms—`max(send 272, send_layer 274, remote 261) + 1`—and is
 **275 including NUL**. The binding producer is `send_layer` at its depth-4 cross-layer carrier cap (226 B, a
 labelled transitional mirror of `pack_unicast_inner`'s sizing, pinned by an executed pack-at-cap / cap-plus-one
-check). Bounds 1 (`dm_max_body_bytes` = 239) and 3 (`remote_command_max_bytes` = 201) are unchanged; the longest
+check). At the Slice-0f landing, bounds 1 (`dm_max_body_bytes` = 239) and 3
+(`remote_command_max_bytes` = 201) were unchanged; **R-RA-25 later supersedes only bound 1 with 232**, while the
+0f history and measurement remain visible. The longest
 canonical `remote` line (261 + NUL = 262) is statically proved to fit. USB's 1024-byte buffer is untouched.
 Measured cost: **+120 B of nRF52 `.bss`** (+115 `g_line`, +5 alignment), 0 flash; `heltec_mobile` is byte-identical.
 See [[B288]] for the derivation defect this corrects.
@@ -1545,9 +1559,21 @@ The complete design does not provide:
 
 ## 19. Proposed review/implementation slices (not yet authorized)
 
-0. **Pre-feature phase — six independent slices, each with its own brief, gate and commit:**
+0. **Pre-feature phase — eight independent slices, each with its own brief, gate and commit:**
 
    - **0a:** complete B208's bounded help-topic split;
+   - **0g, bare primary-verb help (owner ruling 2026-09-05):** immediately after 0a and before 0b/0c, supersede
+     the topic/content half of B208 with one compact `help`/`?` index containing only the primary command names
+     compiled into that build plus the manual pointer. The generated command inventory is the completeness and
+     feature-gate oracle; retire `help <topic>`, all embedded descriptions, and the historical frozen-content
+     baseline. Keep the 2048-byte stage, zero-drop, no-pager/no-bypass and BLE-refusal requirements. This slice
+     also makes the console-sink runner enforce its own pins and adds the advertised inventory `--check` mode;
+   - **0h, application-DM hash preservation (R-RA-25):** immediately after 0g and before 0b/0c, replace the
+     optional-for-size hash decisions with the one 232-byte application-DM cap. `SOURCE_HASH` is mandatory for
+     every application carrier; a supplied/known `DST_HASH` is mandatory while a genuinely unknown by-ID hash
+     may remain absent without earning capacity. Refuse before queueing if the complete inner does not pack,
+     prove the delegated-wrapper home-inbox and zero-inner reproductions closed, re-derive BLE capacity, and
+     predict/attribute the corpus before accepting movement. Correct the stale TX-bail comment in the same slice;
    - **0b:** fix B279's source-confirmed `regen` supplied-sink defect;
    - **0c:** make the existing dispatcher/caller output path transport-neutral without adding remote context
      or policy;
@@ -1611,6 +1637,12 @@ The complete design does not provide:
    ⚠ **CORRECTED 2026-09-04, prior staging plan kept visible:** round 2 left the shared staging arm in place
    until the later semantic slices. That made the role-disabled fail-closed boundary depend on future work.
    R-RA-19 moves only the ownership/refactor into 1b; it does not enable a v2 body.
+   **Pass-2 seam obligations, recorded 2026-09-05:** behaviour-neutral 1b keeps the legacy arm before the open /
+   sealed-relay processing and preserves its current cleartext body, 8-bit-origin reply key, bounded drop and
+   clamp semantics byte-for-byte. It must nevertheless expose role-owned entry points so later v2 bodies can
+   require `SOURCE_HASH`, key identity on the 32-bit source hash, refuse instead of clamp, and remove the
+   accept-side staging RAM from client-only product builds. Both carrier types remain allocated in the internal
+   namespace; otherwise a role-disabled build would bypass the fail-closed guard and deliver the frame as a DM.
 2. **Remote codec and independent KATs:** pin the frozen opcode/slot values, little-endian fields, exact
    KDF/nonce/AAD labels and layouts, invalid/all-zero ECDH refusal, authenticated/open codecs,
    `remote_body_cap(carrier)`, legacy-body rejection, corruption/nonce-separation controls, and the random
@@ -1689,6 +1721,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | Slice | Native + mutation file ownership | Corpus and board gate | Metal residue |
 |---|---|---|---|
 | 0a | help dispatch, `src/firmware_commands.cpp` | semantic identity; ruled pair unconditionally | none |
+| 0g | bare primary-verb help, console-sink self-pins, inventory `--check`; `src/firmware_help.h` + tools | semantic identity; ruled pair unconditionally | **Part 58 re-issued:** bare inventory on USB, build gates and no drop |
+| 0h | application-DM body/hash admission, `protocol_constants.h`, `node.cpp`, `node_mac.cpp`, derived BLE capacity + tests/tools | predict body-length and hash-field reach first; attribute every mover; ruled pair + ABI/warnings | only if a real transport boundary changes after derivation |
 | 0b | supplied-sink `regen`, `src/firmware_config.cpp` + caller seam | semantic identity; ruled pair | none |
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
 | 0d | ✅ landed: four home-bound arms, `lib/core/node_hashlocate.cpp` | predicted 0 movers; measured 36/36 byte-identical; no re-anchor; ruled pair RAM +0 | none |
@@ -1961,15 +1995,20 @@ The following product decisions are no longer open:
     deadline scan and grows `TimerWheel::kCap` only from 91 to 92.
 51. **R-RA-23:** the first-hop budget sums CTS-wait windows for every RTS attempt. The characterized zero-slop
     reference is 7,006 ms floor / 14,012 ms default; production remains cfg/PHY/slop-derived.
-52. **R-RA-24′:** three named bounds replace R-RA-24's incorrect universal literal: DM body 239; transport line
+52. **R-RA-24′, superseded only for its DM-body number by R-RA-25:** three named bounds replace R-RA-24's
+    incorrect universal literal. Its DM-body value was 239; transport line
     storage derived per transport (USB 1024 including NUL, BLE **275** including NUL after Slice 0f); and remote
     command tail 201 from the smallest authenticated carrier. ⚠ The earlier 273 figure, retained in §12, priced
     `send` but omitted `send_layer`; the current syntactic authority is `max(send 272, send_layer 274, remote 261)
     + 1`. One validator enforces the supplied boundary and NUL/CR/LF policy.
+53. **R-RA-25:** the one conservative application-DM body authority is 232 bytes. Every `app_dm=true` carrier
+    carries `SOURCE_HASH`; a supplied or derived `DST_HASH` is also mandatory and never discarded for size. A
+    truly unknown by-ID destination may omit that hash but gets no extra capacity. Slice 0h owns the refusal and
+    zero-inner fixes before the remote feature phase.
 
 ### 20.2 Derived artefacts and later measurement rulings
 
-The owner-decision list through the post-0e rulings is closed by R-RA-1..R-RA-24′. What remains before the relevant
+The owner-decision list through the post-pass-2 rulings is closed by R-RA-1..R-RA-25. What remains before the relevant
 implementation slices may land is evidence and generated authority, not permission to reopen those product
 choices:
 

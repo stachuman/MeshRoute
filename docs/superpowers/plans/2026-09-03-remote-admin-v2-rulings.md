@@ -482,3 +482,58 @@ constant and is REJECTED. Also settled at the re-gate: the 226-byte term has NO 
 4 SOURCE_HASH + 2 + n_layers against `max_payload_bytes_hard_cap` 241; `data_inner_cap` is the OUTER cap), so 0f
 carries it as a labelled transitional mirror pinned by the executed cap/cap+1 packing check; a shared `constexpr`
 inner-overhead function beside the packer is a lib/core follow-up slice.
+
+### Owner ruling 2026-09-05 — console help becomes a BARE PRIMARY-VERB index; the manual is the only reference (new pre-feature Slice 0g)
+
+**Owner:** *"We need to fix help, and I'd do that quite dramatically - by removing any description, keeping bare
+command name - we will keep full help in manual."* … *"Agree - primary verbs only, start pass 2."*
+**Settled:** (1) `help` / `?` print the primary command NAMES only (the manual's 49 primary verbs, no flags, no
+descriptions, no sub-verbs), plus one pointer line to `docs/manual/command-reference.md`, which is the sole
+reference; (2) the generated command inventory is the oracle: every primary verb the build compiles appears
+EXACTLY once, under the same feature gate as its dispatch arm, and nothing else appears; (3) if the whole index fits
+`MR_CONSOLE_STAGE_BYTES` (expected: well under 1 KB — the coder MEASURES), `help <topic>` and the nine sections are
+RETIRED; (4) the BLE refusal of the whole help family (owner ruling 2026-09-04) stays; (5) this SUPERSEDES the
+content half of B208's 2026-08-17 ruling (topic sections) — B208's size/no-drop/no-pager/no-bypass half stands;
+(6) Bench Part 58 is re-issued for the new shape. Consequences for the pass-1 review rows
+(`docs/superpowers/plans/2026-09-05-fable-review-pass1.md`): F1 (frozen content baseline) and F3 (`-K` omitted) are
+CLOSED BY REDESIGN — the multiset instrument (`help_baseline.json`, `help_manifest.py`) is retired in 0g in favour of
+the inventory cross-check; F4 and F5 ride 0g; F2 (`device_ble.h` direct reply vs MTU−3) is its own tiny slice.
+**AUTHOR PLACEMENT DECISION 2026-09-05:** 0g runs immediately after 0a and before 0b/0c. This removes the
+historical-baseline trap and makes the inventory-backed primary-verb projection self-maintaining before either
+later dispatcher slice regenerates the inventory. It must in all cases land before Slice 6 adds `remote` to the
+verb set.
+
+### R-RA-25 (owner, 2026-09-05) — one conservative application-DM cap; hash fields never disappear for size
+
+**Owner ruling:** adopt the pass-2 review's recommended one-cap policy and place the correction in its own
+pre-feature slice. Slice **0h** runs immediately after 0g and before 0b/0c; 0g remains independently dispatchable.
+
+**Settled:** the public application-DM BODY cap becomes **232 bytes**, derived as
+`241 inner bytes - 4 DST_HASH - 1 origin - 4 SOURCE_HASH`. It is one conservative admission cap for `send`,
+`send_layer`, delegation wrappers and later RPC carriers; a carrier that happens not to use every reserved field
+does not receive a larger body allowance. `SOURCE_HASH` is mandatory on every `app_dm=true` carrier. `DST_HASH`
+is mandatory whenever the destination hash is supplied or derivable from the selected destination; a genuine
+by-ID send for which no destination hash is known may omit that field, but it still uses the 232-byte cap. Thus
+the ruling does **not** invent a destination hash, and it does reject both optional-for-size decisions that caused
+the defect: a known/selected hash is never silently dropped and a by-hash send never degrades into by-ID.
+
+The plaintext enqueue path checks `pack_unicast_inner()` before queue admission; a zero-length inner is never
+queued. An oversized command refuses synchronously with the existing `err_too_large` contract before airtime;
+the fixing slice must preserve truthful lifecycle ownership rather than invent an orphan `send_failed` push.
+The receiver case is equally load-bearing: a mobile wrapper without its mandatory source hash must never fall
+through into the home node's inbox as an ordinary message.
+
+**Correction to R-RA-24′:** its earlier “`dm_max_body_bytes = 239` stays” conclusion is retained above as the
+superseded decision that preceded the executable pass-2 reproduction. Bounds remain separate and the one shared
+validator remains; only the DM-body authority changes to 232. Slice 0h re-derives the Slice-0f BLE line expression
+from the new authority. The existing 275-byte buffer is expected to remain bound by `send_layer`, but that is a
+measurement hypothesis, not permission to retain a literal.
+
+**Required 0h gate:** prediction-first census of corpus DM body lengths, explicit attribution of every semantic
+or hash movement, native boundaries at 232/233 with both hash flags asserted, the registered-mobile home-inbox
+reproduction, pack-zero refusal, full affected mutation targets, relinked 36-stream corpus, ruled board pair,
+ABI/warning/probe gates, and correction of the stale TX-bail comment with its old claim visible. The slice also
+records the current Slice-1b seam obligations from Fable pass 2: legacy staging remains pre-open and cleartext in
+the behaviour-neutral split; v2 handlers later require `SOURCE_HASH`, use the 32-bit source hash rather than the
+legacy 8-bit origin, refuse rather than clamp, role-own the legacy slot, and retain internal DataType allocation
+so a disabled role reaches the fail-closed tail.
