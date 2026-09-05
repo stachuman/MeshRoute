@@ -4053,10 +4053,10 @@ chunk sizes. Substitute the target's eight lower-case hex hash for `H` and run e
 
 ```sh
 H=<8 hex digits of the target's key hash>
-B226=$(python3 -c "print('X'*226)"); B239=$(python3 -c "print('X'*239)")
+B226=$(python3 -c "print('X'*226)"); B232=$(python3 -c "print('X'*232)")
 printf 'send_layer 0x%s 255,255,255 "%s" -a -e -K -l\n' "$H" "$B226" | awk '{print length($0)}'   # 274
 printf 'send_layer 0x%s 255,255,255 "%s" -a -K\n'       "$H" "$B226" | awk '{print length($0)}'   # 268
-printf 'send 0x%s "%s" -a -e -t -K -l\n'                "$H" "$B239" | awk '{print length($0)}'   # 272
+printf 'send 0x%s "%s" -a -e -t -K -l\n'                "$H" "$B232" | awk '{print length($0)}'   # 265
 python3 -c "print('Z'*275)" | awk '{print length($0)}'                                            # 275
 ```
 
@@ -4071,11 +4071,11 @@ python3 -c "print('Z'*275)" | awk '{print length($0)}'                          
    `err_no_gateway` if the bench has no gateway for the first hop. Expect the matching `tx_enqueue`/RTS trace on
    USB, proving the LoRa consequence occurred.
 3. **The sealed DM reaches its semantic refusal.** Send
-   `send 0x<H> "<239>" -a -e -t -K -l` (272 bytes). Expect
+   `send 0x<H> "<232>" -a -e -t -K -l` (265 bytes). Expect
    `push{send_failed, reason:"too_large"}` and `e2e_seal_too_large` on USB—the seal's verdict, not
-   `line_too_long`.
+   `line_too_long` and not the application-DM admission cap.
 4. **Chunking invariance.** Send the exact 274-byte line from step 1 twice: once forced to 20-byte ATT writes and
-   once with a 244-byte first write. Require byte-identical replies. Then send the 272-byte line from step 3 the
+   once with a 244-byte first write. Require byte-identical replies. Then send the 265-byte line from step 3 the
    same two ways.
 5. **The overflow refusal.** Send 275 non-newline bytes (`python3 -c "print('Z'*275)"`) followed by `\n`.
    Require exactly one `{"err":"line_too_long"}`, no ack, no `tx_enqueue` on USB and no counter burned.
@@ -4083,3 +4083,35 @@ python3 -c "print('Z'*275)" | awk '{print length($0)}'                          
 
 ⓘ `heltec_mobile`/ESP32 needs no Part-61 arm: it compiles no BLE transport and its image was byte-identical.
 B278 Part 54 and the remote-admin RPC metal parts remain separate.
+
+## Part 62 — the application-DM 232-byte cap on metal (2026-09-05)
+
+⏳ **PENDING — metal residue for remote-admin Slice 0h ([[B296]]/[[B297]], R-RA-25).** Native and the 36-stream
+corpus prove the decisions; only this part exercises a real radio and a real registered mobile.
+
+**Prerequisites.** A provisioned bench with a static node holding an authoritative id-to-hash binding for a
+routable target, plus a registered mobile homed on a static node. Substitute the target's eight lower-case hex
+hash for `H`.
+
+```sh
+H=<8 hex digits of the target's key hash>
+B231=$(python3 -c "print('X'*231)")
+B232=$(python3 -c "print('X'*232)")
+B233=$(python3 -c "print('X'*233)")
+```
+
+1. **The 233-byte refusal happens before airtime.** On USB run `send 0x<H> "<233>"`. Require exactly
+   `err_too_large` synchronously. In the USB trace require no `tx_enqueue`, no RTS, no `send_parked_for_hash`, and
+   no `push{send_failed}`; no counter is minted.
+2. **The 232-byte positive carries both identities.** Run `send 0x<H> "<232>" -a`. Require `queued` with a
+   non-zero `ctr`, `tx_enqueue`, and a real RTS/DATA exchange. At the target, use `pull_inbox` and require a
+   232-byte `delivered` body with a non-zero `sender_hash`. A zero sender hash is B296 surviving on metal.
+3. **The delegated mobile leg works end to end.** From the registered mobile run
+   `send 0x<H> "<232>" -a` with the target unresolved so the `MOBILE_SEND` wrapper is used. At the home require no
+   inbox record and no `msg_recv`. At the target require the 232-byte body and `sender_hash` equal to the mobile's
+   key hash, not the home's. Finally require `send_e2e_acked` at the mobile with its original counter.
+4. **The typed delegated boundary is one byte lower.** From the mobile, send a first-contact DM to a peer whose
+   key it does not hold, forcing the enclosed-type wrapper. A 232-byte body must produce `dm_inner_too_large` and
+   `push{send_failed, reason:"too_large"}` with no RTS. Repeat with 231 bytes; it must queue and fly.
+
+ⓘ Part 61's `send_layer` vectors remain 274/268/275. Only its canonical `send` vector changed to 265.

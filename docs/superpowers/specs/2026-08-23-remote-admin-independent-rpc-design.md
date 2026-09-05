@@ -124,7 +124,7 @@ The following are code facts, not inherited assumptions from an older design:
   empty inner. The one application-DM BODY authority is therefore **232 bytes**, derived as
   `241 - DST_HASH(4) - origin(1) - SOURCE_HASH(4)`. Every `app_dm=true` carrier includes `SOURCE_HASH`; a supplied
   or derivable destination hash is also mandatory and may never be dropped for size. A truly unbound by-ID send
-  may omit the unknown `DST_HASH`, but receives no larger cap. Slice 0h lands and gates the behaviour change before
+  may omit the unknown `DST_HASH`, but receives no larger cap. Slice 0h landed and gated the behaviour change before
   any v2 carrier consumes this path.
 - `DATA_TYPE_REMOTE_CMD = 0xA0` and `DATA_TYPE_REMOTE_RESP = 0xA1` already carry remote request/response bodies
   (⛔ corrected 2026-08-29: ordinals 6/7 were RETIRED by the §CUSTODY-A namespace transition — the values now sit
@@ -143,7 +143,9 @@ The following are code facts, not inherited assumptions from an older design:
   operationally invisible.
 - A current sealed request body costs 35 bytes before command text:
   `[sealed_flag 1][rand8 8][nonce_ctr 2][node_hash 4][replay_counter 4][tag 16]`. Under the supported
-  239-byte ceiling, the envelope arithmetic leaves 204 bytes. ⚠ **CORRECTED 2026-09-04:** the shipped
+  239-byte ceiling, the envelope arithmetic left 204 bytes. ⚠ **POST-0h CORRECTION 2026-09-05:** 239 is the
+  retained pre-R-RA-25 figure; the 232-byte authority would leave 197 bytes. Neither is a shipped legacy command
+  allowance. ⚠ **CORRECTED 2026-09-04:** the shipped
   implementation does not expose that theoretical command capacity: `firmware_remote.cpp` uses a 64-byte
   plaintext buffer and silently truncates the legacy verb to 63 bytes, while its effective sealed-command
   text ceiling is 56 bytes (`pt[64]`/`v[64]` at `src/firmware_remote.cpp:92`; the `vl` truncation at `:190`).
@@ -1024,7 +1026,9 @@ different boundaries and would have made a full 239-byte local DM impossible. Th
    not gain extra body capacity;
 2. `console_line_max_bytes` is per transport: USB remains 1024 bytes including NUL. ⚠ **CORRECTED AGAIN by the
    executed Slice-0f producer census; the superseded 272+NUL=273 `send`-only derivation is kept visible here:** the
-   current BLE authority is `max(send 272, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. Its
+   Slice-0f authority was `max(send 272, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. ⚠
+   **POST-0h CORRECTION 2026-09-05; the 272 term remains visible:** R-RA-25 changed the DM body from 239 to 232,
+   so the current expression is `max(send 265, send_layer 274, remote 261) + 1` = **275 bytes including NUL**. Its
    binding definition is the canonical parser-accepted spelling of each product verb, each accepted option once,
    carrying the largest body its carrier admits. The 274-byte `send_layer` boundary vector is transport-admitted
    and returns `err_unsupported`; the 268-byte plaintext form is the queue-positive. This is a derivation, never a
@@ -1040,9 +1044,10 @@ while a remotely executed command is honestly bounded by its radio carrier.
 
 ⚠ **AUTHOR VERIFICATION CORRECTION 2026-09-04:** the earlier phrase “longest syntactically legal local line” is
 withdrawn. The permissive parser accepts repeated whitespace/options, and the debug `testsend` schedule can be
-USB-buffer-sized, so no finite maximum follows from syntax alone. The 272-byte authority is the canonical normal
-`send` spelling with each distinct option once and a full DM body; above-bound non-canonical/debug lines refuse
-loudly on BLE. The withdrawn “USB must shorten” conclusion therefore does not apply. The BLE buffer must instead grow from
+USB-buffer-sized, so no finite maximum follows from syntax alone. The **historical 272-byte** authority was the
+canonical normal `send` spelling with each distinct option once and the former 239-byte DM body; R-RA-25/0h now
+derives that same spelling as **265 bytes** from the 232-byte body. Above-bound non-canonical/debug lines refuse
+loudly on BLE. The withdrawn “USB must shorten” conclusion therefore does not apply. The BLE buffer had to grow from
 160 to the derived 273 bytes in Slice 0f; the longest legal remote line also fits because its wrapper is at most
 60 bytes and `60 + 201 + 1 == 262`. In command syntax, `-e` remains optional for ordinary `send`,
 where it overrides the configured encryption default, but R-RA-18 makes it mandatory on authenticated
@@ -1060,6 +1065,11 @@ check). At the Slice-0f landing, bounds 1 (`dm_max_body_bytes` = 239) and 3
 canonical `remote` line (261 + NUL = 262) is statically proved to fit. USB's 1024-byte buffer is untouched.
 Measured cost: **+120 B of nRF52 `.bss`** (+115 `g_line`, +5 alignment), 0 flash; `heltec_mobile` is byte-identical.
 See [[B288]] for the derivation defect this corrects.
+
+⚠ **POST-0h CORRECTION 2026-09-05:** the preceding Slice-0f formula remains the historical landing statement.
+With R-RA-25's 232-byte DM cap, `device_ble.h` now evaluates the same symbolic authority as
+`max(send 265, send_layer 274, remote 261) + 1 = 275`. No BLE source or storage changed; the Slice-0h probe
+executed and re-derived the 265/274/261/275 tuple.
 
 ⚠ **CORRECTED 2026-09-04:** the legacy remote path's 56/63-byte truncating buffers are not evidence for this
 authority and do not receive a compatibility cap. Characterization uses the actual USB/BLE inputs, the real
@@ -1580,6 +1590,14 @@ The complete design does not provide:
      may remain absent without earning capacity. Refuse before queueing if the complete inner does not pack,
      prove the delegated-wrapper home-inbox and zero-inner reproductions closed, re-derive BLE capacity, and
      predict/attribute the corpus before accepting movement. Correct the stale TX-bail comment in the same slice;
+     ✅ **LANDED / QA-PASSED 2026-09-05, Part 62 metal pending:** the cap is derived as
+     `241 − origin(1) − DST_HASH(4) − SOURCE_HASH(4) = 232`; every application carrier carries source identity and
+     keeps a supplied/existing-lookup destination identity. Both park helpers refuse rather than clamp, the
+     plaintext pack result is checked with correct lifecycle ownership, and a malformed source-hash-less mobile
+     wrapper is refused at its home before the inbox tail. Native 2610/110269/0; a live pre-change census observed
+     847 application-DM decisions with zero size-dropped fields, then corpus reproduced 36/36 byte-identical with
+     s18 `32afbf11`/269517/0. Node and board RAM are unchanged; `src/device_ble.h` is unchanged and re-derives
+     `send=265`, storage 275. B296/B297 are software-closed;
    - **0b:** fix B279's source-confirmed `regen` supplied-sink defect;
    - **0c:** make the existing dispatcher/caller output path transport-neutral without adding remote context
      or policy;
@@ -1623,7 +1641,8 @@ The complete design does not provide:
      and byte-at-a-time newline intake, USB behavior and companion ATT chunking are unchanged. The real-intake
      probe executed 1-, 20- and 244-byte chunkings with 40 checks / 8 controls RED. Native is
      2604/109619/0; corpus 36/36 with s18 `32afbf11`/269517/0; gateway RAM +120 B fully attributed (+115 `g_line`,
-     +5 alignment), flash ±0; `heltec_mobile` byte-identical.
+     +5 alignment), flash ±0; `heltec_mobile` byte-identical. ⚠ **POST-0h:** the visible 272 term is historical;
+     the current symbolic tuple is `max(send 265, send_layer 274, remote 261) + 1 = 275`, with no BLE edit.
 
    Do not combine any of these fixes/refactors with each other or with remote execution (C1).
 1. **Feature-boundary scaffold:** add
@@ -2005,11 +2024,12 @@ The following product decisions are no longer open:
     incorrect universal literal. Its DM-body value was 239; transport line
     storage derived per transport (USB 1024 including NUL, BLE **275** including NUL after Slice 0f); and remote
     command tail 201 from the smallest authenticated carrier. ⚠ The earlier 273 figure, retained in §12, priced
-    `send` but omitted `send_layer`; the current syntactic authority is `max(send 272, send_layer 274, remote 261)
-    + 1`. One validator enforces the supplied boundary and NUL/CR/LF policy.
+    `send` but omitted `send_layer`; Slice 0f's `send=272` term is now historical after R-RA-25/0h. The current
+    syntactic authority is `max(send 265, send_layer 274, remote 261) + 1 = 275`. One validator enforces the
+    supplied boundary and NUL/CR/LF policy.
 53. **R-RA-25:** the one conservative application-DM body authority is 232 bytes. Every `app_dm=true` carrier
     carries `SOURCE_HASH`; a supplied or derived `DST_HASH` is also mandatory and never discarded for size. A
-    truly unknown by-ID destination may omit that hash but gets no extra capacity. Slice 0h owns the refusal and
+    truly unknown by-ID destination may omit that hash but gets no extra capacity. Slice 0h landed the refusal and
     zero-inner fixes before the remote feature phase.
 
 ### 20.2 Derived artefacts and later measurement rulings

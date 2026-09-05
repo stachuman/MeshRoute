@@ -551,3 +551,11 @@ earlier: derive 232 from the named terms `1 origin + 4 DST_HASH + 4 SOURCE_HASH`
    body to the cap; a body over the cap is REFUSED (named emit, `return false` on the callers' existing refused-park
    path — the same path a full park ring takes today), never truncated. Unreachable from the console after the 232
    cap, kept as the C2 backstop.
+
+**Landed 2026-09-05 by Slice 0h, QA-PASSED.** The implementation follows both addenda without widening them:
+`enqueue_data` uses only its two existing destination lookups, the hosted-mobile last-mile call is unchanged, and
+both park helpers refuse rather than clamp. Native is 2610/110269/0; the prediction-first corpus is 36/36
+byte-identical with s18 `32afbf11`/269517/0; Node/board RAM is unchanged. The prior R-RA-24′ `send=272` figure is
+now historical because it used the former 239-byte DM cap: the symbolic BLE expression re-derives `send=265`, while
+`send_layer=274` still binds the unchanged 275-byte storage. Evidence:
+`docs/superpowers/evidence/2026-09-05-radmin-0h.md`.

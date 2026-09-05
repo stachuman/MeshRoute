@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0h — application-DM hash preservation · dispatch brief · 2026-09-05
 
-**Status: AUTHOR DRAFT — awaiting Quality-Agent gate before dispatch.** Dispatch model after PASS: **Opus**.
+**Status: QUALITY-AGENT PASS 2026-09-05 — DISPATCHED; SLICE QA-PASSED.** Dispatch model: **Opus**.
 Authority: R-RA-25 and its two owner addenda in
 `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`, register rows B296/B297,
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md` §19 Slice 0h, the Quality-Agent
