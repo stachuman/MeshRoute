@@ -15,6 +15,11 @@
   explicit, BLE results remain retained until locally acknowledged, mobile builds may originate/transport
   but never accept, and legacy `rcmd` is replaced rather than retained. See
   `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`.
+  Preparatory status at 2026-09-05: 0g is QA-passed (bare inventory-derived help, 49 names on the full profile,
+  Part 58 metal pending). Fable pass 2 reproduced B296's same-layer optional-hash silent loss; owner ruling
+  R-RA-25 makes 232 bytes the one application-DM cap, requires `SOURCE_HASH` and every known/supplied `DST_HASH`,
+  and assigns the fix plus B297 to Slice 0h before 0b/0c. A truly unknown by-ID destination may omit its hash but
+  gains no body capacity. The next artefact is the Quality-Agent 0h pre-check, then the Author brief.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

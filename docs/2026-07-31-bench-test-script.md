@@ -4012,6 +4012,34 @@ conditional observation under R-S5-1 and step 11 takes the reboot shape under R-
 allowance, both are recorded physical limits of a four-node line. JSON compatibility stays host-proven and is
 not re-tested here.)*
 
+## Part 58 — console help is a bare primary-verb index (2026-09-05)
+
+⏳ **PENDING — metal residue for remote-admin Slice 0g.** This supersedes the topic-section Part 58.
+
+1. On a full-feature serial build, run `help`. Require one bare command name per line, nothing else on each
+   command line, followed by the final line `docs/manual/command-reference.md`. Require no
+   `!! CONSOLE_DROP`.
+2. Run `?`. Require output byte-identical to step 1.
+3. Compare the observed names with the source-derived list for that profile in
+   `docs/superpowers/evidence/2026-09-05-radmin-0g.md` §5, or run:
+
+   ```sh
+   python3 tools/gen_command_inventory.py --primary full_headless
+   ```
+
+   Require an exact match with no extra, missing or duplicate name.
+4. Run `help messaging`. Require exactly these two lines and no topic content or third line:
+
+   ```text
+   > help err unsupported_form (only bare `help` or `?`; usage: help | ?)
+   docs/manual/command-reference.md
+   ```
+
+5. On a `gateway` build, run `help`. Require `mobile` and `team` absent while `status`, `routes`, `cfg`, `send`
+   and `help` remain. Require no `CONSOLE_DROP`.
+6. Over BLE, send `help`, `?` and `help messaging`. Each must return the bounded `console_only` refusal; no help
+   body may cross the link.
+
 ## Part 61 — BLE inbound line capacity on an nRF52 gateway (2026-09-04)
 
 ⏳ **PENDING — metal residue for remote-admin Slice 0f.** Slice 0f grew `g_line` from 160 to a derived

@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-04**
+Last refreshed: **2026-09-05**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -32,11 +32,11 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   B186b remain separate adjacent follow-ups.
 
 -  **DESIGN PASS 2026-09-04** - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2;
-  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. Slice 0d is
-  landed and QG-passed; Slice 0e characterization is complete in its isolated worktree and its Author-owned
-  carrier constraint is landed, while the exact coder-owned evidence/instrument package still needs integration.
-  Next: Quality-Agent pre-check ledgers for 0a, 0b and 0c; B283 may proceed as soon as its brief carries the ruled
-  negative-control fold-in.
+  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. Slices 0a,
+  0d, 0e, 0f and the owner-superseding 0g are landed and QA-passed. 0g leaves only Bench Part 58 on metal and
+  closes B291/B293/B294/B295 in software. **Next:** Quality-Agent pre-check for the owner-ruled 0h correction of
+  B296/B297 (232-byte application-DM cap and mandatory hash preservation), then the Author's 0h brief; 0b/0c
+  follow. B292 and B283 remain separate instrument/transport slices.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
@@ -58,11 +58,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; then (2) remote-admin v2
-  preparation (`2026-08-23-remote-admin-independent-rpc-design.md`), whose §14.1/Slice 8b B278 prerequisite is
-  now satisfied. [[B280]] (long-busy NACK lifetime), [[B281]] (measure_board output path), [[B282]] (leaked
-  XL reservation), [[B283]] (census blind to `-Wunused-parameter`, instrument slice, dispatched in parallel)
-  and [[B112]] remain independently tracked and none of them blocks Part 54.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin pre-feature
+  Slice 0h after its Quality-Agent pre-check; and (3) the 0b/0c dispatcher preparations. Bench Part 58 closes
+  B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
+  separately tracked and do not block Part 54.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 

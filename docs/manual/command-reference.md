@@ -32,7 +32,7 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 
 | Command or form | Access/build | Effect | First classification |
 | --- | --- | --- | --- |
-| `help` or `?` | USB only; Common | Read | Prints the built-in console summary. It is a convenience view, not the authority for this reference. |
+| `help` or `?` | USB only; Common | Read | Prints only the primary command names compiled into this build, one per line, followed by `docs/manual/command-reference.md`. Argument-bearing/topic help is retired and refuses with that same pointer. This manual is the sole detailed command reference. BLE refuses the whole help family with `console_only`. |
 | `version` | Local; Common | Read | Reports firmware build, revision, board, and last reset cause. |
 | `whoami` | Local; Common | Read | Reports this node's identity and role. BLE returns the companion `ready` object. |
 | `status` | Local; Common | Read | Reports node, radio, queue, sleep, and fault-state diagnostics. |

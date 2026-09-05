@@ -1567,7 +1567,13 @@ The complete design does not provide:
      compiled into that build plus the manual pointer. The generated command inventory is the completeness and
      feature-gate oracle; retire `help <topic>`, all embedded descriptions, and the historical frozen-content
      baseline. Keep the 2048-byte stage, zero-drop, no-pager/no-bypass and BLE-refusal requirements. This slice
-     also makes the console-sink runner enforce its own pins and adds the advertised inventory `--check` mode;
+     also makes the console-sink runner enforce its own pins and adds the advertised inventory `--check` mode.
+     ✅ **LANDED / QA-PASSED 2026-09-05:** the full-feature build renders 49 sorted primary names plus the manual
+     pointer; real profiles render 45..49 names. The largest response is 460 B of the unchanged 2048-B stage,
+     with zero drop. The inventory remains 177 classified rows after exactly nine topic rows disappeared;
+     `--check` and bare verification agree. The direct probe covers six profiles with 720 behavioral, 20
+     structural and 212 BLE-guard checks; 47 controls are RED and the runner enforces its own pins. Board RAM is
+     unchanged; flash fell 6720/8400 B on the ruled pair. B208 is software-complete and awaits Part 58 metal;
    - **0h, application-DM hash preservation (R-RA-25):** immediately after 0g and before 0b/0c, replace the
      optional-for-size hash decisions with the one 232-byte application-DM cap. `SOURCE_HASH` is mandatory for
      every application carrier; a supplied/known `DST_HASH` is mandatory while a genuinely unknown by-ID hash
@@ -1721,7 +1727,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | Slice | Native + mutation file ownership | Corpus and board gate | Metal residue |
 |---|---|---|---|
 | 0a | help dispatch, `src/firmware_commands.cpp` | semantic identity; ruled pair unconditionally | none |
-| 0g | bare primary-verb help, console-sink self-pins, inventory `--check`; `src/firmware_help.h` + tools | semantic identity; ruled pair unconditionally | **Part 58 re-issued:** bare inventory on USB, build gates and no drop |
+| 0g | ✅ landed/QA-passed: bare primary-verb help, console-sink self-pins, inventory `--check`; `src/firmware_help.h` + tools | native 2604/109619/0; corpus 36/36; RAM +0/+0; flash −6720/−8400; 279 tools OK | **Part 58 re-issued:** bare inventory on USB, build gates and no drop |
 | 0h | application-DM body/hash admission, `protocol_constants.h`, `node.cpp`, `node_mac.cpp`, derived BLE capacity + tests/tools | predict body-length and hash-field reach first; attribute every mover; ruled pair + ABI/warnings | only if a real transport boundary changes after derivation |
 | 0b | supplied-sink `regen`, `src/firmware_config.cpp` + caller seam | semantic identity; ruled pair | none |
 | 0c | dispatcher/sinks, `src/fw_main.cpp`, `src/firmware_commands.cpp`, sink headers | semantic identity; ruled pair | none |
