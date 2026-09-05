@@ -1,19 +1,17 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0c — transport-neutral local execution seam · dispatch brief · 2026-09-05
 
-**Status: QUALITY-AGENT PASS 2026-09-05 — FOLD-INS LANDED; AUTHORIZED FOR DISPATCH ONCE THE EXACT BASE IS
-PINNED.** Dispatch model: **Opus**.
+**Status: QUALITY-AGENT PASS 2026-09-05 — FOLD-INS LANDED; AUTHORIZED FOR DISPATCH.** Dispatch model: **Opus**.
 
 Authority: §12 and §19 Slice 0c of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`, the Quality-Agent pre-check
 `docs/superpowers/plans/2026-09-04-radmin-0c-precheck.md`, and B298 in
 `docs/2026-07-30-open-bug-register.md`.
 
-**Base commit is deliberately not pinned yet.** This brief was written against the post-0b production shape at
-`1e84be6` plus the Author's docs-only 0b landings. The dispatch base will be the owner's next clean commit
-containing both. Before dispatch, the Author replaces this paragraph with that exact hash; the Quality Agent and
-every isolated-worktree coder verify `git rev-parse HEAD` against it. A placeholder, a dirty tree, or a different
-commit is a STOP, not licence to repin or repair the worktree silently.
+**Dispatch base is exactly `106c6b8` (`0c prep`).** The Quality Agent and every isolated-worktree coder verify
+`git rev-parse HEAD` against it before reading or editing implementation. This pin edit is pre-existing
+Author-owned work and is listed as such in the report; a different base or any other dirty start is a STOP, not
+licence to repin or repair the worktree silently.
 
 0c is a C1 refactor only. The serial and BLE callers currently make the same parser/router decision in opposite
 orders and render the parser-owned result in different envelopes. The slice creates one execution seam that owns

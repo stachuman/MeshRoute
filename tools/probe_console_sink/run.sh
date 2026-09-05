@@ -92,19 +92,34 @@ PROFILES=(
 #                                            the SAME rows — a gated name changes the LIST, not the row count —
 #                                            which is why one per-profile constant is enough. (§0a was 166/160: the
 #                                            per-topic rows scaled with topic availability.)
-#     PIN_STRUCTURAL = 21                    structural.py's S1..S21 (§0b/[[B279]] added S21: fw_main.cpp passes
-#                                            the boot identity formatter its sink explicitly, exactly once).
+#     PIN_STRUCTURAL = 29                    structural.py's S1..S29. §0b/[[B279]] added S21 (fw_main.cpp passes
+#                                            the boot identity formatter its sink explicitly, exactly once);
+#                                            §RADMIN-0c added EIGHT: S22/S23 the two one-call `fw_main.cpp`
+#                                            adapters (one seam call each, no residual router/parser/Node fork,
+#                                            their own sinks, exactly one seam flush), S24 the seam's fork happens
+#                                            once and ROUTER-FIRST, S25 the seam never re-chooses a global sink,
+#                                            S26 no borrowed body and no static state, S27 the send handle is still
+#                                            HEX (the probes' Arduino fake ignores a radix, so nothing EXECUTED can
+#                                            see this), S28/S29 the [[B298]] comment census in the .cpp and the .h.
 #     PIN_BLE_GUARD  = 53 corpus lines x 4   the executed BLE help-refusal assertions B1..B4.
-#     PIN_CONTROLS   = 48 = 8 sink + 12 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL); §0b/[[B279]]
-#                      added ONE source control, X12, whose only job is to redden S21.
+#     PIN_OWNERSHIP  = 6                     ownership.py: one row per REAL product profile, each requiring the
+#                                            router-owned and parser-owned primary-form sets to be DISJOINT,
+#                                            non-empty, complete against the generator's own projection, and at
+#                                            their derived counts. This is the authority for the seam's one order.
+#     PIN_OWN_CTL    = 3                     ownership.py --selftest: a synthetic collision REFUSED, a deleted
+#                                            router form REFUSED, an emptied parser surface REFUSED.
+#     PIN_CONTROLS   = 58 = 8 sink + 22 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL); §0b/[[B279]]
+#                      added ONE source control (X12 -> S21) and §RADMIN-0c added TEN (X13..X22 -> S22..S29).
 #                                            the 23 help = 13 rendered-index mutations + 2 structural + 3 router
 #                                            + 5 oracle.
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=21
+PIN_STRUCTURAL=29
 PIN_BLE_GUARD=212
-PIN_CONTROLS=48
+PIN_OWNERSHIP=6
+PIN_OWN_CTL=3
+PIN_CONTROLS=58
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE
@@ -273,6 +288,16 @@ python3 "$HERE/ble_guard.py" "$ROOT/src/fw_main.cpp" "$CXX" --out "$OUT" -- "${F
    > "$OUT/bleguard.txt" 2>&1 || rc=1
 cat "$OUT/bleguard.txt"
 
+# ---- §RADMIN-0c: THE ROUTER/PARSER OWNERSHIP GATE (the seam's licence to have ONE order) -------------------------
+# The 0c seam asks the console router first and the command parser second, on BOTH transports. That unification is
+# behaviour-preserving ONLY while the two surfaces are disjoint — on a line both accept, the order IS the behaviour.
+# This derives both sets from the GENERATED inventory on every real product profile and refuses a collision; its own
+# controls prove it refuses a synthetic one.
+echo
+echo "== router/parser ownership (derived from the generated inventory, all six real profiles) =="
+python3 "$HERE/ownership.py" > "$OUT/ownership.txt" 2>&1 || rc=1
+cat "$OUT/ownership.txt"
+
 if [ "${1:-}" = "--no-neg" ]; then
   # ⚠ VISIBLY PROBE-ONLY, AND IT NEVER PRINTS PASS. A previous probe documented its controls as "not optional" while
   #   the standard command skipped them, so the reported gate never included them (QA, 2026-08-04).
@@ -280,6 +305,11 @@ if [ "${1:-}" = "--no-neg" ]; then
   echo "PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg."
   exit $rc
 fi
+
+echo
+echo "== router/parser ownership controls (each MUST refuse) =="
+python3 "$HERE/ownership.py" --selftest > "$OUT/ownctl.txt" 2>&1 || rc=1
+sed 's/^/  /' "$OUT/ownctl.txt"
 
 echo
 echo "== negative controls (each MUST fail) =="
@@ -302,13 +332,17 @@ struct_total=$(python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "
 ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \([0-9]*\).*/\1/p' "$OUT/neg.txt")
 ble_checks=$(sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt")
 green=$(grep -c 'STAYED GREEN\|INSTRUMENT FAILURE\|CONTROL NOT APPLIED' "$OUT/neg.txt" || true)
+own_total=$(sed -n 's/.*ownership: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p' "$OUT/ownership.txt")
+own_ctl=$(grep -c '^  ok   C-' "$OUT/ownctl.txt" || true)
 echo
-echo "PINS profiles=${n_profiles} checks=${chk_total} structural=${struct_total} ble_guard=${ble_checks} controls=${ctl_total} unusable_controls=${green}"
+echo "PINS profiles=${n_profiles} checks=${chk_total} structural=${struct_total} ble_guard=${ble_checks} ownership=${own_total} ownership_controls=${own_ctl} controls=${ctl_total} unusable_controls=${green}"
 # ---- [[B294]]: THE RUNNER'S OWN JUDGMENT, BEFORE PASS. Every term is compared; the differing one is NAMED. -------
 pin_cmp profiles    "${n_profiles:-}"  "$PIN_PROFILES"
 pin_cmp checks      "${chk_total:-}"   "$PIN_CHECKS"
 pin_cmp structural  "${struct_total:-}" "$PIN_STRUCTURAL"
 pin_cmp ble_guard   "${ble_checks:-}"  "$PIN_BLE_GUARD"
+pin_cmp ownership   "${own_total:-}"   "$PIN_OWNERSHIP"
+pin_cmp ownership_controls "${own_ctl:-}" "$PIN_OWN_CTL"
 pin_cmp controls    "${ctl_total:-}"   "$PIN_CONTROLS"
 if [ "${green:-1}" -ne 0 ]; then
   echo "   !! PIN unusable_controls: observed ${green:-?}, expected 0"; pin_fail=1

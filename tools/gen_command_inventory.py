@@ -101,9 +101,16 @@ class Surface:
 #   additionally PROVEN by `reached_from`, which is checked against the real call sites — not asserted.
 SURFACES = (
     # ---- surface 1: the top-level verb map -----------------------------------------------------------------
+    # ⓘ THE WIRING CHAIN GAINED A HOP IN SLICE 0c AND THE CLAIM FOLLOWED THE SOURCE. Until 0c both transports called
+    #   `dispatch` directly, in OPPOSITE orders relative to `parse_command`; 0c put one transport-neutral seam,
+    #   `mrfw::exec_console_line`, between them, so the honest two-hop chain is: each caller calls the seam, and the
+    #   seam calls the router. ⛔ The CLASSIFICATION is untouched — same surface, same kind, same transport set, same
+    #   rows; only the anchors that PROVE the transport claim moved, and each hop below is still verified against the
+    #   real source (a wrong hop is a hard refusal, which is how this edit was forced in the first place).
     Surface("src/firmware_commands.cpp", "dispatch", "top", "serial,ble",
-            reached_from=(("src/fw_main.cpp", "service_console", "dispatch"),
-                          ("src/fw_main.cpp", "ble_dispatch_line", "dispatch"))),
+            reached_from=(("src/firmware_commands.cpp", "exec_console_line", "dispatch"),
+                          ("src/fw_main.cpp", "service_console", "exec_console_line"),
+                          ("src/fw_main.cpp", "ble_dispatch_line", "exec_console_line"))),
     # ---- surface 1b: the console help family, extracted to a header by remote-admin v2 slice 0a -------------
     # ⚠ WHY A SECOND TOP-LEVEL SURFACE EXISTS AT ALL. Until slice 0a, `help` / `?` was one arm INSIDE `dispatch()`
     #   and this generator saw it there. 0a moved the text and the whole recognition into `src/firmware_help.h` so a
@@ -147,12 +154,16 @@ SURFACES = (
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_joinprofile"),)),
     Surface("src/firmware_ui_preset_verbs.h", "preset_verb", "sub", "serial,ble", parent="ui",
             reached_from=(("src/firmware_commands.cpp", "handle_ui", "preset_verb"),)),
-    # ---- surface 3: the caller-only arms around dispatch() -------------------------------------------------
+    # ---- surface 3: the caller-only arms around the execution seam -----------------------------------------
+    # ⓘ Slice 0c renamed what these arms surround: they used to sit around `dispatch()` directly, and now they sit
+    #   around `mrfw::exec_console_line`. What they ARE is unchanged — the per-transport envelope arms (a malformed
+    #   `peerkey`/`peername`, the BLE help refusal, the companion's direct JSON verbs) that each caller still owns.
     Surface("src/fw_main.cpp", "ble_dispatch_line", "caller", "ble"),
     Surface("src/fw_main.cpp", "service_console", "caller", "serial"),
     Surface("lib/console/console_parse.cpp", "parse_command", "caller", "serial,ble",
-            reached_from=(("src/fw_main.cpp", "service_console", "parse_command"),
-                          ("src/fw_main.cpp", "ble_dispatch_line", "parse_command"))),
+            reached_from=(("src/firmware_commands.cpp", "exec_console_line", "parse_command"),
+                          ("src/fw_main.cpp", "service_console", "exec_console_line"),
+                          ("src/fw_main.cpp", "ble_dispatch_line", "exec_console_line"))),
     # ---- the legacy over-the-air remote-admin verb set (what remote-admin v2 replaces) ---------------------
     Surface("src/firmware_remote.cpp", "remote_encode", "remote", "radio(REMOTE_CMD)",
             reached_from=(("src/firmware_remote.cpp", "remote_exec", "remote_encode"),)),

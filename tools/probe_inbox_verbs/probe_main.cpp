@@ -307,6 +307,14 @@ static bool route_ble(const char* line) {
     return owned;
 }
 
+// ★★ §RADMIN-0c — THE ONE `#ifndef` IN THIS FILE, AND IT IS A REUSE SEAM RATHER THAN A FEATURE FLAG.
+// `tools/probe_inbox_verbs/transcript_main.cpp` (the slice's BEFORE/AFTER byte-identity comparator) needs EVERY
+// fixture above — the real `g_node`/`g_hal` device context, the resettable inbox/NV/RNG fakes, `ble_capture`,
+// `mrcon` — and needs its OWN `main()`. It therefore `#include`s THIS FILE with `MR0C_NO_MAIN` defined, so the two
+// drivers share one fixture authority instead of forking a second one (U1: the sibling probes' standing lesson —
+// two fakes is how two probes end up measuring two different devices). ⛔ The default gate defines nothing, so the
+// 71 checks below compile and run EXACTLY as before; `run.sh`'s md5 tripwire covers this file either way.
+#ifndef MR0C_NO_MAIN
 int main() {
     printf("== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==\n");
 
@@ -649,7 +657,189 @@ int main() {
     }
     }
 
+    // ==============================================================================================================
+    // ★★★ §RADMIN-0c — THE EXECUTED SEAM. `mrfw::exec_console_line()` is the ONE place both transports now make the
+    //     router-versus-parser decision, execute the command and render the result. `src/fw_main.cpp` cannot be
+    //     host-compiled, so the two ADAPTERS are pinned structurally (tools/probe_console_sink/structural.py
+    //     S22..S29) — and everything that DECIDES anything is executed HERE, through a REAL `GuardedConsole` and a
+    //     REAL `LineSink`, in both format arms. That split is the honest wiring gate; neither half alone would be.
+    // ==============================================================================================================
+    {
+        // ---- provisioning. The seam's interesting arms need a node that can actually accept a command: an id, an
+        //      identity and a legal DATA-SF set. ⛔ Done HERE, after every earlier row, so nothing above can shift.
+        meshroute::NodeConfig xc{};
+        xc.routing_sf = 7;
+        xc.allowed_sf_bitmap = (uint16_t)(1u << 7);
+        g_node.on_init(xc);
+        g_node.set_identity(/*node_id=*/5, g_identity.key_hash32);
+        seed_id("probe-node", 10, 0x70);   // the same operator label the R rows use, re-seeded for this block
+        seed_inbox(2, 1);
+
+        static char x_reply[256];        // fw_main.cpp's `g_out` capacity, verbatim (device_ble.h:202)
+        static char x_line[512];
+
+        // The TWO transport shapes, each built from the REAL sinks the production adapters use.
+        auto run_text = [&](const char* line) {
+            std::snprintf(x_line, sizeof x_line, "%s", line);
+            mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
+            const mrfw::LineExec ex = mrfw::exec_console_line(x_line, std::strlen(x_line),
+                                                              mrfw::LineFormat::text, mrcon, nullptr, 0);
+            mrcon.service();
+            return ex;
+        };
+        auto run_json = [&](const char* line) {
+            std::snprintf(x_line, sizeof x_line, "%s", line);
+            mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
+            LineSink ls(ble_capture);
+            const mrfw::LineExec ex = mrfw::exec_console_line(x_line, std::strlen(x_line),
+                                                              mrfw::LineFormat::json, ls, x_reply, sizeof x_reply);
+            if (ex.state == mrfw::LineExec::State::streamed) ls.flush();   // the BLE adapter's rule, verbatim
+            mrcon.service();
+            return ex;
+        };
+        using St = mrfw::LineExec::State;
+
+        // ---- X1/X2 — A ROUTER-OWNED COMMAND ON EACH ARM, WITH ZERO CROSS-SINK BYTES ------------------------------
+        auto ex = run_text("whoami");
+        CHK(ex.state == St::streamed && std::strstr(Serial.out, "[whoami]") && g_ble_n == 0,
+            "X1  router-owned `whoami` on the TEXT arm streams to the supplied sink, 0 B cross-sink [%u/%u]",
+            unsigned(Serial.n_out), unsigned(g_ble_n));
+        ex = run_json("whoami");
+        CHK(ex.state == St::streamed && ex.n == 0 && x_reply[0] == '\0'
+                && std::strstr(g_ble, "[whoami]") && Serial.n_out == 0,
+            "X2  ...and on the JSON arm it streams through the REAL LineSink, NEVER the 256-B direct buffer "
+            "[ret=%u buf0=%d usb=%u]", unsigned(ex.n), int(x_reply[0]), unsigned(Serial.n_out));
+
+        // ---- X3..X5 — A PARSER-OWNED COMMAND: executed ONCE, rendered in each transport's OWN envelope -----------
+        const uint16_t ctr0 = g_node.peer_ctr_high();
+        ex = run_text("send 5 \"hi\"");
+        const uint16_t ctr1 = g_node.peer_ctr_high();
+        CHK(ex.state == St::streamed && Serial.out[0] == '>' && !std::strstr(Serial.out, "{\"ack\"")
+                && g_ble_n == 0,
+            "X3  parser-owned `send` on the TEXT arm renders the TEXT envelope only [%s]", Serial.out);
+        ex = run_json("send 5 \"hi\"");
+        const uint16_t ctr2 = g_node.peer_ctr_high();
+        CHK(ex.state == St::buffered && ex.n > 0 && !std::strncmp(x_reply, "{\"ack\":\"", 8)
+                && g_ble_n == 0 && Serial.n_out == 0,
+            "X4  ...and on the JSON arm exactly ex.n buffered bytes, 0 streamed, 0 USB [%s]", x_reply);
+        CHK(!std::strstr(x_reply, "> ") && Serial.out[0] == '\0',
+            "X5  the two envelopes never cross: no `> ` in the JSON reply and no JSON on the USB sink");
+        CHK((uint16_t)(ctr1 - ctr0) == 1 && (uint16_t)(ctr2 - ctr1) == 1,
+            "X6  each seam call executes the command EXACTLY ONCE (peer ctr %u->%u->%u)", ctr0, ctr1, ctr2);
+
+        // ---- X7..X10 — THE PEER-BOOK VERBS REACH THEIR ESTABLISHED HANDLERS, not a bare on_command ---------------
+        const char* kPk = "peerkey 112233445566778899001122334455667788990011223344556677889900aabb";   // 64 hex = 32 B; hash = ed_pub[0..3] LE = 0x44332211
+        mrprobe_nv().writes = 0;
+        ex = run_text(kPk);
+        CHK(ex.state == St::streamed && std::strstr(Serial.out, "\"ev\":\"peerkey_set\"")
+                && mrprobe_nv().writes == 1,
+            "X7  `peerkey` on the TEXT arm reaches handle_peerkey (ack + exactly one /mrpeers write) [%s]",
+            Serial.out);
+        mrprobe_nv().writes = 0;
+        ex = run_json(kPk);
+        CHK(ex.state == St::buffered && std::strstr(x_reply, "\"ev\":\"peerkey_set\"")
+                && mrprobe_nv().writes == 1 && Serial.n_out == 0,
+            "X8  ...and on the JSON arm identically, into the reply buffer [%s]", x_reply);
+        ex = run_text("peername 0x44332211 \"bob\"");
+        CHK(ex.state == St::streamed && std::strstr(Serial.out, "\"ev\":\"peer_name_set\""),
+            "X9  `peername` on the TEXT arm reaches handle_peername [%s]", Serial.out);
+        ex = run_json("peername 0x44332211 \"bob\"");
+        CHK(ex.state == St::buffered && std::strstr(x_reply, "\"ev\":\"peer_name_set\"") && Serial.n_out == 0,
+            "X10 ...and on the JSON arm identically [%s]", x_reply);
+
+        // ---- X11..X13 — reqpubkey: the BLE-ONLY EVENT and the USB-ONLY REMEDY LINE, each on its own arm ----------
+        ex = run_json("reqpubkey 0x11223344");
+        const bool sent_event = std::strstr(x_reply, "\"ev\":\"reqpubkey_sent\"") != nullptr;
+        CHK(ex.state == St::buffered && sent_event,
+            "X11 an ACCEPTED `reqpubkey` keeps its BLE-specific reqpubkey_sent event [%s]", x_reply);
+        ex = run_text("reqpubkey 0x11223344");
+        CHK(ex.state == St::streamed && Serial.out[0] == '>' && !std::strstr(Serial.out, "reqpubkey_sent"),
+            "X12 ...while the TEXT arm keeps the plain result line and no JSON event [%s]", Serial.out);
+        // A REFUSED `reqpubkey` whose remedy text the hint DOES cover: this node's OWN key_hash32 is
+        // `err_unsupported` ("not a queryable peer"). ⛔ Derived from the LIVE node, never a typed constant — a
+        // hardcoded hash would stop being the node's own the day the fixture changed, and the row would go vacuous.
+        char own[40];
+        std::snprintf(own, sizeof own, "reqpubkey 0x%08lX", (unsigned long)g_node.key_hash32());
+        ex = run_text(own);
+        const bool hint_usb = std::strstr(Serial.out, "> reqpubkey:") != nullptr;
+        ex = run_json(own);
+        CHK(hint_usb && !std::strstr(x_reply, "reqpubkey:"),
+            "X13 a refused `reqpubkey` prints the USB remedy line and NEVER puts prose in the JSON ack [%s]",
+            x_reply);
+
+        // ---- X14..X16 — OWNERSHIP: empty, unknown and malformed all come back for the CALLER to render -----------
+        ex = run_text("   ");
+        const bool empty_text = (ex.state == St::empty && Serial.n_out == 0 && g_ble_n == 0);
+        ex = run_json("   ");
+        CHK(empty_text && ex.state == St::empty && ex.n == 0 && g_ble_n == 0 && Serial.n_out == 0,
+            "X14 a whitespace-only line is `empty` on BOTH arms and emits NOTHING anywhere");
+        ex = run_text("zzz_unknown_verb");
+        const bool unk_text = (ex.state == St::unmatched
+                               && ex.parse_err == meshroute::console::ParseErr::unknown_verb
+                               && Serial.n_out == 0 && g_ble_n == 0);
+        ex = run_json("zzz_unknown_verb");
+        CHK(unk_text && ex.state == St::unmatched
+                && ex.parse_err == meshroute::console::ParseErr::unknown_verb && ex.n == 0
+                && x_reply[0] == '\0' && g_ble_n == 0 && Serial.n_out == 0,
+            "X15 an unknown line is `unmatched`+unknown_verb on BOTH arms, with NO bytes written by the seam");
+        ex = run_json("send 5 unquoted");
+        CHK(ex.state == St::unmatched && ex.parse_err == meshroute::console::ParseErr::bad_args
+                && ex.n == 0 && x_reply[0] == '\0',
+            "X16 a MALFORMED parser-owned line is `unmatched`+bad_args — the named envelope stays the caller's");
+
+        // ---- X17 — THE SUPPLIED SINK IS THE ONLY SINK. Handing the text arm a sink that is NOT `mrcon` must put
+        //            every byte there and NONE on the global console ([[B279]]'s rule, applied to the whole path).
+        {
+            mrcon.service(); Serial.reset(); ble_reset();
+            g_sink.reset();
+            const mrfw::LineExec e2 = mrfw::exec_console_line("whoami", 6, mrfw::LineFormat::text, g_sink,
+                                                              nullptr, 0);
+            mrcon.service();
+            CHK(e2.state == St::streamed && g_sink.has("[whoami]") && Serial.n_out == 0 && g_ble_n == 0,
+                "X17 the ROUTER arm writes ONLY to the Print& it is handed — a third sink receives it, `mrcon` "
+                "gets 0 B [%u]", unsigned(Serial.n_out));
+            // ⛔ AND THE SAME QUESTION FOR THE OTHER HALF, because the router arm cannot answer it: `dispatch()`
+            //    receives `stream` as an ARGUMENT, so a seam that re-chose `mrcon` for its OWN writes would leave
+            //    the router path perfectly correct and only corrupt the text rendering. Measured, not assumed:
+            //    without this row the [[B279]]-shaped control (C18) stayed GREEN.
+            mrcon.service(); Serial.reset(); ble_reset();
+            g_sink.reset();
+            const mrfw::LineExec e2b = mrfw::exec_console_line("send 5 \"hi\"", 11, mrfw::LineFormat::text,
+                                                               g_sink, nullptr, 0);
+            mrcon.service();
+            CHK(e2b.state == St::streamed && g_sink.has("> ") && Serial.n_out == 0 && g_ble_n == 0,
+                "X18 ...and so does the TEXT RENDERING itself — the `> …` result line lands on the supplied sink, "
+                "`mrcon` gets 0 B [%u]", unsigned(Serial.n_out));
+        }
+
+        // ---- X19 — THE BORROWED BODY DOES NOT OUTLIVE THE CALL. `Command::body` points into the caller's line;
+        //            scribbling that line after the seam returns must not change a byte of the rendered reply.
+        {
+            std::snprintf(x_line, sizeof x_line, "send 5 \"ABCDEFGH\"");
+            mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
+            LineSink ls(ble_capture);
+            const mrfw::LineExec e3 = mrfw::exec_console_line(x_line, std::strlen(x_line), mrfw::LineFormat::json,
+                                                              ls, x_reply, sizeof x_reply);
+            char snapshot[256];
+            std::memcpy(snapshot, x_reply, sizeof snapshot);
+            std::memset(x_line, 'Z', sizeof x_line);            // the caller's buffer is reused, as it is in production
+            CHK(e3.state == St::buffered && std::memcmp(snapshot, x_reply, sizeof snapshot) == 0
+                    && !std::strchr(x_reply, 'Z'),
+                "X19 the rendered reply is a COPY: overwriting the input line after the call changes nothing");
+        }
+
+        // ---- X20 — `help` REALLY REACHES THE ROUTER THROUGH THE SEAM. This is what makes the BLE adapter's
+        //            pre-seam `console_only` refusal load-bearing rather than decorative: without it the seam's
+        //            router-first order would stream the whole index over NUS.
+        ex = run_json("help");
+        CHK(ex.state == St::streamed && ex.n == 0 && g_ble_n > 200
+                && std::strstr(g_ble, "docs/manual/command-reference.md"),
+            "X20 `help` reaching the seam DOES stream the whole index (%u B) — which is why BLE refuses it first",
+            unsigned(g_ble_n));
+    }
+
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");
     return g_fail == 0 ? 0 : 1;
 }
+#endif   // MR0C_NO_MAIN

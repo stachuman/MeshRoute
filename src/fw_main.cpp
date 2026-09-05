@@ -53,9 +53,15 @@ using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call
 using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
 #include "firmware_commands.h"       // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
-using mrfw::handle_peerkey;          // §3 export; call sites (service_console + ble_dispatch_line) unchanged
-using mrfw::handle_peername;         // §AB2 export; same two call sites, same shape as handle_peerkey
-using mrfw::dispatch;                 // §3 export: the console verb-router (service_console + ble_dispatch_line)
+// ⛔ V1 CORRECTION (§RADMIN-0c, 2026-09-05) — FOUR `using` DECLARATIONS ARE GONE FROM HERE, AND THE OLD LIST IS
+// KEPT VISIBLE SO THE REASON IS READABLE. This block used to import `mrfw::handle_peerkey`, `mrfw::handle_peername`,
+// `mrfw::dispatch` and `mrfw::print_reqpubkey_hint`, each annotated *"call sites (service_console +
+// ble_dispatch_line) unchanged"*. That is now FALSE: 0c gave both transports ONE call to
+// `mrfw::exec_console_line()`, which owns the router-versus-parser fork and reaches all four itself, inside
+// `firmware_commands.cpp`. ⇒ fw_main names none of them, which is exactly the U3 shape (glue, not feature logic)
+// and is what `tools/probe_console_sink/structural.py` S22/S23 now PIN: zero residual `dispatch(`, `parse_command(`
+// or `on_command(` inside either caller. (The two `g_node.on_command(...)` sites elsewhere in this file — setup()'s
+// auto-DAD `join` and the scheduled-send loop tick — are NOT console lines and are deliberately untouched.)
 using mrfw::print_banner;             // §3 export: setup() banner + `version`
 using mrfw::print_rf_diagnostics;      // V4-3: boot RF/FEM/config truth (same formatter as USB `status`)
 using mrfw::print_identity;           // §3 export: setup()
@@ -63,7 +69,6 @@ using mrfw::print_sf_list;            // §3 export: setup() + mesh_service_once
 using mrfw::board_name;               // §3 export: ble_dispatch_line `version`
 using mrfw::handle_routes;            // §3 export: ble_dispatch_line `routes`
 using mrfw::handle_peers;             // §3 export: ble_dispatch_line `peers` (§AB3, the bounded JSON address book)
-using mrfw::print_reqpubkey_hint;     // §3 export: §id-hash S1 — the refused-`reqpubkey` remedy line (service_console)
 using mrfw::make_status_fields;       // §3 export: ble_dispatch_line `status`
 using mrfw::node_state_str;           // §3 export: ble_dispatch_line `status`
 using mrfw::make_cfg_extras;          // §3 export: ble_dispatch_line `cfg`
@@ -539,31 +544,45 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { LineSink ls(ble_sink); handle_pull_inbox(line + 10, ls); ls.flush(); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { LineSink ls(ble_sink); handle_mark_read(line + 9,  ls); ls.flush(); return 0; }
     if ((len ==  7 || (len >  7 && line[7]  == ' ')) && !strncmp(line, "del_msg",     7)) { LineSink ls(ble_sink); handle_del_msg(line + 7,   ls); ls.flush(); return 0; }   // §3.5 delete
-    meshroute::Command cmd{};
-    const ParseErr e = parse_command(line, len, cmd);
-    if (e == ParseErr::ok) {
-        if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
-        if (cmd.kind == meshroute::CmdKind::peername) return handle_peername(out, cap, cmd); // §AB2: rename + persist + the synchronous ack
-        const meshroute::CmdResult r = g_node.on_command(cmd);
-        // ★★ §id-hash S1b (QA finding P1c): `r.accepted`, NOT `r.code == queued`. `reqpubkey_sent` means "the TX path ACCEPTED it" (owner ruling 2026-08-02), NOT "the on-air
-        // request was FLOODED". Two accepted outcomes hand the TX path nothing at all: the hosted-mobile local
-        // cache hit (which reports through its own peer_key_cached push), and — before S1b — every one of
-        // emit_hash_query's four silent early-outs, which now carry their own error codes instead. Anything that did
-        // not reach the transmitter falls through to the generic write_ack, which is the honest answer for both.
-        // ⚠ ACCEPTANCE IS NOT AIRTIME: a frame accepted into the LBT defer ring reaches the radio when a timer fires;
-        // if it dies there, node.cpp's defer arm reports it late (`!!` operator log). No synchronous result can know.
-        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued && r.accepted) {
-            // ★★ §id-hash S1 (spec §1-A's SECOND SITE): this echo used to re-resolve the id itself with
-            //     `if (rh == 0 && dst_id != 0) g_node.team_key_of_id(dst_id, rh);`
-            // — a THIRD hand-rolled one-table lookup, so a static-plane by-id reqpubkey would still have echoed
-            // hash=0 to the companion after node.cpp's arm was fixed. The result now CARRIES the answer
-            // (CmdResult::dst_hash = the hash the query flew for, ::plane = which plane resolved it), so this
-            // transport reads it instead of re-deriving it and the two can no longer disagree (U1).
-            return write_reqpubkey_sent(out, cap, r.dst_hash, r.plane);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
-        }
-        return write_ack(out, cap, r);
-    }
-    if (e == ParseErr::empty) return 0;
+    // §command-sink-consolidation: not a companion JSON verb -> the line goes to the shared execution seam below,
+    // which offers the FULL console surface as canonical text over BLE. ADDITIVE: every companion verb is handled
+    // above, so the seam's router arm only catches lines that once returned "unknown_cmd"
+    // (team/mobile/gateway/faults/lookup/…). The BLE link is the authenticated (MITM-passkey) admin transport.
+    // (reboot/regen/ota/factory_reset are reachable here too — factory_reset still requires its `confirm` token;
+    // flag for review if the console should stay USB-only.)
+    // ★★ §B95 invariant 9, WIDENED TO THE WHOLE HELP FAMILY by the owner 2026-09-04 (§0a/[[B208]]): EVERY `help`
+    // form — bare `help`, `help <topic>` and the bare `?` alias — is REFUSED here, BEFORE the seam below, and the
+    // refusal is load-bearing rather than cosmetic.
+    // ⛔ §RADMIN-0c MOVED THIS GUARD ABOVE THE PARSE, AND THE MOVE IS BEHAVIOUR-NEUTRAL BY CONSTRUCTION, not by
+    //   assertion: every help spelling is a token `parse_command` does not know, so it returned `unknown_verb`
+    //   before reaching the old refusal below the parse. Testing it first therefore refuses the identical set —
+    //   proven line-by-line by the whole help family in tools/probe_console_sink/ble_guard.py's corpus and by the
+    //   0c BEFORE/AFTER transcript. ⇒ the seam is entered only for lines BLE does not already own, so its
+    //   router-first order can never stream a help section over NUS.
+    // ⓘ WHY IT HAD TO GROW. The old `hl()` help wrote straight to `Serial`, so a BLE `help` returned NOTHING over
+    //   BLE (it printed to USB instead) — an accident that happened to bound it. Once help honoured its sink, a
+    //   `len == 4`-only guard was enough, because no other help spelling existed. §0a then split the one dump into
+    //   `help <topic>` sections, so `help messaging` STARTED MATCHING the shared `dispatch()`: measured 1365 B
+    //   / 13 lines (the largest section is `help cfg`, 1673 B / 17 lines) that would go out over BLE-NUS at ~20 B
+    //   per notification. ⇒ **the split made the response BOUNDED ON USB — it fits the 2048-B console stage with no
+    //   CONSOLE_DROP — but a bounded multi-line stream is still a stream, and BLE must not carry one.** Same shape,
+    //   same reason as the `peers all` refusal above (U3). The remedy is named: the USB console.
+    // ⛔ A BOUNDED ONE-LINE ANSWER, NEVER A STREAM — and the length test is a PREFIX test, so `helpful` is still not
+    //    a help line and still falls through to the seam exactly as before.
+    if (((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
+        return write_err(out, cap, "help", "console_only");
+    // ★★ §RADMIN-0c: ONE call into the transport-neutral seam (firmware_commands.cpp). It owns the
+    // router-versus-parser fork, the peer-book/Node execution and the JSON rendering; this file keeps only what is
+    // transport glue — the direct companion handlers above, the sinks, and BLE's own refusal envelopes below (U3).
+    // ⓘ THE SINKS ARE THIS TRANSPORT'S AND ARE CHOSEN HERE, never inside the seam: the 256-B `out` for a single
+    //   buffered NDJSON ack (device_ble.h ships it as one notification) and the 1700-B `LineSink` for a streamed
+    //   router response (mrble::tx_line, MTU-chunked, reassembled on '\n'). `ls` is flushed EXACTLY ONCE, and only
+    //   on the streamed arm — the other arms write nothing to it, exactly as before.
+    LineSink ls(ble_sink);
+    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap);
+    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }
+    if (ex.state == mrfw::LineExec::State::buffered) return ex.n;
+    if (ex.state == mrfw::LineExec::State::empty)    return 0;
     // §3: a malformed peerkey -> the contract's peerkey_err.
     // ⚠ §AB2, KNOWN AND DELIBERATELY NOT WIDENED (C1): `bad_hex` is now a slight over-claim. Since `peerkey` accepts an
     // OPTIONAL quoted name, a `peerkey <valid 64-hex> "` (unterminated) or `peerkey <valid 64-hex> ""` (empty) also lands
@@ -574,31 +593,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}\n");
     if (len >= 9 && !strncmp(line, "peername ", 9))                                           // §AB2: a malformed peername -> peer_name_err, not a bare parse error
         return meshroute::console::write_peer_name_err(out, cap, "bad_args");
-    // §command-sink-consolidation: not a companion JSON verb and not a Node command -> offer the FULL console surface as
-    // canonical text over BLE via the unified dispatch. ADDITIVE: every companion verb is handled above, so this only
-    // catches lines that previously returned "unknown_cmd" (team/mobile/gateway/faults/help/lookup/…). The BLE link is
-    // the authenticated (MITM-passkey) admin transport. (reboot/regen/ota/factory_reset become reachable here too —
-    // factory_reset still requires its `confirm` token; flag for review if the console should stay USB-only.)
-    // ★★ §B95 invariant 9, WIDENED TO THE WHOLE HELP FAMILY by the owner 2026-09-04 (§0a/[[B208]]): EVERY `help`
-    // form — bare `help`, `help <topic>` and the bare `?` alias — is REFUSED here, BEFORE the text fallback below,
-    // and the refusal is load-bearing rather than cosmetic.
-    // ⓘ WHY IT HAD TO GROW. The old `hl()` help wrote straight to `Serial`, so a BLE `help` returned NOTHING over
-    //   BLE (it printed to USB instead) — an accident that happened to bound it. Once help honoured its sink, a
-    //   `len == 4`-only guard was enough, because no other help spelling existed. §0a then split the one dump into
-    //   `help <topic>` sections, so `help messaging` STARTED MATCHING the shared `dispatch()` below: measured 1365 B
-    //   / 13 lines (the largest section is `help cfg`, 1673 B / 17 lines) that would go out over BLE-NUS at ~20 B
-    //   per notification. ⇒ **the split made the response BOUNDED ON USB — it fits the 2048-B console stage with no
-    //   CONSOLE_DROP — but a bounded multi-line stream is still a stream, and BLE must not carry one.** Same shape,
-    //   same reason as the `peers all` refusal two lines up (U3). The remedy is named: the USB console.
-    // ⛔ A BOUNDED ONE-LINE ANSWER, NEVER A STREAM — and the length test is a PREFIX test, so `helpful` is still not
-    //    a help line and still falls through to the fallback exactly as before.
-    if (((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
-        return write_err(out, cap, "help", "console_only");
-    if (e == ParseErr::unknown_verb) {
-        LineSink ls(ble_sink);
-        if (dispatch(line, len, ls)) { ls.flush(); return 0; }
-    }
-    return write_err(out, cap, "parse", e == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");
+    return write_err(out, cap, "parse", ex.parse_err == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");
 }
 
 void setup() {
@@ -1087,54 +1082,16 @@ static void service_console() {
                 pos = 0; overflow = false; continue;
             }
             line[pos] = '\0';                            // null-terminate (pos <= sizeof-1) for the debug cmds
-            if (!dispatch(line, pos, mrcon)) {             // routes/cfg/status handled here; else a Node command
-                meshroute::Command cmd{};
-                const meshroute::console::ParseErr e = meshroute::console::parse_command(line, pos, cmd);
-                if (e == meshroute::console::ParseErr::ok) {
-                    if (cmd.kind == meshroute::CmdKind::peerkey) {       // §2/§3: install + persist + the contract ack
-                        char jb[80]; const size_t m = handle_peerkey(jb, sizeof jb, cmd);
-                        mrcon.write(reinterpret_cast<const uint8_t*>(jb), m);
-                    } else if (cmd.kind == meshroute::CmdKind::peername) {   // §AB2: rename + persist + the synchronous ack
-                        // 256 = the BLE g_out size, and it is the WORST CASE not a guess: 29 B envelope + 10 digits of
-                        // hash + 8 B `,"name":` + 2 quotes + a 32-B name whose every byte escapes to `\u00xx` (6x) =
-                        // 240 + `}` + '\n' + NUL = 244. A tighter buffer would make JsonBuf::finish() return 0 and the
-                        // ack vanish SILENTLY (it is overflow-safe, not overflow-loud), which is the failure to avoid.
-                        char jb[256]; const size_t m = handle_peername(jb, sizeof jb, cmd);
-                        mrcon.write(reinterpret_cast<const uint8_t*>(jb), m);
-                    } else {
-                    const meshroute::CmdResult r = g_node.on_command(cmd);
-                    mrcon.print(F("> "));
-                    // ★ §err-reason/B32 (bench-found 2026-07-31): print the CmdCode ITSELF, never a bare `err`. The old
-                    // ternary collapsed err_no_binding / err_unprovisioned / err_unknown_dst / err_too_large … into ONE
-                    // indistinguishable `err ctr=`, so a refusal named no reason: `reqpubkey 245` answered `err ctr=0
-                    // depth=0` and the operator could not tell which wall he had hit. C2 — printing `err` without the
-                    // reason is not "loud". cmdcode_name is the ONE mapper (U1, no second switch here) and it is the
-                    // SAME token the companion's {"ack":"…"} carries, so the text and JSON transports can no longer
-                    // drift apart. ★ No `err ` word is prefixed and that is deliberate, not an omission: every
-                    // non-`queued` enumerator's string already begins with `err_` (so does the out-of-range fallback
-                    // "err_unknown"), so the token self-labels — an invariant this print site cannot test, and which is
-                    // therefore ASSERTED NATIVELY in test/test_console_json.cpp beside the enum-walker. The success
-                    // line `queued ctr=N depth=N` is byte-identical to before; only refusals gained a reason.
-                    mrcon.print(meshroute::console::cmdcode_name(r.code)); mrcon.print(F(" ctr="));
-                    mrcon.print(r.ctr); mrcon.print(F(" depth=")); mrcon.print(r.queue_depth);
-                    // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
-                    if (r.dst_hash) { mrcon.print(F(" dh=0x")); mrcon.print(r.dst_hash, HEX); }
-                    if (r.layer_path) { mrcon.print(F(" lp=0x")); mrcon.print(r.layer_path, HEX); }
-                    // ★ §id-hash S1 (spec §3-D9): the plane the command executed on. Omitted when 0 (= not
-                    // plane-scoped), so every other verb's line is byte-identical to before. On `reqpubkey <id>` this is
-                    // the answer to "which namespace did you just spend airtime in", which a bare `queued` never said.
-                    if (r.plane) { mrcon.print(F(" plane=")); mrcon.print(meshroute::console::cmdplane_name(r.plane)); }
-                    mrcon.println();
-                    // §id-hash S1: the remedy line for a refused reqpubkey, at handle_hashof parity. The text lives in
-                    // firmware_commands beside hashof's (U3 — fw_main stays glue); a `queued` prints nothing.
-                    print_reqpubkey_hint(mrcon, cmd, r);
-                    }
-                } else if (e != meshroute::console::ParseErr::empty) {
-                    if (pos >= 8 && !strncmp(line, "peerkey ", 8))       // §3: a malformed peerkey -> the contract's peerkey_err
-                        mrcon.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));
-                    else
-                        mrcon.println(F("> parse error"));
-                }
+            // ★★ §RADMIN-0c: ONE call into the transport-neutral seam (firmware_commands.cpp). It owns the
+            // router-versus-parser fork, the peer-book/Node execution and the TEXT rendering; this file keeps only
+            // what is transport glue — the intake above and USB's own refusal envelope below (U3).
+            const mrfw::LineExec ex = mrfw::exec_console_line(line, pos, mrfw::LineFormat::text, mrcon,
+                                                              /*reply=*/nullptr, /*reply_cap=*/0);
+            if (ex.state == mrfw::LineExec::State::unmatched) {   // neither the router nor the parser owned the line
+                if (pos >= 8 && !strncmp(line, "peerkey ", 8))    // §3: a malformed peerkey -> the contract's peerkey_err
+                    mrcon.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));
+                else
+                    mrcon.println(F("> parse error"));
             }
             pos = 0;
         } else if (pos < sizeof(line) - 1) {

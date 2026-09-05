@@ -242,6 +242,78 @@ SRC_CTL = [
     ('X5 leave the index unterminated (print instead of println on its last line)', HELP,
      '    out.println(F("whoami"));',
      '    out.print(F("whoami"));', ('S4',)),
+
+    # ==================================================== §RADMIN-0c — THE TWO ONE-CALL ADAPTERS AND THE SEAM ====
+    # ⛔ EVERY ONE OF THESE IS A SHAPE THAT COMPILES. `src/fw_main.cpp` is host-uncompilable, so nothing but these
+    #    rows stands between a caller quietly growing a second fork and a green gate.
+
+    # ---- X13: THE SERIAL CALLER OPENS ITS OWN FORK AGAIN — the exact pre-0c shape, restored beside the seam call.
+    #          The command would then execute TWICE on USB, and both answers would print.
+    ('X13 the serial adapter re-opens its own router/parser fork beside the seam call', FWMAIN,
+     '            if (ex.state == mrfw::LineExec::State::unmatched) {',
+     '            meshroute::Command dup{};\n'
+     '            if (meshroute::console::parse_command(line, pos, dup) == meshroute::console::ParseErr::ok)\n'
+     '                (void)g_node.on_command(dup);\n'
+     '            if (ex.state == mrfw::LineExec::State::unmatched) {', ('S22',)),
+
+    # ---- X14: THE BLE CALLER BYPASSES THE SEAM for the router half — the "helper plus a residual second path"
+    #          failure the brief names explicitly. The seam still runs; so does a second router offer.
+    ('X14 the BLE adapter keeps a residual direct dispatch() beside the seam call', FWMAIN,
+     '    LineSink ls(ble_sink);\n    const mrfw::LineExec ex = mrfw::exec_console_line(',
+     '    LineSink ls(ble_sink);\n    if (mrfw::dispatch(line, len, ls)) { ls.flush(); return 0; }\n'
+     '    const mrfw::LineExec ex = mrfw::exec_console_line(', ('S23',)),
+
+    # ---- X15: THE BLE CALLER LOSES ITS ONE FLUSH. Every streamed router response would end one partial line short
+    #          — invisible on a '\n'-terminated response, fatal on anything else.
+    ('X15 the BLE adapter drops the seam response flush', FWMAIN,
+     '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',
+     '    if (ex.state == mrfw::LineExec::State::streamed) { return 0; }', ('S23',)),
+
+    # ---- X16: THE BLE CALLER ROUTES THE STREAM THROUGH THE 256-B DIRECT BUFFER — [[B292]]'s hazard, made real:
+    #          a multi-kilobyte `routes` dump handed to a single 244-byte notification.
+    ('X16 the BLE adapter hands the seam its direct buffer where the stream belongs', FWMAIN,
+     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap)',
+     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, nullptr, 0)', ('S23',)),
+
+    # ---- X17: THE SEAM'S FORK IS REVERSED. ⛔ THIS IS THE ONE CONTROL WITH NO BEHAVIOURAL TWIN, and that is a
+    #          MEASUREMENT, not an omission: with the router/parser intersection measured EMPTY on all six real
+    #          profiles (tools/probe_console_sink/ownership.py), a reversal changes no byte on either transport —
+    #          which is exactly why 0c could unify the two orders at all. A structural pin is therefore the only
+    #          honest instrument for it, and this control is what proves the pin is not decorative.
+    ('X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)', CMDS,
+     '    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }\n'
+     '\n'
+     '    // (2) the command parser.',
+     '    // (2) the command parser.', ('S24',)),
+
+    # ---- X18: THE SEAM RE-CHOOSES THE SINK. Compile-valid, board-valid, and wrong: [[B279]] one layer up.
+    ('X18 the seam writes to the global console instead of the sink it was handed', CMDS,
+     '    stream.print(F("> "));', '    mrcon.print(F("> "));', ('S25',)),
+
+    # ---- X19: THE SEAM RETAINS THE BORROWED BODY. `Command::body` points into the caller's line buffer, which the
+    #          serial caller reuses on the very next character; a returned pointer is a use-after-reuse.
+    ('X19 LineExec carries the borrowed Command::body out of the call', CMDSH,
+     '    size_t                       n         = 0;                                  // valid only on `buffered`',
+     '    size_t                       n         = 0;                                  // valid only on `buffered`\n'
+     '    const uint8_t*               body      = nullptr;', ('S26',)),
+
+    # ---- X20: THE HEX RADIX IS DROPPED from the send handle. ⛔ INVISIBLE TO EVERY EXECUTED CHECK IN THIS TREE:
+    #          the probes' shared Arduino fake ignores a print radix, so the transcript renders `print(x, HEX)` and
+    #          `print(x)` identically. S27 is the only thing that can see it.
+    ('X20 the text arm prints the send handle in decimal (the fake cannot tell)', CMDS,
+     'stream.print(cr.dst_hash, HEX);', 'stream.print(cr.dst_hash);', ('S27',)),
+
+    # ---- X21/X22: [[B298]] — a retired topic-help claim made ACTIVE again, in each file. The correction idiom keeps
+    #          the old design VISIBLE; what must not come back is the present tense.
+    ('X21 a retired topic-help claim becomes an ACTIVE present-tense comment again (cpp)', CMDS,
+     '// `dispatch()` below keeps exactly one call to it and parses no help of its own.',
+     '// `dispatch()` below keeps exactly one call to it and parses no help of its own.\n'
+     '// The header renders one whole topic section per `help <topic>` request.', ('S28',)),
+
+    ('X22 the header claims again that the two callers are deliberately not retrofitted', CMDSH,
+     '// ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]], 2026-09-05) — THE OLD CLAIM IS KEPT VISIBLE AND IS NOW FALSE. This',
+     '// The two existing call sites are DELIBERATELY NOT retrofitted onto this helper.\n'
+     '// ⛔ NOTE (§RADMIN-0c) — THE OLD CLAIM IS KEPT VISIBLE AND IS NOW FALSE. This', ('S29',)),
 ]
 
 for idx, (label, path, find, repl, expect_ids) in enumerate(SRC_CTL):
@@ -523,8 +595,11 @@ for label, steps, expect_ids in [
         print(f'{label}\n   -> structural {"+".join(flipped)} now FAIL')
 
 # ---- H-C13..15: the ONE dispatch() call — removed, duplicated, or bypassed by a second parser --------------------
-ROUTER_CALL = ('    if (help_command(line, len, out)) return true;   // §0a/[[B208]] — the ONE help router '
-               '(firmware_help.h):\n')
+# ⛔ RE-ANCHORED (§RADMIN-0c / [[B298]]): the anchor carried the call's TRAILING COMMENT, so correcting that
+#   comment's retired topic-help wording made all three controls match 0 times — "CONTROL NOT APPLIED", i.e. three
+#   silently unmeasured properties. The anchor is now the CALL ALONE, which is the thing these controls are about;
+#   a comment edit can no longer disarm them. (Same lesson as the X3 re-aim above, arriving through a different door.)
+ROUTER_CALL = '    if (help_command(line, len, out)) return true;'
 for label, steps, expect_ids in [
     ('H-C13 remove the real dispatch() help-router call', [(ROUTER_CALL, '')], ('S17',)),
     ('H-C14 duplicate the dispatch() help-router call', [(ROUTER_CALL, ROUTER_CALL + ROUTER_CALL)], ('S17',)),

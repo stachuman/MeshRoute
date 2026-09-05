@@ -48,16 +48,26 @@ import gen_command_inventory as GEN  # noqa: E402
 #     profiles   — len(gen_command_inventory.PROFILES); the six real board macro sets.
 #     checks     — the summed `N total` the probe binary prints per profile: 120 on EVERY profile (52 §B95 sink rows
 #                  + 68 §0g help rows), so 120*6 = 720. §0a's 972 is retired with the per-topic rows that scaled it.
-#     structural — the row count structural.py reports (S1..S21; §0b/[[B279]] added S21, the boot sink owner).
+#     structural — the row count structural.py reports (S1..S29; §0b/[[B279]] added S21, the boot sink owner;
+#                  §RADMIN-0c added S22..S29 — the two one-call `fw_main.cpp` adapters, the seam's ROUTER-FIRST
+#                  single fork, its refusal to re-choose a sink, the no-borrowed-body/no-static rule, the HEX send
+#                  handle no executed check can see, and the two [[B298]] comment-census rows).
 #     ble_guard  — the executed BLE help-refusal rows: 53 corpus lines x 4 assertions (B1..B4) = 212.
-#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 6 source + 6 B214 + 13 help rendered-index + 2 help
-#                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 48. (§0b/[[B279]] took
-#                  the source family 5 -> 6 with X12, the control that reddens S21.)
+#     ownership  — §RADMIN-0c: one ownership.py row per REAL product profile (6), each requiring the router-owned
+#                  and parser-owned primary-form sets to be DISJOINT, non-empty, complete and at their counts.
+#     own_ctl    — ownership.py's own controls (3): a synthetic collision, a deleted router form, an emptied
+#                  parser surface — each REFUSED.
+#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 16 source + 6 B214 + 13 help rendered-index + 2 help
+#                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 58. (§0b/[[B279]] took
+#                  the source family 5 -> 6 with X12, the control that reddens S21; §RADMIN-0c took it 6 -> 16 with
+#                  X13..X22, the controls that redden S22..S29.)
 PIN_PROFILES = 6
 PIN_CHECKS = 720
-PIN_STRUCTURAL = 21
+PIN_STRUCTURAL = 29
 PIN_BLE_GUARD = 212
-PIN_CONTROLS = 48
+PIN_OWNERSHIP = 6
+PIN_OWN_CTL = 3
+PIN_CONTROLS = 58
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 
@@ -85,10 +95,15 @@ class TestProbeRunner(unittest.TestCase):
         self.assertIn("PASS: probe + structural + controls all green", self.full.stdout)
 
     def test_the_derived_pins(self):
-        m = re.search(r"PINS profiles=(\d+) checks=(\d+) structural=(\d+) ble_guard=(\d+) controls=(\d+) "
-                      r"unusable_controls=(\d+)", self.full.stdout)
+        m = re.search(r"PINS profiles=(\d+) checks=(\d+) structural=(\d+) ble_guard=(\d+) ownership=(\d+) "
+                      r"ownership_controls=(\d+) controls=(\d+) unusable_controls=(\d+)", self.full.stdout)
         self.assertIsNotNone(m, "the runner must print its derived pins")
-        profiles, checks, structural, ble_guard, controls, unusable = (int(g) for g in m.groups())
+        (profiles, checks, structural, ble_guard, ownership, own_ctl,
+         controls, unusable) = (int(g) for g in m.groups())
+        self.assertEqual(PIN_OWNERSHIP, ownership,
+                         "the router/parser ownership gate lost or gained a product profile")
+        self.assertEqual(PIN_OWN_CTL, own_ctl,
+                         "an ownership control (collision / missing form / emptied surface) was dropped")
         self.assertEqual(PIN_BLE_GUARD, ble_guard,
                          "the executed BLE help-refusal check gained or lost rows")
         self.assertEqual(PIN_PROFILES, profiles, "a product profile was added or dropped from the probe matrix")

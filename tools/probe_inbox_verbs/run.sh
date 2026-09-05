@@ -108,8 +108,36 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #      8+2+12+2+2+4+2 = 32.  39 + 32 = 71. ✓
 #    PIN_CONTROLS = 14 = the [[B237]] control-of-the-controls + C1..C7 (the §CUSTODY-D seven) + C8..C13 (the six
 #    §0b ones: three production sink-restorations, one never-shipping LineSink, two DISHONEST storage fakes).
-PIN_CHECKS=71
-PIN_CONTROLS=14
+#
+# ★★ §RADMIN-0c RE-PIN: 71 -> 90 checks, 14 -> 22 controls. The X block adds NINETEEN checks, counted from the clean
+#    probe's own `  ok  ` lines and derived here so a deleted one is visible. They EXECUTE the one transport-neutral
+#    seam `mrfw::exec_console_line()` through a REAL `GuardedConsole` and a REAL `LineSink`, in BOTH format arms —
+#    which is the whole 0c wiring gate on the policy-bearing side (`src/fw_main.cpp` is host-uncompilable, so its two
+#    one-call adapters are pinned STRUCTURALLY by tools/probe_console_sink/structural.py S22..S29 instead):
+#      X1..X2   a router-owned command on each arm, 0 B cross-sink; the JSON arm streams through the REAL
+#               LineSink and NEVER through the 256-B direct buffer                                        2
+#      X3..X6   a parser-owned command: the TEXT envelope, the JSON envelope, no crossing, executed ONCE  4
+#      X7..X10  `peerkey`/`peername` reach handle_peerkey/handle_peername (ack + exactly one NV write)    4
+#      X11..X13 an accepted `reqpubkey` keeps its BLE-only event; the TEXT arm keeps the USB-only remedy
+#               line and the JSON ack never carries prose                                                 3
+#      X14..X16 empty / unknown / malformed ownership: the seam writes NOTHING and hands the caller a
+#               typed `unmatched`/`empty` with the ParseErr                                               3
+#      X17..X18 the supplied sink is the ONLY sink, on BOTH halves — the router arm (`dispatch` is HANDED the
+#               sink) and the seam's own text rendering. ⛔ TWO rows because one was not enough: with only the
+#               router row, the [[B279]]-shaped control C18 stayed GREEN, which is exactly the "a success that
+#               isn't" shape this project keeps re-finding                                                 2
+#      X19      the rendered reply is a COPY (the borrowed `Command::body` never outlives the call)        1
+#      X20      `help` reaching the seam DOES stream the whole index — which is what makes the BLE
+#               adapter's pre-seam `console_only` refusal load-bearing rather than decorative              1
+#      2+4+4+3+3+2+1+1 = 20.  71 + 20 = 91. ✓
+#    PIN_CONTROLS = 22 = 14 + C14..C21, the eight §0c mutations below.
+#    ⛔ ONE CONTROL IS DELIBERATELY ABSENT AND SAYING SO IS THE POINT: "reverse the seam's router/parser order" has
+#      NO behavioural control here, because with the measured-EMPTY intersection the reversal is INVISIBLE — that is
+#      exactly why the unification was safe. Offering a green "order" control would be a vacuous check. The order is
+#      pinned STRUCTURALLY (structural.py S24, with its own negctl control) and the emptiness it depends on is
+#      re-derived every run by tools/probe_console_sink/ownership.py, which turns RED on a synthetic collision.
+PIN_CHECKS=91
+PIN_CONTROLS=22
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -348,6 +376,51 @@ if [ "${1:-}" != "--no-neg" ]; then
 
   ctl 'C13 the NV fake reports a SUCCESSFUL write while retaining nothing (dishonest storage)' prefs \
       's|bool drop_on_ok     = false;|bool drop_on_ok     = true;|'
+
+  # =========================================================== §RADMIN-0c — THE EXECUTION SEAM'S OWN CONTROLS
+  # ⛔ Each is a TEMPTING WRONG SHAPE of `mrfw::exec_console_line()`, not a deletion: an envelope swapped, a handler
+  #    bypassed, a transport-specific field dropped, a sink re-chosen, an ownership state collapsed, a command run
+  #    twice. Each must turn the X rows RED, and the failing rows are NAMED so the claim can be audited.
+
+  # ---- C14: THE TWO FORMAT ARMS SWAPPED. USB gets the companion's NDJSON and the companion gets human text — the
+  #          single most likely way a transport-neutral seam stops being transport-correct.
+  ctl 'C14 the seam renders each transport in the OTHER format (`fmt == json` -> `fmt == text`)' router \
+      's|if (fmt == LineFormat::json) {|if (fmt == LineFormat::text) {|'
+
+  # ---- C15: `peerkey` BYPASSES ITS ESTABLISHED HANDLER and is executed as a bare Node command. The RAM install
+  #          still happens, but /mrpeers is never mirrored and the contract ack becomes a generic {"ack":…}.
+  ctl 'C15 `peerkey` is executed as a bare Node command instead of through handle_peerkey' router \
+      's|{ r.n = handle_peerkey(reply, reply_cap, cmd);  return r; }|{ r.n = meshroute::console::write_ack(reply, reply_cap, g_node.on_command(cmd)); return r; }|'
+
+  # ---- C16: THE BLE-SPECIFIC EVENT IS LOST. An accepted `reqpubkey` answers the generic ack, so the companion can
+  #          no longer tell "the query flew" from "the command was accepted and did nothing".
+  ctl 'C16 an accepted `reqpubkey` loses its reqpubkey_sent event (falls back to write_ack)' router \
+      's|r.n = meshroute::console::write_reqpubkey_sent(reply, reply_cap, cr.dst_hash, cr.plane);|r.n = meshroute::console::write_ack(reply, reply_cap, cr);|'
+
+  # ---- C17: THE USB-ONLY REMEDY LINE IS DROPPED. The refusal still names its CmdCode, but the operator loses the
+  #          way round it — the §id-hash S1 defect, restored.
+  ctl 'C17 the TEXT arm drops print_reqpubkey_hint (a refusal names the wall but not the way round it)' router \
+      's|    print_reqpubkey_hint(stream, cmd, cr);||'
+
+  # ---- C18: THE SEAM RE-CHOOSES THE SINK. Every text-arm write goes to the global console instead of the `Print&`
+  #          it was handed — [[B279]] exactly as it was found, one layer up.
+  ctl 'C18 the TEXT arm writes to the global `mrcon` instead of the sink it was handed ([[B279]] shape)' router \
+      '/^LineExec exec_console_line/,/^}$/ s/\bstream\./mrcon./g'
+
+  # ---- C19: AN OWNERSHIP STATE IS COLLAPSED. An empty line comes back `unmatched`, so both transports would answer
+  #          a bare Enter with a parse error instead of silence.
+  ctl 'C19 the `empty` completion is collapsed into `unmatched` (a bare Enter would answer an error)' router \
+      's|{ r.state = LineExec::State::empty;     return r; }|{ r.state = LineExec::State::unmatched; return r; }|'
+
+  # ---- C20: A STREAMED ROUTER RESPONSE IS REPORTED AS BUFFERED. The BLE adapter would then return `ex.n` (0) and
+  #          never flush — the bytes are in the sink, the transport is told nothing happened.
+  ctl 'C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush)' router \
+      's|if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }|if (dispatch(line, len, stream)) { r.state = LineExec::State::buffered; return r; }|'
+
+  # ---- C21: THE COMMAND IS EXECUTED TWICE on the text arm — two counters burned, two frames queued, one answer
+  #          printed. The failure a byte-comparison alone cannot see, which is why the X rows measure the counter.
+  ctl 'C21 the TEXT arm executes the Node command TWICE (two ctrs burned, one answer printed)' router \
+      '/^    r.state = LineExec::State::streamed;$/,$ s|const meshroute::CmdResult cr = g_node.on_command(cmd);|g_node.on_command(cmd); const meshroute::CmdResult cr = g_node.on_command(cmd);|'
 fi
 
 MD5_AFTER=$(md5_sources)

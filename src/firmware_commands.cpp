@@ -19,8 +19,12 @@
                               //   dispatcher-reachable handler print through the sink they are HANDED; the
                               //   direct `mrcon` writers left in this TU are the BOOT-ONLY ones
                               //   (peer_store_restore's one-line summary, preset_boot_restore_console).
-#include "firmware_help.h"     // §0a/[[B208]]: the console help authority — index, the nine `help <topic>`
-                              //   sections and the ONE `help`/`?` recognition. dispatch() keeps only the call.
+#include "firmware_help.h"     // ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]]): this read "§0a/[[B208]]: the console
+                              //   help authority — index, the NINE `help <topic>` SECTIONS and the ONE `help`/`?`
+                              //   recognition." The nine sections were RETIRED by §0g (owner ruling 2026-09-05).
+                              //   Current truth: the console help authority — the BARE PRIMARY-NAME index, the one
+                              //   bounded refusal for every retired argument-bearing form, and the ONE `help`/`?`
+                              //   recognition. dispatch() still keeps only the call.
 #include "console_json.h"      // write_status/write_cfg/write_limits/write_route + StatusFields/CfgExtras
 #include "frame_trace.h"       // g_mr_trace_on (handle_debug)
 #include "sched_send.h"        // mrsched::Schedule (handle_testsched/teststatus + g_sched)
@@ -992,10 +996,14 @@ static void handle_whoami(Print& out) {
 
 // handle_leave moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment B); `using mrfw::handle_leave` above.
 
-// ★★ §B95 (2026-08-04) + §0a/[[B208]] (2026-09-04): `dump_help()` IS GONE FROM THIS TU. The help text, the
-// compact topic index and the whole `help` / `?` / `help <topic>` recognition live in `src/firmware_help.h`,
-// which is a header precisely so an automated gate can compile and RUN it (`test_build_src = no` keeps this
-// TU out of every host build). `dispatch()` below keeps exactly one call to it and parses no help of its own.
+// ★★ §B95 (2026-08-04) + §0a/[[B208]] (2026-09-04) + §0g (2026-09-05): `dump_help()` IS GONE FROM THIS TU. The
+// whole `help` / `?` recognition and the response itself live in `src/firmware_help.h`, which is a header precisely
+// so an automated gate can compile and RUN it (`test_build_src = no` keeps this TU out of every host build).
+// `dispatch()` below keeps exactly one call to it and parses no help of its own.
+// ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]]): the sentence above used to say the header holds *"the help TEXT, the
+//   compact TOPIC INDEX and the whole `help` / `?` / `help <topic>` recognition"*. All three nouns are retired —
+//   §0g deleted the descriptions, the topic index and the topic sections. What the header holds now is the BARE
+//   PRIMARY-NAME index plus one bounded refusal for every argument-bearing form.
 // TWO rulings are pinned in that file and must not be undone from here:
 //   • the `hl()` DIRECT-SERIAL BYPASS STAYS GONE. It wrote straight to `Serial` — not through the `Print& out`
 //     it was handed, and not through `mrcon` — with its own per-line drain loop (`yield()`, up to 40 ms EACH,
@@ -1003,10 +1011,15 @@ static void handle_whoami(Print& out) {
 //     which is why bench H5-06 saw help lines with no line ending. Help writes through its supplied sink like
 //     every other dump; console_sink.h is what guarantees whole-line admission. Do NOT reintroduce a per-line
 //     drain, here or there — a formatter must not second-guess the transport.
-//   • [[B208]]: bare `help`/`?` print only a compact index of THIS BUILD's topics and `help <topic>` prints
-//     exactly one complete section, each inside MR_CONSOLE_STAGE_BYTES with no `CONSOLE_DROP`. The single dump
-//     this replaced measured 88 lines / 7332 B on a full OLED build, i.e. 3.6x the stage, so its tail was
-//     dropped as whole lines on EVERY run. ⛔ Do not answer that by enlarging the stage or adding a pager.
+//   • [[B208]]'s SIZE half stands and is measured: every help response fits inside MR_CONSOLE_STAGE_BYTES with
+//     no `CONSOLE_DROP`. The single dump it replaced measured 88 lines / 7332 B on a full OLED build, i.e. 3.6x
+//     the stage, so its tail was dropped as whole lines on EVERY run. ⛔ Do not answer that by enlarging the
+//     stage or adding a pager.
+//     ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]]): its CONTENT half read *"bare `help`/`?` print only a compact index
+//       of THIS BUILD's TOPICS and `help <topic>` prints exactly one complete SECTION"* — WITHDRAWN, superseded by
+//       §0g. Bare `help`/`?` print one line per PRIMARY COMMAND NAME this build compiles (bytewise sorted) plus the
+//       manual pointer; `help <anything>` is a retired form and takes the one bounded refusal. The completeness
+//       oracle is the generated inventory, not this comment.
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
 // then serialized via write_limits() into s_inbox_jb (declared just above) — same pattern as the other JSON dumps. A
@@ -1096,10 +1109,13 @@ static void handle_teststatus(Print& out) {
 // handle_password moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment B; MR_FEAT_REMOTE_MGMT-gated); `using mrfw::handle_password` above.
 
 bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`
-    if (help_command(line, len, out)) return true;   // §0a/[[B208]] — the ONE help router (firmware_help.h):
-                                                    //   the index, one whole topic section, or the bounded
-                                                    //   refusal. false = not a help line, so `helpful` and
-                                                    //   every other verb fall through exactly as before.
+    if (help_command(line, len, out)) return true;   // §0a/[[B208]] + §0g — the ONE help router (firmware_help.h):
+                                                    //   the bare primary-name index, or the bounded refusal for a
+                                                    //   retired argument-bearing form. false = not a help line, so
+                                                    //   `helpful` and every other verb fall through as before.
+                                                    // ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]]): this annotation used
+                                                    //   to offer "the index, ONE WHOLE TOPIC SECTION, or the
+                                                    //   bounded refusal" — the middle outcome no longer exists.
     if (len == 7 && !strncmp(line, "version", 7))  { print_banner(out); return true; }
     if (len == 6 && !strncmp(line, "faults", 6))   { fw_faults_dump(out);  return true; }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) { fw_prep_restart(out); return true; }
@@ -1191,6 +1207,103 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if (len == 4 && !strncmp(line, "lock", 4))     { handle_lock(out);               return true; }   // wipe the unlocked admin key
 #endif
     return false;
+}
+
+// ★★★ §RADMIN-0c — THE ONE TRANSPORT-NEUTRAL LOCAL EXECUTION SEAM. Read the contract in firmware_commands.h; this
+// is the body. It is deliberately the WHOLE decision and NOTHING ELSE: one router offer, one parse, one execution,
+// and one transport-selected rendering of the typed result.
+//
+// ⛔ THE FOUR THINGS IT OWNS, and there is no fifth:
+//   1. the router-versus-parser fork, ONCE, router-first (the measured-empty intersection is the licence — see the
+//      header, and `tools/probe_console_sink/ownership.py` for the permanent gate);
+//   2. the typed dispatch of a parsed command to `handle_peerkey` / `handle_peername` / `Node::on_command`;
+//   3. the rendering of that typed result in the caller's chosen envelope; and
+//   4. a narrow completion telling the caller what happened, so no caller has to scrape output text.
+// ⛔ NOT a command-name special case anywhere in here (`cmd.kind` is the parser's TYPED answer, not a re-test of
+//    the line), NOT a second verb map, NOT a sink choice, NOT a retained `Command::body`.
+//
+// ★ WHY THE PEER-BOOK ARMS SIT AHEAD OF `on_command` ON BOTH FORMATS: `handle_peerkey`/`handle_peername` are not
+//   formatters — they run `Node::on_command` THEMSELVES and then mirror the record to /mrpeers. Calling
+//   `on_command` here first and them second would execute the command twice. Both callers already had exactly this
+//   shape; it is preserved verbatim.
+// ⓘ THE SIGNATURE STAYS ON ONE LINE ON PURPOSE: `tools/gen_command_inventory.py`'s function-span scanner requires
+// the opening brace on the definition line (`_function_spans`), and this function is now a named hop in the wiring
+// chain that proves `dispatch`'s and `parse_command`'s transport claims. Wrapping it makes the generator refuse.
+LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& stream, char* reply, size_t reply_cap) {
+    LineExec r{};
+
+    // (1) the console verb router — one offer, through the sink the caller supplied.
+    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }
+
+    // (2) the command parser. ⓘ `cmd.body` borrows into `line`; everything that reads it runs below, inside this
+    //     call, while the caller's buffer is still alive.
+    meshroute::Command cmd{};
+    r.parse_err = meshroute::console::parse_command(line, len, cmd);
+    if (r.parse_err == meshroute::console::ParseErr::empty)    { r.state = LineExec::State::empty;     return r; }
+    if (r.parse_err != meshroute::console::ParseErr::ok)       { r.state = LineExec::State::unmatched; return r; }
+
+    if (fmt == LineFormat::json) {
+        // ---- the companion envelope: ONE NDJSON line, staged in the caller's reply buffer (device_ble.h `g_out`).
+        r.state = LineExec::State::buffered;
+        if (cmd.kind == meshroute::CmdKind::peerkey)  { r.n = handle_peerkey(reply, reply_cap, cmd);  return r; }   // §2/§3: install + persist + contract ack
+        if (cmd.kind == meshroute::CmdKind::peername) { r.n = handle_peername(reply, reply_cap, cmd); return r; }   // §AB2: rename + persist + the synchronous ack
+        const meshroute::CmdResult cr = g_node.on_command(cmd);
+        // ★★ §id-hash S1b (QA finding P1c): `cr.accepted`, NOT `cr.code == queued` alone. `reqpubkey_sent` means
+        // "the TX path ACCEPTED it" (owner ruling 2026-08-02), NOT "the on-air request was FLOODED"; the two
+        // accepted outcomes that hand the TX path nothing (the hosted-mobile local cache hit, and emit_hash_query's
+        // silent early-outs, which now carry their own error codes) fall through to the generic write_ack, which is
+        // the honest answer for both. ⚠ ACCEPTANCE IS NOT AIRTIME: a frame accepted into the LBT defer ring reaches
+        // the radio when a timer fires; if it dies there, node.cpp's defer arm reports it late (`!!` operator log).
+        // ★★ §id-hash S1: the RESULT carries the answer (`dst_hash` = the hash the query flew for, `plane` = which
+        // plane resolved it), so this renderer reads it instead of re-deriving it and the two cannot disagree (U1).
+        if (cmd.kind == meshroute::CmdKind::reqpubkey && cr.code == meshroute::CmdCode::queued && cr.accepted)
+            r.n = meshroute::console::write_reqpubkey_sent(reply, reply_cap, cr.dst_hash, cr.plane);
+        else
+            r.n = meshroute::console::write_ack(reply, reply_cap, cr);
+        return r;
+    }
+
+    // ---- the USB console envelope: human text, straight to the supplied sink.
+    r.state = LineExec::State::streamed;
+    if (cmd.kind == meshroute::CmdKind::peerkey) {          // §2/§3: install + persist + the contract ack
+        char jb[80]; const size_t m = handle_peerkey(jb, sizeof jb, cmd);
+        stream.write(reinterpret_cast<const uint8_t*>(jb), m);
+        return r;
+    }
+    if (cmd.kind == meshroute::CmdKind::peername) {         // §AB2: rename + persist + the synchronous ack
+        // 256 = the BLE g_out size, and it is the WORST CASE not a guess: 29 B envelope + 10 digits of hash + 8 B
+        // `,"name":` + 2 quotes + a 32-B name whose every byte escapes to `\u00xx` (6x) = 240 + `}` + '\n' + NUL =
+        // 244. A tighter buffer would make JsonBuf::finish() return 0 and the ack vanish SILENTLY (it is
+        // overflow-safe, not overflow-loud), which is the failure to avoid.
+        char jb[256]; const size_t m = handle_peername(jb, sizeof jb, cmd);
+        stream.write(reinterpret_cast<const uint8_t*>(jb), m);
+        return r;
+    }
+    const meshroute::CmdResult cr = g_node.on_command(cmd);
+    stream.print(F("> "));
+    // ★ §err-reason/B32 (bench-found 2026-07-31): print the CmdCode ITSELF, never a bare `err`. The old ternary
+    // collapsed err_no_binding / err_unprovisioned / err_unknown_dst / err_too_large … into ONE indistinguishable
+    // `err ctr=`, so a refusal named no reason: `reqpubkey 245` answered `err ctr=0 depth=0` and the operator could
+    // not tell which wall he had hit. C2 — printing `err` without the reason is not "loud". cmdcode_name is the ONE
+    // mapper (U1, no second switch here) and it is the SAME token the companion's {"ack":"…"} carries, so the text
+    // and JSON arms of this very function cannot drift apart. ★ No `err ` word is prefixed and that is deliberate,
+    // not an omission: every non-`queued` enumerator's string already begins with `err_` (so does the out-of-range
+    // fallback "err_unknown"), so the token self-labels — an invariant this print site cannot test, and which is
+    // therefore ASSERTED NATIVELY in test/test_console_json.cpp beside the enum-walker. The success line
+    // `queued ctr=N depth=N` is byte-identical to before; only refusals gained a reason.
+    stream.print(meshroute::console::cmdcode_name(cr.code)); stream.print(F(" ctr="));
+    stream.print(cr.ctr); stream.print(F(" depth=")); stream.print(cr.queue_depth);
+    // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
+    if (cr.dst_hash)   { stream.print(F(" dh=0x")); stream.print(cr.dst_hash, HEX); }
+    if (cr.layer_path) { stream.print(F(" lp=0x")); stream.print(cr.layer_path, HEX); }
+    // ★ §id-hash S1 (spec §3-D9): the plane the command executed on. Omitted when 0 (= not plane-scoped), so every
+    // other verb's line is byte-identical to before. On `reqpubkey <id>` this is the answer to "which namespace did
+    // you just spend airtime in", which a bare `queued` never said.
+    if (cr.plane)      { stream.print(F(" plane=")); stream.print(meshroute::console::cmdplane_name(cr.plane)); }
+    stream.println();
+    // §id-hash S1: the remedy line for a refused reqpubkey, at handle_hashof parity; a `queued` prints nothing.
+    print_reqpubkey_hint(stream, cmd, cr);
+    return r;
 }
 
 // ---- Node / Network screens over BLE (companion Phase 3 — roadmap Theme D) -------------------------------

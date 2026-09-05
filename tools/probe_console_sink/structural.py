@@ -122,8 +122,10 @@ def _body(txt, signature):
 def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
     """-> list of (id, description, ok, detail)."""
     # Every check below reads the NEUTRALISED text: a comment is not a call, and a brace in a string is not a block.
-    cmds = _neutral(open(cmds_cpp_path).read())
-    hdr = _neutral(open(cmds_h_path).read())
+    cmds_raw = open(cmds_cpp_path).read()      # RAW: the B298 comment census below reads COMMENTS, so it must not
+    hdr_raw = open(cmds_h_path).read()          #      use the neutralised view every other row needs.
+    cmds = _neutral(cmds_raw)
+    hdr = _neutral(hdr_raw)
     fwm = _neutral(open(fw_main_path).read())
     help_raw = open(help_h_path).read()
     helph = _neutral(help_raw)
@@ -250,10 +252,134 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
     except ValueError:
         ble = ''
     refusal = ble.find('write_err(out, cap, "help", "console_only")')
-    fallback = ble.find('dispatch(line, len, ls)')
+    # ⛔ V1 RE-AIM (§RADMIN-0c): the anchor used to be `dispatch(line, len, ls)`, the open-coded router fallback at
+    #   the bottom of this caller. 0c replaced it with ONE call to the shared seam, so that string no longer exists
+    #   and S11 would have been silently unmeasurable (`find` returning -1 on both sides is not a comparison). The
+    #   question is unchanged and so is its answer: is the help family refused BEFORE the line can reach the router?
+    #   ⓘ 0c also moved the guard ABOVE the parse. That is neutral by construction — every help spelling is a token
+    #     `parse_command` does not know, so it reached the old refusal as `unknown_verb` — and `ble_guard.py` proves
+    #     the composition (router owns X ⇒ BLE refuses X) by EXECUTION, which is the strong half of this row.
+    fallback = ble.find('exec_console_line(')
     add('S10', 'BLE refuses the help family with a bounded console_only answer', refusal >= 0, '')
-    add('S11', '... and does so BEFORE the dispatch text fallback',
-        refusal >= 0 and fallback >= 0 and refusal < fallback, f'refusal@{refusal} fallback@{fallback}')
+    add('S11', '... and does so BEFORE the shared execution seam can reach the router',
+        refusal >= 0 and fallback >= 0 and refusal < fallback, f'refusal@{refusal} seam@{fallback}')
+
+    # ---- §RADMIN-0c: the two ONE-CALL adapters, and the seam they share -----------------------------------------
+    # ⛔ WHY THESE ARE STRUCTURAL AND NOT BEHAVIOURAL, said plainly. `src/fw_main.cpp` is compiled by NO host build,
+    #    so "each caller makes exactly one seam call and keeps no fork of its own" cannot be executed here. What IS
+    #    executed is the seam itself — `tools/probe_inbox_verbs` links the real `firmware_commands.cpp` and drives
+    #    `exec_console_line` through a real `GuardedConsole` and a real `LineSink`, in both format arms. ⇒ this block
+    #    is the wiring half of that pair, exactly as S21 is for the boot identity formatter, and every row below has
+    #    a negative control in negctl.py.
+    seam_sig = 'LineExec exec_console_line('
+    try:
+        seam = _body(cmds, seam_sig)
+    except ValueError:
+        seam = ''
+
+    def _fork_calls(txt):
+        return {name: len(re.findall(pat, txt)) for name, pat in
+                (('dispatch', r'(?<![A-Za-z_])dispatch\s*\('),
+                 ('parse_command', r'\bparse_command\s*\('),
+                 ('on_command', r'\bon_command\s*\('))}
+
+    n_seam_sc = len(re.findall(r'\bexec_console_line\s*\(', sc))
+    sc_fork = _fork_calls(sc)
+    sc_sink = len(re.findall(r'\bexec_console_line\s*\([^;]*?\bmrcon\b', sc, re.S))
+    add('S22', 'service_console is a ONE-CALL adapter: one seam call, no router/parser/Node fork of its own',
+        bool(sc) and n_seam_sc == 1 and sum(sc_fork.values()) == 0 and sc_sink == 1,
+        f'seam_calls={n_seam_sc} residual={sc_fork} passes_mrcon={sc_sink}')
+
+    n_seam_ble = len(re.findall(r'\bexec_console_line\s*\(', ble))
+    ble_fork = _fork_calls(ble)
+    # The seam's own flush, isolated from the five direct handlers' (`routes`/`peers`/`pull_inbox`/`mark_read`/
+    # `del_msg`) by looking only AFTER the seam call: exactly one, so the streamed arm ships once and the buffered
+    # and unmatched arms ship nothing.
+    after_seam = ble[ble.find('exec_console_line('):] if n_seam_ble else ''
+    n_flush_after = len(re.findall(r'\bls\.flush\s*\(\s*\)', after_seam))
+    ble_sink_arg = len(re.findall(r'\bexec_console_line\s*\([^;]*?\bls\b[^;]*?\bout\b[^;]*?\bcap\b', ble, re.S))
+    add('S23', 'ble_dispatch_line is a ONE-CALL adapter: one seam call, its own sinks, exactly one seam flush',
+        bool(ble) and n_seam_ble == 1 and sum(ble_fork.values()) == 0 and n_flush_after == 1
+        and ble_sink_arg == 1,
+        f'seam_calls={n_seam_ble} residual={ble_fork} flush_after_seam={n_flush_after} '
+        f'passes_linesink_and_reply={ble_sink_arg}')
+
+    seam_fork = _fork_calls(seam)
+    # ⓘ TWO `on_command` calls is the RIGHT number and is pinned as two, not as one: the seam has two mutually
+    #   exclusive format arms and each executes the command once. (`handle_peerkey`/`handle_peername` run their own
+    #   `on_command` and are therefore reached INSTEAD of these, never as well as — which is why they sit ahead of
+    #   the call on both arms.)
+    # ★★ THE ORDER IS PINNED HERE AND ONLY HERE, AND THE REASON IS WORTH STATING: with the measured-EMPTY
+    #    router/parser intersection (tools/probe_console_sink/ownership.py, six real profiles), reversing the fork
+    #    is BEHAVIOURALLY INVISIBLE — which is precisely why the 0c unification was safe, and precisely why no
+    #    executed control can catch a reversal. ⇒ a structural pin is the honest instrument for it, and the
+    #    permanent ownership gate is what keeps the licence for that order true.
+    seam_order_ok = bool(seam) and 0 <= seam.find('dispatch(line, len, stream)') < seam.find('parse_command(')
+    add('S24', 'the seam makes the router/parser fork exactly ONCE, ROUTER-FIRST, and executes per format arm',
+        bool(seam) and seam_fork['dispatch'] == 1 and seam_fork['parse_command'] == 1
+        and seam_fork['on_command'] == 2 and seam_order_ok,
+        f'{seam_fork} router_before_parser={seam_order_ok}')
+
+    add('S25', 'the seam NEVER names a global sink — it writes only to the Print& and the buffer it is handed',
+        bool(seam) and 'mrcon' not in seam and 'Serial' not in seam,
+        'mrcon=%d Serial=%d' % (seam.count('mrcon'), seam.count('Serial')))
+
+    # The borrowed-body rule: `Command::body` points into the caller's line, so nothing the seam RETURNS may carry a
+    # pointer, and the seam may hold no static state that could outlive the call.
+    try:
+        lx = _body(hdr, 'struct LineExec {')
+    except ValueError:
+        lx = ''
+    add('S26', 'the seam keeps no borrowed body and no static state (LineExec carries no pointer)',
+        bool(lx) and '*' not in lx and bool(seam) and not re.search(r'(?<![A-Za-z_])static\b', seam),
+        f'LineExec_pointers={lx.count("*")} static_in_seam={len(re.findall(r"(?<![A-Za-z_])static", seam))}')
+
+    # The `HEX` radix, pinned STRUCTURALLY because the probes' shared Arduino fake ignores a print radix — so the
+    # executed transcript cannot tell `print(x, HEX)` from `print(x)` and this row is the only thing that can.
+    n_dh = len(re.findall(r'\bprint\s*\(\s*cr\.dst_hash\s*,\s*HEX\s*\)', seam))
+    n_lp = len(re.findall(r'\bprint\s*\(\s*cr\.layer_path\s*,\s*HEX\s*\)', seam))
+    add('S27', 'the text arm still renders dh/lp in HEX (the probe fake cannot see a radix)',
+        n_dh == 1 and n_lp == 1, f'dst_hash_HEX={n_dh} layer_path_HEX={n_lp}')
+
+    # ---- [[B298]]: the retired topic-help design must survive only as a WITHDRAWN claim ------------------------
+    # ⛔ THE ROW IS ABOUT TENSE, NOT ABOUT WORDS. `#0g` deleted the topic index and the nine `help <topic>` sections;
+    #    three comments in `firmware_commands.cpp` went on describing them in the present tense, and one paragraph
+    #    in `firmware_commands.h` went on saying the two callers are deliberately NOT retrofitted. The correction
+    #    idiom keeps both old designs VISIBLE, so a checker that simply banned the words would force the history to
+    #    be deleted — the opposite of what M1/V1 want. ⇒ the rule is: every mention of a retired noun must sit
+    #    INSIDE a correction block, i.e. the run of comment lines opened by a `V1 CORRECTION` marker.
+    def _outside_corrections(raw, nouns):
+        stray, in_block = [], False
+        for i, ln in enumerate(raw.split('\n'), 1):
+            if 'V1 CORRECTION' in ln:
+                in_block = True
+            elif in_block and '//' not in ln:
+                in_block = False
+            if in_block:
+                continue
+            low = ln.lower()
+            if '//' in ln and any(n in low for n in nouns):
+                stray.append('%d: %s' % (i, ln.strip()[:70]))
+        return stray
+
+    # ★ THE COUNT IS FOUR AND IS DERIVED, NOT ROUNDED: (1) the `firmware_help.h` include annotation, (2) the
+    #   §B95/§0a policy block's "help TEXT / compact TOPIC INDEX / `help <topic>` recognition" sentence, (3) that
+    #   block's [[B208]] CONTENT half ("a compact index of THIS BUILD's topics … one complete section"), and
+    #   (4) the `dispatch()` call-site annotation ("the index, one whole topic section, or the bounded refusal").
+    #   ⛔ A pin of 3 would have passed while one of the four went uncorrected — measured, then written down.
+    b298 = re.compile(r'V1 CORRECTION \(§RADMIN-0c[^)\n]*\[\[B298\]\]')
+    stray_cpp = _outside_corrections(cmds_raw, ('help <topic>', 'topic section', 'topic index', "build's topics"))
+    n_corr_cpp = len(b298.findall(cmds_raw))
+    add('S28', '[[B298]] no ACTIVE topic-help claim survives in firmware_commands.cpp (4 withdrawn, 0 stray)',
+        not stray_cpp and n_corr_cpp == 4,
+        'stray=%s corrections=%d' % (stray_cpp or 'none', n_corr_cpp))
+
+    stray_h = _outside_corrections(hdr_raw, ('deliberately not retrofitted', 'opposite orderings'))
+    withdrawn_h = bool(b298.search(hdr_raw))
+    seam_decl = len(re.findall(r'\bLineExec\s+exec_console_line\s*\(', hdr_raw))
+    add('S29', '[[B298]] the header no longer claims the two callers are un-retrofitted, and declares the seam',
+        not stray_h and withdrawn_h and seam_decl == 1,
+        'stray=%s withdrawn=%s seam_decl=%d' % (stray_h or 'none', withdrawn_h, seam_decl))
     # ---- §0a owner ruling 2026-09-04: the refusal covers the WHOLE help family, not just the bare spellings -----
     # ⛔ WHY THIS ROW HAD TO EXIST. S10/S11 only ever asked WHETHER a refusal is present and WHERE. They were both
     #    green throughout the slice-0a defect, in which `help messaging` sailed past a `len == 4` guard into the
