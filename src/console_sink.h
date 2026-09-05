@@ -60,9 +60,15 @@
 #endif
 // The line stage, in bytes (.bss, MR_CONSOLE=1 only). Holds committed-but-unsent COMPLETE lines plus the line being
 // assembled. Sized from the measured responses: a gateway `cfg` ~850 B, `peers` (16 rows) ~1.4 KB, ~22 `routes` rows.
-// A response that outgrows it drops WHOLE LINES and says so (`!! CONSOLE_DROP`) — it never truncates one. `help` is
-// 6121 B / 75 lines and therefore does NOT fit: it delivers ~25 lines and reports the rest. ★ This is the one lever
-// if that trade needs changing (a 6400-B stage delivers all of `help`, at +4.4 KB .bss per board).
+// A response that outgrows it drops WHOLE LINES and says so (`!! CONSOLE_DROP`) — it never truncates one.
+// ⓘ `help` USED TO BE THE ONE RESPONSE THAT DID NOT FIT, and this comment used to say so ("6121 B / 75 lines …
+//   delivers ~25 lines and reports the rest"). Both halves are now wrong. The figure was already stale — the single
+//   dump MEASURED 88 lines / 7332 B on a full OLED build (6121 B was one reduced profile's number, read as
+//   universal) — and §0a/[[B208]] replaced it with a compact topic index plus one `help <topic>` section per
+//   request. ★ EVERY help response now fits, measured on all six real product profiles: the largest is `help cfg`
+//   at 1673 B (17 lines), i.e. 375 B of headroom, and the executed gate (tools/probe_console_sink) asserts zero
+//   CONSOLE_DROP for every one of them. ⛔ B208 forbids answering a future overflow by growing this stage.
+// ★ This is still the one lever if that trade ever needs changing (a 6400-B stage costs +4.4 KB .bss per board).
 #ifndef MR_CONSOLE_STAGE_BYTES
 #define MR_CONSOLE_STAGE_BYTES 2048
 #endif

@@ -13,11 +13,18 @@
 #include <vector>
 #include <Arduino.h>
 #include "console_sink.h"
+#include "firmware_help.h"   // §0a/[[B208]]: the REAL help authority, compiled and RUN here
 
 FakeSerial Serial;
 
 #ifndef PROBE_SINK_MD5
 #define PROBE_SINK_MD5 "(not injected)"
+#endif
+#ifndef PROBE_HELP_MD5
+#define PROBE_HELP_MD5 "(not injected)"
+#endif
+#ifndef PROBE_PROFILE
+#define PROBE_PROFILE "(not injected)"
 #endif
 
 // ---- tiny harness ------------------------------------------------------------------------------------------------
@@ -26,6 +33,10 @@ static int g_pass = 0, g_fail = 0;
     const bool ok_ = (expr);                                                               \
     if (ok_) ++g_pass; else { ++g_fail; printf("  FAIL %-58s  %s\n", (label), #expr); }    \
 } while (0)
+
+static void chk_s(const std::string& label, bool ok) {   // CHK with a COMPUTED label (one row per topic)
+    if (ok) ++g_pass; else { ++g_fail; printf("  FAIL %s\n", label.c_str()); }
+}
 
 // ---- the two comparison sinks ------------------------------------------------------------------------------------
 // VERBATIM pre-fix GuardedConsole write pair (git 8228b11 src/console_sink.h:41-49). Do not "improve" it — its whole
@@ -177,6 +188,55 @@ static size_t count_exact(const std::string& wire, const std::vector<std::string
 // Run the loop for `passes` passes: service the sink, then let the host read `per_pass` bytes (11 B/ms ~ 115200 baud).
 static void run_loop(int passes, size_t per_pass) {
     for (int i = 0; i < passes; ++i) { mrcon.service(); Serial.drain(per_pass); }
+}
+
+// ---- §0a/[[B208]] help helpers -------------------------------------------------------------------------------------
+// ★ THE OWNER'S NINE TOPICS, IN THE OWNER'S ORDER, WITH THE AVAILABILITY RULE RE-DERIVED FROM THE PRODUCT MACROS.
+//   ⛔ Deliberately NOT `MR_HELP_HAS_MOBILE` / `MR_HELP_HAS_REMOTE`: reading firmware_help.h's own gate macros would
+//   make every availability row circular — flip the macro and both sides move together. These expressions restate
+//   B208's rule ("listed/accepted only when compiled") against the SAME macros the command handlers are gated on:
+//   the `mobile …` arm is `MR_N_LAYERS < 2 && MR_FEAT_MOBILE`, `password`/`unlock`/`lock` are `MR_FEAT_REMOTE_MGMT`.
+struct HelpTopic { const char* name; bool available; };
+static const HelpTopic kHelpTopics[] = {
+    { "messaging",    true },
+    { "identity",     true },
+    { "mobile",       (MR_N_LAYERS < 2) && (MR_FEAT_MOBILE != 0) },
+    { "inbox",        true },
+    { "diagnostics",  true },
+    { "remote",       MR_FEAT_REMOTE_MGMT != 0 },
+    { "test",         true },
+    { "provisioning", true },
+    { "cfg",          true },
+};
+
+// Render one console line through the REAL router into a lossless sink. -> did the router OWN the line?
+static bool help_render(const char* cmd, std::string& text) {
+    PerfectSink p;
+    const bool owned = mrfw::help_command(cmd, strlen(cmd), p);
+    text = p.s;
+    return owned;
+}
+static bool ends_crlf(const std::string& s) { return s.size() >= 2 && s.compare(s.size() - 2, 2, "\r\n") == 0; }
+static std::string first_word(const std::string& line) {
+    size_t a = line.find_first_not_of(' ');
+    if (a == std::string::npos) return std::string();
+    const size_t b = line.find(' ', a);
+    return line.substr(a, b == std::string::npos ? std::string::npos : b - a);
+}
+// The refusal's second line — the one carrying this build's valid topic names.
+static std::string valid_topics_line(const std::string& refusal) {
+    for (const auto& l : split_lines(refusal)) if (l.find("valid topics") != std::string::npos) return l;
+    return std::string();
+}
+// Whole-word membership: `mobile` must not be answered by the substring inside `mobile_autoregister`.
+static bool has_word(const std::string& hay, const std::string& w) {
+    for (size_t i = hay.find(w); i != std::string::npos; i = hay.find(w, i + 1)) {
+        const bool lok = (i == 0) || hay[i - 1] == ' ';
+        const size_t e = i + w.size();
+        const bool rok = (e == hay.size()) || hay[e] == ' ';
+        if (lok && rok) return true;
+    }
+    return false;
 }
 
 int main() {
@@ -371,6 +431,143 @@ int main() {
       std::string without = Serial.wire;
       if (at != std::string::npos) without.erase(at, rep.size());
       CHK("P13d ... and the response itself is byte-exact", without == oracle.s); }
+
+    // ============================================================ H — §0a/[[B208]] THE BOUNDED HELP-TOPIC SPLIT ===
+    // WHY THESE ROWS EXIST AND WHY THEY LIVE IN *THIS* BINARY. B208's ruling is about BYTES ON A WIRE — a compact
+    // index, one whole section per topic, every response inside MR_CONSOLE_STAGE_BYTES with no `CONSOLE_DROP`. The
+    // help used to live in `src/firmware_commands.cpp`, a TU nothing can host-compile, so the only available proof
+    // was grep. Slice 0a moved the text and the whole `help`/`?`/`help <topic>` recognition into
+    // `src/firmware_help.h`, which depends on `Print` + three feature macros and nothing else — so the REAL renderer
+    // is compiled here and driven through the REAL `GuardedConsole`, once per real product profile.
+    // ⛔ NOTHING BELOW RESTATES HELP TEXT. The expectations are (a) the owner's nine topic names and their
+    //    availability rule, re-derived from the PRODUCT macros (NOT from firmware_help.h's own MR_HELP_HAS_*, which
+    //    would make the check circular), and (b) the frozen pre-slice content multiset, compared by the Python
+    //    wrapper against the CONTENT block this binary prints.
+    {
+      Serial.reset(4096); Serial.auto_drain = 0; run_loop(400, 4096);   // quiesce the shared sink after P13
+      CHK("H0 the shared sink is quiescent before the help rows", mrcon.dropped_lines() == 0);
+
+      printf("\n== §0a help router ==  profile = %s  help md5 = %s\n", PROBE_PROFILE, PROBE_HELP_MD5);
+
+      // ---- H1: the two BARE index spellings ----------------------------------------------------------------
+      std::string idx_help, idx_q;
+      const bool own_help = help_render("help", idx_help);
+      const bool own_q    = help_render("?",    idx_q);
+      CHK("H1a bare `help` is owned by the router",                   own_help);
+      CHK("H1b bare `?` is owned by the router",                      own_q);
+      CHK("H1c bare `help` and bare `?` are BYTE-IDENTICAL",          own_help && own_q && idx_help == idx_q);
+      CHK("H1d the index is non-empty and whole-line terminated",     !idx_help.empty() && ends_crlf(idx_help));
+
+      // ---- H2: the index lists exactly this build's topics, once each, in the OWNER's order ----------------
+      std::vector<std::string> idx_rows;
+      for (const auto& l : split_lines(idx_help))
+          if (l.size() > 4 && l.compare(0, 4, "    ") == 0 && l[4] != ' ') idx_rows.push_back(first_word(l));
+      std::vector<std::string> want_rows;
+      for (const auto& t : kHelpTopics) if (t.available) want_rows.push_back(t.name);
+      CHK("H2a the index names exactly the AVAILABLE topics, once each, in owner order", idx_rows == want_rows);
+      bool idx_leak = false;
+      for (const auto& t : kHelpTopics)
+          if (!t.available && idx_help.find(t.name) != std::string::npos) idx_leak = true;
+      CHK("H2b no UNAVAILABLE topic name appears anywhere in the index", !idx_leak);
+
+      // ---- H3/H4: every topic is accepted iff it is available; a section opens with its own heading --------
+      std::string refusal;
+      CHK("H3a an unknown topic is owned and answered", help_render("help zzz", refusal) && !refusal.empty());
+      size_t largest = idx_help.size(); std::string largest_name = "(index)";
+      std::vector<std::string> content;                    // the union, for the frozen-baseline comparison
+      for (const auto& t : kHelpTopics) {
+          const std::string cmd = std::string("help ") + t.name;
+          std::string text;
+          const bool owned = help_render(cmd.c_str(), text);
+          chk_s(std::string("H3b `") + cmd + "` is owned by the router", owned);
+          if (!t.available) {
+              chk_s(std::string("H4a unavailable `") + cmd + "` takes the SAME bounded refusal arm", text == refusal);
+              continue;
+          }
+          const std::vector<std::string> ls = split_lines(text);
+          chk_s(std::string("H3c `") + cmd + "` opens with its canonical heading",
+                !ls.empty() && !ls[0].empty() && ls[0][0] != ' ');
+          chk_s(std::string("H3d `") + cmd + "` is whole-line terminated", ends_crlf(text));
+          chk_s(std::string("H3e `") + cmd + "` fits MR_CONSOLE_STAGE_BYTES incl. line endings",
+                text.size() < (size_t)MR_CONSOLE_STAGE_BYTES);
+          if (text.size() > largest) { largest = text.size(); largest_name = cmd; }
+          for (const auto& l : ls) if (!l.empty() && l[0] == ' ') content.push_back(l);
+          printf("   topic %-13s %4d B / %2d lines   headroom %4d B\n", t.name, (int)text.size(), (int)ls.size(),
+                 (int)((size_t)MR_CONSOLE_STAGE_BYTES - text.size()));
+      }
+      printf("   index         %4d B / %2d lines   headroom %4d B\n", (int)idx_help.size(),
+             (int)split_lines(idx_help).size(), (int)((size_t)MR_CONSOLE_STAGE_BYTES - idx_help.size()));
+      printf("   refusal       %4d B / %2d lines   headroom %4d B\n", (int)refusal.size(),
+             (int)split_lines(refusal).size(), (int)((size_t)MR_CONSOLE_STAGE_BYTES - refusal.size()));
+      if (refusal.size() > largest) { largest = refusal.size(); largest_name = "(refusal)"; }
+      printf("   HELP-LARGEST %s %d B (stage %d B)\n", largest_name.c_str(), (int)largest, (int)MR_CONSOLE_STAGE_BYTES);
+      CHK("H3f the LARGEST measured response still fits the stage", largest < (size_t)MR_CONSOLE_STAGE_BYTES);
+
+      // ---- H5: unknown / empty / malformed tails all take the one bounded refusal, and never a section -----
+      static const char* const kBadTails[] = {
+          "help zzz", "help messagingx", "help messaging x", "help ", "help  ", "help MESSAGING",
+          "help cfg ", "help  cfg  x", "help mobilex", "help remote2",
+      };
+      for (const char* bad : kBadTails) {
+          std::string text;
+          const bool owned = help_render(bad, text);
+          chk_s(std::string("H5a `") + bad + "` is OWNED and answered with the one bounded refusal",
+                owned && text == refusal);
+      }
+      // ...while the file's own `peers ` idiom (skip LEADING spaces, then an exact token) still selects a section.
+      { std::string a, b2;
+        CHK("H5b `help  messaging` (leading spaces skipped) selects the section",
+            help_render("help  messaging", a) && help_render("help messaging", b2) && a == b2 && a != refusal); }
+      CHK("H5c the refusal carries a usage line", refusal.find("usage:") != std::string::npos);
+      // ...naming EXACTLY this build's topics: every available one present, every unavailable one absent.
+      { const std::string vt = valid_topics_line(refusal);
+        bool names_ok = !vt.empty();
+        for (const auto& t : kHelpTopics) {
+            const bool present = has_word(vt, t.name);
+            if (present != t.available) names_ok = false;
+        }
+        CHK("H5d the refusal names EXACTLY this build's valid topics", names_ok);
+        printf("   refusal valid-topics line: %s\n", vt.c_str()); }
+
+      // ---- H6: nothing else is claimed. A non-help line must fall through untouched. -----------------------
+      static const char* const kNotHelp[] = { "helpful", "hel", "?x", "? messaging", "status", "", "h", "HELP" };
+      for (const char* nh : kNotHelp) {
+          std::string text;
+          const bool owned = help_render(nh, text);
+          chk_s(std::string("H6a `") + nh + "` is NOT a help line (falls through, emits nothing)",
+                !owned && text.empty());
+      }
+
+      // ---- H7: the REAL GuardedConsole drains every response whole, with zero CONSOLE_DROP ----------------
+      // A 128-B ESP32 UART0 FIFO and a drain wider than it — the schedule under which P13 proved the sink can
+      // still lose or fuse a line. `help` used to overflow the stage here; the point of 0a is that it cannot.
+      { std::vector<std::string> cmds; cmds.push_back("help"); cmds.push_back("?"); cmds.push_back("help zzz");
+        for (const auto& t : kHelpTopics) if (t.available) cmds.push_back(std::string("help ") + t.name);
+        for (const auto& c : cmds) {
+            std::string oracle_text; help_render(c.c_str(), oracle_text);
+            Serial.reset(128); Serial.auto_drain = 0;
+            mrfw::help_command(c.c_str(), c.size(), mrcon);
+            run_loop(400, 200);
+            chk_s(std::string("H7a `") + c + "` reaches the wire BYTE-EXACT through GuardedConsole",
+                  Serial.wire == oracle_text);
+            chk_s(std::string("H7b `") + c + "` dropped ZERO lines",  mrcon.dropped_lines() == 0);
+            chk_s(std::string("H7c `") + c + "` left no fused/unterminated line",
+                  ends_crlf(Serial.wire) && count_corrupt(Serial.wire, split_lines(oracle_text)) == 0);
+            chk_s(std::string("H7d `") + c + "` emitted no CONSOLE_DROP report",
+                  Serial.wire.find("CONSOLE_DROP") == std::string::npos);
+        } }
+
+      // ---- H8: the CONTENT block the Python wrapper compares against the frozen pre-slice baseline ---------
+      // ⓘ CONTENT only: an indented, non-empty line. A canonical topic HEADING (column 0) and the new blank
+      //   separators are LAYOUT and are enumerated in the slice evidence, never smuggled in as inherited help.
+      printf("HELP-CONTENT-BEGIN %s %d\n", PROBE_PROFILE, (int)content.size());
+      for (const auto& l : content) printf("%s\n", l.c_str());
+      printf("HELP-CONTENT-END\n");
+      printf("HELP-INDEX-BEGIN %s\n", PROBE_PROFILE);
+      printf("%s", idx_help.c_str());
+      printf("%s", refusal.c_str());
+      printf("HELP-INDEX-END\n");
+    }
 
     printf("§B95 console-sink probe: %d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

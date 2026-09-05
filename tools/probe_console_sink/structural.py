@@ -14,6 +14,8 @@
 import re
 import sys
 
+import ble_guard   # §0a: the BLE guard's condition is EXTRACTED, never re-typed here
+
 def _neutral(txt):
     """A same-LENGTH copy in which comments are blanked and braces inside string/char literals are blanked.
 
@@ -53,6 +55,43 @@ def _neutral(txt):
             i += 1
     return ''.join(out)
 
+def _no_strings(txt):
+    """`_neutral` plus: the BODY of every string/char literal is blanked too (same length).
+
+    ⚠ WHY IT IS SEPARATE: most rows here must SEE string literals (S12..S16 count display labels), so `_neutral`
+      deliberately keeps them. But a row that looks for a forbidden IDENTIFIER must not: S19's `new ` matched the
+      help text `team new                   mint a team …` on its first run and reported an allocation that does
+      not exist. A token check reads code; a label check reads text. They need different views.
+    """
+    out = list(_neutral(txt))
+    src = txt
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == '/' and i + 1 < n and src[i + 1] == '/':
+            while i < n and src[i] != '\n':
+                i += 1
+        elif c == '/' and i + 1 < n and src[i + 1] == '*':
+            i += 2
+            while i < n and not (src[i] == '*' and i + 1 < n and src[i + 1] == '/'):
+                i += 1
+            i += 2
+        elif c == '"' or c == "'":
+            q = c
+            i += 1
+            while i < n and src[i] != q:
+                if src[i] == '\\':
+                    out[i] = ' '
+                    i += 1
+                if i < n:
+                    if src[i] != '\n':
+                        out[i] = ' '
+                    i += 1
+            i += 1
+        else:
+            i += 1
+    return ''.join(out)
+
 def _args_of(txt, call_start):
     """Return the argument text of a call whose '(' follows call_start, honouring nesting."""
     i = txt.index('(', call_start) + 1
@@ -80,12 +119,15 @@ def _body(txt, signature):
         j += 1
     return txt[i:j]
 
-def check(cmds_cpp_path, cmds_h_path, fw_main_path):
+def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
     """-> list of (id, description, ok, detail)."""
     # Every check below reads the NEUTRALISED text: a comment is not a call, and a brace in a string is not a block.
     cmds = _neutral(open(cmds_cpp_path).read())
     hdr = _neutral(open(cmds_h_path).read())
     fwm = _neutral(open(fw_main_path).read())
+    help_raw = open(help_h_path).read()
+    helph = _neutral(help_raw)
+    helph_code = _no_strings(help_raw)     # identifier-level view: no comments AND no string bodies
     out = []
 
     def add(cid, desc, ok, detail=''):
@@ -97,17 +139,70 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path):
         not direct, f'{len(direct)} occurrence(s)')
     add('S2', 'the hl() direct-Serial help bypass is gone',
         not re.search(r'\bhl\s*\(\s*F\s*\(', cmds), '')
-    try:
-        help_body = _body(cmds, 'static void dump_help(Print& out)')
-    except ValueError:
-        help_body = ''
-    n_sink = len(re.findall(r'\bout\.print(?:ln)?\s*\(', help_body))
-    add('S3', 'every dump_help line goes through its Print& out sink',
-        help_body and n_sink >= 70 and 'mrcon.' not in help_body and 'Serial.' not in help_body,
+    # ★ §0a/[[B208]]: `dump_help()` no longer exists. The help text, the index and the whole `help`/`?`/
+    #   `help <topic>` recognition are `src/firmware_help.h`, which the probe binary COMPILES AND RUNS — so S3/S4
+    #   are re-aimed at that file and are now the weaker, structural half of a check whose strong half (H1..H8 in
+    #   probe_main.cpp) is behavioural. ⛔ S18 below is what keeps the old location from quietly coming back.
+    n_sink = len(re.findall(r'\bout\.print(?:ln)?\s*\(', helph))
+    add('S3', 'every firmware_help.h emission goes through its Print& out sink',
+        n_sink >= 90 and 'mrcon.' not in helph_code and 'Serial.' not in helph_code,
         f'{n_sink} out.print* calls')
-    # Every help line must be a println (a print() without a terminator would leave the tail to the pass boundary).
-    n_bare = len(re.findall(r'\bout\.print\s*\(\s*F\s*\(', help_body))
-    add('S4', 'no unterminated out.print() inside dump_help', n_bare == 0, f'{n_bare} bare print(F(...))')
+    # Every RESPONSE must end terminated: an unterminated tail would be closed only at the next service() pass and
+    # could fuse with whatever the console prints next (§B95 invariant 4). Exactly one renderer is deliberately a
+    # FRAGMENT — `topic_names`, the shared valid-topic list — and every one of its call sites must close the line.
+    unterminated, name_calls, name_closed = [], 0, 0
+    for m in re.finditer(r'\binline\s+void\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*Print&\s*out\s*\)', helph):
+        fname = m.group(1)
+        try:
+            fbody = _body(helph, m.group(0))
+        except ValueError:
+            fbody = ''
+        emissions = re.findall(r'\bout\.(print|println)\s*\(', fbody)
+        if not emissions:
+            continue
+        if emissions[-1] != 'println' and fname != 'topic_names':
+            unterminated.append(fname)
+        if fname == 'topic_names' and emissions[-1] == 'println':
+            unterminated.append('topic_names is no longer the deliberate fragment')
+    for m in re.finditer(r'\btopic_names\s*\(\s*out\s*\)\s*;', helph):
+        name_calls += 1
+        if re.match(r'\s*out\.println\s*\(\s*\)\s*;', helph[m.end():]):
+            name_closed += 1
+    add('S4', 'every help RESPONSE ends terminated; only topic_names is a fragment, and its callers close the line',
+        not unterminated and name_calls >= 1 and name_calls == name_closed,
+        f'unterminated={unterminated or "none"} topic_names calls={name_calls} closed={name_closed}')
+
+    # ---- §0a/[[B208]]: the ONE help-router call, at the head of the real dispatch() ------------------------------
+    # ⛔ THE POINT OF THIS ROW: the behavioural rows in probe_main.cpp prove the ROUTER is correct; only this one
+    #    proves the FIRMWARE ACTUALLY CALLS IT — and calls it once, before every other verb, with no second parser
+    #    left behind in the caller. Removing, duplicating or bypassing the call is a controlled mutation (negctl X11).
+    try:
+        disp = _body(cmds, 'bool dispatch(const char* line, size_t len, Print& out)')
+    except ValueError:
+        disp = ''
+    n_router = len(re.findall(r'\bhelp_command\s*\(\s*line\s*,\s*len\s*,\s*out\s*\)', disp))
+    router_at = disp.find('help_command(')
+    first_cmp = min([i for i in (disp.find('strncmp('), disp.find('strcmp(')) if i >= 0] or [-1])
+    add('S17', 'dispatch() calls the help router EXACTLY ONCE, before every other verb',
+        bool(disp) and n_router == 1 and router_at >= 0 and first_cmp > router_at,
+        f'calls={n_router} router@{router_at} first_verb_compare@{first_cmp}')
+    # The help TEXT must not have been left behind (or come back) in the un-compilable TU: no dump_help, and no
+    # `help`/`?` literal recognition anywhere in this file's dispatch.
+    leftovers = []
+    if 'dump_help' in cmds:
+        leftovers.append('dump_help')
+    if re.search(r'strncmp\s*\(\s*line\s*,\s*"help"', disp):
+        leftovers.append('a second "help" compare in dispatch()')
+    add('S18', 'the help text and its recognition have LEFT firmware_commands.cpp for good', not leftovers,
+        ';'.join(leftovers))
+    # The seam is only compilable-by-a-probe while it stays narrow. Each name below re-welds it to the TU that no
+    # host build can compile, and would silently kill the executable half of the gate.
+    forbidden = [n for n in (r'\bg_node\b', r'\bmrnv\b', r'\bSerial\b', r'\bmrcon\b', r'\bmalloc\b',
+                             r'\bnew\b', r'\bstd::string\b', r'\bEEPROM\b', r'\bstatic\b',
+                             'firmware_commands\\.h', 'device_nv\\.h')
+                 if re.search(n, helph_code)]
+    add('S19', 'firmware_help.h stays a narrow Print&-only unit (no device state, no allocation)', not forbidden,
+        ';'.join(forbidden))
 
     # ---- brief test 8: print_sf_list takes its sink, and no global-console path remains ----------------------------
     add('S5', 'print_sf_list is DEFINED as (Print& out, uint16_t)',
@@ -143,9 +238,25 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path):
         ble = ''
     refusal = ble.find('write_err(out, cap, "help", "console_only")')
     fallback = ble.find('dispatch(line, len, ls)')
-    add('S10', 'BLE refuses `help` with a bounded console_only answer', refusal >= 0, '')
+    add('S10', 'BLE refuses the help family with a bounded console_only answer', refusal >= 0, '')
     add('S11', '... and does so BEFORE the dispatch text fallback',
         refusal >= 0 and fallback >= 0 and refusal < fallback, f'refusal@{refusal} fallback@{fallback}')
+    # ---- §0a owner ruling 2026-09-04: the refusal covers the WHOLE help family, not just the bare spellings -----
+    # ⛔ WHY THIS ROW HAD TO EXIST. S10/S11 only ever asked WHETHER a refusal is present and WHERE. They were both
+    #    green throughout the slice-0a defect, in which `help messaging` sailed past a `len == 4` guard into the
+    #    shared dispatch() and streamed 1365 B over BLE-NUS. The SHAPE of the condition is the fact that matters,
+    #    and the executed proof is tools/probe_console_sink/ble_guard.py; this row is its structural half.
+    guard, guard_err = '', ''
+    try:
+        with open(fw_main_path) as fh:
+            guard = ble_guard.extract_guard(fh.read())
+    except Exception as exc:                       # noqa: BLE001 — any extraction failure is a RED row, not a skip
+        guard_err = str(exc)
+    prefix_ok = bool(guard) and bool(re.search(
+        r"len\s*==\s*4\s*\|\|\s*\(\s*len\s*>\s*4\s*&&\s*line\s*\[\s*4\s*\]\s*==\s*' '\s*\)", guard))
+    alias_ok = bool(guard) and "'?'" in guard
+    add('S20', 'the BLE refusal is a PREFIX test over the whole help family (`help <topic>` included) + the `?` alias',
+        prefix_ok and alias_ok, (guard[:110] if guard else 'EXTRACTION FAILED: ' + guard_err))
     # ---- §B214: cfg mobile-reg is derived from the attachment FSM, never from home-id presence alone -------------
     # The historical source comment deliberately quotes the old `UNREGISTERED (scanning)` defect. `cmds` is the
     # neutralised source, so every count below is executable text only. Keep these discriminators counted: deletion
@@ -219,9 +330,10 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path):
     return out
 
 def main(argv):
-    if len(argv) != 4:
-        sys.exit('usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp>')
-    rows = check(argv[1], argv[2], argv[3])
+    if len(argv) != 5:
+        sys.exit('usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp> '
+                 '<firmware_help.h>')
+    rows = check(argv[1], argv[2], argv[3], argv[4])
     bad = 0
     for cid, desc, ok, detail in rows:
         if not ok:

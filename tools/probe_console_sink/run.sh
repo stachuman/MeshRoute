@@ -16,6 +16,13 @@
 #    A reconstruction recipe in a note is not a storage location; this project has already LOST a proven 33-assert
 #    scenario to a session scratchpad.
 #
+# ★★ §0a/[[B208]] (2026-09-04) — THIS PROBE ALSO OWNS THE CONSOLE HELP. `src/firmware_help.h` was extracted so the
+#    help text, the compact topic index and the whole `help`/`?`/`help <topic>` recognition could be COMPILED AND RUN
+#    here instead of grepped. The run below builds the probe ONCE PER REAL PRODUCT PROFILE, renders every response
+#    through the REAL GuardedConsole, and compares each profile's emitted CONTENT MULTISET against the frozen
+#    pre-slice baseline (`help_baseline.json`) — which is what proves no help line was lost, duplicated or moved
+#    behind a different gate by the split.
+#
 # USAGE:  tools/probe_console_sink/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
 #         tools/probe_console_sink/run.sh --no-neg   # probe only -- NOT a gate, use only while iterating
 # ⚠ The controls run by default DELIBERATELY: a previous probe documented them as "not optional" while the standard
@@ -34,6 +41,8 @@ ROOT=$(cd ../.. && pwd)                 # ★ absolute — a relative path in a 
                                         #   nothing once already (register B82). Never make these relative.
 HERE=$(pwd)
 SINK="$ROOT/src/console_sink.h"
+HELP="$ROOT/src/firmware_help.h"
+BASELINE="$HERE/help_baseline.json"
 CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -42,24 +51,57 @@ rc=0
 # ⚠ These -D MUST mirror [common].build_flags + the MR_CONSOLE contract. If they drift, the probe measures a
 #   configuration no board builds — the same vacuous-instrument failure the controls exist to catch.
 FLAGS=(-std=gnu++2a -fno-exceptions -fno-rtti -Wall -Wextra -Werror -DARDUINO=100 -DMR_CONSOLE=1)
+# ⚠ lib/core + lib/hal are on the path because `src/firmware_help.h` names its gates (mr_features.h,
+#   protocol_constants.h) and the board RF-envelope text (rf_capabilities.h) EXPLICITLY rather than inheriting them
+#   transitively. Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow a mutation.
+INCS=(-I"$HERE/fakes" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/hal")
 
-build() {   # build($1 = console_sink.h to compile against, $2 = output binary)
-  local dir; dir=$(cd "$(dirname "$1")" && pwd)
-  local md5; md5=$(md5sum "$1" | cut -c1-8)
-  # ★ -I the directory of THE FILE UNDER TEST FIRST and nothing else that could hold a console_sink.h: a stale copy
-  #   in another include dir made a §UI-5 control pass spuriously. The md5 is compiled IN and printed by the probe,
-  #   so the output proves which text was measured.
-  "$CXX" "${FLAGS[@]}" -DPROBE_SINK_MD5="\"$md5\"" \
-     -I"$HERE/fakes" -I"$dir" "$HERE/probe_main.cpp" -o "$2" 2>&1
+# ★ THE REAL PRODUCT PROFILE MATRIX. Every row is the resolved macro set of at least one REAL board env
+#   (`pio project config --json-output` + lib/core/mr_features.h); the env names are in help_manifest.py's PROFILES.
+#   ⛔ `native` is deliberately absent: platformio.ini's `test_build_src = no` means no native target compiles src/.
+PROFILES=(
+  "full_oled|-DMR_FEAT_OLED=1"
+  "full_headless|"
+  "gateway|-DMR_N_LAYERS=2 -DMR_PROFILE_GATEWAY"
+  "gateway_oled|-DMR_N_LAYERS=2 -DMR_PROFILE_GATEWAY -DMR_FEAT_OLED=1"
+  "mobile|-DMR_PROFILE_MOBILE"
+  "mobile_oled|-DMR_PROFILE_MOBILE -DMR_FEAT_OLED=1"
+)
+
+build() {   # build($1 = console_sink.h under test, $2 = firmware_help.h under test, $3 = out binary, $4 = profile, $5 = extra -D)
+  local sdir hdir smd5 hmd5
+  sdir=$(cd "$(dirname "$1")" && pwd); hdir=$(cd "$(dirname "$2")" && pwd)
+  smd5=$(md5sum "$1" | cut -c1-8); hmd5=$(md5sum "$2" | cut -c1-8)
+  # ★ -I the directory of EACH FILE UNDER TEST FIRST, before the repo's own src/: a stale copy in another include dir
+  #   made a §UI-5 control pass spuriously. Both md5s are compiled IN and printed by the probe, so the output proves
+  #   which text was measured — and tools/test_probe_console_sink.py re-derives them from the files.
+  # shellcheck disable=SC2086
+  "$CXX" -I"$sdir" -I"$hdir" "${FLAGS[@]}" "${INCS[@]}" $5 \
+     -DPROBE_SINK_MD5="\"$smd5\"" -DPROBE_HELP_MD5="\"$hmd5\"" -DPROBE_PROFILE="\"$4\"" \
+     "$HERE/probe_main.cpp" -o "$3" 2>&1
 }
 
-echo "== §B95 console-sink probe =="
-if ! build "$SINK" "$OUT/probe"; then
-  echo "PROBE BUILD FAILED — see above"; exit 1
-fi
-"$OUT/probe"; prc=$?
-echo "probe exit=$prc"
-[ "$prc" -eq 0 ] || rc=1
+echo "== §B95 console-sink probe + §0a help router =="
+echo "   sink md5 = $(md5sum "$SINK" | cut -c1-8)   help md5 = $(md5sum "$HELP" | cut -c1-8)   baseline md5 = $(md5sum "$BASELINE" | cut -c1-8)"
+n_profiles=0
+for row in "${PROFILES[@]}"; do
+  prof=${row%%|*}; pflags=${row#*|}
+  n_profiles=$((n_profiles + 1))
+  if ! build "$SINK" "$HELP" "$OUT/probe_$prof" "$prof" "$pflags"; then
+    echo "PROBE BUILD FAILED for profile $prof — see above"; exit 1
+  fi
+  "$OUT/probe_$prof" > "$OUT/run_$prof.txt" 2>&1; prc=$?
+  if [ "$prof" = full_headless ]; then cat "$OUT/run_$prof.txt"; else
+    sed -n '/§0a help router/,/HELP-CONTENT-BEGIN/p' "$OUT/run_$prof.txt" | sed '$d'
+    grep -E '^  FAIL|passed / ' "$OUT/run_$prof.txt"
+  fi
+  echo "   profile $prof exit=$prc"
+  [ "$prc" -eq 0 ] || rc=1
+  # ---- the frozen-baseline content multiset, per profile (the no-line-lost proof) ----
+  sed -n "/^HELP-CONTENT-BEGIN $prof/,/^HELP-CONTENT-END/p" "$OUT/run_$prof.txt" | sed '1d;$d' > "$OUT/content_$prof.txt"
+  python3 "$HERE/help_manifest.py" compare "$BASELINE" "$OUT/content_$prof.txt" --profile "$prof" || rc=1
+done
+echo "   profiles measured: $n_profiles"
 
 # ---- MR_CONSOLE=0 compile-out, MEASURED (brief §8: "prove Serial and staging compile out") -------------------------
 echo
@@ -91,14 +133,53 @@ done
 # ---- STRUCTURAL checks: the two bypasses + the BLE help refusal ----------------------------------------------------
 echo
 echo "== structural checks (brief tests 7, 8 and invariant 9) =="
-python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" "$ROOT/src/fw_main.cpp" || rc=1
+python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" "$ROOT/src/fw_main.cpp" "$HELP" || rc=1
 
-if [ "${1:-}" != "--no-neg" ]; then
+# ---- EXECUTED BLE help-refusal check (§0a owner ruling 2026-09-04: "help should not be transferred by BLE") -------
+# The guard's condition is EXTRACTED from the real src/fw_main.cpp and compiled beside the real src/firmware_help.h,
+# so the COMPOSITION (router owns X => BLE refuses X) is measured rather than argued. `fw_main.cpp` itself cannot be
+# host-compiled, which is why the condition travels as text; the extraction is unique-or-refuse.
+echo
+echo "== BLE help-refusal (EXECUTED: the real guard condition x the real router) =="
+python3 "$HERE/ble_guard.py" "$ROOT/src/fw_main.cpp" "$CXX" --out "$OUT" -- "${FLAGS[@]}" "${INCS[@]}" \
+   > "$OUT/bleguard.txt" 2>&1 || rc=1
+cat "$OUT/bleguard.txt"
+
+if [ "${1:-}" = "--no-neg" ]; then
+  # ⚠ VISIBLY PROBE-ONLY, AND IT NEVER PRINTS PASS. A previous probe documented its controls as "not optional" while
+  #   the standard command skipped them, so the reported gate never included them (QA, 2026-08-04).
   echo
-  echo "== negative controls (each MUST fail) =="
-  [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
-  # ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
-  python3 "$HERE/negctl.py" "$OUT" "$CXX" "$SINK" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
-     "$ROOT/src/fw_main.cpp" -- "${FLAGS[@]}" -I"$HERE/fakes" || rc=1
+  echo "PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg."
+  exit $rc
+fi
+
+echo
+echo "== negative controls (each MUST fail) =="
+[ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
+# ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
+python3 "$HERE/negctl.py" "$OUT" "$CXX" "$SINK" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
+   "$ROOT/src/fw_main.cpp" "$HELP" "$BASELINE" -- "${FLAGS[@]}" "${INCS[@]}" > "$OUT/neg.txt" 2>&1 || rc=1
+cat "$OUT/neg.txt"
+
+# ---- DERIVED PINS. Counted from THIS run's own output, never typed. tools/test_probe_console_sink.py asserts them,
+#      which is what stops a silent reduction (a dropped profile, a deleted control) from still reporting PASS.
+chk_total=0
+for row in "${PROFILES[@]}"; do
+  prof=${row%%|*}
+  n=$(sed -n 's/.*probe: \([0-9]*\) passed \/ \([0-9]*\) failed \/ \([0-9]*\) total.*/\3/p' "$OUT/run_$prof.txt")
+  chk_total=$((chk_total + ${n:-0}))
+done
+struct_total=$(python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
+   "$ROOT/src/fw_main.cpp" "$HELP" | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
+ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \([0-9]*\).*/\1/p' "$OUT/neg.txt")
+ble_checks=$(sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt")
+green=$(grep -c 'STAYED GREEN\|INSTRUMENT FAILURE\|CONTROL NOT APPLIED' "$OUT/neg.txt" || true)
+echo
+echo "PINS profiles=${n_profiles} checks=${chk_total} structural=${struct_total} ble_guard=${ble_checks} controls=${ctl_total} unusable_controls=${green}"
+[ "${green:-1}" -eq 0 ] || rc=1
+if [ "$rc" -eq 0 ]; then
+  echo "PASS: probe + structural + controls all green"
+else
+  echo "FAILED — see above"
 fi
 exit $rc

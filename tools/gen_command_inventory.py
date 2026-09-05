@@ -92,6 +92,20 @@ SURFACES = (
     Surface("src/firmware_commands.cpp", "dispatch", "top", "serial,ble",
             reached_from=(("src/fw_main.cpp", "service_console", "dispatch"),
                           ("src/fw_main.cpp", "ble_dispatch_line", "dispatch"))),
+    # ---- surface 1b: the console help family, extracted to a header by remote-admin v2 slice 0a -------------
+    # ⚠ WHY A SECOND TOP-LEVEL SURFACE EXISTS AT ALL. Until slice 0a, `help` / `?` was one arm INSIDE `dispatch()`
+    #   and this generator saw it there. 0a moved the text and the whole recognition into `src/firmware_help.h` so a
+    #   probe could compile and RUN it (`test_build_src = no` keeps `firmware_commands.cpp` out of every host build),
+    #   leaving `dispatch()` with a single `help_command(line, len, out)` call and no literal to scan. Scanning only
+    #   `dispatch()` therefore DROPPED the `help (alias: ?)` row — a command vanishing from the authority table as an
+    #   incidental result of moving text, which is exactly what 0e's refusals exist to prevent. ⇒ the generator
+    #   follows the source shape to where the decision now lives.
+    # ⓘ `kind="top"` is not a courtesy: `help` really is a top-level verb of the same router, and the nine
+    #   `help <topic>` arms are recorded as its sub-verbs because the file's family guard (`if (!(… '?') && (len < 4
+    #   || strncmp(line, "help", 4))) return false;`) prefixes them exactly the way `preset_verb`'s guard prefixes
+    #   the `ui preset …` arms.
+    Surface("src/firmware_help.h", "help_command", "top", "serial",
+            reached_from=(("src/firmware_commands.cpp", "dispatch", "help_command"),)),
     # ---- surface 2: the sub-verb dispatchers ---------------------------------------------------------------
     Surface("src/firmware_commands.cpp", "handle_route_cmd", "sub", "serial,ble", parent="route",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_route_cmd"),)),
@@ -149,6 +163,7 @@ NON_COMMAND = {
 
 SCAN_FILES = (
     "src/firmware_commands.cpp",
+    "src/firmware_help.h",
     "src/firmware_config.cpp",
     "src/firmware_remote.cpp",
     "src/fw_main.cpp",

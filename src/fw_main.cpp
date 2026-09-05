@@ -579,13 +579,20 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     // catches lines that previously returned "unknown_cmd" (team/mobile/gateway/faults/help/lookup/…). The BLE link is
     // the authenticated (MITM-passkey) admin transport. (reboot/regen/ota/factory_reset become reachable here too —
     // factory_reset still requires its `confirm` token; flag for review if the console should stay USB-only.)
-    // ★★ §B95 invariant 9: `help` / `?` is REFUSED here, BEFORE the text fallback below, and that refusal is
-    // load-bearing rather than cosmetic. The old `hl()` help wrote straight to `Serial`, so a BLE `help` returned
-    // NOTHING over BLE (it printed to USB instead) — an accident that happened to bound it. Now that help honours its
-    // sink, the fallback would stream 75 lines / 6121 B over BLE-NUS at ~20 B per notification: precisely the
-    // self-inflicted flood that has wedged this node before, and the reason `peers all` is refused two lines up (U3 —
-    // same shape, same reason). The remedy is named: the USB console. A bounded ONE-LINE answer, never a stream.
-    if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
+    // ★★ §B95 invariant 9, WIDENED TO THE WHOLE HELP FAMILY by the owner 2026-09-04 (§0a/[[B208]]): EVERY `help`
+    // form — bare `help`, `help <topic>` and the bare `?` alias — is REFUSED here, BEFORE the text fallback below,
+    // and the refusal is load-bearing rather than cosmetic.
+    // ⓘ WHY IT HAD TO GROW. The old `hl()` help wrote straight to `Serial`, so a BLE `help` returned NOTHING over
+    //   BLE (it printed to USB instead) — an accident that happened to bound it. Once help honoured its sink, a
+    //   `len == 4`-only guard was enough, because no other help spelling existed. §0a then split the one dump into
+    //   `help <topic>` sections, so `help messaging` STARTED MATCHING the shared `dispatch()` below: measured 1365 B
+    //   / 13 lines (the largest section is `help cfg`, 1673 B / 17 lines) that would go out over BLE-NUS at ~20 B
+    //   per notification. ⇒ **the split made the response BOUNDED ON USB — it fits the 2048-B console stage with no
+    //   CONSOLE_DROP — but a bounded multi-line stream is still a stream, and BLE must not carry one.** Same shape,
+    //   same reason as the `peers all` refusal two lines up (U3). The remedy is named: the USB console.
+    // ⛔ A BOUNDED ONE-LINE ANSWER, NEVER A STREAM — and the length test is a PREFIX test, so `helpful` is still not
+    //    a help line and still falls through to the fallback exactly as before.
+    if (((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
         return write_err(out, cap, "help", "console_only");
     if (e == ParseErr::unknown_verb) {
         LineSink ls(ble_sink);

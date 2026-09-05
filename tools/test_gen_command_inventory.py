@@ -49,6 +49,7 @@ static void handle_thing(const char* args, Print& out) {
 
 bool dispatch(const char* line, size_t len, Print& out) {
     if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(out); return true; }
+    if (help_command(line, len, out)) return true;
     if (len == 6 && !strncmp(line, "status", 6)) { dump_status(out); return true; }
     if (len > 6 && !strncmp(line, "thing ", 6)) { handle_thing(line + 6, out); return true; }
 #if MR_FEAT_WIDGET
@@ -107,6 +108,39 @@ inline bool preset_verb(const char* args, size_t len, IPresetLines& out) {
 }  // namespace mrfw
 '''
 
+# ★ §0a: the extracted help family. The synthetic `dispatch` above keeps its LEGACY one-line aliased help arm on
+#   purpose — the shape 0a replaced — so the fixture proves the generator still reads BOTH shapes, the old in-place
+#   arm and the new header router. The four traps below are the "both-direction" half the 0a brief requires: a
+#   commented-out arm, a comparison written inside a STRING, a helper definition, and a LENGTH GUARD that is not an
+#   alias spelling. None of them may produce a command row.
+FIX_HELP = '''\
+namespace mrfw {
+
+// A helper definition, not a dispatcher: it is pinned in NON_COMMAND and must contribute no row.
+inline bool help_is_dash(const char* s) { return !strncmp(s, "-", 1); }
+
+inline void topic_messaging(Print& out) {
+    out.println(F("  send <id> \"<text>\"   e.g. an arm written in TEXT: !strncmp(a, \"phantom\", 7)"));
+}
+
+inline bool help_command(const char* line, size_t len, Print& out) {
+    if (!(len == 1 && line[0] == '?') && (len < 4 || strncmp(line, "help", 4))) return false;
+    if (len == 1 || len == 4) { render_index(out); return true; }
+    if (line[4] != ' ') return false;
+    const char* a = line + 5; size_t an = len - 5;
+    if      (an ==  9 && !strncmp(a, "messaging",   9)) topic_messaging(out);
+    else if (an ==  8 && !strncmp(a, "identity",    8)) topic_identity(out);
+    // else if (an ==  5 && !strncmp(a, "ghost",     5)) topic_ghost(out);
+#if MR_HELP_HAS_MOBILE
+    else if (an ==  6 && !strncmp(a, "mobile",      6)) topic_mobile(out);
+#endif
+    else                                                render_usage(out);
+    return true;
+}
+
+}  // namespace mrfw
+'''
+
 FIX_SURFACES = (
     G.Surface("src/firmware_commands.cpp", "dispatch", "top", "serial,ble",
               reached_from=(("src/fw_main.cpp", "service_console", "dispatch"),
@@ -114,6 +148,8 @@ FIX_SURFACES = (
     G.Surface("src/firmware_commands.cpp", "handle_thing", "sub", "serial,ble", parent="thing",
               reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_thing"),)),
     G.Surface("src/firmware_ui_preset_verbs.h", "preset_verb", "sub", "serial,ble", parent="ui"),
+    G.Surface("src/firmware_help.h", "help_command", "top", "serial",
+              reached_from=(("src/firmware_commands.cpp", "dispatch", "help_command"),)),
     G.Surface("src/fw_main.cpp", "ble_dispatch_line", "caller", "ble"),
     G.Surface("lib/console/console_parse.cpp", "parse_command", "caller", "serial,ble",
               reached_from=(("src/fw_main.cpp", "service_console", "parse_command"),
@@ -121,12 +157,14 @@ FIX_SURFACES = (
 )
 
 FIX_NON_COMMAND = {
+    ("src/firmware_help.h", "help_is_dash"): "a helper definition, not a command arm",
     ("lib/console/console_parse.cpp", "tok_eq"): "the S3 helper's own definition",
     ("src/firmware_ui_preset_verbs.h", "preset_word_is"): "the S4 helper's own definition",
 }
 
 FIX_FILES = {
     "src/firmware_commands.cpp": FIX_COMMANDS,
+    "src/firmware_help.h": FIX_HELP,
     "src/fw_main.cpp": FIX_MAIN,
     "lib/console/console_parse.cpp": FIX_PARSE,
     "src/firmware_ui_preset_verbs.h": FIX_PRESET,
@@ -372,6 +410,86 @@ class TestSabotage(unittest.TestCase):
         self.assertNotEqual(first, second, "a control that passes without re-reading source is not a control")
 
 
+class TestHelpSurface(unittest.TestCase):
+    """§0a/[[B208]]: BOTH DIRECTIONS on the extracted `help` family.
+
+    The 0a brief requires exactly this pair: "a real help arm is found, while a comment, string example, helper
+    definition or similarly shaped non-dispatch comparison is not". A parser that satisfies only the first half
+    would happily invent `help ghost` and `help phantom`; one that satisfies only the second would have dropped the
+    `help (alias: ?)` row when the text moved into the header.
+    """
+
+    def test_the_real_help_arms_are_found(self):
+        with FixtureTree() as t:
+            cells = t.cells()
+        self.assertIn(("help (alias: ?)", "—", "help_command"), cells,
+                      "the family guard is the `help` row, with `?` folded in as its S5 alias")
+        self.assertIn(("help", "messaging", "help_command"), cells)
+        self.assertIn(("help", "identity", "help_command"), cells)
+        self.assertIn(("help", "mobile", "help_command"), cells)
+
+    def test_a_commented_out_arm_is_not_found(self):
+        with FixtureTree() as t:
+            self.assertNotIn(("help", "ghost", "help_command"), t.cells())
+
+    def test_an_arm_written_inside_a_string_is_not_found(self):
+        with FixtureTree() as t:
+            subs = {r.subverb for r in t.rows()}
+        self.assertNotIn("phantom", subs, "help TEXT that quotes a strncmp must never become a command row")
+
+    def test_a_helper_definition_contributes_no_row(self):
+        with FixtureTree() as t:
+            funcs = {r.func for r in t.rows()}
+        self.assertNotIn("help_is_dash", funcs)
+
+    def test_the_length_guard_is_not_read_as_an_alias(self):
+        """`line[4] != ' '` and `line[4] == ' '` are LENGTH GUARDS. Only `line[0] == '?'` is a spelling."""
+        with FixtureTree() as t:
+            help_rows = [r for r in t.rows() if r.func == "help_command"]
+        aliased = [r.verb for r in help_rows if "alias" in r.verb]
+        self.assertEqual(["help (alias: ?)"], aliased,
+                         "exactly one alias, and it is `?` — never a space from a length guard")
+
+    def test_a_removed_help_topic_changes_the_table(self):
+        with FixtureTree() as base:
+            before = base.cells()
+        with FixtureTree({"src/firmware_help.h": sub(
+                r'    else if \(an ==  8 && !strncmp\(a, "identity",    8\)\) topic_identity\(out\);\n', "")}) as t:
+            after = t.cells()
+        self.assertEqual({("help", "identity", "help_command")}, before - after)
+        self.assertEqual(set(), after - before)
+
+    def test_an_added_help_topic_changes_the_table(self):
+        with FixtureTree() as base:
+            before = base.cells()
+        with FixtureTree({"src/firmware_help.h": sub(
+                r'(    else if \(an ==  8 && !strncmp\(a, "identity",    8\)\) topic_identity\(out\);\n)',
+                r'\1    else if (an ==  5 && !strncmp(a, "audio",       5)) topic_audio(out);\n')}) as t:
+            after = t.cells()
+        self.assertEqual({("help", "audio", "help_command")}, after - before)
+
+    def test_an_emptied_help_router_is_refused_not_passed(self):
+        """Strip EVERY comparison from the router — the guard included — and refusal (c) must fire.
+
+        ⚠ Stripping only the nine topic arms is NOT enough and must not be: the family guard is itself the `help`
+          row, so the surface is still populated and the generator is right to stay green. This test removes the
+          guard too, which is the only shape that genuinely empties the dispatcher.
+        """
+        with FixtureTree({"src/firmware_help.h": lambda s: "\n".join(
+                ln for ln in s.split("\n") if "strncmp(a," not in ln and 'strncmp(line, "help"' not in ln)}) as t:
+            with self.assertRaises(G.GeneratorError) as cm:
+                t.rows()
+        self.assertIn("help_command", str(cm.exception))
+
+    def test_the_dispatch_call_site_is_what_proves_the_wiring(self):
+        """Delete `help_command(...)` from dispatch and the transport claim must REFUSE, not quietly stand."""
+        with FixtureTree({"src/firmware_commands.cpp":
+                          sub(r"    if \(help_command\(line, len, out\)\) return true;\n", "")}) as t:
+            with self.assertRaises(G.GeneratorError) as cm:
+                t.rows()
+        self.assertIn("help_command", str(cm.exception))
+
+
 class TestRealTree(unittest.TestCase):
     """Controls against the real repository."""
 
@@ -398,6 +516,31 @@ class TestRealTree(unittest.TestCase):
             if line.startswith("| `") and line.count("|") == 8:
                 self.assertRegex(line, r"\|\s*\|\s*$", "the authority cell must be blank: %s" % line)
 
+    def test_the_help_family_is_present_in_the_tracked_table(self):
+        """§0a: the primary `help (alias: ?)` row survived the move, and the nine topics are recorded."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        help_rows = [r for r in rows if r.func == "help_command"]
+        primary = [r for r in help_rows if r.subverb == "—"]
+        self.assertEqual(1, len(primary), "exactly one primary help row")
+        self.assertEqual("help (alias: ?)", primary[0].verb)
+        self.assertEqual("src/firmware_help.h", primary[0].source.split(":")[0])
+        topics = sorted(r.subverb for r in help_rows if r.subverb != "—")
+        self.assertEqual(["cfg", "diagnostics", "identity", "inbox", "messaging", "mobile", "provisioning",
+                          "remote", "test"], topics,
+                         "the owner's nine topics, every one derived from the real router")
+        gates = {r.subverb: r.gate for r in help_rows}
+        self.assertEqual("MR_HELP_HAS_MOBILE", gates["mobile"])
+        self.assertEqual("MR_HELP_HAS_REMOTE", gates["remote"])
+        self.assertEqual("—", gates["messaging"])
+
+    def test_no_help_text_line_became_a_command_row(self):
+        """The help SECTIONS quote plenty of command syntax; none of it may enter the table as an arm."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        from_header = [r for r in rows if r.source.startswith("src/firmware_help.h")]
+        self.assertTrue(from_header)
+        self.assertTrue(all(r.func == "help_command" for r in from_header),
+                        "only the router may yield rows from the help header")
+
     def test_all_three_surfaces_are_represented(self):
         kinds = {}
         for s in G.SURFACES:
@@ -409,7 +552,10 @@ class TestRealTree(unittest.TestCase):
     def test_representative_real_rows(self):
         cells = {(r.verb, r.subverb, r.func, r.transports) for r in self.rows}
         # surface 1 — the top-level verb map, including the shared help/? arm and a gated family
-        self.assertIn(("help (alias: ?)", "—", "dispatch", "serial,ble"), cells)
+        # §0a: `help`/`?` recognition moved from `dispatch` into `src/firmware_help.h::help_command`, and BLE still
+        # refuses it before the text fallback — so the row is `serial` there and `ble` (the refusal) in fw_main.
+        self.assertIn(("help (alias: ?)", "—", "help_command", "serial"), cells)
+        self.assertIn(("help (alias: ?)", "—", "ble_dispatch_line", "ble"), cells)
         self.assertIn(("ui", "—", "dispatch", "serial,ble"), cells)
         # surface 2 — sub-verb dispatchers named by the brief
         self.assertIn(("cfg set", "sf_list", "handle_cfg_set", "serial,ble"), cells)
