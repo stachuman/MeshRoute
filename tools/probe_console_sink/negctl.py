@@ -22,18 +22,24 @@ import shutil
 import subprocess
 import sys
 
+import collections
+
 import ble_guard
-import help_manifest
 import structural
+
+# §0g: the ORACLE. `tools/gen_command_inventory.py` projects the primary command names out of the REAL dispatchers,
+# so a help control is judged against SOURCE, never against another copy of the help header ([[B291]]).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import gen_command_inventory as GEN   # noqa: E402
 
 if '--' not in sys.argv:
     sys.exit('usage: negctl.py <scratch> <cxx> <sink.h> <cmds.cpp> <cmds.h> <fw_main.cpp> <firmware_help.h> '
-             '<help_baseline.json> -- <flags...>')
+             '-- <flags...>')
 cut = sys.argv.index('--')
-if cut != 9:
-    sys.exit(f'usage error: expected 8 paths before "--", got {cut - 1}')
-OUT, CXX, SINK, CMDS, CMDSH, FWMAIN, HELP, BASELINE = (os.path.abspath(sys.argv[1]), sys.argv[2],
-                                                       *[os.path.abspath(p) for p in sys.argv[3:9]])
+if cut != 8:
+    sys.exit(f'usage error: expected 7 paths before "--", got {cut - 1}')
+OUT, CXX, SINK, CMDS, CMDSH, FWMAIN, HELP = (os.path.abspath(sys.argv[1]), sys.argv[2],
+                                             *[os.path.abspath(p) for p in sys.argv[3:8]])
 FLAGS = sys.argv[cut + 1:]
 # ★ §0a: the profile a help control runs under. Each control names the ONE profile in which its mutated decision is
 #   observable at all — `mobile` availability, for instance, is only a question on a reduced (gateway) build.
@@ -47,7 +53,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')      # the REPO's probe, never a scratch copy
 
-ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, BASELINE)}
+ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP)}
 for p, t in ORIG.items():
     print(f'baseline {os.path.relpath(p, ROOT)} md5 = {hashlib.md5(t.encode()).hexdigest()[:8]}  ({len(t)} bytes)')
 print()
@@ -227,8 +233,8 @@ SRC_CTL = [
     # ⓘ §0a re-aim: the help text moved to firmware_help.h and S4 now asks whether every RESPONSE ends
     #   terminated. Making the index's LAST emission a bare print() is exactly the shape S4 must reject.
     ('X5 leave the index unterminated (print instead of println on its last line)', HELP,
-     '    out.println(F("    cfg            the `cfg set <key>` catalog"));',
-     '    out.print(F("    cfg            the `cfg set <key>` catalog"));', ('S4',)),
+     '    out.println(F("whoami"));',
+     '    out.print(F("whoami"));', ('S4',)),
 ]
 
 for idx, (label, path, find, repl, expect_ids) in enumerate(SRC_CTL):
@@ -317,69 +323,132 @@ for idx, (label, path, steps, expect_ids) in enumerate(B214_CTL):
     else:
         print(f'{label}\n   -> structural {"+".join(failed)} now FAIL (required {"+".join(flipped)})')
 
-# ============================================================== §0a HELP CONTROLS ==================================
+# ============================================================== §0g HELP CONTROLS ==================================
 # ★ THE STRONGEST FAMILY IN THIS FILE, and the reason slice 0a chose a header seam at all: each control reverts ONE
 #   decision of `src/firmware_help.h`, REBUILDS the probe against the mutant, RUNS it, and requires the run to turn
-#   red — either a named CHK row or the frozen-baseline content comparison. A mutation that leaves both green is not
-#   a "minor" control, it is proof that the corresponding gate row measures nothing, and it fails this file.
-# ⚠ Each control names the PROFILE it is observable in. `mobile` availability cannot be tested on a full build (the
-#   topic is available there), so those two controls run on the gateway profile — the reduced build B208's ruling is
-#   actually about.
-LONG = 'Z' * 1400   # two of these inside one section put it past the 2048-B stage
+#   red — either a named CHK row or the INVENTORY COMPARISON. A mutation that leaves both green is not a "minor"
+#   control, it is proof that the corresponding gate row measures nothing, and it fails this file.
+# ★★ THE ORACLE CHANGED IN §0g ([[B291]]). It was a FROZEN pre-slice content multiset that only main's history could
+#   regenerate; it is now the GENERATED COMMAND INVENTORY, projected from the REAL dispatchers on the CURRENT tree.
+#   ⇒ a control is judged by comparing PRODUCTION OUTPUT against SOURCE — never one help header against another.
+# ⚠ Each control names the PROFILE it is observable in. A gated name's absence cannot be tested on a build that
+#   compiles it, so those controls run on the reduced profile the owner's rule is actually about.
+
+MANUAL_POINTER = 'docs/manual/command-reference.md'
+LONG_A = 'zzza' + 'Z' * 1400     # two of these put the BARE index past the 2048-B stage, and both sort after
+LONG_B = 'zzzb' + 'Z' * 1400     # `whoami`, so the ordering row stays green and the STAGE row is what speaks
+
+
+def _name_line(n):
+    """One rendered primary-name line of the real header, byte for byte."""
+    return '    out.println(F("%s"));\n' % n
+
+
+# ---- the ORACLE, and the comparison every help control is judged by ----------------------------------------------
+ROWS, _notes, _values, _retests = GEN.build_rows(GEN.REPO_ROOT)
+
+
+def projected(profile):
+    """The primary command names the GENERATOR derives from the real dispatchers for one product profile."""
+    return GEN.primary_names(ROWS, GEN.PROFILES[profile])
+
+
+def rendered_names(stdout, profile):
+    """The names a probe binary actually printed, minus the trailing manual pointer.
+
+    ⛔ REFUSES on a missing/duplicated marker or a declared-vs-printed count mismatch. Returning [] from a probe that
+      never ran would otherwise flow straight into compare_names() and look like a clean comparison against nothing.
+    """
+    begin, end = 'HELP-NAMES-BEGIN %s ' % profile, 'HELP-NAMES-END'
+    lines = stdout.split('\n')
+    starts = [i for i, l in enumerate(lines) if l.startswith(begin)]
+    if len(starts) != 1:
+        raise RuntimeError('expected exactly one %r marker, found %d' % (begin, len(starts)))
+    i = starts[0]
+    declared = int(lines[i].split()[-1])
+    body = []
+    for l in lines[i + 1:]:
+        if l == end:
+            break
+        body.append(l)
+    else:
+        raise RuntimeError('unterminated HELP-NAMES block')
+    if len(body) != declared:
+        raise RuntimeError('declared %d index lines, printed %d' % (declared, len(body)))
+    return body[:-1] if (body and body[-1] == MANUAL_POINTER) else body
+
+
+def compare_names(expected, actual):
+    """MULTISET **and** ORDER: a deleted name, an extra one, a duplicate and a swap are each caught separately."""
+    problems = []
+    ce, ca = collections.Counter(expected), collections.Counter(actual)
+    for n, k in sorted((ce - ca).items()):
+        problems.append('MISSING x%d: %s' % (k, n))
+    for n, k in sorted((ca - ce).items()):
+        problems.append('UNEXPECTED x%d: %s' % (k, n))
+    if not problems and list(expected) != list(actual):
+        problems.append('ORDER differs (same multiset, wrong sequence)')
+    return problems
+
 
 HELP_CTL = [
-    ('H-C1 delete ONE inherited help line from a topic', 'full_headless',
-     '    out.println(F("  faults             the flash fault ring"));\n', '',
-     'the frozen-baseline content multiset (MISSING)'),
+    ('H-C1 DELETE one primary name from the rendered index', 'full_headless',
+     _name_line('faults'), '',
+     'the inventory comparison (MISSING faults)'),
 
-    ('H-C2 duplicate ONE inherited line into a SECOND topic', 'full_headless',
-     '    out.println(F("  route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));\n',
-     '    out.println(F("  route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));\n'
-     '    out.println(F("  faults             the flash fault ring"));\n',
-     'the frozen-baseline content multiset (UNEXPECTED)'),
+    ('H-C2 ADD a name no dispatcher accepts', 'full_headless',
+     _name_line('whoami'), _name_line('whoami') + _name_line('zzz_not_a_command'),
+     'the inventory comparison (UNEXPECTED zzz_not_a_command)'),
 
-    ('H-C3 grow ONE topic past MR_CONSOLE_STAGE_BYTES', 'full_headless',
-     '    out.println(F("  clear_inbox confirm                         WIPE both stores (inbox ONLY; keeps everything else)"));\n',
-     '    out.println(F("  clear_inbox confirm                         WIPE both stores (inbox ONLY; keeps everything else)"));\n'
-     f'    out.println(F("  {LONG}"));\n    out.println(F("  {LONG}"));\n',
-     'H3e (the section no longer fits) + H7 (GuardedConsole drops it)'),
+    ('H-C3 DUPLICATE one primary name', 'full_headless',
+     _name_line('faults'), _name_line('faults') * 2,
+     'H2e (strictly ascending => unique) + the inventory comparison'),
 
-    ('H-C4 list an UNAVAILABLE topic in a reduced build', 'gateway',
-     '#if MR_HELP_HAS_MOBILE\n'
-     '    out.println(F("    mobile         mobile register/gateways/query/status/unregister"));\n'
-     '#endif\n',
-     '    out.println(F("    mobile         mobile register/gateways/query/status/unregister"));\n',
-     'H2a/H2b (the index advertises a family this build refuses)'),
+    ('H-C4 SWAP two adjacent names (same set, wrong order)', 'full_headless',
+     _name_line('cfg') + _name_line('clear_inbox'), _name_line('clear_inbox') + _name_line('cfg'),
+     'H2e (bytewise ascending) + the comparison ORDER problem'),
 
-    ('H-C5 ACCEPT an unavailable topic although it is not listed', 'gateway',
-     '    else if (an ==  5 && !strncmp(a, "inbox",         5)) help::topic_inbox(out);\n',
-     '    else if (an ==  5 && !strncmp(a, "inbox",         5)) help::topic_inbox(out);\n'
-     '    else if (an ==  6 && !strncmp(a, "mobile",        6)) help::topic_inbox(out);\n',
-     'H4a (an unavailable topic must take the refusal arm)'),
+    ('H-C5 a GATED name appears on a build that REFUSES it', 'gateway',
+     '#if MR_N_LAYERS < 2\n' + _name_line('team') + '#endif   // MR_N_LAYERS < 2\n', _name_line('team'),
+     'H3a `team` + the inventory comparison (UNEXPECTED team on gateway)'),
 
-    ('H-C6 OMIT an available topic from the index', 'full_headless',
-     '    out.println(F("    identity       whoami, lookup/hashof/nameof/resolve, peers, pubkeys and names"));\n', '',
-     'H2a (the index no longer names every available topic)'),
+    ('H-C6 a GATED name DISAPPEARS on a build that compiles it', 'full_headless',
+     '#if MR_N_LAYERS < 2 && MR_FEAT_MOBILE\n' + _name_line('mobile')
+     + '#endif   // MR_N_LAYERS < 2 && MR_FEAT_MOBILE\n', '',
+     'H3a `mobile` + the inventory comparison (MISSING mobile)'),
 
-    ('H-C7 make bare `?` differ from bare `help`', 'full_headless',
-     '    if (len == 1 || len == 4) { help::render_index(out); return true; }   // the two BARE index spellings',
+    ('H-C7 the manual pointer is REMOVED from the index', 'full_headless',
+     _name_line('whoami') + '    manual_pointer(out);\n', _name_line('whoami'),
+     'H2b/H2c (the last line must be the manual pointer)'),
+
+    ('H-C8 the manual pointer is MOVED off the end', 'full_headless',
+     _name_line('whoami') + '    manual_pointer(out);\n',
+     '    manual_pointer(out);\n' + _name_line('whoami'),
+     'H2b (the pointer must be LAST)'),
+
+    ('H-C9 the manual pointer text is CHANGED', 'full_headless',
+     '    out.println(F("docs/manual/command-reference.md"));\n',
+     '    out.println(F("docs/manual/COMMANDS.md"));\n',
+     'H2b/H2c + the runner\'s own manual-pointer check'),
+
+    ('H-C10 a DESCRIPTION comes back onto a name line', 'full_headless',
+     _name_line('faults'), '    out.println(F("faults             the flash fault ring"));\n',
+     'H2d (every line must be a BARE name) + the inventory comparison'),
+
+    ('H-C11a `help <topic>` renders a SUCCESSFUL index instead of the retired-form refusal', 'full_headless',
+     '    help::render_usage(out);                           // `help <anything>` — the retired form, answered loudly\n',
+     '    help::render_index(out);\n',
+     'H4b/H4c/H4e (the refusal must not be the index)'),
+
+    ('H-C12a bare `help` and bare `?` DIVERGE', 'full_headless',
+     '    if (len == 1 || len == 4) { help::render_index(out); return true; }   // the two BARE index spellings\n',
      '    if (len == 4) { help::render_index(out); return true; }\n'
-     '    if (len == 1) { help::topic_inbox(out); return true; }',
+     '    if (len == 1) { help::render_usage(out); return true; }\n',
      'H1c (the two bare spellings must be byte-identical)'),
 
-    ('H-C8 let a PREFIX select a real section', 'full_headless',
-     '    if      (an ==  9 && !strncmp(a, "messaging",     9)) help::topic_messaging(out);',
-     '    if      (an >=  9 && !strncmp(a, "messaging",     9)) help::topic_messaging(out);',
-     'H5a (`help messagingx` / `help messaging x` must refuse)'),
-
-    ('H-C9 drop the usage line from the refusal', 'full_headless',
-     '    out.println(F("> help err unknown_topic (usage: help | ? | help <topic>)"));',
-     '    out.println(F("> help err unknown_topic"));',
-     'H5c (the refusal must carry usage)'),
-
-    ('H-C10 omit ONE valid topic name from the refusal', 'full_headless',
-     '    out.print(F(" messaging identity"));', '    out.print(F(" messaging"));',
-     "H5d (the refusal must name EXACTLY this build's topics)"),
+    ('H-C13a the index grows PAST MR_CONSOLE_STAGE_BYTES', 'full_headless',
+     _name_line('whoami'), _name_line('whoami') + _name_line(LONG_A) + _name_line(LONG_B),
+     'H8a (the response no longer fits) + H7 (GuardedConsole drops it)'),
 ]
 
 for idx, (label, profile, find, repl, expect) in enumerate(HELP_CTL):
@@ -411,26 +480,27 @@ for idx, (label, profile, find, repl, expect) in enumerate(HELP_CTL):
         rc_all = 1
         continue
     fails = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith('FAIL')]
-    # ...and the frozen-baseline comparison, which is where a lost/duplicated line shows up.
-    content = help_manifest.content_block(r.stdout, profile)
-    problems = help_manifest.compare_content(
-        help_manifest.load_baseline(BASELINE)['profiles'][profile]['content'], content)
+    # ...and the INVENTORY comparison, which is where a lost/extra/duplicated/reordered name shows up.
+    try:
+        problems = compare_names(projected(profile), rendered_names(r.stdout, profile))
+    except RuntimeError as exc:
+        problems = ['name block REFUSED: %s' % exc]
     if not fails and not problems:
         print(f'   !! STAYED GREEN (help md5 {md5}) -- this control proves NOTHING  [expected: {expect}]')
         rc_all = 1
     else:
-        print(f'   -> help md5 {md5} [{profile}]: {len(fails)} CHK fail(s), {len(problems)} baseline problem(s): '
-              + '; '.join([f[5:52] for f in fails[:2]] + [p[:52] for p in problems[:2]]))
+        print(f'   -> help md5 {md5} [{profile}]: {len(fails)} CHK fail(s), {len(problems)} inventory problem(s): '
+              + '; '.join([f[5:52] for f in fails[:2]] + [pr[:52] for pr in problems[:2]]))
 
 # ---- H-C11: the seam's dependency fence + the supplied-Print& rule (STRUCTURAL, and honestly labelled so) ---------
 # A direct `Serial.println` in the help renderer cannot even be COMPILED against the probe's transport model, so this
 # one is asked of structural.py rather than dressed up as a behavioural row.
 for label, steps, expect_ids in [
     ('H-C11 write one help line straight to Serial instead of the supplied Print&',
-     [('    out.println(F("TEST"));', '    Serial.println(F("TEST"));')], ('S3', 'S19')),
+     [('    out.println(F("faults"));', '    Serial.println(F("faults"));')], ('S3', 'S19')),
     ('H-C12 reach into device state from the help renderer',
-     [('inline void topic_inbox(Print& out) {',
-       'inline void topic_inbox(Print& out) {\n    if (g_node.node_id()) out.println(F("x"));')], ('S19',)),
+     [('inline void render_usage(Print& out) {',
+       'inline void render_usage(Print& out) {\n    if (g_node.node_id()) out.println(F("x"));')], ('S19',)),
 ]:
     dest, err = mutate_steps(HELP, steps, 'hsrc_' + os.path.basename(HELP))
     if dest is None:
@@ -469,38 +539,98 @@ for label, steps, expect_ids in [
     else:
         print(f'{label}\n   -> structural {"+".join(flipped)} now FAIL')
 
-# ---- H-C16/17: the frozen baseline itself, and the anti-vacuity of the comparison --------------------------------
-# ⛔ THE FAILURE THIS CATCHES: a comparison that reads a stale/empty baseline and reports "0 problems" forever. Both
-#   directions are exercised — a baseline missing a line, and an EMPTY rendered side.
-base_real = help_manifest.load_baseline(BASELINE)['profiles']['full_headless']['content']
-real_bin = os.path.join(OUT, 'help_real.bin')
-b = subprocess.run([CXX, *FLAGS, '-DPROBE_SINK_MD5="realsink"', '-DPROBE_HELP_MD5="realhelp"',
-                    '-DPROBE_PROFILE="full_headless"', PROBE_MAIN, '-o', real_bin], capture_output=True, text=True)
-if b.returncode != 0:
-    print('H-C16/17\n   !! INSTRUMENT FAILURE: the unmutated probe did not build')
-    rc_all = 1
-else:
-    real_out = subprocess.run([real_bin], capture_output=True, text=True).stdout
-    real_content = help_manifest.content_block(real_out, 'full_headless')
-    for label, expected, actual, why in [
-        ('H-C16 a STALE baseline (one line short) must not compare clean',
-         base_real[:-1], real_content, 'the comparison would be reading a frozen list that no longer describes 0a'),
-        ('H-C17 an EMPTY rendered side must not compare clean',
-         base_real, [], 'a probe that emitted nothing would otherwise report success'),
+# ---- H-C14a..H-C18a: the ORACLE side. The projection must MOVE when source moves, must never be empty, and must
+#      match the real render on an unmutated tree. ⛔ THE FAILURE THIS FAMILY CATCHES: a comparison that reads a
+#      stale or empty expectation and reports "0 problems" forever — the exact rot that retired [[B291]]'s baseline.
+def _scan_tree(dest):
+    """A scratch copy of exactly the generator's SCAN_FILES, so build_rows() can read a MUTATED source tree."""
+    for rel in GEN.SCAN_FILES:
+        dst = os.path.join(dest, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(os.path.join(GEN.REPO_ROOT, rel), dst)
+    return dest
+
+
+FAULTS_ARM = '    if (len == 6 && !strncmp(line, "faults", 6))   { fw_faults_dump(out);  return true; }\n'
+NEW_ARM = '    if (len == 9 && !strncmp(line, "zzznewcmd", 9)) { return true; }\n'
+
+# The real, unmutated render for the two profiles the positive control covers.
+real_names, real_ok = {}, True
+for prof in ('full_headless', 'gateway'):
+    rb = os.path.join(OUT, f'help_real_{prof}.bin')
+    b = subprocess.run([CXX, *FLAGS, *PROFILE_FLAGS[prof], '-DPROBE_SINK_MD5="realsink"',
+                        '-DPROBE_HELP_MD5="realhelp"', f'-DPROBE_PROFILE="{prof}"', PROBE_MAIN, '-o', rb],
+                       capture_output=True, text=True)
+    if b.returncode != 0:
+        print(f'H-C14a..18a\n   !! INSTRUMENT FAILURE: the unmutated probe did not build for {prof}')
+        rc_all = 1
+        real_ok = False
+        break
+    try:
+        real_names[prof] = rendered_names(subprocess.run([rb], capture_output=True, text=True).stdout, prof)
+    except RuntimeError as exc:
+        print(f'H-C14a..18a\n   !! INSTRUMENT FAILURE: {prof} name block REFUSED: {exc}')
+        rc_all = 1
+        real_ok = False
+        break
+
+if real_ok:
+    for label, rel, find, repl, why in [
+        ('H-C14a a NEW source command must change the EXPECTED help list',
+         'src/firmware_commands.cpp', FAULTS_ARM, FAULTS_ARM + NEW_ARM,
+         'a command added to a dispatcher would never reach help'),
+        ('H-C15a a REMOVED source command must change the EXPECTED help list',
+         'src/firmware_commands.cpp', FAULTS_ARM, '',
+         'help would keep advertising a verb the build no longer accepts'),
     ]:
-        problems = help_manifest.compare_content(expected, actual)
+        tree = _scan_tree(os.path.join(OUT, 'tree_' + label.split()[0].replace('-', '_')))
+        path = os.path.join(tree, rel)
+        text = open(path).read()
+        if text.count(find) != 1:
+            print(f'{label}\n   !! CONTROL NOT APPLIED: anchor found {text.count(find)} times in {rel}')
+            rc_all = 1
+            continue
+        open(path, 'w').write(text.replace(find, repl))
+        try:
+            mrows, _n, _v, _r = GEN.build_rows(tree)
+            problems = compare_names(GEN.primary_names(mrows, GEN.PROFILES['full_headless']),
+                                     real_names['full_headless'])
+        except Exception as exc:                                     # noqa: BLE001 — a refusal is also a RED
+            problems = ['projection REFUSED: %s' % exc]
         if not problems:
             print(f'{label}\n   !! STAYED GREEN -- {why}; this control proves NOTHING')
             rc_all = 1
         else:
             print(f'{label}\n   -> {len(problems)} problem(s) reported, e.g. {problems[0][:70]}')
-    if help_manifest.compare_content(base_real, real_content):
-        print('H-C18 the UNMUTATED probe still matches the frozen baseline\n'
-              '   !! it does NOT -- the controls above would all be measuring a broken tree')
+
+    # H-C16a: the projection itself must never quietly come back empty.
+    try:
+        GEN.primary_projection([], GEN.PROFILES['full_headless'])
+        print('H-C16a an EMPTY projection must REFUSE\n   !! STAYED GREEN -- it returned a result; an empty '
+              'expectation compares clean against anything')
+        rc_all = 1
+    except GEN.GeneratorError as exc:
+        print(f'H-C16a an EMPTY projection must REFUSE\n   -> refused: {str(exc)[:70]}')
+
+    # H-C17a: and an empty RENDERED side must never compare clean against a real projection.
+    problems = compare_names(projected('full_headless'), [])
+    if not problems:
+        print('H-C17a an EMPTY rendered side must not compare clean\n   !! STAYED GREEN -- a probe that emitted '
+              'nothing would report success')
         rc_all = 1
     else:
-        print(f'H-C18 the UNMUTATED probe still matches the frozen baseline\n'
-              f'   -> ok ({len(real_content)} content lines, full_headless)')
+        print(f'H-C17a an EMPTY rendered side must not compare clean\n   -> {len(problems)} problem(s) reported, '
+              f'e.g. {problems[0][:60]}')
+
+    # H-C18a: the POSITIVE. Without it every control above could be measuring an already-broken tree.
+    bad = {p: compare_names(projected(p), real_names[p]) for p in real_names}
+    if any(bad.values()):
+        print('H-C18a the UNMUTATED probe equals its SOURCE projection\n   !! it does NOT -- '
+              + '; '.join(f'{p}: {v[:2]}' for p, v in bad.items() if v))
+        rc_all = 1
+    else:
+        print('H-C18a the UNMUTATED probe equals its SOURCE projection\n   -> ok ('
+              + ', '.join(f'{p}: {len(real_names[p])} names' for p in sorted(real_names)) + ')')
 
 # ============================================================== §0a BLE-REFUSAL CONTROLS ===========================
 # ★ The owner ruled 2026-09-04 that help must not be transferred by BLE. These controls revert ONE decision of the
@@ -587,8 +717,10 @@ else:
 for p, t in ORIG.items():
     assert hashlib.md5(open(p).read().encode()).hexdigest() == hashlib.md5(t.encode()).hexdigest(), \
         f'FATAL: {p} changed -- controls must only ever mutate a copy'
+# §0g: the help family is HELP_CTL (13 rendered-index mutations) + 2 structural (H-C11/H-C12)
+# + 3 router (H-C13..H-C15) + 5 oracle (H-C14a..H-C18a) = len(HELP_CTL) + 10.
 print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
-      f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 3} help + {len(BLE_CTL) + 2} BLE '
+      f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE '
       f'controls run '
-      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 8 + len(BLE_CTL) + 2})')
+      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2})')
 sys.exit(rc_all)

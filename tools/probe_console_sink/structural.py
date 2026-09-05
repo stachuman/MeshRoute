@@ -139,18 +139,22 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
         not direct, f'{len(direct)} occurrence(s)')
     add('S2', 'the hl() direct-Serial help bypass is gone',
         not re.search(r'\bhl\s*\(\s*F\s*\(', cmds), '')
-    # ★ §0a/[[B208]]: `dump_help()` no longer exists. The help text, the index and the whole `help`/`?`/
-    #   `help <topic>` recognition are `src/firmware_help.h`, which the probe binary COMPILES AND RUNS — so S3/S4
-    #   are re-aimed at that file and are now the weaker, structural half of a check whose strong half (H1..H8 in
-    #   probe_main.cpp) is behavioural. ⛔ S18 below is what keeps the old location from quietly coming back.
+    # ★ §0a/[[B208]]: `dump_help()` no longer exists; §0g (owner 2026-09-05) then RETIRED the nine topic sections
+    #   and the topic index. What remains in `src/firmware_help.h` is the bare primary-name list, the manual pointer
+    #   and the one refusal — which the probe binary COMPILES AND RUNS, so S3/S4 are the weaker, STRUCTURAL half of
+    #   a check whose strong half is behavioural (probe_main.cpp) plus the inventory comparison (run.sh).
+    #   ⛔ S18 below is what keeps the old location from quietly coming back.
+    # ⓘ THE FLOOR MOVED 90 -> 45 IN §0g, and it is a floor, not a count: the descriptive text is gone, so the file
+    #   now emits ~one line per primary command (51 on this tree). The EXACT set is proven against the generated
+    #   command inventory, never by this row — a threshold cannot tell a lost name from a renamed one.
     n_sink = len(re.findall(r'\bout\.print(?:ln)?\s*\(', helph))
     add('S3', 'every firmware_help.h emission goes through its Print& out sink',
-        n_sink >= 90 and 'mrcon.' not in helph_code and 'Serial.' not in helph_code,
+        n_sink >= 45 and 'mrcon.' not in helph_code and 'Serial.' not in helph_code,
         f'{n_sink} out.print* calls')
     # Every RESPONSE must end terminated: an unterminated tail would be closed only at the next service() pass and
-    # could fuse with whatever the console prints next (§B95 invariant 4). Exactly one renderer is deliberately a
-    # FRAGMENT — `topic_names`, the shared valid-topic list — and every one of its call sites must close the line.
-    unterminated, name_calls, name_closed = [], 0, 0
+    # could fuse with whatever the console prints next (§B95 invariant 4). §0g retired `topic_names`, the one
+    # deliberate FRAGMENT, so the rule is now absolute: no `out.print(` at all, and every renderer ends in println.
+    unterminated = []
     for m in re.finditer(r'\binline\s+void\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*Print&\s*out\s*\)', helph):
         fname = m.group(1)
         try:
@@ -160,17 +164,12 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
         emissions = re.findall(r'\bout\.(print|println)\s*\(', fbody)
         if not emissions:
             continue
-        if emissions[-1] != 'println' and fname != 'topic_names':
+        if emissions[-1] != 'println':
             unterminated.append(fname)
-        if fname == 'topic_names' and emissions[-1] == 'println':
-            unterminated.append('topic_names is no longer the deliberate fragment')
-    for m in re.finditer(r'\btopic_names\s*\(\s*out\s*\)\s*;', helph):
-        name_calls += 1
-        if re.match(r'\s*out\.println\s*\(\s*\)\s*;', helph[m.end():]):
-            name_closed += 1
-    add('S4', 'every help RESPONSE ends terminated; only topic_names is a fragment, and its callers close the line',
-        not unterminated and name_calls >= 1 and name_calls == name_closed,
-        f'unterminated={unterminated or "none"} topic_names calls={name_calls} closed={name_closed}')
+    fragments = re.findall(r'\bout\.print\s*\(', helph)
+    add('S4', 'every help RESPONSE ends terminated; §0g leaves NO fragment renderer',
+        not unterminated and not fragments,
+        f'unterminated={unterminated or "none"} bare out.print calls={len(fragments)}')
 
     # ---- §0a/[[B208]]: the ONE help-router call, at the head of the real dispatch() ------------------------------
     # ⛔ THE POINT OF THIS ROW: the behavioural rows in probe_main.cpp prove the ROUTER is correct; only this one

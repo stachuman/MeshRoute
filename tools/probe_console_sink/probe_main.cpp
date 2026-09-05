@@ -190,24 +190,27 @@ static void run_loop(int passes, size_t per_pass) {
     for (int i = 0; i < passes; ++i) { mrcon.service(); Serial.drain(per_pass); }
 }
 
-// ---- §0a/[[B208]] help helpers -------------------------------------------------------------------------------------
-// ★ THE OWNER'S NINE TOPICS, IN THE OWNER'S ORDER, WITH THE AVAILABILITY RULE RE-DERIVED FROM THE PRODUCT MACROS.
-//   ⛔ Deliberately NOT `MR_HELP_HAS_MOBILE` / `MR_HELP_HAS_REMOTE`: reading firmware_help.h's own gate macros would
-//   make every availability row circular — flip the macro and both sides move together. These expressions restate
-//   B208's rule ("listed/accepted only when compiled") against the SAME macros the command handlers are gated on:
-//   the `mobile …` arm is `MR_N_LAYERS < 2 && MR_FEAT_MOBILE`, `password`/`unlock`/`lock` are `MR_FEAT_REMOTE_MGMT`.
-struct HelpTopic { const char* name; bool available; };
-static const HelpTopic kHelpTopics[] = {
-    { "messaging",    true },
-    { "identity",     true },
-    { "mobile",       (MR_N_LAYERS < 2) && (MR_FEAT_MOBILE != 0) },
-    { "inbox",        true },
-    { "diagnostics",  true },
-    { "remote",       MR_FEAT_REMOTE_MGMT != 0 },
-    { "test",         true },
-    { "provisioning", true },
-    { "cfg",          true },
+// ---- §0a/[[B208]] + §0g help helpers ------------------------------------------------------------------------------
+// ★ THE GATED PRIMARY NAMES, WITH THEIR AVAILABILITY RULE RE-DERIVED FROM THE PRODUCT MACROS.
+//   ⛔ Deliberately NOT read from `firmware_help.h`'s own conditions: reading the header's gates would make every
+//   availability row circular — flip one and both sides move together. These expressions restate the owner's 0g rule
+//   ("under the same feature gate as its dispatch arm") against the SAME macros the command handlers are gated on:
+//   the `mobile …` arm is `MR_N_LAYERS < 2 && MR_FEAT_MOBILE`, `team` is `MR_N_LAYERS < 2`, `password`/`unlock`/
+//   `lock` are `MR_FEAT_REMOTE_MGMT`, and `ui` is `MR_FEAT_OLED`.
+//   ⓘ THIS IS THE SPOT-CHECK HALF ONLY. The COMPLETE both-direction set equality is done outside this binary, by
+//   `run.sh` comparing the emitted name block against `tools/gen_command_inventory.py --primary <profile>` — an
+//   oracle derived by scanning the real dispatchers, never from this header.
+struct GatedName { const char* name; bool available; };
+static const GatedName kGatedNames[] = {
+    { "mobile",   (MR_N_LAYERS < 2) && (MR_FEAT_MOBILE != 0) },
+    { "team",     MR_N_LAYERS < 2 },
+    { "lock",     MR_FEAT_REMOTE_MGMT != 0 },
+    { "password", MR_FEAT_REMOTE_MGMT != 0 },
+    { "unlock",   MR_FEAT_REMOTE_MGMT != 0 },
+    { "ui",       MR_FEAT_OLED != 0 },
 };
+// The one line of a help response that is not a command name. `run.sh` strips exactly this before comparing.
+static const char* const kManualPointer = "docs/manual/command-reference.md";
 
 // Render one console line through the REAL router into a lossless sink. -> did the router OWN the line?
 static bool help_render(const char* cmd, std::string& text) {
@@ -217,26 +220,9 @@ static bool help_render(const char* cmd, std::string& text) {
     return owned;
 }
 static bool ends_crlf(const std::string& s) { return s.size() >= 2 && s.compare(s.size() - 2, 2, "\r\n") == 0; }
-static std::string first_word(const std::string& line) {
-    size_t a = line.find_first_not_of(' ');
-    if (a == std::string::npos) return std::string();
-    const size_t b = line.find(' ', a);
-    return line.substr(a, b == std::string::npos ? std::string::npos : b - a);
-}
-// The refusal's second line — the one carrying this build's valid topic names.
-static std::string valid_topics_line(const std::string& refusal) {
-    for (const auto& l : split_lines(refusal)) if (l.find("valid topics") != std::string::npos) return l;
-    return std::string();
-}
-// Whole-word membership: `mobile` must not be answered by the substring inside `mobile_autoregister`.
-static bool has_word(const std::string& hay, const std::string& w) {
-    for (size_t i = hay.find(w); i != std::string::npos; i = hay.find(w, i + 1)) {
-        const bool lok = (i == 0) || hay[i - 1] == ' ';
-        const size_t e = i + w.size();
-        const bool rok = (e == hay.size()) || hay[e] == ' ';
-        if (lok && rok) return true;
-    }
-    return false;
+// A rendered index line is a BARE name: non-empty, no leading/embedded space, nothing but the command spelling.
+static bool is_bare_name(const std::string& l) {
+    return !l.empty() && l.find(' ') == std::string::npos && l.find('\t') == std::string::npos;
 }
 
 int main() {
@@ -432,22 +418,23 @@ int main() {
       if (at != std::string::npos) without.erase(at, rep.size());
       CHK("P13d ... and the response itself is byte-exact", without == oracle.s); }
 
-    // ============================================================ H — §0a/[[B208]] THE BOUNDED HELP-TOPIC SPLIT ===
-    // WHY THESE ROWS EXIST AND WHY THEY LIVE IN *THIS* BINARY. B208's ruling is about BYTES ON A WIRE — a compact
-    // index, one whole section per topic, every response inside MR_CONSOLE_STAGE_BYTES with no `CONSOLE_DROP`. The
-    // help used to live in `src/firmware_commands.cpp`, a TU nothing can host-compile, so the only available proof
-    // was grep. Slice 0a moved the text and the whole `help`/`?`/`help <topic>` recognition into
-    // `src/firmware_help.h`, which depends on `Print` + three feature macros and nothing else — so the REAL renderer
-    // is compiled here and driven through the REAL `GuardedConsole`, once per real product profile.
-    // ⛔ NOTHING BELOW RESTATES HELP TEXT. The expectations are (a) the owner's nine topic names and their
-    //    availability rule, re-derived from the PRODUCT macros (NOT from firmware_help.h's own MR_HELP_HAS_*, which
-    //    would make the check circular), and (b) the frozen pre-slice content multiset, compared by the Python
-    //    wrapper against the CONTENT block this binary prints.
+    // ==================================================== H — §0g THE BARE PRIMARY-COMMAND HELP INDEX ==========
+    // WHY THESE ROWS EXIST AND WHY THEY LIVE IN *THIS* BINARY. B208's ruling is about BYTES ON A WIRE — every
+    // response inside MR_CONSOLE_STAGE_BYTES with no `CONSOLE_DROP` — and the owner's 0g ruling (2026-09-05) then
+    // replaced the topic sections with ONE LINE PER PRIMARY COMMAND NAME plus a manual pointer. The help used to
+    // live in `src/firmware_commands.cpp`, a TU nothing can host-compile, so the only available proof was grep.
+    // Slice 0a moved the whole `help`/`?` recognition into `src/firmware_help.h`, which depends on `Print` + two
+    // feature macros and nothing else — so the REAL renderer is compiled here and driven through the REAL
+    // `GuardedConsole`, once per real product profile.
+    // ⛔ NOTHING BELOW RESTATES A COMMAND LIST. The expectations are SHAPE (bare, sorted, unique, manual pointer
+    //    last, bounded refusal, retired topic forms refused) plus a per-gate spot check re-derived from the PRODUCT
+    //    macros — never from firmware_help.h's own conditions, which would make the check circular. The COMPLETE
+    //    both-direction name equality belongs to `run.sh`, against `gen_command_inventory.py --primary <profile>`.
     {
       Serial.reset(4096); Serial.auto_drain = 0; run_loop(400, 4096);   // quiesce the shared sink after P13
       CHK("H0 the shared sink is quiescent before the help rows", mrcon.dropped_lines() == 0);
 
-      printf("\n== §0a help router ==  profile = %s  help md5 = %s\n", PROBE_PROFILE, PROBE_HELP_MD5);
+      printf("\n== §0g help index ==  profile = %s  help md5 = %s\n", PROBE_PROFILE, PROBE_HELP_MD5);
 
       // ---- H1: the two BARE index spellings ----------------------------------------------------------------
       std::string idx_help, idx_q;
@@ -458,76 +445,62 @@ int main() {
       CHK("H1c bare `help` and bare `?` are BYTE-IDENTICAL",          own_help && own_q && idx_help == idx_q);
       CHK("H1d the index is non-empty and whole-line terminated",     !idx_help.empty() && ends_crlf(idx_help));
 
-      // ---- H2: the index lists exactly this build's topics, once each, in the OWNER's order ----------------
-      std::vector<std::string> idx_rows;
-      for (const auto& l : split_lines(idx_help))
-          if (l.size() > 4 && l.compare(0, 4, "    ") == 0 && l[4] != ' ') idx_rows.push_back(first_word(l));
-      std::vector<std::string> want_rows;
-      for (const auto& t : kHelpTopics) if (t.available) want_rows.push_back(t.name);
-      CHK("H2a the index names exactly the AVAILABLE topics, once each, in owner order", idx_rows == want_rows);
-      bool idx_leak = false;
-      for (const auto& t : kHelpTopics)
-          if (!t.available && idx_help.find(t.name) != std::string::npos) idx_leak = true;
-      CHK("H2b no UNAVAILABLE topic name appears anywhere in the index", !idx_leak);
+      // ---- H2: the index is a BARE, SORTED, UNIQUE primary-name list ending in the manual pointer ----------
+      const std::vector<std::string> idx_lines = split_lines(idx_help);
+      CHK("H2a the index is not empty", !idx_lines.empty());
+      CHK("H2b the LAST line is EXACTLY the manual pointer",
+          !idx_lines.empty() && idx_lines.back() == kManualPointer);
+      { size_t n_ptr = 0;
+        for (const auto& l : idx_lines) if (l == kManualPointer) ++n_ptr;
+        CHK("H2c the manual pointer appears EXACTLY once, and only at the end", n_ptr == 1); }
+      std::vector<std::string> idx_names;                 // every line but the trailing manual pointer
+      for (size_t i = 0; i + 1 < idx_lines.size(); ++i) idx_names.push_back(idx_lines[i]);
+      { bool bare = true;
+        for (const auto& n : idx_names) if (!is_bare_name(n)) bare = false;
+        CHK("H2d every other line is a BARE name — no description, flag, argument, sub-verb or indent", bare); }
+      { bool sorted_unique = true;                        // strict `<` proves ASCENDING **and** UNIQUE at once
+        for (size_t i = 1; i < idx_names.size(); ++i)
+            if (!(idx_names[i - 1] < idx_names[i])) sorted_unique = false;
+        CHK("H2e the names are BYTEWISE ASCENDING and unique", sorted_unique); }
+      CHK("H2f the index carries a plausible command set (anti-vacuity)", idx_names.size() >= 40);
 
-      // ---- H3/H4: every topic is accepted iff it is available; a section opens with its own heading --------
-      std::string refusal;
-      CHK("H3a an unknown topic is owned and answered", help_render("help zzz", refusal) && !refusal.empty());
-      size_t largest = idx_help.size(); std::string largest_name = "(index)";
-      std::vector<std::string> content;                    // the union, for the frozen-baseline comparison
-      for (const auto& t : kHelpTopics) {
-          const std::string cmd = std::string("help ") + t.name;
-          std::string text;
-          const bool owned = help_render(cmd.c_str(), text);
-          chk_s(std::string("H3b `") + cmd + "` is owned by the router", owned);
-          if (!t.available) {
-              chk_s(std::string("H4a unavailable `") + cmd + "` takes the SAME bounded refusal arm", text == refusal);
-              continue;
-          }
-          const std::vector<std::string> ls = split_lines(text);
-          chk_s(std::string("H3c `") + cmd + "` opens with its canonical heading",
-                !ls.empty() && !ls[0].empty() && ls[0][0] != ' ');
-          chk_s(std::string("H3d `") + cmd + "` is whole-line terminated", ends_crlf(text));
-          chk_s(std::string("H3e `") + cmd + "` fits MR_CONSOLE_STAGE_BYTES incl. line endings",
-                text.size() < (size_t)MR_CONSOLE_STAGE_BYTES);
-          if (text.size() > largest) { largest = text.size(); largest_name = cmd; }
-          for (const auto& l : ls) if (!l.empty() && l[0] == ' ') content.push_back(l);
-          printf("   topic %-13s %4d B / %2d lines   headroom %4d B\n", t.name, (int)text.size(), (int)ls.size(),
-                 (int)((size_t)MR_CONSOLE_STAGE_BYTES - text.size()));
+      // ---- H3: a GATED name is listed iff THIS build compiles its dispatch arm ------------------------------
+      // ⓘ Spot-check only, against the PRODUCT macros. The complete both-direction equality against the generated
+      //   inventory is run.sh's job — see the HELP-NAMES block at the end of this section.
+      for (const auto& g : kGatedNames) {
+          bool present = false;
+          for (const auto& n : idx_names) if (n == g.name) present = true;
+          chk_s(std::string("H3a `") + g.name + "` is listed iff this build compiles its dispatch arm",
+                present == g.available);
       }
-      printf("   index         %4d B / %2d lines   headroom %4d B\n", (int)idx_help.size(),
-             (int)split_lines(idx_help).size(), (int)((size_t)MR_CONSOLE_STAGE_BYTES - idx_help.size()));
-      printf("   refusal       %4d B / %2d lines   headroom %4d B\n", (int)refusal.size(),
-             (int)split_lines(refusal).size(), (int)((size_t)MR_CONSOLE_STAGE_BYTES - refusal.size()));
-      if (refusal.size() > largest) { largest = refusal.size(); largest_name = "(refusal)"; }
-      printf("   HELP-LARGEST %s %d B (stage %d B)\n", largest_name.c_str(), (int)largest, (int)MR_CONSOLE_STAGE_BYTES);
-      CHK("H3f the LARGEST measured response still fits the stage", largest < (size_t)MR_CONSOLE_STAGE_BYTES);
 
-      // ---- H5: unknown / empty / malformed tails all take the one bounded refusal, and never a section -----
-      static const char* const kBadTails[] = {
-          "help zzz", "help messagingx", "help messaging x", "help ", "help  ", "help MESSAGING",
-          "help cfg ", "help  cfg  x", "help mobilex", "help remote2",
+      // ---- H4: `help <anything>` is a RETIRED form — one bounded refusal, never a section -------------------
+      std::string refusal;
+      CHK("H4a `help zzz` is owned and answered", help_render("help zzz", refusal) && !refusal.empty());
+      const std::vector<std::string> ref_lines = split_lines(refusal);
+      CHK("H4b the refusal is NOT the index", refusal != idx_help);
+      CHK("H4c the refusal is bounded to two lines", ref_lines.size() == 2);
+      CHK("H4d the refusal ends with the SAME manual pointer",
+          !ref_lines.empty() && ref_lines.back() == kManualPointer);
+      CHK("H4e the refusal states the two accepted spellings and nothing more",
+          refusal.find("usage:") != std::string::npos && refusal.find("help | ?") != std::string::npos);
+      CHK("H4f the refusal is whole-line terminated", ends_crlf(refusal));
+
+      // ---- H5: every retired topic and malformed tail takes the ONE refusal --------------------------------
+      // ★ The nine retired topic words lead the list: `help messaging` rendering anything but the refusal would be
+      //   the owner's ruling silently un-done.
+      static const char* const kRetiredTails[] = {
+          "help messaging", "help identity", "help mobile", "help inbox", "help diagnostics",
+          "help remote", "help test", "help provisioning", "help cfg",
+          "help zzz", "help  messaging", "help messaging x", "help messagingx", "help ",
+          "help  ", "help MESSAGING", "help cfg ", "help  cfg  x", "help mobilex", "help remote2",
       };
-      for (const char* bad : kBadTails) {
+      for (const char* bad : kRetiredTails) {
           std::string text;
           const bool owned = help_render(bad, text);
           chk_s(std::string("H5a `") + bad + "` is OWNED and answered with the one bounded refusal",
                 owned && text == refusal);
       }
-      // ...while the file's own `peers ` idiom (skip LEADING spaces, then an exact token) still selects a section.
-      { std::string a, b2;
-        CHK("H5b `help  messaging` (leading spaces skipped) selects the section",
-            help_render("help  messaging", a) && help_render("help messaging", b2) && a == b2 && a != refusal); }
-      CHK("H5c the refusal carries a usage line", refusal.find("usage:") != std::string::npos);
-      // ...naming EXACTLY this build's topics: every available one present, every unavailable one absent.
-      { const std::string vt = valid_topics_line(refusal);
-        bool names_ok = !vt.empty();
-        for (const auto& t : kHelpTopics) {
-            const bool present = has_word(vt, t.name);
-            if (present != t.available) names_ok = false;
-        }
-        CHK("H5d the refusal names EXACTLY this build's valid topics", names_ok);
-        printf("   refusal valid-topics line: %s\n", vt.c_str()); }
 
       // ---- H6: nothing else is claimed. A non-help line must fall through untouched. -----------------------
       static const char* const kNotHelp[] = { "helpful", "hel", "?x", "? messaging", "status", "", "h", "HELP" };
@@ -540,9 +513,9 @@ int main() {
 
       // ---- H7: the REAL GuardedConsole drains every response whole, with zero CONSOLE_DROP ----------------
       // A 128-B ESP32 UART0 FIFO and a drain wider than it — the schedule under which P13 proved the sink can
-      // still lose or fuse a line. `help` used to overflow the stage here; the point of 0a is that it cannot.
-      { std::vector<std::string> cmds; cmds.push_back("help"); cmds.push_back("?"); cmds.push_back("help zzz");
-        for (const auto& t : kHelpTopics) if (t.available) cmds.push_back(std::string("help ") + t.name);
+      // still lose or fuse a line. `help` used to overflow the stage here; the point of 0a/0g is that it cannot.
+      { std::vector<std::string> cmds; cmds.push_back("help"); cmds.push_back("?");
+        cmds.push_back("help zzz"); cmds.push_back("help messaging");
         for (const auto& c : cmds) {
             std::string oracle_text; help_render(c.c_str(), oracle_text);
             Serial.reset(128); Serial.auto_drain = 0;
@@ -557,16 +530,25 @@ int main() {
                   Serial.wire.find("CONSOLE_DROP") == std::string::npos);
         } }
 
-      // ---- H8: the CONTENT block the Python wrapper compares against the frozen pre-slice baseline ---------
-      // ⓘ CONTENT only: an indented, non-empty line. A canonical topic HEADING (column 0) and the new blank
-      //   separators are LAYOUT and are enumerated in the slice evidence, never smuggled in as inherited help.
-      printf("HELP-CONTENT-BEGIN %s %d\n", PROBE_PROFILE, (int)content.size());
-      for (const auto& l : content) printf("%s\n", l.c_str());
-      printf("HELP-CONTENT-END\n");
-      printf("HELP-INDEX-BEGIN %s\n", PROBE_PROFILE);
-      printf("%s", idx_help.c_str());
-      printf("%s", refusal.c_str());
-      printf("HELP-INDEX-END\n");
+      // ---- the measured sizes, and the stage headroom the owner's ruling turns on --------------------------
+      size_t largest = idx_help.size(); std::string largest_name = "(index)";
+      if (refusal.size() > largest) { largest = refusal.size(); largest_name = "(refusal)"; }
+      printf("   index    %4d B / %2d lines (%2d names)   headroom %4d B\n", (int)idx_help.size(),
+             (int)idx_lines.size(), (int)idx_names.size(),
+             (int)((size_t)MR_CONSOLE_STAGE_BYTES - idx_help.size()));
+      printf("   refusal  %4d B / %2d lines               headroom %4d B\n", (int)refusal.size(),
+             (int)ref_lines.size(), (int)((size_t)MR_CONSOLE_STAGE_BYTES - refusal.size()));
+      printf("   HELP-LARGEST %s %d B (stage %d B)\n", largest_name.c_str(), (int)largest,
+             (int)MR_CONSOLE_STAGE_BYTES);
+      CHK("H8a the LARGEST measured response still fits the stage", largest < (size_t)MR_CONSOLE_STAGE_BYTES);
+
+      // ---- H8: the NAME block run.sh compares against the GENERATED command inventory ----------------------
+      // ⛔ THE WHOLE INDEX, VERBATIM, INCLUDING THE TRAILING MANUAL POINTER. run.sh strips exactly that one line
+      //   and diffs the rest against `gen_command_inventory.py --primary <profile>` — an oracle produced by
+      //   scanning the real dispatchers, so the comparison is production-output vs SOURCE, never header vs header.
+      printf("HELP-NAMES-BEGIN %s %d\n", PROBE_PROFILE, (int)idx_lines.size());
+      for (const auto& l : idx_lines) printf("%s\n", l.c_str());
+      printf("HELP-NAMES-END\n");
     }
 
     printf("§B95 console-sink probe: %d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);

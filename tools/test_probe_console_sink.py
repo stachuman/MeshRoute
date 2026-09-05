@@ -11,13 +11,15 @@
 #
 # ⛔ WHAT IT IS NOT: it does not re-implement a single check. It runs the real runner and asserts four things the
 #    runner cannot assert about itself:
-#      1. the PINS line's counts — an anti-reduction pin, exact in BOTH directions (see PIN_* below);
+#      1. the PINS line's counts — an anti-reduction pin, exact in BOTH directions (see PIN_* below), AND that the
+#         runner now applies the same judgment itself before PASS ([[B294]]);
 #      2. that every negative control actually produced a RED result (no STAYED GREEN / INSTRUMENT FAILURE / NOT
 #         APPLIED anywhere in the output);
 #      3. that `--no-neg` is visibly probe-only and NEVER prints PASS; and
 #      4. that the md5s the binary printed are the md5s of the files on disk right now — i.e. the run measured the
 #         checkout, not a copy.
-#    Plus the anti-vacuity behaviour of `help_manifest.py`, the module the no-line-lost proof rests on.
+#    Plus the anti-vacuity behaviour of the §0g PROJECTION ORACLE (`gen_command_inventory.primary_names`), which is
+#    what the no-command-lost proof now rests on since [[B291]] retired the frozen `help_baseline.json`.
 """Wrapper selftests for the §B95/§0a console-sink + help probe."""
 
 from __future__ import annotations
@@ -34,24 +36,27 @@ ROOT = os.path.dirname(HERE)
 PROBE_DIR = os.path.join(HERE, "probe_console_sink")
 
 sys.path.insert(0, PROBE_DIR)
-import ble_guard as BG       # noqa: E402
-import help_manifest as HM   # noqa: E402
+sys.path.insert(0, HERE)
+import ble_guard as BG              # noqa: E402
+import gen_command_inventory as GEN  # noqa: E402
 
 # ★ THE DERIVED PINS. Every one of these was COUNTED from a real run, never chosen; each is exact in both directions
 #   so that adding a check is a deliberate act and removing one cannot pass silently.
-#     profiles   — len(help_manifest.PROFILES); the six real board macro sets.
-#     checks     — the summed `N total` the probe binary prints per profile: 166 on the two builds that compile the
-#                  OLED preset topic, 160 on the four that do not (6 fewer rows: one topic's H3b..H3e + H7a..H7d
-#                  minus its absent-topic H4a). 166*2 + 160*4 = 972.
+# ★★ §0g/[[B294]]: THE RUNNER NOW ENFORCES THE SAME PINS ITSELF, before it prints PASS. This file is deliberately
+#   kept as an INDEPENDENT SECOND READER — it re-derives the numbers from the runner's stdout and additionally pins
+#   that the runner performs that judgment (test_the_runner_enforces_its_own_pins).
+#     profiles   — len(gen_command_inventory.PROFILES); the six real board macro sets.
+#     checks     — the summed `N total` the probe binary prints per profile: 120 on EVERY profile (52 §B95 sink rows
+#                  + 68 §0g help rows), so 120*6 = 720. §0a's 972 is retired with the per-topic rows that scaled it.
 #     structural — the row count structural.py reports (S1..S20).
 #     ble_guard  — the executed BLE help-refusal rows: 53 corpus lines x 4 assertions (B1..B4) = 212.
-#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 5 source + 6 B214 + 10 help behavioural + 8 help
-#                  structural/baseline + 3 BLE executed + 2 BLE structural = 42.
+#     controls   — negctl's own CONTROLS-TOTAL: 8 sink + 5 source + 6 B214 + 13 help rendered-index + 2 help
+#                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 47.
 PIN_PROFILES = 6
-PIN_CHECKS = 972
+PIN_CHECKS = 720
 PIN_STRUCTURAL = 20
 PIN_BLE_GUARD = 212
-PIN_CONTROLS = 42
+PIN_CONTROLS = 47
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 
@@ -93,21 +98,27 @@ class TestProbeRunner(unittest.TestCase):
         self.assertEqual(PIN_CONTROLS, controls, "a negative control was added or removed")
         self.assertEqual(0, unusable)
 
-    def test_the_probe_matrix_matches_the_manifest_matrix(self):
-        """One profile list, not two: the runner's PROFILES and help_manifest's must name the same builds."""
+    def test_the_probe_matrix_matches_the_generator_matrix(self):
+        """One profile list, not two: the runner's PROFILES and the generator's must name the same builds."""
         with open(os.path.join(PROBE_DIR, "run.sh"), encoding="utf-8") as fh:
             run_sh = fh.read()
         block = run_sh.split("PROFILES=(", 1)[1].split(")\n", 1)[0]
         named = set(re.findall(r'"([a-z_]+)\|', block))
-        self.assertEqual(set(HM.PROFILES), named)
+        self.assertEqual(set(GEN.PROFILES), named)
 
-    def test_every_profile_reported_a_clean_content_multiset(self):
-        rows = re.findall(r"content multiset (\w+): expected (\d+) / actual (\d+) / (\d+) problem", self.full.stdout)
-        self.assertEqual(PIN_PROFILES, len(rows), "every profile must be compared against the frozen baseline")
-        for prof, exp, act, prob in rows:
-            self.assertEqual("0", prob, f"{prof}: the help content multiset moved")
-            self.assertEqual(exp, act, f"{prof}: line count differs")
-            self.assertGreater(int(exp), 0, f"{prof}: an EMPTY expectation would compare clean against anything")
+    def test_every_profile_was_compared_against_the_source_projection(self):
+        """§0g: the oracle is the GENERATED INVENTORY, and every profile must actually have been compared to it."""
+        rows = re.findall(r"primary names (\w+): (\d+) rendered == (\d+) projected", self.full.stdout)
+        self.assertEqual(PIN_PROFILES, len(rows), "every profile must be compared against the inventory projection")
+        for prof, rendered, projected in rows:
+            self.assertEqual(rendered, projected, f"{prof}: rendered and projected name counts differ")
+            self.assertGreater(int(projected), 0,
+                               f"{prof}: an EMPTY projection would compare clean against anything")
+        # ...and the numbers the runner reported must be the ones the generator produces right now, independently.
+        for prof, rendered, _projected in rows:
+            rows_now, _n, _v, _r = GEN.build_rows(ROOT)
+            self.assertEqual(int(rendered), len(GEN.primary_names(rows_now, GEN.PROFILES[prof])),
+                             f"{prof}: the runner's count disagrees with a fresh projection")
 
     def test_no_control_was_unusable(self):
         for line in self.full.stdout.split("\n"):
@@ -140,6 +151,21 @@ class TestProbeRunner(unittest.TestCase):
         self.assertGreaterEqual(rows, 40, "an almost-empty corpus would prove nothing")
         self.assertIn("extracted guard: ", self.full.stdout,
                       "the run must state which condition text it measured")
+
+    def test_the_runner_enforces_its_own_pins(self):
+        """[[B294]]: running the gate DIRECTLY must refuse a shrunken measurement instead of printing PASS.
+
+        The selftest drops one profile, so every probe binary the child launched still prints `0 failed` while the
+        observed profile/check counts fall — the exact hole where a green probe used to carry a green gate.
+        """
+        r = subprocess.run(["bash", os.path.join(PROBE_DIR, "run.sh"), "--pin-selftest"],
+                           capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(0, r.returncode, r.stdout[-4000:] + r.stderr[-2000:])
+        self.assertIn("SELFTEST OK", r.stdout)
+        self.assertNotIn("PASS: probe + structural + controls all green", r.stdout,
+                         "the selftest must never share the gate's PASS wording")
+        self.assertIn("STILL GREEN, runner refused", r.stdout,
+                      "the F4 shape — green probe binaries, shrunken coverage — must be demonstrated")
 
     def test_no_neg_is_visibly_probe_only_and_never_claims_pass(self):
         self.assertEqual(0, self.noneg.returncode)
@@ -184,69 +210,62 @@ class TestBleGuard(unittest.TestCase):
 
     def test_the_corpus_covers_every_owner_topic_in_the_leaky_shapes(self):
         rows = dict(BG.corpus())
-        for t in BG.TOPICS:
+        for t in BG.RETIRED_TOPIC_WORDS:
             for shape in (f"help {t}", f"help  {t}", f"help {t} x", f"help {t}x"):
                 self.assertTrue(rows[shape], f"{shape} must be refused on BLE")
         for through in ("helpful", "hel", "status", ""):
             self.assertFalse(rows[through], f"{through} must NOT be swallowed by the help guard")
 
 
-class TestHelpManifest(unittest.TestCase):
-    """The no-line-lost proof rests on this module; a vacuous comparison here would void the whole gate."""
+class TestPrimaryProjectionOracle(unittest.TestCase):
+    """§0g: the completeness proof now rests on the GENERATED projection, so a vacuous oracle would void the gate.
 
-    BASELINE = os.path.join(PROBE_DIR, "help_baseline.json")
+    (This class replaces TestHelpManifest, retired with `help_manifest.py`/`help_baseline.json` under [[B291]].)
+    """
 
-    def test_the_frozen_baseline_covers_every_profile_with_content(self):
-        base = HM.load_baseline(self.BASELINE)["profiles"]
-        self.assertEqual(set(HM.PROFILES), set(base))
-        for name, row in base.items():
-            self.assertEqual(HM.PROFILES[name], row["macros"], f"{name}: the frozen macro set drifted")
-            self.assertGreater(len(row["content"]), 40, f"{name}: an almost-empty baseline proves nothing")
-            self.assertGreater(row["total_bytes"], 4000)
+    @classmethod
+    def setUpClass(cls):
+        cls.rows, _n, _v, _r = GEN.build_rows(ROOT)
 
-    def test_the_comparison_preserves_MULTIPLICITY(self):
-        """A `set` comparison would hide one of two identical lines being dropped. It must be a multiset."""
-        self.assertEqual([], HM.compare_content(["a", "a", "b"], ["b", "a", "a"]))
-        self.assertEqual(1, len(HM.compare_content(["a", "a", "b"], ["a", "b"])))
-        self.assertEqual(1, len(HM.compare_content(["a", "b"], ["a", "a", "b"])))
+    def test_every_profile_projects_a_non_empty_sorted_unique_name_set(self):
+        for prof, macros in GEN.PROFILES.items():
+            names = GEN.primary_names(self.rows, macros)
+            self.assertGreater(len(names), 40, f"{prof}: an almost-empty projection proves nothing")
+            self.assertEqual(sorted(set(names), key=lambda n: n.encode()), names,
+                             f"{prof}: the projection must be bytewise sorted and unique")
 
-    def test_an_empty_side_never_compares_clean(self):
-        self.assertTrue(HM.compare_content(["x"], []))
-        self.assertTrue(HM.compare_content([], ["x"]))
+    def test_an_empty_row_set_REFUSES_instead_of_projecting_nothing(self):
+        with self.assertRaises(GEN.GeneratorError):
+            GEN.primary_projection([], GEN.PROFILES["full_headless"])
 
-    def test_content_block_refuses_a_missing_marker(self):
-        with self.assertRaises(HM.ManifestError):
-            HM.content_block("nothing here\n", "gateway")
+    def test_the_gate_evaluator_refuses_a_macro_that_is_not_a_profile_axis(self):
+        with self.assertRaises(GEN.GeneratorError):
+            GEN.eval_gate("MR_FEAT_NOT_A_PROFILE_AXIS", GEN.PROFILES["gateway"])
 
-    def test_content_block_refuses_a_count_mismatch(self):
-        out = "HELP-CONTENT-BEGIN gateway 3\n  a\n  b\nHELP-CONTENT-END\n"
-        with self.assertRaises(HM.ManifestError):
-            HM.content_block(out, "gateway")
+    def test_the_gate_evaluator_agrees_with_the_real_gates(self):
+        self.assertTrue(GEN.eval_gate("MR_N_LAYERS < 2", GEN.PROFILES["mobile"]))
+        self.assertFalse(GEN.eval_gate("MR_N_LAYERS < 2", GEN.PROFILES["gateway"]))
+        self.assertFalse(GEN.eval_gate("MR_FEAT_REMOTE_MGMT", GEN.PROFILES["mobile"]))
+        self.assertTrue(GEN.eval_gate("MR_FEAT_OLED", GEN.PROFILES["full_oled"]))
 
-    def test_content_block_returns_byte_faithful_lines(self):
-        """The probe's stdout is UTF-8; the baseline is byte-per-char. The bridge must not widen a glyph."""
-        out = "HELP-CONTENT-BEGIN gateway 1\n  — dash\nHELP-CONTENT-END\n"
-        self.assertEqual(["  â dash"], HM.content_block(out, "gateway"))
+    def test_the_feature_gates_really_separate_the_profiles(self):
+        """A projection identical on every profile would silently stop testing availability at all."""
+        full = set(GEN.primary_names(self.rows, GEN.PROFILES["full_oled"]))
+        gw = set(GEN.primary_names(self.rows, GEN.PROFILES["gateway"]))
+        mob = set(GEN.primary_names(self.rows, GEN.PROFILES["mobile"]))
+        self.assertEqual({"mobile", "team", "ui"}, full - gw)
+        self.assertEqual({"lock", "password", "unlock", "ui"}, full - mob)
 
-    def test_the_preprocessor_evaluator_refuses_an_unknown_macro(self):
-        with self.assertRaises(HM.ManifestError):
-            HM.eval_cond("MR_FEAT_NOT_A_PROFILE_AXIS", HM.PROFILES["gateway"])
+    def test_the_punctuation_alias_is_not_a_second_command(self):
+        names = GEN.primary_names(self.rows, GEN.PROFILES["full_headless"])
+        self.assertIn("help", names)
+        self.assertNotIn("?", names)
 
-    def test_the_preprocessor_evaluator_agrees_with_the_real_gates(self):
-        self.assertTrue(HM.eval_cond("MR_N_LAYERS < 2", HM.PROFILES["mobile"]))
-        self.assertFalse(HM.eval_cond("MR_N_LAYERS < 2", HM.PROFILES["gateway"]))
-        self.assertFalse(HM.eval_cond("MR_FEAT_REMOTE_MGMT", HM.PROFILES["mobile"]))
-        self.assertTrue(HM.eval_cond("MR_FEAT_OLED", HM.PROFILES["full_oled"]))
-
-    def test_the_classifier_is_derived_from_the_line_shape(self):
-        self.assertEqual("separator", HM.classify(""))
-        self.assertEqual("heading", HM.classify("MESSAGING"))
-        self.assertEqual("content", HM.classify("  send <id>"))
-
-    def test_rendered_bytes_counts_bytes_not_code_points(self):
-        self.assertEqual(5, HM.rendered_bytes("abc"))                 # 3 + CRLF
-        self.assertEqual(3, HM.rendered_bytes("abc", terminated=False))
-        self.assertEqual(5, HM.rendered_bytes("â "))  # the ⚠ glyph is THREE wire bytes
+    def test_the_console_token_parser_surface_is_included(self):
+        """Surface 3's seven names never reach dispatch(); dropping that surface loses them silently (42 vs 49)."""
+        names = set(GEN.primary_names(self.rows, GEN.PROFILES["full_headless"]))
+        for n in ("send", "send_channel", "send_layer", "peerkey", "peername", "reqpubkey", "resolve"):
+            self.assertIn(n, names)
 
 
 if __name__ == "__main__":

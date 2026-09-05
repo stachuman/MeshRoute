@@ -6,7 +6,7 @@ Derived from source by `tools/gen_command_inventory.py`. **The `authority` colum
 
 Alias spellings of one semantic arm are recorded in the verb/sub-verb cell as `(alias: …)`; they are never a second row. A `#if`-gated arm is present with its exact macro rather than disappearing under the host's current flags.
 
-Total rows: **186**.
+Total rows: **177**.
 
 ## Surface 1 — top-level `dispatch()` verbs
 
@@ -58,16 +58,7 @@ Total rows: **186**.
 | `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1178` |  |
 | `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1091` |  |
 | `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1166` |  |
-| `help` | `cfg` | `help_command` | serial | — | `src/firmware_help.h:252` |  |
-| `help` | `diagnostics` | `help_command` | serial | — | `src/firmware_help.h:246` |  |
-| `help` | `identity` | `help_command` | serial | — | `src/firmware_help.h:241` |  |
-| `help` | `inbox` | `help_command` | serial | — | `src/firmware_help.h:245` |  |
-| `help` | `messaging` | `help_command` | serial | — | `src/firmware_help.h:240` |  |
-| `help` | `mobile` | `help_command` | serial | `MR_HELP_HAS_MOBILE` | `src/firmware_help.h:243` |  |
-| `help` | `provisioning` | `help_command` | serial | — | `src/firmware_help.h:251` |  |
-| `help` | `remote` | `help_command` | serial | `MR_HELP_HAS_REMOTE` | `src/firmware_help.h:248` |  |
-| `help` | `test` | `help_command` | serial | — | `src/firmware_help.h:250` |  |
-| `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:233` |  |
+| `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:149` |  |
 
 ## Surface 2 — sub-verb dispatchers
 

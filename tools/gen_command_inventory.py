@@ -9,8 +9,20 @@
 #      does. The open/operator/owner classification of each row is then your ruling, taken once against a complete
 #      list rather than guessed per command."
 # ⇒ THIS FILE PRODUCES THE COMPLETE LIST AND NOTHING ELSE. The `authority` column of every emitted row is EMPTY and
-#   the generator REFUSES to run if any row carries one (`--check` / `verify_rows`). 0e does not classify; the owner
-#   does, once, over the generated table.
+#   the generator REFUSES to run if any row carries one (`verify_rows`). 0e does not classify; the owner does, once,
+#   over the generated table.
+#
+# ---- THE TWO COMMANDS, BOTH REAL ([[B295]], slice 0g) -----------------------------------------------------------
+#     python3 tools/gen_command_inventory.py --write     regenerate the tracked inventory
+#     python3 tools/gen_command_inventory.py --check     verify it byte-for-byte (identical to a bare invocation)
+#   ⛔ `--check` was advertised here and in the generated footer for a whole slice while argparse never defined it,
+#     so the documented verify command refused as an unknown argument. Output modes are now one mutually exclusive
+#     argparse group: a conflicting pair is REFUSED, never silently resolved by precedence.
+#
+# ---- SLICE 0g ALSO PUBLISHES THE PRIMARY-VERB PROJECTION ---------------------------------------------------------
+#   `primary_names(rows, macros)` reduces these classified rows to the console's bare primary command names for one
+#   product profile. It is the completeness/feature-gate ORACLE for `src/firmware_help.h`, whose flash-resident list
+#   is only a presentation copy. See the projection section below.
 #
 # ⛔ WHAT THIS IS NOT: it is not a `grep -c strncmp`. A token counter cannot tell a verb from a flag, cannot say which
 #    function owns an arm, cannot see a `#if MR_FEAT_*` gate, and cannot notice a NEW sub-verb dispatcher appearing.
@@ -170,6 +182,29 @@ SCAN_FILES = (
     "src/firmware_ui_preset_verbs.h",
     "lib/console/console_parse.cpp",
 )
+
+# ★ THE REAL PRODUCT PROFILE MATRIX — the resolved macro set of at least one REAL board env. Moved here from the
+#   RETIRED `tools/probe_console_sink/help_manifest.py` by slice 0g so that ONE table serves the generator, the
+#   console-sink gate and its wrapper; `tools/probe_console_sink/run.sh` builds exactly these six and its wrapper
+#   asserts the two lists name the same builds. ⛔ `native` is deliberately absent: `platformio.ini`'s
+#   `test_build_src = no` means no native target compiles `src/`.
+PROFILES = {
+    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED
+    "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1),
+    "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0),
+    "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0),
+    "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1),
+    "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=0),
+    "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=1),
+}
+PROFILE_ENVS = {
+    "full_oled":     ("heltec_v3", "heltec_v4"),
+    "full_headless": ("xiao_sx1262", "xiao_esp32s3", "production"),
+    "gateway":       ("gateway", "gateway_esp32s3"),
+    "gateway_oled":  ("gateway_heltec", "gateway_heltec_v4"),
+    "mobile":        ("xiao_mobile", "xiao_esp32s3_mobile"),
+    "mobile_oled":   ("heltec_mobile", "heltec_v4_mobile"),
+}
 
 
 class GeneratorError(RuntimeError):
@@ -641,6 +676,113 @@ def verify_rows(rows) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# The primary-verb projection (remote-admin v2 slice 0g)
+# ---------------------------------------------------------------------------------------------------------------
+# ★★ THE OWNER RULED (2026-09-05) that console help becomes a BARE PRIMARY-VERB INDEX and that THIS GENERATOR is its
+#   completeness and feature-gate oracle: "every primary verb the build compiles appears EXACTLY once, under the same
+#   feature gate as its dispatch arm, and nothing else appears".
+# ⛔ IT IS A PROJECTION OF THE ROWS ABOVE, NEVER A SECOND SCAN. Re-parsing C++ here would fork the classification the
+#   whole file exists to keep single, and an allow-list of "real" commands would be the hand-maintained table R-RA-1
+#   forbids. Every rule below is a reduction of `Row` fields that the scanner already derived from source.
+#
+# WHICH SURFACES INTRODUCE A PRIMARY CONSOLE VERB:
+#   · kind "top"    — the two halves of the top-level verb map (`dispatch` + the extracted `help_command`).
+#   · `parse_command` — Surface 3's CONSOLE TOKEN PARSER. Its seven names (`send`, `send_channel`, `send_layer`,
+#     `peerkey`, `peername`, `reqpubkey`, `resolve`) are consumed there and NEVER reach `dispatch()`, so a projection
+#     over Surface 1 alone silently loses them (42 instead of 49 on a full build).
+#   · every other caller is excluded: `service_console`/`ble_dispatch_line` only re-test lines another surface owns,
+#     so counting them would double-count `peerkey` and import BLE-only arms into a serial index.
+_ALIAS_NOTE_RE = re.compile(r"^(?P<base>.*?)\s*\(alias:\s*(?P<aliases>[^)]*)\)\s*$")
+# A primary NAME is a word: `?` is punctuation and is the alias spelling of `help`, never a second command.
+_WORD_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]*\Z")
+_COND_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+|&&|\|\||[!()<>=]=?|.")
+
+
+def eval_gate(expr: str, macros: dict) -> bool:
+    """Evaluate one recorded `#if` expression under `macros`. Fail loud outside the supported subset."""
+    if not expr.strip():
+        raise GeneratorError("empty gate expression")
+    py = []
+    for tok in _COND_TOKEN_RE.findall(expr):
+        if tok.isspace():
+            continue
+        if tok == "&&":
+            py.append(" and ")
+        elif tok == "||":
+            py.append(" or ")
+        elif tok == "!":
+            py.append(" not ")
+        elif tok in ("(", ")", "<", ">", "<=", ">=", "==", "!="):
+            py.append(tok)
+        elif tok.isdigit():
+            py.append(tok)
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tok):
+            if tok == "defined":
+                raise GeneratorError("`defined()` is outside this evaluator's subset: " + expr)
+            # An undefined macro is 0 in a real #if — but here that would silently DROP a command from the expected
+            # help list, so REFUSE: every macro a dispatch arm is gated on must be a named axis of the matrix.
+            if tok not in macros:
+                raise GeneratorError("gate %r names macro %r which is not a profile axis" % (expr, tok))
+            py.append(str(int(macros[tok])))
+        else:
+            raise GeneratorError("gate %r contains unsupported token %r" % (expr, tok))
+    return bool(eval("".join(py)))   # noqa: S307 — the token filter above is the whitelist
+
+
+def _spellings(verb: str):
+    """Every independently accepted spelling recorded in one verb cell: `a (alias: b)` -> [a, b]; `a|b` -> [a, b]."""
+    m = _ALIAS_NOTE_RE.match(verb)
+    base, extra = (m.group("base"), m.group("aliases").split(",")) if m else (verb, [])
+    out = []
+    for spelling in [base] + list(extra):
+        for piece in spelling.split("|"):
+            piece = piece.strip()
+            if piece:
+                out.append(piece)
+    return out
+
+
+def is_primary_surface(surface) -> bool:
+    """Does this Surface introduce top-level console verbs? (see the block comment above)"""
+    if surface.kind == "top":
+        return True
+    return surface.kind == "caller" and surface.func == "parse_command"
+
+
+def primary_projection(rows, macros: dict) -> dict:
+    """-> {primary name: [(file:line, gate), ...]} for ONE product profile.
+
+    The eight reduction rules, in order: serial-only, primary surfaces, gate evaluation, multiword -> first token,
+    alias expansion, generator-annotation canonicalization, de-duplication AFTER gating, and (in the caller) a
+    bytewise sort.
+    """
+    primary = {(s.file, s.func) for s in SURFACES if is_primary_surface(s)}
+    names = {}
+    for r in rows:
+        if "serial" not in [t.strip() for t in r.transports.split(",")]:
+            continue                                          # (1) the serial dispatcher only
+        if tuple(r.surface.split("::", 1)) not in primary:
+            continue                                          # (2) top-level + the console token parser
+        if r.gate != "—" and not eval_gate(r.gate, macros):
+            continue                                          # (3) this build does not compile the arm
+        for spelling in _spellings(r.verb):                   # (5)(6) aliases and `a|b`, canonicalized
+            name = spelling.split()[0]                        # (4) `cfg set` -> `cfg`
+            if not _WORD_NAME_RE.match(name):
+                continue                                      # (5) `?` is help's spelling, not a command
+            names.setdefault(name, []).append((r.source, r.gate))   # (7) de-duplicated by dict key
+    if not names:
+        raise GeneratorError(
+            "the primary-verb projection is EMPTY for macros %r — a build with no console commands is not a "
+            "result, it is a broken projection" % (macros,))
+    return names
+
+
+def primary_names(rows, macros: dict) -> list:
+    """The bytewise-sorted unique primary command names of one profile — (8), and the help index's exact order."""
+    return sorted(primary_projection(rows, macros), key=lambda n: n.encode("utf-8"))
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -735,8 +877,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=REPO_ROOT, help="repository root to scan")
     ap.add_argument("--out", default=None, help="tracked output path (default: %s)" % TRACKED_OUTPUT)
-    ap.add_argument("--write", action="store_true", help="write the generated inventory to the tracked path")
-    ap.add_argument("--stdout", action="store_true", help="print the generated inventory instead of checking")
+    # ★ [[B295]]: ONE mutually exclusive group over the output modes. `--check` is an explicit spelling of the
+    #   DEFAULT verification — the same code path, the same verdict, the same exit status — and `--check --write`,
+    #   `--check --stdout` and `--write --stdout` are refused by argparse rather than one silently taking precedence.
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true",
+                      help="verify the tracked inventory byte-for-byte (the default when no mode is given)")
+    mode.add_argument("--write", action="store_true", help="write the generated inventory to the tracked path")
+    mode.add_argument("--stdout", action="store_true", help="print the generated inventory instead of checking")
+    mode.add_argument("--primary", metavar="PROFILE",
+                      help="print one product profile's bare primary command names (%s)" % ", ".join(PROFILES))
     args = ap.parse_args(argv)
     out_path = args.out or os.path.join(args.root, TRACKED_OUTPUT)
 
@@ -746,6 +896,19 @@ def main(argv=None) -> int:
         print("gen_command_inventory: REFUSED: %s" % exc, file=sys.stderr)
         return 2
 
+    if args.primary is not None:
+        if args.primary not in PROFILES:
+            print("gen_command_inventory: REFUSED: unknown profile %r (known: %s)"
+                  % (args.primary, ", ".join(PROFILES)), file=sys.stderr)
+            return 2
+        try:
+            names = primary_names(rows, PROFILES[args.primary])
+        except GeneratorError as exc:
+            print("gen_command_inventory: REFUSED: %s" % exc, file=sys.stderr)
+            return 2
+        for name in names:
+            print(name)
+        return 0
     if args.stdout:
         sys.stdout.write(text)
         return 0
@@ -756,6 +919,7 @@ def main(argv=None) -> int:
         print("gen_command_inventory: wrote %s (%d command rows)" % (out_path, len(rows)))
         return 0
 
+    # ---- the verification, reached by a bare invocation AND by `--check`: ONE path, so the two cannot diverge ----
     if not os.path.exists(out_path):
         print("gen_command_inventory: FAIL: tracked inventory %s is missing" % out_path, file=sys.stderr)
         return 1

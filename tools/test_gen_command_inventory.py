@@ -517,24 +517,28 @@ class TestRealTree(unittest.TestCase):
                 self.assertRegex(line, r"\|\s*\|\s*$", "the authority cell must be blank: %s" % line)
 
     def test_the_help_family_is_present_in_the_tracked_table(self):
-        """§0a: the primary `help (alias: ?)` row survived the move, and the nine topics are recorded."""
+        """§0g: the help surface yields EXACTLY the primary `help (alias: ?)` row — the nine topics are RETIRED.
+
+        This row used to pin the two topic-gating macros (`MR_HELP_HAS_MOBILE`/`MR_HELP_HAS_REMOTE`). The owner's
+        2026-09-05 ruling removed the sections those macros gated, so the macros went with them: keeping them alive
+        merely to keep this assertion green would be preserving a dead gate to satisfy its own test.
+        """
         rows, _n, _v, _r = G.build_rows(REPO_ROOT)
         help_rows = [r for r in rows if r.func == "help_command"]
-        primary = [r for r in help_rows if r.subverb == "—"]
-        self.assertEqual(1, len(primary), "exactly one primary help row")
-        self.assertEqual("help (alias: ?)", primary[0].verb)
-        self.assertEqual("src/firmware_help.h", primary[0].source.split(":")[0])
-        topics = sorted(r.subverb for r in help_rows if r.subverb != "—")
-        self.assertEqual(["cfg", "diagnostics", "identity", "inbox", "messaging", "mobile", "provisioning",
-                          "remote", "test"], topics,
-                         "the owner's nine topics, every one derived from the real router")
-        gates = {r.subverb: r.gate for r in help_rows}
-        self.assertEqual("MR_HELP_HAS_MOBILE", gates["mobile"])
-        self.assertEqual("MR_HELP_HAS_REMOTE", gates["remote"])
-        self.assertEqual("—", gates["messaging"])
+        self.assertEqual(1, len(help_rows),
+                         "the retired `help <topic>` sub-verbs must not come back as inventory rows")
+        primary = help_rows[0]
+        self.assertEqual("help (alias: ?)", primary.verb)
+        self.assertEqual("—", primary.subverb)
+        self.assertEqual("—", primary.gate, "bare `help`/`?` is compiled into every product profile")
+        self.assertEqual("src/firmware_help.h", primary.source.split(":")[0])
+        with open(os.path.join(REPO_ROOT, "src", "firmware_help.h"), encoding="utf-8") as fh:
+            header = fh.read()
+        for retired in ("MR_HELP_HAS_MOBILE", "MR_HELP_HAS_REMOTE"):
+            self.assertNotIn(retired, header, f"{retired} was retired with the topic sections it gated")
 
     def test_no_help_text_line_became_a_command_row(self):
-        """The help SECTIONS quote plenty of command syntax; none of it may enter the table as an arm."""
+        """Only the router may yield rows from the help header — never a rendered name line."""
         rows, _n, _v, _r = G.build_rows(REPO_ROOT)
         from_header = [r for r in rows if r.source.startswith("src/firmware_help.h")]
         self.assertTrue(from_header)
@@ -593,6 +597,119 @@ class TestRealTree(unittest.TestCase):
         text, rows = G.generate(REPO_ROOT)
         self.assertGreater(len(rows), 100)
         self.assertIn("Total rows: **%d**." % len(rows), text)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# §0g — the PRIMARY-VERB PROJECTION
+# ---------------------------------------------------------------------------------------------------------------
+# ★ A SEPARATE SYNTHETIC TREE, so the projection's rules are proven on shapes the real tree may not currently hold.
+#   It adds, to the baseline fixture: a MULTIWORD top-level arm (`cfg set `), a DUPLICATE arm, a WORD alias pair, two
+#   COMPLEMENTARY gated arms for one spelling, and a RADIO-ONLY surface. The baseline already supplies serial+BLE
+#   arms, a BLE-only caller, a sub-verb dispatcher, a gated arm and the `help`/`?` punctuation alias.
+PROJ_ARMS = (
+    '    if (len > 8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8, out); return true; }\n'
+    '    if (len == 4 && !strncmp(line, "quit", 4)) { do_quit(out); return true; }\n'
+    '    if (len == 4 && !strncmp(line, "quit", 4)) { do_quit(out); return true; }\n'
+    '    if ((len == 5 && !strncmp(line, "erase", 5)) || (len == 4 && !strncmp(line, "wipe", 4)))'
+    ' { do_erase(out); return true; }\n'
+    '#if MR_FEAT_WIDGET\n'
+    '    if (len == 5 && !strncmp(line, "gizmo", 5)) { do_gizmo_a(out); return true; }\n'
+    '#else\n'
+    '    if (len == 5 && !strncmp(line, "gizmo", 5)) { do_gizmo_b(out); return true; }\n'
+    '#endif\n'
+    '    return false;\n'
+    '}\n'
+    '\n'
+    'static size_t remote_encode(const char* verb, size_t n, uint8_t* enc) {\n'
+    '    if (n == 6 && !strncmp(verb, "reboot", 6)) { return enc_reboot(enc); }\n'
+    '    return 0;\n'
+    '}\n'
+)
+
+PROJ_SURFACES = FIX_SURFACES + (
+    G.Surface("src/firmware_commands.cpp", "remote_encode", "remote", "radio(REMOTE_CMD)"),
+)
+# MR_HELP_HAS_MOBILE is the FIXTURE help router's own gate; it is a profile axis HERE so the projection can be
+# exercised with that arm both compiled and compiled out.
+PROJ_ON = {"MR_FEAT_WIDGET": 1, "MR_HELP_HAS_MOBILE": 1}
+PROJ_OFF = {"MR_FEAT_WIDGET": 0, "MR_HELP_HAS_MOBILE": 0}
+
+
+def _proj_tree(extra_arms=""):
+    return FixtureTree({"src/firmware_commands.cpp":
+                        lambda body: body.replace("    return false;\n}\n", extra_arms + PROJ_ARMS, 1)},
+                       surfaces=PROJ_SURFACES)
+
+
+class TestPrimaryProjection(unittest.TestCase):
+    """§0g: the reduction from classified rows to the console's bare primary command names."""
+
+    def test_the_eight_rules_on_one_tree(self):
+        with _proj_tree() as t:
+            names = G.primary_names(t.rows(), PROJ_ON)
+        self.assertEqual(["cfg", "erase", "gizmo", "help", "quit", "send", "status", "thing", "widget", "wipe"],
+                         names)
+        # (4) the multiword arm collapsed to its first token, and `set` never became a command
+        self.assertNotIn("set", names)
+        # (5) the punctuation alias is help's spelling, not a second command
+        self.assertNotIn("?", names)
+        # (2) sub-verbs, BLE-only caller arms and the radio-only surface are all excluded
+        for excluded in ("alpha", "beta", "whoami", "extra", "reboot"):
+            self.assertNotIn(excluded, names)
+        # (7) the duplicate `quit` arm appears exactly once
+        self.assertEqual(1, names.count("quit"))
+        # (8) bytewise ascending
+        self.assertEqual(sorted(set(names), key=lambda n: n.encode()), names)
+
+    def test_a_word_alias_is_an_independent_primary_name(self):
+        with _proj_tree() as t:
+            rows = t.rows()
+            names = G.primary_names(rows, PROJ_ON)
+        self.assertIn("erase", names)
+        self.assertIn("wipe", names, "a word alias is a spelling a user can actually type")
+        self.assertIn("erase (alias: wipe)", {r.verb for r in rows}, "...recorded as ONE inventory row")
+
+    def test_a_disabled_feature_row_disappears_and_its_complementary_twin_does_not(self):
+        with _proj_tree() as t:
+            rows = t.rows()
+            on, off = G.primary_names(rows, PROJ_ON), G.primary_names(rows, PROJ_OFF)
+        self.assertIn("widget", on)
+        self.assertNotIn("widget", off, "a gated arm this build does not compile must not be advertised")
+        self.assertIn("gizmo", on)
+        self.assertIn("gizmo", off, "complementary #if/#else arms mean the verb is ALWAYS compiled")
+        self.assertEqual({"widget"}, set(on) - set(off))
+
+    def test_a_new_source_command_changes_the_list_without_touching_the_projection(self):
+        """The oracle must be self-maintaining: adding a dispatch arm is the ONLY edit required."""
+        with _proj_tree() as t:
+            before = G.primary_names(t.rows(), PROJ_ON)
+        with _proj_tree('    if (len == 6 && !strncmp(line, "zzznew", 6)) { do_new(out); return true; }\n') as t:
+            after = G.primary_names(t.rows(), PROJ_ON)
+        self.assertEqual(["zzznew"], sorted(set(after) - set(before)))
+
+    def test_an_empty_projection_REFUSES(self):
+        with self.assertRaises(G.GeneratorError):
+            G.primary_projection([], PROJ_ON)
+
+    def test_a_gate_naming_a_macro_outside_the_profile_REFUSES(self):
+        with _proj_tree() as t:
+            rows = t.rows()
+        with self.assertRaises(G.GeneratorError):
+            G.primary_names(rows, {"MR_HELP_HAS_MOBILE": 1})   # MR_FEAT_WIDGET missing: refuse, never assume 0
+
+    def test_only_the_top_and_parse_command_surfaces_are_primary(self):
+        primary = {(s.file, s.func) for s in G.SURFACES if G.is_primary_surface(s)}
+        self.assertIn(("src/firmware_commands.cpp", "dispatch"), primary)
+        self.assertIn(("src/firmware_help.h", "help_command"), primary)
+        self.assertIn(("lib/console/console_parse.cpp", "parse_command"), primary)
+        self.assertNotIn(("src/fw_main.cpp", "service_console"), primary)
+        self.assertNotIn(("src/fw_main.cpp", "ble_dispatch_line"), primary)
+        self.assertNotIn(("src/firmware_config.cpp", "handle_cfg_set"), primary)
+
+    def test_the_real_tree_projects_the_manual_s_49_primary_names(self):
+        """The manual's "49 primary command names plus `?`" is REPRODUCED from source, never copied into it."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        self.assertEqual(49, len(G.primary_names(rows, G.PROFILES["full_oled"])))
 
 
 if __name__ == "__main__":

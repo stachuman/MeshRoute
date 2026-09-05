@@ -16,12 +16,16 @@
 #    A reconstruction recipe in a note is not a storage location; this project has already LOST a proven 33-assert
 #    scenario to a session scratchpad.
 #
-# ★★ §0a/[[B208]] (2026-09-04) — THIS PROBE ALSO OWNS THE CONSOLE HELP. `src/firmware_help.h` was extracted so the
-#    help text, the compact topic index and the whole `help`/`?`/`help <topic>` recognition could be COMPILED AND RUN
-#    here instead of grepped. The run below builds the probe ONCE PER REAL PRODUCT PROFILE, renders every response
-#    through the REAL GuardedConsole, and compares each profile's emitted CONTENT MULTISET against the frozen
-#    pre-slice baseline (`help_baseline.json`) — which is what proves no help line was lost, duplicated or moved
-#    behind a different gate by the split.
+# ★★ §0a/[[B208]] + §0g (2026-09-05) — THIS PROBE ALSO OWNS THE CONSOLE HELP. `src/firmware_help.h` was extracted
+#    so the whole `help`/`?` recognition could be COMPILED AND RUN here instead of grepped. The run below builds the
+#    probe ONCE PER REAL PRODUCT PROFILE, renders every response through the REAL GuardedConsole, and compares each
+#    profile's emitted NAME LIST against `tools/gen_command_inventory.py --primary <profile>`.
+# ★★ THE ORACLE CHANGED IN §0g, AND THAT IS THE POINT ([[B291]]). It used to be a FROZEN pre-slice content multiset
+#    (`help_baseline.json` + `help_manifest.py`), which could only ever say "nothing moved since 0a": any legitimate
+#    help edit reddened the sweep, and the only documented way to regenerate it was `git show` of a deleted function.
+#    The owner then removed all descriptive text, so there is no content left to freeze. The oracle is now the
+#    GENERATED COMMAND INVENTORY — derived from the real dispatchers on the CURRENT tree — so the gate compares
+#    production output against SOURCE in both directions, and adding a command updates the expectation by itself.
 #
 # USAGE:  tools/probe_console_sink/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
 #         tools/probe_console_sink/run.sh --no-neg   # probe only -- NOT a gate, use only while iterating
@@ -42,7 +46,8 @@ ROOT=$(cd ../.. && pwd)                 # ★ absolute — a relative path in a 
 HERE=$(pwd)
 SINK="$ROOT/src/console_sink.h"
 HELP="$ROOT/src/firmware_help.h"
-BASELINE="$HERE/help_baseline.json"
+GEN="$ROOT/tools/gen_command_inventory.py"      # §0g: the primary-verb ORACLE (scans the real dispatchers)
+MANUAL_POINTER="docs/manual/command-reference.md"   # the ONE non-command line of every help response
 CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -52,12 +57,14 @@ rc=0
 #   configuration no board builds — the same vacuous-instrument failure the controls exist to catch.
 FLAGS=(-std=gnu++2a -fno-exceptions -fno-rtti -Wall -Wextra -Werror -DARDUINO=100 -DMR_CONSOLE=1)
 # ⚠ lib/core + lib/hal are on the path because `src/firmware_help.h` names its gates (mr_features.h,
-#   protocol_constants.h) and the board RF-envelope text (rf_capabilities.h) EXPLICITLY rather than inheriting them
-#   transitively. Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow a mutation.
+#   protocol_constants.h) EXPLICITLY rather than inheriting them transitively. §0g dropped the header's
+#   rf_capabilities.h dependency with the cfg envelope text it fed; lib/hal stays on the path for the sink's own
+#   includes. Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow a mutation.
 INCS=(-I"$HERE/fakes" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/hal")
 
 # ★ THE REAL PRODUCT PROFILE MATRIX. Every row is the resolved macro set of at least one REAL board env
-#   (`pio project config --json-output` + lib/core/mr_features.h); the env names are in help_manifest.py's PROFILES.
+#   (`pio project config --json-output` + lib/core/mr_features.h); the macro sets and their env names now live in
+#   `tools/gen_command_inventory.py`'s PROFILES/PROFILE_ENVS, which is also what projects the expected name list.
 #   ⛔ `native` is deliberately absent: platformio.ini's `test_build_src = no` means no native target compiles src/.
 PROFILES=(
   "full_oled|-DMR_FEAT_OLED=1"
@@ -67,6 +74,107 @@ PROFILES=(
   "mobile|-DMR_PROFILE_MOBILE"
   "mobile_oled|-DMR_PROFILE_MOBILE -DMR_FEAT_OLED=1"
 )
+
+# ★★ [[B294]] THE RUNNER'S OWN PINS — DERIVED, WRITTEN DOWN, AND ENFORCED **HERE**, BEFORE PASS.
+#   Until slice 0g these six numbers were PRINTED and never COMPARED in this file: only
+#   `tools/test_probe_console_sink.py` checked them, so running the gate directly could print PASS after coverage
+#   silently shrank (a dropped profile, a deleted control, a check count that fell). The wrapper REMAINS, as an
+#   independent second reader; this block is the runner judging itself.
+#   ⛔ NO ENVIRONMENT VARIABLE OR FLAG MAY RAISE OR LOWER A PIN IN A NORMAL RUN. The selftest hook below can only
+#     REDUCE what is measured, which can only ever produce a FAILURE.
+#   THE ARITHMETIC:
+#     PIN_PROFILES   = 6                     the six real board macro sets in the matrix above.
+#     PIN_CHECKS     = CHECKS_PER_PROFILE * PIN_PROFILES = 120 * 6 = 720
+#                                            the summed `N total` the probe binary prints. 120 = 52 §B95 sink rows
+#                                            + 68 §0g help rows: H0 1, H1 4, H2 6, H3 6 (one per GATED name), H4 6,
+#                                            H5 20 (nine retired topic words + eleven malformed tails), H6 8,
+#                                            H7 16 (four commands x four wire assertions), H8 1. Every profile runs
+#                                            the SAME rows — a gated name changes the LIST, not the row count —
+#                                            which is why one per-profile constant is enough. (§0a was 166/160: the
+#                                            per-topic rows scaled with topic availability.)
+#     PIN_STRUCTURAL = 20                    structural.py's S1..S20.
+#     PIN_BLE_GUARD  = 53 corpus lines x 4   the executed BLE help-refusal assertions B1..B4.
+#     PIN_CONTROLS   = 47 = 8 sink + 11 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL);
+#                                            the 23 help = 13 rendered-index mutations + 2 structural + 3 router
+#                                            + 5 oracle.
+PIN_PROFILES=6
+CHECKS_PER_PROFILE=120
+PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
+PIN_STRUCTURAL=20
+PIN_BLE_GUARD=212
+PIN_CONTROLS=47
+
+pin_fail=0
+pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE
+  case "${2:-}" in
+    '')        echo "   !! PIN $1: MISSING — this run printed no value for it"; pin_fail=1; return 0 ;;
+    *[!0-9]*)  echo "   !! PIN $1: NON-NUMERIC observed value '$2'";            pin_fail=1; return 0 ;;
+  esac
+  if [ "$2" -eq 0 ] && [ "$3" -ne 0 ]; then
+    echo "   !! PIN $1: ZERO — nothing was measured (expected $3)"; pin_fail=1; return 0
+  fi
+  if [ "$2" -ne "$3" ]; then
+    echo "   !! PIN $1: observed $2, expected $3"; pin_fail=1
+  fi
+}
+
+# ⚠ THE SELFTEST HOOK. `MRPROBE_SELFTEST_DROP` removes ONE profile from the matrix so the pin comparator can be
+#   PROVEN to notice shrinking coverage while every probe binary it launched stays green — the exact hole B294
+#   describes. It only ever REDUCES coverage, so it cannot manufacture a PASS: the pins stay at their production
+#   values and refuse. It is exercised by `--pin-selftest` below and by tools/test_probe_console_sink.py.
+if [ -n "${MRPROBE_SELFTEST_DROP:-}" ]; then
+  _keep=()
+  for row in "${PROFILES[@]}"; do [ "${row%%|*}" = "$MRPROBE_SELFTEST_DROP" ] || _keep+=("$row"); done
+  PROFILES=("${_keep[@]}")
+  echo "!! SELFTEST INJECTION: profile '$MRPROBE_SELFTEST_DROP' dropped — coverage deliberately reduced"
+fi
+
+if [ "${1:-}" = "--pin-selftest" ]; then
+  # ⛔ NOT A GATE RESULT, AND IT NEVER PRINTS THE GATE'S PASS WORDING. It proves the pin comparator refuses.
+  echo "== §0g PIN SELFTEST ([[B294]]) — every pin class must refuse =="
+  st_fail=0
+  # (a) the comparator itself: the correct value passes; MISSING, NON-NUMERIC, ZERO and OFF-BY-ONE are all caught.
+  while IFS='|' read -r obs exp want; do
+    pin_fail=0
+    pin_cmp "selftest" "$obs" "$exp" > /dev/null 2>&1
+    got=ok; [ "$pin_fail" -eq 0 ] || got=refused
+    if [ "$got" = "$want" ]; then
+      echo "   ok   comparator observed='$obs' expected=$exp -> $got"
+    else
+      echo "   !! SELFTEST HOLE: comparator observed='$obs' expected=$exp -> $got, wanted $want"; st_fail=1
+    fi
+  done <<'CASES'
+10|10|ok
+9|10|refused
+|10|refused
+abc|10|refused
+0|10|refused
+CASES
+  # (b) END TO END, THE F4 SHAPE: drop one profile. Every probe binary still prints "0 failed", but the observed
+  #     profile and check counts shrink — and the runner itself must refuse to print PASS.
+  child=$(mktemp)
+  # ⚠ "$HERE/run.sh", never "$0": this script cd's to its own directory on line 2, so a relative $0 no longer
+  #   resolves by the time we get here — the child would fail to launch and the selftest would misread that as a
+  #   missing pin refusal.
+  MRPROBE_SELFTEST_DROP=mobile_oled bash "$HERE/run.sh" > "$child" 2>&1; crc=$?
+  greens=$(grep -c 'passed / 0 failed' "$child" || true)
+  if [ "$crc" -eq 0 ]; then
+    echo "   !! SELFTEST HOLE: the runner exited 0 with a profile dropped"; st_fail=1
+  elif grep -q 'PASS: probe + structural + controls all green' "$child"; then
+    echo "   !! SELFTEST HOLE: the runner printed its PASS wording with a profile dropped"; st_fail=1
+  elif ! grep -q '!! PIN profiles:' "$child"; then
+    echo "   !! SELFTEST HOLE: no 'PIN profiles' refusal was printed"; st_fail=1
+  elif ! grep -q '!! PIN checks:' "$child"; then
+    echo "   !! SELFTEST HOLE: no 'PIN checks' refusal was printed"; st_fail=1
+  elif [ "${greens:-0}" -lt 1 ]; then
+    echo "   !! SELFTEST HOLE: no probe binary stayed green, so this proves nothing about the F4 shape"; st_fail=1
+  else
+    echo "   ok   dropped profile: $greens probe binaries STILL GREEN, runner refused (exit $crc) on profiles+checks"
+  fi
+  rm -f "$child"
+  if [ "$st_fail" -eq 0 ]; then echo "SELFTEST OK — every pin class refuses"; else echo "SELFTEST FAILED"; fi
+  exit $st_fail
+fi
 
 build() {   # build($1 = console_sink.h under test, $2 = firmware_help.h under test, $3 = out binary, $4 = profile, $5 = extra -D)
   local sdir hdir smd5 hmd5
@@ -81,8 +189,8 @@ build() {   # build($1 = console_sink.h under test, $2 = firmware_help.h under t
      "$HERE/probe_main.cpp" -o "$3" 2>&1
 }
 
-echo "== §B95 console-sink probe + §0a help router =="
-echo "   sink md5 = $(md5sum "$SINK" | cut -c1-8)   help md5 = $(md5sum "$HELP" | cut -c1-8)   baseline md5 = $(md5sum "$BASELINE" | cut -c1-8)"
+echo "== §B95 console-sink probe + §0g bare help index =="
+echo "   sink md5 = $(md5sum "$SINK" | cut -c1-8)   help md5 = $(md5sum "$HELP" | cut -c1-8)   inventory oracle = $GEN"
 n_profiles=0
 for row in "${PROFILES[@]}"; do
   prof=${row%%|*}; pflags=${row#*|}
@@ -92,14 +200,32 @@ for row in "${PROFILES[@]}"; do
   fi
   "$OUT/probe_$prof" > "$OUT/run_$prof.txt" 2>&1; prc=$?
   if [ "$prof" = full_headless ]; then cat "$OUT/run_$prof.txt"; else
-    sed -n '/§0a help router/,/HELP-CONTENT-BEGIN/p' "$OUT/run_$prof.txt" | sed '$d'
+    sed -n '/§0g help index/,/HELP-NAMES-BEGIN/p' "$OUT/run_$prof.txt" | sed '$d'
     grep -E '^  FAIL|passed / ' "$OUT/run_$prof.txt"
   fi
   echo "   profile $prof exit=$prc"
   [ "$prc" -eq 0 ] || rc=1
-  # ---- the frozen-baseline content multiset, per profile (the no-line-lost proof) ----
-  sed -n "/^HELP-CONTENT-BEGIN $prof/,/^HELP-CONTENT-END/p" "$OUT/run_$prof.txt" | sed '1d;$d' > "$OUT/content_$prof.txt"
-  python3 "$HERE/help_manifest.py" compare "$BASELINE" "$OUT/content_$prof.txt" --profile "$prof" || rc=1
+  # ---- §0g: production output vs the GENERATED INVENTORY, both directions, per profile --------------------------
+  # The probe printed the index VERBATIM. Strip exactly the trailing manual pointer, then diff the remainder against
+  # the projection the generator derived by scanning the real dispatchers. ⛔ Both sides must be non-empty: an empty
+  # file compares clean against another empty file, which is the vacuous pass this whole block exists to refuse.
+  sed -n "/^HELP-NAMES-BEGIN $prof/,/^HELP-NAMES-END/p" "$OUT/run_$prof.txt" | sed '1d;$d' > "$OUT/idx_$prof.txt"
+  if [ "$(tail -n 1 "$OUT/idx_$prof.txt")" != "$MANUAL_POINTER" ]; then
+    echo "   !! $prof: the index does not END with the manual pointer ($MANUAL_POINTER)"; rc=1
+  fi
+  head -n -1 "$OUT/idx_$prof.txt" > "$OUT/got_$prof.txt"
+  if ! python3 "$GEN" --primary "$prof" > "$OUT/want_$prof.txt"; then
+    echo "   !! $prof: the inventory projection REFUSED — no oracle, so no result"; rc=1
+  fi
+  n_got=$(wc -l < "$OUT/got_$prof.txt"); n_want=$(wc -l < "$OUT/want_$prof.txt")
+  if [ "$n_got" -lt 1 ] || [ "$n_want" -lt 1 ]; then
+    echo "   !! $prof: EMPTY side (rendered=$n_got projected=$n_want) — refusing a vacuous comparison"; rc=1
+  elif diff -u "$OUT/want_$prof.txt" "$OUT/got_$prof.txt" > "$OUT/diff_$prof.txt"; then
+    echo "   primary names $prof: $n_got rendered == $n_want projected (inventory oracle)"
+  else
+    echo "   !! $prof: the rendered help names DIFFER from the source projection (-want +got):"
+    sed -n '4,24p' "$OUT/diff_$prof.txt"; rc=1
+  fi
 done
 echo "   profiles measured: $n_profiles"
 
@@ -158,7 +284,7 @@ echo "== negative controls (each MUST fail) =="
 [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
 # ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
 python3 "$HERE/negctl.py" "$OUT" "$CXX" "$SINK" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
-   "$ROOT/src/fw_main.cpp" "$HELP" "$BASELINE" -- "${FLAGS[@]}" "${INCS[@]}" > "$OUT/neg.txt" 2>&1 || rc=1
+   "$ROOT/src/fw_main.cpp" "$HELP" -- "${FLAGS[@]}" "${INCS[@]}" > "$OUT/neg.txt" 2>&1 || rc=1
 cat "$OUT/neg.txt"
 
 # ---- DERIVED PINS. Counted from THIS run's own output, never typed. tools/test_probe_console_sink.py asserts them,
@@ -176,7 +302,19 @@ ble_checks=$(sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*
 green=$(grep -c 'STAYED GREEN\|INSTRUMENT FAILURE\|CONTROL NOT APPLIED' "$OUT/neg.txt" || true)
 echo
 echo "PINS profiles=${n_profiles} checks=${chk_total} structural=${struct_total} ble_guard=${ble_checks} controls=${ctl_total} unusable_controls=${green}"
-[ "${green:-1}" -eq 0 ] || rc=1
+# ---- [[B294]]: THE RUNNER'S OWN JUDGMENT, BEFORE PASS. Every term is compared; the differing one is NAMED. -------
+pin_cmp profiles    "${n_profiles:-}"  "$PIN_PROFILES"
+pin_cmp checks      "${chk_total:-}"   "$PIN_CHECKS"
+pin_cmp structural  "${struct_total:-}" "$PIN_STRUCTURAL"
+pin_cmp ble_guard   "${ble_checks:-}"  "$PIN_BLE_GUARD"
+pin_cmp controls    "${ctl_total:-}"   "$PIN_CONTROLS"
+if [ "${green:-1}" -ne 0 ]; then
+  echo "   !! PIN unusable_controls: observed ${green:-?}, expected 0"; pin_fail=1
+fi
+# ...and every profile must have actually produced a name comparison, so a silently skipped profile cannot pass.
+n_cmp=$(find "$OUT" -maxdepth 1 -name 'got_*.txt' | wc -l)
+pin_cmp name_comparisons "$n_cmp" "$PIN_PROFILES"
+[ "$pin_fail" -eq 0 ] || rc=1
 if [ "$rc" -eq 0 ]; then
   echo "PASS: probe + structural + controls all green"
 else

@@ -99,15 +99,20 @@ def extract_guard(fw_main_text: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# The corpus. ⛔ SYSTEMATIC, not a handful of favourites: every owner topic in four shapes, plus the near-misses a
-#   prefix bug would leak, plus lines that must stay OUT of the help family entirely.
+# The corpus. ⛔ SYSTEMATIC, not a handful of favourites: every retired topic word in four shapes, plus the
+#   near-misses a prefix bug would leak, plus lines that must stay OUT of the help family entirely.
+# ⓘ §0g RETIRED the nine `help <topic>` sections, so these words no longer select anything — the router answers each
+#   of them with its bounded refusal. They stay in the corpus DELIBERATELY: they are the exact shapes a reader will
+#   still type, they are what the BLE guard must keep covering, and dropping them would shrink the one row that
+#   caught the slice-0a defect. The rule under test is unchanged: router owns the line <=> BLE refuses it.
 # ---------------------------------------------------------------------------------------------------------------
-TOPICS = ("messaging", "identity", "mobile", "inbox", "diagnostics", "remote", "test", "provisioning", "cfg")
+RETIRED_TOPIC_WORDS = ("messaging", "identity", "mobile", "inbox", "diagnostics", "remote", "test",
+                       "provisioning", "cfg")
 
 def corpus() -> list:
     """-> [(line, must_be_refused)] — the SECOND element is the owner's rule, not the guard's opinion."""
     rows = [("help", True), ("?", True), ("help ", True), ("help  ", True)]
-    for t in TOPICS:
+    for t in RETIRED_TOPIC_WORDS:
         rows.append((f"help {t}", True))          # the real form
         rows.append((f"help  {t}", True))         # leading spaces — the `peers ` idiom still selects it
         rows.append((f"help {t} x", True))        # malformed tail — still a help line, still refused
