@@ -15,11 +15,16 @@
   explicit, BLE results remain retained until locally acknowledged, mobile builds may originate/transport
   but never accept, and legacy `rcmd` is replaced rather than retained. See
   `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`.
-  Preparatory status at 2026-09-05: 0g is QA-passed (bare inventory-derived help, 49 names on the full profile,
-  Part 58 metal pending). Fable pass 2 reproduced B296's same-layer optional-hash silent loss; owner ruling
-  R-RA-25 makes 232 bytes the one application-DM cap, requires `SOURCE_HASH` and every known/supplied `DST_HASH`,
-  and assigns the fix plus B297 to Slice 0h before 0b/0c. A truly unknown by-ID destination may omit its hash but
-  gains no body capacity. The next artefact is the Quality-Agent 0h pre-check, then the Author brief.
+  R-RA-25 (2026-09-05, implemented by QA-passed 0h): 232 bytes is the one application-DM cap; `SOURCE_HASH`
+  is mandatory and supplied/known `DST_HASH` is preserved. Derivable means only the enqueue's two existing
+  lookups; a truly unknown by-ID destination may omit its hash but gains no body capacity. Park helpers refuse
+  oversize bodies rather than clamp.
+  R-RA-26 (owner-ruled 2026-09-05): `defined(ARDUINO)` distinguishes boards from native/lus. Mobile boards
+  are client-only; static/gateway boards, including no-profile static envs, are accept-only; native/lus have
+  both endpoints. Board checks enforce exactly one endpoint and ACCEPT equal to legacy REMOTE_MGMT until
+  Slice 9. Slice 1 is a consumer-free header scaffold: no static profile or `platformio.ini` change, with
+  zero RAM and flash movement required on the ruled pair. Rulings live in
+  `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

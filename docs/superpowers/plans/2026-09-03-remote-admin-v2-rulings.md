@@ -559,3 +559,13 @@ byte-identical with s18 `32afbf11`/269517/0; Node/board RAM is unchanged. The pr
 now historical because it used the former 239-byte DM cap: the symbolic BLE expression re-derives `send=265`, while
 `send_layer=274` still binds the unchanged 275-byte storage. Evidence:
 `docs/superpowers/evidence/2026-09-05-radmin-0h.md`.
+
+### R-RA-26 (owner, 2026-09-05) — the Slice 1 host/board discriminator is `defined(ARDUINO)`; no `platformio.ini` change
+
+**Owner:** *"Agree - go with ARDUINO discriminator, no platformio change."* (Slice 1 pre-check ledger §4.1.)
+**Settled:** `lib/core/mr_features.h` derives the R-RA-8 pair as: `MR_PROFILE_MOBILE` → `{CLIENT 1, ACCEPT 0}`;
+`MR_PROFILE_GATEWAY` → `{0, 1}`; a BOARD build (`defined(ARDUINO)`) with no `MR_PROFILE_MOBILE` → `{0, 1}` (the five
+no-profile static envs `production`, `xiao_sx1262`, `heltec_v3`, `heltec_v4`, `xiao_esp32s3` are static products);
+a HOST build (no `ARDUINO`: native, lus) → `{1, 1}` (R-RA-17's host reading). `#error` on a board build with both or
+neither; `ACCEPT == MR_FEAT_REMOTE_MGMT` pinned on every board build until Slice 9 deletes the legacy switch. No
+`MR_PROFILE_STATIC`, no `platformio.ini` edit, no consumer in Slice 1 (4.2 implied: pure scaffold).
