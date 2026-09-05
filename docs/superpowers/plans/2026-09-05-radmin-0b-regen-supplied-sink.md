@@ -1,7 +1,8 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 0b — `regen` uses its supplied sink · dispatch brief · 2026-09-05
 
-**Status: QUALITY-AGENT PASS 2026-09-05 — AUTHORIZED FOR DISPATCH.** Dispatch model: **Opus**.
+**Status: IMPLEMENTED / QUALITY-AGENT PASS 2026-09-05 — SOFTWARE-COMPLETE; Part 59 metal pending.** Dispatch
+model: **Opus**.
 
 Authority: B279 in `docs/2026-07-30-open-bug-register.md`, §19 Slice 0b of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`, and the Quality-Agent pre-check

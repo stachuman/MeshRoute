@@ -1077,10 +1077,12 @@ v2 packer-derived carrier bounds, and the complete command inventory. The legacy
 helpers and parser are deleted; no path may preserve silent truncation in the interim.
 
 Current local command execution is not yet perfectly unified: `send` and `send_channel` are handled by
-the serial/BLE callers around `dispatch()`, and `regen` writes through the global console sink. The
-implementation may not claim same-command parity until those applicable paths use one transport-neutral
-execution seam and the supplied output sink. Per C1, that consolidation and remote enablement must remain
-separately reviewable.
+the serial/BLE callers around `dispatch()`. ⚠ **CORRECTED 2026-09-05 BY SLICE 0b; THE OLD CLAIM REMAINS VISIBLE:**
+this sentence formerly added that “`regen` writes through the global console sink.” That was B279 and is now
+false: `regen` and the canonical identity formatter use the supplied `Print&`, while the boot caller names
+`mrcon` explicitly. The implementation may not claim same-command parity until the remaining applicable paths
+use one transport-neutral execution seam and the supplied output sink. Per C1, that consolidation and remote
+enablement must remain separately reviewable.
 
 The command/subcommand authority table is generated from the complete production dispatcher and its USB/BLE
 caller-only arms by a pinned `tools/` instrument in the `check_data_type_literals.py` idiom. The generator,
@@ -1598,7 +1600,12 @@ The complete design does not provide:
      847 application-DM decisions with zero size-dropped fields, then corpus reproduced 36/36 byte-identical with
      s18 `32afbf11`/269517/0. Node and board RAM are unchanged; `src/device_ble.h` is unchanged and re-derives
      `send=265`, storage 275. B296/B297 are software-closed;
-   - **0b:** fix B279's source-confirmed `regen` supplied-sink defect;
+   - **0b — DONE (software-complete, METAL-PENDING on bench Part 59), Quality-Agent-passed 2026-09-05:**
+     B279's supplied-sink defect is closed as its own micro-fix. `regen` and the canonical identity formatter now
+     answer only through the `Print&` selected by the caller; the boot path names `mrcon` explicitly. The real
+     dispatcher proves the identical 55-byte success line on USB and a BLE-shaped sink with zero cross-sink bytes,
+     plus the unchanged failure and identity/NV behavior. Native is 2610/110269/0; corpus 36/36, ABI and RAM are
+     unchanged. No remote execution, parser, command, storage format, wire behavior or product policy was added;
    - **0c:** make the existing dispatcher/caller output path transport-neutral without adding remote context
      or policy;
    - **0d, static-home plane invariant:** implement R-RA-12 as the only behaviour change. ⚠ **SCOPE

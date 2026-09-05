@@ -4040,6 +4040,24 @@ not re-tested here.)*
 6. Over BLE, send `help`, `?` and `help messaging`. Each must return the bounded `console_only` refusal; no help
    body may cross the link.
 
+## Part 59 — `regen` answers on the transport that asked (2026-09-05)
+
+⏳ **PENDING — metal residue for remote-admin Slice 0b ([[B279]]).** ⛔ This is destructive: it mints a new node
+identity. Run it only on a scratch node and expect peers to re-bind by the new `key_hash32`.
+
+1. Note the node's current hash from the boot banner (`  key_hash32= 0x………`).
+2. Over **BLE-NUS**, from the companion, send `regen`. Require the app to receive as one complete line:
+   `> regen ok  key_hash32= 0x<8 UPPERCASE hex digits>` followed by
+   `  name="<the node's name>"` when the node has a name. Require the USB console to print **nothing** for this
+   command. Before Slice 0b this arm mutated the identity, returned nothing to BLE and leaked the answer to USB.
+3. Over **USB**, type `regen`. Require exactly the same line format on USB and require the companion to receive
+   nothing.
+4. Reboot. Require the boot banner's `key_hash32` to equal the hash from step 3 and require the node name to be
+   preserved.
+
+*Why metal remains:* the host gate executes the real dispatcher and proves exact bytes and sink isolation, but
+only hardware exercises BLE-NUS notification/reassembly and the real `Preferences`/`InternalFS` `/mrid` write.
+
 ## Part 61 — BLE inbound line capacity on an nRF52 gateway (2026-09-04)
 
 ⏳ **PENDING — metal residue for remote-admin Slice 0f.** Slice 0f grew `g_line` from 160 to a derived
