@@ -751,10 +751,11 @@ transcript replay.
 The terminal frame is the next contiguous `response_seq` after the last output frame. Its authenticated
 ciphertext or open plaintext starts with one unsigned one-byte result code.
 
-**Author allocation accepted by QA 2026-09-06, with the typed-domain obligation below; not yet implemented:**
-the listed meanings below receive values in their existing order. Slice 2 pins this accepted allocation with
-independent wire vectors; it is append-only, with no renumbering or reuse of retired values. This assigns bytes to
-the existing meanings, not new command authority or execution behaviour.
+**Author allocation accepted by QA and implemented by QA-passed Slice 2, 2026-09-06:**
+the listed meanings below receive values in their existing order. Independent wire vectors pin this accepted
+allocation; it is append-only, with no renumbering or reuse of retired values. The consumer-free codec retains
+the typed domain alongside each result; no command authority or execution behaviour is added. Implementation
+is integrated at MeshRoute `f2735f7`, with simulator integration `8688884` (§19 item 2).
 
 | `TERMINAL` result byte | Name |
 | --- | --- |
@@ -920,6 +921,16 @@ fit is a separate measurement, not a falsely claimed admission refusal. The all-
 is unnecessary and is superseded as a justification for the cap. Last-mile hash attachment is an optional
 separate carrier proposal (B310), not included in Slice 2 or authorized by this capacity ruling.
 
+**Slice 2 software closure, QA PASS 2026-09-06 (B308/B309):** the implemented `remote_body_cap` derives this
+reservation from the named storage/air-fit authorities. Native admission and real packing are measured
+separately: hash-less same-layer 232 admits, 233 refuses admission but still physically packs; the raw
+ceiling remains 236. The typed cross-layer wrapper admits destination depths 1..3 at 228/227/226 and refuses
+depth 4 as `bad_carrier`, not a 225-byte allowance. Both directions and the hosted last mile are covered.
+Every fixed RPC overhead in the table is static-asserted against its field arithmetic. The 0e test keeps its
+historical measurements, with the stale admission interpretation superseded in comment-only hunks proven
+token-identical. Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` §§8/11; no packer, routing
+path or destination-hash attachment rule changed. The authority has no runtime consumer yet.
+
 The 16-byte authentication tag and 8-byte request identity are the two load-bearing authenticated envelope
 costs; the transmitted one-byte control is the remaining RPC metadata. Open diagnostics omit the tag by
 explicit policy and therefore provide no security claim. No acceptance test may call 214/213 the universal
@@ -969,14 +980,16 @@ concurrency, and prove RNG failure is a loud pre-transmission refusal. Target-si
 still rejects an authenticated repeated ID carrying a different tag, but it occurs after same-key/same-nonce
 ciphertexts may have appeared and is not the nonce-safety argument.
 
-**Slice 2 implementation boundary, Author source verification 2026-09-06 (B312; brief awaiting QA):**
+**Slice 2 implementation boundary, codec half QA-passed 2026-09-06 (B312; real integration remains open):**
 `IHal::rand_bytes` (`lib/core/hal.h:183`) returns void; `DeviceHal::rand_bytes`
 (`lib/hal/device_hal.cpp:158`) calls the void `mrrng::fill`. That interface cannot return an entropy-failure
-status to the new codec. The consumer-free Slice 2 brief therefore specifies a stateless request-ID creator
-with an explicit caller-supplied, status-returning eight-byte entropy input. Native tests drive its real
-success/refusal boundary without a Node or a HAL edit. They do not prove hardware RNG health or an on-air
-refusal. The first real consumer must supply and gate a truthful entropy adapter; wrapping the existing
-void draw in unconditional success is not that proof. B312 remains open for this integration obligation.
+status to the new codec. The consumer-free Slice 2 implements `remote_make_request_id` with an explicit
+caller-supplied, status-returning eight-byte entropy input. Native tests drive its real success/refusal
+boundary: absent, failed and partial-write-then-failed providers publish no ID and preserve the caller's
+previous value; the corresponding mutation controls are RED. No Node, HAL or provider was changed. This
+does not prove hardware RNG health or an on-air refusal. The first real consumer must supply and gate a
+truthful entropy adapter; wrapping the existing void draw in unconditional success is not that proof.
+B312 remains open for this integration obligation.
 
 ## 10. Execution, deduplication, and replay
 
@@ -1800,9 +1813,40 @@ The complete design does not provide:
    or codec consumer is included. Record both repository bases/diffs and prove both variants compile the new
    TU; the owner commits each repository's changes. No simulator edit is made during 1b, and Slice 2's brief,
    dispatch base and measurement pins wait for the QA-passed 1b closure commit.
-   **Preparation update 2026-09-06:** that closure commit now exists at `cc35137`. The Author brief
-   `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md` is **DRAFT — awaiting Quality-Agent review**,
-   pinned to that MeshRoute commit and simulator `fd3295d`; no dispatch or implementation is implied.
+   **Preparation history:** 1b closure `cc35137` was followed by owner preparation commit `9ea4947`;
+   the Author repinned `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md` to `9ea4947` and
+   simulator `fd3295d` before dispatch, retiring the uncommitted-preparation exception.
+   **Software-complete / implementation QA PASS 2026-09-06, no fold-ins; implementation committed.**
+   Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice2.md`, measured in the coder's
+   `/home/staszek/mr-slice2` worktree at dispatch base `9ea4947`; the paired simulator build is
+   `/home/staszek/mr-slice2-lus` against simulator base `fd3295d`. During the Author landing, implementation
+   commit `f2735f79c94adc068dde550d60e20b7660696f16` became HEAD in both MeshRoute checkouts and simulator
+   commit `868888419c7cc250d7019860d3403a7721ade1fc` landed the one-line source-list addition. All delivered
+   file hashes remain identical to the QA-passed package; the Author's five documentation edits remain
+   uncommitted in the shared checkout. Historical measurement bases are unchanged.
+   The codec implements §8.1's frozen opcode/slot and KDF/nonce/AAD domains, §8.9's typed result namespaces,
+   §8.11's reservation-based capacity authority and §9's checked entropy boundary; no runtime consumer exists.
+   QA independently reproduced native **2640 cases / 115288 assertions / 0 failed** (+25 / +3934), independent
+   reference **87/87** frozen vectors with external primitive anchors and a failing altered-expected-byte
+   comparison control, and the full mutation union: changed-source `radmin2codec` **66/66 RED** plus
+   historical/dependency `b20codec` **5/5 RED**, **0 unusable**, exact-one matches and hash restoration.
+   Both simulator archives gained one codec object and twelve namespaced symbols each after five real build
+   actions; the linked executable remains byte-identical with zero codec symbols. **36/36 byte-identical
+   streams**, all anchors and s18 reproduced, no re-anchor. Deterministic board pairs are byte-identical in
+   RAM/flash/ELF/payload: gateway **195844 / 512092**, heltec_mobile **205684 / 1355292**; each compiles one new
+   object but retains no codec symbol. Node ABI pins remain native **222072**, heltec Xtensa **117912**,
+   gateway ARM **148680**. Six probes, both ABI probes, inventory, tools **312 OK**, warning census and both
+   checkers pass without repins; the feature-ownership contract stays at three files. Evidence §12 explicitly
+   records the late base-probe capture and reconstructs pristine 179 versus final 182 scanned source files;
+   this is not represented as an entirely pre-edit probe capture.
+   B308/B309 are closed; B312's codec boundary is complete but its real-provider integration remains open.
+   Findings §13 land as B314 (naming hazard avoided/closed), B315 (output-path validation gap, open), and B316
+   (duplicate measurement folded into open B286; current harness rsync line **10114**, correcting the evidence's
+   historical **9851** citation). B311 remains open: printable diagnostics avoid, but do not repair, its
+   decoding failure. B313 remains open and B310 parked. **No metal added**; prior bench debts and the §9.9
+   static/gateway legacy `rcmd` suspension remain. The owner still commits these Author documentation
+   landings; QA's Slice 3 pre-check precedes the next Author brief, whose base waits for that preparation
+   sequence rather than reusing an old dispatch pin.
 3. **Target identity, ACL, and USB provisioning:** on accept builds add `/mradmid` and the fixed ten-slot
    `/mracl` transaction using the team-keyring persistence idiom, first-owner USB exchange, several-owner
    invariants, corrupt-state recovery, USB-only target-root rotation, role changes, and ordinary-`regen`
@@ -1885,7 +1929,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0f | ✅ landed: BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | native **2604 / 109619 / 0** (+7 / +85); corpus **36/36 anchors**, s18 `32afbf11`/269517/0, `lus` `eb298576` unchanged with 0 build actions (recompile control fired); `sizeof(Node)` 222072/117912/148680 unmoved; `gateway` RAM **+120 B** fully attributed to `g_line` (+115) and alignment (+5), flash ±0; `heltec_mobile` byte-identical in every measured field; census 6/6 at pin; probe **40 checks / 8 controls RED / 0 unusable**; tools sweep 238 OK | **Part 61:** the 274-byte `send_layer` line over real BLE under multiple write chunkings returns `err_unsupported`; the 268-byte plaintext form queues; a 275-byte line refuses loudly |
 | 1 | ✅ software-complete / QA-passed 2026-09-06; consumer-free `lib/core/mr_features.h`, implementation `5d2c00e` | native 2610/110269/0; feature matrix 9 cells / 97 checks / 19 controls RED; tools 305; forced lus rebuild 34 actions, binary identical; 36/36 anchors; Node ABI and both boards' RAM/flash/sections/objects/symbols unchanged; evidence `2026-09-05-radmin-slice1.md` | none |
 | 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit `cc35137`; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
-| 2 | remote codec/KDF files and carrier-cap authority; Author brief DRAFT 2026-09-06, awaiting QA, bases `cc35137` / simulator `fd3295d` | predicted zero new runtime codec calls/remote-v2 events, 36/36 unchanged; ruled pair; independent KATs and full derived mutation union | none |
+| 2 | remote codec/KDF files and carrier-cap authority; **SOFTWARE-COMPLETE / QA-PASSED 2026-09-06**, implementation `f2735f7` / simulator `8688884`; measured bases `9ea4947` / `fd3295d`; Author documentation commit pending | native 2640/115288/0; independent reference 87/87; mutation union 66+5 = 71/71 RED, 0 unusable; 36/36 byte-identical and anchored; simulator executable and both ruled board ELFs byte-identical, zero runtime codec symbols; +1 object per board and per simulator core archive; six probes/ABI/inventory/tools312/census/checkers pass; full landing and evidence pointer in §19 item 2 above | none; existing metal debts and legacy round-trip suspension unchanged |
 | 3 | target identity/ACL storage and USB provisioning owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55a:** target-side physical-USB first owner and local recovery only |
 | 4 | mobile keyring/target-book storage and local command owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55b:** controller `/mrtargets` exchange with the Part-55a target; **Part 56:** USB seed lifecycle and BLE public select/show only |
 | 5 | target session/dedup files | zero remote events, 36/36 unchanged; ruled pair | none |

@@ -40,13 +40,19 @@
   the known hash on a home's local last-mile sends is only under consideration (B310), not an authorized
   change to R-RA-25's narrow lookup rule and not part of 1b or consumer-free Slice 2. Rulings live in
   `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`.
-  Slice 2 preparation accepted by QA 2026-09-06: §8.9's terminal allocation is append-only; decoded results
-  retain a typed opcode domain (`0x00` terminal completed ≠ authenticated protocol-error already_acknowledged),
-  with independent domain/invalid-code KATs. The separate simulator source-list addition must compile the codec
-  into both variants and record both repositories' bases/diffs. Slice 2 brief is DRAFT, awaiting QA:
-  `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md`, pinned to 1b closure `cc35137` and simulator
-  `fd3295d`. B312 records the RNG proof boundary: current HAL draws return void; codec-local checked entropy
-  tests do not close the later real-provider integration obligation. No runtime consumer or HAL change in Slice 2.
+  Slice 2 software-complete / implementation QA-passed 2026-09-06: §8.9's terminal allocation is append-only;
+  decoded results retain a typed opcode domain (`0x00` terminal completed ≠ authenticated protocol-error already_acknowledged),
+  with independent domain/invalid-code KATs. Native 2640/115288/0; independent reference 87/87; mutation union
+  66+5 = 71/71 RED; 36/36 byte-identical anchored streams. Both simulator variants compile the codec, but the
+  executable and both ruled board ELFs remain byte-identical; no runtime consumer or HAL change. B308/B309
+  are closed by admission-versus-packing and wrapper-depth proof. B312's checked codec entropy boundary is
+  complete; current HAL draws still return void, so truthful real-provider integration remains open.
+  Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and implementation are committed at
+  `f2735f7` (both MeshRoute checkouts); simulator integration is committed at `8688884`. Measured dispatch
+  bases were `9ea4947` / simulator `fd3295d`; delivered file hashes are unchanged. Author landings remain
+  uncommitted in the shared checkout; QA's Slice 3 pre-check precedes the next Author brief and its eventual
+  preparation-base pin. B314 is avoided/closed, B315 open, B316 tracked
+  by existing B286; B311/B313 remain open. No metal added by Slice 2; older debts are unchanged.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

@@ -41,13 +41,18 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   streams after both simulator variants rebuilt, RAM unchanged and flash gateway +16 / heltec_mobile −8 fully
   attributed. Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. B307 closed; B311 registers the
   non-UTF-8 mutation-worker failure, and B286 carries the new disk-pressure measurement. B310 remains parked.
-  **Next:** QA gates the Author's DRAFT `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md`,
-  pinned to `cc35137` and simulator `fd3295d`, against the resolved pre-check. Slice 2 preparation is QA-accepted:
-  R-RA-28 reservation/admission caps (B308/B309), typed
-  result domains and independent KATs, plus one shared simulator source-list line for both core variants.
-  B312 records the source-derived void-HAL RNG proof gap and later real-adapter obligation; the codec-local
-  checked-entropy test boundary is in the DRAFT brief. No Slice 2 implementation or dispatch is authorized yet.
-  Existing hardware debts remain separate; no metal is added by 1/1b. Earlier 0c documentation residue
+  **Slice 2 software-complete / implementation QA PASS 2026-09-06, no fold-ins:** native 2640/115288/0,
+  independent reference 87/87, mutation union 66+5 = 71/71 RED, 0 unusable, 36/36 byte-identical anchored
+  streams. Both simulator archives compile the codec; the executable and both ruled board ELFs remain
+  byte-identical, with no runtime codec consumer. Six probes/ABI/inventory/tools312/census/checkers pass.
+  Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and code are committed at `f2735f7`, now
+  HEAD in shared and coder checkouts; simulator `8688884` contains the one-line source-list addition.
+  Measured dispatch bases were `9ea4947` / `fd3295d`; all delivered file hashes are unchanged.
+  **Next:** owner commits the five Author documentation landings in the shared checkout; QA supplies the
+  Slice 3 pre-check before its Author brief. B308/B309 closed; B312 codec half complete, real entropy adapter still open. B314 naming
+  hazard avoided/closed, B315 output-path validation open, B316 duplicate folded into open B286 with rsync
+  citation corrected to line 10114. B311/B313 remain open; B310 remains parked.
+  Existing hardware debts remain separate; no metal is added by 1/1b/2. Earlier 0c documentation residue
   (B298 closure / Part 60 landing) is not discharged by the Slice 1/1b landings. B292 and B283 remain separate.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
@@ -70,8 +75,9 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) **Slice 2 QA brief gate**,
-  then owner preparation commit if made / Author explicit base repin / QA dispatch. Current brief pins `cc35137`.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) **Slice 2 Author documentation
+  commit**, then QA's Slice 3 pre-check and the Author brief. Slice 2 implementation is QA-passed and committed
+  at `f2735f7` / simulator `8688884`; its historical measured bases remain `9ea4947` / `fd3295d`.
   Bench Part 58 closes
   B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
   separately tracked and do not block Part 54.

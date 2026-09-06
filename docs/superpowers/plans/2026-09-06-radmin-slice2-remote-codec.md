@@ -1,7 +1,9 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 2 — remote codec and independent known-answer tests · dispatch brief · 2026-09-06
 
-**Status: DRAFT — awaiting Quality-Agent review.** Not authorized for dispatch.
+**Status: SOFTWARE-COMPLETE — implementation Quality-Agent PASS 2026-09-06, no fold-ins.**
+Implementation is committed in both repositories; the Author documentation landing awaits its owner commit.
+The dispatch contract below is retained as run provenance, not a new dispatch request.
 Dispatch model: **Opus** (`model: opus`). Author writes; QA gates and dispatches; owner commits both repositories.
 
 Authority: design §8, §9, §19 item 2 and §19.1 row 2 in
@@ -10,22 +12,40 @@ Authority: design §8, §9, §19 item 2 and §19.1 row 2 in
 `docs/superpowers/plans/2026-09-06-radmin-slice2-precheck.md`, **with its §4 resolutions controlling**;
 the QA-passed 1b evidence `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`.
 
+**Completion landing 2026-09-06:** QA independently reproduced the implementation gate in
+`/home/staszek/mr-slice2` at the pinned MeshRoute base and the paired simulator build
+`/home/staszek/mr-slice2-lus`. Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice2.md`
+in that coder worktree. Native 2640 cases / 115288 assertions / 0 failed; independent reference 87/87;
+mutation union `radmin2codec` 66 + full `b20codec` 5 = 71/71 RED, 0 unusable. All 36 streams reproduce their
+anchors; both ruled board ELFs and the simulator executable are byte-identical to their respective bases.
+The new TU compiles into both board builds and both simulator core archives but has no runtime consumer.
+No metal is added. Design §19/§19.1 and the register carry the Author landings. **Commits verified during
+landing:** MeshRoute `f2735f79c94adc068dde550d60e20b7660696f16` contains the QA-passed code/evidence and is
+now HEAD in both shared and coder checkouts; simulator `868888419c7cc250d7019860d3403a7721ade1fc` contains
+the single source-list addition. All six delivered MeshRoute files and simulator CMakeLists retain their
+pre-landing SHA-256 hashes. Only the five Author documentation edits remain uncommitted in the shared
+checkout. These implementation commits do not replace the historical dispatch bases below.
+
 ## Bases and starting provenance
 
 | Repository | Exact pinned base | Meaning |
 | --- | --- | --- |
-| `/home/staszek/MeshRoute` | `cc35137e3ccdebd6d940d6abe6c11694e43152cc` | `cc35137`, owner commit `1b closure`; includes QA-passed 1b and its Author landings |
+| `/home/staszek/MeshRoute` | `9ea4947d99ec004f2952553ce6fd34b166eeebce` | `9ea4947`, owner commit `Slice 2 prep`; includes 1b closure and the complete Author preparation package |
 | `/home/staszek/lora-universal-simulator` | `fd3295d8eaf71466270434f2cbf4f4eafe19edcc` | Independent simulator base, verified clean when this brief was written |
 
-Both are existing commits, not placeholders. The owner explicitly permits the Slice 2 brief against `cc35137`.
-If the owner commits a newer preparation package, the Author must explicitly repin after that commit exists;
-the coder never substitutes a newer HEAD. QA/coder record `git rev-parse HEAD` and full status in **both** repos
-before work, including when using isolated worktrees. Mismatch, missing base or unexplained dirt is a STOP.
-The only permitted pre-existing Author preparation changes, if still uncommitted at dispatch, are this brief,
-the B312/B313 register rows, the design's clarified admission/RNG/status notes, and corresponding MEMORY/tracker
-updates. QA must account for their actual diff; the coder does not stage, revert or edit them. No untracked
-source is an allowed starting exception. A separate simulator worktree/build must point `MESHROUTE_DIR` at the
-exact paired MeshRoute worktree, not silently compile the main checkout.
+Both are existing commits, not placeholders. **Author repin after the owner's preparation commit:** `9ea4947`
+replaces the former `cc35137` dispatch base. Its diff from `cc35137` contains only this brief, the register,
+design, MEMORY and tracker; all preparation is committed. Both repositories were verified clean before this
+post-commit brief-pin edit. The former uncommitted-preparation exception is retired.
+
+QA supplies the reviewed, post-pin Author brief as the dispatch authority; the copy inside the preparation
+commit necessarily predates this pin. Keep the post-commit pin outside the coder's measured input tree:
+start from a clean isolated MeshRoute worktree at `9ea4947` if the shared checkout contains this Author edit.
+Do not copy the dirty brief into that worktree or revert the Author's copy. Both measured repositories must
+start clean at their exact pinned commits. QA/coder record `git rev-parse HEAD` and full status in **both**
+repos before work; a missing/different base or dirty measured start is a STOP. The coder never repins,
+commits or repairs a checkout to hide a mismatch. A separate simulator worktree/build must point
+`MESHROUTE_DIR` at the exact paired MeshRoute worktree, not silently compile the main checkout.
 
 This is an **additive, consumer-free codec feature**, not a refactor of DM crypto or legacy remote management
 (C1). No Node, RX/TX, command, ACL/session, storage, timer, entropy-provider implementation or wire-version
@@ -101,7 +121,8 @@ old deployment-cost paragraph in CODE_GUIDELINES.
 
 ## Verified source state (V1/V2)
 
-Anchors below were checked at `cc35137`; relocate by symbol and re-derive before editing.
+Anchors below were checked at `cc35137`; the committed preparation diff to `9ea4947` changes no production,
+test, tool or simulator source. Relocate by symbol and re-derive before editing.
 
 | Fact | Source |
 | --- | --- |
@@ -472,8 +493,9 @@ the sole exception. No whole-matrix firmware sweep or unreviewed instrument-poli
 
 Stop and report to QA before proceeding or widening scope if:
 
-1. either exact committed base is missing/different, the paired simulator points at the wrong MeshRoute tree,
-   or starting/concurrent edits cannot be identified and shown irrelevant to the measured inputs;
+1. either exact committed base is missing/different, either measured repository starts dirty, the paired
+   simulator points at the wrong MeshRoute tree, or concurrent edits cannot be identified and shown irrelevant
+   to the measured inputs;
 2. an implementation requires a new opcode/result allocation, owner policy, wire-version/re-anchor,
    carrier/hash/routing change, consumer, Node/HAL/NV/timer/state change or other out-of-fence edit;
 3. a legal carrier's derived allowance contradicts R-RA-28, an invalid wrapper depth is admitted, or admission
