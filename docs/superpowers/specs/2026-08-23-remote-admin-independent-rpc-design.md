@@ -865,9 +865,11 @@ a structural grep alone is not a wiring gate.
 `carrier_rpc_body_cap` is obtained from one codec authority,
 `remote_body_cap(RemoteCarrier carrier)`, which derives its result from `data_inner_cap()` /
 `data_frame_len()` and that carrier's required immutable fields. It is never copied as literals or derived
-from `dm_max_body_bytes` by analogy. Every supported request and response carrier must have a boundary test
-that the real packer accepts exactly at its returned cap and refuses cap plus one. As a current
-source-verified example, the same-layer registered-mobile
+from `dm_max_body_bytes` by analogy. **CORRECTED 2026-09-06 by R-RA-28; earlier requirement kept visible:**
+“Every supported request and response carrier must have a boundary test that the real packer accepts exactly
+at its returned cap and refuses cap plus one.” The admission authority must always refuse cap plus one;
+the raw packer's refusal is not universal when reserved DST_HASH bytes are absent. §8.11's R-RA-28 paragraph
+below governs that distinction. As a current source-verified example, the same-layer registered-mobile
 request wrapper must fit `[dst_hash 4][origin 1][source_hash 4][enclosed_type 1][RPC body]` in the 241-byte
 inner buffer, so its RPC-body cap is 231 and its authenticated command cap is 206. A cross-layer path spends
 additional carrier bytes and must publish its own lower bound. The home-originated static leg, target
@@ -966,6 +968,15 @@ probability is about `2^-33`. The codec/session evidence must derive that bound,
 concurrency, and prove RNG failure is a loud pre-transmission refusal. Target-side fingerprint detection
 still rejects an authenticated repeated ID carrying a different tag, but it occurs after same-key/same-nonce
 ciphertexts may have appeared and is not the nonce-safety argument.
+
+**Slice 2 implementation boundary, Author source verification 2026-09-06 (B312; brief awaiting QA):**
+`IHal::rand_bytes` (`lib/core/hal.h:183`) returns void; `DeviceHal::rand_bytes`
+(`lib/hal/device_hal.cpp:158`) calls the void `mrrng::fill`. That interface cannot return an entropy-failure
+status to the new codec. The consumer-free Slice 2 brief therefore specifies a stateless request-ID creator
+with an explicit caller-supplied, status-returning eight-byte entropy input. Native tests drive its real
+success/refusal boundary without a Node or a HAL edit. They do not prove hardware RNG health or an on-air
+refusal. The first real consumer must supply and gate a truthful entropy adapter; wrapping the existing
+void draw in unconditional success is not that proof. B312 remains open for this integration obligation.
 
 ## 10. Execution, deduplication, and replay
 
@@ -1759,7 +1770,7 @@ The complete design does not provide:
    require `SOURCE_HASH`, key identity on the 32-bit source hash, refuse instead of clamp, and remove the
    accept-side staging RAM from client-only product builds. Both carrier types remain allocated in the internal
    namespace; otherwise a role-disabled build would bypass the fail-closed guard and deliver the frame as a DM.
-   **✅ SOFTWARE-COMPLETE / QA-PASSED 2026-09-06; owner closure commit pending.** Evidence:
+   **✅ SOFTWARE-COMPLETE / QA-PASSED 2026-09-06; owner closure commit `cc35137`.** Evidence:
    `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. Native is 2615 cases / 111354 assertions / 0 failed;
    the feature probe is 9 cells / 114 checks / 38 verified controls / 0 unusable, and the tools sweep is 312 OK.
    Both real owned receive paths execute in native; the pure decision covers all four capability pairs.
@@ -1789,6 +1800,9 @@ The complete design does not provide:
    or codec consumer is included. Record both repository bases/diffs and prove both variants compile the new
    TU; the owner commits each repository's changes. No simulator edit is made during 1b, and Slice 2's brief,
    dispatch base and measurement pins wait for the QA-passed 1b closure commit.
+   **Preparation update 2026-09-06:** that closure commit now exists at `cc35137`. The Author brief
+   `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md` is **DRAFT — awaiting Quality-Agent review**,
+   pinned to that MeshRoute commit and simulator `fd3295d`; no dispatch or implementation is implied.
 3. **Target identity, ACL, and USB provisioning:** on accept builds add `/mradmid` and the fixed ten-slot
    `/mracl` transaction using the team-keyring persistence idiom, first-owner USB exchange, several-owner
    invariants, corrupt-state recovery, USB-only target-root rotation, role changes, and ordinary-`regen`
@@ -1870,8 +1884,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
 | 0f | ✅ landed: BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | native **2604 / 109619 / 0** (+7 / +85); corpus **36/36 anchors**, s18 `32afbf11`/269517/0, `lus` `eb298576` unchanged with 0 build actions (recompile control fired); `sizeof(Node)` 222072/117912/148680 unmoved; `gateway` RAM **+120 B** fully attributed to `g_line` (+115) and alignment (+5), flash ±0; `heltec_mobile` byte-identical in every measured field; census 6/6 at pin; probe **40 checks / 8 controls RED / 0 unusable**; tools sweep 238 OK | **Part 61:** the 274-byte `send_layer` line over real BLE under multiple write chunkings returns `err_unsupported`; the 268-byte plaintext form queues; a 275-byte line refuses loudly |
 | 1 | ✅ software-complete / QA-passed 2026-09-06; consumer-free `lib/core/mr_features.h`, implementation `5d2c00e` | native 2610/110269/0; feature matrix 9 cells / 97 checks / 19 controls RED; tools 305; forced lus rebuild 34 actions, binary identical; 36/36 anchors; Node ABI and both boards' RAM/flash/sections/objects/symbols unchanged; evidence `2026-09-05-radmin-slice1.md` | none |
-| 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit pending; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
-| 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |
+| 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit `cc35137`; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
+| 2 | remote codec/KDF files and carrier-cap authority; Author brief DRAFT 2026-09-06, awaiting QA, bases `cc35137` / simulator `fd3295d` | predicted zero new runtime codec calls/remote-v2 events, 36/36 unchanged; ruled pair; independent KATs and full derived mutation union | none |
 | 3 | target identity/ACL storage and USB provisioning owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55a:** target-side physical-USB first owner and local recovery only |
 | 4 | mobile keyring/target-book storage and local command owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55b:** controller `/mrtargets` exchange with the Part-55a target; **Part 56:** USB seed lifecycle and BLE public select/show only |
 | 5 | target session/dedup files | zero remote events, 36/36 unchanged; ruled pair | none |

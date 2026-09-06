@@ -25,7 +25,7 @@
   Slice 9. Slice 1 is software-complete / QA-passed 2026-09-06, committed at `5d2c00e`: a consumer-free header
   scaffold with no static profile or `platformio.ini` change, measured zero RAM/flash/section/object/symbol
   movement on the ruled pair and 36/36 stream identity after a forced simulator rebuild.
-  R-RA-27 (owner-ruled 2026-09-06; Slice 1b software-complete / QA-passed, owner closure commit pending): strict ACCEPT-for-CMD and
+  R-RA-27 (owner-ruled 2026-09-06; Slice 1b software-complete / QA-passed, owner closure commit `cc35137`): strict ACCEPT-for-CMD and
   CLIENT-for-RESP receive ownership; the legacy switch widens neither. MeshRoute is undeployed, so a
   static/gateway legacy issuer losing replies is accepted; its old `rcmd` round-trip bench step is suspended
   from 1b until Slice 9's replacement. Mobiles ignore unowned commands at the existing fail-closed guard.
@@ -43,7 +43,10 @@
   Slice 2 preparation accepted by QA 2026-09-06: §8.9's terminal allocation is append-only; decoded results
   retain a typed opcode domain (`0x00` terminal completed ≠ authenticated protocol-error already_acknowledged),
   with independent domain/invalid-code KATs. The separate simulator source-list addition must compile the codec
-  into both variants and record both repositories' bases/diffs. The brief and pins wait for 1b's closure commit.
+  into both variants and record both repositories' bases/diffs. Slice 2 brief is DRAFT, awaiting QA:
+  `docs/superpowers/plans/2026-09-06-radmin-slice2-remote-codec.md`, pinned to 1b closure `cc35137` and simulator
+  `fd3295d`. B312 records the RNG proof boundary: current HAL draws return void; codec-local checked entropy
+  tests do not close the later real-provider integration obligation. No runtime consumer or HAL change in Slice 2.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms
