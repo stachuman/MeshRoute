@@ -569,3 +569,25 @@ no-profile static envs `production`, `xiao_sx1262`, `heltec_v3`, `heltec_v4`, `x
 a HOST build (no `ARDUINO`: native, lus) → `{1, 1}` (R-RA-17's host reading). `#error` on a board build with both or
 neither; `ACCEPT == MR_FEAT_REMOTE_MGMT` pinned on every board build until Slice 9 deletes the legacy switch. No
 `MR_PROFILE_STATIC`, no `platformio.ini` edit, no consumer in Slice 1 (4.2 implied: pure scaffold).
+
+### R-RA-27 (owner, 2026-09-06) — Slice 1b: NO legacy widening (nothing is deployed), a pure routing decision, mobiles ignore remote commands
+
+**Owner:** *"1. Solution is not deployed, legacy period is non-existing. 2. Agree, 3. yes, mobile simply will ignore
+remote commands"* (the three points of the Slice 1b pre-check ledger §4).
+**Settled:**
+1. **Strict role gates, no legacy widening.** `REMOTE_CMD` staging is compiled iff `MR_FEAT_RADMIN_ACCEPT`; `REMOTE_RESP`
+   staging iff `MR_FEAT_RADMIN_CLIENT`. `MR_FEAT_REMOTE_MGMT` does NOT widen either owner. Consequence, accepted by the
+   owner (M3: MeshRoute is not deployed): on a static/gateway build (accept-only) a `REMOTE_RESP` is UNOWNED and falls
+   to the fail-closed guard — the legacy USB `rcmd` issuer on static nodes no longer receives responses (its `send`
+   half still airs a `REMOTE_CMD` until Slice 9 deletes the legacy issuer/acceptor). The design's 1b sentence "under
+   the legacy gate their bodies remain behaviour-identical" is SUPERSEDED for that case: the bodies stay byte-identical
+   where an owner exists; ownership itself follows R-RA-8 strictly. ⇒ the bench script's legacy `rcmd` round-trip parts
+   on static nodes are suspended (Author marks them) until Slice 9's replacement; no new metal for 1b.
+2. **The four native role-by-type arms are driven by a PURE routing decision** that takes the two capability values as
+   arguments (production calls it with the real macros; the tests with all four combinations). No runtime role gate
+   in production paths, no test-only macro override.
+3. **A mobile (client-only) simply ignores an incoming `REMOTE_CMD`:** it is unowned, reaches the fail-closed guard and
+   is dropped with the one scalar `unsupported_internal` emit — no staging into the inert stub any more. Externally
+   identical (no response either way); not corpus-visible (the host compiles both roles); measured on `heltec_mobile`.
+Prediction for 1b stays 36/36 byte-identical (host `{1,1}`); board flash moves on BOTH boards (gateway loses the RESP
+body, heltec loses the CMD body), RAM ±0 (`_remote_inbound` stays until Slice 5).

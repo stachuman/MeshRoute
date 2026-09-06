@@ -1,20 +1,21 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 1 — feature-boundary scaffold · dispatch brief · 2026-09-05
 
-**Status: DRAFT — awaiting Quality-Agent review.** Dispatch model: **Opus** (`model: opus`).
+**Status: QUALITY-AGENT PASS 2026-09-05 — AUTHORIZED FOR DISPATCH.** No fold-ins.
+Dispatch model: **Opus** (`model: opus`).
 
 Authority: design §19 item 1 and §19.1 row 1 of
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`; the Quality-Agent ledger
 `docs/superpowers/plans/2026-09-05-radmin-slice1-precheck.md`; R-RA-8, R-RA-17 and the owner-settled R-RA-26 in
 `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`.
 
-**Dispatch base: NOT YET PINNED — STOP FOR THE CODER.** Source facts below were verified at `b942c37` (`0c`);
-that is a source reference, not the dispatch base. At authoring, R-RA-26 was modified and the pre-check untracked.
-The dispatch base is the owner's subsequent commit containing the preparation package, including this brief and
-the ruled ledger. After that commit exists and QA passes the brief, the Author writes its exact hash here.
-QA and every isolated-worktree coder verify `git rev-parse HEAD` against it before implementation. A placeholder,
-different base or unexplained dirty start is a STOP; the coder neither repins nor silently repairs the checkout.
-The later Author base-pin edit, if uncommitted, must be explicitly named as the sole permitted pre-existing edit.
+**Dispatch base is exactly `c1c342b90ae770c169d7a28ac4ec32ef0c216d13` (`c1c342b`, `prep`).** The owner committed
+the preparation package, including the brief, R-RA-26, register, MEMORY and QA's corrected pre-check. The tree was
+clean before this Author pin. Source facts below were verified at `b942c37` (`0c`); the preparation commit changes
+documentation only. QA and every isolated-worktree coder verify `git rev-parse HEAD` against the exact dispatch
+base before implementation. This Author status/base-pin edit is the sole permitted pre-existing uncommitted
+change and must be named in the report. A different base or any other dirty start is a STOP; the coder neither
+repins nor silently repairs the checkout.
 
 This is an additive compile-time scaffold, not a runtime refactor (C1). One production header gains the endpoint
 pair and its configuration checks. All current feature values, legacy consumers, runtime decisions, Node layout,
@@ -71,7 +72,8 @@ Two corrections must not be copied from the pre-check into implementation or evi
   `docs/superpowers/specs/archive/2026-07-12-firmware-feature-split.md`. Correct the header's `:7` reference to
   that historical location; describe current endpoint policy using R-RA-26 and the current remote-admin design.
   The sibling stale pointer at `platformio.ini:456` is recorded in B304 but remains outside this fence.
-- **B305 — ABI labels reversed.** Pre-check `:29` assigns the two board sizes to the wrong architectures.
+- **B305 — ABI labels reversed at authoring.** The original pre-check `:29` assigned the two board sizes to the
+  wrong architectures; QA corrected that ledger in preparation commit `c1c342b`, keeping the correction visible.
   `tools/probe_board_abi.py:101`–`:106`, `:255`–`:302` pins native/HOST **222072**, `heltec_mobile`/Xtensa
   **117912**, and `gateway`/ARM **148680**. These are verified source pins, not fresh measurements; the coder
   independently measures and reports each named target. The incoming QA ledger remains untouched by the Author.
