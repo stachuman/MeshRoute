@@ -4063,6 +4063,20 @@ identity. Run it only on a scratch node and expect peers to re-bind by the new `
 *Why metal remains:* the host gate executes the real dispatcher and proves exact bytes and sink isolation, but
 only hardware exercises BLE-NUS notification/reassembly and the real `Preferences`/`InternalFS` `/mrid` write.
 
+**DRAFT Slice 4 mobile extension (2026-09-06), NOT CURRENT FIRMWARE / NOT RUN.** After Slice 4 QA PASS,
+steps 2 and 3 on a CLIENT build must receive the existing success/name line followed by exactly one
+additional complete line on the same requested transport:
+
+```text
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+```
+
+ACCEPT builds keep the original single-line contract. Use xiao_mobile for the real BLE client; capture
+the two lines with no USB/BLE cross-sink leak, reboot, then use Parts 55b/56's public show commands to
+confirm the target book and dedicated keys survived while self changed. Re-derive the client transcript
+pins from Slice 4's executed inbox/console probes before owner execution; do not substitute these draft
+bytes for a measurement. Busy-debt refusal is a future-caller host test until Slice 8a, not metal owed here.
+
 ## Part 61 — BLE inbound line capacity on an nRF52 gateway (2026-09-04)
 
 ⏳ **PENDING — metal residue for remote-admin Slice 0f.** Slice 0f grew `g_line` from 160 to a derived
@@ -4138,3 +4152,148 @@ B233=$(python3 -c "print('X'*233)")
    `push{send_failed, reason:"too_large"}` with no RTS. Repeat with 231 bytes; it must queue and fly.
 
 ⓘ Part 61's `send_layer` vectors remain 274/268/275. Only its canonical `send` vector changed to 265.
+
+## Part 55a — remote-admin v2 target stores: physical USB and real flash (Slice 3)
+
+**DRAFT 2026-09-06 — NOT RUN; awaits QA-passed Slice 3 implementation and evidence.** The name is reserved
+by design §19.1; it is intentionally not renumbered after Part 62. Contract:
+`docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` §§4/6/10. This is only the TARGET half;
+the controller keyring/target-book exchange and its own USB display belong to Slice 4 / Part 55b.
+
+Use disposable ACCEPT-build test hardware, starting with the ruled nRF52 `gateway`. Record firmware commit,
+board/backend and console transcript. Steps below deliberately rotate identities, erase trust and interrupt
+flash writes; do not use a node whose stored keys or configuration must be retained. Have physical USB
+recovery access. Prepare two distinct controller PUBLIC keys K1/K2 and independently computed R-RA-29
+fingerprints F1/F2; the target never receives their private seeds. Placeholder `<64hex>` means the full
+public key, `<16hex>` its lowercase fingerprint, and `<n>` an observed decimal slot/count.
+
+1. **USB target-side first owner and durability.** On fresh target stores require boot lines
+   `> admin-id boot state=absent` and `> acl boot state=absent count=0 owners=0 operators=0`.
+   `admin-id generate` must print `> admin-id generated fp=<16hex> pub=<64hex>`; copy both public fields.
+   `acl add owner <K1>` must print `> acl added slot=0 role=owner fp=<F1> pub=<K1>`.
+   Reboot: require `> admin-id boot state=ok` and `> acl boot state=ok count=1 owners=1 operators=0`.
+   `admin-id show` must reproduce `> admin-id ok fp=<same16hex> pub=<same64hex>`;
+   `acl list` must reproduce `> acl slot=0 role=owner fp=<F1> pub=<K1>` followed by
+   `> acl end count=1 owners=1 operators=0`. This proves the target half, not the unimplemented controller book.
+2. **Whole family over real BLE-NUS.** From a secured BLE connection send every primary/subcommand form
+   in the brief, including bare `acl`, bare `admin-id`, list/show, mutations, exact-confirm and malformed
+   forms. Each owned family form must return exactly `{"err":"admin","msg":"console_only"}` through
+   BLE, with no USB command output or store change. USB show/list after the attempt must reproduce step 1.
+   This is notification/reassembly evidence; the host guard already owns grammar/branch exhaustiveness.
+3. **Ordinary identity/network reset preserves target trust.** Record the current target key and K1 row.
+   Run ordinary `regen`, reboot, and show/list both records: public keys/fingerprints/slots unchanged even
+   though ordinary node identity changed. Repeat around `leave` and reboot; target stores remain identical.
+   Do not infer preservation across a filesystem self-heal format (B317).
+4. **Root rotation actually persists, independently of ACL.** `admin-id rotate confirm` returns
+   `> admin-id rotated fp=<new16hex> pub=<new64hex>`. Reboot and show must reproduce the new root; it must
+   differ from the prior root. K1's ACL row remains unchanged. Prior controllers will need to replace their
+   target-root trust through the physical exchange; this step does not test a remote session.
+5. **Local corrupt-record recovery, without broad reformat.** Prerequisite: QA/coder evidence must name a
+   reviewed disposable-flash fixture/method for corrupting ONLY the selected optional store and observing
+   its failed read; no hidden production console verb or unreviewed general filesystem corruption command.
+   If unavailable, mark this step NOT RUN with the missing fixture, never PASS. Corrupt `/mracl` with
+   filesystem metadata still readable. Require boot `> acl boot state=invalid count=0 owners=0 operators=0`,
+   `acl add owner <K1>` → `> acl err store_invalid`, and unchanged administration identity/configuration.
+   `acl reset confirm` → `> acl recovered count=0 owners=0 operators=0`; reboot/list must show the valid
+   empty ACL, then first-owner add works again. Repeat for invalid `/mradmid`: show refuses
+   `> admin-id err store_invalid`; only `admin-id reset confirm` produces
+   `> admin-id recovered fp=<new16hex> pub=<new64hex>` and persists it. ACL remains unchanged.
+   For a fixture yielding backend `io_failed`, require the corresponding boot state and
+   `> acl err store_io_failed` / `> admin-id err store_io_failed` even for reset-confirm; no write/reformat
+   is permitted. Removing the fixture must expose the untouched prior record, not a replacement silently
+   written while the store was unreadable. No corruption diagnosis may auto-create a root or owner.
+6. **nRF52 reset-during-write, separately for BOTH records.** With known old/new public identities and
+   ACL rows, interrupt power during a root rotation and during an ACL change (e.g. add K2 as owner).
+   Use the timing/repetition method recorded in QA evidence; keep raw boot/USB results. A complete valid
+   old or new record must match its known public material; an absent/invalid/io_failed outcome must be
+   reported with the exact boot-state vocabulary above and must not expose invented accepted rows or claim
+   provisioning success. Re-read before recovery; absent root uses generate, invalid root uses reset-confirm,
+   absent/empty ACL uses add-owner, invalid ACL uses reset-confirm then add-owner, and io_failed refuses writes.
+   Never describe this remove-before-write backend as atomic or promise that a reported failure wrote nothing.
+7. **Factory-reset domain.** With both stores valid, run `factory_reset confirm`, reboot and require BOTH
+   absent boot lines from step 1; show/list return `> admin-id err absent` and `> acl err absent`.
+   Neither secret nor ACL is in the preserved fault-history domain. This destroys the scratch node's other
+   ordinary factory-reset data as well; it is not a target-only reset command.
+
+Only these physical-transport/flash checks are metal residue; native/probe gates own the service truth
+tables, fingerprints, no-op/write counts and last-owner/self-slot rules. Record backend-specific results;
+a passing nRF52 run is not an ESP32 atomicity claim. Existing Parts 54/58/59/61/62 and the suspended legacy
+static/gateway `rcmd` round trip are unchanged. Part 55a closes only on owner-reported metal results.
+
+## Part 55b — remote-admin v2 controller half of the physical USB exchange (Slice 4)
+
+**DRAFT 2026-09-06 — NOT RUN; awaits QA-passed Slice 3 and Slice 4 plus their evidence.** Reserved name
+from design §19.1. Exact local contract: Slice 4 brief §§4/10. Use a disposable Part-55a ACCEPT target
+and a CLIENT controller (heltec_mobile for ESP32 flash, xiao_mobile for nRF52 flash/BLE). Record both
+firmware commits, backends and public transcripts. Public `<Kc>`/`<Kt>` are 64 lowercase hex characters;
+`<Fc>`/`<Ft>` are their R-RA-29 16-hex fingerprints. Never paste a controller seed onto the target.
+
+1. **Both directions, over physical USB.** On the controller, `admin-key show self` must print
+   `> admin-key self fp=<Fc> pub=<Kc>`. On the Part-55a target, `admin-id show` must print
+   `> admin-id ok fp=<Ft> pub=<Kt>` (generate through Part 55a if absent). On a fresh target ACL,
+   `acl add owner <Kc>` prints `> acl added slot=0 role=owner fp=<Fc> pub=<Kc>`; if the fixture already
+   contains that owner, verify it with acl list instead. Record the target's ordinary routing hash
+   separately; it is NOT Ft or a hash derived from Kt. On a fresh controller book enter
+   `admin-target add bench <Kt> hash=<target's 0x routing hash>` for this same-layer fixture. Require
+   `> admin-target added slot=0 fp=<Ft> pub=<Kt>`. Compare BOTH full-key/fingerprint directions.
+2. **Real durable book, independent normal identity.** Reboot both nodes. The controller must print
+   `> admin-target boot state=ok count=1`; `admin-target show label=bench` must reproduce
+   `> admin-target slot=0 label=bench fp=<Ft> pub=<Kt> hash=0x<8UPPERhex> layer=none`.
+   The target's admin-id/acl displays must still reproduce step 1. Complete Part 59's controller regen
+   and reboot: the book row remains exact while `admin-key show self` changes. This does NOT transfer
+   the target's old self ACL grant to the new self; restore the disposable fixture through physical USB.
+3. **Physical transport boundedness.** With the disposable book's first eight slots provisioned using
+   QA evidence's disposable public-key fixture (filler rows make no reachability claim), request
+   `admin-target list page=0` over USB and, on xiao_mobile, secured BLE. Require eight complete public
+   row lines and `> admin-target end page=0 count=<actual total>`, no CONSOLE_DROP, partial notification
+   line or cross-transport leak. Other pages are explicit requests; no unsolicited remainder. The host
+   gate owns capacity/selector/grammar exhaustiveness, not this USB/NUS delivery observation.
+
+This closes the controller half of local trust exchange only. No remote execute/session/RF test exists
+in Slice 4. Host write-counting and corpus identity do not prove these records survive real reboot.
+
+## Part 56 — controller secret-store lifecycle and secured-BLE public boundary (Slice 4)
+
+**DRAFT 2026-09-06 — NOT RUN.** Requires QA-passed Slice 4, a disposable CLIENT node and a second
+CLIENT fixture for the export/import round trip. Use xiao_mobile for BLE; run storage/reboot residue on
+both available nRF52 and ESP32 client backends and record which ran. Seed export is intentionally
+sensitive: keep it local/off durable logs, do not put real seeds in evidence or paste them to an ACCEPT
+target. These scratch-node commands erase keys/data; retain no wanted identity on the fixtures.
+
+1. On controller A, `admin-key generate key0` must print
+   `> admin-key generated key0 fp=<F> pub=<K>`. Reboot; `admin-key show key0` prints
+   `> admin-key key0 fp=<F> pub=<K>` unchanged. `admin-key export key0` prints exactly
+   `> admin-key exported key0 seed=<64hex-secret>` on USB only; redact the seed in retained logs.
+   On fresh controller B with a different self, `admin-key import key0 <that seed>` prints
+   `> admin-key imported key0 fp=<F> pub=<K>`. Reboot B; the same show line must persist. These are
+   deliberately the same principal, not independently revocable keys. No target receives either seed.
+2. On a secured BLE connection to xiao_mobile, admin-key list/show and admin-target list/show must
+   deliver their full PUBLIC lines to BLE only. Send generate/import/export/remove/reset and target
+   add/set/remove/reset forms (use disposable values); each returns exactly
+   `{"err":"admin-client","msg":"console_only"}`, with no USB command output or durable change.
+   Public show/list over USB afterwards must still match. Target-family R-RA-29 checks stay in Part 55a;
+   do not apply its whole-family listing refusal to the controller. The host extractor owns exhaustive
+   malformed-token cases; this part owns the real secured transport and notification/reassembly.
+3. Complete Part 59's successful controller regen; require its exact client note and, after reboot,
+   the same dedicated key and target-book public rows. On A, `admin-key remove key0 confirm` must print
+   `> admin-key removed key0`; after reboot show key0 returns `> admin-key err not_found`, while the
+   independent key on B and A's target-book row remain. This is not a secure physical-flash erase claim.
+4. **Real-flash interrupted write/recovery, scratch fixture only.** Using a controlled power-cut setup,
+   interrupt a keyring update and a target-book update separately, and reboot. Record the surviving
+   bytes through public state/show output: an intact old/new valid record or an explicit absent/invalid/
+   io_failed state is possible; silently calling lost/corrupt data a healthy saved empty record is not.
+   Absence after remove-before-write is a loss outcome, not evidence of atomic preservation; first-create
+   through generate/import/add remains explicit. A successfully acknowledged update must
+   survive a subsequent normal reboot. For invalid state, only physical `admin-key reset confirm` or
+   `admin-target reset confirm` may report `> admin-key reset` / `> admin-target reset`; reboot must
+   report the recovered valid empty record. An io_failed store must return `> <family> err store_io_failed`
+   even on reset, never success. For corrupt/IO arms use the reviewed store-specific fixture discipline
+   of Part 55a, not a new production debug verb. Record unavailable fault arms as pending, not passed. nRF52 write is
+   non-atomic and whole-filesystem self-heal can erase trust (B317); this does not qualify a journal.
+5. On the final disposable fixture, `factory_reset confirm` and reboot erase both records. Require
+   `> admin-key boot state=absent count=0` and `> admin-target boot state=absent count=0`.
+   Self is a new ordinary identity, not a retained management seed. This also erases the node's other
+   ordinary factory data; neither store is covered by fault-history preservation.
+
+Parts 55b/56 remain metal-pending until the owner reports backend/transport results. Software size,
+fake-store controls, no-op simulator builds and no new RPC events do not close them or older bench debts.

@@ -649,3 +649,36 @@ physical-presence rule (§6.4 "a secured bond/static PIN alone is not physical p
 (the BLE help refusal), `tools/probe_console_sink/ble_guard.py:33` (the extraction anchored on one call text — the
 guard extractor must be generalized for a second family), `tools/gen_command_inventory.py:110-127` (the `help`
 surface's `transports = "serial"` proven by `reached_from`).
+
+### R-RA-30 (owner, 2026-09-06) — the controller `admin-key` BLE split follows the design; the nRF52 client is measured once
+
+**Owner:** *"Agree - implement the design's split, add the one-off xiao_mobile measurement"*
+
+**Agreed proposal (Slice 4 pre-check §6.1):** *"The design allows list and show over secured BLE and keeps generate,
+import, export and remove USB-only. R-RA-29 deferred this family. I recommend implementing the design's split, because
+on the only BLE-capable client the operator's console is BLE and the later credential selection needs the listing
+there."*
+**Agreed proposal (Slice 4 pre-check §6.2):** *"Every client build gains the resident 2 KB book, and the most
+constrained client is measured by no gate. I recommend a one-off measurement of that board in the brief, reported and
+attributed, rather than a third ruled board."*
+
+**Settled for Slice 4 (the BLE split):** on CLIENT builds `admin-key list` and `admin-key show <self|keyN>` — public
+keys and R-RA-29 fingerprints only — are accepted from USB and from secured BLE (design §6.2 :342-347, §12.1
+:1268-1271); `admin-key generate|import|export|remove` and EVERY target-book MUTATION (add/set/remove/reset) are
+refused over BLE in `ble_dispatch_line` BEFORE the transport-neutral seam with one named `console_only` envelope,
+executed by the console-sink probe's generalized extractor (a sub-verb-aware condition), and recorded by the inventory
+as `serial`-only rows while the two listings carry `serial,ble`. The "listing-only escape" that is a FAILURE control
+for the target family (R-RA-29, Slice 3) is the DESIGN for the controller family; the two families' guards are
+therefore distinct extraction anchors with distinct envelopes. Physical-presence authority is unchanged: no BLE
+caller may create, extract, replace or delete secret material (§12.1). Target-book LISTING over BLE follows the
+`admin-key` listing rule (public data).
+
+**Settled for Slice 4 (the measurement):** the brief adds a ONE-OFF `xiao_mobile` (nRF52840, the only BLE client)
+RAM/flash measurement, base vs final at identical fixed-identity paths, attributed like the ruled pair's — the warning
+census's "pinned-set exception" idiom; it is NOT a third ruled board, it re-pins nothing, and it does not widen the
+2-env board gate (2026-08-18 ruling). Its purpose is the resident target-book buffer landing on the most
+RAM-constrained client; the number is recorded in the evidence and the design row.
+
+**Source facts:** `platformio.ini:518-541` (the four `MR_PROFILE_MOBILE` envs), `src/device_ble.h:5, :24-25` (BLE
+is nRF52-only), `tools/warning_census.sh` pinned set (no nRF52 mobile env), `tools/probe_board_abi.py:104` (the two
+board targets), `src/firmware_commands.cpp:60-65, :172-178` (the resident-over-stack precedent for a public NV blob).

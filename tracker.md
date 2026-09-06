@@ -45,15 +45,35 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   independent reference 87/87, mutation union 66+5 = 71/71 RED, 0 unusable, 36/36 byte-identical anchored
   streams. Both simulator archives compile the codec; the executable and both ruled board ELFs remain
   byte-identical, with no runtime codec consumer. Six probes/ABI/inventory/tools312/census/checkers pass.
-  Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and code are committed at `f2735f7`, now
-  HEAD in shared and coder checkouts; simulator `8688884` contains the one-line source-list addition.
+  Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and code are committed at `f2735f7`;
+  Author closure is committed at `231e1be`. Simulator `8688884` contains the one-line source-list addition.
   Measured dispatch bases were `9ea4947` / `fd3295d`; all delivered file hashes are unchanged.
-  **Next:** owner commits the five Author documentation landings in the shared checkout; QA supplies the
-  Slice 3 pre-check before its Author brief. B308/B309 closed; B312 codec half complete, real entropy adapter still open. B314 naming
+  B308/B309 closed; B312 codec half complete, real entropy adapter still open. B314 naming
   hazard avoided/closed, B315 output-path validation open, B316 duplicate folded into open B286 with rsync
   citation corrected to line 10114. B311/B313 remain open; B310 remains parked.
+  **Slice 3 preparation:** QA pre-check plus R-RA-29 are committed at `7299eb9`. The Author brief
+  `docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` is **DRAFT — sole QA HOLD fold-in applied,
+  changed sections awaiting confirmation**, pinned to
+  that existing base and unchanged simulator `8688884`. It fixes the fingerprint, target-only USB surface,
+  no-resident-state records/services, explicit invalid recovery and honest flash/RNG limits; no remote
+  execution. Part 55a is drafted, not run. B317 records self-heal erasure; B318 is closed by QA's ledger
+  corrections and accepted router/guard gate split. B319 tracks the explicitly fenced inventory ACCEPT
+  profile column, its fixtures and re-derived per-profile ownership counts. **Next:** QA confirms the
+  changed brief sections, owner Author-preparation
+  commit, Author explicit base repin, then QA dispatch. No implementation is claimed for Slice 3.
   Existing hardware debts remain separate; no metal is added by 1/1b/2. Earlier 0c documentation residue
   (B298 closure / Part 60 landing) is not discharged by the Slice 1/1b landings. B292 and B283 remain separate.
+  **Slice 4 advance draft, 2026-09-06:** owner reports Slice 3 running (the preparation status above is
+  historical). Pre-check plus R-RA-30 authorize drafting ahead, not implementation overlap. Brief
+  `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` is NON-DISPATCHABLE; base and
+  delivered anchors/pins wait for Slice 3 QA PASS and the owner's closure commit. Author §6.3–6.7
+  decisions cover the 64-byte row/2056-byte client scratch, admin-target pages, real mobile router arm,
+  literal CLIENT profile/census, exact regen warning and Parts 55b/56 (draft, not run). R-RA-30's
+  xiao_mobile capture is one-off, not an expanded ruled pair. B320 is closed by QA's in-place profile
+  correction. Preliminary gate otherwise PASS pending closure; sole B321 layering fold-in applied:
+  direct monocypher.h include and decoder-local crypto_wipe scope guard, no NV/team-keyring include
+  or guard relocation. B321's implementation remains open, including attributed flash cost. Next:
+  resolve closure checklist/base, then final QA re-gate. No dispatch authorization or software PASS.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
@@ -75,9 +95,10 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) **Slice 2 Author documentation
-  commit**, then QA's Slice 3 pre-check and the Author brief. Slice 2 implementation is QA-passed and committed
-  at `f2735f7` / simulator `8688884`; its historical measured bases remain `9ea4947` / `fd3295d`.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner reports
+  **Slice 3 running**: QA gates the coder's report, then Author landings / owner closure; (3) resolve the
+  advance Slice 4 draft's closure anchors/base and QA-gate it before dispatch. No dirty-input exception,
+  reused Slice 2 base or overlapping implementation. Parts 55a/55b/56 remain draft until gated transcripts.
   Bench Part 58 closes
   B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
   separately tracked and do not block Part 54.

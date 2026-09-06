@@ -49,10 +49,42 @@
   complete; current HAL draws still return void, so truthful real-provider integration remains open.
   Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and implementation are committed at
   `f2735f7` (both MeshRoute checkouts); simulator integration is committed at `8688884`. Measured dispatch
-  bases were `9ea4947` / simulator `fd3295d`; delivered file hashes are unchanged. Author landings remain
-  uncommitted in the shared checkout; QA's Slice 3 pre-check precedes the next Author brief and its eventual
-  preparation-base pin. B314 is avoided/closed, B315 open, B316 tracked
+  bases were `9ea4947` / simulator `fd3295d`; Author closure is committed at `231e1be`. B314 is avoided/closed,
+  B315 open, B316 tracked
   by existing B286; B311/B313 remain open. No metal added by Slice 2; older debts are unchanged.
+  R-RA-29 (owner-ruled 2026-09-06, committed with QA's Slice 3 pre-check at `7299eb9`): the one v2 key
+  fingerprint is BLAKE2b-512 over the 32-byte public key, first eight digest bytes as 16 lowercase hex;
+  USB listings also print the full public key. The whole Slice 3 target family is USB-only, refused at
+  the ACCEPT-build BLE boundary before the seam; controller-side BLE remains Slice 4's question.
+  Slice 3 brief `docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` is DRAFT; QA's single
+  inventory-profile HOLD fold-in is applied, awaiting confirmation of the changed sections. It remains
+  pinned to existing preparation `7299eb9` and unchanged simulator `8688884`; later preparation commits
+  require an explicit Author repin. Author decisions: no resident target Identity/ACL or static I/O buffer;
+  40-byte identity and 368-byte ten-slot ACL records; explicit confirm-only invalid recovery, ANY io_failed
+  write refused; no remote execution. B317 records destructive self-heal outside ordinary reset preservation;
+  nRF52 save is non-atomic. B318 is closed after QA's in-place pre-check corrections. B319 tracks the
+  inventory's explicit fifth ACCEPT axis (one on the four static/gateway profiles, zero on both mobile
+  profiles), never derived from the legacy macro; generator fixtures and per-profile ownership pins are
+  re-derived by the coder. The real-router gate is
+  inbox-verbs; console-sink owns help/extracted BLE guard, and both extensions are fenced. Full mutation
+  union is changed-source devicenv + three new services, plus unchanged teamkeyring/cfgparse/sliceDtoken
+  dependencies. Bench Part 55a is drafted, not run; target half only, controller Part 55b later.
+- **Remote-admin Slice 4 advance preparation (2026-09-06):** owner reports Slice 3 still running;
+  the preceding Slice 3 preparation entry is historical, not a new implementation verdict.
+  `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` is DRAFT/non-dispatchable:
+  exact base, delivered helpers/extractor/census and starting pins await the owner's Slice 3 closure.
+  R-RA-30 now settles client public list/show on secured BLE, USB-only secret/book mutations and a
+  one-off xiao_mobile fixed-identity measurement (not a third ruled board). Author contracts pending QA:
+  368-byte ten-seed keyring, one client-only 2056-byte public target-book scratch (32 × 64-byte rows),
+  admin-target family with eight-slot pages; strict CLIENT axis on real mobile profiles and a second
+  complete heltec_mobile real-router probe arm. Destination hints exclude the origin (0 or 1–3 hops).
+  Client regen adds the exact warning in the brief; source-bound debt predicates have no live producer
+  before Slice 8a. Parts 55b/56 and Part 59's mobile extension are draft/not run. B320 is closed after
+  QA corrected its full_* host/profile claim in place. Preliminary QA gate: otherwise PASS pending
+  closure; sole B321 fold-in applied — directly include monocypher.h in the parser and use a function-local
+  crypto_wipe scope guard, no NV/team-keyring include or shared-guard relocation (C1). B321 stays open
+  until implementation QA; any gateway flash cost is separately attributed. Final re-gate waits for §1.
+  No code/tool edit, Slice 3 closure, implementation gate or owner commit is claimed by this preparation.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

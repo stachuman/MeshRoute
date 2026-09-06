@@ -394,6 +394,55 @@ holding controller public keys, while `/mradmid` plus `/mrtargets` answer **whic
 to**. Authenticated encryption needs both. Merely preserving the ACL cannot authenticate or encrypt to a
 target whose only private identity was regenerated.
 
+### 6.3.1 Slice 4 Author storage/console contract — advance draft, 2026-09-06
+
+**DRAFT / awaiting QA; no implementation or ABI measurement claimed.** The owner authorizes preparing
+Slice 4 while Slice 3 runs. Its QA pre-check and R-RA-30 are the authority; the dispatch base and delivered
+helper/census anchors wait for the owner's Slice 3 closure. Full contract and frozen output bytes:
+`docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` §§1/4–8.
+
+Author resolutions of pre-check §6.3–6.7:
+
+- `/mrmkeys`: version 1, magic `0x4D524D4B`, 8-byte header plus ten 36-byte seed/reserved rows = 368 bytes,
+  alignment 4. Guarded transient secrets only, independent of target ACL capacity; occupied slots cannot
+  be replaced by generate/import. Duplicate derived public identities versus self/other slots refuse.
+- `/mrtargets`: version 1, magic `0x4D525442`, 8-byte header plus 32 × 64-byte rows = 2056 bytes,
+  alignment 4. Row offsets: public key 0, routing hash 32, four hop bytes 36, hop count 40, label length
+  41, 16-byte label 42, flags 58, five reserved bytes 59. Occupied flag bit 0 only; canonical empty rows
+  and reserved/unused bytes zero. Full key immutable/unique; label/routing hints mutable, no eviction or
+  peer-store sharing. Hints contain 0 or 1–3 destination layers, excluding the origin the carrier prepends;
+  the four-byte array does not admit four destinations. GLOBAL implicit, never a stored plane override.
+- One CLIENT-only resident public book scratch, not a live authority cache or a second stack-sized
+  candidate. Reload/classify on access and invalidate failed candidates; no resident management secret
+  or Node state. Measure composed stack and actual RAM/NV budgets; the 32-row STOP in §6.3 is unchanged.
+- `admin-key` retains §6.2's operations plus explicit invalid-only `reset confirm`; `admin-target`
+  owns list/show/add/set/remove/reset, with label= or fp= selectors resolving the stored full key.
+  Eight-physical-slot listing pages bound the USB stage; all public listings include full public key and
+  R-RA-29 fingerprint. No control-plane hash is a trust selector. Explicit confirm-only invalid recovery;
+  unreadable IO refuses every write, including reset. Real partial-write/self-heal limits remain B317,
+  not an atomicity guarantee inferred from the transaction API.
+- R-RA-30 settles public list/show over secured BLE and USB-only secret/book mutations. A separate
+  client envelope `{"err":"admin-client","msg":"console_only"}` refuses non-list/show forms before
+  the transport-neutral seam; the target's whole-family `admin` envelope remains unchanged.
+- The real-router gate gains a second full heltec_mobile arm; inventory gets a typed literal CLIENT
+  column, one on mobile/mobile_oled and zero on all four static/gateway profiles. Extend Slice 3's
+  delivered census, never relearn it from the edited source. B320 is closed after QA corrected the
+  pre-check's contrary full_* host claim in place. B321 fences scope-wiping the shared hex decoder's
+  scratch for seed import: direct monocypher.h include and a function-local guard calling crypto_wipe
+  inside parse_hex32, without a grammar change. Do not import the team-keyring/NV layer into the pure
+  parser or relocate the shared guard (C1). Any resulting non-client flash cost is attributed explicitly.
+- Client successful regen adds exactly `> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved`
+  after its existing success/name line, on the supplied sink only. Debt refusal is exactly
+  `> regen err remote_busy`, before draws/writes. Future-caller predicates are tested but have no live
+  producer before Slice 8a; no remote request/result implementation is implied. ACCEPT output unchanged.
+- R-RA-30 requires one-off xiao_mobile fixed-path/fixed-identity base/final RAM/flash and stack attribution,
+  not a third ruled board. Native/Xtensa/ARM record assertions and the two ruled boards remain required.
+  Bench Parts 55b/56 and Part 59's conditional mobile output extension are drafted, not run.
+
+**Preliminary QA review 2026-09-06:** otherwise PASS pending Slice 3 closure; the sole B321 mechanism
+fold-in is applied in the brief and above. Base/delivered anchors and final QA re-gate remain pending;
+this review is not dispatch authorization or a software PASS.
+
 ### 6.4 Initial physical USB trust exchange
 
 Initial ownership is established through physical USB serial in v2:
@@ -463,6 +512,53 @@ The common command family is conceptually `acl list`, `acl add <operator|owner> 
 `acl set <slot> <operator|owner>`, and `acl remove <slot> confirm`; exact textual encoding and fingerprint
 format are finalized with the dispatcher slice. Roles are fixed policy levels, not owner-editable
 per-command permission masks.
+
+**CORRECTED 2026-09-06, R-RA-29; earlier deferral above retained visibly:** the fingerprint is frozen NOW,
+not left to the dispatcher: first eight digest bytes of BLAKE2b-512 over the full 32-byte Ed25519 public
+key, rendered in digest order as 16 lowercase hex characters. One implementation serves v2 key display/
+selection across ACL, both directions of USB provisioning, controller keyring and target book. USB listings
+include the full 64-hex public key beside it. It is not `key_hash32`, a raw prefix, or an independent trust
+anchor. Slice 3 owns an independent reference KAT; the controller surfaces remain Slice 4 work.
+R-RA-29 also freezes the entire Slice 3 target family as USB-only: ACL listing/mutations/recovery and
+administration-identity show/generate/rotate/recovery. The ACCEPT-build BLE guard refuses the whole family
+before the transport-neutral seam; client-only builds have no target handlers. No listing exception or
+controller BLE decision is introduced here.
+
+### 6.6.1 Slice 3 implementation boundary — Author preparation, awaiting QA
+
+The Slice 3 pre-check's remaining §6 decisions are resolved in
+`docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` (DRAFT; not implementation):
+
+- No resident target Identity, seed, ACL cache or Node state. Pure store services and stateless device
+  adapters load per operation, wipe secret-bearing temporaries, and report boot state without installing
+  anything or writing. No static I/O buffer is budgeted; measure automatic stack demand and both boards.
+- `/mradmid` v1 is a 40-byte value record (MRA1, version, named reserved field, seed); `/mracl` v1 is
+  368 bytes (MRL1, version, count, ten stable 36-byte rows). Exact validation, named padding, layout/offset
+  asserts on each ABI, four-state reads, candidate validation and at most one save follow the team-keyring
+  idiom. The ten slots are statically tied to the codec's 0..9 handles. No main-Blob version/legacy cleanup.
+- New primary names are `admin-id` and `acl`. Generation is absent-only; rotate requires an existing valid
+  identity and exact confirm. Explicit reset-confirm recovers invalid records only; ordinary operations
+  never overwrite invalid records, and io_failed forbids EVERY write, including recovery. ACL reset yields
+  a valid empty record, not an owner. First owner requires a separately valid durable target identity;
+  failed/partial provisioning never claims both records committed atomically. A valid ACL's lost credential
+  can be replaced through physical add-owner followed by removal; no implicit corruption recovery.
+- Seed generation uses a checked caller-supplied source and refuses absent/false/partial-failure/zero
+  material. The existing device draw's nonzero check is not RNG-health qualification; B312 remains open
+  for the first RF consumer's truthful entropy integration. No provider/HAL rewrite belongs here.
+- The §6.5 failed-save statement is a live-state guarantee, not an assertion of atomic flash replacement.
+  Slice 3 has no resident live cache. nRF52 `write_slot` removes before replacement; failure or a power cut
+  can leave absent/invalid/changed media, so subsequent operations re-read and report truthfully. Do not
+  say nothing was written. The new stores receive their own Part 55a metal checks, not B193's old credit.
+- **Preservation limit (B317):** ordinary regenerate/leave/configuration preserve the separate stores,
+  and factory reset erases them; however existing nRF52 filesystem self-heal can also erase them after a
+  failed mount or corruption in its fixed probe list. Do not add these optional stores to that list or
+  claim §6.3 preservation across a destructive whole-filesystem repair. Mark the limitation in new code;
+  changing self-heal/persistence atomicity requires a separate pre-check, scope and gate.
+
+The local grammar/output contract, literal feature-site multiset, executed real-router gate, extracted BLE
+guard, inventory/help projection and two mutation selectors are pinned in the brief. The controller half
+of the exchange is not implemented by displaying its supplied key on the target. Part 55a is target-side
+only; Part 55b remains the controller slice. This preparation makes no software-complete or metal claim.
 
 ### 6.7 Why the target stores public keys
 
@@ -1851,10 +1947,24 @@ The complete design does not provide:
    `/mracl` transaction using the team-keyring persistence idiom, first-owner USB exchange, several-owner
    invariants, corrupt-state recovery, USB-only target-root rotation, role changes, and ordinary-`regen`
    preservation tests. No remote execution yet.
+   **Author preparation 2026-09-06:** QA pre-check and R-RA-29 are committed at `7299eb9`; the DRAFT brief
+   `docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` pins that existing MeshRoute base and
+   unchanged simulator `8688884`. §6.6.1 records the Author decisions and limitations. Bench Part 55a is
+   drafted, not runnable until QA-passed implementation/transcripts and the required fixture are available.
+   QA gates the brief; any later preparation commit requires an Author repin before dispatch.
+   **Brief review 2026-09-06:** QA verified the scope and B318 corrections; its sole HOLD fold-in is now
+   applied in brief §5/§6 item 7. The inventory's typed profile table explicitly gains ACCEPT = 1 on the
+   four static/gateway profiles and 0 on both mobile profiles, not a legacy-derived alias; its unit fixtures
+   and console-sink per-profile ownership counts must be re-derived. B319 tracks that implementation debt.
+   The changed sections await QA confirmation; neither a software PASS nor a new base is implied.
 4. **Mobile controller keyring and target book:** on client builds add the ten seed-only `/mrmkeys` slots and
    32-row `/mrtargets` using the same persistence idiom, seed-derived identity path, USB-only secret
    operations, public list/show, transactional persistence, in-use refusal, accepted measured capacities,
    messaging-peer independence, and `regen` behaviour. No on-air RPC yet.
+   **Advance Author draft 2026-09-06:** pre-check and R-RA-30 are available while Slice 3 runs. §6.3.1 and
+   `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` state the Author decisions;
+   the brief is non-dispatchable until the owner's Slice 3 closure base and delivered anchors/pins are
+   filled and QA gates it. Parts 55b/56 are drafted only. No measured capacity or software completion yet.
 5. **Target authenticated session/dedup state:** full-key discovery/bootstrap, epoch/session derivation,
    bounded seen-table value types, retained source identity and request-fingerprint classification. It may
    establish the table keys, reservation shape and reboot epoch boundary, but it does **not** consume or
@@ -1930,8 +2040,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 1 | ✅ software-complete / QA-passed 2026-09-06; consumer-free `lib/core/mr_features.h`, implementation `5d2c00e` | native 2610/110269/0; feature matrix 9 cells / 97 checks / 19 controls RED; tools 305; forced lus rebuild 34 actions, binary identical; 36/36 anchors; Node ABI and both boards' RAM/flash/sections/objects/symbols unchanged; evidence `2026-09-05-radmin-slice1.md` | none |
 | 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit `cc35137`; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
 | 2 | remote codec/KDF files and carrier-cap authority; **SOFTWARE-COMPLETE / QA-PASSED 2026-09-06**, implementation `f2735f7` / simulator `8688884`; measured bases `9ea4947` / `fd3295d`; Author documentation commit pending | native 2640/115288/0; independent reference 87/87; mutation union 66+5 = 71/71 RED, 0 unusable; 36/36 byte-identical and anchored; simulator executable and both ruled board ELFs byte-identical, zero runtime codec symbols; +1 object per board and per simulator core archive; six probes/ABI/inventory/tools312/census/checkers pass; full landing and evidence pointer in §19 item 2 above | none; existing metal debts and legacy round-trip suspension unchanged |
-| 3 | target identity/ACL storage and USB provisioning owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55a:** target-side physical-USB first owner and local recovery only |
-| 4 | mobile keyring/target-book storage and local command owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55b:** controller `/mrtargets` exchange with the Part-55a target; **Part 56:** USB seed lifecycle and BLE public select/show only |
+| 3 | target identity/ACL storage and USB provisioning owners; **DRAFT brief awaiting QA 2026-09-06**, base `7299eb9`, simulator `8688884`; R-RA-29 and §6.6.1 | predicted zero remote events, 36/36 unchanged; no resident target state/Node change; pair RAM ±0, mobile live flash ±0, gateway flash attributed; real-router plus extracted BLE guard and full mutation union | **Bench Part 55a:** DRAFT target-side physical-USB first owner, local recovery and real-flash limits; not yet run |
+| 4 | mobile keyring/target-book storage and local command owners; **advance DRAFT 2026-09-06**, R-RA-30 / §6.3.1; base and delivered anchors pending Slice 3 closure | predict zero remote events, 36/36 unchanged; ruled pair plus one-off xiao_mobile (not a third ruled board); client book scratch 2056 B, both records/stack/NV to measure; B321 shared-parser flash cost separately attributed | **Bench Part 55b:** controller `/mrtargets` exchange with Part-55a target; **Part 56:** USB seed lifecycle and BLE public list/show only; both DRAFT/not run; Part 59 mobile warning extension |
 | 5 | target session/dedup files | zero remote events, 36/36 unchanged; ruled pair | none |
 | 6 | common dispatcher/context/authority-table consumers | zero remote events; all pre-existing local behaviour attributed; ruled pair | none |
 | 7a | target cfg/NV schema and validation | zero remote events, 36/36 unchanged; ruled pair with isolated NV attribution | **Part 57a:** cfg migration/reboot; exact `cfg remote_action_activation_ms=<N>` value persists and invalid bounds refuse |
