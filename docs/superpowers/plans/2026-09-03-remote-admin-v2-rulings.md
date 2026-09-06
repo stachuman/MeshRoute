@@ -614,3 +614,38 @@ larger current admission allowances; add the B309 wrapper coverage.
 traffic is worth doing. The Author assesses it separately under B310. R-RA-25's narrow attachment/lookup rule and
 its last-mile exception remain unchanged until an explicit carrier-change ruling and a QA-passed brief exist.
 Neither the running 1b slice nor the consumer-free Slice 2 codec acquires a last-mile wire change from this ruling.
+
+### R-RA-29 (owner, 2026-09-06) — the frozen key fingerprint; the target's physical family is refused over BLE in Slice 3
+
+**Owner:** *"Agree - BLAKE2b fingerprint frozen, refuse the whole family over BLE"*
+
+**Agreed proposal (Slice 3 pre-check §6.1):** *"The design defers its format, yet Slice 4 uses it as a trust selector
+and Slice 3 must print it. The only existing idiom is four raw key bytes, which is grindable. I recommend freezing it
+now as the first eight bytes of BLAKE2b-512 over the public key, shown as 16 hex characters beside the full key on USB
+listings."*
+**Agreed proposal (Slice 3 pre-check §6.4):** *"The design allows public list and show over secured BLE for the
+controller side. I recommend Slice 3 refuses the whole target family over BLE, one guard and one envelope, and leaves
+the widening as a separate one-line decision."*
+
+**Settled, append-only:** `fp(ed_pub) = BLAKE2b-512(ed_pub)[:8]`, rendered as 16 lowercase hex characters. It is the
+ONE fingerprint of a 32-byte Ed25519 public key everywhere remote-admin v2 shows or selects one: the target ACL listing
+(§6.5 "slot, role, and a fingerprint"), the USB first-owner exchange (§6.4 step 5, both directions), the controller's
+`/mrtargets` trust selector (§6.3) and `admin-key show` (§6.2). On USB listings the FULL 64-hex key is printed beside
+it, because the physical exchange copies the full key; the fingerprint is a display/selection handle, never a trust
+anchor by itself and never a routing hash — `key_hash32` (the first four key bytes, LE) is explicitly NOT a
+fingerprint (`lib/core/identity.h:40` "NOT a security anchor"). The legacy 4-byte `fp` of `password`
+(`src/firmware_config.cpp:2432`) is not a precedent; it is deleted with the legacy flow (§17). Slice 3 pins the
+function with an independent BLAKE2b reference vector in the Slice 2 KAT idiom.
+
+**Settled for Slice 3:** the whole target-side family — the ACL verbs (list/add/set/remove/recovery) and the
+administration-identity verbs (show/generate/rotate) — is refused over BLE in `ble_dispatch_line` BEFORE the
+transport-neutral seam, with one named `console_only` envelope (the `help` shape, `src/fw_main.cpp:573-574`), executed
+by the console-sink probe's BLE-guard rows and recorded by the inventory as a `serial`-only surface. No listing verb
+is widened to BLE in Slice 3; widening `list`/`show` later is its own explicit decision under §12.1's
+physical-presence rule (§6.4 "a secured bond/static PIN alone is not physical presence"). The controller-side
+`admin-key list/show` allowance of §6.2 is Slice 4's question and is not decided here.
+
+**Source facts:** `lib/core/identity.h:34-45` (`Identity`, `key_hash32` = `ed_pub[0..3]`), `src/fw_main.cpp:573-574`
+(the BLE help refusal), `tools/probe_console_sink/ble_guard.py:33` (the extraction anchored on one call text — the
+guard extractor must be generalized for a second family), `tools/gen_command_inventory.py:110-127` (the `help`
+surface's `transports = "serial"` proven by `reached_from`).
