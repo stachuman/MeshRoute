@@ -55,6 +55,13 @@ namespace {
 // ⛔ The VALUE is Slice 2's allocation, not 0e's, and nothing here depends on it: `pack_data` derives APP from
 //    `type != 0`, so every non-zero type costs exactly the same ONE byte. A placeholder in the reserved-for-
 //    protocol-internal range keeps the arithmetic honest without pretending a codepoint has been allocated.
+// ⚠ CORRECTED 2026-09-06 BY REMOTE-ADMIN v2 SLICE 2, AND THE OLD CLAIM IS KEPT VISIBLE ABOVE (V1). The sentence
+//    "without pretending a codepoint has been allocated" was already wrong when it was written: `0xA0` is
+//    `DATA_TYPE_REMOTE_CMD` and `0xA1` is `DATA_TYPE_REMOTE_RESP` in `frame_codec.h:802-803`, both ALLOCATED and
+//    live on the legacy remote path since 2026-06-24. This constant is therefore not a placeholder for an
+//    unallocated number — it is the REAL RPC type byte, and Slice 2 reuses it rather than allocating one
+//    (no `wire_version` change, design §8.1). ⛔ The NAME and every measurement below are deliberately left
+//    UNCHANGED: this is a comment-only correction and 0e's numbers are its own.
 // ---------------------------------------------------------------------------------------------------------------
 constexpr uint8_t kPlaceholderRemoteType = 0xA0;
 
@@ -112,6 +119,12 @@ const Carrier kCarriers[] = {
      DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH, 0, false},
     // `node_hashlocate.cpp:1818-1821`: the hosted-mobile last mile is `enqueue_data(..., addr_len=1, ...)`.
     // addr_len is a HEADER field, so the last mile adds NO inner bytes — the inner is the by-hash shape.
+    // ⚠ CLARIFIED 2026-09-06 (Slice 2): this ROW IS THE HASH-PRESENT SHAPE, and that is a choice of fixture, not
+    //    a description of the current producer. The live last-mile call passes `override_dst_hash = 0`
+    //    (`node_hashlocate.cpp:1820`) and R-RA-25's narrow addendum keeps it that way, so a real last-mile inner
+    //    today carries NO `DST_HASH`; attaching one is the parked [[B310]] proposal, not present behaviour.
+    //    Under R-RA-28 the distinction costs nothing at the admission boundary — both forms admit 232 — but the
+    //    RAW fit measured here is the hash-present one and must not be read as the hash-less leg's.
     {"hosted-mobile last mile (addr_len=1)", "response",
      DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH, 0, false},
 };
@@ -178,6 +191,21 @@ Bound pack_probe(const Carrier& c, bool crypted, size_t body_len, size_t* out_in
     return Bound::none;
 }
 
+// ⚠⚠ SUPERSEDED AS AN ADMISSION AUTHORITY 2026-09-06 BY **R-RA-28** — AND THE MEASUREMENTS THEMSELVES STAND.
+//    Every cap this file computes (`rpc_body_cap` above, and the 226..236 span the boundary probes below pin) is a
+//    RAW PACKING measurement: what `pack_unicast_inner` / `pack_data` physically accept for a given flag set. The
+//    LARGER rows — the six by-node-id carriers whose inner spends no `DST_HASH`, reaching 236 — are NOT the body
+//    an RPC carrier may admit. R-RA-28 rules that the capacity authority ALWAYS reserves the four `DST_HASH`
+//    bytes alongside the mandatory origin and `SOURCE_HASH`, whether or not a legal leg transmits the field, so
+//    the live admission caps are same-layer 232, typed same-layer wrapper 231, full cross-layer depth 1..4
+//    229/228/227/226, and the typed cross-layer wrapper's destination depth 1..3 228/227/226 (its depth 4 is an
+//    INVALID carrier, not a 225-byte one — [[B309]]). ⇒ where a reserved field is absent the two authorities
+//    DIFFER ON PURPOSE: a raw 233-byte body still packs into a hash-less same-layer inner while admission refuses
+//    it, and that is a measurement rather than a packer refusal ([[B308]]). The production authority is
+//    `remote_body_cap(RemoteCarrier)` in `lib/core/remote_codec.cpp`, exercised in `test/test_remote_codec.cpp`;
+//    this file remains its KAT INPUT and its historical record, exactly as its banner says. ⛔ Comment-only:
+//    no expected value, fixture row or executable token below is changed.
+//
 // ★★ A MEASURED PRODUCTION INVARIANT, not a policy invented here: `pack_data` (frame_codec.cpp:900) REFUSES a
 //    CRYPTED frame that carries no DST_HASH, because the per-DM nonce derives from the cleartext
 //    `dst_key_hash32`. ⇒ outer `CRYPTED` is structurally unavailable to a carrier addressed BY NODE ID; for those

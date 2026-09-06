@@ -244,6 +244,15 @@ TARGET_SRC = {
     #   it. A mutation of the formula and a mutation of the asking are different defects and must not share entries.
     "b20mac":       "lib/core/node_mac.cpp",     # §B20/B21 — the seal's cap + the DST_HASH guard's two conditions
     "b20codec":     "lib/core/frame_codec.h",    # §B20 — data_frame_len/data_inner_cap, the one length authority
+    # ★★★ ADDED 2026-09-06 BY **remote-admin v2 Slice 2** (the remote RPC codec). ONE target, because every
+    #    executable decision of that slice lives in ONE translation unit: the layout/domain table, the KDF
+    #    labels + input order, the nonce/AAD composition, the exact-length rule, the R-RA-28 capacity
+    #    derivation, the typed result domains and the checked-entropy refusal. The header beside it is
+    #    declarations, types and frozen constants only — it holds no policy a mutation could reach, which is
+    #    why there is no second per-file target for it.
+    # ⚠ THE SLICE HAS NO RUNTIME CONSUMER, so this battery is the ONLY executed cover for that TU besides the
+    #   independent KATs themselves; the corpus and the boards are inert by construction.
+    "radmin2codec": "lib/core/remote_codec.cpp",  # §radmin-2 — the whole remote-v2 codec
     # ★★ ADDED 2026-08-28 BY [[B159]] (the dedup-vs-retry-horizon correction round). FOUR targets because the
     #    slice's decisions genuinely live in four files and a battery is per-SOURCE-FILE: the RETENTION derivation
     #    (`protocol_constants.h`), the DEADLINE PREDICATE and its doorstep call site (`node_cascade.cpp`), the two
@@ -613,7 +622,41 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2615, 111354    # ★★ RE-SYNCED 2026-09-06 by **remote-admin v2 Slice 1b** (capability-owned
+PIN_CASES, PIN_ASSERTS = 2640, 115288    # ★★ RE-SYNCED 2026-09-06 by **remote-admin v2 Slice 2** (the remote RPC
+                                         # codec — design §8/§9, R-RA-3/4/5/13/25/28). The slice adds NO edit to any
+                                         # file this battery already mutates: its production files are BOTH NEW
+                                         # (`lib/core/remote_codec.{h,cpp}`), and the only other touched sources are
+                                         # the new native TU and a COMMENT-ONLY hunk in
+                                         # `test/test_radmin_characterization_0e.cpp`. The union that was run in full
+                                         # is the NEW `radmin2codec` (66 controls) plus the whole of `b20codec` (5),
+                                         # the latter because `remote_body_cap` derives its governing bound from
+                                         # `frame_codec.h`'s `data_inner_cap`/`data_frame_len` — an unchanged file
+                                         # this slice nevertheless depends on for acceptance.
+                                         # DERIVATION, measured with the real binary on this tree and not assumed:
+                                         #   base `9ea4947` (clean, before the slice)   2615 / 111354 / 0 failed
+                                         #   + 25 NEW §radmin-2 cases                     +25 /   +3934
+                                         #   + zero moved/strengthened existing cases      +0 /      +0
+                                         #   = measured AFTER                           2640 / 115288 / 0 failed  ✓
+                                         # `program -tc='§radmin-2/*'` reports exactly 25 / 3934 with 2615 SKIPPED,
+                                         # which is the base case count — so no pre-existing case moved. Per-case
+                                         # assertions, each measured on its own `-tc=` filter:
+                                         #   §radmin-2/kdf         (2 cases)  base+session KATs, degenerate ECDH     61
+                                         #   §radmin-2/layout      (2)        the exhaustive 2x256 domain table    1581
+                                         #   §radmin-2/wire        (2)        every domain's header/nonce/AAD/body   396
+                                         #   §radmin-2/nonce       (2)        45 pairwise + slot/seq/source          158
+                                         #   §radmin-2/keys        (1)        the key selector on the seal path        8
+                                         #   §radmin-2/length      (2)        exact-length + variable boundaries     439
+                                         #   §radmin-2/corruption  (3)        every byte, every ctl, source/key      659
+                                         #   §radmin-2/result      (2)        the typed result domains                97
+                                         #   §radmin-2/slots       (1)        all ten slots + reserved A..E          238
+                                         #   §radmin-2/legacy      (1)        a real admin_cmd_seal fixture           13
+                                         #   §radmin-2/carrier     (5)        the live map, admission vs packing     260
+                                         #   §radmin-2/entropy     (2)        B312's checked draw + the bound         24
+                                         #   61+1581+396+158+8+439+659+97+238+13+260+24 = 3934 over 25 cases ✓
+                                         #
+                                         # ---- the previous pin, kept as the derivation it replaces --------------------------
+                                         # PIN_CASES, PIN_ASSERTS = 2615, 111354 — ★★ RE-SYNCED 2026-09-06 by **remote-admin
+                                         # v2 Slice 1b** (capability-owned
                                          # pre-tail remote receive — R-RA-8/R-RA-19/R-RA-27). The slice changes ONE file
                                          # this battery mutates, `lib/core/node_mac_rx.cpp` (b161rx/b251rx/b159rx/a0rx/
                                          # sliceBrx/sliceGrx), plus its header `lib/core/node.h` (declarations only);
@@ -9635,6 +9678,225 @@ MUTS_SLICEGJSON = [
  #     §B278-S4/6 is where the coherence itself is measured.
 ]
 
+# ===== §radmin-2 — lib/core/remote_codec.cpp: THE REMOTE RPC CODEC ================================================
+# ★★ Every entry below is a TEMPTING WRONG FIX at a ruled decision, not a deletion, and each is killed by an
+#    INDEPENDENT known-answer literal or by a named refusal in `test/test_remote_codec.cpp` — never by a
+#    round-trip, which would survive most of them. The mapping, so a shrunken battery is visible:
+#      R01-R08  KDF label / input order / omitted input / truncation end / endianness / degenerate ECDH
+#      R09-R18  every nonce domain field, the epoch selector in BOTH directions, the open exclusion, the label
+#      R19-R21  the AAD's direction byte, source hash and covered length
+#      R22-R25  clear-header field order, width/endianness and the required field set
+#      R26-R33  direction validation, reserved opcodes/slots, illegal pairings, the open/authenticated split
+#      R34-R36  the exact-length rule, both arms, and the fixed-layout payload refusal
+#      R37-R39  admission on encode AND decode, including the off-by-one at the cap
+#      R40-R52  the capacity authority: R-RA-28's reservation terms, storage vs air (BOTH governed cases),
+#               the wrapper byte, the path terms, B309's wrapper depth, and each descriptor validity rule
+#      R53-R57  the key selector on both paths, the ignored tag, the open fallback, the false authentication
+#      R58-R62  the typed result domains, the two 0x00 meanings, invalid-code acceptance, detail preservation
+#      R63-R66  B312's checked entropy: ignored failure, absent-provider fallback, endianness and width
+# ⛔ No entry attacks the header: it carries no executable decision (see the TARGET_SRC note).
+MUTS_RADMIN2CODEC = [
+ ('R01 ★★★ the base KDF binds the two full public keys in the WRONG ROLE ORDER, so a controller and its target derive the same key from either end — the DM sorted-hash habit imported into a protocol whose two endpoints are NOT interchangeable',
+  '    for (size_t i = 0; i < kRemoteControllerPubBytes; ++i) w.u8(controller_ed_pub32[i]);\n    for (size_t i = 0; i < kRemoteControllerPubBytes; ++i) w.u8(target_admin_ed_pub32[i]);',
+  '    for (size_t i = 0; i < kRemoteControllerPubBytes; ++i) w.u8(target_admin_ed_pub32[i]);\n    for (size_t i = 0; i < kRemoteControllerPubBytes; ++i) w.u8(controller_ed_pub32[i]);'),
+ ('R02 ★★ the base KDF label loses its version tag (same length, so every static_assert still holds) — remote-admin v1 and v2 would derive the same key from the same inputs',
+  'constexpr char   kLabelBase[]      = "MeshRoute remote-admin v2 base";',
+  'constexpr char   kLabelBase[]      = "MeshRoute remote-admin v1 base";'),
+ ('R03 ★★ the base KDF drops the SHARED POINT and derives a key from two public keys alone',
+  '    for (int i = 0; i < 32; ++i) w.u8(shared32[i]);',
+  '    for (int i = 0; i < 32; ++i) w.u8(0);'),
+ ('R04 ★★★ the session KDF drops the epoch, so a rollover does not change the session key — the whole point of the epoch',
+  '    put_u64_le(w, admin_epoch);',
+  '    put_u64_le(w, 0);'),
+ ('R05 ★★ the session KDF writes the epoch BIG-endian — the wrong-endian defect at a key boundary, invisible to any round-trip',
+  '    for (size_t i = 0; i < kRemoteKeyBytes; ++i) w.u8(base_key32[i]);\n    put_u64_le(w, admin_epoch);',
+  '    for (size_t i = 0; i < kRemoteKeyBytes; ++i) w.u8(base_key32[i]);\n    for (int i = 7; i >= 0; --i) w.u8(static_cast<uint8_t>(admin_epoch >> (8 * i)));'),
+ ("R06 ★★ the base key is truncated from the WRONG END of the 64-byte digest — still 32 bytes, still self-consistent, and not the spec's [:32]",
+  '    for (size_t i = 0; i < kRemoteKeyBytes; ++i) out_key32[i] = full[i];   // ... then truncate to 32',
+  '    for (size_t i = 0; i < kRemoteKeyBytes; ++i) out_key32[i] = full[kDigestBytes - kRemoteKeyBytes + i];'),
+ ('R07 ★★★ the ALL-ZERO shared point is accepted and turned into a key — exactly what the existing void `ecdh_shared` would hand over unchecked',
+  '    if (all_zero32(shared32)) return RemoteStatus::bad_key;   // a degenerate shared point never becomes a key',
+  '    if (false) return RemoteStatus::bad_key;   // a degenerate shared point never becomes a key'),
+ ('R08 ★★★ the ECDH boundary stops rejecting a degenerate result, so every low-order peer point yields a key both sides agree on and an attacker knows',
+  '    if (all_zero32(sh)) {                          // every low-order peer point lands here',
+  '    if (false) {                          // every low-order peer point lands here'),
+ ('R09 ★★★ the nonce drops the DIRECTION byte, so a request and a response with the same opcode nibble and request id collide under one key',
+  '    w.u8(msg.outer_type);\n    w.u8(remote_ctl(layout.opcode, layout.slot));',
+  '    w.u8(DATA_TYPE_REMOTE_CMD);\n    w.u8(remote_ctl(layout.opcode, layout.slot));'),
+ ('R10 ★★★ the nonce drops the CONTROL BYTE, so every opcode and every ACL slot share one nonce domain at a given request id',
+  '    w.u8(msg.outer_type);\n    w.u8(remote_ctl(layout.opcode, layout.slot));\n    put_u64_le(w, msg.request_id);',
+  '    w.u8(msg.outer_type);\n    w.u8(0);\n    put_u64_le(w, msg.request_id);'),
+ ('R11 ★★ the nonce drops the RESPONSE SEQUENCE, so two frames of one transcript reuse a nonce under the same session key',
+  '    w.u8(layout.has_response_seq ? msg.response_seq : uint8_t{0});   // requests use response_seq ZERO',
+  '    w.u8(uint8_t{0});   // requests use response_seq ZERO'),
+ ('R12 ★★★ the nonce drops the stable controller SOURCE_HASH — two controllers deliberately sharing one credential lose their pre-encryption nonce separation (design §9)',
+  '    w.u32_le(src.hash);\n    // ⛔ THE EPOCH IS AN INPUT FOR EXACTLY TWO DOMAINS',
+  '    w.u32_le(0);\n    // ⛔ THE EPOCH IS AN INPUT FOR EXACTLY TWO DOMAINS'),
+ ('R13 ★★★ EVERY domain gets the epoch in its nonce — including the bootstrap REQUEST, whose controller does not yet know one (§8.1)',
+  '    if (layout.epoch_in_nonce) put_u64_le(w, msg.admin_epoch);',
+  '    put_u64_le(w, msg.admin_epoch);'),
+ ('R14 ★★ NO domain gets the epoch in its nonce, so a replayed bootstrap after a rollover reuses the old response nonce',
+  '    if (layout.epoch_in_nonce) put_u64_le(w, msg.admin_epoch);',
+  '    if (false) put_u64_le(w, msg.admin_epoch);'),
+ ('R15 ★★ the nonce is truncated from the wrong end of the digest',
+  '    for (size_t i = 0; i < kRemoteNonceBytes; ++i) out_nonce24[i] = full[i];   // ... truncated to 24',
+  '    for (size_t i = 0; i < kRemoteNonceBytes; ++i) out_nonce24[i] = full[kDigestBytes - kRemoteNonceBytes + i];'),
+ ('R16 ★★★ an OPEN domain is handed a nonce, so an unauthenticated envelope could join an authenticated inequality claim as a fake zero-nonce member',
+  '    if (!layout.authenticated) return RemoteStatus::bad_pairing;\n    if (!src.present) return RemoteStatus::bad_argument;      // no absent-source fallback (§9)',
+  '    if (false) return RemoteStatus::bad_pairing;\n    if (!src.present) return RemoteStatus::bad_argument;      // no absent-source fallback (§9)'),
+ ('R17 ★★ the ABSENT-SOURCE fallback comes back: a message with no captured controller source is derived against whatever number the field happens to hold',
+  '    if (!src.present) return RemoteStatus::bad_argument;      // no absent-source fallback (§9)',
+  '    if (false) return RemoteStatus::bad_argument;      // no absent-source fallback (§9)'),
+ ('R18 ★★ one byte of the nonce LABEL changes (same length, so every static_assert still holds) — the derivation drifts out of its frozen domain without any structural sign',
+  'constexpr char   kLabelNonce[]     = "MeshRoute remote-admin v2 nonce";',
+  'constexpr char   kLabelNonce[]     = "MeshRoute remote-admin v2 Nonce";'),
+ ('R19 ★★★ the AAD drops the DIRECTION byte, so a sealed request body would authenticate as a response body',
+  '    out[0] = msg.outer_type;                                       // the DIRECTION byte',
+  '    out[0] = 0;                                       // the DIRECTION byte'),
+ ('R20 ★★★ the AAD drops the controller SOURCE_HASH, so the return identity is no longer bound and a relay could rewrite it without breaking the tag',
+  '    tail.u32_le(src.hash);                                         // the stable logical CONTROLLER source hash',
+  '    tail.u32_le(0);                                         // the stable logical CONTROLLER source hash'),
+ ('R21 ★★ the AAD length stops covering the source hash — the bytes are written and then not authenticated, which is the shape that looks right in a hex dump',
+  '    out_len = need;',
+  '    out_len = need - kRemoteSourceHashBytes;'),
+ ('R22 ★★★ the request id is written BIG-endian in the clear header — wrong on the wire and wrong in the AAD, and a round-trip never notices',
+  '    wire::Writer w(out);\n    w.u8(remote_ctl(layout.opcode, layout.slot));\n    put_u64_le(w, msg.request_id);',
+  '    wire::Writer w(out);\n    w.u8(remote_ctl(layout.opcode, layout.slot));\n    for (int i = 7; i >= 0; --i) w.u8(static_cast<uint8_t>(msg.request_id >> (8 * i)));'),
+ ('R23 ★★ the clear header puts the request id BEFORE the control byte',
+  '    wire::Writer w(out);\n    w.u8(remote_ctl(layout.opcode, layout.slot));\n    put_u64_le(w, msg.request_id);',
+  '    wire::Writer w(out);\n    put_u64_le(w, msg.request_id);\n    w.u8(remote_ctl(layout.opcode, layout.slot));'),
+ ('R24 ★★ the rollover result writes its abandoned count BEFORE the epoch — the field order of §8.6 reversed',
+  '    if (layout.has_admin_epoch)     put_u64_le(w, msg.admin_epoch);\n    if (layout.has_abandoned_count) w.u8(msg.abandoned_count);',
+  '    if (layout.has_abandoned_count) w.u8(msg.abandoned_count);\n    if (layout.has_admin_epoch)     put_u64_le(w, msg.admin_epoch);'),
+ ('R25 ★★ a bootstrap request may be built without its 32-byte controller key, or any other layout with one — the header/AAD field set stops being checked',
+  '    if (layout.has_controller_pub && msg.controller_pub.size() != kRemoteControllerPubBytes)\n        return RemoteStatus::bad_argument;',
+  '    if (false)\n        return RemoteStatus::bad_argument;'),
+ ("R26 ★★★ the outer DATA type is not validated, so a FOREIGN typed frame's first body byte is read as a remote `ctl`",
+  '    if (outer_type != DATA_TYPE_REMOTE_CMD && outer_type != DATA_TYPE_REMOTE_RESP)\n        return RemoteStatus::bad_outer_type;',
+  '    if (false)\n        return RemoteStatus::bad_outer_type;'),
+ ('R27 ★★★ the RESERVED slot nibbles A..E stop being refused as a class',
+  '    if (!slot_session && !slot_sentinel) return RemoteStatus::bad_slot;   // A..E are reserved in EVERY pairing',
+  '    if (false) return RemoteStatus::bad_slot;   // A..E are reserved in EVERY pairing'),
+ ('R28 ★★ a RESERVED REMOTE_CMD opcode (0x6..0xF) is admitted instead of refused',
+  '            default:\n                return RemoteStatus::bad_opcode;                          // CMD 0x6..0xF reserved',
+  '            default:\n                break;                                                    // CMD 0x6..0xF reserved'),
+ ('R29 ★★ a RESERVED REMOTE_RESP opcode (0x5..0xF) is admitted instead of refused',
+  '            default:\n                return RemoteStatus::bad_opcode;                          // RESP 0x5..0xF reserved',
+  '            default:\n                break;                                                    // RESP 0x5..0xF reserved'),
+ ('R30 ★★★ an AUTHENTICATED EXECUTE is accepted on the sentinel slot — open becomes a fake ACL slot, which §8.1 forbids by name',
+  '                if (!slot_session) return RemoteStatus::bad_pairing;      // an execute never rides the sentinel',
+  '                if (false) return RemoteStatus::bad_pairing;      // an execute never rides the sentinel'),
+ ('R31 ★★★ a BOOTSTRAP REQUEST is accepted on an established slot, i.e. on a row the controller cannot yet know',
+  '                if (!slot_sentinel) return RemoteStatus::bad_pairing;     // the row is not known yet: F, never 0..9',
+  '                if (false) return RemoteStatus::bad_pairing;     // the row is not known yet: F, never 0..9'),
+ ('R32 ★★ a BOOTSTRAP RESPONSE is accepted on the sentinel, so it stops carrying the actual matched slot',
+  '                // A bootstrap RESPONSE carries the ACTUAL matched slot 0..9 and never the sentinel (§8.1).\n                if (!slot_session) return RemoteStatus::bad_pairing;',
+  '                // A bootstrap RESPONSE carries the ACTUAL matched slot 0..9 and never the sentinel (§8.1).\n                if (false) return RemoteStatus::bad_pairing;'),
+ ('R33 ★★★ the OPEN protocol error acquires the AUTHENTICATED `already_acknowledged` result namespace — an unauthenticated envelope gaining an authenticated meaning',
+  '                    L.carries_result_code = slot_session;',
+  '                    L.carries_result_code = true;'),
+ ('R34 ★★★ a FIXED layout accepts a trailing byte (the exact-length rule becomes a minimum)',
+  '        if (body.size() != L.fixed_overhead) return RemoteStatus::bad_length;',
+  '        if (body.size() < L.fixed_overhead) return RemoteStatus::bad_length;'),
+ ('R35 ★★ a VARIABLE layout stops checking that its fixed fields are even present',
+  '        if (body.size() < L.fixed_overhead) return RemoteStatus::bad_length;\n    }\n    const size_t n_body = body.size() - L.fixed_overhead;',
+  '        if (false) return RemoteStatus::bad_length;\n    }\n    const size_t n_body = body.size() - L.fixed_overhead;'),
+ ('R36 ★★ a FIXED layout is allowed to carry an application payload',
+  '    if (!L.variable_body && !body.empty()) return RemoteStatus::bad_argument;   // a fixed layout has no payload',
+  '    if (false) return RemoteStatus::bad_argument;   // a fixed layout has no payload'),
+ ('R37 ★★★ ENCODE admission is skipped: an oversize body is built and handed on rather than refused',
+  '    if (total > cap) return RemoteStatus::bad_body_cap;     // refuse — never clamp, never truncate',
+  '    if (false) return RemoteStatus::bad_body_cap;     // refuse — never clamp, never truncate'),
+ ("R38 ★★ ENCODE admission is off by one: a body EXACTLY at the carrier's cap is refused",
+  '    if (total > cap) return RemoteStatus::bad_body_cap;     // refuse — never clamp, never truncate',
+  '    if (total >= cap) return RemoteStatus::bad_body_cap;     // refuse — never clamp, never truncate'),
+ ("R39 ★★★ DECODE admission is skipped, so an oversize body's size check hides behind a tag that happens to verify",
+  '    if (body.size() > cap) return RemoteStatus::bad_body_cap;',
+  '    if (false) return RemoteStatus::bad_body_cap;'),
+ ('R40 ★★★ [[R-RA-28]] REVERSED: the four DST_HASH bytes are reclaimed on a leg that does not transmit them — the optional-for-size decision the ruling exists to forbid',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_origin_bytes)\n                          + protocol::dm_inner_source_hash_bytes\n                          + protocol::dm_inner_dst_hash_bytes;',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_origin_bytes)\n                          + protocol::dm_inner_source_hash_bytes\n                          + (c.dst_hash_on_wire ? protocol::dm_inner_dst_hash_bytes : uint8_t{0});'),
+ ('R41 ★★ the mandatory SOURCE_HASH reservation is dropped from the capacity derivation',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_origin_bytes)\n                          + protocol::dm_inner_source_hash_bytes\n                          + protocol::dm_inner_dst_hash_bytes;',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_origin_bytes)\n                          + protocol::dm_inner_dst_hash_bytes;'),
+ ('R42 ★★ the origin byte is forgotten in the capacity derivation',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_origin_bytes)\n                          + protocol::dm_inner_source_hash_bytes\n                          + protocol::dm_inner_dst_hash_bytes;',
+  '    const size_t reserved = static_cast<size_t>(protocol::dm_inner_source_hash_bytes)\n                          + protocol::dm_inner_dst_hash_bytes;'),
+ ("R43 ★★★ the AIR-fit bound is ignored and STORAGE always governs — [[B20]]'s conflation at a new authority (the outer-CRYPTED shape then reads 232 instead of 229)",
+  '    const size_t governing = air < storage ? air : storage;',
+  '    const size_t governing = storage;'),
+ ('R44 ★★★ the STORAGE bound is ignored and AIR always governs, so a plaintext carrier is told it may fill 233 inner bytes the 241-byte TxItem buffer cannot hold alongside its fields',
+  '    const size_t governing = air < storage ? air : storage;',
+  '    const size_t governing = air;'),
+ ("R45 ★★ the typed wrapper's enclosed-TYPE byte is free",
+  '    if (c.wrapper)     extras += 1;                                       // the enclosed-TYPE body prefix',
+  '    if (false)     extras += 1;                                       // the enclosed-TYPE body prefix'),
+ ('R46 ★★ the cross-layer path forgets its two count bytes and charges only the layer ids',
+  '    if (c.cross_layer) extras += static_cast<size_t>(2) + c.path_depth;   // [n_layers][cur][ids...]',
+  '    if (c.cross_layer) extras += static_cast<size_t>(c.path_depth);   // [n_layers][cur][ids...]'),
+ ("R47 ★★★ [[B309]]: the typed wrapper is given the FULL path's depth limit, so destination depth 4 is admitted as a 225-byte carrier the home could never re-originate",
+  '        const uint8_t max_depth = c.wrapper ? static_cast<uint8_t>(protocol::gw_env_max_hops - 1)\n                                            : protocol::gw_env_max_hops;',
+  '        const uint8_t max_depth = protocol::gw_env_max_hops;'),
+ ('R48 ★★ the path cursor stops being validated against the depth (`pack_unicast_inner` refuses what this would admit)',
+  '        if (c.path_cursor >= c.path_depth) return RemoteStatus::bad_carrier;   // pack_unicast_inner: cur < n_layers',
+  '        if (false) return RemoteStatus::bad_carrier;   // pack_unicast_inner: cur < n_layers'),
+ ('R49 ★★ [[R-RA-13]] reversed: a carrier without SOURCE_HASH is admitted',
+  '    if (!c.source_hash_on_wire) return RemoteStatus::bad_carrier;            // R-RA-13: mandatory on every RPC carrier',
+  '    if (false) return RemoteStatus::bad_carrier;            // R-RA-13: mandatory on every RPC carrier'),
+ ("R50 ★★ `pack_data`'s structural rule is dropped: outer CRYPTED with no DST_HASH is reported as a carrier with a lower cap instead of no carrier at all",
+  '    if (c.outer_crypted && !c.dst_hash_on_wire) return RemoteStatus::bad_carrier;',
+  '    if (false) return RemoteStatus::bad_carrier;'),
+ ('R51 ★★ a same-layer descriptor is allowed to carry a path block that its flags would never emit',
+  '        if (c.path_depth != 0 || c.path_cursor != 0) return RemoteStatus::bad_carrier;',
+  '        if (false) return RemoteStatus::bad_carrier;'),
+ ('R52 ★★ `addr_len` beyond the mobile last mile is admitted (`pack_data` refuses it)',
+  "    if (c.addr_len > 1) return RemoteStatus::bad_carrier;                    // pack_data's own rule (frame_codec.cpp:897)",
+  "    if (false) return RemoteStatus::bad_carrier;                    // pack_data's own rule (frame_codec.cpp:897)"),
+ ('R53 ★★★ the ENCODE key selector collapses to the session key, so a bootstrap is sealed under a key the target cannot have yet',
+  "    const std::span<const uint8_t> key = L.uses_base_key ? keys.base : keys.session;\n    if (!key_present(key)) return RemoteStatus::bad_key;    // the domain's key, never the other one as a fallback",
+  "    const std::span<const uint8_t> key = keys.session;\n    if (!key_present(key)) return RemoteStatus::bad_key;    // the domain's key, never the other one as a fallback"),
+ ('R54 ★★★ the DECODE key selector collapses to the session key',
+  '        const std::span<const uint8_t> key = L.uses_base_key ? keys.base : keys.session;\n        if (!key_present(key)) return RemoteStatus::bad_key;',
+  '        const std::span<const uint8_t> key = keys.session;\n        if (!key_present(key)) return RemoteStatus::bad_key;'),
+ ('R55 ★★★ the AEAD verdict is IGNORED: a body with a broken tag publishes its plaintext',
+  '        if (!okk) return RemoteStatus::auth_failed;',
+  '        if (okk && false) return RemoteStatus::auth_failed;'),
+ ('R56 ★★★ a FAILED authenticated open FALLS BACK to the open decoder — the exact behaviour §8.1 forbids by name',
+  '        if (!okk) return RemoteStatus::auth_failed;\n        payload = plaintext_out.subspan(0, n_body);\n        d.authenticated = true;',
+  '        if (!okk) { payload = body.subspan(L.header_bytes, n_body); d.authenticated = false; }\n        else { payload = plaintext_out.subspan(0, n_body); d.authenticated = true; }'),
+ ("R57 ★★ an OPEN body is published as AUTHENTICATED — a success that isn't",
+  '        payload = body.subspan(L.header_bytes, n_body);     // an OPEN body: explicitly UNAUTHENTICATED\n        d.authenticated = false;',
+  '        payload = body.subspan(L.header_bytes, n_body);     // an OPEN body: explicitly UNAUTHENTICATED\n        d.authenticated = true;'),
+ ('R58 ★★★ the two result namespaces COLLAPSE: the authenticated protocol error accepts the whole terminal namespace, so 0x01..0x07 stop rejecting',
+  '            if (rc != static_cast<uint8_t>(RemoteProtocolError::already_acknowledged))\n                return RemoteStatus::bad_result_code;',
+  '            if (rc > kRemoteTerminalMax)\n                return RemoteStatus::bad_result_code;'),
+ ('R59 ★★★ the typed DOMAIN is lost: a protocol-error body decodes as a TERMINAL result, so 0x00 reads as `completed` instead of `already_acknowledged`',
+  '            d.result_kind    = RemoteResultKind::protocol_error;\n            d.protocol_error = RemoteProtocolError::already_acknowledged;',
+  '            d.result_kind    = RemoteResultKind::terminal;\n            d.terminal       = static_cast<RemoteTerminal>(rc);'),
+ ('R60 ★★ an UNALLOCATED terminal code (0x08..0xFF) is decoded as a known meaning',
+  '            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;   // 0x08..0xFF unallocated',
+  '            if (false) return RemoteStatus::bad_result_code;   // 0x08..0xFF unallocated'),
+ ('R61 ★★ a TERMINAL body with NO result code defaults to `completed` instead of refusing',
+  '        if (payload.empty()) return RemoteStatus::bad_length;         // the result code is REQUIRED',
+  '        if (payload.empty()) { d.result_kind = RemoteResultKind::terminal;\n                               d.terminal = RemoteTerminal::completed; out = d; return RemoteStatus::ok; }'),
+ ('R62 ★★ the bounded terminal DETAIL bytes are dropped rather than preserved exactly',
+  '        d.result_detail = payload.subspan(1);               // bounded detail bytes, preserved EXACTLY',
+  '        d.result_detail = {};               // bounded detail bytes, preserved EXACTLY'),
+ ("R63 ★★★ [[B312]] VERBATIM: the entropy provider's status is IGNORED, so a failed or partial draw becomes a usable request id",
+  '    if (!fn(ctx, b, sizeof b)) {                                // false = failure, INCLUDING a partial fill\n        crypto_wipe(b, sizeof b);\n        return RemoteStatus::entropy_failed;                    // out_id is left exactly as the caller had it\n    }',
+  '    (void)fn(ctx, b, sizeof b);'),
+ ('R64 ★★★ an ABSENT provider silently yields the reserved id zero instead of refusing',
+  '    if (fn == nullptr) return RemoteStatus::entropy_failed;     // an absent provider is a failure, not a zero ID',
+  '    if (fn == nullptr) { out_id = 0; return RemoteStatus::ok; }'),
+ ('R65 ★★ the request id is composed BIG-endian from the drawn bytes',
+  '    for (size_t i = 0; i < sizeof b; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);   // little-endian',
+  '    for (size_t i = 0; i < sizeof b; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * (7 - i));'),
+ ("R66 ★★★ the request id is silently NARROWED to 32 bits — R-RA-5's rejected width, and the birthday bound moves from 2^-33 to about 0.5",
+  '    for (size_t i = 0; i < sizeof b; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);   // little-endian',
+  '    for (size_t i = 0; i < 4; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);'),
+]
+
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -9657,6 +9919,7 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "b134store": MUTS_B134STORE, "b134inbox": MUTS_B134INBOX,
                   "b134ram": MUTS_B134RAM, "b134ack": MUTS_B134ACK,
                   "b20mac": MUTS_B20MAC, "b20codec": MUTS_B20CODEC,
+                  "radmin2codec": MUTS_RADMIN2CODEC,
                   "teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
                   "b161hash": MUTS_B161HASH, "b161rx": MUTS_B161RX, "b161mac": MUTS_B161MAC,
                   "b251rx": MUTS_B251RX, "b251hash": MUTS_B251HASH,
