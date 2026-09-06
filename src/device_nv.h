@@ -29,6 +29,7 @@
 // falls back to the compile-time defaults, so an unprovisioned or mismatched-version chip still boots.
 #pragma once
 #include <stdint.h>
+#include <stddef.h>     // offsetof — the FIELD-OFFSET half of the /mradmid + /mracl per-ABI layout pins
 #include <string.h>      // memcmp — H3 save() change-detection
 #include "fault_log.h"   // mrfault::FaultLog — the /mrfault store is whole-blob R/W, exactly like Blob
 
@@ -386,6 +387,104 @@ static_assert(sizeof(UiPresetBlob) == 12 + 17 * 21 + 3, "device_nv.h: the /mrui 
 static_assert(sizeof(UiPresetBlob) % alignof(UiPresetBlob) == 0,
               "device_nv.h: /mrui carries IMPLICIT tail padding — reserved_tail no longer closes the record");
 
+// ---- REMOTE-ADMIN v2 TARGET STORES: the administration identity (`/mradmid`) and the ACL (`/mracl`) ----
+// Authority: design `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md` §§6.3-6.6,
+// rulings R-RA-6 (the four stores in the keyring idiom) / R-RA-8 (accept = static + gateway) / R-RA-29.
+//
+// ★★★ TWO RECORDS AND ⛔ NOT ONE, and the separation is the design's: `/mradmid` holds THIS node's own
+//     administration SEED (a secret nothing else derives), `/mracl` holds the PUBLIC keys of the controllers that
+//     may manage it. They have different secrecy, different lifetimes and different recovery stories — a rotate of
+//     the root must not erase the ACL, and a repair of a corrupt ACL must not re-mint the root.
+// ⛔ A NEW NV RECORD IS NOT A WIRE CHANGE. No frame moves; nothing re-anchors (the `/mrteams` note's point).
+// ⛔ AND NEITHER IS A `Blob` FIELD, for `/mrui`'s stated reason: `/mrcfg`'s version mismatch REPROVISIONS the whole
+//    node, so a rotated administration seed must never be able to reset radio, identity, team and key configuration.
+//
+// ⚠⚠ WHAT THESE RECORDS DO **NOT** PROMISE, stated here because a console line must never claim it (§4.3):
+//   · ⛔ NO TRANSACTION AND NO ATOMICITY, ACROSS THE PAIR OR WITHIN ONE RECORD. `write_slot` on nRF52 is
+//     `remove()` THEN `open/write` (:846 below), so a power cut between the two leaves the record ABSENT, and a
+//     save that REPORTS FAILURE may still have reached the medium. ⇒ a reported failure publishes no success and
+//     ⛔ never says "nothing was written". The next command re-reads and re-classifies. [[B317]].
+//   · ⛔ NOT IN `mount_or_repair()`'s nRF52 probe list (`kFiles[]`), deliberately, for the reason `/mrjoin`,
+//     `/mrteams` and `/mrui` are not: that function recovers by `InternalFS.format()`, so listing an OPTIONAL
+//     store there would make ITS corruption destroy identity AND config. ⚠ The converse is a REAL residual limit
+//     and is NOT fixed here: a reformat triggered by one of the SIX probed files wipes BOTH of these records too.
+//   · ⛔ NO SESSION, NO EPOCH, NO INVALIDATION and ⛔ no remote caller authority — those are the session slice's
+//     and Slice 6's; §RADMIN slice 3 lands the STORES and the local USB provisioning only.
+
+// ★ ONE 32-BYTE SEED, ⛔ NEVER A STORED PUBLIC/PRIVATE PAIR. `meshroute::identity_from_seed` derives the whole
+//   196-byte expanded Identity from it (lib/core/identity.h:34), so a stored pair could disagree with itself;
+//   the seed is the ONE secret and every public field is DERIVED at the moment it is needed.
+struct AdminIdBlob {
+    uint32_t magic;        // kAdminIdMagic
+    uint16_t version;      // kAdminIdVersion — EQUALITY (see admin_id_blob_state)
+    // ⓘ NAMED header padding, ⛔ never implicit: 4 + 2 = 6 and `seed[32]` needs no alignment of its own, so a
+    //   compiler would insert two indeterminate bytes here — and indeterminate bytes make the whole-record
+    //   `memcmp` the write-coalescing policy IS answer differently on identical records. (`UiPresetBlob`'s rule.)
+    uint16_t reserved;
+    uint8_t  seed[32];     // ⚠⚠ THE SECRET. ⛔ Never printed, never returned to a sink, never left resident.
+};
+constexpr uint32_t kAdminIdMagic   = 0x4D524131u;   // 'MRA1' — its OWN magic, ⛔ never kMagic ('MRC1'), kIdMagic,
+                                                    // kJoinMagic ('MRJ1'), kTeamKeyMagic ('MRK1') or kUiPresetMagic
+constexpr uint16_t kAdminIdVersion = 1;             // v1: the first /mradmid layout. A bump REJECTS the old record
+                                                    // outright (equality policy) -> the node has NO administration
+                                                    // identity, which is safe and visible, never a wrong one.
+// ★ PER-ABI, NOT native-only — PeerRec's, JoinProfile's, TeamKeyRecord's and UiPresetSlot's reason: `sizeof` IS the
+//   migration policy (load_admin_id's exact size check) and test/ can only measure the HOST ABI, so pin it where it
+//   compiles on ARM and Xtensa too. 4 + 2 + 2 + 32 = 40 with alignof 4 and ⛔ NO tail padding.
+static_assert(sizeof(AdminIdBlob) == 40, "device_nv.h: the /mradmid layout moved — bump kAdminIdVersion");
+static_assert(alignof(AdminIdBlob) == 4, "device_nv.h: /mradmid alignment moved — the 40-byte claim is ABI-dependent");
+static_assert(offsetof(AdminIdBlob, seed) == 8, "device_nv.h: /mradmid seed offset moved — bump kAdminIdVersion");
+static_assert(sizeof(AdminIdBlob) % alignof(AdminIdBlob) == 0,
+              "device_nv.h: /mradmid carries IMPLICIT tail padding — `reserved` no longer closes the header");
+
+// ★★★ THE ACL ROW. `ed_pub` is the CONTROLLER's 32-byte Ed25519 public key — PUBLIC material, printable in full on
+//     USB (R-RA-29: the physical exchange copies the whole key). `role` is the stored byte and its domain is
+//     CLOSED: 0 empty, 1 operator, 2 owner, and ⛔ anything else makes the record INVALID rather than "unknown".
+// ⓘ `reserved[3]` is a NAMED member and ⛔ never implicit tail padding — `TeamKeyRecord::reserved[4]`'s rule: the
+//   whole-record byte compare that decides whether a write happens at all must be deterministic.
+struct AclRow {
+    uint8_t ed_pub[32];
+    uint8_t role;
+    uint8_t reserved[3];
+};
+// ★★ TEN, AND THE TEN IS ⛔ NOT A FREE-STANDING NUMBER — it is the codec's session-slot count. The binding
+//    `static_assert(kAclSlots == meshroute::kRemoteSlotSessionMax + 1)` lives in `src/firmware_admin_acl.h`, beside
+//    the ONE `#include "remote_codec.h"` that names it: `device_nv.h` is included by ~every firmware TU and pulling
+//    the codec's include graph (`<span>`, dm_crypto.h, identity.h) in here to read a single constant would widen
+//    every one of them. The assert is compiled on EVERY board anyway, because `firmware_commands.cpp` includes that
+//    pure header UNGATED. ⛔ Do not re-type the ten anywhere else.
+constexpr uint8_t kAclSlots = 10;
+struct AclBlob {
+    uint32_t magic;        // kAclMagic
+    uint16_t version;      // kAclVersion — EQUALITY (see acl_blob_state)
+    // ⓘ Occupied rows, 0..kAclSlots. ★ It is NOT an index and ⛔ NOT a high-water mark: "empty entries are not
+    //   compacted" (design §6.5), so `count` is the POPULATION and the holes keep their slot numbers. The predicate
+    //   that requires the two to agree is `mrfw::acl_content_valid` — this header owns the LAYOUT, that one the
+    //   CONTENT policy (the `/mrui` split: `ui_preset_blob_state` here, `presets_canonical` there).
+    uint16_t count;
+    AclRow   rec[kAclSlots];
+};
+constexpr uint32_t kAclMagic   = 0x4D524C31u;       // 'MRL1' — its OWN magic, ⛔ never kAdminIdMagic ('MRA1')
+constexpr uint16_t kAclVersion = 1;                 // v1: the first /mracl layout. A bump REJECTS the old record
+                                                    // outright -> the node has NO accepted controllers, which is
+                                                    // safe (nothing can manage it) and loudly visible at boot.
+// ★ PER-ABI. 32 + 1 + 3 = 36 with alignof 1 and ⛔ NO padding — which is what `reserved[3]` buys. Blob = 8-byte
+//   header + 10 x 36 = 368, alignof 4, and 368 % 4 == 0 so there is no implicit tail either.
+static_assert(sizeof(AclRow) == 36, "device_nv.h: the /mracl row layout moved — bump kAclVersion");
+static_assert(alignof(AclRow) == 1, "device_nv.h: /mracl row alignment moved — the 36-byte claim is ABI-dependent");
+static_assert(offsetof(AclRow, role) == 32, "device_nv.h: /mracl role offset moved — bump kAclVersion");
+static_assert(sizeof(AclBlob) == 8 + 10 * 36, "device_nv.h: the /mracl blob layout moved — bump kAclVersion");
+static_assert(alignof(AclBlob) == 4, "device_nv.h: /mracl blob alignment moved — the 368-byte claim is ABI-dependent");
+static_assert(offsetof(AclBlob, rec) == 8, "device_nv.h: /mracl rows offset moved — bump kAclVersion");
+static_assert(sizeof(AclBlob) % alignof(AclBlob) == 0,
+              "device_nv.h: /mracl carries IMPLICIT tail padding — the header no longer closes the record");
+// ★ THE ROLE DOMAIN, NAMED ONCE. ⛔ A verb never compares against a bare 1 or 2, and the record never stores a
+//   third value: `acl_content_valid` refuses anything outside this set, so an unknown role is a CORRUPT record
+//   rather than a silently-ignored row. (The `UiPresetSlot::enabled` "exactly 0 or 1" ruling, one record over.)
+constexpr uint8_t kAclRoleEmpty    = 0;
+constexpr uint8_t kAclRoleOperator = 1;
+constexpr uint8_t kAclRoleOwner    = 2;
+
 // ---- slot table --------------------------------------------------------------------------------------
 // The ONE place each record's storage names live. Both live backends address the same four records with
 // different models, so a slot carries both spellings and each arm reads the field it needs.
@@ -425,6 +524,20 @@ inline constexpr Slot kSlotTeams { "/mrteams", "mr",      "teams" };
 //    are not: that function recovers by `InternalFS.format()`, so listing an OPTIONAL store there would make ITS
 //    corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as `UiPresetRead`.
 inline constexpr Slot kSlotUi    { "/mrui",    "mr",      "ui"    };
+// §RADMIN slice 3 — the two remote-admin TARGET stores. ★★ `"mr"` IS THE FACTORY-RESET RULING, EXPRESSED AS DATA,
+// exactly as it is for `/mrjoin`, `/mrteams` and `/mrui` above: the ESP32 `factory_erase()` clears the whole `"mr"`
+// namespace in one `clear()` and the nRF52 arm's `InternalFS.format()` takes every file, so design §6.3's *"a
+// factory reset erases the administration identity and the ACL"* is delivered by the namespace choice alone, with
+// ⛔ not one line of new code. `/mrfault` is the deliberate exception ABOVE, and an administration SEED plus the
+// list of who may manage this node is emphatically not one — a factory-reset device must keep neither.
+// ⛔⛔ AND THEY ARE DELIBERATELY **NOT** IN `mount_or_repair()`'s nRF52 PROBE LIST (`kFiles[]`), for the reason
+//    `/mrjoin`, `/mrteams` and `/mrui` are not: that function recovers by `InternalFS.format()`, so listing an
+//    OPTIONAL store there would make ITS corruption destroy identity AND config. A failed/short/invalid read is
+//    handled LOCALLY, as `AdminIdRead` / `AclRead`.
+// ⛔ NOR are they in the fault-history preservation domain: `/mrfault` survives a factory erase precisely because
+//    it is HW diagnostics, and neither a secret nor an authority list is that.
+inline constexpr Slot kSlotAdmid { "/mradmid", "mr",      "admid" };
+inline constexpr Slot kSlotAcl   { "/mracl",   "mr",      "acl"   };
 
 // ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
 // This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
@@ -703,6 +816,89 @@ inline void ui_preset_blob_init(UiPresetBlob& b) {
     //    generation" (see UiPresetBlob::generation), so a record stamped with it would be rejected as non-canonical
     //    by the very predicate that protects a `SendReq` from sealing one.
     b.generation = 1;
+}
+
+// ---- /mradmid + /mracl: THE SAME FOUR-STATE READ, for the two remote-admin target stores (§RADMIN slice 3) ----
+// ★★★ WHY THE FOUR STATES ARE OWED HERE TOO, and each arm has a DIFFERENT operator remedy, which is the whole
+//     reason they may not be collapsed:
+//       · ABSENT  — an ordinary un-provisioned node. `admin-id generate` then `acl add owner …` is the FIRST-OWNER
+//                   ceremony (design §6.4). ⛔ Never an error, never warned about beyond the boot line.
+//       · INVALID — the bytes are there and they are wrong. For `/mradmid` that means the administration ROOT is
+//                   gone (⛔ no seed re-derives it; the controller's trust anchor must be re-established), for
+//                   `/mracl` that the authority list is unreadable. The remedy is the CONFIRM-GATED physical
+//                   recovery verb and nothing else — never an implicit re-seed on a read or a failed add.
+//       · IO_FAILED — the STORE would not answer, so ⛔ NOTHING IS KNOWN. A blind rewrite here would destroy an
+//                   intact root or an intact ten-row ACL because a mount failed transiently ⇒ it permits ⛔ NO
+//                   write at all, not even the recovery verb (§4.3). This is the state whose collapse into
+//                   `invalid` would turn a transient mount failure into a silent re-mint of the node's root.
+// ⓘ U1, CONSIDERED AND ANSWERED IN PLACE, exactly as `TeamKeyRead` and `UiPresetRead` answer it against
+//   `JoinRead`: five enums now carry the same four arms and they are SIBLINGS rather than one reuse — each
+//   documents its arms in ITS OWN record's terms and each feeds a different verb vocabulary (`ProfileErr` /
+//   `KeyringErr` / `PresetErr` / `AdminIdErr` / `AclErr`). ★ A shared classifier under a record-neutral name is the
+//   right end state and is ⛔ NOT taken here: it would be a refactor of four shipped records folded into a feature
+//   slice (C1). What IS shared, deliberately, are the primitives — `SlotIo`, `kSlotAbsent`, `slot_size_ok`,
+//   `blob_valid_exact`.
+enum class AdminIdRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an un-provisioned node, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch ORDER mirrors `join_blob_state`'s / `team_key_blob_state`'s / `ui_preset_blob_state`'s and for their
+// measured reasons: a backend that would not open returns `kSlotAbsent`, so testing `absent` first would launder a
+// dead store into "this node has no administration identity"; and an OVER-LENGTH record is `invalid` and ⛔ never
+// `ok`, because nRF52 reads `len` bytes out of a longer file and a valid PREFIX would otherwise pass every check.
+// ⛔ IT JUDGES THE **STORAGE**, ⛔ NOT THE SEED. Whether the stored seed is the all-zero one a dead RNG mints is
+//    `mrfw::admin_id_content_valid`'s question, one layer up, where the CONTENT policy lives (the `/mrui` split).
+inline AdminIdRead admin_id_blob_state(const AdminIdBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return AdminIdRead::io_failed;
+    if (io.oversize)       return AdminIdRead::invalid;
+    if (n == kSlotAbsent)  return AdminIdRead::absent;
+    // EQUALITY on the version, like /mrid, /mrpeers, /mrjoin, /mrteams and /mrui and ⛔ unlike /mrcfg's range:
+    // there is no migration arm for a root secret and there must not be one — a rejected record leaves the node
+    // with NO administration identity, which is safe and visible, whereas a half-understood migration would install
+    // seed bytes under a layout guess and mint a DIFFERENT root than the controller pinned.
+    return blob_valid_exact(b, n, kAdminIdMagic, kAdminIdVersion) ? AdminIdRead::ok : AdminIdRead::invalid;
+}
+// Stamp an EMPTY, VALID header — magic, version, zeroed `reserved` AND a zeroed seed. ONE path (U2), exactly as
+// `peers_blob_init` / `join_blob_init` / `team_key_blob_init` / `ui_preset_blob_init` exist so the triple is never
+// re-typed at a write site.
+// ⛔⛔ IT LEAVES THE SEED **ALL-ZERO**, WHICH `mrfw::admin_id_content_valid` CALLS INVALID — deliberately, and it is
+//    the safe direction: a storage header must not know how to mint a root. The ONE authority that fills the seed
+//    is the checked entropy path in `src/firmware_admin_identity.h`, which refuses a dead draw (C2). ⇒ this
+//    function alone can never publish a usable identity, and a caller that forgets the draw fails loudly.
+inline void admin_id_blob_init(AdminIdBlob& b) {
+    b = AdminIdBlob{};
+    b.magic   = kAdminIdMagic;
+    b.version = kAdminIdVersion;
+}
+
+enum class AclRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an un-provisioned node, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch order and the equality policy are `admin_id_blob_state`'s, for its reasons. ⛔ IT JUDGES THE
+// **STORAGE**: role domain, duplicate/all-zero keys, count-versus-holes and the "a non-empty ACL must have an
+// owner" rule are `mrfw::acl_content_valid`'s, one layer up.
+inline AclRead acl_blob_state(const AclBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return AclRead::io_failed;
+    if (io.oversize)       return AclRead::invalid;
+    if (n == kSlotAbsent)  return AclRead::absent;
+    return blob_valid_exact(b, n, kAclMagic, kAclVersion) ? AclRead::ok : AclRead::invalid;
+}
+// Stamp an EMPTY, VALID ten-slot ACL. ONE path (U2). ★ `AclBlob{}` zeroes every row INCLUDING `role` and
+// `reserved`, which is what makes the whole-record byte compare a valid "nothing changed" — and what makes an
+// empty row's canonical form ("all 36 bytes zero") reachable by construction rather than by a write-site memset.
+inline void acl_blob_init(AclBlob& b) {
+    b = AclBlob{};
+    b.magic   = kAclMagic;
+    b.version = kAclVersion;
+    // ⓘ REDUNDANT BY CONSTRUCTION, AND SAID SO RATHER THAN LEFT TO LOOK LIKE COVERAGE: the value-initialisation
+    //   above already zeroed `count`, so ⛔ no mutation can redden this line. It is kept for symmetry with
+    //   `peers_blob_init` and `team_key_blob_init`, which spell the same triple for the same reason.
+    b.count   = 0;
 }
 
 // ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
@@ -1099,4 +1295,34 @@ inline UiPresetRead load_ui_presets(UiPresetBlob& out) {
 //    the writes of. Repeating /mrcfg's pattern here would add a second flash READ per write and would still be
 //    untestable off-device — which is exactly how "seventeen green instruments" happened.
 inline bool save_ui_presets(const UiPresetBlob& b) { return write_slot(kSlotUi, &b, sizeof b); }
+// §RADMIN slice 3 — the administration identity. ★ The FOURTH wrapper pair that does not return a bool, for the
+// reason `AdminIdRead` states: absent (an un-provisioned node), corrupt (the root is GONE and the operator must be
+// told, because the remedy is a confirm-gated re-mint that invalidates every controller's pinned key) and
+// unreadable (nothing is known, so ⛔ NOTHING may be written — not even the recovery verb) are three different
+// answers. ⓘ It asks the primitive for `SlotIo` exactly as `load_join` / `load_team_keys` / `load_ui_presets` do;
+// the four bool records still pass no `io` and are therefore byte-for-byte the calls they were.
+// ⛔⛔ `kSlotAdmid`, ⛔ NEVER `kSlotId`: `/mrid` is the NODE's messaging identity, minted on first boot and
+//    regenerated by `regen`. The administration root is a SEPARATE secret with a separate lifetime, and merging
+//    them would make `regen` silently rotate the remote-admin trust anchor.
+inline AdminIdRead load_admin_id(AdminIdBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotAdmid, &out, sizeof out, &io);
+    return admin_id_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+// ⛔ NO read-before-write COALESCING HERE — the same deliberate asymmetry `save_join`, `save_team_keys` and
+//    `save_ui_presets` state, and for the same reason plus one more: the caller has ALREADY loaded and classified
+//    the record (it must, to know whether it may write at all), so the compare is FREE one level up in
+//    `mrfw::AdminIdService`, where the native suite can COUNT the writes; here it would cost a second flash READ
+//    **of a secret** and still be untestable off-device.
+// ⛔ `false` = THE WRITE FAILED. It does ⛔ NOT promise the previous bytes survived — see the record's own note.
+inline bool save_admin_id(const AdminIdBlob& b) { return write_slot(kSlotAdmid, &b, sizeof b); }
+// §RADMIN slice 3 — the controller ACL. ★ The FIFTH such pair, for `AclRead`'s reasons. ⛔ `kSlotAcl`, ⛔ never
+// `kSlotAdmid`: the two records are separately readable, separately writable and separately recoverable, and a
+// single slot would make a root rotation destroy the authority list (design §6.3: "neither erases the other").
+inline AclRead load_acl(AclBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotAcl, &out, sizeof out, &io);
+    return acl_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+inline bool save_acl(const AclBlob& b) { return write_slot(kSlotAcl, &b, sizeof b); }
 }  // namespace mrnv

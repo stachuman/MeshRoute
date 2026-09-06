@@ -76,18 +76,26 @@ WARN=(-Wall -Wextra -Werror)
 #     S1..S2   the runner's structural pins (3 extracted diagnostics · no -D override surface)                 2
 #     E1..E13  `envmap.py`'s derived environment census                                                      13
 #     9 cells x (1 source-integrity pin + 8 asserted MR_FEAT_* values)                                       81
-#     O1..O13  `ownership.py`'s first-consumer contract (O4 and O6 split per file/owner: O4a-c, O6a-c)       18
-#     2 + 13 + 81 + 18 = 114. ✓
+#     O1..O13  `ownership.py`'s first-consumer contract (O4 and O6 split per file/owner: O4a-g, O6a-c)       22
+#     2 + 13 + 81 + 22 = 118. ✓
 #   ⚠ CORRECTED 2026-09-06 (SLICE 1b), old derivation visible: this read *"PIN_CHECKS = 97 … S1..S3 … 3 + 13 + 81"*.
 #     S3 (*"exactly ONE production location names the pair"*) is RETIRED BY REPLACEMENT, not by deletion: 1b is the
 #     first consumer, so the zero-consumer census became `ownership.py`'s exact site census. 3 - 1 + 18 = +17.
-# PIN_CONTROLS = 38: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
-#     X1..X4 the controls-of-the-controls · W-* the 13 ownership violations · Y0..Y5 the ownership
+#   ⚠⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 114 -> 118, AND THE +4 IS FULLY ATTRIBUTED: **O4 is one check PER
+#     APPROVED FILE**, and the approved census grew from THREE files to SEVEN (the target-store console surface —
+#     `firmware_commands.{cpp,h}`, `fw_main.cpp`, `firmware_help.h`). O4a-c became O4a-g ⇒ +4 checks, and ⛔ NOTHING
+#     ELSE MOVED: S1..S2 still 2, E1..E13 still 13, the 9 cells still 81, O1/O2/O3/O5/O6a-c/O7a-b/O8..O13 unchanged.
+#     18 + 4 = 22. Every previously-pinned check is still executed and still green — this is a GROWTH, not a re-base.
+# PIN_CONTROLS = 44: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
+#     X1..X4 the controls-of-the-controls · W-* the 19 ownership violations · Y0..Y5 the ownership
 #     controls-of-controls (a green baseline, a benign edit, multi-match, vacuous, unreadable, tree integrity).
-#     4 + 6 + 5 + 4 + 13 + 6 = 38. ✓  (was 19 before slice 1b, i.e. the 19 prior controls are all preserved.)
+#     4 + 6 + 5 + 4 + 19 + 6 = 44. ✓  (was 19 before slice 1b and 38 before §RADMIN slice 3 — every prior control
+#     is PRESERVED; the +6 are one per NEW owner boundary: the router arm's gate DELETED, the BLE refusal's gate
+#     DELETED, the boot call's gate legacy-WIDENED, the help names INVERTED onto the CLIENT capability, a
+#     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)
 PIN_CELLS=9
-PIN_CHECKS=114
-PIN_CONTROLS=38
+PIN_CHECKS=118
+PIN_CONTROLS=44
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED

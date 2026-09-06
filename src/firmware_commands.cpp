@@ -28,7 +28,15 @@
 #include "console_json.h"      // write_status/write_cfg/write_limits/write_route + StatusFields/CfgExtras
 #include "frame_trace.h"       // g_mr_trace_on (handle_debug)
 #include "sched_send.h"        // mrsched::Schedule (handle_testsched/teststatus + g_sched)
-#include "device_rng.h"        // mrrng::fill (do_regen)
+#include "device_rng.h"        // mrrng::fill (do_regen + the §RADMIN slice 3 checked seed draw)
+// §RADMIN slice 3 — the two TARGET-SIDE STORES' PURE services. ⓘ THE INCLUDE IS **UNGATED**, and that is the
+// [[B255]] idiom rather than an oversight: the three headers carry ⛔ no capability macro at all, so the native
+// suite exercises every service arm without defining a product role. Every function in them is `inline`, so on a
+// CLIENT build — where the bindings, the dispatch arms, the help names and the BLE guard are all compiled out —
+// nothing references them and ⛔ nothing is emitted. Only the INSTANTIATION and the console surfacing are gated.
+#include "firmware_admin_verbs.h"   // mrfw::admin_id_verb / acl_verb / admin_boot_report / admin_id_owns / acl_owns
+                                    //   + AdminIdService / AclService — PURE; this file binds the stores, the
+                                    //   checked draw, a Print sink and the two dispatch arms, and ⛔ decides nothing
 #if MR_FEAT_OLED   // ★ [[B255]] the include (see the gated binding block below; the header itself stays ungated)
 #include "firmware_ui_preset_verbs.h"  // §UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON
                                        //   records — PURE; this file only binds the store, the gate and a Print
@@ -204,6 +212,101 @@ void handle_ui(const char* args, size_t len, Print& out) {
                   "<emergency|dm1..dm8|channel1..channel8|all>"));
 }
 #endif   // MR_FEAT_OLED — [[B255]]: end of the /mrui catalog binding
+
+// ---- §RADMIN slice 3: the two TARGET STORES' DEVICE BINDINGS (ACCEPT builds only) -----------------------------
+// ★★★ EVERYTHING BELOW IS GLUE AND ⛔ NOTHING BELOW IS A DECISION. The four adapters forward to `mrnv`, to
+//     `mrrng` and to a `Print`; the three entry points construct STACK services, call the pure verb and return.
+//     Every rule — the four storage states, the write policy, the last-owner and self-slot refusals, the grammar,
+//     the fingerprint and every emitted byte — lives in the pure headers, where the native suite drives it and
+//     `--target=radmin3{id,acl,verbs}` can attack it. (`handle_ui`'s shape, U3.)
+// ★★ R-RA-8: ACCEPT = the static + gateway products. On a CLIENT board this block is ABSENT, so a `acl …` or
+//    `admin-id …` line falls through `dispatch()`'s `return false` to the caller's UNSUPPORTED-VERB answer —
+//    `> parse error` on USB and `{"err":"parse","msg":"unknown_cmd"}` over BLE — exactly as `mobile ` behaves off
+//    `MR_FEAT_MOBILE` and `ui ` off `MR_FEAT_OLED`. ⛔ LOUD, NEVER SILENT, and ⛔ no callable stub is left behind.
+// ⓘ ⛔ NO RESIDENT STATE, NO CACHE AND NO STATIC I/O BUFFER (design §6.2, Author decision §4.1): the services
+//   hold two references each and are constructed per call, so `gateway` RAM must not move. Their transient record
+//   scratch is AUTOMATIC and bounded — the stack demand is measured in the slice evidence, ⛔ not assumed.
+#if MR_FEAT_RADMIN_ACCEPT
+namespace {
+// ⛔ THE TYPED WRAPPERS, ⛔ never `read_slot`/`write_slot` directly: `mrnv::load_admin_id` is the ONE place the
+//    slot, the four-state classification and the exact-size policy are spelled.
+struct DeviceAdminIdStore : mrfw::IAdminIdStore {
+    mrnv::AdminIdRead load(mrnv::AdminIdBlob& out) override { return mrnv::load_admin_id(out); }
+    bool save(const mrnv::AdminIdBlob& b) override          { return mrnv::save_admin_id(b); }
+};
+struct DeviceAclStore : mrfw::IAclStore {
+    mrnv::AclRead load(mrnv::AclBlob& out) override { return mrnv::load_acl(out); }
+    bool save(const mrnv::AclBlob& b) override      { return mrnv::save_acl(b); }
+};
+// ★★★ THE CHECKED DRAW, AND THE RETURN VALUE IS THE **ACTUAL** CHECK — ⛔ NEVER AN UNCONDITIONAL `true`.
+//     `mrrng::fill` is `void` (`src/device_rng.h:46`) and on the HOST it writes ZEROS by design, so a binding that
+//     answered `true` regardless would mint the world-known all-zero root on every dead-RNG device and REPORT
+//     SUCCESS. ⚠⚠ What the `true` means is ONLY "32 bytes arrived and they are not all zero": a `void` draw can
+//     block and cannot expose every failure mode, so this is ⛔ NOT a device-RNG health guarantee and [[B312]]
+//     stays OPEN for the truthful first-RF entropy integration. ⛔ No clock or counter fallback is added.
+struct DeviceAdminSeed : mrfw::IAdminSeedSource {
+    bool fill(uint8_t out[32]) override {
+        mrrng::fill(out, 32);
+        return !mrfw::admin_buf_all_zero(out, 32);
+    }
+};
+// The `PresetPrintLines` shape (U3): the sink the caller was HANDED, ⛔ never `mrcon` and ⛔ never a global.
+// ⓘ The body carries a trailing marker so `tools/probe_inbox_verbs`' [[B279]]-shaped control can target THIS
+//   adapter and not the byte-identical `PresetPrintLines` above it — a sed that hit both would still redden, but
+//   the reddening would be attributable to two subsystems instead of one.
+struct AdminPrintLines : mrfw::IAdminLines {
+    explicit AdminPrintLines(Print& o) : _o(o) {}
+    void line(const char* s, size_t n) override { _o.write(reinterpret_cast<const uint8_t*>(s), n); }   // §RADMIN-3 sink
+    Print& _o;
+};
+}  // namespace
+
+// `admin-id show|generate|rotate confirm|reset confirm` — through the ONE dispatch.
+static void handle_admin_id(const char* args, size_t len, Print& out) {
+    DeviceAdminIdStore store;
+    DeviceAdminSeed    seed;
+    mrfw::AdminIdService svc(store, seed);
+    AdminPrintLines lines(out);
+    mrfw::admin_id_verb(svc, args, len, lines);
+}
+// `acl list|add|set|remove|reset` — through the ONE dispatch. Both services are handed over because `acl add`
+// requires a SEPARATELY READ administration identity (design §6.4); the pure verb reads it on that path alone.
+static void handle_acl(const char* args, size_t len, Print& out) {
+    DeviceAdminIdStore id_store;
+    DeviceAdminSeed    seed;
+    DeviceAclStore     acl_store;
+    mrfw::AdminIdService id(id_store, seed);
+    mrfw::AclService     acl(acl_store);
+    AdminPrintLines lines(out);
+    mrfw::acl_verb(acl, id, args, len, lines);
+}
+// ★★★ THE FAMILY'S TOP-LEVEL RECOGNITION, IN A FUNCTION OF ITS OWN — and the function exists for a MEASUREMENT
+//     reason, not for tidiness. `tools/gen_command_inventory.py` records `transports` PER SURFACE, and
+//     `dispatch()`'s surface is `serial,ble`. An arm written inline there would therefore publish `acl` and
+//     `admin-id` as BLE-reachable in the authority table — the exact opposite of R-RA-29, which refuses the whole
+//     family over BLE. ⇒ the two arms live in their OWN surface, recorded `serial`-only, reached from `dispatch`
+//     and PROVEN so by `reached_from`. That is `help_command`'s shape and its reason (slice 0a), one family over.
+// ★ THE LITERALS ARE HERE, INSIDE THE ACCEPT GATE, so the inventory records the family's product gate rather than
+//   inheriting an ungated header's "—". `mrfw::admin_primary_is` is the SAME boundary predicate
+//   `mrfw::admin_verb_owns` — the BLE guard's condition — evaluates, so the router and the guard cannot drift.
+static bool admin_router_arm(const char* line, size_t len, Print& out) {
+    if (mrfw::admin_primary_is(line, len, "admin-id")) { handle_admin_id(line + 8, len - 8, out); return true; }
+    if (mrfw::admin_primary_is(line, len, "acl"))      { handle_acl(line + 3, len - 3, out); return true; }
+    return false;
+}
+// setup(): the READ-ONLY boot report. ⛔ ZERO writes, ⛔ zero draws, ⛔ no auto-generation, ⛔ no key or fingerprint
+// byte, and ⛔ nothing installed — there is no live cache in this slice to install into. Same shape and same
+// reason as `preset_boot_restore_console()` and `peer_store_restore()`.
+void admin_stores_boot_report_console() {
+    DeviceAdminIdStore id_store;
+    DeviceAdminSeed    seed;
+    DeviceAclStore     acl_store;
+    mrfw::AdminIdService id(id_store, seed);
+    mrfw::AclService     acl(acl_store);
+    AdminPrintLines lines(mrcon);
+    mrfw::admin_boot_report(id, acl, lines);
+}
+#endif   // MR_FEAT_RADMIN_ACCEPT
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + mirror it to /mrpeers + the ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
@@ -1191,6 +1294,23 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
 #if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm
     if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
 #endif   // MR_FEAT_OLED
+    // §RADMIN slice 3 — the two TARGET-STORE families, ACCEPT builds only (R-RA-8). ⓘ ONE arm each for the whole
+    // namespace, so a future sub-verb needs no second dispatch line; the sub-verb parse and the refusal for an
+    // unknown one are the pure unit's (`handle_ui`'s shape, U3). ⛔ Neither shadows anything: no other verb in this
+    // router begins `acl` or `admin-id`.
+    // ★★★ THE RECOGNITION IS THE **PURE PREDICATE** `mrfw::admin_primary_is`, ⛔ NOT A HAND-WRITTEN `strncmp`
+    //     pair — and that is load-bearing rather than tidy: it is the SAME expression `ble_dispatch_line`'s
+    //     R-RA-29 refusal evaluates through `mrfw::admin_verb_owns`, so the router and the guard cannot drift
+    //     apart. The slice-0a defect was exactly such a drift — the help router grew argument-bearing forms
+    //     while the BLE guard still matched `len == 4` — and `tools/probe_console_sink/ble_guard.py` EXECUTES the
+    //     extracted guard against the corpus this predicate is measured on.
+    // ⓘ The arm itself is `admin_router_arm` (above), a surface of its own — see the note at its definition for
+    //   why the two literals may not sit inline in `dispatch`.
+    // ★ EXACT TOKEN BOUNDARIES (space/tab or end): `admin-identity`, `admin-key` (Slice 4's CONTROLLER verb),
+    //   `aclx` and `acls` are ⛔ NOT this family and fall through to the unknown-verb answer.
+#if MR_FEAT_RADMIN_ACCEPT
+    if (admin_router_arm(line, len, out)) return true;
+#endif   // MR_FEAT_RADMIN_ACCEPT
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "nameof", 6)) { handle_nameof(line + 6, len - 6, out); return true; }   // §1.3 peer name by hash

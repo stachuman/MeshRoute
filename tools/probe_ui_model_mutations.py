@@ -207,6 +207,22 @@ TARGET_SRC = {
     #    NOT here — it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s
     #    C134-C136, because that is the only instrument that compiles that file.
     "uipresetverbs": "src/firmware_ui_preset_verbs.h",  # §UI-10/11 P2 — the grammar, the three records, the boot line
+    # ★★ ADDED 2026-09-06 BY §RADMIN SLICE 3, and for the reason every target above it was added: a battery is
+    #    per-SOURCE-FILE, and this slice's ruled decisions genuinely live in THREE files. Bound in
+    #    `src/firmware_commands.cpp` they would have had NO battery at all (that TU is compiled by neither the
+    #    native suite nor the simulator, §B115) — which is exactly why the bindings' own cover is
+    #    `tools/probe_inbox_verbs`' executed controls C22..C26 and NOT a mutation battery.
+    #  · radmin3id    — the entropy contract ([[B312]]'s checked seam), the four-state composition, the all-zero
+    #                   seed refusal, R-RA-29's fingerprint (digest size, prefix length, prefix OFFSET, input) and
+    #                   the ONE mint path's order (draw -> validate -> save -> only then derive and publish).
+    #  · radmin3acl   — design §6.5/§6.6 clause by clause: count-equals-population, holes never compacted, the
+    #                   lowest-free-slot rule, duplicate/zero-key/full refusals, the FIRST-OWNER rule, the
+    #                   LAST-OWNER rule, the SELF-SLOT rule, the no-op write guard and the one commit path.
+    #  · radmin3verbs — the grammar's token boundaries, the confirm gates, the strict slot parse, the role parse,
+    #                   the reason lexemes and every emitted byte.
+    "radmin3id":    "src/firmware_admin_identity.h",
+    "radmin3acl":   "src/firmware_admin_acl.h",
+    "radmin3verbs": "src/firmware_admin_verbs.h",
     "uiinvite":    "src/firmware_ui_invite.h",      # §UI-16 N4 — the two authorities, the handled set, the row
     "uinearby":    "src/firmware_ui_nearby.h",      # §UI-16 N2 — the own-team filter, the order, the rows, the lexemes
     "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
@@ -622,7 +638,25 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2640, 115288    # ★★ RE-SYNCED 2026-09-06 by **remote-admin v2 Slice 2** (the remote RPC
+PIN_CASES, PIN_ASSERTS = 2702, 116902    # ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 3** (the two target-side
+                                         # stores: `/mradmid` + `/mracl`, their pure services and the USB verb
+                                         # family). 2640 -> 2702 = **+62 test cases**, and the sum is DERIVED per
+                                         # file, not rounded:
+                                         #   test/test_firmware_admin_identity.cpp   20 TEST_CASEs
+                                         #   test/test_firmware_admin_acl.cpp        23 TEST_CASEs
+                                         #   test/test_firmware_admin_verbs.cpp      19 TEST_CASEs
+                                         #   20 + 23 + 19 = 62. ✓  (`grep -c TEST_CASE` on the three files.)
+                                         # ⓘ `test/test_device_nv.cpp` was EXTENDED but gained ⛔ NO new TEST_CASE:
+                                         #   the two records' layout, slot and no-backend pins are additive CHECKs
+                                         #   inside its three existing cases, which is why the case delta is
+                                         #   exactly the three new files' and nothing else.
+                                         # Assertions 115288 -> 116902 = +1614 (the last +5 are the three DISCRIMINATING cases the mutation
+                                         # union forced: /mracl's version-0 EQUALITY case and the two
+                                         # content-policy shapes whose `count` AGREES with a skip).
+                                         # ⛔ NOT ONE PRE-EXISTING CASE WAS REMOVED OR RENAMED: the base tree was
+                                         #   measured at 2640/115288/0 before the first edit and the delta is
+                                         #   wholly additive.
+                                         # PIN_CASES, PIN_ASSERTS = 2640, 115288 — ★★ RE-SYNCED 2026-09-06 by **remote-admin v2 Slice 2** (the remote RPC
                                          # codec — design §8/§9, R-RA-3/4/5/13/25/28). The slice adds NO edit to any
                                          # file this battery already mutates: its production files are BOTH NEW
                                          # (`lib/core/remote_codec.{h,cpp}`), and the only other touched sources are
@@ -4898,6 +4932,59 @@ MUTS_DEVICENV = [
   "    if (n == kSlotAbsent)  return UiPresetRead::absent;\n"
   "    if (io.backend_failed) return UiPresetRead::io_failed;\n"
   "    if (io.oversize)       return UiPresetRead::invalid;"),
+
+ # --- §RADMIN slice 3: the two TARGET-STORE records --------------------------------------------------------------
+ ("N40 ★★ /mradmid's VERSION POLICY becomes a RANGE — a record written under another layout is adopted",
+  "    return blob_valid_exact(b, n, kAdminIdMagic, kAdminIdVersion) ? AdminIdRead::ok : AdminIdRead::invalid;",
+  "    return blob_valid_range(b, n, kAdminIdMagic, 0, kAdminIdVersion) ? AdminIdRead::ok : AdminIdRead::invalid;"),
+ ("N41 /mracl's version policy becomes a range",
+  "    return blob_valid_exact(b, n, kAclMagic, kAclVersion) ? AclRead::ok : AclRead::invalid;",
+  "    return blob_valid_range(b, n, kAclMagic, 0, kAclVersion) ? AclRead::ok : AclRead::invalid;"),
+ ("N42 ★★ /mradmid's backend fact is consulted AFTER the absent test — a dead store reads as a fresh device",
+  "inline AdminIdRead admin_id_blob_state(const AdminIdBlob& b, int n, const SlotIo& io = SlotIo{}) {\n"
+  "    if (io.backend_failed) return AdminIdRead::io_failed;\n    if (io.oversize)       return AdminIdRead::invalid;\n"
+  "    if (n == kSlotAbsent)  return AdminIdRead::absent;",
+  "inline AdminIdRead admin_id_blob_state(const AdminIdBlob& b, int n, const SlotIo& io = SlotIo{}) {\n"
+  "    if (n == kSlotAbsent)  return AdminIdRead::absent;\n    if (io.backend_failed) return AdminIdRead::io_failed;\n"
+  "    if (io.oversize)       return AdminIdRead::invalid;"),
+ ("N43 ★★ /mracl's backend fact is consulted after the absent test",
+  "inline AclRead acl_blob_state(const AclBlob& b, int n, const SlotIo& io = SlotIo{}) {\n"
+  "    if (io.backend_failed) return AclRead::io_failed;\n    if (io.oversize)       return AclRead::invalid;\n"
+  "    if (n == kSlotAbsent)  return AclRead::absent;",
+  "inline AclRead acl_blob_state(const AclBlob& b, int n, const SlotIo& io = SlotIo{}) {\n"
+  "    if (n == kSlotAbsent)  return AclRead::absent;\n    if (io.backend_failed) return AclRead::io_failed;\n"
+  "    if (io.oversize)       return AclRead::invalid;"),
+ ("N44 ★ /mradmid's OVER-LENGTH check is dropped — a longer file is accepted on its valid PREFIX",
+  "    if (io.oversize)       return AdminIdRead::invalid;",
+  "    (void)io.oversize;"),
+ ("N45 ★ /mracl's over-length check is dropped",
+  "    if (io.oversize)       return AclRead::invalid;",
+  "    (void)io.oversize;"),
+ # ⛔ NO ENTRIES FOR THE TYPED WRAPPERS' SLOT BINDING OR THEIR `&io` ARGUMENT, and the absence is a MEASUREMENT.
+ #   This battery runs the NATIVE suite, and the host arm has NO NV BACKEND AT ALL (`read_slot` returns
+ #   `kSlotAbsent` unconditionally and never touches `SlotIo`, device_nv.h's `#else` arm). ⇒ re-pointing a slot or
+ #   dropping `&io` changes NOTHING a native test can observe: such mutants stay GREEN, which is UNUSABLE and
+ #   never RED. Their cover is EXECUTED elsewhere, and is stronger than a native mutation could be:
+ #     · `tools/probe_inbox_verbs` controls C27/C28/C29 — the REAL ESP32 read/write sequence against a
+ #       byte-counted fake medium keyed by NAMESPACE + KEY, so a wrong slot is a wrong key in the store and a
+ #       dropped `&io` turns a dead backend into a fresh device (rows R32b/R35b and R42..R42g).
+ #     · `tools/probe_console_sink/structural.py` S35 — the source-level pin that each wrapper names its own slot
+ #       and neither names the other's.
+ ("N50 ★ `admin_id_blob_init` leaves the header UNSTAMPED, so a minted record reads back as invalid",
+  "    b = AdminIdBlob{};\n    b.magic   = kAdminIdMagic;\n    b.version = kAdminIdVersion;",
+  "    b = AdminIdBlob{};\n    b.version = kAdminIdVersion;"),
+ ("N51 `acl_blob_init` stamps the WRONG magic (the two target records become interchangeable)",
+  "    b = AclBlob{};\n    b.magic   = kAclMagic;",
+  "    b = AclBlob{};\n    b.magic   = kAdminIdMagic;"),
+ ("N52 `acl_blob_init` no longer value-initialises, so `reserved`/holes carry indeterminate bytes",
+  "inline void acl_blob_init(AclBlob& b) {\n    b = AclBlob{};\n    b.magic   = kAclMagic;",
+  "inline void acl_blob_init(AclBlob& b) {\n    b.magic   = kAclMagic;"),
+ ("N53 ★ the ACL slot table names the ADMIN record's file (both records share one file)",
+  'inline constexpr Slot kSlotAcl   { "/mracl",   "mr",      "acl"   };',
+  'inline constexpr Slot kSlotAcl   { "/mradmid", "mr",      "admid" };'),
+ ("N54 ★★ /mradmid moves OUT of the factory-reset namespace — a factory reset would keep the root",
+  'inline constexpr Slot kSlotAdmid { "/mradmid", "mr",      "admid" };',
+  'inline constexpr Slot kSlotAdmid { "/mradmid", "mradmid", "admid" };'),
 ]
 
 # ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================
@@ -7248,6 +7335,342 @@ MUTS_UIPRESETVERBS = [
 #     reconciliation; B04 is B21's original diagnosis restored ("no DST_HASH means no pubkey — it says so right
 #     there"); B05/B06 are the two halves of the silence the row named, each removed on its own so neither can hide
 #     behind the other.
+
+# ================================================================================================================
+# §RADMIN slice 3 — `/mradmid`, the administration-identity service.
+# ================================================================================================================
+MUTS_RADMIN3ID = [
+ # --- the CHECKED entropy seam ([[B312]]'s idiom) ----------------------------------------------------------------
+ ("A01 ★★★ THE DEAD-RNG REFUSAL IS DELETED: an all-zero draw mints the world-known root and reports SUCCESS",
+  "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);   // a DEAD, all-zero draw",
+  "        // the all-zero draw is accepted"),
+ ("A02 the PROVIDER'S ANSWER is ignored — a refused/partial draw is minted from anyway",
+  "        if (!_seed.fill(cand.seed))            return fail_(AdminIdErr::entropy_failed);   // provider said NO",
+  "        (void)_seed.fill(cand.seed);"),
+ ("A03 ★★ THE ORDER IS INVERTED: the record is SAVED BEFORE the draw is validated",
+  "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);   // a DEAD, all-zero draw\n"
+  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);",
+  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);\n"
+  "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);"),
+ ("A04 a FAILED SAVE is reported as success (the record is not there, the console says it is)",
+  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);",
+  "        (void)_store.save(cand);"),
+ ("A05 the all-zero predicate EXITS EARLY on the first byte — a seed of 00 ff ff … would read as zero",
+  "    for (size_t i = 0; i < n; ++i) acc = static_cast<uint8_t>(acc | p[i]);   // ⛔ no early exit: constant-time-ish\n"
+  "    return acc == 0;",
+  "    (void)acc;\n    return n == 0 || p[0] == 0;"),
+ ("A06 `reserved` is no longer part of the content policy (a non-canonical record compares unequal forever)",
+  "    if (b.reserved != 0) return false;",
+  "    (void)b.reserved;"),
+ # --- the four-state COMPOSITION -----------------------------------------------------------------------------
+ ("A07 ★★ a STORAGE-ok record with a dead seed is called `ok` — the composition is dropped",
+  "    return admin_id_content_valid(b) ? AdminIdState::ok : AdminIdState::invalid;",
+  "    (void)b;\n    return AdminIdState::ok;"),
+ ("A08 `io_failed` is folded into `invalid` — a transient mount failure becomes a recoverable corruption",
+  "        case mrnv::AdminIdRead::io_failed: return AdminIdState::io_failed;",
+  "        case mrnv::AdminIdRead::io_failed: return AdminIdState::invalid;"),
+ ("A09 `absent` is folded into `invalid` — a fresh device reports a corrupt root",
+  "        case mrnv::AdminIdRead::absent:    return AdminIdState::absent;",
+  "        case mrnv::AdminIdRead::absent:    return AdminIdState::invalid;"),
+ # --- the per-verb state gates -------------------------------------------------------------------------------
+ ("A10 ★★ `generate` OVERWRITES an existing root instead of refusing",
+  "        if (s == AdminIdState::ok)        return fail_(AdminIdErr::already_present);",
+  "        (void)0;"),
+ ("A11 `generate` mints over an INVALID record (an implicit re-seed, which only recovery may do)",
+  "        if (s == AdminIdState::invalid)   return fail_(AdminIdErr::store_invalid);\n"
+  "        if (s == AdminIdState::ok)        return fail_(AdminIdErr::already_present);",
+  "        if (s == AdminIdState::ok)        return fail_(AdminIdErr::already_present);"),
+ ("A12 ⛔⛔ `generate` WRITES OVER AN UNREADABLE STORE — nothing is known and an intact root is destroyed",
+  "        if (s == AdminIdState::io_failed) return fail_(AdminIdErr::store_io_failed);\n"
+  "        if (s == AdminIdState::invalid)   return fail_(AdminIdErr::store_invalid);\n"
+  "        if (s == AdminIdState::ok)        return fail_(AdminIdErr::already_present);\n"
+  "        return mint_();\n    }\n    // ★ `admin-id rotate confirm`",
+  "        if (s == AdminIdState::invalid)   return fail_(AdminIdErr::store_invalid);\n"
+  "        if (s == AdminIdState::ok)        return fail_(AdminIdErr::already_present);\n"
+  "        return mint_();\n    }\n    // ★ `admin-id rotate confirm`"),
+ ("A13 `rotate` mints on an ABSENT node (a rotation invents a root that never existed)",
+  "        if (s == AdminIdState::absent)    return fail_(AdminIdErr::absent);",
+  "        (void)0;"),
+ ("A14 ⛔⛔ RECOVERY IS ALLOWED OVER `io_failed` — a transient mount failure re-mints the node's root",
+  "        if (s == AdminIdState::io_failed) return fail_(AdminIdErr::store_io_failed);\n        if (s != AdminIdState::invalid)   return fail_(AdminIdErr::not_invalid);",
+  "        if (s != AdminIdState::invalid && s != AdminIdState::io_failed) return fail_(AdminIdErr::not_invalid);"),
+ ("A15 recovery re-mints an `ok` record too (a 'repair' that destroys a healthy root)",
+  "        if (s != AdminIdState::invalid)   return fail_(AdminIdErr::not_invalid);",
+  "        (void)0;"),
+ ("A16 `show` WRITES: the read-only path gains a durable save",
+  "        AdminIdResult r;\n        r.ok = true;\n        pub_of_(b.seed, r.ed_pub);\n        return r;\n    }",
+  "        AdminIdResult r;\n        r.ok = true;\n        (void)_store.save(b);\n        pub_of_(b.seed, r.ed_pub);\n        return r;\n    }"),
+ # --- R-RA-29's FINGERPRINT ----------------------------------------------------------------------------------
+ ("A17 ★★★ THE DIGEST SIZE BECOMES 8 — an 8-byte BLAKE2b is a DIFFERENT function, not a truncation",
+  "    crypto_blake2b(digest, sizeof digest, ed_pub, 32);   // BLAKE2b-512 over EXACTLY the 32 public-key bytes",
+  "    crypto_blake2b(digest, kAdminFpBytes, ed_pub, 32);"),
+ ("A18 ★★ THE PREFIX OFFSET MOVES: bytes 8..15 instead of 0..7",
+  "    admin_hex_lower(digest, kAdminFpBytes, out);         // …and the FIRST EIGHT bytes, in digest order",
+  "    admin_hex_lower(digest + kAdminFpBytes, kAdminFpBytes, out);"),
+ ("A19 the prefix LENGTH moves to four bytes (the grindable `key_hash32` shape R-RA-29 forbids)",
+  "inline constexpr size_t kAdminFpBytes  = 8;                    // ★ the PREFIX length, taken in digest order",
+  "inline constexpr size_t kAdminFpBytes  = 4;"),
+ ("A20 the INPUT is the whole 64-byte digest of something else — the key is hashed with a stray extra byte",
+  "    crypto_blake2b(digest, sizeof digest, ed_pub, 32);   // BLAKE2b-512 over EXACTLY the 32 public-key bytes",
+  "    crypto_blake2b(digest, sizeof digest, ed_pub, 31);"),
+ ("A21 the hex renderer emits UPPERCASE (a selector that changes case is a different string)",
+  '    static const char kHex[] = "0123456789abcdef";',
+  '    static const char kHex[] = "0123456789ABCDEF";'),
+ ("A22 the hex renderer swaps the nibble order (every byte reads back reversed)",
+  "        out[2 * i]     = kHex[(p[i] >> 4) & 0x0F];\n        out[2 * i + 1] = kHex[p[i] & 0x0F];",
+  "        out[2 * i]     = kHex[p[i] & 0x0F];\n        out[2 * i + 1] = kHex[(p[i] >> 4) & 0x0F];"),
+ ("A23 ★ THE PUBLISHED KEY IS THE SEED — the one substitution that leaks the secret to the console",
+  "        meshroute::identity_from_seed(id, seed);\n        memcpy(out_pub, id.ed_pub, 32);",
+  "        meshroute::identity_from_seed(id, seed);\n        memcpy(out_pub, seed, 32);"),
+]
+
+# ================================================================================================================
+# §RADMIN slice 3 — `/mracl`, the controller ACL. Design §6.5/§6.6, clause by clause.
+# ================================================================================================================
+MUTS_RADMIN3ACL = [
+ # --- the CONTENT policy -------------------------------------------------------------------------------------
+ ("B01 ★★ `count` NO LONGER HAS TO EQUAL THE POPULATION — a lying count is adopted",
+  "    if (b.count != occupied) return false;",
+  "    (void)occupied;"),
+ ("B02 the count is CLAMPED instead of refused (§6.5's 'never clamp' reversed)",
+  "    if (b.count > mrnv::kAclSlots) return false;",
+  "    if (b.count > mrnv::kAclSlots) return true;"),
+ ("B03 ★★ AN OWNERLESS NON-EMPTY ACL IS ACCEPTED — a node nobody can manage and nobody can repair remotely",
+  "    if (occupied > 0 && owners == 0) return false;",
+  "    (void)owners;"),
+ ("B04 DUPLICATE KEYS ARE ACCEPTED — one controller holds two slots",
+  "        for (uint8_t j = 0; j < i; ++j)\n            if (acl_row_occupied(b.rec[j]) && !memcmp(b.rec[j].ed_pub, r.ed_pub, sizeof r.ed_pub)) return false;",
+  "        (void)0;"),
+ ("B05 an ILLEGAL ROLE BYTE is treated as an ignorable row instead of a corrupt record",
+  "        if (r.role != mrnv::kAclRoleOperator && r.role != mrnv::kAclRoleOwner) return false;",
+  "        if (r.role != mrnv::kAclRoleOperator && r.role != mrnv::kAclRoleOwner) continue;"),
+ ("B06 an occupied row with an ALL-ZERO key is accepted (it grants nothing to nobody)",
+  "        if (zero_key) return false;                          // an occupied row with no key grants nothing to nobody",
+  "        (void)0;"),
+ ("B07 a 'deleted' row that KEPT its key still reads as empty",
+  "            if (!zero_key) return false;                     // a \"deleted\" row that kept its key is NOT empty",
+  "            (void)zero_key;"),
+ ("B08 `reserved` leaves the content policy (the whole-record write guard becomes unsound)",
+  "        if (!admin_buf_all_zero(r.reserved, sizeof r.reserved)) return false;",
+  "        (void)0;"),
+ ("B09 the CENSUS trusts the stored `count` instead of counting rows",
+  "    for (uint8_t i = 0; i < mrnv::kAclSlots; ++i) {\n        const uint8_t role = b.rec[i].role;",
+  "    for (uint8_t i = 0; i < b.count && i < mrnv::kAclSlots; ++i) {\n        const uint8_t role = b.rec[i].role;"),
+ # --- ADD ---------------------------------------------------------------------------------------------------
+ ("B10 ★★ THE FIRST CREDENTIAL MAY BE AN OPERATOR — an unmanageable node is created",
+  "        if (c.count == 0 && role != AclRole::owner) return fail_(AclErr::first_owner_required);",
+  "        (void)0;"),
+ ("B11 ★ A DUPLICATE ADD SUCCEEDS instead of refusing (§6.5's explicit rejection reversed)",
+  "            if (acl_row_occupied(b.rec[i]) && !memcmp(b.rec[i].ed_pub, key, 32)) return fail_(AclErr::duplicate_key);",
+  "            (void)i;"),
+ ("B12 a duplicate is answered as an UNCHANGED SUCCESS — the operator is not told he mistyped",
+  "            if (acl_row_occupied(b.rec[i]) && !memcmp(b.rec[i].ed_pub, key, 32)) return fail_(AclErr::duplicate_key);",
+  "            if (acl_row_occupied(b.rec[i]) && !memcmp(b.rec[i].ed_pub, key, 32)) { AclResult ok_; ok_.ok = true; ok_.slot = i; ok_.role = role; return ok_; }"),
+ ("B13 an ALL-ZERO key is accepted as a controller key",
+  "        if (admin_buf_all_zero(key, 32))                          return fail_(AclErr::zero_key);",
+  "        (void)0;"),
+ ("B14 ★★ A FULL ACL EVICTS SLOT 0 instead of refusing loudly",
+  "        if (slot < 0) return fail_(AclErr::acl_full);           // ⛔ evicts NOTHING, refuses LOUDLY",
+  "        if (slot < 0) slot = 0;"),
+ ("B15 ★★ ADD NO LONGER TAKES THE LOWEST FREE SLOT — holes are skipped and handles drift",
+  "        for (uint8_t i = 0; i < mrnv::kAclSlots; ++i) if (!acl_row_occupied(b.rec[i])) { slot = i; break; }",
+  "        for (int i = mrnv::kAclSlots - 1; i >= 0; --i) if (!acl_row_occupied(b.rec[i])) { slot = i; break; }"),
+ # ⛔ NO ENTRY FOR `cand.rec[slot] = AclRow{}` NOR FOR `commit_`'s `acl_content_valid` CALL, and both absences
+ #   are MEASUREMENTS: the chosen slot is one `acl_content_valid` has already proved ALL-ZERO, and every candidate
+ #   this service composes is valid by the checks that precede it. Mutations of either line stay GREEN, which is
+ #   UNUSABLE and never RED. Both lines are kept as belts for a FUTURE caller and both say so at the site.
+ ("B17 ★ THE IDENTITY GATE IS DROPPED: a first owner is granted with no administration root",
+  "        switch (id_state) {\n            case AdminIdState::absent:    return fail_(AclErr::identity_absent);",
+  "        switch (id_state) {\n            case AdminIdState::absent:    break;"),
+ ("B18 an ordinary ADD is allowed over an INVALID record (an implicit, silent re-seed)",
+  "        if (s == AclState::invalid)   return fail_(AclErr::store_invalid);\n        if (s == AclState::absent)    mrnv::acl_blob_init(b);   // seed in RAM — ONE write, below",
+  "        if (s == AclState::invalid || s == AclState::absent) mrnv::acl_blob_init(b);"),
+ # --- SET / REMOVE --------------------------------------------------------------------------------------------
+ ("B19 ★★★ THE LAST OWNER CAN BE DEMOTED — the node becomes unmanageable and unrepairable remotely",
+  "        if (cur_byte == mrnv::kAclRoleOwner && c.owners == 1) return fail_(AclErr::last_owner);",
+  "        (void)c;"),
+ ("B20 ★★★ THE LAST OWNER CAN BE REMOVED",
+  "        if (b.rec[slot].role == mrnv::kAclRoleOwner && c.owners == 1) return fail_(AclErr::last_owner);",
+  "        (void)c;"),
+ ("B21 ★★ THE SELF-SLOT RULE IS DROPPED FOR `remove` (a caller can delete its own authenticating slot)",
+  "        if (actor.present && actor.slot == slot) return fail_(AclErr::self_slot);",
+  "        (void)actor;"),
+ ("B22 ★★ THE SELF-SLOT RULE IS DROPPED FOR `set` (a caller can demote itself)",
+  "        if (actor.present && actor.slot == slot &&\n            cur_byte == mrnv::kAclRoleOwner && role == AclRole::operator_) return fail_(AclErr::self_slot);",
+  "        (void)actor;"),
+ ("B23 the SELF-SLOT rule is widened to a legal SAME-ROLE no-op (a correct request is refused)",
+  "        if (actor.present && actor.slot == slot &&\n            cur_byte == mrnv::kAclRoleOwner && role == AclRole::operator_) return fail_(AclErr::self_slot);",
+  "        if (actor.present && actor.slot == slot) return fail_(AclErr::self_slot);"),
+ ("B24 ★ THE NO-OP ARM CLAIMS A WRITE HAPPENED: an identical role assignment reports `changed`, so the console "
+  "says `updated` for a flash write that never occurred",
+  "            AclResult r; r.ok = true; r.slot = slot; r.role = role; r.changed = false; return r;",
+  "            AclResult r; r.ok = true; r.slot = slot; r.role = role; r.changed = true; return r;"),
+ ("B25 `set`/`remove` accept an EMPTY slot (a hole is edited into an occupied-looking row)",
+  "        if (s == AclState::absent || !acl_row_occupied(b.rec[slot])) return fail_(AclErr::slot_empty);\n\n        const uint8_t cur_byte",
+  "        const uint8_t cur_byte"),
+ ("B26 ★ REMOVE COMPACTS THE ROWS — §6.5's stable wire handles are shifted under the controller",
+  "        cand.rec[slot] = mrnv::AclRow{};                        // ⛔ ZEROED IN PLACE — never compacted (§6.5)\n        cand.count = static_cast<uint16_t>(c.count - 1);",
+  "        for (uint8_t i = slot; i + 1 < mrnv::kAclSlots; ++i) cand.rec[i] = cand.rec[i + 1];\n"
+  "        cand.rec[mrnv::kAclSlots - 1] = mrnv::AclRow{};\n        cand.count = static_cast<uint16_t>(c.count - 1);"),
+ ("B27 a removed row keeps its KEY (the slot reads empty but the material is still on flash)",
+  "        cand.rec[slot] = mrnv::AclRow{};                        // ⛔ ZEROED IN PLACE — never compacted (§6.5)",
+  "        cand.rec[slot].role = mrnv::kAclRoleEmpty;"),
+ ("B28 the slot RANGE check is dropped (slot 250 indexes past the ten rows)",
+  "        if (slot >= mrnv::kAclSlots) return fail_(AclErr::bad_args);\n        mrnv::AclBlob b{};\n        const AclState s = acl_state_of(_store.load(b), b);\n        if (s == AclState::io_failed) return fail_(AclErr::store_io_failed);\n        if (s == AclState::invalid)   return fail_(AclErr::store_invalid);\n        if (s == AclState::absent || !acl_row_occupied(b.rec[slot])) return fail_(AclErr::slot_empty);\n\n        if (actor.present",
+  "        mrnv::AclBlob b{};\n        const AclState s = acl_state_of(_store.load(b), b);\n        if (s == AclState::io_failed) return fail_(AclErr::store_io_failed);\n        if (s == AclState::invalid)   return fail_(AclErr::store_invalid);\n        if (slot >= mrnv::kAclSlots || s == AclState::absent || !acl_row_occupied(b.rec[slot])) return fail_(AclErr::slot_empty);\n\n        if (actor.present"),
+ # --- RECOVERY + the COMMIT path ------------------------------------------------------------------------------
+ ("B29 ⛔⛔ RECOVERY IS ALLOWED OVER `io_failed` — ten intact rows destroyed because a mount failed",
+  "        if (s == AclState::io_failed) return fail_(AclErr::store_io_failed);\n        if (s != AclState::invalid)   return fail_(AclErr::not_invalid);",
+  "        if (s != AclState::invalid && s != AclState::io_failed) return fail_(AclErr::not_invalid);"),
+ ("B30 recovery re-initialises an `ok` record too (a 'repair' that erases a healthy authority list)",
+  "        if (s != AclState::invalid)   return fail_(AclErr::not_invalid);",
+  "        (void)0;"),
+ ("B31 ★ RECOVERY GRANTS AN OWNER — design §6.4's 'never invents an active owner' reversed",
+  "        mrnv::AclBlob cand{};\n        mrnv::acl_blob_init(cand);\n        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);",
+  "        mrnv::AclBlob cand{};\n        mrnv::acl_blob_init(cand);\n"
+  "        for (int i = 0; i < 32; ++i) cand.rec[0].ed_pub[i] = 0xAB;\n"
+  "        cand.rec[0].role = mrnv::kAclRoleOwner; cand.count = 1;\n"
+  "        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);"),
+ ("B33 a FAILED SAVE is reported as success",
+  "        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);\n        r.ok = true;\n        r.changed = true;",
+  "        (void)_store.save(cand);\n        r.ok = true;\n        r.changed = true;"),
+ ("B34 ★ THE BYTE-COMPARISON WRITE GUARD IS INVERTED — a real change writes NOTHING and reports success",
+  "        if (!memcmp(&cand, &before, sizeof cand)) { r.ok = true; r.changed = false; return r; }",
+  "        if (memcmp(&cand, &before, sizeof cand)) { r.ok = true; r.changed = false; return r; }"),
+ ("B35 `read()` leaves the PARTIAL bytes of a failed read in the caller's buffer",
+  "        if (s != AclState::ok) mrnv::acl_blob_init(out);",
+  "        (void)s;"),
+ ("B36 provisioning readiness stops requiring an OWNER (an empty ACL reads as provisioned)",
+  "    return id_state == AdminIdState::ok && acl_state == AclState::ok && c.owners > 0;",
+  "    (void)c;\n    return id_state == AdminIdState::ok && acl_state == AclState::ok;"),
+ ("B38 ★ the ROLE NAMER returns the same token for both roles — a listing cannot be read",
+  '        case AclRole::owner:     return "owner";',
+  '        case AclRole::owner:     return "operator";'),
+ ("B37 the ROLE DOMAIN opens: `empty` becomes an assignable role, so a verb could blank a row",
+  "    if (b == mrnv::kAclRoleOperator) { out = AclRole::operator_; return true; }",
+  "    if (b <= mrnv::kAclRoleOperator) { out = static_cast<AclRole>(b); return true; }"),
+]
+
+# ================================================================================================================
+# §RADMIN slice 3 — the USB verb family: grammar, gates and every emitted byte.
+# ================================================================================================================
+MUTS_RADMIN3VERBS = [
+ # --- the PRIMARY token boundary -------------------------------------------------------------------------------
+ ("C01 ★★ THE PRIMARY TOKEN BECOMES A PREFIX TEST — `admin-identity` and `aclx` are swallowed",
+  "    if (len < l || memcmp(line, name, l)) return false;\n    return len == l || admin_is_ws(line[l]);",
+  "    if (len < l || memcmp(line, name, l)) return false;\n    return true;"),
+ ("C02 the family loses its `admin-id` half (only `acl` is recognised)",
+  '    return admin_primary_is(line, len, "admin-id") || admin_primary_is(line, len, "acl");',
+  '    return admin_primary_is(line, len, "acl");'),
+ ("C03 the family loses its `acl` half",
+  '    return admin_primary_is(line, len, "admin-id") || admin_primary_is(line, len, "acl");',
+  '    return admin_primary_is(line, len, "admin-id");'),
+ ("C04 a TAB no longer separates the primary token from its tail",
+  "inline bool admin_is_ws(char c) { return c == ' ' || c == '\\t'; }",
+  "inline bool admin_is_ws(char c) { return c == ' '; }"),
+ # --- BOUNDED parsing ------------------------------------------------------------------------------------------
+ ("C05 ★★★ THE TOKEN SCAN IGNORES `len` — it reads past the span into whatever follows the console stage",
+  "    i = admin_skip_ws(s, n, i);\n    if (i >= n) return false;\n    const size_t start = i;\n    while (i < n && !admin_is_ws(s[i])) ++i;",
+  "    i = admin_skip_ws(s, n, i);\n    if (i >= n) return false;\n    const size_t start = i;\n    while (s[i] && !admin_is_ws(s[i])) ++i;"),
+ ("C06 ★★ THE KEY TOKEN IS TRUNCATED TO THE FIELD WIDTH instead of refused — a 65-character paste installs a "
+  "DIFFERENT key than the operator copied, silently",
+  "        char kb[kAdminKeyHex + 2];\n        uint8_t key[32];\n"
+  "        if (!admin_token_copy(tok, tlen, kb, sizeof kb) || !parse_hex32(kb, key)) {",
+  "        char kb[kAdminKeyHex + 2];\n        uint8_t key[32];\n"
+  "        if (tlen > kAdminKeyHex) tlen = kAdminKeyHex;   // truncate to the field width\n"
+  "        if (!admin_token_copy(tok, tlen, kb, sizeof kb) || !parse_hex32(kb, key)) {"),
+ # ⓘ WHY NOT `kAdminKeyHex + 1` HERE — measured, and worth recording: with the copy REFUSING rather than
+ #   truncating, a one-byte-smaller scratch changes no answer (a 65-character token is refused either way, once
+ #   by the copy and once by `parse_hex32`'s trailing-NUL check). The two belts are only jointly observable, so
+ #   the entry attacks what the scratch alone owns: being wide enough for a LEGAL key at all.
+ ("C07 the key scratch is sized to a slot number, so every legal 64-hex key is refused",
+  "        char kb[kAdminKeyHex + 2];",
+  "        char kb[12];"),
+ # --- the CONFIRM gates ----------------------------------------------------------------------------------------
+ ("C08 ★★ `admin-id rotate` NO LONGER NEEDS ITS CONFIRMATION — a bare word rotates the root",
+  '    if (admin_word_is(tok, tlen, "rotate")) {\n        if (!parse_confirm_token(args + i, n - i)) { admin_id_emit_err(out, AdminIdErr::bad_args); return; }',
+  '    if (admin_word_is(tok, tlen, "rotate")) {'),
+ ("C09 ★★ `admin-id reset` loses its confirmation",
+  '    if (admin_word_is(tok, tlen, "reset")) {\n        if (!parse_confirm_token(args + i, n - i)) { admin_id_emit_err(out, AdminIdErr::bad_args); return; }',
+  '    if (admin_word_is(tok, tlen, "reset")) {'),
+ ("C10 ★★ `acl remove` loses its confirmation",
+  '        if (!parse_confirm_token(args + i, n - i)) { acl_emit_err(out, AclErr::bad_args); return; }\n        const AclResult r = acl.remove(slot);',
+  '        const AclResult r = acl.remove(slot);'),
+ ("C11 ★★ `acl reset` loses its confirmation",
+  '        if (!parse_confirm_token(args + i, n - i)) { acl_emit_err(out, AclErr::bad_args); return; }\n        const AclResult r = acl.recover();',
+  '        const AclResult r = acl.recover();'),
+ ("C12 a MALFORMED confirmation is TRIMMED into an accepted one (`confirm x` becomes `confirm`)",
+  "        if (!parse_confirm_token(args + i, n - i)) { acl_emit_err(out, AclErr::bad_args); return; }\n        const AclResult r = acl.remove(slot);",
+  "        size_t ci = admin_skip_ws(args, n, i), ce = ci;\n        while (ce < n && !admin_is_ws(args[ce])) ++ce;\n"
+  "        if (!parse_confirm_token(args + ci, ce - ci)) { acl_emit_err(out, AclErr::bad_args); return; }\n"
+  "        const AclResult r = acl.remove(slot);"),
+ # --- the SLOT and ROLE parses ---------------------------------------------------------------------------------
+ ("C13 ★★ THE SLOT IS PARSED WITH A PREFIX PARSE AGAIN — `acl remove 2junk confirm` frees slot 2",
+  "    if (!parse_index_strict(buf, v)) return false;",
+  "    v = atol(buf);\n    if (false) return false;"),
+ ("C14 the 0..9 domain check is dropped, so slot 250 is narrowed into slot 250 % 256",
+  "    if (v < 0 || v >= static_cast<long>(mrnv::kAclSlots)) return false;",
+  "    (void)0;"),
+ ("C15 the ROLE token becomes a PREFIX match — `own` and `operators` are accepted",
+  '    if (admin_word_is(tok, tlen, "operator")) { out = AclRole::operator_; return true; }\n    if (admin_word_is(tok, tlen, "owner"))    { out = AclRole::owner;     return true; }\n    return false;',
+  '    if (tlen && !memcmp(tok, "operator", tlen < 8 ? tlen : 8)) { out = AclRole::operator_; return true; }\n'
+  '    if (tlen && !memcmp(tok, "owner", tlen < 5 ? tlen : 5))    { out = AclRole::owner;     return true; }\n    return false;'),
+ ("C16 an unknown role DEFAULTS to operator instead of refusing (C2's fail-loud reversed)",
+  '    if (admin_word_is(tok, tlen, "owner"))    { out = AclRole::owner;     return true; }\n    return false;',
+  '    if (admin_word_is(tok, tlen, "owner"))    { out = AclRole::owner;     return true; }\n    out = AclRole::operator_;\n    return true;'),
+ # --- the TRAILING-TOKEN refusals ------------------------------------------------------------------------------
+ ("C17 `admin-id show` silently ignores an extra token",
+  '    if (admin_word_is(tok, tlen, "show")) {\n        if (!admin_tail_empty(args, n, i)) { admin_id_emit_err(out, AdminIdErr::bad_args); return; }',
+  '    if (admin_word_is(tok, tlen, "show")) {'),
+ ("C18 `acl add` silently ignores everything after the key",
+  "        if (!admin_tail_empty(args, n, i)) { acl_emit_err(out, AclErr::bad_args); return; }\n"
+  "        // ★ THE ADMINISTRATION IDENTITY IS READ SEPARATELY",
+  "        // ★ THE ADMINISTRATION IDENTITY IS READ SEPARATELY"),
+ ("C19 an UNKNOWN subcommand falls through silently instead of answering bad_args",
+  "    acl_emit_err(out, AclErr::bad_args);\n}\n\n// ---- the READ-ONLY boot report",
+  "    (void)out;\n}\n\n// ---- the READ-ONLY boot report"),
+ # --- the OUTPUT bytes -----------------------------------------------------------------------------------------
+ ("C20 ★ `unchanged` is reported as `updated` — the operator is told a write happened that did not",
+  '                                    r.changed ? "updated" : "unchanged",',
+  '                                    "updated",'),
+ ("C21 the ACL listing renders EMPTY rows too (holes are published as slots)",
+  "            if (acl_row_occupied(b.rec[k])) acl_emit_row(out, k, b.rec[k]);",
+  "            acl_emit_row(out, k, b.rec[k]);"),
+ ("C22 the listing's end line counts from the STORED count instead of the census",
+  "        acl_emit_end(out, acl_census(b));",
+  "        AclCensus fc; fc.count = static_cast<uint8_t>(b.count); acl_emit_end(out, fc);"),
+ ("C23 ★ the ADD line prints the FINGERPRINT in place of the full key — the USB exchange loses the key",
+  '        admin_emit(out, b, snprintf(b, sizeof b, "> acl added slot=%u role=%s fp=%s pub=%s\\n",\n'
+  "                                    (unsigned)r.slot, acl_role_name(r.role), fp, pub));",
+  '        admin_emit(out, b, snprintf(b, sizeof b, "> acl added slot=%u role=%s fp=%s pub=%s\\n",\n'
+  "                                    (unsigned)r.slot, acl_role_name(r.role), fp, fp));"),
+ ("C24 ★ the BOOT line drops its `state=` field — absent and io_failed become indistinguishable",
+  '    admin_emit(out, b, snprintf(b, sizeof b, "> acl boot state=%s count=%u owners=%u operators=%u\\n",\n'
+  "                                acl_state_name(r.state), (unsigned)r.census.count,",
+  '    admin_emit(out, b, snprintf(b, sizeof b, "> acl boot count=%u owners=%u operators=%u\\n",\n'
+  "                                (unsigned)r.census.count,"),
+ ("C25 the boot report starts printing the ADMINISTRATION KEY (a boot line must carry no material)",
+  "inline void admin_id_emit_boot(IAdminLines& out, const AdminIdBoot& r) {\n    char b[kAdminLineMax];\n"
+  '    admin_emit(out, b, snprintf(b, sizeof b, "> admin-id boot state=%s\\n", admin_id_state_name(r.state)));',
+  "inline void admin_id_emit_boot(IAdminLines& out, const AdminIdBoot& r) {\n    char b[kAdminLineMax];\n"
+  '    admin_emit(out, b, snprintf(b, sizeof b, "> admin-id boot state=%s fp=%s\\n",\n'
+  '                                admin_id_state_name(r.state), "0000000000000000"));'),
+ ("C26 a REFUSAL reason is mapped to the wrong lexeme (`last_owner` prints as `slot_empty`)",
+  '        case AclErr::last_owner:           return "last_owner";',
+  '        case AclErr::last_owner:           return "slot_empty";'),
+ ("C27 the STATE names collapse (`io_failed` prints as `invalid` — the wrong remedy)",
+  '        case AclState::io_failed: return "io_failed";',
+  '        case AclState::io_failed: return "invalid";'),
+ # ⛔ NO ENTRY FOR `admin_emit`'s LENGTH GUARD, and the absence is a MEASUREMENT rather than an omission: the two
+ #   `static_assert`s at the head of `firmware_admin_verbs.h` prove `kAdminLineMax` exceeds the widest line this
+ #   file can compose, so `snprintf` can never truncate and the guard's `>= kAdminLineMax` arm is UNREACHABLE.
+ #   A mutation of it stays GREEN — which is `--target=` policy for UNUSABLE, never RED. The guard is kept because
+ #   it is fail-closed for a FUTURE line, and the header says so at the site.
+ ("C29 the `acl add` path stops reading the administration identity (the gate is bypassed at the VERB)",
+  "        const AclResult r = acl.add(id.state(), role, key);",
+  "        const AclResult r = acl.add(AdminIdState::ok, role, key);"),
+]
+
 MUTS_B20MAC = [
  ("B01 ★★★ [[B20]] VERBATIM: the seal is sized by the BUFFER again (241, a 4-B-MAC constant) instead of the frame — "
   "the 215-216 band is admitted, queued, its RTS airs, and the DATA is dropped at TX time with nothing pushed",
@@ -9929,6 +10352,8 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "uipresets": MUTS_UIPRESETS, "uipresetverbs": MUTS_UIPRESETVERBS,
                   "model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
+                  "radmin3id": MUTS_RADMIN3ID, "radmin3acl": MUTS_RADMIN3ACL,
+                  "radmin3verbs": MUTS_RADMIN3VERBS,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
                   "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,
                   "uisend": MUTS_UISEND, "teamkeyring": MUTS_TEAMKEYRING,

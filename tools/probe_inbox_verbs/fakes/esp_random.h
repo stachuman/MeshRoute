@@ -21,12 +21,21 @@
 struct MrProbeRng {
     uint32_t state = 0;    // reset to 0 before each case -> the same stream every run, on every host
     uint32_t draws = 0;    // how many 32-bit draws production consumed
+    // ★★ §RADMIN slice 3 — THE DEAD-RNG FACT. `mrrng::fill` is `void`, so the ONLY way a caller can learn that a
+    //    draw produced nothing usable is to look at the BYTES. The administration-identity binding does exactly
+    //    that (`!admin_buf_all_zero(out, 32)`), and this flag is what lets the probe DRIVE that arm on the real
+    //    ESP32 code path instead of asserting it from a comment.
+    // ⛔ IT IS A FACT, ⛔ NOT A VERDICT: this header decides nothing. Production still assembles the seed, still
+    //    classifies it and still chooses the refusal. [[B312]] stays OPEN — an all-zero stream is a synthetic
+    //    stand-in for a dead source and is ⛔ NOT a hardware or RF entropy proof.
+    bool     force_zero = false;
 };
 inline MrProbeRng& mrprobe_rng() { static MrProbeRng r; return r; }
 
 inline uint32_t esp_random(void) {
     MrProbeRng& r = mrprobe_rng();
     ++r.draws;
+    if (r.force_zero) return 0;   // §RADMIN slice 3: the dead source — every draw answers zero
     r.state = r.state * 1664525u + 1013904223u;   // a plain LCG: reproducible, and NOT a constant per draw
     return r.state;
 }

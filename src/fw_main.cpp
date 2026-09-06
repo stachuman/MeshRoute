@@ -52,7 +52,14 @@ using mrfw::team_fnv1a32;
 using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
 using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
-#include "firmware_commands.h"       // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
+#include "firmware_commands.h"   // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
+#include "firmware_admin_verbs.h"   // §RADMIN slice 3: mrfw::admin_verb_owns — the ONE
+                                    //   predicate the BLE refusal below and the router
+                                    //   arm in firmware_commands.cpp BOTH evaluate.
+                                    //   ⓘ UNGATED (the [[B255]] idiom): it holds no
+                                    //   capability macro, so it adds no feature site,
+                                    //   and on a CLIENT build every inline in it is
+                                    //   unreferenced and nothing is emitted.
 // ⛔ V1 CORRECTION (§RADMIN-0c, 2026-09-05) — FOUR `using` DECLARATIONS ARE GONE FROM HERE, AND THE OLD LIST IS
 // KEPT VISIBLE SO THE REASON IS READABLE. This block used to import `mrfw::handle_peerkey`, `mrfw::handle_peername`,
 // `mrfw::dispatch` and `mrfw::print_reqpubkey_hint`, each annotated *"call sites (service_console +
@@ -571,6 +578,28 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     //    a help line and still falls through to the seam exactly as before.
     if (((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
         return write_err(out, cap, "help", "console_only");
+    // ★★★ §RADMIN slice 3 — R-RA-29, VERBATIM: *"the whole target-side family — the ACL verbs
+    //     (list/add/set/remove/recovery) and the administration-identity verbs (show/generate/rotate) — is refused
+    //     over BLE in `ble_dispatch_line` BEFORE the transport-neutral seam, with one named `console_only`
+    //     envelope"*. R-RA-21 is the reason: first-owner, recovery and root-identity operations are the `physical`
+    //     authority class, and design §12.1 says a future BLE caller *"is not authorized until it supplies a
+    //     separately reviewed physical-presence signal"* — which nobody has designed. A secured bond or a static
+    //     PIN is ⛔ NOT physical presence (§6.4).
+    // ★★ IT IS THE **SAME PREDICATE THE ROUTER USES** (`firmware_commands.cpp`'s dispatch arms), so the guard and
+    //    the router cannot drift apart — which is precisely how the slice-0a help defect happened: the router grew
+    //    `help <topic>` while this guard still matched `len == 4`. `tools/probe_console_sink/ble_guard.py` EXTRACTS
+    //    this condition from this file, compiles it against the real header and RUNS it over the whole family.
+    // ★ IT COVERS MALFORMED SUBFORMS TOO (`acl`, `acl bogus`, `admin-id`): a malformed line of an owned family is
+    //   still a line this node must not answer over BLE. ⛔ It is NOT a broad `admin` prefix test — `admin-key` is
+    //   Slice 4's CONTROLLER verb and is not this node's to refuse.
+    // ⛔ AND IT IS HERE, ⛔ NOT INSIDE THE SEAM: `exec_console_line` "OWNS NO COMMAND-NAME SPECIAL CASE" and
+    //    transport-specific named refusals stay in their transports (firmware_commands.h's contract, U3).
+    // ⛔ The standing `reboot/regen/ota/factory_reset are reachable here too` note above is NOT resolved by this
+    //    slice (C1); this adds ONE family to the refusal set and widens nothing.
+#if MR_FEAT_RADMIN_ACCEPT
+    if (mrfw::admin_verb_owns(line, len))
+        return write_err(out, cap, "admin", "console_only");
+#endif   // MR_FEAT_RADMIN_ACCEPT
     // ★★ §RADMIN-0c: ONE call into the transport-neutral seam (firmware_commands.cpp). It owns the
     // router-versus-parser fork, the peer-book/Node execution and the JSON rendering; this file keeps only what is
     // transport glue — the direct companion handlers above, the sinks, and BLE's own refusal envelopes below (U3).
@@ -827,6 +856,14 @@ void setup() {
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
     // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
     g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
+    // §RADMIN slice 3 — the two TARGET STORES' READ-ONLY boot report, beside the legacy single-admin restore and
+    // ⛔ sharing nothing with it (Slice 10 removes that one, in its own NV-version slice).
+    // ⛔ IT VALIDATES AND REPORTS. It installs no identity, no ACL and no session, writes nothing, draws no
+    //    entropy, auto-generates nothing and prints no key or fingerprint byte — design §6.4 forbids inventing an
+    //    active remote owner, and a boot that minted a root on a transient read failure would do exactly that.
+#if MR_FEAT_RADMIN_ACCEPT
+    mrfw::admin_stores_boot_report_console();
+#endif   // MR_FEAT_RADMIN_ACCEPT
 #if MR_N_LAYERS < 2
     // §UI-16 K1/K2 ([[B240]]) — THE TEAM CONTENT KEY IS RESTORED BY THE `/mrteams` KEYRING, AND BY NOTHING ELSE.
     // ⛔⛔ WITHDRAWN CALL, KEPT VISIBLE (QG blocker 1, 2026-08-22): this block used to begin with

@@ -61,6 +61,7 @@ FW_ACK="$ROOT/lib/console/console_json.h"   # the verdict -> lexeme mapping — 
 FW_CMDS_H="$ROOT/src/firmware_commands.h"   # the ONE exported print_identity(..., Print&) declaration
 LINE_SINK="$ROOT/src/dispatch_sink.h"       # the PRODUCTION LineSink the BLE arm ships through — control C11
 FAKE_PREFS="$HERE/fakes/Preferences.h"      # the probe-local NV medium — controls C12/C13 make it LIE
+FW_NVH="$ROOT/src/device_nv.h"              # §RADMIN slice 3: the typed wrappers — controls C27..C29 mutate this
 FAKE_RNG="$HERE/fakes/esp_random.h"         # the probe-local deterministic entropy stream
 
 DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
@@ -136,8 +137,39 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #      exactly why the unification was safe. Offering a green "order" control would be a vacuous check. The order is
 #      pinned STRUCTURALLY (structural.py S24, with its own negctl control) and the emptiness it depends on is
 #      re-derived every run by tools/probe_console_sink/ownership.py, which turns RED on a synthetic collision.
-PIN_CHECKS=91
-PIN_CONTROLS=22
+# ⚠⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 91 -> 130, AND THE +39 IS FULLY ATTRIBUTED — ⛔ not one prior row
+#    was dropped or rewritten. The new rows are the target stores' REAL wiring, driven through `mrfw::dispatch()`:
+#      R30/b/c/d   4  the two families are OWNED by the real router; `admin-key` (Slice 4's) and `aclx` are NOT
+#      R31/b       2  an ABSENT store answers honestly, with 0 writes and 0 draws
+#      R32..R32g   8  generate = EXACTLY ONE write, right namespace/key/size, no unrelated slot, valid stored
+#                     record, a reload reproducing the same fp/pub, ⛔ no seed byte on the wire, 8 platform draws
+#      R33         1  a second generate refuses `already_present` with 0 writes and 0 draws
+#      R34 x5 + b  6  every confirm refusal costs 0 writes AND 0 entropy draws
+#      R35..R35h   9  the first-owner ceremony, a second owner, set/unchanged/remove, the last-owner refusal, list
+#      R36         1  a first owner cannot be granted without a valid administration root
+#      R37/b       2  ★ an all-zero PLATFORM draw refuses `entropy_failed`, having ASKED, and mints nothing
+#      R38         1  a refused medium answers `nv_save_failed` after exactly one attempt
+#      R39/b/c     3  a corrupt record is `store_invalid`, ordinary writes cost 0, only `reset confirm` recovers
+#      R40/b/c     3  the BOOT wrapper is read-only, reports both states, and prints no key or fingerprint
+#      R41         1  the whole response lands on the SUPPLIED sink; `mrcon` and BLE get 0 B
+#      R42..R42g   7  ★★ the `io_failed` arm, EXECUTED on the REAL ESP32 read sequence: a dead NVS (the namespace
+#                     is not merely unwritten) makes BOTH records `io_failed` rather than the fresh-device
+#                     `absent`, both consoles name it, ⛔ EVEN THE CONFIRM-GATED RECOVERIES refuse, and the boot
+#                     report says so while writing nothing. This is what makes the typed wrappers' `&io` argument
+#                     MEASURED rather than asserted — `--target=devicenv` cannot reach it (the host has no NV
+#                     backend), so its cover moved here with controls C27..C29.
+#    4+2+8+1+6+9+1+2+1+3+3+1+7 = 48 named rows; two of them (R34's five spellings) share one id, so the executed
+#    count rises by 46: 91 + 46 = 137. ✓
+PIN_CHECKS=137
+# ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
+#   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
+#   reading its record · C25 the Print adapter re-chooses `mrcon` ([[B279]]'s shape) · C26 the read-only boot
+#   report starts writing. ⛔ Every prior control is preserved and still RED.
+# ⚠ 27 -> 30: three more on the TYPED WRAPPERS, which `--target=devicenv` cannot reach at all — C27 `load_acl`
+#   stops asking for SlotIo (a dead store reads as a fresh device) · C28 `save_acl` writes the WRONG slot (an ACL
+#   update lands on the administration root) · C29 `load_admin_id` reads the wrong slot. The native suite is blind
+#   to all three because the host arm has NO NV backend; here they run against the REAL ESP32 sequence.
+PIN_CONTROLS=30
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -257,6 +289,19 @@ ctl() {
     ack)     shadow_hdr "$FW_ACK"    console_json.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     sink)    shadow_hdr "$LINE_SINK" dispatch_sink.h && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     prefs)   shadow_hdr "$FAKE_PREFS" Preferences.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    # ★★ §RADMIN slice 3: `src/device_nv.h`'s typed wrappers — and this kind needs a WHOLE-`src/` shadow rather
+    #    than the one-header kind above, for a C++ reason worth recording: a QUOTED include resolves against the
+    #    INCLUDING FILE'S OWN DIRECTORY FIRST, so a lone `$OUT/shadow/device_nv.h` is picked up by `probe_main.cpp`
+    #    (which is not in `src/`) while `src/firmware_commands.cpp` keeps resolving to the REAL one. The result is
+    #    TWO files defining `mrnv::Blob` and a hundred redefinition errors — i.e. a control that reports "does not
+    #    compile" and measures nothing. ⇒ the copy carries the whole directory and the router/handler are compiled
+    #    FROM it, so exactly one `device_nv.h` exists in the translation unit.
+    nvh)     rm -rf "$OUT/srcshadow"; cp -r "$ROOT/src" "$OUT/srcshadow"
+             sed "$script" "$FW_NVH" > "$OUT/srcshadow/device_nv.h"
+             cmp -s "$FW_NVH" "$OUT/srcshadow/device_nv.h" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; }
+             shadowdir="$OUT/srcshadow"
+             router="$OUT/srcshadow/$(basename "$FW_CMDS")"
+             handler="$OUT/srcshadow/$(basename "$FW_INBOX")" ;;
   esac
   if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin"; then
     n_bad=$((n_bad+1))
@@ -328,6 +373,56 @@ if [ "${1:-}" != "--no-neg" ]; then
   #          [[B134]] data-retention lie in this slice's shape.
   ctl 'C5  the verdict is forced TRUE into `inbox_clear_result()` (failure prints `cleared`)' ack \
       's/inline const char\* inbox_clear_result(bool cleared) { return cleared ? "cleared" : "io_error"; }/inline const char* inbox_clear_result(bool) { return "cleared"; }/'
+
+  # ================================ §RADMIN slice 3 — the target stores' wiring controls ========================
+  # ★ EACH IS THE TEMPTING WRONG EDIT, applied to a COPY of the REAL source, and each must turn the probe RED on
+  #   the rows it is aimed at. A mutant that fails to build, dies, or passes is UNUSABLE — never a scored control.
+
+  # ---- C14: THE ROUTER ARM REMOVED. The whole family becomes unreachable and every one of the 38 new rows loses
+  #           its subject — the shape C1 closes for `clear_inbox`, one family over.
+  ctl 'C22 the §RADMIN target-store DISPATCH ARM is deleted (both families unreachable)' router \
+      '/if (admin_router_arm(line, len, out)) return true;/d'
+
+  # ---- C23: ★ THE ENTROPY BINDING STOPS ASKING THE PLATFORM. It answers `true` and leaves the caller's buffer
+  #           as the service initialised it — the shape a "cache the seed" or "derive it from the id" refactor
+  #           would take. ⛔ INVISIBLE to every native test: the binding lives in this TU and nothing else compiles
+  #           it. It reddens the DRAW COUNT (R32g) and the dead-source refusal's "it ASKED" half (R37).
+  # ⓘ WHY NOT `return true;` ALONE — measured, and worth recording: the all-zero refusal is guarded TWICE, once in
+  #   this binding (`!admin_buf_all_zero`) and once inside `AdminIdService::mint_` (`admin_id_content_valid`), so
+  #   deleting either belt alone leaves the console answer IDENTICAL and the control would prove nothing. That
+  #   redundancy is deliberate defence in depth; the SERVICE half is attacked individually by
+  #   `probe_ui_model_mutations.py --target=radmin3id`, and this control attacks what the binding alone owns —
+  #   actually drawing from the platform.
+  ctl 'C23 ★ the seed binding STOPS DRAWING from the platform (answers true, fills nothing)' router \
+      's|        mrrng::fill(out, 32);|        (void)out;|'
+
+  # ---- C16: THE STORE BINDING IS POINTED AT THE WRONG RECORD. The service is perfect; the adapter reads and
+  #           writes `/mrid` instead. No pure test can see this — the binding is glue.
+  ctl 'C24 the admin-identity store binding stops reading the record it was bound to' router \
+      's|    mrnv::AdminIdRead load(mrnv::AdminIdBlob\& out) override { return mrnv::load_admin_id(out); }|    mrnv::AdminIdRead load(mrnv::AdminIdBlob\& out) override { (void)out; return mrnv::AdminIdRead::absent; }|'
+
+  # ---- C17: THE PRINT ADAPTER RE-CHOOSES THE GLOBAL CONSOLE. The [[B279]] shape, one family over: the response
+  #           is correct and complete, and it goes to the WRONG sink — so a BLE caller would receive nothing.
+  ctl 'C25 the target-store Print adapter writes to `mrcon` instead of the SUPPLIED sink ([[B279]] shape)' router \
+      's|_o.write(reinterpret_cast<const uint8_t\*>(s), n); }   // §RADMIN-3 sink|mrcon.write(reinterpret_cast<const uint8_t*>(s), n); }   // §RADMIN-3 sink|'
+
+  # ---- C18: THE BOOT REPORT STARTS WRITING. Design §6.4 forbids inventing an active owner; a boot that seeded
+  #           an empty ACL would do exactly that on the first transient read failure.
+  # ---- C27..C29: the TYPED WRAPPERS. ⛔ None of these three is reachable from `--target=devicenv`: that battery
+  #      runs the NATIVE suite and the host has no NV backend, so a re-pointed slot and a dropped `SlotIo` are both
+  #      invisible there. They are controlled HERE, against the REAL ESP32 read/write sequence.
+  ctl 'C27 ★ `load_acl` stops asking the primitive for SlotIo — a DEAD store reads as a fresh device' nvh \
+      's|    const int n = read_slot(kSlotAcl, \&out, sizeof out, \&io);|    const int n = read_slot(kSlotAcl, \&out, sizeof out);|'
+
+  ctl 'C28 ★★ `save_acl` WRITES THE WRONG SLOT — an ACL update lands on the administration root' nvh \
+      's|inline bool save_acl(const AclBlob\& b) { return write_slot(kSlotAcl, \&b, sizeof b); }|inline bool save_acl(const AclBlob\& b) { return write_slot(kSlotAdmid, \&b, sizeof b); }|'
+
+  ctl 'C29 ★★ `load_admin_id` READS THE WRONG SLOT — the ACL bytes are classified as an administration root' nvh \
+      's|    const int n = read_slot(kSlotAdmid, \&out, sizeof out, \&io);|    const int n = read_slot(kSlotAcl, \&out, sizeof out, \&io);|'
+
+  ctl 'C26 the READ-ONLY boot report starts WRITING (an auto-seed on a fresh device)' router \
+      's|    mrfw::admin_boot_report(id, acl, lines);|    mrfw::admin_boot_report(id, acl, lines);\n    (void)mrnv::save_acl(mrnv::AclBlob{});|'
+
 
   # ---- C6: THE CLEAR IS NEVER PERFORMED but the ack still claims it. The mirror image of C5: an ack that reports
   #          a destruction the handler declined to do. Neither pure units nor a structural grep can see this.

@@ -60,7 +60,11 @@ FLAGS=(-std=gnu++2a -fno-exceptions -fno-rtti -Wall -Wextra -Werror -DARDUINO=10
 #   protocol_constants.h) EXPLICITLY rather than inheriting them transitively. §0g dropped the header's
 #   rf_capabilities.h dependency with the cfg envelope text it fed; lib/hal stays on the path for the sink's own
 #   includes. Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow a mutation.
-INCS=(-I"$HERE/fakes" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/hal")
+# §RADMIN slice 3 added lib/console + lib/monocypher/src: `ble_guard.py`'s ADMIN family compiles the REAL
+# `src/firmware_admin_verbs.h`, which reaches `remote_codec.h` (the ten-slot binding) and `monocypher.h`
+# (R-RA-29's BLAKE2b). Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow
+# a mutation — the same argument the two lines above make for lib/core and lib/hal.
+INCS=(-I"$HERE/fakes" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/hal" -I"$ROOT/lib/console" -I"$ROOT/lib/monocypher/src")
 
 # ★ THE REAL PRODUCT PROFILE MATRIX. Every row is the resolved macro set of at least one REAL board env
 #   (`pio project config --json-output` + lib/core/mr_features.h); the macro sets and their env names now live in
@@ -92,7 +96,17 @@ PROFILES=(
 #                                            the SAME rows — a gated name changes the LIST, not the row count —
 #                                            which is why one per-profile constant is enough. (§0a was 166/160: the
 #                                            per-topic rows scaled with topic availability.)
-#     PIN_STRUCTURAL = 29                    structural.py's S1..S29. §0b/[[B279]] added S21 (fw_main.cpp passes
+#     PIN_STRUCTURAL = 39                    structural.py's S1..S39. ⚠ RE-PINNED 2026-09-06 BY §RADMIN
+#         SLICE 3, 29 -> 39, FULLY ATTRIBUTED: ten NEW device-boundary rows for the two target stores —
+#         S30 the boot report is called exactly once from setup() under MR_FEAT_RADMIN_ACCEPT · S31 and it
+#         runs AFTER the filesystem mount/self-heal · S32 the boot path writes nothing and draws nothing ·
+#         S33 no resident identity/ACL/service/static record buffer (design §6.2) · S34 the ACCEPT bindings
+#         touch no Node state and no legacy single-admin symbol · S35 the typed wrappers address kSlotAdmid /
+#         kSlotAcl and nothing else · S36 mount_or_repair()'s probe list is still the SAME SIX files
+#         ([[B317]]) · S37 do_regen()'s write set is still {/mrid} · S38 handle_leave()'s is still {/mrcfg} ·
+#         S39 factory_erase() still erases WHOLESALE, so both new records are covered with zero new code.
+#         ⛔ NOT ONE of S1..S29 moved. Each new row has a deliberate sabotage control in negctl.py.
+#         (historical:)  structural.py's S1..S29. §0b/[[B279]] added S21 (fw_main.cpp passes
 #                                            the boot identity formatter its sink explicitly, exactly once);
 #                                            §RADMIN-0c added EIGHT: S22/S23 the two one-call `fw_main.cpp`
 #                                            adapters (one seam call each, no residual router/parser/Node fork,
@@ -101,25 +115,42 @@ PROFILES=(
 #                                            S26 no borrowed body and no static state, S27 the send handle is still
 #                                            HEX (the probes' Arduino fake ignores a radix, so nothing EXECUTED can
 #                                            see this), S28/S29 the [[B298]] comment census in the .cpp and the .h.
-#     PIN_BLE_GUARD  = 53 corpus lines x 4   the executed BLE help-refusal assertions B1..B4.
+#     PIN_BLE_GUARD  = 480                   ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 212 -> 480, and the
+#         extractor is GENERALIZED rather than copied: it now answers the same question once per FAMILY.
+#           help  : 53 corpus lines x 4 assertions (B1..B4) = 212   (UNCHANGED — every prior row still runs)
+#           admin : 67 corpus lines x 4 assertions (A1..A4) = 268   (R-RA-29)
+#         212 + 268 = 480. ✓  The admin corpus is 2 families x 22 subforms = 44 owned rows (malformed subforms
+#         INCLUDED) + 23 near misses and foreign tokens, and its `must_refuse` column is the OWNER'S RULE,
+#         never read off the predicate. The admin extraction additionally REFUSES unless the site is inside
+#         `ble_dispatch_line`, BEFORE `exec_console_line`, and gated on EXACTLY `MR_FEAT_RADMIN_ACCEPT`.
 #     PIN_OWNERSHIP  = 6                     ownership.py: one row per REAL product profile, each requiring the
 #                                            router-owned and parser-owned primary-form sets to be DISJOINT,
 #                                            non-empty, complete against the generator's own projection, and at
 #                                            their derived counts. This is the authority for the seam's one order.
 #     PIN_OWN_CTL    = 3                     ownership.py --selftest: a synthetic collision REFUSED, a deleted
 #                                            router form REFUSED, an emptied parser surface REFUSED.
-#     PIN_CONTROLS   = 58 = 8 sink + 22 source + 23 help + 5 BLE  (negctl's own CONTROLS-TOTAL); §0b/[[B279]]
-#                      added ONE source control (X12 -> S21) and §RADMIN-0c added TEN (X13..X22 -> S22..S29).
-#                                            the 23 help = 13 rendered-index mutations + 2 structural + 3 router
+#     PIN_CONTROLS   = 78 = 8 sink + 22 source + 23 help + 5 BLE + 20 radmin3 (negctl's own CONTROLS-TOTAL);
+#                      §0b/[[B279]] added ONE source control (X12 -> S21) and §RADMIN-0c added TEN (X13..X22 ->
+#                      S22..S29).                the 23 help = 13 rendered-index mutations + 2 structural + 3 router
 #                                            + 5 oracle.
+#         ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 58 -> 78, FULLY ATTRIBUTED and with ⛔ not one prior control
+#           dropped. The 20 are: THREE executed-row sabotages of the ADMIN BLE guard (A-C1 partial family, A-C2
+#           listing-only escape, A-C3 broad `admin` prefix that would swallow Slice 4's `admin-key`) · SIX
+#           extraction REFUSALS (A-C4 deleted, A-C5 duplicated, A-C6 comment-only, A-C7 wrong envelope, A-C8 moved
+#           BELOW the transport seam, A-C9 gated on the WRONG capability) · ELEVEN device-boundary sabotages, one
+#           per structural claim (S-C30 duplicated boot call, S-C30b the boot call loses its gate, S-C31 the boot
+#           report hoisted above the mount, S-C32 the boot path starts writing, S-C33 a RESIDENT service appears,
+#           S-C34 the bindings reach into Node, S-C35 load_acl re-pointed at the other slot, S-C36 /mradmid added
+#           to the self-heal probe list, S-C37 do_regen starts writing the ACL, S-C38 handle_leave starts writing
+#           /mradmid, S-C39 factory_erase stops erasing wholesale). 3 + 6 + 11 = 20. ✓
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=29
-PIN_BLE_GUARD=212
+PIN_STRUCTURAL=39
+PIN_BLE_GUARD=480
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
-PIN_CONTROLS=58
+PIN_CONTROLS=78
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE
@@ -276,14 +307,15 @@ done
 # ---- STRUCTURAL checks: the two bypasses + the BLE help refusal ----------------------------------------------------
 echo
 echo "== structural checks (brief tests 7, 8 and invariant 9) =="
-python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" "$ROOT/src/fw_main.cpp" "$HELP" || rc=1
+python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" "$ROOT/src/fw_main.cpp" "$HELP" \
+   "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" || rc=1
 
 # ---- EXECUTED BLE help-refusal check (§0a owner ruling 2026-09-04: "help should not be transferred by BLE") -------
 # The guard's condition is EXTRACTED from the real src/fw_main.cpp and compiled beside the real src/firmware_help.h,
 # so the COMPOSITION (router owns X => BLE refuses X) is measured rather than argued. `fw_main.cpp` itself cannot be
 # host-compiled, which is why the condition travels as text; the extraction is unique-or-refuse.
 echo
-echo "== BLE help-refusal (EXECUTED: the real guard condition x the real router) =="
+echo "== BLE help-refusal (EXECUTED: the real guard condition x the real router) + the §RADMIN-3 admin family =="
 python3 "$HERE/ble_guard.py" "$ROOT/src/fw_main.cpp" "$CXX" --out "$OUT" -- "${FLAGS[@]}" "${INCS[@]}" \
    > "$OUT/bleguard.txt" 2>&1 || rc=1
 cat "$OUT/bleguard.txt"
@@ -328,9 +360,13 @@ for row in "${PROFILES[@]}"; do
   chk_total=$((chk_total + ${n:-0}))
 done
 struct_total=$(python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
-   "$ROOT/src/fw_main.cpp" "$HELP" | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
+   "$ROOT/src/fw_main.cpp" "$HELP" "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
 ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \([0-9]*\).*/\1/p' "$OUT/neg.txt")
-ble_checks=$(sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt")
+# §RADMIN slice 3: TWO families now, so the total is their SUM. ⛔ `sed -n …p` prints one line per family and
+#   a bare assignment would have kept only the LAST — i.e. silently dropped the help family's 212 rows.
+ble_checks=$( { sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt";
+                sed -n 's/.*ADMIN-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt";
+              } | awk '{t+=$1} END {print t+0}')
 green=$(grep -c 'STAYED GREEN\|INSTRUMENT FAILURE\|CONTROL NOT APPLIED' "$OUT/neg.txt" || true)
 own_total=$(sed -n 's/.*ownership: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p' "$OUT/ownership.txt")
 own_ctl=$(grep -c '^  ok   C-' "$OUT/ownctl.txt" || true)

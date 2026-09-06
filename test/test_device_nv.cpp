@@ -432,6 +432,30 @@ TEST_CASE("device_nv: the slot table names all four records for BOTH storage mod
     CHECK(std::strcmp(kSlotPeers.ns, "mr") == 0);
     CHECK(std::strcmp(kSlotFault.ns, "mrfault") == 0);
     CHECK(std::strcmp(kSlotFault.ns, kSlotCfg.ns) != 0);
+    // ★★ §RADMIN slice 3 — the two remote-admin TARGET stores. `"mr"` IS THE FACTORY-RESET RULING EXPRESSED AS
+    //    DATA, exactly as it is for /mrjoin, /mrteams and /mrui: `factory_erase()` clears the whole `"mr"`
+    //    namespace on ESP32 and formats the whole FS on nRF52, so design §6.3's *"a factory reset erases the
+    //    administration identity and the ACL"* is delivered by these two strings and ⛔ not one line of new code.
+    CHECK(std::strcmp(kSlotAdmid.path, "/mradmid") == 0);
+    CHECK(std::strcmp(kSlotAcl.path,   "/mracl")   == 0);
+    CHECK(std::strcmp(kSlotAdmid.key,  "admid")    == 0);
+    CHECK(std::strcmp(kSlotAcl.key,    "acl")      == 0);
+    CHECK(std::strcmp(kSlotAdmid.ns,   "mr")       == 0);
+    CHECK(std::strcmp(kSlotAcl.ns,     "mr")       == 0);
+    // ⛔ AND THEY ARE THEIR OWN SLOTS. `/mradmid` is ⛔ NOT `/mrid`: merging the administration root with the
+    //    node's messaging identity would make `regen` silently rotate the remote-admin trust anchor. `/mracl` is
+    //    ⛔ NOT `/mradmid`: a root rotation must not destroy the authority list (design §6.3).
+    for (const char* other : { kSlotCfg.path, kSlotId.path, kSlotPeers.path, kSlotFault.path,
+                               kSlotJoin.path, kSlotTeams.path, kSlotUi.path }) {
+        CHECK(std::strcmp(kSlotAdmid.path, other) != 0);
+        CHECK(std::strcmp(kSlotAcl.path, other) != 0);
+    }
+    CHECK(std::strcmp(kSlotAdmid.path, kSlotAcl.path) != 0);
+    CHECK(std::strcmp(kSlotAdmid.key, kSlotAcl.key) != 0);
+    // ⛔ NEITHER IS IN THE FAULT-HISTORY PRESERVATION DOMAIN: `/mrfault` survives a factory erase precisely
+    //    because it is HW diagnostics, and neither a secret nor an authority list is that.
+    CHECK(std::strcmp(kSlotAdmid.ns, kSlotFault.ns) != 0);
+    CHECK(std::strcmp(kSlotAcl.ns, kSlotFault.ns) != 0);
 }
 
 TEST_CASE("device_nv: with no backend compiled every load and save FAILS LOUD; factory_erase is the no-op success") {
@@ -453,6 +477,16 @@ TEST_CASE("device_nv: with no backend compiled every load and save FAILS LOUD; f
     mrfault::FaultLog fl; mrfault::fault_log_init(fl);
     CHECK_FALSE(load_faults(fl));
     CHECK_FALSE(save_faults(fl));
+    // ★★ §RADMIN slice 3 — the two TARGET stores take the SAME stub contract, and their four-valued wrappers say
+    //    `absent` rather than a bool: on a device-less build there IS no record, which is the honest answer and
+    //    the one that makes a host `admin-id generate` refuse for the right reason (`entropy_failed`, because
+    //    `mrrng::fill` writes zeros here) rather than because the store lied about its state.
+    AdminIdBlob ab{}; admin_id_blob_init(ab);
+    CHECK(load_admin_id(ab) == AdminIdRead::absent);
+    CHECK_FALSE(save_admin_id(ab));
+    AclBlob acb{}; acl_blob_init(acb);
+    CHECK(load_acl(acb) == AclRead::absent);
+    CHECK_FALSE(save_acl(acb));
     CHECK(factory_erase());                     // "nothing to erase" is success — a device-less build must boot
     CHECK_FALSE(mount_or_repair());             // no FS => never reports a repair
     // a load that fails must leave the caller's buffer alone to inspect (fw_main re-stamps and re-saves it)
@@ -501,6 +535,40 @@ TEST_CASE("device_nv: the record sizes the version policy guards are what the st
     CHECK(kTeamKeyMagic == 0x4D524B31u);                      // 'MRK1' — ⛔ its own, never kMagic and never kJoinMagic
     CHECK(kTeamKeyMagic != kMagic);
     CHECK(kTeamKeyMagic != kJoinMagic);
+    // ★★ §RADMIN slice 3 — the two TARGET-STORE records' ABI, pinned HERE beside their siblings because `sizeof`
+    //    IS the migration policy for them too (`load_admin_id` / `load_acl` exact-size checks).
+    // ⚠ /mradmid = 40 with ⛔ NO tail padding, which is exactly what the NAMED `reserved` (u16) buys: 4 + 2 = 6
+    //   and `seed[32]` needs no alignment of its own, so a compiler would otherwise insert two INDETERMINATE
+    //   bytes and the write policy's whole-record `memcmp` would compare them.
+    CHECK(sizeof(AdminIdBlob) == 40);
+    CHECK(offsetof(AdminIdBlob, magic) == 0);
+    CHECK(offsetof(AdminIdBlob, version) == 4);
+    CHECK(offsetof(AdminIdBlob, reserved) == 6);
+    CHECK(offsetof(AdminIdBlob, seed) == 8);
+    CHECK(kAdminIdVersion == 1);
+    CHECK(kAdminIdMagic == 0x4D524131u);                      // 'MRA1' — ⛔ its own, never any sibling's
+    // ⚠ /mracl row = 36 with ⛔ NO padding (the NAMED `reserved[3]`), blob = 8 + 10 x 36 = 368 and 368 % 4 == 0,
+    //   so there is no implicit tail either.
+    CHECK(sizeof(AclRow) == 36);
+    CHECK(offsetof(AclRow, ed_pub) == 0);
+    CHECK(offsetof(AclRow, role) == 32);
+    CHECK(offsetof(AclRow, reserved) == 33);
+    CHECK(sizeof(AclBlob) == 8 + kAclSlots * sizeof(AclRow));
+    CHECK(sizeof(AclBlob) == 368);
+    CHECK(offsetof(AclBlob, rec) == 8);
+    CHECK(kAclSlots == 10);                                   // ★ the CODEC's ten session-slot handles (§6.5)
+    CHECK(kAclVersion == 1);
+    CHECK(kAclMagic == 0x4D524C31u);                          // 'MRL1'
+    // ★ EVERY MAGIC IS DISTINCT — a collision would let one record be adopted as another of the same length.
+    for (uint32_t other : { kMagic, kIdMagic, kPeersMagic, kJoinMagic, kTeamKeyMagic, kUiPresetMagic }) {
+        CHECK(kAdminIdMagic != other);
+        CHECK(kAclMagic != other);
+    }
+    CHECK(kAdminIdMagic != kAclMagic);
+    // ★ THE CLOSED ROLE DOMAIN, named once and stored verbatim.
+    CHECK(kAclRoleEmpty == 0);
+    CHECK(kAclRoleOperator == 1);
+    CHECK(kAclRoleOwner == 2);
 }
 
 // ============================================================ §UI-15 slice 2 CORRECTION (2026-08-19) — THE READ ARMS

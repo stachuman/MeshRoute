@@ -51,9 +51,15 @@ PROFILE_FLAGS = {
 }
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
+# §RADMIN slice 3: structural.py's device-boundary rows (S30..S39) read these two as well. Resolved from ROOT
+# rather than taken on argv so the runner's command line is unchanged; a mutant COPY is substituted per control.
+NVH = os.path.join(ROOT, 'src', 'device_nv.h')
+CFGCPP = os.path.join(ROOT, 'src', 'firmware_config.cpp')
 PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')      # the REPO's probe, never a scratch copy
 
-ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP)}
+# §RADMIN slice 3 added NVH + CFGCPP: `mutate()` copies from this map, and the tail asserts every one of them
+# is byte-identical afterwards — so the two new control targets are protected by the same guard as the five.
+ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP)}
 for p, t in ORIG.items():
     print(f'baseline {os.path.relpath(p, ROOT)} md5 = {hashlib.md5(t.encode()).hexdigest()[:8]}  ({len(t)} bytes)')
 print()
@@ -325,7 +331,7 @@ for idx, (label, path, find, repl, expect_ids) in enumerate(SRC_CTL):
     paths = {CMDS: CMDS, CMDSH: CMDSH, FWMAIN: FWMAIN, HELP: HELP}
     paths[path] = dest                                      # only the mutated file is swapped
     rows = {cid: ok for cid, _d, ok, _x in
-            structural.check(paths[CMDS], paths[CMDSH], paths[FWMAIN], paths[HELP])}
+            structural.check(paths[CMDS], paths[CMDSH], paths[FWMAIN], paths[HELP], NVH, CFGCPP)}
     flipped = [cid for cid in expect_ids if not rows.get(cid, True)]
     if not flipped:
         print(f'{label}\n   !! STAYED GREEN -- {"/".join(expect_ids)} did not flip; this control proves NOTHING')
@@ -392,7 +398,7 @@ for idx, (label, path, steps, expect_ids) in enumerate(B214_CTL):
         continue
     paths = {CMDS: CMDS, CMDSH: CMDSH, FWMAIN: FWMAIN, HELP: HELP}
     paths[path] = dest
-    rows = structural.check(paths[CMDS], paths[CMDSH], paths[FWMAIN], paths[HELP])
+    rows = structural.check(paths[CMDS], paths[CMDSH], paths[FWMAIN], paths[HELP], NVH, CFGCPP)
     status = {cid: ok for cid, _d, ok, _x in rows}
     flipped = [cid for cid in expect_ids if not status.get(cid, True)]
     failed = [cid for cid, _d, ok, _x in rows if not ok]
@@ -586,7 +592,7 @@ for label, steps, expect_ids in [
         print(f'{label}\n   !! CONTROL NOT APPLIED: {err}')
         rc_all = 1
         continue
-    rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, FWMAIN, dest)}
+    rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, FWMAIN, dest, NVH, CFGCPP)}
     flipped = [cid for cid in expect_ids if not rows.get(cid, True)]
     if not flipped:
         print(f'{label}\n   !! STAYED GREEN -- {"/".join(expect_ids)} did not flip; this control proves NOTHING')
@@ -613,7 +619,7 @@ for label, steps, expect_ids in [
         print(f'{label}\n   !! CONTROL NOT APPLIED: {err}')
         rc_all = 1
         continue
-    rows = {cid: ok for cid, _d, ok, _x in structural.check(dest, CMDSH, FWMAIN, HELP)}
+    rows = {cid: ok for cid, _d, ok, _x in structural.check(dest, CMDSH, FWMAIN, HELP, NVH, CFGCPP)}
     flipped = [cid for cid in expect_ids if not rows.get(cid, True)]
     if not flipped:
         print(f'{label}\n   !! STAYED GREEN -- {"/".join(expect_ids)} did not flip; this control proves NOTHING')
@@ -772,7 +778,7 @@ else:
         print('   !! STAYED GREEN -- the extractor found a guard that no longer exists; it proves NOTHING')
         rc_all = 1
     except ble_guard.GuardError as exc:
-        rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, _dest, HELP)}
+        rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, _dest, HELP, NVH, CFGCPP)}
         flipped = [cid for cid in ('S10', 'S11', 'S20') if not rows.get(cid, True)]
         print(f'   -> extraction REFUSES ({str(exc)[:70]}…) and structural {"+".join(flipped) or "NONE"} now FAIL')
         if not flipped:
@@ -788,12 +794,164 @@ if _dest is None:
     print(f'   !! CONTROL NOT APPLIED: {_err}')
     rc_all = 1
 else:
-    rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, _dest, HELP)}
+    rows = {cid: ok for cid, _d, ok, _x in structural.check(CMDS, CMDSH, _dest, HELP, NVH, CFGCPP)}
     if rows.get('S20', True):
         print('   !! STAYED GREEN -- S20 did not flip; this control proves NOTHING')
         rc_all = 1
     else:
         print('   -> structural S20 now FAIL (and S10/S11 stay green, which is exactly why S20 had to exist)')
+
+
+# ==================================================== §RADMIN slice 3 CONTROLS =====================================
+# ★★★ NINE CONTROLS ON THE ADMIN BLE GUARD AND TEN ON THE DEVICE-BOUNDARY STRUCTURAL ROWS. Each reverts ONE decision
+#     and must turn its OWN named invariant red. ⛔ A control that merely fails to compile, or that reddens some
+#     unrelated row, is NOT a control — the classifications below say which half must fire.
+ADMIN_GUARD_SRC = ('#if MR_FEAT_RADMIN_ACCEPT\n'
+                   '    if (mrfw::admin_verb_owns(line, len))\n'
+                   '        return write_err(out, cap, "admin", "console_only");\n'
+                   '#endif   // MR_FEAT_RADMIN_ACCEPT\n')
+
+# ---- (a) EXECUTED-ROW controls: the guard still extracts, but its rows must fail ------------------------------
+ADMIN_EXEC_CTL = [
+    ('A-C1 PARTIAL FAMILY: only `acl` is refused, so the whole `admin-id` half leaks onto the link',
+     '    if (mrfw::admin_verb_owns(line, len))',
+     '    if (mrfw::admin_verb_owns(line, len) && line[0] == \'a\' && line[1] == \'c\')',
+     'A1/A2 — every `admin-id …` form reaches the seam'),
+    ('A-C2 LISTING-ONLY ESCAPE: `acl list` / `admin-id show` are let through as "public material"',
+     '    if (mrfw::admin_verb_owns(line, len))',
+     '    if (mrfw::admin_verb_owns(line, len) && !strstr(line, "list") && !strstr(line, "show"))',
+     'A1/A2 — the two listing forms reach the seam, which R-RA-29 refuses'),
+    ('A-C3 BROAD PREFIX: a bare `admin` prefix test swallows `admin-key`, the CONTROLLER verb (Slice 4)',
+     '    if (mrfw::admin_verb_owns(line, len))',
+     '    if (len >= 3 && (!strncmp(line, "admin", 5) || !strncmp(line, "acl", 3)))',
+     'A1/A3 — `admin-key show self` is refused as if this node owned it'),
+]
+for idx, (label, find, repl, expect) in enumerate(ADMIN_EXEC_CTL):
+    print(label)
+    dest, err = mutate(FWMAIN, find, repl, os.path.basename(FWMAIN), subdir=f'actl{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    try:
+        rc, text = ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'actl{idx}', family='admin')
+    except ble_guard.GuardError as exc:
+        print(f'   -> the guard could not be EXTRACTED from the mutant, which is fail-loud RED: {exc}')
+        continue
+    if rc == 2:
+        print(f'   !! INSTRUMENT FAILURE, not a control result: {text.splitlines()[:1]}')
+        rc_all = 1
+        continue
+    fails = [l.strip() for l in text.splitlines() if l.strip().startswith('FAIL')]
+    if not fails:
+        print(f'   !! STAYED GREEN -- this control proves NOTHING  [expected: {expect}]')
+        rc_all = 1
+    else:
+        print(f'   -> {len(fails)} executed check(s) fail: ' + '; '.join(f[5:74] for f in fails[:2]))
+
+# ---- (b) EXTRACTION-REFUSAL controls: the instrument must STOP, never report "no rows" ------------------------
+ADMIN_EXTRACT_CTL = [
+    ('A-C4 the admin refusal is DELETED outright', ADMIN_GUARD_SRC, ''),
+    ('A-C5 the admin refusal is DUPLICATED (two executable anchors — which one is the guard?)',
+     ADMIN_GUARD_SRC, ADMIN_GUARD_SRC + ADMIN_GUARD_SRC),
+    ('A-C6 the admin refusal is COMMENTED OUT (a guard that reads as present but never runs)',
+     '        return write_err(out, cap, "admin", "console_only");',
+     '        // return write_err(out, cap, "admin", "console_only");\n        return 0;'),
+    ('A-C7 the ENVELOPE is wrong (`acl` instead of the ruled `admin` name)',
+     'return write_err(out, cap, "admin", "console_only");',
+     'return write_err(out, cap, "acl", "console_only");'),
+    ('A-C8 the guard is MOVED BELOW the transport seam, where it can refuse nothing',
+     ADMIN_GUARD_SRC, ''),
+    ('A-C9 the guard is gated on the WRONG capability (MR_FEAT_RADMIN_CLIENT — the R-RA-8 inversion)',
+     '#if MR_FEAT_RADMIN_ACCEPT\n    if (mrfw::admin_verb_owns(line, len))',
+     '#if MR_FEAT_RADMIN_CLIENT\n    if (mrfw::admin_verb_owns(line, len))'),
+]
+for idx, (label, find, repl) in enumerate(ADMIN_EXTRACT_CTL):
+    print(label)
+    if label.startswith('A-C8'):
+        # Move it: delete in place, then re-insert AFTER the seam call. Two steps, one mutant.
+        dest, err = mutate_steps(FWMAIN, [
+            (ADMIN_GUARD_SRC, ''),
+            ('    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',
+             '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }\n' + ADMIN_GUARD_SRC),
+        ], os.path.basename(FWMAIN))
+    else:
+        dest, err = mutate(FWMAIN, find, repl, os.path.basename(FWMAIN), subdir=f'axctl{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    try:
+        ble_guard.extract_guard(open(dest).read(), ble_guard.ADMIN_REFUSAL_CALL, ble_guard.ADMIN_GATE)
+        print('   !! STAYED GREEN -- the extractor accepted a guard it must refuse; it proves NOTHING')
+        rc_all = 1
+    except ble_guard.GuardError as exc:
+        print(f'   -> extraction REFUSES: {str(exc)[:96]}')
+
+# ---- (c) the DEVICE-BOUNDARY structural rows: one sabotage each ------------------------------------------------
+# (file-under-mutation, find, replace, the row that MUST flip)
+S3_CTL = [
+    ('S-C30 the boot report call is DUPLICATED in setup()', FWMAIN,
+     '    mrfw::admin_stores_boot_report_console();',
+     '    mrfw::admin_stores_boot_report_console();\n    mrfw::admin_stores_boot_report_console();', 'S30'),
+    ('S-C30b the boot call loses its ACCEPT gate (a CLIENT board would run a target-store boot path)', FWMAIN,
+     '#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::admin_stores_boot_report_console();\n#endif   // MR_FEAT_RADMIN_ACCEPT',
+     '    mrfw::admin_stores_boot_report_console();', 'S30'),
+    ('S-C31 the boot report is hoisted ABOVE the filesystem mount/self-heal', FWMAIN,
+     '    if (mrnv::mount_or_repair()) {',
+     '    mrfw::admin_stores_boot_report_console();\n    if (mrnv::mount_or_repair()) {', 'S31'),
+    ('S-C32 the boot report starts WRITING (an auto-generate on a fresh device — design §6.4 forbids it)', CMDS,
+     '    mrfw::admin_boot_report(id, acl, lines);',
+     '    mrfw::admin_boot_report(id, acl, lines);\n    (void)mrnv::save_acl(mrnv::AclBlob{});', 'S32'),
+    ('S-C33 a RESIDENT service is introduced (design §6.2\'s ruling reversed)', CMDS,
+     'void admin_stores_boot_report_console() {',
+     'static DeviceAclStore s_admin_resident_store;\nstatic mrfw::AclService s_admin_resident(s_admin_resident_store);\n'
+     'void admin_stores_boot_report_console() {', 'S33'),
+    ('S-C34 the ACCEPT bindings reach into Node state', CMDS,
+     '    mrfw::acl_verb(acl, id, args, len, lines);',
+     '    (void)g_node.node_id();\n    mrfw::acl_verb(acl, id, args, len, lines);', 'S34'),
+    ('S-C35 load_acl is re-pointed at the ADMIN slot (one record read through the other\'s name)', NVH,
+     '    const int n = read_slot(kSlotAcl, &out, sizeof out, &io);',
+     '    const int n = read_slot(kSlotAdmid, &out, sizeof out, &io);', 'S35'),
+    ('S-C36 /mradmid is added to mount_or_repair()\'s probe list — its corruption would reformat the FS ([[B317]])',
+     NVH, '"/mri_dm", "/mri_ch", "/mrfault" }', '"/mri_dm", "/mri_ch", "/mrfault", "/mradmid" }', 'S36'),
+    ('S-C37 do_regen starts writing the ACL too (regen would silently reset the authority list)', CMDS,
+     'static void do_regen(Print& out) {',
+     'static void do_regen(Print& out) {\n    (void)mrnv::save_acl(mrnv::AclBlob{});', 'S37'),
+    ('S-C38 handle_leave starts writing /mradmid (leaving a team would rotate the administration root)', CFGCPP,
+     'void handle_leave(Print& out) {\n    mrnv::Blob b{}; nv_load_stamped(b);',
+     'void handle_leave(Print& out) {\n    (void)mrnv::save_admin_id(mrnv::AdminIdBlob{});\n'
+     '    mrnv::Blob b{}; nv_load_stamped(b);', 'S38'),
+    ('S-C39 factory_erase stops erasing wholesale on the ESP32 arm (the new records would SURVIVE a factory reset)',
+     NVH, 'const bool ok = p.clear();',
+     'const bool ok = p.remove("cfg") && p.remove("id") && p.remove("peers");   /* per-record, not wholesale */',
+     'S39'),
+]
+for idx, (label, target, find, repl, row) in enumerate(S3_CTL):
+    print(label)
+    dest, err = mutate(target, find, repl, os.path.basename(target), subdir=f'sctl3{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    args = {CMDS: [dest, CMDSH, FWMAIN, HELP, NVH, CFGCPP],
+            CMDSH: [CMDS, dest, FWMAIN, HELP, NVH, CFGCPP],
+            FWMAIN: [CMDS, CMDSH, dest, HELP, NVH, CFGCPP],
+            HELP: [CMDS, CMDSH, FWMAIN, dest, NVH, CFGCPP],
+            NVH: [CMDS, CMDSH, FWMAIN, HELP, dest, CFGCPP],
+            CFGCPP: [CMDS, CMDSH, FWMAIN, HELP, NVH, dest]}[target]
+    try:
+        rows = {cid: ok for cid, _d, ok, _x in structural.check(*args)}
+    except Exception as exc:                                   # noqa: BLE001 — an instrument crash is never a RED
+        print(f'   !! INSTRUMENT FAILURE, not a control result: {type(exc).__name__}: {str(exc)[:70]}')
+        rc_all = 1
+        continue
+    if rows.get(row, True):
+        print(f'   !! STAYED GREEN -- {row} did not notice; this control proves NOTHING')
+        rc_all = 1
+    else:
+        flipped = [c for c, ok in rows.items() if not ok]
+        print(f'   -> structural {"+".join(flipped)} now FAIL (required: {row})')
 
 # ★ The real sources must be untouched, and we assert it rather than trusting that we never wrote them.
 for p, t in ORIG.items():
@@ -801,8 +959,11 @@ for p, t in ORIG.items():
         f'FATAL: {p} changed -- controls must only ever mutate a copy'
 # §0g: the help family is HELP_CTL (13 rendered-index mutations) + 2 structural (H-C11/H-C12)
 # + 3 router (H-C13..H-C15) + 5 oracle (H-C14a..H-C18a) = len(HELP_CTL) + 10.
+# §RADMIN slice 3: + the ADMIN BLE family (3 executed-row + 6 extraction-refusal) and the 11 device-boundary
+# structural sabotages, one per new claim (S30 twice: duplicated call AND lost gate).
+n_radmin3 = len(ADMIN_EXEC_CTL) + len(ADMIN_EXTRACT_CTL) + len(S3_CTL)
 print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
-      f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE '
-      f'controls run '
-      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2})')
+      f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE + '
+      f'{n_radmin3} radmin3 controls run '
+      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3})')
 sys.exit(rc_all)

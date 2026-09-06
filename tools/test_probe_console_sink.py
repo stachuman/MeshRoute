@@ -48,11 +48,29 @@ import gen_command_inventory as GEN  # noqa: E402
 #     profiles   — len(gen_command_inventory.PROFILES); the six real board macro sets.
 #     checks     — the summed `N total` the probe binary prints per profile: 120 on EVERY profile (52 §B95 sink rows
 #                  + 68 §0g help rows), so 120*6 = 720. §0a's 972 is retired with the per-topic rows that scaled it.
-#     structural — the row count structural.py reports (S1..S29; §0b/[[B279]] added S21, the boot sink owner;
+#     ⚠⚠ THREE PINS RE-DERIVED 2026-09-06 BY §RADMIN SLICE 3, each fully attributed and each a GROWTH with ⛔ not
+#        one prior row dropped:
+#          structural 29 -> 39  (+10: S30..S39, the two target stores' DEVICE BOUNDARY — the boot report's single
+#                                ACCEPT-gated call and its position after the filesystem mount, its read-only-ness,
+#                                the no-resident-state and no-Node rules, the typed wrappers' slot binding, the
+#                                UNCHANGED self-heal probe list ([[B317]]), regen's and leave's unchanged write
+#                                sets, and factory_erase's wholesale erasure)
+#          ble_guard  212 -> 480 (+268: the extractor is GENERALIZED to a SECOND family — R-RA-29's whole-family
+#                                `admin` refusal — 67 corpus lines x 4 assertions. The help family's 53 x 4 = 212
+#                                are UNCHANGED and still executed.)
+#          controls   58 -> 78  (+20: 3 executed-row sabotages of the admin guard, 6 extraction REFUSALS, and 11
+#                                device-boundary sabotages, one per new structural claim.)
+#     structural — the row count structural.py reports (S1..S39; §0b/[[B279]] added S21, the boot sink owner;
 #                  §RADMIN-0c added S22..S29 — the two one-call `fw_main.cpp` adapters, the seam's ROUTER-FIRST
 #                  single fork, its refusal to re-choose a sink, the no-borrowed-body/no-static rule, the HEX send
 #                  handle no executed check can see, and the two [[B298]] comment-census rows).
-#     ble_guard  — the executed BLE help-refusal rows: 53 corpus lines x 4 assertions (B1..B4) = 212.
+#     ble_guard  — the executed BLE console_only rows, SUMMED OVER BOTH FAMILIES since §RADMIN slice 3:
+#                  help  53 corpus lines x 4 assertions (B1..B4) = 212  (UNCHANGED)
+#                  admin 67 corpus lines x 4 assertions (A1..A4) = 268  (R-RA-29's whole-family refusal)
+#                  212 + 268 = 480. ⚠ THE READER BELOW MUST SUM BOTH: this wrapper's first cut parsed only
+#                  the FIRST `…-GUARD rows=…` line and compared the help family's 212 against a pin of 480,
+#                  which is a pin nobody parsed — the exact defect these wrappers exist to catch, found by
+#                  QA on the Slice 3 gate.
 #     ownership  — §RADMIN-0c: one ownership.py row per REAL product profile (6), each requiring the router-owned
 #                  and parser-owned primary-form sets to be DISJOINT, non-empty, complete and at their counts.
 #     own_ctl    — ownership.py's own controls (3): a synthetic collision, a deleted router form, an emptied
@@ -63,11 +81,11 @@ import gen_command_inventory as GEN  # noqa: E402
 #                  X13..X22, the controls that redden S22..S29.)
 PIN_PROFILES = 6
 PIN_CHECKS = 720
-PIN_STRUCTURAL = 29
-PIN_BLE_GUARD = 212
+PIN_STRUCTURAL = 39
+PIN_BLE_GUARD = 480
 PIN_OWNERSHIP = 6
 PIN_OWN_CTL = 3
-PIN_CONTROLS = 58
+PIN_CONTROLS = 78
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 
@@ -157,16 +175,38 @@ class TestProbeRunner(unittest.TestCase):
                          "every profile build must report the checked-out help header")
 
     def test_the_ble_refusal_was_measured_not_asserted(self):
-        """§0a owner ruling 2026-09-04: help must not be transferred by BLE — and it is EXECUTED, not grepped."""
+        """The owner-ruled BLE refusals are EXECUTED, not grepped — and BOTH families are read, not just the first.
+
+        §0a (2026-09-04): help must not be transferred by BLE.
+        R-RA-29 (2026-09-06): the WHOLE remote-admin target family is refused over BLE.
+
+        ⚠⚠ WHY THIS READS A TABLE AND NOT ONE REGEX. Its first cut did `re.search(r"BLE-GUARD rows=…")` and
+        compared that ONE match against `PIN_BLE_GUARD`. When §RADMIN slice 3 added the admin family the pin moved
+        to 480 while the regex still returned the help family's 212 — so the wrapper compared 212 against 480 and
+        the sweep went red, which is the LUCKY outcome. The unlucky one is the mirror: a pin that no reader parses
+        is a pin that measures nothing. ⇒ every family the runner prints is read, each must report `failed=0`,
+        and their SUM is what the pin is compared against.
+        """
         self.assertIn("BLE help-refusal (EXECUTED", self.full.stdout)
-        m = re.search(r"BLE-GUARD rows=(\d+) checks=(\d+) failed=(\d+)", self.full.stdout)
-        self.assertIsNotNone(m, "the BLE guard check must report its own denominators")
-        rows, checks, failed = (int(g) for g in m.groups())
-        self.assertEqual(0, failed)
-        self.assertEqual(PIN_BLE_GUARD, checks)
-        self.assertGreaterEqual(rows, 40, "an almost-empty corpus would prove nothing")
-        self.assertIn("extracted guard: ", self.full.stdout,
-                      "the run must state which condition text it measured")
+        rows_by_family, checks_by_family, failed_by_family = {}, {}, {}
+        for fam, r, c, f in re.findall(
+                r"(?m)^\s*(BLE|ADMIN)-GUARD rows=(\d+) checks=(\d+) failed=(\d+)", self.full.stdout):
+            rows_by_family[fam] = int(r)
+            checks_by_family[fam] = int(c)
+            failed_by_family[fam] = int(f)
+        self.assertEqual({"BLE", "ADMIN"}, set(checks_by_family),
+                         "both executed guard families must report their own denominators — a missing family is "
+                         "a silently unmeasured owner ruling")
+        for fam, failed in failed_by_family.items():
+            self.assertEqual(0, failed, "%s-GUARD reported %d failed executed check(s)" % (fam, failed))
+        for fam, rows in rows_by_family.items():
+            self.assertGreaterEqual(rows, 40, "%s: an almost-empty corpus would prove nothing" % fam)
+        self.assertEqual(PIN_BLE_GUARD, sum(checks_by_family.values()),
+                         "the pin is the SUM over every executed family (help + admin), not one family's count; "
+                         "derived: %s" % checks_by_family)
+        # ...and each family must state WHICH condition text it measured.
+        self.assertIn("extracted help guard: ", self.full.stdout)
+        self.assertIn("extracted admin guard: ", self.full.stdout)
 
     def test_the_runner_enforces_its_own_pins(self):
         """[[B294]]: running the gate DIRECTLY must refuse a shrunken measurement instead of printing PASS.
@@ -270,7 +310,10 @@ class TestPrimaryProjectionOracle(unittest.TestCase):
         gw = set(GEN.primary_names(self.rows, GEN.PROFILES["gateway"]))
         mob = set(GEN.primary_names(self.rows, GEN.PROFILES["mobile"]))
         self.assertEqual({"mobile", "team", "ui"}, full - gw)
-        self.assertEqual({"lock", "password", "unlock", "ui"}, full - mob)
+        # ★ §RADMIN slice 3 (R-RA-8): `acl` and `admin-id` are ACCEPT-only, so a MOBILE build advertises neither.
+        #   That asymmetry IS the product gate, and pinning it here is what makes the two mobile profiles'
+        #   UNCHANGED router counts (38 / 39) a measurement rather than a coincidence.
+        self.assertEqual({"acl", "admin-id", "lock", "password", "unlock", "ui"}, full - mob)
 
     def test_the_punctuation_alias_is_not_a_second_command(self):
         names = GEN.primary_names(self.rows, GEN.PROFILES["full_headless"])

@@ -288,7 +288,14 @@ class TheGateRuns(unittest.TestCase):
         self.assertIn("the slice-1b first-consumer ownership contract", out)
         self.assertRegex(out, r"(?m)^  ok   O7a the production router makes exactly ONE call")
         self.assertRegex(out, r"(?m)^  ctl-ok   W-SWAP -> REJECTED by ")
-        self.assertIn("ownership controls: 19 verified / 0 unusable", out)
+        # ⚠ RE-DERIVED 2026-09-06 BY §RADMIN SLICE 3, 19 -> 25, and the +6 is one control per NEW owner boundary:
+        #   W-S3-DROP-DISPATCH (the router arm's ACCEPT gate deleted) · W-S3-DROP-BLE (the R-RA-29 refusal's gate
+        #   deleted) · W-S3-WIDEN-BOOT (the boot call legacy-widened with `|| MR_FEAT_REMOTE_MGMT`, R-RA-27) ·
+        #   W-S3-INVERT-HELP (the two help names compiled under the CLIENT capability, the R-RA-8 inversion) ·
+        #   W-S3-DUP-DECL (a duplicate guard inside an allowed file) · W-S3-GATE-PURE (a PURE service header
+        #   acquiring a capability macro, the [[B255]] idiom's own violation).
+        #   13 prior W-* + 6 new + Y0..Y5 = 25. ⛔ Every prior control is preserved and still rejected.
+        self.assertIn("ownership controls: 25 verified / 0 unusable", out)
         self.assertLess(out.index("control classification (declared up-front"),
                         out.index("== class W/Y —"), "class W/Y must be declared before it runs")
 

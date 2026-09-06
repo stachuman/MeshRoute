@@ -706,10 +706,105 @@ class TestPrimaryProjection(unittest.TestCase):
         self.assertNotIn(("src/fw_main.cpp", "ble_dispatch_line"), primary)
         self.assertNotIn(("src/firmware_config.cpp", "handle_cfg_set"), primary)
 
-    def test_the_real_tree_projects_the_manual_s_49_primary_names(self):
-        """The manual's "49 primary command names plus `?`" is REPRODUCED from source, never copied into it."""
+    def test_the_real_tree_projects_the_manual_s_primary_names(self):
+        """The manual's primary-name count is REPRODUCED from source, never copied into it.
+
+        ⚠ 49 -> 51 (2026-09-06, §RADMIN slice 3): the ACCEPT-only `acl` and `admin-id` families. The count is a
+          FULL-BUILD figure, so it moves on the four ACCEPT profiles and ⛔ NOT on the two mobile ones — which
+          `TestRadminAcceptAxis` below pins per profile rather than leaving to this one number.
+        """
         rows, _n, _v, _r = G.build_rows(REPO_ROOT)
-        self.assertEqual(49, len(G.primary_names(rows, G.PROFILES["full_oled"])))
+        self.assertEqual(51, len(G.primary_names(rows, G.PROFILES["full_oled"])))
+        # ...and the CLIENT arm is the control: a single full-build number could not tell a product GATE from a
+        # global addition. `mobile_oled` projects 46 = its 39 router-owned forms + the 7 parser-owned ones, and
+        # ⛔ neither target-store family is among them (pinned by name in TestRadminAcceptAxis below).
+        mob = G.primary_names(rows, G.PROFILES["mobile_oled"])
+        self.assertEqual(46, len(mob))
+        self.assertNotIn("acl", mob)
+        self.assertNotIn("admin-id", mob)
+
+
+# ================================================================================================================
+# [[B319]] — the FIFTH profile axis, `MR_FEAT_RADMIN_ACCEPT` (§RADMIN slice 3).
+#
+# ★★★ WHY THIS CLASS EXISTS. `eval_gate` REFUSES a macro the profile table does not name, deliberately: an
+#     undefined macro is 0 in a real `#if`, but here that would silently DROP a command from the expected help
+#     list. The first ACCEPT-gated dispatch arm therefore could not be projected at all until the table learned the
+#     axis — and the axis had to be added as SIX LITERAL RULED VALUES, never computed from a neighbouring macro.
+# ================================================================================================================
+class TestRadminAcceptAxis(unittest.TestCase):
+
+    RULED = {"full_oled": 1, "full_headless": 1, "gateway": 1, "gateway_oled": 1, "mobile": 0, "mobile_oled": 0}
+
+    def test_every_profile_declares_the_axis_with_its_ruled_literal_value(self):
+        self.assertEqual(sorted(self.RULED), sorted(G.PROFILES))
+        for name, want in self.RULED.items():
+            self.assertIn("MR_FEAT_RADMIN_ACCEPT", G.PROFILES[name],
+                          f"{name}: the axis must be DECLARED, or eval_gate refuses the first gated arm")
+            self.assertEqual(want, G.PROFILES[name]["MR_FEAT_RADMIN_ACCEPT"], f"{name}: wrong ruled value")
+
+    def test_the_axis_is_evaluated_and_separates_the_profiles(self):
+        for name, want in self.RULED.items():
+            self.assertEqual(bool(want), G.eval_gate("MR_FEAT_RADMIN_ACCEPT", G.PROFILES[name]))
+
+    def test_a_profile_missing_the_axis_still_REFUSES(self):
+        """The refusal `eval_gate` has always made is PRESERVED — adding a column must not weaken it."""
+        stripped = {k: v for k, v in G.PROFILES["gateway"].items() if k != "MR_FEAT_RADMIN_ACCEPT"}
+        with self.assertRaises(G.GeneratorError):
+            G.eval_gate("MR_FEAT_RADMIN_ACCEPT", stripped)
+
+    def test_an_unrelated_unknown_macro_still_REFUSES(self):
+        with self.assertRaises(G.GeneratorError):
+            G.eval_gate("MR_FEAT_SOMETHING_NOBODY_DECLARED", G.PROFILES["gateway"])
+
+    def test_the_axis_is_INDEPENDENT_of_the_legacy_switch(self):
+        """A SYNTHETIC evaluator fixture: the legacy value varies while ACCEPT is held fixed, and vice versa.
+
+        ⛔ NEITHER combination below is a newly legal BOARD profile — `lib/core/mr_features.h` carries an `#error`
+           that makes the two agree until Slice 10 deletes the legacy switch. The point is that the GENERATOR reads
+           two independent columns, so the day that `#error` goes the table keeps measuring instead of aliasing.
+        """
+        base = dict(G.PROFILES["gateway"])
+        for legacy in (0, 1):
+            m = dict(base, MR_FEAT_REMOTE_MGMT=legacy, MR_FEAT_RADMIN_ACCEPT=1)
+            self.assertTrue(G.eval_gate("MR_FEAT_RADMIN_ACCEPT", m))
+            self.assertEqual(bool(legacy), G.eval_gate("MR_FEAT_REMOTE_MGMT", m))
+        for legacy in (0, 1):
+            m = dict(base, MR_FEAT_REMOTE_MGMT=legacy, MR_FEAT_RADMIN_ACCEPT=0)
+            self.assertFalse(G.eval_gate("MR_FEAT_RADMIN_ACCEPT", m))
+
+    def test_the_axis_is_NOT_derived_from_MR_FEAT_MOBILE(self):
+        """The two FULL static profiles set MR_FEAT_MOBILE=1 AND ACCEPT=1 — so that inference is simply false."""
+        for name in ("full_oled", "full_headless"):
+            self.assertEqual(1, G.PROFILES[name]["MR_FEAT_MOBILE"])
+            self.assertEqual(1, G.PROFILES[name]["MR_FEAT_RADMIN_ACCEPT"])
+
+    def test_the_generator_source_carries_no_derivation_of_the_axis(self):
+        """A literal typed column, ⛔ never computed inside the tool (that is [[B319]]'s whole point)."""
+        with open(os.path.join(REPO_ROOT, "tools", "gen_command_inventory.py"), encoding="utf-8") as fh:
+            text = fh.read()
+        table = text[text.index("PROFILES = {"):text.index("PROFILE_ENVS")]
+        for name, want in self.RULED.items():
+            self.assertIn("MR_FEAT_RADMIN_ACCEPT=%d" % want, table)
+        for forbidden in ("MR_FEAT_RADMIN_ACCEPT=MR_FEAT_REMOTE_MGMT", "MR_FEAT_RADMIN_ACCEPT = MR_FEAT",
+                          "not MR_FEAT_MOBILE"):
+            self.assertNotIn(forbidden, table)
+
+    def test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles(self):
+        """The rows are the REAL recorded ones, and the two families appear iff the profile is an ACCEPT build."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        gated = [r for r in rows if r.gate == "MR_FEAT_RADMIN_ACCEPT"]
+        self.assertEqual({"acl", "admin-id"}, {r.verb for r in gated},
+                         "the ACCEPT-gated top-level rows are exactly the two target-store families")
+        self.assertTrue(all(r.transports == "serial" for r in gated),
+                        "R-RA-29: the family is recorded SERIAL-only — BLE refuses it before the seam")
+        for name, want in self.RULED.items():
+            names = set(G.primary_names(rows, G.PROFILES[name]))
+            for verb in ("acl", "admin-id"):
+                if want:
+                    self.assertIn(verb, names, f"{name}: an ACCEPT build must advertise `{verb}`")
+                else:
+                    self.assertNotIn(verb, names, f"{name}: a CLIENT build must NOT advertise `{verb}`")
 
 
 if __name__ == "__main__":

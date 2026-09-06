@@ -36,6 +36,9 @@
 #   S2  !strcmp(<buf>, "lit")                  the exact compare (handle_cfg_set keys, handle_mobile, remote_encode)
 #   S3  tok_eq(<tok>, "lit")                   lib/console/console_parse.cpp's token compare (send/send_channel/…)
 #   S4  preset_word_is(<t>, <n>, "lit")        src/firmware_ui_preset_verbs.h's word compare (ui preset …)
+#   S6  admin_primary_is(<line>, <len>, "lit") src/firmware_admin_verbs.h's PRIMARY-token compare, evaluated by
+#                                              BOTH the gated router arm and the BLE refusal (§RADMIN slice 3)
+#   S7  admin_word_is(<tok>, <n>, "lit")       src/firmware_admin_verbs.h's subcommand-word compare
 #   S5  <buf>[0] == '<c>'                      an ALIAS SPELLING of a shape-S1..S4 literal on the SAME line
 #                                              (`help` / `?`; `off` / `0`). ⛔ INDEX 0 ONLY and never ' ' or '\0' —
 #                                              `args[4] == ' '` / `args[N] == '\0'` are LENGTH GUARDS, not spellings,
@@ -75,7 +78,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRACKED_OUTPUT = "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md"
 
 # The comparison helpers whose calls are command tests. `\b` matters: `strncpy(` must not read as `strncmp(`.
-CMP_FUNCS = ("strncmp", "strcmp", "tok_eq", "preset_word_is")
+CMP_FUNCS = ("strncmp", "strcmp", "tok_eq", "preset_word_is", "admin_primary_is", "admin_word_is")
 CMP_CALL_RE = re.compile(r"\b(" + "|".join(CMP_FUNCS) + r")\s*\(")
 # S5: an alias spelling. Index 0 only; ' ' and '\0' are length guards and are excluded by construction.
 ALIAS_CHAR_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\[\s*0\s*\]\s*==\s*'((?:[^'\\]|\\.)+)'")
@@ -154,6 +157,25 @@ SURFACES = (
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_joinprofile"),)),
     Surface("src/firmware_ui_preset_verbs.h", "preset_verb", "sub", "serial,ble", parent="ui",
             reached_from=(("src/firmware_commands.cpp", "handle_ui", "preset_verb"),)),
+    # ---- surface 1c: the remote-admin v2 TARGET-STORE family (§RADMIN slice 3) ------------------------------
+    # ★★ WHY IT IS A TOP-LEVEL SURFACE OF ITS OWN AND NOT TWO ARMS INSIDE `dispatch` — the `help_command` shape
+    #    (surface 1b) and its exact reason: `transports` is recorded PER SURFACE, and `dispatch`'s surface is
+    #    `serial,ble`. Written inline there, `acl` and `admin-id` would be published as BLE-reachable — the
+    #    opposite of R-RA-29, which refuses the WHOLE family over BLE in `ble_dispatch_line` before the seam. The
+    #    arms therefore live in `admin_router_arm`, recorded `serial`-only and PROVEN reached from `dispatch`.
+    # ⓘ The gate is the SITE's, and the sites sit inside `#if MR_FEAT_RADMIN_ACCEPT`, so the two rows carry the
+    #   product gate and the help projection drops them on the two mobile profiles (R-RA-8).
+    Surface("src/firmware_commands.cpp", "admin_router_arm", "top", "serial",
+            reached_from=(("src/firmware_commands.cpp", "dispatch", "admin_router_arm"),)),
+    # ---- surface 2b: the two families' SUB-VERB grammars, in the pure header --------------------------------
+    # ⓘ UNGATED sites, exactly like `preset_verb`'s: the header carries no capability macro ([[B255]] idiom), and
+    #   its REACHABILITY is the gated `admin_router_arm` above — which `reached_from` proves hop by hop.
+    Surface("src/firmware_admin_verbs.h", "admin_id_verb", "sub", "serial", parent="admin-id",
+            reached_from=(("src/firmware_commands.cpp", "handle_admin_id", "admin_id_verb"),
+                          ("src/firmware_commands.cpp", "admin_router_arm", "handle_admin_id"))),
+    Surface("src/firmware_admin_verbs.h", "acl_verb", "sub", "serial", parent="acl",
+            reached_from=(("src/firmware_commands.cpp", "handle_acl", "acl_verb"),
+                          ("src/firmware_commands.cpp", "admin_router_arm", "handle_acl"))),
     # ---- surface 3: the caller-only arms around the execution seam -----------------------------------------
     # ⓘ Slice 0c renamed what these arms surround: they used to sit around `dispatch()` directly, and now they sit
     #   around `mrfw::exec_console_line`. What they ARE is unchanged — the per-transport envelope arms (a malformed
@@ -182,6 +204,13 @@ NON_COMMAND = {
         "emitting it again would duplicate one semantic arm",
     ("src/firmware_remote.cpp", "admin_verb_gated"):
         "the controller-side twin of remote_verb_open — the same policy question, the same two verbs, no new arm",
+    ("src/firmware_admin_verbs.h", "admin_verb_owns"):
+        "the BLE refusal's family predicate (R-RA-29) — it re-asks the SAME two family tokens `admin_router_arm` "
+        "already owns, so emitting it again would duplicate one semantic arm; it is a TRANSPORT guard, not a "
+        "second dispatcher",
+    ("src/firmware_admin_verbs.h", "acl_parse_role"):
+        "the ROLE ARGUMENT's two values (`operator`/`owner`) for `acl add`/`acl set` — argument values, not "
+        "commands; publishing them as arms would invent the grammars `acl operator` and `acl owner`",
 }
 
 SCAN_FILES = (
@@ -191,6 +220,7 @@ SCAN_FILES = (
     "src/firmware_remote.cpp",
     "src/fw_main.cpp",
     "src/firmware_ui_preset_verbs.h",
+    "src/firmware_admin_verbs.h",
     "lib/console/console_parse.cpp",
 )
 
@@ -199,14 +229,33 @@ SCAN_FILES = (
 #   console-sink gate and its wrapper; `tools/probe_console_sink/run.sh` builds exactly these six and its wrapper
 #   asserts the two lists name the same builds. ⛔ `native` is deliberately absent: `platformio.ini`'s
 #   `test_build_src = no` means no native target compiles `src/`.
+# ★★★ THE FIFTH AXIS, ADDED 2026-09-06 BY §RADMIN SLICE 3 ([[B319]]), AND ITS VALUES ARE **LITERAL RULED PRODUCT
+#     FACTS** — ⛔ NEVER COMPUTED, ALIASED OR INFERRED INSIDE THIS TOOL. R-RA-8 rules ACCEPT = the static + gateway
+#     products, so: full_oled 1 · full_headless 1 · gateway 1 · gateway_oled 1 · mobile 0 · mobile_oled 0.
+#   ⛔ IT IS NOT `MR_FEAT_REMOTE_MGMT` UNDER ANOTHER NAME, even though the two agree on every row today: they agree
+#      because `lib/core/mr_features.h` carries an `#error` that makes them agree UNTIL THE LEGACY SWITCH IS DELETED
+#      (Slice 10), and a tool that derived one from the other would silently stop measuring the day that `#error`
+#      goes. The typed literal keeps the two axes independently attackable, which is what
+#      `tools/test_gen_command_inventory.py`'s synthetic evaluator fixture demonstrates.
+#   ⛔ AND IT IS NOT `MR_FEAT_MOBILE` INVERTED EITHER: the two FULL static profiles set `MR_FEAT_MOBILE=1` AND
+#      ACCEPT=1, so that inference is simply false. This is exactly the shape [[B319]] was raised against.
+#   ⓘ `eval_gate`'s unknown-axis REFUSAL is preserved and is the reason this column had to be added at all: the
+#     first ACCEPT-gated dispatch arm cannot be projected until the table explicitly knows the axis, and defaulting
+#     it to zero would have silently DROPPED two commands from the expected help list.
 PROFILES = {
-    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED
-    "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1),
-    "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0),
-    "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0),
-    "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1),
-    "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=0),
-    "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=1),
+    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED  MR_FEAT_RADMIN_ACCEPT
+    "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
+                           MR_FEAT_RADMIN_ACCEPT=1),
+    "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
+                           MR_FEAT_RADMIN_ACCEPT=1),
+    "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
+                           MR_FEAT_RADMIN_ACCEPT=1),
+    "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
+                           MR_FEAT_RADMIN_ACCEPT=1),
+    "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=0,
+                           MR_FEAT_RADMIN_ACCEPT=0),
+    "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=1,
+                           MR_FEAT_RADMIN_ACCEPT=0),
 }
 PROFILE_ENVS = {
     "full_oled":     ("heltec_v3", "heltec_v4"),
@@ -464,7 +513,8 @@ def scan_file(root: str, rel: str) -> list:
     return sites, value_sites, retest_sites
 
 
-SHAPE_OF = {"strncmp": "S1", "strcmp": "S2", "tok_eq": "S3", "preset_word_is": "S4"}
+SHAPE_OF = {"strncmp": "S1", "strcmp": "S2", "tok_eq": "S3", "preset_word_is": "S4",
+            "admin_primary_is": "S6", "admin_word_is": "S7"}
 # ★ POLARITY, and why it cannot be read off a leading `!`. `strcmp`/`strncmp` return ZERO on a match, so `!strncmp(…)`
 #   is the idiom for "MATCHES"; `tok_eq`/`preset_word_is` return a bool, so `!tok_eq(…)` is "DOES NOT MATCH". Treating
 #   every `!` as a negation read `ble_dispatch_line`'s `if (… !strncmp(line, "peers ", 6)) return …;` as a family GUARD

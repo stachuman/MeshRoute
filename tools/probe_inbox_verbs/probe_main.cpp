@@ -49,6 +49,10 @@
 #include "dispatch_sink.h"       // `LineSink`, the PRODUCTION BLE sink (fw_main.cpp:598) — the sink it must USE
 #include "device_nv.h"           // mrnv::IdBlob / load_id / save_id — /mrid, the record `regen` rewrites
 #include "device_rng.h"          // mrrng::fill — the seed draw `regen` makes
+// §RADMIN slice 3 — the two target stores' PURE services, so the probe can read back what the REAL router wrote
+// through the REAL `mrnv::load_admin_id` / `load_acl` wrappers, and can render the stored seed's hex to prove it
+// appears NOWHERE in any console line.
+#include "firmware_admin_verbs.h"
 #include <cctype>                // isxdigit (the "8 UPPERCASE hex digits" row, pinned without the format string)
 
 #include <cstdio>
@@ -836,6 +840,276 @@ int main() {
                 && std::strstr(g_ble, "docs/manual/command-reference.md"),
             "X20 `help` reaching the seam DOES stream the whole index (%u B) — which is why BLE refuses it first",
             unsigned(g_ble_n));
+    }
+
+
+    // ================================================================================================
+    // §RADMIN SLICE 3 — THE TWO TARGET STORES, THROUGH THE REAL ROUTER AND THE REAL NV WRAPPERS.
+    //
+    // ⛔⛔ WHY THESE ROWS EXIST, stated as the defect they close: the services, the grammar and every emitted
+    //     byte are pinned by `test/test_firmware_admin_{identity,acl,verbs}.cpp` — but every one of those gates
+    //     stays GREEN if the `dispatch()` arm is deleted, if the Print adapter writes to `mrcon` instead of the
+    //     supplied sink, if the store binding is pointed at the wrong slot, or if the entropy binding returns an
+    //     unconditional `true`. None of that is reachable from a host build of `test/`. THESE rows drive the REAL
+    //     `mrfw::dispatch()` over the REAL `src/firmware_commands.cpp` against the byte-counted fake NV medium.
+    //
+    // ⛔ THIS IS A STATIC **ACCEPT** HOST PROFILE (`-DARDUINO -DBOARD_HELTEC_V3` ⇒ `MR_FEAT_RADMIN_ACCEPT=1`).
+    //    It is ⛔ NOT execution of gateway hardware, ⛔ NOT a real BLE transport, and ⛔ NOT a flash test: the NV
+    //    medium is a fake, so no wear, no power cut and no real filesystem is exercised. Bench Part 55a owns those.
+    // ================================================================================================
+    {
+        auto& nv  = mrprobe_nv();
+        auto& rng = mrprobe_rng();
+        auto reset_nv = [&](bool writable) {
+            nv = MrProbeNv{};
+            nv.ns_present = writable;
+            nv.rw_ok      = writable;
+            rng = MrProbeRng{};
+        };
+        // A key the probe can paste, and the SAME 64 hex characters the assertions compare back out of the line.
+        const char* kKeyA = "1111111111111111111111111111111111111111111111111111111111111111";
+        const char* kKeyB = "2222222222222222222222222222222222222222222222222222222222222222";
+
+        // ---- R30: the family REACHES the router at all, on both primary tokens -----------------------------
+        reset_nv(true);
+        CaptureSink s;
+        CHK(mrfw::dispatch("admin-id show", 13, s), "R30 `admin-id show` is OWNED by the real dispatch()");
+        s.reset();
+        CHK(mrfw::dispatch("acl list", 8, s), "R30b `acl list` is OWNED by the real dispatch()");
+        // ⛔ …and the near misses are NOT, so the router's boundary is the pure predicate's and not a prefix.
+        s.reset();
+        CHK(!mrfw::dispatch("admin-key show self", 19, s) && s.n == 0,
+            "R30c `admin-key show self` (Slice 4's CONTROLLER verb) is NOT owned — zero bytes emitted");
+        s.reset();
+        CHK(!mrfw::dispatch("aclx", 4, s) && s.n == 0, "R30d `aclx` is NOT owned — zero bytes emitted");
+
+        // ---- R31: an ABSENT store answers honestly and writes NOTHING --------------------------------------
+        reset_nv(true);
+        s.reset(); mrfw::dispatch("admin-id show", 13, s);
+        CHK(s.is("> admin-id err absent\n") && nv.writes == 0 && rng.draws == 0,
+            "R31 an absent /mradmid answers `absent` with 0 writes and 0 draws [w=%d d=%u]",
+            nv.writes, unsigned(rng.draws));
+        s.reset(); mrfw::dispatch("acl list", 8, s);
+        CHK(s.is("> acl end count=0 owners=0 operators=0\n") && nv.writes == 0,
+            "R31b an absent /mracl lists as EMPTY with 0 writes [%s]", s.buf);
+
+        // ---- R32: generate writes EXACTLY ONE record, to the RIGHT namespace and key ------------------------
+        reset_nv(true);
+        s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+        const bool gen_ok = s.has("> admin-id generated fp=") && s.has(" pub=");
+        CHK(gen_ok && nv.writes == 1, "R32 `admin-id generate` costs EXACTLY ONE durable write [w=%d] %s",
+            nv.writes, gen_ok ? "" : s.buf);
+        CHK(nv.find("mr", "admid") != nullptr && nv.find("mr", "admid")->len == sizeof(mrnv::AdminIdBlob),
+            "R32b ...into namespace `mr`, key `admid`, exactly sizeof(AdminIdBlob)=%u bytes",
+            unsigned(sizeof(mrnv::AdminIdBlob)));
+        // ⛔ AND NO OTHER SLOT MOVED. `/mrid`, `/mrcfg`, `/mrpeers` and `/mracl` are untouched by a root mint.
+        CHK(nv.find("mr", "id") == nullptr && nv.find("mr", "cfg") == nullptr
+                && nv.find("mr", "peers") == nullptr && nv.find("mr", "acl") == nullptr,
+            "R32c ...and NO unrelated slot was written (/mrid, /mrcfg, /mrpeers, /mracl all absent)");
+        {
+            mrnv::AdminIdBlob stored{};
+            const mrnv::AdminIdRead st = mrnv::load_admin_id(stored);
+            CHK(st == mrnv::AdminIdRead::ok && stored.magic == mrnv::kAdminIdMagic
+                    && stored.version == mrnv::kAdminIdVersion && stored.reserved == 0
+                    && !mrfw::admin_buf_all_zero(stored.seed, 32),
+                "R32d ...and the stored record is a VALID v1 'MRA1' header with a NON-ZERO seed");
+        }
+        // The reload reproduces the SAME public key and fingerprint — the record really is the identity.
+        {
+            // ⛔ A BOUNDED COPY, ⛔ not snprintf("%s"): the sink is 4096 B and `-Werror=format-truncation`
+            //    (correctly) refuses a format that could truncate. The `admin-id generated` line is ~110 B.
+            char first[256] = {};
+            std::strncpy(first, s.buf, sizeof first - 1);
+            s.reset(); mrfw::dispatch("admin-id show", 13, s);
+            const char* fp1 = std::strstr(first, " fp=");
+            const char* fp2 = std::strstr(s.buf, " fp=");
+            CHK(fp1 && fp2 && std::strcmp(fp1, fp2) == 0 && s.has("> admin-id ok fp="),
+                "R32e a reload reproduces the SAME fingerprint and public key");
+        }
+        // ★★ THE BINDING REALLY ASKS THE PLATFORM. `mrrng::fill` draws 32 bytes as 8 x 32-bit `esp_random()`
+        //    calls on this arm, so a binding that stopped drawing — or that answered from a cached/derived value —
+        //    shows up as a DRAW COUNT, which no pure test can see (the binding lives in firmware_commands.cpp).
+        CHK(rng.draws == 8, "R32g the seed came from EXACTLY 8 platform draws (32 B / 4) [%u]",
+            unsigned(rng.draws));
+        // ⛔ NO SEED BYTE ESCAPES: the stored seed's hex must appear NOWHERE in the console output.
+        {
+            mrnv::AdminIdBlob stored{};
+            (void)mrnv::load_admin_id(stored);
+            char seed_hex[65];
+            mrfw::admin_key_hex(stored.seed, seed_hex);
+            CHK(!s.has(seed_hex), "R32f ⛔ the SEED never appears in any console line");
+        }
+
+        // ---- R33: `generate` on an EXISTING identity refuses with ZERO writes and ZERO draws ---------------
+        {
+            const int w0 = nv.writes; const uint32_t d0 = rng.draws;
+            s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+            CHK(s.is("> admin-id err already_present\n") && nv.writes == w0 && rng.draws == d0,
+                "R33 a second `generate` refuses `already_present` — 0 writes, 0 draws");
+        }
+        // ---- R34: the CONFIRM gate, on the real router: zero writes AND zero draws --------------------------
+        {
+            const int w0 = nv.writes; const uint32_t d0 = rng.draws;
+            for (const char* line : { "admin-id rotate", "admin-id rotate confirmm", "admin-id rotate confirm x",
+                                      "admin-id reset", "admin-id reset yes" }) {
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                CHK(s.is("> admin-id err bad_args\n"), "R34 `%s` -> bad_args", line);
+            }
+            CHK(nv.writes == w0 && rng.draws == d0,
+                "R34b ...and the whole confirm-refusal set cost 0 writes and 0 entropy draws");
+        }
+
+        // ---- R35: the FIRST-OWNER ceremony, end to end, on the real router ---------------------------------
+        {
+            const int w0 = nv.writes;
+            char line[128];
+            std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+            s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+            CHK(s.has("> acl added slot=0 role=owner fp=") && s.has(kKeyA) && nv.writes == w0 + 1,
+                "R35 `acl add owner <key>` seeds an ABSENT /mracl and adds the row in ONE write [%s]", s.buf);
+            CHK(nv.find("mr", "acl") != nullptr && nv.find("mr", "acl")->len == sizeof(mrnv::AclBlob),
+                "R35b ...into namespace `mr`, key `acl`, exactly sizeof(AclBlob)=%u bytes",
+                unsigned(sizeof(mrnv::AclBlob)));
+            // A SECOND owner, then a demotion, then a removal — the design's rotation, through the router.
+            std::snprintf(line, sizeof line, "acl add owner %s", kKeyB);
+            s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+            CHK(s.has("> acl added slot=1 role=owner"), "R35c a second owner lands in slot 1 [%s]", s.buf);
+            s.reset(); mrfw::dispatch("acl set 1 operator", 18, s);
+            CHK(s.is("> acl updated slot=1 role=operator\n"), "R35d `acl set 1 operator` updates [%s]", s.buf);
+            const int w1 = nv.writes;
+            s.reset(); mrfw::dispatch("acl set 1 operator", 18, s);
+            CHK(s.is("> acl unchanged slot=1 role=operator\n") && nv.writes == w1,
+                "R35e ...and repeating it costs ⛔ ZERO writes and says `unchanged`");
+            s.reset(); mrfw::dispatch("acl remove 0 confirm", 20, s);
+            CHK(s.is("> acl err last_owner\n") && nv.writes == w1,
+                "R35f ⛔ the LAST OWNER cannot be removed — 0 writes [%s]", s.buf);
+            s.reset(); mrfw::dispatch("acl list", 8, s);
+            CHK(s.has("> acl slot=0 role=owner") && s.has("> acl slot=1 role=operator")
+                    && s.has("> acl end count=2 owners=1 operators=1\n"),
+                "R35g `acl list` renders both rows and the end line [%s]", s.buf);
+            s.reset(); mrfw::dispatch("acl remove 1 confirm", 20, s);
+            CHK(s.is("> acl removed slot=1\n"), "R35h an operator IS removable [%s]", s.buf);
+        }
+
+        // ---- R36: the `add` gate on the administration identity, over the real store ------------------------
+        {
+            reset_nv(true);                                   // no /mradmid at all
+            char line[128];
+            std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+            s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+            CHK(s.is("> acl err identity_absent\n") && nv.writes == 0,
+                "R36 a first owner cannot be granted without a valid root — 0 writes [%s]", s.buf);
+        }
+
+        // ---- R37: ★ THE DEAD RNG. The REAL binding must refuse, and it must cost no write -------------------
+        {
+            reset_nv(true);
+            rng.force_zero = true;
+            s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+            CHK(s.is("> admin-id err entropy_failed\n") && nv.writes == 0 && rng.draws > 0,
+                "R37 ★ an all-zero platform draw REFUSES (`entropy_failed`) — it ASKED (%u draws) and wrote "
+                "NOTHING [%s]", unsigned(rng.draws), s.buf);
+            CHK(nv.find("mr", "admid") == nullptr,
+                "R37b ...and ⛔ no record was minted from the dead source");
+            rng.force_zero = false;
+        }
+
+        // ---- R38: a FAILED durable write publishes no success ----------------------------------------------
+        {
+            reset_nv(true);
+            nv.fail_write = true;
+            s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+            CHK(s.is("> admin-id err nv_save_failed\n") && nv.writes == 1,
+                "R38 a refused medium answers `nv_save_failed` after EXACTLY ONE attempt [%s]", s.buf);
+            nv.fail_write = false;
+        }
+
+        // ---- R39: a CORRUPT record is invalid, and only the confirm-gated recovery may touch it ------------
+        {
+            reset_nv(true);
+            mrnv::AclBlob bad{};
+            mrnv::acl_blob_init(bad);
+            bad.version = 99;                                  // a version the equality policy REJECTS
+            nv.put("mr", "acl", reinterpret_cast<const unsigned char*>(&bad), sizeof bad);
+            s.reset(); mrfw::dispatch("acl list", 8, s);
+            CHK(s.is("> acl err store_invalid\n"), "R39 a wrong-version /mracl reads as `store_invalid` [%s]",
+                s.buf);
+            const int w0 = nv.writes;
+            char line[128];
+            std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+            s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+            CHK(nv.writes == w0, "R39b ⛔ an ordinary `acl add` over a corrupt record costs ZERO writes");
+            s.reset(); mrfw::dispatch("acl reset confirm", 17, s);
+            CHK(s.is("> acl recovered count=0 owners=0 operators=0\n") && nv.writes == w0 + 1,
+                "R39c `acl reset confirm` recovers it in ONE write [%s]", s.buf);
+        }
+
+        // ---- R40: the BOOT WRAPPER on the SAME platform facts — read-only, two lines --------------------
+        {
+            reset_nv(true);
+            mrcon.service(); Serial.reset();
+            const int w0 = nv.writes; const uint32_t d0 = rng.draws;
+            mrfw::admin_stores_boot_report_console();
+            mrcon.service();
+            CHK(nv.writes == w0 && rng.draws == d0,
+                "R40 the boot report writes NOTHING and draws NOTHING [w=%d d=%u]",
+                nv.writes - w0, unsigned(rng.draws - d0));
+            CHK(std::strstr(Serial.out, "> admin-id boot state=absent") != nullptr
+                && std::strstr(Serial.out, "> acl boot state=absent count=0") != nullptr,
+                "R40b ...and reports BOTH stores' states on the console");
+            CHK(!std::strstr(Serial.out, "pub=") && !std::strstr(Serial.out, "fp="),
+                "R40c ...with ⛔ no key byte and no fingerprint on any boot line");
+        }
+
+        // ---- R42: ★★ THE `io_failed` ARM, EXECUTED ON THE REAL ESP32 READ SEQUENCE ------------------------
+        //   The store will not open AND the namespace is NOT merely unwritten, so `PreferencesSlot::ns_absent`
+        //   answers false, `nvs_read_slot` sets `SlotIo::backend_failed`, and the typed wrapper must classify
+        //   `io_failed` — a fact about the DEVICE, over which ⛔ NOTHING may be written, not even recovery.
+        // ⛔ THIS IS WHAT MAKES THE `&io` ARGUMENT MEASURED RATHER THAN ASSERTED: a wrapper that stopped asking
+        //   the primitive for `SlotIo` would report a dead store as a FRESH DEVICE, and every row below flips.
+        {
+            reset_nv(true);
+            nv.ns_present = false;                       // a read-only begin() fails …
+            mrprobe_nvs().backend_dead = true;           // … and NOT because the namespace was never written
+            const int w0 = nv.writes;
+            {
+                mrnv::AdminIdBlob ab{};
+                mrnv::AclBlob cb{};
+                CHK(mrnv::load_admin_id(ab) == mrnv::AdminIdRead::io_failed,
+                    "R42 a dead NVS makes /mradmid `io_failed` — ⛔ never the fresh-device `absent`");
+                CHK(mrnv::load_acl(cb) == mrnv::AclRead::io_failed,
+                    "R42b ...and /mracl likewise");
+            }
+            s.reset(); mrfw::dispatch("admin-id show", 13, s);
+            CHK(s.is("> admin-id err store_io_failed\n"), "R42c the console names it `store_io_failed` [%s]", s.buf);
+            s.reset(); mrfw::dispatch("acl list", 8, s);
+            CHK(s.is("> acl err store_io_failed\n"), "R42d ...on the ACL family too [%s]", s.buf);
+            s.reset(); mrfw::dispatch("admin-id reset confirm", 22, s);
+            CHK(s.is("> admin-id err store_io_failed\n") && nv.writes == w0,
+                "R42e ⛔⛔ EVEN THE CONFIRM-GATED RECOVERY REFUSES over an unreadable store — 0 writes [%s]", s.buf);
+            s.reset(); mrfw::dispatch("acl reset confirm", 17, s);
+            CHK(s.is("> acl err store_io_failed\n") && nv.writes == w0,
+                "R42f ...and so does the ACL recovery [%s]", s.buf);
+            mrcon.service(); Serial.reset();
+            mrfw::admin_stores_boot_report_console();
+            mrcon.service();
+            CHK(std::strstr(Serial.out, "state=io_failed") != nullptr && nv.writes == w0,
+                "R42g the BOOT report says `io_failed` and still writes nothing");
+            mrprobe_nvs().backend_dead = false;
+        }
+
+        // ---- R41: every response goes to the SUPPLIED sink — `mrcon` gets zero bytes -----------------------
+        {
+            reset_nv(true);
+            mrcon.service(); Serial.reset(); ble_reset();
+            s.reset();
+            mrfw::dispatch("acl list", 8, s);
+            mrcon.service();
+            CHK(s.n > 0 && Serial.n_out == 0 && g_ble_n == 0,
+                "R41 the whole response lands on the SUPPLIED sink; `mrcon` gets 0 B [%u] and BLE 0 B [%u]",
+                unsigned(Serial.n_out), unsigned(g_ble_n));
+        }
+        reset_nv(false);
     }
 
     printf("checks: %d   failures: %d\n", g_chk, g_fail);

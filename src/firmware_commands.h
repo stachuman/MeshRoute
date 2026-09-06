@@ -215,6 +215,22 @@ void handle_ui(const char* args, size_t len, Print& out);
 inline void preset_boot_restore_console() {}
 #endif   // MR_FEAT_OLED
 
+// ★★ §RADMIN slice 3 — the two TARGET STORES' console surface is `MR_FEAT_RADMIN_ACCEPT`-gated (R-RA-8: accept
+// = the static + gateway products). ⛔ THE PURE UNITS STAY UNGATED (`src/firmware_admin_identity.h`,
+// `firmware_admin_acl.h`, `firmware_admin_verbs.h`, and the two records in `device_nv.h`): the native suite
+// compiles all of them unchanged, which is the [[B255]] idiom. Only the INSTANTIATION and the console surfacing
+// are compiled out.
+// ⛔ AND THERE IS **NO** `#else` STUB HERE, unlike `preset_boot_restore_console()` above — deliberately: that one
+//    is stubbed because `fw_main.cpp` must never learn a panel exists (`lib/hal/mr_ui.h`'s rule, enforced by
+//    `tools/probe_board_ui/run.sh` W24). No such rule applies to an NV store, so the CLIENT arm carries ⛔ no
+//    symbol, ⛔ no call and ⛔ no inert stub at all: `fw_main.cpp`'s boot call is itself ACCEPT-gated, which is
+//    what makes the whole family verifiably ABSENT from a mobile object rather than merely inert in it.
+#if MR_FEAT_RADMIN_ACCEPT
+// setup(): validate `/mradmid` and `/mracl` through their four-state reads and print the two ruled boot lines.
+// ⛔ ZERO writes, ⛔ zero entropy draws, ⛔ no auto-generation, ⛔ no key or fingerprint byte, ⛔ nothing installed.
+void admin_stores_boot_report_console();
+#endif   // MR_FEAT_RADMIN_ACCEPT
+
 struct ExecResult {
     bool                         ok        = false;                                  // false => the line did not parse
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;

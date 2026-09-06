@@ -45,7 +45,7 @@
 #include <Arduino.h>            // Print + F()
 #include <cstddef>              // size_t
 #include <cstring>              // strncmp — the router's token compare
-#include "mr_features.h"        // MR_FEAT_MOBILE / MR_FEAT_REMOTE_MGMT / MR_FEAT_OLED
+#include "mr_features.h"        // MR_FEAT_MOBILE/REMOTE_MGMT/OLED/RADMIN_ACCEPT — the gated names
 #include "protocol_constants.h" // MR_N_LAYERS
 
 namespace mrfw {
@@ -61,6 +61,13 @@ inline void manual_pointer(Print& out) {
 // ⓘ ONE NAME PER LINE, BYTEWISE ASCENDING, nothing else on the line. The order is source-independent and reviewable,
 //   and it is what lets the gate compare the rendered bytes against the generated inventory without parsing prose.
 inline void render_index(Print& out) {
+    // §RADMIN slice 3 — the two TARGET-STORE families, ACCEPT builds only (R-RA-8). BYTEWISE ASCENDING like every
+    // other line: "acl" < "admin-id" < "cfg". ⛔ NAMES ONLY — the grammar lands in the manual, which the pointer at
+    // the foot of this index already names (§0g retired the `help <topic>` sections).
+#if MR_FEAT_RADMIN_ACCEPT
+    out.println(F("acl"));
+    out.println(F("admin-id"));
+#endif   // MR_FEAT_RADMIN_ACCEPT
     out.println(F("cfg"));
     out.println(F("clear_inbox"));
     out.println(F("crashtest"));

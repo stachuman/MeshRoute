@@ -58,6 +58,19 @@ SCAN_EXT = (".h", ".hpp", ".c", ".cc", ".cpp", ".inc")
 HDR = "lib/core/mr_features.h"
 NODE_H = "lib/core/node.h"
 RX = "lib/core/node_mac_rx.cpp"
+# ★★ §RADMIN SLICE 3 (2026-09-06) — THE FIRST `src/` CONSUMERS. Slice 1/1b's owners were all in `lib/core`; the
+#    target-store slice adds the local USB surface, which necessarily lives in the firmware glue: the console
+#    bindings + the router arm, the boot-wrapper declaration, the BLE refusal + the boot call, and the two help
+#    names. ⇒ the approved census grows from THREE files to SEVEN, and each new site is spelled out below.
+# ⛔ THE PURE SERVICE HEADERS ARE **NOT** HERE, AND THEIR ABSENCE IS THE POINT ([[B255]] idiom):
+#    `src/firmware_admin_identity.h`, `firmware_admin_acl.h` and `firmware_admin_verbs.h` carry ⛔ NO capability
+#    macro at all, so the native suite drives every service arm without defining a product role. If one of them
+#    ever names `MR_FEAT_RADMIN_*`, check O1 REJECTS it as an unapproved consumer — which is exactly the guard
+#    that keeps the gating at the instantiation instead of leaking into the policy.
+CMDS_CPP = "src/firmware_commands.cpp"
+CMDS_H = "src/firmware_commands.h"
+FW_MAIN = "src/fw_main.cpp"
+HELP_H = "src/firmware_help.h"
 
 # ★★★ THE APPROVED CENSUS — the reviewed contract, spelled out. Normalization: comments removed, string literals
 #     masked, runs of whitespace collapsed. Compared as a MULTISET per file, so a duplicated site is caught too.
@@ -87,8 +100,26 @@ APPROVED_SITES = {
         "#if MR_FEAT_RADMIN_ACCEPT",                          # the accept-owned dispatch arm
         "#if MR_FEAT_RADMIN_CLIENT",                          # the client-owned dispatch arm
     ],
+    # ---- §RADMIN slice 3: the target-store console surface, ACCEPT-only (R-RA-8) ------------------------------
+    CMDS_CPP: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # the store/draw/sink bindings, the three entry points and the router arm
+        "#if MR_FEAT_RADMIN_ACCEPT",   # the ONE dispatch forwarding arm
+    ],
+    CMDS_H: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # the boot wrapper's declaration. ⛔ NO `#else` stub: the call site is gated
+    ],
+    FW_MAIN: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # R-RA-29's BLE refusal, BEFORE the transport-neutral seam
+        "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s READ-ONLY boot report call, beside the legacy admin_load
+    ],
+    HELP_H: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # the two sorted primary names in the bare index
+    ],
 }
 APPROVED_FILES = sorted(APPROVED_SITES)
+# One stable letter per approved file, in `APPROVED_FILES` order — the O4x check ids.
+CHECK_SUFFIX = "abcdefghijklmnopqrstuvwxyz"
+assert len(APPROVED_FILES) <= len(CHECK_SUFFIX), "ownership.py: more approved files than check-id letters"
 # The ONE co-occurrence of a RADMIN capability with the legacy switch that is NOT a widening (R-RA-26).
 LEGACY_AGREEMENT_PIN = "# if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT"
 DECISION_CALL = ("const RadminRxOwner radmin_owner = radmin_rx_owner(pa.type, "
@@ -263,7 +294,11 @@ def run_checks(root: Path) -> list[tuple[str, bool, str]]:
     for rel in APPROVED_FILES:
         got = sorted(norm(l) for l in code[rel] if "MR_FEAT_RADMIN" in norm(l))
         want = sorted(APPROVED_SITES[rel])
-        cid = "O4" + {HDR: "a", NODE_H: "b", RX: "c"}[rel]
+        # ★ THE CHECK ID IS DERIVED FROM THE FILE'S POSITION IN THE APPROVED LIST, ⛔ no longer a hand-kept map of
+        #   three names: §RADMIN slice 3 took the census from three files to seven, and a literal map is exactly
+        #   the shape that raises a `KeyError` — i.e. an INSTRUMENT CRASH — the day a reviewed file is added.
+        #   `APPROVED_FILES` is `sorted(APPROVED_SITES)`, so the suffix is stable for a given census.
+        cid = "O4" + CHECK_SUFFIX[APPROVED_FILES.index(rel)]
         if got == want:
             ok(cid, f"{rel}: all {len(got)} naming sites match the approved census exactly")
         else:
@@ -458,6 +493,39 @@ CONTROLS = [
                          "even compute an owner and the four-combination native test would stop being possible",
      NODE_H, "    " + DECISION_DECL,
      "#if MR_FEAT_RADMIN_ACCEPT\n    " + DECISION_DECL + "\n#endif", ("O4b", "O11")),
+    # ---- §RADMIN slice 3: one control PER NEW OWNER BOUNDARY, in the shape of the twelve above ----------------
+    # ★ EACH IS THE TEMPTING WRONG EDIT, not a bare deletion: a boundary DELETED, a boundary WIDENED with the
+    #   legacy switch, a boundary INVERTED onto the wrong capability, a DUPLICATE guard, and the pure service
+    #   headers ACQUIRING a capability macro (the [[B255]] idiom's own violation).
+    ("W-S3-DROP-DISPATCH", "§RADMIN slice 3: the ACCEPT gate around the ROUTER FORWARDING arm is deleted, so a "
+                           "CLIENT board would route `acl`/`admin-id` into a target store it must not have",
+     CMDS_CPP, "#if MR_FEAT_RADMIN_ACCEPT\n    if (admin_router_arm(line, len, out)) return true;\n#endif",
+     "    if (admin_router_arm(line, len, out)) return true;", ("O4d",)),
+    ("W-S3-DROP-BLE", "§RADMIN slice 3: the ACCEPT gate around the R-RA-29 BLE REFUSAL is deleted, so a CLIENT "
+                      "board acquires an unused target-family guard it was ruled not to carry",
+     FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    if (mrfw::admin_verb_owns(line, len))",
+     "    if (mrfw::admin_verb_owns(line, len))", ("O4g",)),
+    ("W-S3-WIDEN-BOOT", "§RADMIN slice 3: the boot-call gate is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` "
+                        "(forbidden by R-RA-27 — the capability must not be aliased to the legacy switch)",
+     FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::admin_stores_boot_report_console();",
+     "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_stores_boot_report_console();",
+     ("O4g", "O5")),
+    ("W-S3-INVERT-HELP", "§RADMIN slice 3: the help index's two names are compiled under the CLIENT capability — "
+                         "the R-RA-8 inversion, which would advertise a target surface on a MOBILE build",
+     # ⓘ REJECTED BY O4f ALONE, and that is the CORRECT answer rather than a weaker one: the file census (O1) is
+     #   unmoved because `firmware_help.h` is still an approved namer — the site's TEXT is what changed, which is
+     #   precisely the class O4's per-file MULTISET exists to catch. Naming O1 here would have been a control that
+     #   passed for the wrong reason.
+     HELP_H, "#if MR_FEAT_RADMIN_ACCEPT\n    out.println(F(\"acl\"));",
+     "#if MR_FEAT_RADMIN_CLIENT\n    out.println(F(\"acl\"));", ("O4f",)),
+    ("W-S3-DUP-DECL", "§RADMIN slice 3: a DUPLICATE capability guard appears in the boot wrapper's header — a "
+                      "second, unreviewed gating site inside an allowed file",
+     CMDS_H, "void admin_stores_boot_report_console();",
+     "void admin_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_ACCEPT", ("O4e",)),
+    ("W-S3-GATE-PURE", "§RADMIN slice 3: a PURE SERVICE HEADER acquires a capability macro — the [[B255]] idiom's "
+                       "own violation, which would stop the native suite exercising the service arms at all",
+     "src/firmware_admin_acl.h", "namespace mrfw {",
+     "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nnamespace mrfw {", ("O1",)),
 ]
 
 # The controls of the controls: an edit that is NOT a violation must leave the checker GREEN; a find that does not

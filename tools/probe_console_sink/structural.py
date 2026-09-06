@@ -119,8 +119,13 @@ def _body(txt, signature):
         j += 1
     return txt[i:j]
 
-def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
-    """-> list of (id, description, ok, detail)."""
+def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=None, config_cpp_path=None):
+    """-> list of (id, description, ok, detail).
+
+    ★ §RADMIN slice 3 added the last two paths. They are OPTIONAL only so an older caller still runs; the runner
+      always passes them, and when they are absent the S30..S39 device-boundary rows are simply not produced —
+      ⛔ never silently reported as green (a missing row moves the pinned count, which is the refusal).
+    """
     # Every check below reads the NEUTRALISED text: a comment is not a call, and a brace in a string is not a block.
     cmds_raw = open(cmds_cpp_path).read()      # RAW: the B298 comment census below reads COMMENTS, so it must not
     hdr_raw = open(cmds_h_path).read()          #      use the neutralised view every other row needs.
@@ -466,13 +471,118 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path):
         and re.search(r'\belse\b[^;{}]*out\.println\s*\(\s*F\s*\(\s*'
                       r'"INCONSISTENT: attached with no home id"\s*\)\s*\)', attached_arm, re.S),
         f'inconsistent={n_inconsistent} attached={n_attached_inconsistent}')
+
+    # ================================================================================================
+    # §RADMIN slice 3 — THE DEVICE BOUNDARY OF THE TWO TARGET STORES.
+    # ⛔ WHAT THESE ROWS ARE NOT: they are ⛔ NOT an execution of `setup()`, ⛔ NOT a power-cut test and ⛔ NOT a
+    #    proof that flash behaves. `src/fw_main.cpp` cannot be host-compiled (g_node, mrnv, RadioLib, board glue)
+    #    and no native or simulator build touches it, so these are SOURCE facts — the same weaker, explicitly
+    #    labelled class as S10/S11/S17..S29 above, and each has a deliberate sabotage control in `negctl.py`.
+    # ⓘ The STRONG half lives elsewhere and is named so nobody reads these as the whole gate: the services'
+    #   behaviour is `test/test_firmware_admin_{identity,acl,verbs}.cpp`, the REAL router/store/entropy wiring is
+    #   `tools/probe_inbox_verbs`, and the executed BLE refusal is `ble_guard.py`.
+    # ================================================================================================
+    if device_nv_path and config_cpp_path:
+        nvr = open(device_nv_path).read()
+        nv = _neutral(nvr)
+        cfg_cpp = _neutral(open(config_cpp_path).read())
+
+        # ---- the boot call: exactly once, ACCEPT-gated, inside setup(), AFTER the filesystem is mounted -------
+        boot_calls = [m.start() for m in re.finditer(r'\badmin_stores_boot_report_console\s*\(', fwm)]
+        setup_body = _body(fwm, 'void setup()')
+        in_setup = [m.start() for m in re.finditer(r'\badmin_stores_boot_report_console\s*\(', setup_body)]
+        gated = re.search(r'#if\s+MR_FEAT_RADMIN_ACCEPT[^#]*?\badmin_stores_boot_report_console\s*\('
+                          r'\s*\)\s*;[^#]*?#endif', fwm, re.S)
+        add('S30', 'the target-store boot report is called EXACTLY ONCE, from setup(), under MR_FEAT_RADMIN_ACCEPT',
+            len(boot_calls) == 1 and len(in_setup) == 1 and bool(gated),
+            f'calls={len(boot_calls)} in_setup={len(in_setup)} gated={bool(gated)}')
+        mount = setup_body.find('mount_or_repair')
+        add('S31', '... and it runs AFTER the filesystem mount/self-heal, never before it',
+            mount >= 0 and len(in_setup) == 1 and in_setup[0] > mount, f'mount@{mount} call@{in_setup[:1]}')
+
+        # ---- the boot path WRITES NOTHING and DRAWS NOTHING ---------------------------------------------------
+        boot_body = _body(cmds, 'void admin_stores_boot_report_console()')
+        add('S32', 'the boot report body performs NO durable write and NO entropy draw',
+            not re.search(r'\bsave_(admin_id|acl|id|team_keys|ui_presets|peers|faults)\s*\(', boot_body)
+            and not re.search(r'\bmrrng\s*::', boot_body)
+            and not re.search(r'\b(generate|rotate|recover)\s*\(', boot_body), '')
+
+        # ---- NO RESIDENT STATE: no file-scope service, blob, identity or static buffer -------------------------
+        # ⛔ The search is over the WHOLE TU, not the block: a cache smuggled in anywhere would break design §6.2's
+        #    ruling just as thoroughly. `static` locals are included — that is exactly the `s_peers` shape.
+        # ★★ WHAT COUNTS AS RESIDENT, AND WHAT DELIBERATELY DOES NOT. The three entry points construct their
+        #    services as AUTOMATIC locals — that is the design's ruling working, ⛔ not a violation — so the
+        #    detector must catch exactly two shapes and no third:
+        #      · anything declared `static` (a function-local static is `s_peers`' shape and is just as resident);
+        #      · anything at FILE SCOPE, i.e. column 0.
+        #    ⛔ The first cut used `^[^\S\n]*(?:static\s+)?…`, which matched the indented locals too and reported
+        #       five "resident" objects on a tree that has none — a check that would have been red forever.
+        resident = re.findall(r'(?m)^\s*static\s+(?:mrfw::)?(?:AdminIdService|AclService)\b', cmds)
+        resident += re.findall(r'(?m)^(?:mrfw::)?(?:AdminIdService|AclService)\s+\w+\s*[;=(]', cmds)
+        resident += re.findall(r'\bstatic\s+(?:mrnv::)?(?:AdminIdBlob|AclBlob|AclRow)\b', cmds)
+        resident += re.findall(r'\bstatic\s+(?:meshroute::)?Identity\b', cmds)
+        add('S33', 'no RESIDENT administration identity, ACL, service or static record buffer exists (design §6.2)',
+            not resident, f'{len(resident)} occurrence(s): {resident[:3]}')
+        # ⛔ AND NO Node LINK: the target stores are `src/` state and touch no core member (no sizeof(Node) move).
+        acc_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_ACCEPT(.*?)#endif', cmds, re.S)
+        add('S34', 'the ACCEPT bindings touch NO Node state and no legacy single-admin symbol',
+            all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b', b)
+                for b in acc_blocks), f'{len(acc_blocks)} ACCEPT block(s)')
+
+        # ---- the typed wrappers address the CORRECT slots -----------------------------------------------------
+        admid_body = _body(nv, 'inline AdminIdRead load_admin_id(AdminIdBlob& out)')
+        acl_body = _body(nv, 'inline AclRead load_acl(AclBlob& out)')
+        save_admid = _line_of(nv, 'inline bool save_admin_id(')
+        save_acl = _line_of(nv, 'inline bool save_acl(')
+        add('S35', 'load/save_admin_id address kSlotAdmid and NOTHING else; load/save_acl address kSlotAcl',
+            ('kSlotAdmid' in admid_body and 'kSlotAcl' not in admid_body and 'kSlotId' not in admid_body
+             and 'kSlotAdmid' in save_admid and 'kSlotAcl' not in save_admid
+             and 'kSlotAcl' in acl_body and 'kSlotAdmid' not in acl_body
+             and 'kSlotAcl' in save_acl and 'kSlotAdmid' not in save_acl), '')
+
+        # ---- the nRF52 self-heal probe list is UNCHANGED ------------------------------------------------------
+        # ⛔ [[B317]]: `mount_or_repair()` recovers by formatting the WHOLE FS, so adding an optional store to its
+        #    probe list would make THAT store's corruption destroy identity AND config. The list must stay the six.
+        kfiles = re.search(r'kFiles\[\]\s*=\s*\{([^}]*)\}', nv)
+        kf = kfiles.group(1) if kfiles else ''
+        n_kf = kf.count('"') // 2
+        add('S36', 'mount_or_repair()\'s self-heal probe list still names the SAME SIX files — neither store added',
+            n_kf == 6 and 'mradmid' not in kf and 'mracl' not in kf, f'{n_kf} entries')
+
+        # ---- regen / leave write sets are UNCHANGED -----------------------------------------------------------
+        regen = _body(cmds, 'static void do_regen(Print& out)')
+        add('S37', 'do_regen()\'s write set is still exactly {/mrid} — it touches neither target store',
+            'save_id' in regen
+            and not re.search(r'\bsave_(admin_id|acl|team_keys|ui_presets|peers)\s*\(', regen)
+            and 'kSlotAdmid' not in regen and 'kSlotAcl' not in regen, '')
+        leave = _body(cfg_cpp, 'void handle_leave(')
+        add('S38', 'handle_leave()\'s write set is still exactly {/mrcfg} — it touches neither target store',
+            not re.search(r'\bsave_(admin_id|acl|id|team_keys|ui_presets|peers)\s*\(', leave)
+            and 'kSlotAdmid' not in leave and 'kSlotAcl' not in leave, '')
+
+        # ---- factory_reset still erases BOTH stores with ZERO new code ----------------------------------------
+        # ★ The erasure is delivered by the `"mr"` NAMESPACE (ESP32 `clear()`) and the whole-FS `format()` (nRF52),
+        #   so a factory reset that started naming records one by one would SILENTLY STOP erasing the new two.
+        fe_bodies = re.findall(r'inline bool factory_erase\(\)\s*\{', nv)
+        wholesale = ('InternalFS.format()' in nv) and re.search(r'\bp\.clear\s*\(\s*\)', nv)
+        add('S39', 'factory_erase() still erases WHOLESALE (namespace clear / whole-FS format), so both new '
+                   'records are covered with ⛔ zero new code',
+            len(fe_bodies) == 3 and bool(wholesale)   # nRF52 format · ESP32 namespace clear · the host no-op stub
+            and 'kSlotAdmid' not in nv[nv.index('inline bool factory_erase()'):]
+            .split('mount_or_repair')[0], f'{len(fe_bodies)} arm(s)')
     return out
 
+def _line_of(txt, needle):
+    """The single source LINE containing `needle` — for one-line inline wrappers `_body` cannot bracket."""
+    i = txt.index(needle)
+    return txt[txt.rfind('\n', 0, i) + 1:txt.find('\n', i)]
+
+
 def main(argv):
-    if len(argv) != 5:
+    if len(argv) not in (5, 7):
         sys.exit('usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp> '
-                 '<firmware_help.h>')
-    rows = check(argv[1], argv[2], argv[3], argv[4])
+                 '<firmware_help.h> [<device_nv.h> <firmware_config.cpp>]')
+    rows = check(*argv[1:])
     bad = 0
     for cid, desc, ok, detail in rows:
         if not ok:
