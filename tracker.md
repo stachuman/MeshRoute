@@ -36,10 +36,17 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   pre-feature implementation is committed through 0c (`b942c37`). **Slice 1 software-complete / QA-passed
   2026-09-06**, committed at `5d2c00e`: the capability scaffold is inert on both ruled boards and all 36
   streams. B304's header half is closed (ini sibling remains); B305 is closed; B306 records the stale
-  `node_mac.cpp` citation. **Next:** QA gate of the Author's 1b brief against the settled R-RA-27 strict
-  receive owners; no legacy widening. Owner preparation commit precedes the Author's dispatch-base pin.
+  `node_mac.cpp` citation. **Slice 1b software-complete / QA-passed 2026-09-06**, owner closure commit pending:
+  strict receive owners, no legacy widening; native 2615/111354/0, mutation union 99/99 RED, 36/36 byte-identical
+  streams after both simulator variants rebuilt, RAM unchanged and flash gateway +16 / heltec_mobile −8 fully
+  attributed. Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. B307 closed; B311 registers the
+  non-UTF-8 mutation-worker failure, and B286 carries the new disk-pressure measurement. B310 remains parked.
+  **Next:** owner commits the 1b closure package; then the Author writes Slice 2's brief against that commit
+  and QA's pre-check. Slice 2 preparation is QA-accepted: R-RA-28 reservation/admission caps (B308/B309), typed
+  result domains and independent KATs, plus one shared simulator source-list line for both core variants.
+  No Slice 2 implementation or dispatch is authorized by this preparation status.
   Existing hardware debts remain separate; no metal is added by 1/1b. Earlier 0c documentation residue
-  (B298 closure / Part 60 landing) is not discharged by this Slice 1 landing. B292 and B283 remain separate.
+  (B298 closure / Part 60 landing) is not discharged by the Slice 1/1b landings. B292 and B283 remain separate.
   
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
@@ -61,8 +68,8 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) QA gate of the
-  remote-admin **Slice 1b** brief, then owner preparation commit / Author base pin / QA dispatch. Bench Part 58 closes
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner **Slice 1b closure
+  commit**, then Author Slice 2 brief / QA brief gate / owner preparation commit / Author base pin / QA dispatch. Bench Part 58 closes
   B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
   separately tracked and do not block Part 54.
 

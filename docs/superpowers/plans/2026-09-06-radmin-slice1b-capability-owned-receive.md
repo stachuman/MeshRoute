@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 1b — capability-owned pre-tail receive · dispatch brief · 2026-09-06
 
-**Status: DRAFT — awaiting Quality-Agent review.**
+**Status: QUALITY-AGENT PASS 2026-09-06 — AUTHORIZED FOR DISPATCH.** No fold-ins.
 Dispatch model: **Opus** (`model: opus`).
 
 Authority: design §14, §19 item 1b and §19.1 row 1b in
@@ -10,8 +10,9 @@ Authority: design §14, §19 item 1b and §19.1 row 1b in
 `docs/superpowers/plans/2026-09-05-radmin-slice1b-precheck.md`, with §4 ruled and its legacy-widening
 recommendation superseded; pass-2 S3 in `docs/superpowers/plans/2026-09-05-fable-review-pass2.md`.
 
-**Dispatch base: NOT YET PINNED — STOP for a coder.** The owner must first commit this preparation package,
-including the Slice 1 documentation landings and this QA-passed brief. The Author then pins that real commit.
+**Dispatch base is exactly `0da4d56d3c29d06dc8e16f592003f4f83c744824` (`0da4d56`, `0b prep`).** The owner
+committed the preparation package: register, bench suspension, design, tracker, MEMORY and this brief. The tree
+was clean before this Author status/base pin; the preparation commit changes documentation only.
 Source facts below were checked at `5d2c00e17d13002a5f7eae076b9120b4ef7fc9f9` (`prep 2`), which contains
 Slice 1's QA-passed implementation and R-RA-27; this source-state citation is NOT the dispatch base.
 At dispatch, QA and any isolated-worktree coder compare `git rev-parse HEAD` to the exact pinned base.

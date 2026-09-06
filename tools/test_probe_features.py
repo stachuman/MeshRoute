@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
-"""Invocation + anti-vacuity contract for `tools/probe_features/run.sh` (remote-admin v2 slice 1).
+"""Invocation + anti-vacuity contract for `tools/probe_features/run.sh` (remote-admin v2 slices 1 + 1b).
 
 WHY A `test_*.py` BESIDE A SHELL PROBE, when the probe already gates itself. Two reasons, both measured
 elsewhere in this repository rather than assumed:
@@ -17,9 +17,15 @@ elsewhere in this repository rather than assumed:
    because *"dropping a required configuration, check or control cannot preserve PASS"* is exactly the property
    that cannot be proved by reading a script.
 
-★ THE SLICE-1 FENCE IS ASSERTED HERE, not merely promised in a brief: `MR_FEAT_RADMIN_*` must be named by
+★ THE CONSUMER FENCE IS ASSERTED HERE, not merely promised in a brief.
+⚠ CORRECTED 2026-09-06 (SLICE 1b), old text visible: this paragraph read *"`MR_FEAT_RADMIN_*` must be named by
   EXACTLY ONE production file. ⓘ WHEN THE FIRST CONSUMER LANDS (a later slice), `test_the_pair_has_no_consumer`
-  is the assertion that must be DELIBERATELY updated — that is its job, not an obstacle to route around.
+  is the assertion that must be DELIBERATELY updated — that is its job, not an obstacle to route around."*
+  ⇒ THE FIRST CONSUMER HAS LANDED, and the update was made exactly as that note instructed: `TheSliceOneFence`
+  became `TheFirstConsumerFence`, and the zero-consumer grep became `tools/probe_features/ownership.py` — the
+  EXACT file census, the exact site census inside each allowed file, the per-owner capability guard, the real
+  router's call and its argument ORDER, no `|| MR_FEAT_REMOTE_MGMT` widening, no `none` arm, no test-as-owner.
+  ⛔ The census was not removed; removing it is what this note existed to forbid.
 
 RUN:  python3 -m unittest discover -s tools -p "test_*.py"
       python3 tools/test_probe_features.py
@@ -29,7 +35,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,7 +48,14 @@ RUN = PROBE / "run.sh"
 MAIN = PROBE / "probe_main.cpp"
 ENVMAP = PROBE / "envmap.py"
 MUTATE = PROBE / "mutate.py"
+OWNERSHIP = PROBE / "ownership.py"       # §slice 1b: the first-consumer ownership contract
 HDR = ROOT / "lib" / "core" / "mr_features.h"
+RX = ROOT / "lib" / "core" / "node_mac_rx.cpp"
+
+
+def run_ownership(*args: str, root: Path | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["python3", str(OWNERSHIP), "--root", str(root or ROOT), *args],
+                          capture_output=True, text=True, timeout=900)
 
 
 def run(*args: str, env_extra: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -52,7 +67,7 @@ def run(*args: str, env_extra: dict[str, str] | None = None) -> subprocess.Compl
 
 class ProbeFilesExist(unittest.TestCase):
     def test_the_runner_and_its_support_files_are_present_and_executable(self) -> None:
-        for path in (RUN, MAIN, ENVMAP, MUTATE):
+        for path in (RUN, MAIN, ENVMAP, MUTATE, OWNERSHIP):
             self.assertTrue(path.is_file(), f"{path} is missing — the gate cannot be run")
         self.assertTrue(os.access(RUN, os.X_OK), f"{RUN} is not executable")
 
@@ -93,18 +108,97 @@ class ItCompilesTheRealProductionHeader(unittest.TestCase):
         self.assertIn("defined(ARDUINO)", text)
 
 
-class TheSliceOneFence(unittest.TestCase):
-    """The scaffold's whole claim is that it is inert. These two assertions are what make that checkable."""
+class TheFirstConsumerFence(unittest.TestCase):
+    """★ SLICE 1b. The pair now HAS a consumer, so the question changed from "is anyone using it?" to "is exactly
+    the reviewed set of sites using it, each under exactly its own capability?" — and the instrument that answers
+    it is `ownership.py`. These tests EXERCISE that instrument; they do not re-implement its policy, because a
+    second copy of the policy is how two checkers end up disagreeing about the same tree."""
 
-    def test_the_pair_has_no_consumer(self) -> None:
-        hits = sorted(
-            str(p.relative_to(ROOT))
-            for base in ("lib", "src", "test")
-            for p in (ROOT / base).rglob("*")
-            if p.is_file() and "MR_FEAT_RADMIN" in p.read_text(encoding="utf-8", errors="ignore")
-        )
-        self.assertEqual(hits, ["lib/core/mr_features.h"],
-                         "slice 1 is a pure scaffold: exactly one production file may name the pair")
+    def test_the_ownership_contract_passes_on_the_real_sources(self) -> None:
+        res = run_ownership()
+        self.assertEqual(res.returncode, 0, res.stdout[-4000:])
+        for cid in ("O1", "O2", "O3", "O4a", "O4b", "O4c", "O5", "O6a", "O6b", "O6c",
+                    "O7a", "O7b", "O8", "O9", "O10", "O11", "O12", "O13"):
+            self.assertRegex(res.stdout, rf"(?m)^  ok   {re.escape(cid)} ",
+                             f"{cid} did not run or did not pass\n{res.stdout[-3000:]}")
+        self.assertNotIn("FAIL", res.stdout)
+        self.assertNotIn("GATE ERROR", res.stdout)
+
+    def test_the_approved_census_names_production_files_only(self) -> None:
+        """The contract itself must not quietly admit a test file or a second consumer as "approved"."""
+        text = OWNERSHIP.read_text(encoding="utf-8")
+        self.assertIn('HDR = "lib/core/mr_features.h"', text)
+        self.assertIn('NODE_H = "lib/core/node.h"', text)
+        self.assertIn('RX = "lib/core/node_mac_rx.cpp"', text)
+        self.assertNotRegex(text, r'APPROVED_SITES\s*=\s*\{[^}]*"test/', "no test file may be an approved owner")
+
+    def test_the_contract_actually_rejects_a_real_violation(self) -> None:
+        """⛔ THE INDEPENDENT FALSIFIER, run from OUTSIDE the checker's own control harness: the macro-argument
+        swap at the production call site. It is INVISIBLE to the native binary (a host is `{1,1}`), so if this
+        check could not fail, that defect would have no falsifier anywhere in the tree."""
+        with tempfile.TemporaryDirectory(prefix="mr_ownership_wrapper-") as tmp:
+            dst = Path(tmp)
+            for base in ("lib", "src", "test"):
+                for p in (ROOT / base).rglob("*"):
+                    if p.is_file() and p.suffix in (".h", ".hpp", ".c", ".cc", ".cpp", ".inc"):
+                        q = dst / p.relative_to(ROOT)
+                        q.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(p, q)
+            good = run_ownership(root=dst)
+            self.assertEqual(good.returncode, 0, good.stdout[-3000:])   # the copy is green BEFORE the edit
+            rx = dst / "lib" / "core" / "node_mac_rx.cpp"
+            txt = rx.read_text(encoding="utf-8")
+            find = "radmin_rx_owner(pa.type, MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT)"
+            self.assertEqual(txt.count(find), 1, "the production call site is not singular any more")
+            rx.write_text(txt.replace(find, "radmin_rx_owner(pa.type, MR_FEAT_RADMIN_ACCEPT, MR_FEAT_RADMIN_CLIENT)"),
+                          encoding="utf-8")
+            bad = run_ownership(root=dst)
+            self.assertNotEqual(bad.returncode, 0, bad.stdout[-3000:])
+            self.assertRegex(bad.stdout, r"(?m)^  FAIL O7a ")
+        # ⛔ and the real checkout must be untouched by all of that
+        self.assertEqual(run_ownership().returncode, 0)
+
+    def test_the_ownership_controls_all_fire(self) -> None:
+        res = run_ownership("--controls")
+        self.assertEqual(res.returncode, 0, res.stdout[-6000:])
+        self.assertRegex(res.stdout, r"ownership controls: (\d+) verified / 0 unusable")
+        for cid in ("Y0", "W-UNKNOWN", "W-EXTRA-SITE", "W-NOCALL", "W-BYPASS", "W-SWAP", "W-OWNER-CMD",
+                    "W-OWNER-RESP", "W-WIDEN-ACCEPT", "W-WIDEN-CLIENT", "W-NONE-ARM", "W-TEST-OWNER",
+                    "W-OVERRIDE", "W-DECISION-GATED", "Y1", "Y2", "Y3", "Y4", "Y5"):
+            self.assertRegex(res.stdout, rf"(?m)^  ctl-ok   {re.escape(cid)} ",
+                             f"ownership control {cid} did not fire\n{res.stdout[-4000:]}")
+        self.assertNotIn("ctl-BAD", res.stdout)
+
+    def test_the_runner_calls_the_contract_in_both_modes_and_counts_it(self) -> None:
+        text = RUN.read_text(encoding="utf-8")
+        self.assertIn('OWNERSHIP="$HERE/ownership.py"', text)
+        self.assertIn('python3 "$OWNERSHIP" --root "$ROOT" 2>&1 | tee "$OUT/own.out"', text)
+        self.assertIn('python3 "$OWNERSHIP" --root "$ROOT" --controls 2>&1 | tee "$OUT/ownctl.out"', text)
+        self.assertIn('''$(grep -cE '^  (ok|FAIL) ' "$OUT/own.out")''', text)
+        self.assertIn('''grep -c '^  ctl-ok ' "$OUT/ownctl.out"''', text)
+        self.assertIn('[ "$own_rc" -eq 0 ]', text)          # its exit code SETS rc, it is not merely printed
+
+    def test_the_two_pins_reconcile_with_what_the_contract_actually_emits(self) -> None:
+        """⛔ Derived, never retyped: the runner's pins must equal the pre-1b figures PLUS exactly what the
+        ownership instrument emits today. A contract that silently shed a check would move this."""
+        text = RUN.read_text(encoding="utf-8")
+        pin_checks = int(re.search(r"(?m)^PIN_CHECKS=(\d+)$", text).group(1))
+        pin_controls = int(re.search(r"(?m)^PIN_CONTROLS=(\d+)$", text).group(1))
+        own = run_ownership()
+        n_own_checks = len(re.findall(r"(?m)^  (?:ok|FAIL) ", own.stdout))
+        ctl = run_ownership("--controls")
+        n_own_ctl = len(re.findall(r"(?m)^  ctl-(?:ok|BAD) ", ctl.stdout))
+        self.assertEqual(pin_checks - n_own_checks, 96,
+                         "pre-1b checks were 97 with S3; S3 is replaced, so 96 must remain beside the contract")
+        self.assertEqual(pin_controls - n_own_ctl, 19,
+                         "all 19 pre-1b controls must survive beside the ownership controls")
+
+    def test_the_retired_zero_consumer_pin_is_gone_and_visibly_replaced(self) -> None:
+        """A retirement that leaves no trace is indistinguishable from a deletion to make a gate pass."""
+        text = RUN.read_text(encoding="utf-8")
+        self.assertNotIn("S3 exactly ONE production location names the pair", text)
+        self.assertIn("S3 IS RETIRED BY REPLACEMENT", text)
+        self.assertIn("first-consumer ownership contract", text)
 
     def test_the_pair_has_no_command_line_override_surface(self) -> None:
         """R-RA-26 forbids a configuration override: an invalid pair must be underivable, not merely unusual."""
@@ -187,11 +281,24 @@ class TheGateRuns(unittest.TestCase):
     def test_the_tree_is_not_modified_by_a_run(self) -> None:
         self.assertIn("tree unchanged:", self.gate.stdout)
 
+    def test_the_ownership_contract_ran_inside_the_gate(self) -> None:
+        """★ SLICE 1b: the contract is only a gate if the DEFAULT command runs it — a probe invoked by hand is a
+        probe the next slice does not run (this file's own reason for existing, applied to the new instrument)."""
+        out = self.gate.stdout
+        self.assertIn("the slice-1b first-consumer ownership contract", out)
+        self.assertRegex(out, r"(?m)^  ok   O7a the production router makes exactly ONE call")
+        self.assertRegex(out, r"(?m)^  ctl-ok   W-SWAP -> REJECTED by ")
+        self.assertIn("ownership controls: 19 verified / 0 unusable", out)
+        self.assertLess(out.index("control classification (declared up-front"),
+                        out.index("== class W/Y —"), "class W/Y must be declared before it runs")
+
     def test_no_neg_never_reports_pass(self) -> None:
         self.assertEqual(self.probe_only.returncode, 0, self.probe_only.stdout[-4000:])
         self.assertIn("PROBE-ONLY — NOT A GATE", self.probe_only.stdout)
         self.assertNotIn("\nPASS", self.probe_only.stdout)
         self.assertNotIn("== class A —", self.probe_only.stdout)
+        self.assertNotIn("== class W/Y —", self.probe_only.stdout)     # the ownership CONTROLS are controls too
+        self.assertIn("  ok   O1 ", self.probe_only.stdout)            # ...but its CHECKS are part of the matrix
 
 
 class ItCannotReportSuccessWithoutMeasuring(unittest.TestCase):

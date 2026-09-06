@@ -6457,6 +6457,190 @@ TEST_CASE("rcmd: a REMOTE_RESP DM stages as is_response=true; send_remote_cmd/re
     (void)node.send_remote_response(5, qb, 4);
 }
 
+// ===== §remote-admin v2 SLICE 1b — CAPABILITY-OWNED PRE-TAIL REMOTE RECEIVE (R-RA-8 / R-RA-19 / R-RA-27) =====
+//
+// ★★★ TWO INSTRUMENTS, AND THEY PROVE DIFFERENT THINGS — the distinction is the whole point of this section:
+//   ① the PRODUCTION ROUTING cases below drive a REAL RTS -> DATA -> post-ACK exchange through the production
+//      receiver and assert what the two OWNED entry points staged. This binary is compiled `{CLIENT 1, ACCEPT 1}`
+//      (R-RA-17: a host is not a product configuration), so BOTH owners exist here and BOTH types are staged.
+//   ② the SYNTHETIC DECISION matrix calls the SAME production `Node::radmin_rx_owner` with all four `{client,
+//      accept}` combinations. ⛔ A `none` RESULT THERE IS NOT AN EXECUTED REMOTE RX DROP — it is a routing verdict
+//      computed in a binary that has both consumers compiled in. The executed proof that an un-owned internal type
+//      is dropped scalar-only, after every forwarding role and without staging/inbox/push, is the SEPARATE
+//      pre-existing generic guard fixture set (`test/test_custody_internal_b.cpp`, `test_data_type_audit_a0.cpp`,
+//      `test_dual_layer.cpp`) — which this slice deliberately does not touch.
+//   ⛔ There is deliberately NO test-only route from synthetic capabilities into the production RX function: that
+//      would be the runtime role gate R-RA-27 item 2 forbids.
+// The disabled-role COMPILE-OUT itself (a gateway image with no response consumer, a mobile image with no command
+// consumer) is measurable only on a board, and is measured by the feature-ownership gate + the board preprocessing
+// evidence, never here.
+
+// A typed DATA whose body may be far larger than `mk_data_e2e`'s 32-byte inner — for the staging boundary cases.
+static size_t mk_data_typed_big(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
+                                const uint8_t* body, uint8_t body_len,
+                                std::array<uint8_t, 300>& b, uint8_t type) {
+    std::array<uint8_t, 260> inner{}; inner[0] = origin;
+    for (uint8_t i = 0; i < body_len; ++i) inner[1 + i] = body[i];
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = 0; in.type = type; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.inner = std::span<const uint8_t>(inner.data(), 1u + body_len);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+
+namespace {
+// One real remote flight into a fresh node: RTS -> DATA(type) -> post-ACK. Returns the node's drained slot state.
+struct RemoteRx {
+    TestHal hal;
+    Node    node{hal, /*id=*/0, /*key=*/0xABCDu};
+    RxMeta  meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    RemoteRx() {
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+        node.on_init(cfg);
+    }
+    void flight(uint8_t origin, uint16_t ctr, uint8_t type, const uint8_t* body, uint8_t len, uint64_t t) {
+        std::array<uint8_t, 16> rb{};
+        hal._now = t;
+        node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, static_cast<uint8_t>(ctr & 0x0F),
+                                       /*plen=*/15, rb, 0, origin, static_cast<int>(ctr)), meta);
+        std::array<uint8_t, 300> db{};
+        hal._now = t + 1000;
+        node.on_recv(db.data(), mk_data_typed_big(/*next=*/0, /*dst=*/0, ctr, origin, body, len, db, type), meta);
+        node.on_timer(kPostAckTimerId);
+    }
+    // ⛔ "NOT DELIVERED" is asserted on ALL THREE consumer surfaces, because a remote frame that leaked would show
+    //    up on exactly one of them: the telemetry `delivered`, the durable inbox, and the live app push ring.
+    bool any_inbox_record() {
+        bool seen = false;
+        node.inbox().pull(0, 0, [](void* c, const InboxEntry&) -> bool { *static_cast<bool*>(c) = true; return true; },
+                          &seen);
+        return seen;
+    }
+    bool any_msg_recv_push() {
+        Push pu{}; bool got = false;
+        while (node.next_push(pu)) if (pu.kind == PushKind::msg_recv) { got = true; break; }
+        return got;
+    }
+};
+}  // namespace
+
+TEST_CASE("§radmin-1b/1 the PURE ownership decision: 4 capability combinations x both remote types (R-RA-27 item 2)") {
+    using Owner = Node::RadminRxOwner;
+    // The ruled table. Argument order is (type, client_on, accept_on) — the same order production passes the macros.
+    // {0,0} and {1,1} are SYNTHETIC/host readings: a BOARD deriving either is a build failure (mr_features.h).
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_CMD,  false, false) == Owner::none);             // {0,0}
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_RESP, false, false) == Owner::none);
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_CMD,  false, true ) == Owner::command_accept);   // {0,1} static/gateway
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_RESP, false, true ) == Owner::none);             // ★ the ruled R-RA-27 loss
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_CMD,  true,  false) == Owner::none);             // {1,0} mobile: ignores cmds
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_RESP, true,  false) == Owner::response_client);
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_CMD,  true,  true ) == Owner::command_accept);   // {1,1} host/lus
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_RESP, true,  true ) == Owner::response_client);
+    // ⛔ THE ARGUMENTS ARE NOT INTERCHANGEABLE. Swapping them is the defect a both-on host cannot otherwise see, so
+    //   it is pinned here as a value fact: accept owns CMD, client owns RESP — never the reverse.
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_CMD,  true,  false) != Owner::command_accept);
+    CHECK(Node::radmin_rx_owner(DATA_TYPE_REMOTE_RESP, false, true ) != Owner::response_client);
+    // The decision may never steal another handler's type: an exhaustive 256-value sweep under every combination.
+    for (int c = 0; c <= 1; ++c)
+        for (int a = 0; a <= 1; ++a)
+            for (int t = 0; t < 256; ++t) {
+                const Owner o = Node::radmin_rx_owner(static_cast<uint8_t>(t), c != 0, a != 0);
+                if (t == DATA_TYPE_REMOTE_CMD)       CHECK(o == (a ? Owner::command_accept  : Owner::none));
+                else if (t == DATA_TYPE_REMOTE_RESP) CHECK(o == (c ? Owner::response_client : Owner::none));
+                else                                 CHECK(o == Owner::none);
+            }
+    // Named non-remote controls, spelled out so a reader sees WHICH neighbours were checked (the sweep covers the
+    // numbers; these name the live handlers whose types sit closest to the two remote codepoints).
+    const uint8_t neighbours[10] = {
+        0, static_cast<uint8_t>(DATA_TYPE_E2E_ACK), static_cast<uint8_t>(DATA_TYPE_CUSTODY_FAILURE),
+        static_cast<uint8_t>(DATA_TYPE_H_ANSWER), static_cast<uint8_t>(DATA_TYPE_AUTHORITATIVE_H_ANSWER),
+        static_cast<uint8_t>(DATA_TYPE_MOBILE_KEY_FORWARD), static_cast<uint8_t>(DATA_TYPE_TEAM_KEY_GRANT),
+        static_cast<uint8_t>(DATA_TYPE_SEALED_RELAY), static_cast<uint8_t>(DATA_TYPE_INTRO), 0xFF };
+    for (uint8_t t : neighbours)
+        CHECK(Node::radmin_rx_owner(t, true, true) == Owner::none);
+}
+
+TEST_CASE("§radmin-1b/2 PRODUCTION ROUTING: a real REMOTE_CMD flight reaches the ACCEPT-owned entry point") {
+    RemoteRx r;
+    const uint8_t body[6] = { 's','t','a','t','u','s' };
+    r.flight(/*origin=*/2, /*ctr=*/0x0009, DATA_TYPE_REMOTE_CMD, body, 6, /*t=*/1000);
+    CHECK(r.hal.count("delivered") == 0);                    // ⛔ not an app delivery
+    CHECK_FALSE(r.any_inbox_record());                       // ⛔ not durable inbox content
+    CHECK_FALSE(r.any_msg_recv_push());                      // ⛔ not a live app push
+    CHECK(r.hal.count("remote_inbound_drop_full") == 0);
+    CHECK(r.hal.count("unsupported_internal") == 0);         // ★ OWNED here: it never reaches the fail-closed guard
+    Node::RemoteInbound ri;
+    CHECK(r.node.take_remote_inbound(ri));
+    CHECK(ri.is_response == false);                          // the ACCEPT owner's marker
+    CHECK(ri.from == 2);                                     // 8-bit pa.origin (the 32-bit identity is Slice 5/7b's)
+    CHECK(ri.len == 6);
+    CHECK(std::string(reinterpret_cast<const char*>(ri.body), ri.len) == "status");
+    CHECK_FALSE(r.node.take_remote_inbound(ri));             // the drain cleared the slot
+}
+
+TEST_CASE("§radmin-1b/3 PRODUCTION ROUTING: a real REMOTE_RESP flight reaches the CLIENT-owned entry point") {
+    RemoteRx r;
+    const uint8_t body[8] = { 'u','p','=','4','2','s','!','?' };
+    r.flight(/*origin=*/7, /*ctr=*/0x000B, DATA_TYPE_REMOTE_RESP, body, 8, /*t=*/1000);
+    CHECK(r.hal.count("delivered") == 0);
+    CHECK_FALSE(r.any_inbox_record());
+    CHECK_FALSE(r.any_msg_recv_push());
+    CHECK(r.hal.count("unsupported_internal") == 0);         // ★ OWNED here too (this host is {1,1})
+    Node::RemoteInbound ri;
+    CHECK(r.node.take_remote_inbound(ri));
+    CHECK(ri.is_response == true);                           // the CLIENT owner's marker — the ONE field that differs
+    CHECK(ri.from == 7);
+    CHECK(ri.len == 8);
+    CHECK(std::memcmp(ri.body, body, 8) == 0);
+    CHECK_FALSE(r.node.take_remote_inbound(ri));
+}
+
+TEST_CASE("§radmin-1b/4 staging BOUNDARIES: an empty body and a 200-byte body both stage byte-for-byte") {
+    {   // empty: `len = 0`, the slot is still ACTIVE (an empty command is a command), and the drain clears it.
+        RemoteRx r;
+        r.flight(/*origin=*/4, /*ctr=*/0x0003, DATA_TYPE_REMOTE_CMD, nullptr, 0, /*t=*/1000);
+        Node::RemoteInbound ri;
+        CHECK(r.node.take_remote_inbound(ri));
+        CHECK(ri.len == 0);
+        CHECK(ri.from == 4);
+        CHECK(ri.is_response == false);
+        CHECK_FALSE(r.node.take_remote_inbound(ri));
+    }
+    {   // 200 bytes of a distinctive pattern — far above `mk_data_e2e`'s reach and well under the 241 clamp, which
+        // is why the clamp stays a documented no-op at this slice (refuse-not-clamp is Slice 5/7b's, marked in-source).
+        RemoteRx r;
+        uint8_t big[200];
+        for (int i = 0; i < 200; ++i) big[i] = static_cast<uint8_t>((i * 7 + 13) & 0xFF);
+        r.flight(/*origin=*/9, /*ctr=*/0x0005, DATA_TYPE_REMOTE_RESP, big, 200, /*t=*/1000);
+        Node::RemoteInbound ri;
+        CHECK(r.node.take_remote_inbound(ri));
+        CHECK(ri.is_response == true);
+        CHECK(ri.from == 9);
+        CHECK(ri.len == 200);                                // ⛔ NOT truncated
+        CHECK(std::memcmp(ri.body, big, 200) == 0);          // ⛔ and byte-for-byte, not merely the right length
+    }
+}
+
+TEST_CASE("§radmin-1b/5 ONE slot, BOTH owners: a RESP arriving while a CMD is pending drops and the CMD survives") {
+    RemoteRx r;
+    const uint8_t cmd[4] = { 'd','u','t','y' };
+    r.flight(/*origin=*/2, /*ctr=*/0x0001, DATA_TYPE_REMOTE_CMD, cmd, 4, /*t=*/1000);
+    CHECK(r.hal.count("remote_inbound_drop_full") == 0);
+    const uint8_t resp[3] = { 'o','k','!' };
+    r.flight(/*origin=*/3, /*ctr=*/0x0002, DATA_TYPE_REMOTE_RESP, resp, 3, /*t=*/5000);
+    CHECK(r.hal.count("remote_inbound_drop_full") == 1);     // ★ the CROSS-OWNER collision: one shared slot (Slice 5 partitions it)
+    CHECK(r.hal.count("delivered") == 0);                    // ⛔ and the dropped one was not delivered instead
+    CHECK_FALSE(r.any_inbox_record());
+    Node::RemoteInbound ri;
+    CHECK(r.node.take_remote_inbound(ri));
+    CHECK(ri.is_response == false);                          // the FIRST (the command) survived intact
+    CHECK(ri.from == 2);
+    CHECK(ri.len == 4);
+    CHECK(std::string(reinterpret_cast<const char*>(ri.body), ri.len) == "duty");
+    CHECK_FALSE(r.node.take_remote_inbound(ri));
+}
+
 // ===================== L2c — DST_HASH verify-on-delivery + identity-preserving redirect =====================
 // A DM addressed to our node_id but carrying a cleartext DST_HASH naming a DIFFERENT key was misdelivered
 // by an id collision: do NOT deliver; FORWARD it (origin + ctr + flags + inner preserved — NOT re-sent) to

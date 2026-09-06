@@ -1897,6 +1897,90 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
     // ---- step (5): return. ⛔ No `record_dm`, no `msg_recv`, no E2E ack. The caller calls `become_free()`.
 }
 
+// =========================================================================================================
+// §remote-admin v2 SLICE 1b (2026-09-06) — CAPABILITY-OWNED PRE-TAIL REMOTE RECEIVE (R-RA-8 / R-RA-19 / R-RA-27).
+//
+// ★★★ WHAT CHANGED, IN ONE LINE: the ONE shared, UNGATED `REMOTE_CMD || REMOTE_RESP` staging arm became TWO
+//     capability-owned entry points selected by a PURE routing decision, and a type whose owner is compiled out is
+//     no longer staged at all — it falls to the existing fail-closed internal guard.
+//
+// ⛔⛔ THIS IS A BEHAVIOUR CHANGE, NOT A NEUTRAL REFACTOR, AND THE OWNER RULED IT (R-RA-27 item 1, M3: MeshRoute is
+//     not deployed). Two consequences, both intended and neither a defect to "repair":
+//       · a MOBILE (client-only) IGNORES an incoming `REMOTE_CMD` — unowned, guard-dropped, one scalar
+//         `unsupported_internal`, no staging into the inert `remote_exec` stub any more. Externally identical:
+//         neither shape ever answered (R-RA-27 item 3);
+//       · a STATIC/GATEWAY build (accept-only) no longer receives `REMOTE_RESP` — the legacy USB `rcmd` issuer on
+//         those nodes stops seeing its replies until Slice 9 deletes that issuer. ⛔ Do NOT restore it with
+//         `|| MR_FEAT_REMOTE_MGMT`, a fallback owner or a firmware edit: the design's earlier sentence "under the
+//         legacy gate their bodies remain behaviour-identical" is SUPERSEDED for exactly this case. The bodies stay
+//         byte-identical WHERE AN OWNER EXISTS; ownership itself follows R-RA-8 strictly.
+//
+// ⓘ MARK DONE-VS-MISSING IN CODE (the pass-2 S3 obligations that this slice deliberately does NOT discharge):
+//     · MISSING/deferred by design — a mandatory `ui->has_source_hash`. The staging below does not require it and
+//       keys the reply on the 8-bit `pa.origin`. Correct for today's legacy `app_dm=false` senders (node_mac.cpp
+//       stamps them no SOURCE_HASH by construction); the v2 ACCEPT entry point owes the requirement (R-RA-13).
+//     · MISSING/deferred by design — 32-bit source identity. `_remote_inbound.from` is an 8-bit local id, which
+//       aliases across leaves; the v2 arm must key on `ui->source_hash` (Slices 5/7b).
+//     · MISSING/deferred by design — REFUSE, don't clamp. `if (n > inbox_max_body) n = inbox_max_body` is a silent
+//       clamp by shape (a no-op today: the legacy body can't exceed 241). A v2 body over the cap must be REFUSED
+//       (C2 fail-loud), not truncated. Not tightened here — that is a semantic change 1b is not authorized to make.
+//     · MISSING/deferred by design — ROLE-OWNED STORAGE. `_remote_inbound` is still ONE unconditional slot on every
+//       profile (node.h), so a client-only mobile still pays its ~246 B. R-RA-22's partitioned admission replaces
+//       it in Slice 5; R-RA-27 explicitly keeps the slot unconditional here (RAM delta must be zero in 1b).
+// ⛔ AND THE ORDER IS LOAD-BEARING: this seam stays where the legacy arm stood — BEFORE the SEALED_RELAY and
+//   CRYPTED open steps — because a v2 request is RPC-encrypted INSIDE a plaintext-framed DM (design §8). Moving it
+//   past the open steps, or moving the fail-closed guard ahead of a forwarding role, is out of scope by ruling.
+// =========================================================================================================
+
+// THE PURE DECISION. No state, no `this`, total over the 256 type values. See node.h for why the two capabilities
+// arrive as ARGUMENTS rather than as `#if`s read inside: it is the only way the `{1,1}` host binary can execute the
+// two disabled-role arms, and R-RA-27 forbids a runtime role gate or a test-only macro override as the alternative.
+Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool accept_on)
+{
+    if (type == DATA_TYPE_REMOTE_CMD)  return accept_on ? RadminRxOwner::command_accept  : RadminRxOwner::none;
+    if (type == DATA_TYPE_REMOTE_RESP) return client_on ? RadminRxOwner::response_client : RadminRxOwner::none;
+    return RadminRxOwner::none;   // every other type belongs to another handler — this decision never steals one
+}
+
+#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT
+// THE SHARED STAGING BODY — the legacy arm's statements, moved VERBATIM (U1/U2: one conversion path for the
+// carrier, never a field-by-field rebuild). `is_response` is now supplied by the OWNER instead of re-derived from
+// `pa.type`; the owner is selected by that same type, so the stored value is identical.
+void Node::remote_inbound_stage(const PostAck& pa, const data_unicast_inner* ui, bool is_response)
+{
+    if (_remote_inbound.active) {
+        MR_EMIT("remote_inbound_drop_full", EF_I("from", pa.origin));
+        return;
+    }
+    const uint8_t* src = ui ? ui->body.data() : ((pa.inner_len > 1) ? pa.inner + 1 : nullptr);   // inner = [origin][body…]; body is ui->body (cleartext)
+    uint8_t n = ui ? static_cast<uint8_t>(ui->body.size()) : ((pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0);
+    if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;
+    _remote_inbound.active      = true;
+    _remote_inbound.is_response = is_response;
+    _remote_inbound.from        = pa.origin;
+    _remote_inbound.len         = n;
+    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;
+}
+#endif
+
+#if MR_FEAT_RADMIN_ACCEPT
+// ACCEPT-OWNED. A command for us to execute: staged for the main loop, never inbox'd, never delivered as a message
+// and never consumed silently like an E2E ack — fw_main runs the whitelist on the main loop, never on the RX path.
+void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
+{
+    remote_inbound_stage(pa, ui, /*is_response=*/false);
+}
+#endif
+
+#if MR_FEAT_RADMIN_CLIENT
+// CLIENT-OWNED. A response to a command WE issued: staged for the main loop, which prints it. One in flight; a
+// second while one is pending drops with `remote_inbound_drop_full` (rcmd is human-paced).
+void Node::rx_remote_resp_client(const PostAck& pa, const data_unicast_inner* ui)
+{
+    remote_inbound_stage(pa, ui, /*is_response=*/true);
+}
+#endif
+
 void Node::do_post_ack() {
     if (!_active->_post_ack.pending) return;
     const PostAck pa = _active->_post_ack;
@@ -2217,24 +2301,34 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
-        if (pa.type == DATA_TYPE_REMOTE_CMD || pa.type == DATA_TYPE_REMOTE_RESP) {   // OTA remote diagnostics: STAGE for the main loop
-            // NOT inbox'd / delivered-as-message, NOT consumed-silently like an E2E ack — fw_main executes (cmd) or prints
-            // (resp) on the main loop, never the RX path. One in flight; a 2nd while pending drops (rcmd is human-paced).
-            if (_remote_inbound.active) {
-                MR_EMIT("remote_inbound_drop_full", EF_I("from", pa.origin));
-            } else {
-                const uint8_t* src = ui ? ui->body.data() : ((pa.inner_len > 1) ? pa.inner + 1 : nullptr);   // inner = [origin][body…]; body is ui->body (cleartext)
-                uint8_t n = ui ? static_cast<uint8_t>(ui->body.size()) : ((pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0);
-                if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;
-                _remote_inbound.active      = true;
-                _remote_inbound.is_response = (pa.type == DATA_TYPE_REMOTE_RESP);
-                _remote_inbound.from        = pa.origin;
-                _remote_inbound.len         = n;
-                for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;
-            }
+        // §remote-admin v2 SLICE 1b: OTA remote diagnostics, dispatched by the CAPABILITY that owns the type.
+        // ⛔ CORRECTED HERE 2026-09-06 (R-RA-27), old shape visible: this WAS one ungated arm
+        //   `if (pa.type == DATA_TYPE_REMOTE_CMD || pa.type == DATA_TYPE_REMOTE_RESP)` that staged BOTH types on
+        //   EVERY build. It is now two owned entry points; a type whose owner is compiled out takes NO arm here and
+        //   reaches the fail-closed internal guard below. Full rationale + the deferred obligations: the block
+        //   ahead of `do_post_ack`. The two `#if`s are what actually compile the consumer OUT of a product image;
+        //   the decision's own `none` is what makes the same split testable inside the `{1,1}` host binary.
+        const RadminRxOwner radmin_owner = radmin_rx_owner(pa.type, MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT);
+#if MR_FEAT_RADMIN_ACCEPT
+        if (radmin_owner == RadminRxOwner::command_accept) {
+            rx_remote_cmd_accept(pa, ui ? &*ui : nullptr);
             become_free();
             return;
         }
+#endif
+#if MR_FEAT_RADMIN_CLIENT
+        if (radmin_owner == RadminRxOwner::response_client) {
+            rx_remote_resp_client(pa, ui ? &*ui : nullptr);
+            become_free();
+            return;
+        }
+#endif
+        // ⛔ THERE IS DELIBERATELY NO `none` ARM (R-RA-27): an un-owned remote type consumes NOTHING here — no slot
+        //   write, no early return, no new drop branch and no telemetry — it simply continues down this chain to
+        //   the EXISTING fail-closed internal guard below. The cast is [[B169]] hygiene only: a configuration
+        //   compiling NEITHER arm would otherwise take a board-only `-Wunused-variable` that native cannot see,
+        //   and mr_features.h already `#error`s that configuration on a board.
+        (void)radmin_owner;
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm + RECORD a receipt, not deliver
             // The acked ctr from the parsed inner BODY — uniform across all ack shapes now (§GapB): whatever optional
             // fields precede it (DST_HASH / CROSS_LAYER path / SOURCE_HASH), parse_unicast_inner lands ui->body on the
@@ -2414,7 +2508,10 @@ void Node::do_post_ack() {
         //        one frame into many records — the bound is the radio, not a counter;
         //      · same-flight retries never arrive here at all: the per-frame dedup drops them (`dup_drop`, :1373);
         //      · `MR_EMIT` is DEVICE-STRIPPED (`MESHROUTE_NO_TELEMETRY`), so permanent Node state added to
-        //        regulate this would spend real RAM on all ten board envs policing something that is not there;
+        //        regulate this would spend real RAM on EVERY board env policing something that is not there;
+        //        ⛔ CORRECTED 2026-09-06 ([[B307]]), old claim visible: this said *"on all ten board envs"*. The
+        //        count was already stale — `platformio.ini` resolves to THIRTEEN board environments today (4
+        //        mobile + 4 gateway + 5 static). A count in prose rots; the argument does not depend on one;
         //      · complete occurrence reporting is what keeps the native/sim diagnostics and the event-level
         //        corpus instrument able to see this at all — a windowed emit hides occurrences (the same reason
         //        `_team_ch_nokey_push_next_ms`'s telemetry twin is deliberately un-limited, node.h);

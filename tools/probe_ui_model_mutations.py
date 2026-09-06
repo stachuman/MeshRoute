@@ -613,7 +613,29 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2610, 110269    # ★★ RE-SYNCED 2026-09-05 by **remote-admin v2 Slice 0h** (application-DM hash
+PIN_CASES, PIN_ASSERTS = 2615, 111354    # ★★ RE-SYNCED 2026-09-06 by **remote-admin v2 Slice 1b** (capability-owned
+                                         # pre-tail remote receive — R-RA-8/R-RA-19/R-RA-27). The slice changes ONE file
+                                         # this battery mutates, `lib/core/node_mac_rx.cpp` (b161rx/b251rx/b159rx/a0rx/
+                                         # sliceBrx/sliceGrx), plus its header `lib/core/node.h` (declarations only);
+                                         # the union was run in full and THIRTEEN new controls were added — 1b-01..1b-04
+                                         # under `a0rx` (the dispatch site inside the addressed if-chain) and 1b-05..1b-13
+                                         # under `sliceBrx` (the pure decision + the shared staging body it reaches).
+                                         # DERIVATION, measured with the real binary on this tree and not assumed:
+                                         #   base `0da4d56` (clean, before the slice)   2610 / 110269 / 0 failed
+                                         #   + five NEW §radmin-1b cases                    +5 /   +1085
+                                         #   + zero moved/strengthened existing cases       +0 /      +0
+                                         #   = measured AFTER                            2615 / 111354 / 0 failed  ✓
+                                         # The +1085 closes over the five new cases, each measured on its own `-tc=`
+                                         # filter (`program -tc='§radmin-1b/*'` = 5 / 1085 exactly):
+                                         #   §radmin-1b/1 the pure decision, 4 combos x 2 types + a 256-value
+                                         #                exhaustive sweep under all four combos (4x256 = 1024)  1044
+                                         #   §radmin-1b/2 production routing, REMOTE_CMD -> the ACCEPT owner         11
+                                         #   §radmin-1b/3 production routing, REMOTE_RESP -> the CLIENT owner        10
+                                         #   §radmin-1b/4 staging boundaries: empty body and a 200-byte body         10
+                                         #   §radmin-1b/5 one slot, both owners: the cross-owner drop-full           10
+                                         #   1044+11+10+10+10 = 1085 over 5 cases ✓
+                                         # ⓘ HISTORICAL, kept because the chain is the record — the previous pin and its
+                                         # derivation: **RE-SYNCED 2026-09-05 by remote-admin v2 Slice 0h** (application-DM hash
                                          # preservation — R-RA-25, registers [[B296]]/[[B297]]). ⚠ UNLIKE 0f, THIS SLICE
                                          # DOES CHANGE FILES THIS BATTERY MUTATES: `protocol_constants.h` (b159const),
                                          # `node_mac.cpp` (grantadmit/b161mac/b20mac/b159mac/sliceBmac),
@@ -7943,7 +7965,44 @@ MUTS_A0RX = [
   "amplification half of the unknown-type fall-through ([[A0-F3]]) stops being pinned",
   "        if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {",
   "        if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) && pa.type == 0) {"),
- ("A05 ★★★ THE E2E-ACK ARM STOPS CONSUMING — the receipt falls through to the generic deliver, so an ack becomes "
+ # =========================================================================================================
+ # §remote-admin v2 SLICE 1b (2026-09-06) — THE CAPABILITY-OWNED DISPATCH SITE inside this very if-chain.
+ # ⛔⛔ WHAT THESE FOUR DEFEND, and why they live HERE rather than in a new cross-file target: 1b replaced the ONE
+ #     ungated `REMOTE_CMD || REMOTE_RESP` arm of this chain with two OWNED arms selected by a pure decision. The
+ #     arms are ordinary members of the addressed if-chain this battery already owns; the DECISION itself and the
+ #     staging body it reaches are `sliceBrx`'s (they decide what falls through to the fail-closed guard).
+ # ⛔ NOT ATTACKED HERE, DELIBERATELY: swapping the two MACRO ARGUMENTS at the call site
+ #   (`radmin_rx_owner(pa.type, MR_FEAT_RADMIN_ACCEPT, MR_FEAT_RADMIN_CLIENT)`) is INVISIBLE in this binary — native
+ #   is `{CLIENT 1, ACCEPT 1}` (R-RA-17), so both values are 1 and the swap cannot change a single assertion. A
+ #   control that cannot fail is not a control ⇒ that defect is owned by the feature-ownership gate
+ #   (`tools/probe_features/ownership.py`, control W-SWAP), which reads the SOURCE and does not need a role to differ.
+ ("1b-01 ★★★ THE ACCEPT-OWNED CALL IS DELETED FROM THE DISPATCH — a REMOTE_CMD is still CONSUMED (become_free + "
+  "return) but nothing stages it, so the command is swallowed in silence: no slot, no main-loop execution, and no "
+  "fail-closed drop either",
+  "        if (radmin_owner == RadminRxOwner::command_accept) {\n"
+  "            rx_remote_cmd_accept(pa, ui ? &*ui : nullptr);\n",
+  "        if (radmin_owner == RadminRxOwner::command_accept) {\n"),
+ ("1b-02 ★★★ THE CLIENT-OWNED CALL IS DELETED FROM THE DISPATCH — a REMOTE_RESP is consumed and never staged, so "
+  "the issuer's reply disappears with no drop, no print and no evidence",
+  "        if (radmin_owner == RadminRxOwner::response_client) {\n"
+  "            rx_remote_resp_client(pa, ui ? &*ui : nullptr);\n",
+  "        if (radmin_owner == RadminRxOwner::response_client) {\n"),
+ # ⓘ 1b-03 attacks the CONSUMING EXIT, not the staging: the frame is staged AND then walks on down the chain, so it
+ #   ALSO meets the fail-closed internal guard and earns an `unsupported_internal` for a type that was handled. That
+ #   is the "a success that isn't" shape one layer along, and only an assertion about the GUARD can see it.
+ ("1b-03 ★★★ THE ACCEPT ARM STOPS CONSUMING — a staged REMOTE_CMD falls through to the fail-closed internal guard "
+  "as well, so a HANDLED type reports itself unsupported (and any later arm gets a second opinion on it)",
+  "            rx_remote_cmd_accept(pa, ui ? &*ui : nullptr);\n"
+  "            become_free();\n"
+  "            return;\n",
+  "            rx_remote_cmd_accept(pa, ui ? &*ui : nullptr);\n"),
+ ("1b-04 ★★★ THE TWO OWNED CALLS ARE SWAPPED AT THE DISPATCH — a REMOTE_CMD is handed to the CLIENT entry point, "
+  "so an incoming command stages as `is_response=true` and fw_main would PRINT it instead of executing it",
+  "        if (radmin_owner == RadminRxOwner::command_accept) {\n"
+  "            rx_remote_cmd_accept(pa, ui ? &*ui : nullptr);\n",
+  "        if (radmin_owner == RadminRxOwner::command_accept) {\n"
+  "            rx_remote_resp_client(pa, ui ? &*ui : nullptr);\n"),
+  ("A05 ★★★ THE E2E-ACK ARM STOPS CONSUMING — the receipt falls through to the generic deliver, so an ack becomes "
   "an ordinary inbox message and the \"consumed types are not delivered\" control stops being pinned",
   "            MR_EMIT(\"e2e_ack_rx\", EF_I(\"from\", pa.origin), EF_I(\"ctr\", acked));  // KEEP for the sim analyzer (free on metal)\n"
   "            become_free();\n"
@@ -8140,6 +8199,65 @@ MUTS_SLICEBRX = [
   "and acked end-to-end and the app is never told",
   "            Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu);",
   "            if (data_type_traits(pa.type).generic_send_lifecycle) { Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu); }"),
+
+ # =========================================================================================================
+ # §remote-admin v2 SLICE 1b (2026-09-06) — THE PURE OWNERSHIP DECISION and the ONE staging body it reaches.
+ # ⛔⛔ WHY THIS BATTERY: the decision is exactly what decides which remote types DO NOT take an arm and therefore
+ #     reach the fail-closed guard B04..B08 above defend. A wrong decision does not break the guard; it changes
+ #     what arrives at it — the same seam, one step earlier.
+ # ★ Every entry below is judged by the §radmin-1b/1..5 native cases (test/test_node_r3.cpp), which drive a REAL
+ #   RTS -> DATA -> post-ACK exchange for the production arms and call the production decision directly for the
+ #   four synthetic capability combinations.
+ ("1b-05 ★★★ THE `accept_on` TERM IS DROPPED — REMOTE_CMD becomes owned on EVERY configuration, so a client-only "
+  "mobile would stage and execute remote commands again (R-RA-27 item 3 inverted)",
+  "    if (type == DATA_TYPE_REMOTE_CMD)  return accept_on ? RadminRxOwner::command_accept  : RadminRxOwner::none;",
+  "    if (type == DATA_TYPE_REMOTE_CMD)  return RadminRxOwner::command_accept;"),
+ ("1b-06 ★★★ THE `client_on` TERM IS DROPPED — REMOTE_RESP becomes owned on EVERY configuration, which is the "
+  "`|| MR_FEAT_REMOTE_MGMT` legacy widening R-RA-27 item 1 forbids, reached by another route",
+  "    if (type == DATA_TYPE_REMOTE_RESP) return client_on ? RadminRxOwner::response_client : RadminRxOwner::none;",
+  "    if (type == DATA_TYPE_REMOTE_RESP) return RadminRxOwner::response_client;"),
+ # ⛔ 1b-07 IS THE ONE WIRING DEFECT THAT **IS** VISIBLE IN A BOTH-ON BINARY, and that is the whole reason the two
+ #   capabilities are PARAMETERS: swapped INSIDE the decision they change its answers for `{0,1}` and `{1,0}`, which
+ #   the synthetic matrix executes. (Swapped at the CALL SITE they are invisible here — see `a0rx`'s note.)
+ ("1b-07 ★★★ THE TWO CAPABILITIES ARE SWAPPED INSIDE THE DECISION — accept starts owning the RESPONSE and client "
+  "the COMMAND, i.e. exactly the R-RA-8 inversion (a managed node answering itself, a managing node executing)",
+  "    if (type == DATA_TYPE_REMOTE_CMD)  return accept_on ? RadminRxOwner::command_accept  : RadminRxOwner::none;\n"
+  "    if (type == DATA_TYPE_REMOTE_RESP) return client_on ? RadminRxOwner::response_client : RadminRxOwner::none;",
+  "    if (type == DATA_TYPE_REMOTE_CMD)  return client_on ? RadminRxOwner::command_accept  : RadminRxOwner::none;\n"
+  "    if (type == DATA_TYPE_REMOTE_RESP) return accept_on ? RadminRxOwner::response_client : RadminRxOwner::none;"),
+ ("1b-08 ★★★ THE DECISION STEALS EVERY OTHER TYPE — its `none` tail answers `command_accept`, so E2E acks, hash "
+  "answers, custody notices and ordinary DMs are all routed into the remote staging slot",
+  "    return RadminRxOwner::none;   // every other type belongs to another handler — this decision never steals one",
+  "    return RadminRxOwner::command_accept;   // every other type belongs to another handler — this decision never steals one"),
+ # ---- the SHARED STAGING BODY: 1b moved these statements, so each one needs its own falsifier on the new seam ----
+ ("1b-09 ★★★ THE RESPONSE MARKER IS HARD-WIRED FALSE IN THE SHARED STAGING BODY — the ONE field that distinguishes "
+  "the two owners is lost, so fw_main would try to EXECUTE every reply it receives",
+  "    _remote_inbound.is_response = is_response;",
+  "    _remote_inbound.is_response = false;"),
+ ("1b-10 ★★★ THE DROP-FULL GUARD IS DELETED FROM THE SHARED STAGING BODY — a second remote frame OVERWRITES the "
+  "pending one instead of being dropped, so the slot silently loses the first command and emits nothing",
+  "    if (_remote_inbound.active) {\n"
+  "        MR_EMIT(\"remote_inbound_drop_full\", EF_I(\"from\", pa.origin));\n"
+  "        return;\n"
+  "    }\n",
+  ""),
+ ("1b-11 ★★★ THE STAGING LENGTH CLAMP IS TIGHTENED — a long remote body is silently TRUNCATED, which is the "
+  "clamp-instead-of-refuse shape the seam comment marks as deferred (it must stay a no-op until Slice 5/7b)",
+  "    if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;",
+  "    if (n > 8) n = 8;"),
+ ("1b-12 ★★★ THE STAGED ORIGIN BECOMES `pa.dst` — the reply address is our OWN id, so a remote answer would be "
+  "addressed back to this node instead of to the peer that asked",
+  "    _remote_inbound.from        = pa.origin;",
+  "    _remote_inbound.from        = pa.dst;"),
+ ("1b-13 ★★★ THE BODY COPY STOPS COPYING — the length and the flags are staged and the BYTES are not, so every "
+  "remote command/response arrives the right size and completely wrong (a length-shaped assertion cannot see it)",
+  # ⛔ THE REPLACEMENT BYTE IS PRINTABLE ASCII ON PURPOSE, and that is a MEASURED constraint rather than taste:
+  #   the first form of this entry wrote 0xFF, the staged body reached a doctest failure message as a raw byte, and
+  #   THIS RUNNER'S OWN `subprocess(..., text=True)` died on it — `UnicodeDecodeError: 'utf-8' codec can't decode
+  #   byte 0xff` — so the worker never reported and the entry came back MISSING instead of RED. A control whose
+  #   mutant cannot be REPORTED measures nothing. (The runner robustness half is registered separately.)
+  "    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;",
+  "    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? static_cast<uint8_t>(0x3F) : 0;"),
 
  ("R04 ★★★ THE HELPER CALL IN `handle_nack`'s FULL-QUEUE GIVE-UP IS DELETED — a grant NACKed with no requeue room "
   "dies unreported. ⛔ A DIFFERENT SITE FROM `giveup_flight`, which is why it needs its own arm ([[B268]] blocker-1)",

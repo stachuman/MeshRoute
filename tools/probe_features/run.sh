@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #
-# §remote-admin v2 SLICE 1 — THE FEATURE-MATRIX GATE for the REAL `lib/core/mr_features.h`.
+# §remote-admin v2 SLICE 1/1b — THE FEATURE-MATRIX GATE for the REAL `lib/core/mr_features.h`, plus the
+# FIRST-CONSUMER OWNERSHIP CONTRACT for the pair it derives.
 #
-# WHY THIS EXISTS. Slice 1 adds `MR_FEAT_RADMIN_CLIENT` / `MR_FEAT_RADMIN_ACCEPT` and, deliberately, NO consumer.
-# Nothing else in the tree can see them: `pio test -e native` compiles ONE configuration and the simulator two, and
-# all three are HOST builds — none is a board, and a BOARD is where the whole R-RA-17 exclusivity rule lives. The
-# thirteen board environments are compiled by the board gate, but that gate reads RAM and flash, not flag VALUES,
-# and an unused macro moves neither. So this runner is the only instrument that measures what slice 1 actually did.
+# WHY THIS EXISTS. Slice 1 added `MR_FEAT_RADMIN_CLIENT` / `MR_FEAT_RADMIN_ACCEPT`. Nothing else in the tree can see
+# their VALUES: `pio test -e native` compiles ONE configuration and the simulator two, and all three are HOST builds
+# — none is a board, and a BOARD is where the whole R-RA-17 exclusivity rule lives. The thirteen board environments
+# are compiled by the board gate, but that gate reads RAM and flash, not flag VALUES. So this runner is the only
+# instrument that measures what the derivation actually does.
+# ⚠ CORRECTED 2026-09-06 (SLICE 1b), old claim visible: this header said slice 1 added the pair *"and, deliberately,
+#   NO consumer"* and that *"an unused macro moves neither"* RAM nor flash. Both are WITHDRAWN — 1b is the FIRST
+#   CONSUMER (`lib/core/node_mac_rx.cpp` compiles the two capability-owned remote receive entry points and their one
+#   call site under these macros), so the flags now DO move board flash, and the zero-consumer census S3 used to
+#   assert has become the ownership CONTRACT below. The census was not deleted; it was aimed one slice further on.
 #
 # ★★ IT MUST REMAIN IN THE REPOSITORY AND BE COMMITTED WITH THIS SLICE, for the reason its sibling probes state at
 #    this spot: this project has already LOST a proven 33-assert scenario to a session scratchpad
@@ -21,7 +27,12 @@
 #     CMakeLists), so a configuration nobody builds cannot masquerade as coverage and a new env cannot hide.
 #   • The three BOARD-ONLY production refusals, each attacked with its own invalid fixture and each DELETED in
 #     isolation to prove it is the thing doing the refusing.
-# NOT MEASURED HERE: any runtime remote-admin behaviour. There is none in slice 1 — the pair has no consumer.
+#   • The SLICE-1b OWNERSHIP CONTRACT (`ownership.py`): which files name the pair, which sites inside them, which
+#     capability guards each owned symbol, that the real router calls the pure decision with the two macros in the
+#     declared order, and that nothing is legacy-widened with `MR_FEAT_REMOTE_MGMT` — each with its own control.
+# ⛔ NOT MEASURED HERE: any runtime remote-admin BEHAVIOUR. This runner reads configuration and source; the RX drive
+#   is `test/test_node_r3.cpp` §radmin-1b/1..5 and the compile-out is the per-board preprocessing evidence.
+#   ⚠ CORRECTED 2026-09-06, old claim visible: this line read *"There is none in slice 1 — the pair has no consumer."*
 #
 # ⛔⛔ THE SLICE-1 CLASSIFICATION EXCEPTION, DECLARED BEFORE ANY CONTROL RUNS (see the table this script prints).
 #     For the four PRODUCTION-REFUSAL controls a COMPILE FAILURE IS THE EXPECTED RED — the exact opposite of every
@@ -50,6 +61,7 @@ trap 'rm -rf "$OUT"' EXIT
 
 HDR="$ROOT/lib/core/mr_features.h"     # THE FILE UNDER TEST — every control mutates a COPY of it
 MUTATE="$HERE/mutate.py"
+OWNERSHIP="$HERE/ownership.py"       # §slice 1b: the first-consumer ownership contract (its own checks + controls)
 STD=(-std=gnu++2a -O0)
 WARN=(-Wall -Wextra -Werror)
 
@@ -60,23 +72,29 @@ WARN=(-Wall -Wextra -Werror)
 #
 # PIN_CELLS = 9, derived from the ruled matrix: 3 board ROLES x 2 OLED values (both values are LIVE in the current
 #     env matrix — `envmap.py` E7 derives that) + native + lus-normal + lus-gateway.
-# PIN_CHECKS = 97, derived by running the clean matrix and counting its `  ok  `/`  FAIL ` lines:
-#     S1..S3   the runner's structural pins (3 extracted diagnostics · no -D override surface · one production
-#              location naming the pair)                                                                     3
+# PIN_CHECKS = 114, derived by running the clean matrix and counting its `  ok  `/`  FAIL ` lines:
+#     S1..S2   the runner's structural pins (3 extracted diagnostics · no -D override surface)                 2
 #     E1..E13  `envmap.py`'s derived environment census                                                      13
 #     9 cells x (1 source-integrity pin + 8 asserted MR_FEAT_* values)                                       81
-#     3 + 13 + 81 = 97. ✓
-# PIN_CONTROLS = 19: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
-#     X1..X4 the controls-of-the-controls.
+#     O1..O13  `ownership.py`'s first-consumer contract (O4 and O6 split per file/owner: O4a-c, O6a-c)       18
+#     2 + 13 + 81 + 18 = 114. ✓
+#   ⚠ CORRECTED 2026-09-06 (SLICE 1b), old derivation visible: this read *"PIN_CHECKS = 97 … S1..S3 … 3 + 13 + 81"*.
+#     S3 (*"exactly ONE production location names the pair"*) is RETIRED BY REPLACEMENT, not by deletion: 1b is the
+#     first consumer, so the zero-consumer census became `ownership.py`'s exact site census. 3 - 1 + 18 = +17.
+# PIN_CONTROLS = 38: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
+#     X1..X4 the controls-of-the-controls · W-* the 13 ownership violations · Y0..Y5 the ownership
+#     controls-of-controls (a green baseline, a benign edit, multi-match, vacuous, unreadable, tree integrity).
+#     4 + 6 + 5 + 4 + 13 + 6 = 38. ✓  (was 19 before slice 1b, i.e. the 19 prior controls are all preserved.)
 PIN_CELLS=9
-PIN_CHECKS=97
-PIN_CONTROLS=19
+PIN_CHECKS=114
+PIN_CONTROLS=38
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED
 #    on a tree nothing had touched).
 md5_sources() {
-  cat "$HDR" "$HERE/probe_main.cpp" "$HERE/envmap.py" "$MUTATE" "$ROOT/platformio.ini" | md5sum | cut -d' ' -f1
+  cat "$HDR" "$HERE/probe_main.cpp" "$HERE/envmap.py" "$MUTATE" "$OWNERSHIP" "$ROOT/platformio.ini" \
+    | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -128,6 +146,16 @@ cat <<'CLASS'
       a broken toolchain, an unrelated syntax error and an unrelated #error must each classify as NOT-a-refusal,
       and the classifier's own truth table must discriminate. Plus the three pins above, which the wrapper
       sabotages (MR_PROBE_DROP) to prove that dropping a cell / a check / a control cannot preserve PASS.
+  class W — SLICE-1b OWNERSHIP VIOLATION (W-*)          [ownership.py --controls; NOTHING is compiled]
+      measured RED = ONE exact-match edit on an ISOLATED COPY of the sources makes the ownership checker REJECT
+                     that copy, AND the NAMED check(s) are the ones that reject it (reported by id).
+      NEVER a RED  = a nonzero exit alone, a rejection by some other check only, a find text that matches zero or
+                     more than one time (that is an INSTRUMENT ERROR, ctl-BAD), or an unreadable source.
+  class Y — THE CONTROLS OF THE OWNERSHIP CONTROLS (Y0..Y5)
+      Y0 the untouched copy must pass every check first (else no rejection below means anything) · Y1 a benign
+      comment edit must NOT be rejected · Y2 a multi-match and Y3 a vacuous find must be refused as instrument
+      errors · Y4 an unreadable source must raise a GATE ERROR, never a pass · Y5 the shared checkout must be
+      byte-identical before and after.
 CLASS
 echo
 
@@ -204,12 +232,17 @@ else
   say_ok "S2 the pair is DERIVED with no #ifndef override surface (an invalid pair cannot be dialled in by -D)"
 fi
 
-owners=$(grep -rl 'MR_FEAT_RADMIN' "$ROOT/lib" "$ROOT/src" "$ROOT/test" 2>/dev/null | sort)
-if [ "$owners" = "$HDR" ]; then
-  say_ok "S3 exactly ONE production location names the pair: ${owners#$ROOT/}"
-else
-  say_fail "S3 the pair is named outside lib/core/mr_features.h — no consumer is allowed in slice 1: $(echo "$owners" | tr '\n' ' ')"
-fi
+# ---- O1..O13: the SLICE-1b FIRST-CONSUMER OWNERSHIP CONTRACT (replaces slice 1's S3 zero-consumer pin) --------
+# ⛔ S3 IS RETIRED BY REPLACEMENT, and its own wrapper said this is how it must go: *"WHEN THE FIRST CONSUMER LANDS
+#    (a later slice), `test_the_pair_has_no_consumer` is the assertion that must be DELIBERATELY updated — that is
+#    its job, not an obstacle to route around."* It read: `owners=$(grep -rl 'MR_FEAT_RADMIN' lib src test)` and
+#    required `owners == $HDR`. `ownership.py` asserts the strictly stronger successor: the exact FILE census, the
+#    exact SITE census inside each allowed file, the per-owner capability guard, the real router's call and argument
+#    ORDER, no legacy widening, no `none` arm and no test-as-owner.
+echo
+echo "== the slice-1b first-consumer ownership contract (the REAL lib/core sources) =="
+python3 "$OWNERSHIP" --root "$ROOT" 2>&1 | tee "$OUT/own.out"
+own_rc=${PIPESTATUS[0]}
 
 # ---- E1..E13: the derived environment census -------------------------------------------------------------------
 echo
@@ -238,8 +271,10 @@ for cell in "${CELLS[@]}"; do
   "$OUT/probe_$cell" "$HDR" 2>&1 | tee -a "$OUT/matrix.out"
   [ "${PIPESTATUS[0]}" -eq 0 ] || matrix_rc=1
 done
-n_checks=$(( $(grep -cE '^  (ok|FAIL) ' "$OUT/matrix.out") + $(grep -cE '^  (ok|FAIL) ' "$OUT/envmap.out") + n_checks_extra ))
-n_fail=$(( $(grep -c '^  FAIL ' "$OUT/matrix.out") + $(grep -c '^  FAIL ' "$OUT/envmap.out") + n_fail_extra ))
+n_checks=$(( $(grep -cE '^  (ok|FAIL) ' "$OUT/matrix.out") + $(grep -cE '^  (ok|FAIL) ' "$OUT/envmap.out") \
+             + $(grep -cE '^  (ok|FAIL) ' "$OUT/own.out") + n_checks_extra ))
+n_fail=$(( $(grep -c '^  FAIL ' "$OUT/matrix.out") + $(grep -c '^  FAIL ' "$OUT/envmap.out") \
+           + $(grep -c '^  FAIL ' "$OUT/own.out") + n_fail_extra ))
 
 # ================================================================================================================
 # CONTROLS
@@ -479,6 +514,19 @@ if [ "${1:-}" != "--no-neg" ]; then
       n_bad=$((n_bad+1)); echo "  FAIL X4 the control classifier does not hold"
     fi
   fi
+
+  # ---- class W/Y — the SLICE-1b ownership controls (their own isolated copies; the checkout is never touched) ----
+  # ⛔ THE CLASSIFICATION FOR THESE IS NOT CLASS A's: an ownership control is measured RED only when the checker
+  #    REJECTS the edited copy AND the NAMED check does the rejecting. A nonzero exit is not enough, a rejection by
+  #    some other check is not enough, and an edit whose find text does not match EXACTLY ONCE is an INSTRUMENT
+  #    ERROR (`ctl-BAD`), never a control. Y0..Y5 are the controls of those controls.
+  echo
+  echo "== class W/Y — the first-consumer ownership contract's violations and their controls =="
+  python3 "$OWNERSHIP" --root "$ROOT" --controls 2>&1 | tee "$OUT/ownctl.out"
+  ownctl_rc=${PIPESTATUS[0]}
+  n_ctl=$(( n_ctl + $(grep -c '^  ctl-ok ' "$OUT/ownctl.out") ))
+  n_bad=$(( n_bad + $(grep -c '^  ctl-BAD ' "$OUT/ownctl.out") ))
+  [ "$ownctl_rc" -eq 0 ] || { echo "  !! the ownership control runner exited $ownctl_rc"; n_bad=$((n_bad+1)); }
 fi
 
 MD5_AFTER=$(md5_sources)
@@ -496,6 +544,7 @@ fi
 echo "matrix: $n_cells configuration cells (pin $PIN_CELLS), $n_checks checks against the REAL mr_features.h, $n_fail failed (pin $PIN_CHECKS)"
 [ "$matrix_rc" -eq 0 ]            || { echo "  !! a configuration cell failed to build or ran RED"; rc=1; }
 [ "$envmap_rc" -eq 0 ]            || { echo "  !! the environment-map derivation FAILED (exit $envmap_rc)"; rc=1; }
+[ "$own_rc" -eq 0 ]               || { echo "  !! the ownership contract FAILED or could not be evaluated (exit $own_rc)"; rc=1; }
 [ "$n_fail" -eq 0 ]               || { echo "  !! $n_fail check(s) failed"; rc=1; }
 [ "$n_cells" -eq "$PIN_CELLS" ]   || {
   echo "  !! CELL COUNT MOVED: $n_cells, pinned $PIN_CELLS — a configuration was added or dropped."

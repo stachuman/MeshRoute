@@ -162,6 +162,25 @@ public:
     uint16_t send_remote_response(uint8_t dst, const uint8_t* body, uint8_t len);   // -> a DATA_TYPE_REMOTE_RESP DM
     bool     take_remote_inbound(RemoteInbound& out);                              // drain the single inbound slot (fw_main, each loop)
 
+    // ★★★ §remote-admin v2 SLICE 1b (2026-09-06, R-RA-27 item 2) — **WHICH CAPABILITY OWNS AN INCOMING REMOTE-ADMIN
+    //   DATA TYPE.** PURE, state-free and TOTAL: it reads a DataType byte plus the two capability VALUES and answers
+    //   with an owner. Production calls it exactly once — in `do_post_ack` (node_mac_rx.cpp) — with the real
+    //   `MR_FEAT_RADMIN_CLIENT` / `MR_FEAT_RADMIN_ACCEPT` macros in THIS argument order; the native tests call the
+    //   SAME production function with all four `{client, accept}` combinations, which is the only way one host
+    //   binary (compiled `{1,1}` by R-RA-17) can exercise the two DISABLED-role arms at all.
+    // ⛔ THE ARGUMENTS ARE CAPABILITY VALUES, NOT A RUNTIME ROLE SWITCH: calling this with `{0,1}` does not make a
+    //   Node accept-only. There is deliberately NO runtime role state and NO test-only macro override (R-RA-27).
+    // ⛔ IT MUST NOT STEAL ANOTHER HANDLER'S TYPE: every DataType other than the two remote ones answers `none`.
+    //   `none` CONSUMES NOTHING — no slot write, no early return, no new drop branch and no telemetry of its own;
+    //   the receive chain simply continues and the frame reaches the EXISTING fail-closed internal guard, which
+    //   drops it with the one ruled scalar `unsupported_internal` (both remote types are `traits.internal`).
+    enum class RadminRxOwner : uint8_t {
+        none            = 0,   // unowned in this configuration -> falls through to the fail-closed internal guard
+        command_accept  = 1,   // DATA_TYPE_REMOTE_CMD,  owned by MR_FEAT_RADMIN_ACCEPT (static + gateway products)
+        response_client = 2,   // DATA_TYPE_REMOTE_RESP, owned by MR_FEAT_RADMIN_CLIENT (mobile products)
+    };
+    static RadminRxOwner radmin_rx_owner(uint8_t type, bool client_on, bool accept_on);
+
     // Exposed for the R3.x determinism golden test. The retry-jitter RANGE is a
     // cross-engine alignment contract: 3*airtime_routing(RTS_LEN=8) must equal
     // the Lua's, or the lua-vs-meshroute forced-retry streams de-align (see the
@@ -1690,6 +1709,26 @@ private:
     //   FALSE (0x81 is supported). Either way the frame never reaches `record_dm`, `msg_recv` or an E2E ack.
     // `ui` is `nullptr` iff the standard unicast parse failed (§13.2); the caller owns `become_free()`.
     void    custody_failure_receive(const PostAck& pa, const data_unicast_inner* ui);
+    // ★★★★ §remote-admin v2 SLICE 1b (2026-09-06) — **THE TWO CAPABILITY-OWNED PRE-TAIL REMOTE ENTRY POINTS.**
+    //   R-RA-8/R-RA-27 item 1, STRICTLY: `REMOTE_CMD` is owned by ACCEPT and `REMOTE_RESP` by CLIENT, and
+    //   ⛔ `MR_FEAT_REMOTE_MGMT` WIDENS NEITHER. Each declaration, definition AND consuming call site is compiled
+    //   only under its own capability, so a static/gateway image carries no response consumer and a mobile image
+    //   carries no command consumer; the un-owned type takes no arm and reaches the fail-closed internal guard.
+    // ⓘ MARK DONE-VS-MISSING: the BODIES are today's legacy staging, byte-for-byte. Slices 5/7b (accept side) and
+    //   8b (client side) fill them; Slice 9 deletes the legacy halves WITHOUT deleting this ownership boundary.
+    // `ui` is `nullptr` iff the standard unicast parse failed; the CALLER owns `become_free()` (custody's convention).
+#if MR_FEAT_RADMIN_ACCEPT
+    void    rx_remote_cmd_accept (const PostAck& pa, const data_unicast_inner* ui);   // accept-owned: a REMOTE_CMD for us
+#endif
+#if MR_FEAT_RADMIN_CLIENT
+    void    rx_remote_resp_client(const PostAck& pa, const data_unicast_inner* ui);   // client-owned: a REMOTE_RESP to our cmd
+#endif
+#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT
+    // ⛔ NOT AN OWNER GATE — the ONE staging body both owners share (U1/U2: never rebuild the carrier field-by-field).
+    //   Its guard is "at least one owner exists", which on every legal build is unconditionally true (mr_features.h
+    //   `#error`s a board with neither); it is spelled out rather than omitted so the file states what compiles it.
+    void    remote_inbound_stage (const PostAck& pa, const data_unicast_inner* ui, bool is_response);
+#endif
     void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
     bool    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
                                 uint8_t type, const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]);   // fresh ORIGINATOR-budget leg; type/nonce_seed threaded (S1: a typed/CRYPTED redirect keeps them); false = dropped (queue full)

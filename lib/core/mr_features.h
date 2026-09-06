@@ -50,7 +50,12 @@
 //   MR_GATEWAY_BUILD are shared with the SIMULATOR's gateway core variant, which has no ARDUINO and must keep BOTH
 //   endpoints. ⛔ There is deliberately NO MR_PROFILE_STATIC and no -D override surface: an invalid pair is a build
 //   failure below, not something an env can dial in.
-// ⓘ SCAFFOLD ONLY (slice 1): this header is the sole production location that names the pair. No consumer exists yet.
+// ⓘ CORRECTED 2026-09-06 (remote-admin v2 slice 1b), old claim visible: this line read *"SCAFFOLD ONLY (slice 1):
+//   this header is the sole production location that names the pair. No consumer exists yet."* — WITHDRAWN. Slice 1b
+//   is the FIRST CONSUMER: `lib/core/node_mac_rx.cpp` compiles the two capability-owned remote receive entry
+//   points and their one call site under these macros, and `lib/core/node.h` guards their declarations. The
+//   derivation, the values and the three board-only refusals below are UNCHANGED — only the no-consumer claim is.
+//   ⓘ The exact consumer census is enforced by tools/probe_features/ownership.py, not by this comment.
 #if defined(MR_PROFILE_MOBILE)
 #  define MR_FEAT_RADMIN_CLIENT 1
 #  define MR_FEAT_RADMIN_ACCEPT 0

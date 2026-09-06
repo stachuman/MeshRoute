@@ -209,6 +209,12 @@ Detailed value ranges and refusal messages will be added during the configuratio
 | `unlock <passphrase>` | Local; Remote-management builds | Session + Secret | Derives the operator admin identity into RAM for sealed remote commands. |
 | `lock` | Local; Remote-management builds | Session + Secret | Wipes the unlocked operator identity from RAM. |
 
+**Slice 1b limitation (R-RA-27; software QA-passed 2026-09-06):** static/gateway builds accept remote commands
+but no longer stage remote responses. Their legacy `rcmd` issuer still sends commands, but cannot print replies
+or receive counter-resynchronization hints. Mobiles ignore incoming remote commands at the existing fail-closed
+guard. These strict receive roles are intentional on undeployed test hardware, with no legacy-switch widening;
+the old static/gateway round-trip bench step is suspended until Slice 9 replaces the legacy path.
+
 The target-side remote allow-list is narrower than the local dispatcher:
 
 | Remote form inside `rcmd` | Authentication | Target effect |
@@ -223,10 +229,11 @@ The target-side remote allow-list is narrower than the local dispatcher:
 
 Other text can be accepted by the issuing `rcmd` parser but is not executed by the target allow-list.
 
-The current sealed remote-management path still uses the old monotonic replay-counter protocol. If a target rejects
-a command as stale, the issuer reports that the command was not run, resynchronizes from the returned floor, and asks
-the operator to issue it again. The proposed loss-independent open/operator/owner administration protocol is not yet
-implemented; do not assume its ACL or key-management behavior is available.
+The current sealed remote-management path still uses the old monotonic replay-counter protocol. Historically,
+a returned stale-counter hint let the issuer report that the command was not run, resynchronize from the returned
+floor, and ask the operator to issue it again. Static/gateway issuers can no longer receive that hint after 1b;
+do not assume retry resynchronization or a printed result. The proposed loss-independent open/operator/owner
+administration protocol is not yet implemented; do not assume its ACL or key-management behavior is available.
 
 ## Bench and fault-injection controls
 

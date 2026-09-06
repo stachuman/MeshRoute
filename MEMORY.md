@@ -25,15 +25,25 @@
   Slice 9. Slice 1 is software-complete / QA-passed 2026-09-06, committed at `5d2c00e`: a consumer-free header
   scaffold with no static profile or `platformio.ini` change, measured zero RAM/flash/section/object/symbol
   movement on the ruled pair and 36/36 stream identity after a forced simulator rebuild.
-  R-RA-27 (owner-ruled 2026-09-06; implementation belongs to next Slice 1b): strict ACCEPT-for-CMD and
+  R-RA-27 (owner-ruled 2026-09-06; Slice 1b software-complete / QA-passed, owner closure commit pending): strict ACCEPT-for-CMD and
   CLIENT-for-RESP receive ownership; the legacy switch widens neither. MeshRoute is undeployed, so a
   static/gateway legacy issuer losing replies is accepted; its old `rcmd` round-trip bench step is suspended
   from 1b until Slice 9's replacement. Mobiles ignore unowned commands at the existing fail-closed guard.
   Native tests a production-shared pure routing decision with explicit capability values; production passes
   real macros, never runtime role state or test-only overrides. RAM stays unchanged until the later storage
-  slice; 1b's board flash movement is measured/attributed and its host corpus is predicted unchanged. No new
-  metal for 1 or 1b. Rulings live in
+  slice; 1b measured RAM ±0 on both boards, fully attributed flash gateway +16 / heltec_mobile −8, and 36/36
+  byte-identical streams after a forced simulator rebuild. Native 2615/111354/0; mutation union 99/99 RED.
+  Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. No new metal for 1 or 1b.
+  R-RA-28 (owner-ruled 2026-09-06): always reserve four DST_HASH bytes in the RPC capacity authority, even
+  when the legal carrier omits that field; no reclaimed body space. Derive from storage/air-fit minus named
+  reserved fields and carrier extras; test admission refusal separately from raw-packer capacity. Attaching
+  the known hash on a home's local last-mile sends is only under consideration (B310), not an authorized
+  change to R-RA-25's narrow lookup rule and not part of 1b or consumer-free Slice 2. Rulings live in
   `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`.
+  Slice 2 preparation accepted by QA 2026-09-06: §8.9's terminal allocation is append-only; decoded results
+  retain a typed opcode domain (`0x00` terminal completed ≠ authenticated protocol-error already_acknowledged),
+  with independent domain/invalid-code KATs. The separate simulator source-list addition must compile the codec
+  into both variants and record both repositories' bases/diffs. The brief and pins wait for 1b's closure commit.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

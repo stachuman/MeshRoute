@@ -749,7 +749,26 @@ transcript replay.
 ### 8.9 Terminal frame
 
 The terminal frame is the next contiguous `response_seq` after the last output frame. Its authenticated
-ciphertext or open plaintext starts with one compact result code. Proposed meanings are:
+ciphertext or open plaintext starts with one unsigned one-byte result code.
+
+**Author allocation accepted by QA 2026-09-06, with the typed-domain obligation below; not yet implemented:**
+the listed meanings below receive values in their existing order. Slice 2 pins this accepted allocation with
+independent wire vectors; it is append-only, with no renumbering or reuse of retired values. This assigns bytes to
+the existing meanings, not new command authority or execution behaviour.
+
+| `TERMINAL` result byte | Name |
+| --- | --- |
+| `0x00` | `completed` |
+| `0x01` | `scheduled` |
+| `0x02` | `unknown_command` |
+| `0x03` | `refused` |
+| `0x04` | `output_truncated` |
+| `0x05` | `internal_error` |
+| `0x06` | `session_full` |
+| `0x07` | `session_busy` |
+
+Values `0x08..0xFF` are unallocated in this terminal-result namespace. They must not be decoded as a known
+terminal meaning or accepted as success. The assigned meanings remain:
 
 - `completed` — a matching handler returned; its normal text contains any command-specific warning/error;
 - `scheduled` — a disruptive action was accepted and deferred until response handling permits it;
@@ -769,10 +788,22 @@ A successful command that prints nothing returns a terminal frame at sequence ze
 Authenticated `PROTOCOL_ERROR` is reserved for a structurally valid, authenticated request whose exact
 operation is already known but for which no ordinary terminal replay exists—for v2, the concrete case is an
 exact retry after that response was already acknowledged, carrying the compact code
-`already_acknowledged`. It uses its distinct response opcode and therefore does not reuse a `TERMINAL` nonce
-for different plaintext. Authentication/tag failures remain silent. The clear/open `PROTOCOL_ERROR` is
+`already_acknowledged`. **Slice 2 Author allocation, accepted by QA 2026-09-06:** this code is `0x00` in the
+separate authenticated `PROTOCOL_ERROR` result namespace; it is not a ninth terminal result. Its interpretation
+requires the authenticated protocol-error opcode/domain, not just the result byte. It uses its distinct
+response opcode and therefore does not reuse a `TERMINAL` nonce for different plaintext. Authentication/tag
+failures remain silent. The clear/open `PROTOCOL_ERROR` is
 limited to structurally valid open-request validation failures that can be answered within the open
 rate/resource bounds; malformed or unauthenticated garbage remains a silent drop.
+
+**Slice 2 decoded-result contract (QA fold-in, 2026-09-06):** decoding must retain the opcode domain as a
+typed value alongside its domain-specific result; a bare result byte is not a decoded result API. In
+particular, terminal `completed` and authenticated protocol-error `already_acknowledged` must remain
+distinct typed meanings even though both use `0x00`. Independent known-answer tests must decode that byte
+under both response opcodes and assert the different typed results. They must also reject every other
+result-code byte (`0x01..0xFF`) in an authenticated `PROTOCOL_ERROR` body, never reinterpret it as a terminal
+code or fall back to another domain. This is a constraint on the result-code field, not on the surrounding
+envelope or authentication-tag bytes; it does not broaden the separate clear/open error policy above.
 
 `response_seq` is one byte deliberately: at most 256 frames can belong to one response, with no more than
 255 output frames followed by the required terminal frame. Even under the smallest accepted carrier cap,
@@ -861,6 +892,31 @@ cross-layer, key-hash-addressed carrier at legal path depth 4 (**226 bytes**); l
 their authenticated command/output budgets against their own row, never promote the largest row to a universal
 cap. Slice 2 owns the production `remote_body_cap(RemoteCarrier)` authority; the characterization table is its
 accepted KAT input, not a second runtime authority.
+
+**Slice 2 input correction, accepted by QA 2026-09-06 under R-RA-28 (B308/B309):** the 0e figures above remain historical
+raw-packer measurements, not permission to admit a larger application body after R-RA-25. The hash-addressed
+shapes derive 232 bytes same-layer, 231 for a typed mobile wrapper, and 229/228/227/226 for full cross-layer
+depth 1/2/3/4. Their field assumptions must be proved per v2 leg: a full administration key is not the ordinary
+routing hash (§6.3), open requests make no administration-key claim (§6.1), and the current hosted-mobile
+last-mile enqueue supplies no destination-hash override (R-RA-25's narrow addendum). Do not infer a new
+universal destination-hash requirement from the historical table or silently alter that last-mile carrier.
+Where DST_HASH is absent, raw packing room and the conservative application admission cap differ; record
+which authority refuses cap+1. Slice 2 must implement and independently test the reconciled live carrier map
+and include the cross-layer typed mobile wrapper: its destination-path depth 1..3 spends an enclosed-type
+byte as well as the path block, yielding 228/227/226; the home's corresponding full path is depth 2..4.
+The wrapper's depth 4 is invalid, not an additional 225-byte v2 carrier. No codec consumer or routing change
+is authorized by this preparation note.
+
+**Owner-settled 2026-09-06, R-RA-28:** always reserve the four DST_HASH bytes in the capacity calculation,
+even where the legal wire form omits them. The one authority derives
+`min(inner storage capacity, actual DATA air-fit capacity) - reserved origin/source/destination fields - carrier extras`
+using the existing named constants and packers, with invalid shapes/underflow refused. The reserved base fields
+total nine bytes; path and enclosed-type bytes are additional. Thus the same-layer RPC allowance is 232 with
+or without a transmitted destination hash; the wrapper/path caps above remain unchanged. The admission/codec
+boundary must refuse cap+1. When a reserved field is absent the raw packer may have spare room, so its physical
+fit is a separate measurement, not a falsely claimed admission refusal. The all-carriers-hash-addressed premise
+is unnecessary and is superseded as a justification for the cap. Last-mile hash attachment is an optional
+separate carrier proposal (B310), not included in Slice 2 or authorized by this capacity ruling.
 
 The 16-byte authentication tag and 8-byte request identity are the two load-bearing authenticated envelope
 costs; the transmitted one-byte control is the remaining RPC metadata. Open diagnostics omit the tag by
@@ -1703,11 +1759,36 @@ The complete design does not provide:
    require `SOURCE_HASH`, key identity on the 32-bit source hash, refuse instead of clamp, and remove the
    accept-side staging RAM from client-only product builds. Both carrier types remain allocated in the internal
    namespace; otherwise a role-disabled build would bypass the fail-closed guard and deliver the frame as a DM.
+   **✅ SOFTWARE-COMPLETE / QA-PASSED 2026-09-06; owner closure commit pending.** Evidence:
+   `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. Native is 2615 cases / 111354 assertions / 0 failed;
+   the feature probe is 9 cells / 114 checks / 38 verified controls / 0 unusable, and the tools sweep is 312 OK.
+   Both real owned receive paths execute in native; the pure decision covers all four capability pairs.
+   Board preprocessing plus object evidence proves the disabled declaration, definition and consuming call
+   are absent, without claiming a synthetic decision is an executed native receive drop. Changed-source
+   selects six RX batteries; historical/dependency coverage adds `sliceAcodec`; their full union is 99/99 RED,
+   0 unusable. All standing probes, ABI probes, inventory checks, checkers and the warning census pass.
+   Forced simulator rebuild performed 40 actions across both core variants; the binary changed but all
+   36 streams stayed byte-identical and reproduced their anchors. Board RAM is unchanged: gateway 195844,
+   heltec_mobile 205684; flash is gateway 512092 (+16), heltec_mobile 1355292 (−8), fully attributed in
+   evidence §8. Node remains native 222072 / heltec_mobile Xtensa 117912 / gateway ARM 148680. No metal added;
+   bench §9.9's legacy static/gateway round-trip suspension remains in force. B307 is closed by the isolated
+   comment-only proof; evidence §14 F1 is registered as B311 (its proposed B310 was already occupied), and
+   F2's new resource measurement is folded into B286. The staging-slot retirement remains Slice 5 work.
+   **QA provenance resolution:** the concurrent Author changes were the register, design, rulings ledger and
+   MEMORY.md, plus QA's Slice 2 pre-check ledger. All are Markdown read by none of the coder's gates. QA accepts
+   the STOP audit and its own re-run; this fuller inventory does not amend the 1b PASS or the coder's evidence.
 2. **Remote codec and independent KATs:** pin the frozen opcode/slot values, little-endian fields, exact
    KDF/nonce/AAD labels and layouts, invalid/all-zero ECDH refusal, authenticated/open codecs,
    `remote_body_cap(carrier)`, legacy-body rejection, corruption/nonce-separation controls, and the random
    64-bit request-ID bound at the non-enforced `2^16`-request analysis envelope. No global `wire_version`
    bump or corpus-wide version re-anchor.
+   **Author integration preparation accepted by QA 2026-09-06:** use a dedicated codec `.h/.cpp`, following
+   `dm_crypto`'s namespace/build shape. The future brief explicitly fences the one source-list addition in
+   the separate `/home/staszek/lora-universal-simulator/CMakeLists.txt`: add the codec `.cpp` once to
+   `_meshroute_core_srcs`, which feeds both normal and gateway core libraries. No simulator behaviour change
+   or codec consumer is included. Record both repository bases/diffs and prove both variants compile the new
+   TU; the owner commits each repository's changes. No simulator edit is made during 1b, and Slice 2's brief,
+   dispatch base and measurement pins wait for the QA-passed 1b closure commit.
 3. **Target identity, ACL, and USB provisioning:** on accept builds add `/mradmid` and the fixed ten-slot
    `/mracl` transaction using the team-keyring persistence idiom, first-owner USB exchange, several-owner
    invariants, corrupt-state recovery, USB-only target-root rotation, role changes, and ordinary-`regen`
@@ -1789,7 +1870,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
 | 0f | ✅ landed: BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | native **2604 / 109619 / 0** (+7 / +85); corpus **36/36 anchors**, s18 `32afbf11`/269517/0, `lus` `eb298576` unchanged with 0 build actions (recompile control fired); `sizeof(Node)` 222072/117912/148680 unmoved; `gateway` RAM **+120 B** fully attributed to `g_line` (+115) and alignment (+5), flash ±0; `heltec_mobile` byte-identical in every measured field; census 6/6 at pin; probe **40 checks / 8 controls RED / 0 unusable**; tools sweep 238 OK | **Part 61:** the 274-byte `send_layer` line over real BLE under multiple write chunkings returns `err_unsupported`; the 268-byte plaintext form queues; a 275-byte line refuses loudly |
 | 1 | ✅ software-complete / QA-passed 2026-09-06; consumer-free `lib/core/mr_features.h`, implementation `5d2c00e` | native 2610/110269/0; feature matrix 9 cells / 97 checks / 19 controls RED; tools 305; forced lus rebuild 34 actions, binary identical; 36/36 anchors; Node ABI and both boards' RAM/flash/sections/objects/symbols unchanged; evidence `2026-09-05-radmin-slice1.md` | none |
-| 1b | strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27, brief awaiting QA | prediction-first 36/36 identity; pure four-pair × two-type native decisions plus real owned RX paths and controlled product wiring; ruled pair RAM ±0, flash attributed | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
+| 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit pending; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
 | 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |
 | 3 | target identity/ACL storage and USB provisioning owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55a:** target-side physical-USB first owner and local recovery only |
 | 4 | mobile keyring/target-book storage and local command owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55b:** controller `/mrtargets` exchange with the Part-55a target; **Part 56:** USB seed lifecycle and BLE public select/show only |
@@ -2073,10 +2154,13 @@ The following product decisions are no longer open:
     deliberately stops static/gateway legacy response staging and ignores mobile commands at the existing
     fail-closed guard. One pure routing decision takes capability values; production supplies the macros,
     native tests the synthetic matrix. No runtime role state, no test-only macro override, no new metal.
+56. **R-RA-28:** always reserve DST_HASH space in RPC admission, even on a legal hash-less leg; no larger
+    allowance for omitted fields. Codec/admission refusal and raw-packer fit are separately tested. Home-to-mobile
+    hash attachment is being considered separately, not authorized by this ruling or added to Slice 2.
 
 ### 20.2 Derived artefacts and later measurement rulings
 
-The owner-decision list, including the feature-boundary rulings, is closed by R-RA-1..R-RA-27. What remains
+The owner-decision list, including the feature-boundary/capacity rulings, is closed by R-RA-1..R-RA-28. What remains
 before the relevant implementation slices may land is evidence and generated authority, not permission to reopen those product
 choices:
 

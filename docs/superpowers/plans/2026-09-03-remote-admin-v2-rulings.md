@@ -591,3 +591,26 @@ remote commands"* (the three points of the Slice 1b pre-check ledger §4).
    identical (no response either way); not corpus-visible (the host compiles both roles); measured on `heltec_mobile`.
 Prediction for 1b stays 36/36 byte-identical (host `{1,1}`); board flash moves on BOTH boards (gateway loses the RESP
 body, heltec loses the CMD body), RAM ±0 (`_remote_inbound` stays until Slice 5).
+
+### R-RA-28 (owner, 2026-09-06) — always reserve DST_HASH space; last-mile attachment is under consideration, not yet authorized
+
+**Owner:** *"Agree, let's always reserve space for DST_HASH, we might consider even attaching hash when sending from home to mobile - maybe that unification is worth of implementing?"*
+
+**Settled for Slice 2:** the capacity authority always reserves the four DST_HASH bytes, alongside the mandatory
+SOURCE_HASH and origin bytes, whether or not a particular legal carrier transmits DST_HASH. Omitting that field
+never increases the admitted RPC body. Derive the governing inner budget from the storage and real air-fit
+authorities, subtract the named reserved fields and the particular carrier's path/wrapper overhead, and refuse
+oversize bodies rather than clamp. This confirms R-RA-25's conservative allowance; it does not infer the ordinary
+routing hash from a target administration key or require an administration key for open diagnostics.
+
+The plaintext RPC admission caps therefore remain same-layer 232, same-layer typed mobile wrapper 231,
+cross-layer full depth 1..4 at 229/228/227/226, and typed mobile cross-layer wrapper destination depth 1..3 at
+228/227/226. The four reserved destination-hash bytes cannot be reclaimed on a hash-less leg. Tests distinguish
+admission from physical packing: the codec/admission authority must refuse cap+1; a raw packer may still fit
+that size when a reserved field is absent. Preserve 0e's historical measurements but supersede their use as
+larger current admission allowances; add the B309 wrapper coverage.
+
+**Not yet an implementation ruling:** the owner's second clause asks whether attaching DST_HASH on home-to-mobile
+traffic is worth doing. The Author assesses it separately under B310. R-RA-25's narrow attachment/lookup rule and
+its last-mile exception remain unchanged until an explicit carrier-change ruling and a QA-passed brief exist.
+Neither the running 1b slice nor the consumer-free Slice 2 codec acquires a last-mile wire change from this ruling.

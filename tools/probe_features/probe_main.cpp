@@ -4,10 +4,14 @@
 // §remote-admin v2 SLICE 1 FEATURE-MATRIX DRIVER — the REAL `lib/core/mr_features.h`, host-compiled and host-RUN
 // under one build configuration per invocation.
 //
-// WHY THIS EXISTS. Slice 1 adds `MR_FEAT_RADMIN_CLIENT` / `MR_FEAT_RADMIN_ACCEPT` and NO consumer, so no existing
-// gate can see either flag: native compiles one configuration, the simulator compiles two, and both are HOST
-// builds — none of them is a board, and a board is where the whole exclusivity rule lives. This TU is the only
-// executed reader of the pair, and the runner is what puts every real configuration through it.
+// WHY THIS EXISTS. No other gate can see either flag's VALUE: native compiles one configuration, the simulator
+// compiles two, and all of them are HOST builds — none is a board, and a board is where the whole exclusivity rule
+// lives. This TU is the only EXECUTED reader of the pair, and the runner is what puts every real configuration
+// through it.
+// ⚠ CORRECTED 2026-09-06 (remote-admin v2 slice 1b), old claim visible: this paragraph said *"Slice 1 adds
+//   `MR_FEAT_RADMIN_CLIENT` / `MR_FEAT_RADMIN_ACCEPT` and NO consumer"*. WITHDRAWN — slice 1b is the first consumer
+//   (`lib/core/node_mac_rx.cpp`). ⛔ NOTHING BELOW CHANGES: this driver still asserts the eight ruled VALUES against
+//   the runner's table and holds no copy of the derivation. Who consumes the pair is `ownership.py`'s question.
 //
 // ⛔ IT CONTAINS NO COPY OF THE DERIVATION. Every expected value arrives as an `EXP_*` macro from the runner's
 //    ruled matrix (R-RA-26); every measured value is read from the production header this TU includes. If this
