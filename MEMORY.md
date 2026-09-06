@@ -1,6 +1,6 @@
 # MeshRoute durable decisions
 
-- **Remote administration v2 controller boundary (owner-ruled, review pending, 2026-09-01):** the locally
+- **Remote administration v2 controller boundary (owner-ruled; design QA-passed 2026-09-04):** the locally
   attached MeshRoute node—not its companion—is the authenticated RPC endpoint. It seals/opens with its
   default `/mrid` identity or one explicitly selected seed-derived dedicated identity from ten persistent
   slots; the companion exchanges plaintext only. Four independent stores own the trust directions:
@@ -22,8 +22,17 @@
   R-RA-26 (owner-ruled 2026-09-05): `defined(ARDUINO)` distinguishes boards from native/lus. Mobile boards
   are client-only; static/gateway boards, including no-profile static envs, are accept-only; native/lus have
   both endpoints. Board checks enforce exactly one endpoint and ACCEPT equal to legacy REMOTE_MGMT until
-  Slice 9. Slice 1 is a consumer-free header scaffold: no static profile or `platformio.ini` change, with
-  zero RAM and flash movement required on the ruled pair. Rulings live in
+  Slice 9. Slice 1 is software-complete / QA-passed 2026-09-06, committed at `5d2c00e`: a consumer-free header
+  scaffold with no static profile or `platformio.ini` change, measured zero RAM/flash/section/object/symbol
+  movement on the ruled pair and 36/36 stream identity after a forced simulator rebuild.
+  R-RA-27 (owner-ruled 2026-09-06; implementation belongs to next Slice 1b): strict ACCEPT-for-CMD and
+  CLIENT-for-RESP receive ownership; the legacy switch widens neither. MeshRoute is undeployed, so a
+  static/gateway legacy issuer losing replies is accepted; its old `rcmd` round-trip bench step is suspended
+  from 1b until Slice 9's replacement. Mobiles ignore unowned commands at the existing fail-closed guard.
+  Native tests a production-shared pure routing decision with explicit capability values; production passes
+  real macros, never runtime role state or test-only overrides. RAM stays unchanged until the later storage
+  slice; 1b's board flash movement is measured/attributed and its host corpus is predicted unchanged. No new
+  metal for 1 or 1b. Rulings live in
   `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable

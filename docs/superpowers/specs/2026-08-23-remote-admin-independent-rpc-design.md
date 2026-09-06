@@ -133,10 +133,10 @@ The following are code facts, not inherited assumptions from an older design:
   `internal=true, generic_send_lifecycle=false` — the RPC's own response/timeout contract is the only outcome they
   carry, and no generic `send_acked`/`send_failed` may be raised for them.)
   (`lib/core/frame_codec.h`, `lib/core/node_mac.cpp`). They are reusable; no third DATA type is needed.
-- The current addressed receive path consumes both remote types in an explicit handler at
-  `lib/core/node_mac_rx.cpp:2195`, before the §CUSTODY-B protocol-internal tail guard at `:2403`. That placement is a
-  compatibility invariant, not incidental ordering: v2 must replace it with explicit pre-tail handlers owned
-  by direction/capability — `REMOTE_CMD` by **accept**, `REMOTE_RESP` by **client**. A build lacking the owner
+- At the Slice 1 closure commit `5d2c00e`, the addressed receive path consumes both remote types in an explicit
+  handler at `lib/core/node_mac_rx.cpp:2220`, before the §CUSTODY-B protocol-internal tail guard at `:2427`.
+  The pre-tail placement preserves owned handling, not legacy role compatibility: v2 must replace it with
+  explicit handlers owned by direction/capability — `REMOTE_CMD` by **accept**, `REMOTE_RESP` by **client**. A build lacking the owner
   for an addressed type deliberately reaches the bounded `unsupported_internal` guard-drop. In particular,
   an accept-disabled mobile drops an addressed REQUEST but its enabled client still consumes a RESPONSE.
   Removing staging without installing those v2 handlers would make addressed RPCs disappear fail-closed but
@@ -1287,14 +1287,20 @@ controller keyring and target-book state exist only in mobile builds; target ide
 only in static/gateway builds.
 
 The current `MR_FEAT_REMOTE_MGMT` flag and its `MR_PROFILE_MOBILE => 0` rule cannot represent this split.
-Implementation keeps that legacy gate alongside the two new flags until the legacy deletion slice; the
-feature-boundary scaffold must not disable shipped `rcmd` behaviour early. It introduces the two exact flags
-above and compile-time assertions for every **board** profile:
+Slice 1 keeps that switch alongside the two new flags until Slice 9 deletes the legacy paths. ⚠ **SUPERSEDED
+2026-09-06 by R-RA-27:** the former requirement that the scaffold “must not disable shipped `rcmd` behaviour early”
+does not promise compatibility across Slice 1b: nothing is deployed. The scaffold itself is inert; 1b strictly
+gates receive ownership by the new pair, without widening either with the legacy switch. Consequently a
+static/gateway issuer may still air a legacy command but no longer stage its response. Its legacy round-trip
+bench steps are suspended from 1b until Slice 9's replacement. The two exact flags and compile-time assertions
+apply to every **board** profile, detected by `defined(ARDUINO)` under R-RA-26:
 mobile means `{client=1, accept=0}`, while static and gateway mean `{client=0, accept=1}`. A build may not
 enable both or neither in a product configuration. The native host-test build is deliberately not a product
 profile and compiles `{client=1, accept=1}` so one process can drive controller and target end to end; its
-tests must still exercise each role-disabled boundary separately. Separate compile and behaviour controls prove that
-disabling either endpoint capability leaves ordinary relay transport intact.
+tests must still exercise each role-disabled boundary separately. R-RA-27 uses one production-shared pure routing
+decision with explicit capability arguments for the synthetic role matrix; production supplies the real macros,
+never runtime role state or a test-only override. Native drives both real owned RX paths; product compilation and
+controlled wiring checks establish the disabled arms. Separate controls preserve ordinary relay transport.
 
 The receive-dispatch side follows the same capability split. `REMOTE_CMD` has an explicit pre-tail consumer
 only when **accept** is enabled; `REMOTE_RESP` has one when **client** is enabled. Static/gateway builds never
@@ -1656,21 +1662,43 @@ The complete design does not provide:
    `MR_FEAT_RADMIN_CLIENT` and `MR_FEAT_RADMIN_ACCEPT`. Compile-time and behaviour controls prove
    `{client=1,accept=0}` on mobile and `{client=0,accept=1}` on static/gateway while ordinary transit stays
    available with neither endpoint consumer involved; native deliberately compiles `{1,1}` with separate
-   role-disable controls. Keep `MR_FEAT_REMOTE_MGMT` alive for the shipped legacy issuer/acceptor until Slice
-   9 deletes those paths. No v2 wire behaviour yet.
-1b. **Capability-owned pre-tail remote handlers:** refactor only the existing staging arm at
-   `lib/core/node_mac_rx.cpp:2195-2212` behind two explicit entry points: `REMOTE_CMD` is owned by accept and
-   `REMOTE_RESP` by client. Under the legacy `MR_FEAT_REMOTE_MGMT` gate their bodies remain behaviour-identical;
+   role-disable controls. Keep `MR_FEAT_REMOTE_MGMT` alive until Slice 9 deletes the legacy paths; this does not
+   widen the strict receive owners introduced in 1b (R-RA-27). No v2 wire behaviour yet.
+   **✅ SOFTWARE-COMPLETE / QA-PASSED 2026-09-06**, implementation committed at `5d2c00e`. R-RA-26's
+   Arduino discriminator, two capabilities and three board-only diagnostics are present; no consumer or Node
+   state was added. QA independently reproduced native 2610 cases / 110269 assertions / 0 failed, the feature
+   probe's 9 cells / 97 checks / 19 controls RED, and 305 tools tests. Forced simulator rebuild: 34 actions,
+   identical binary; 36/36 stream anchors and the current s18 keystone reproduced. Both ruled boards have zero
+   RAM, flash, section, object and symbol movement; Node remains native 222072 / heltec_mobile Xtensa 117912 /
+   gateway ARM 148680. All standing probes, checkers and census pass. No metal residue. B304's header half is
+   corrected; its `platformio.ini` sibling remains open. Evidence:
+   `docs/superpowers/evidence/2026-09-05-radmin-slice1.md`. QA resolved that evidence's STOP 8: the concurrent
+   pre-check/register edits were documentation only, read by no build. The evidence remains unchanged.
+1b. **Capability-owned pre-tail remote handlers:** split only the existing staging arm at
+   `lib/core/node_mac_rx.cpp:2220-2238` (base `5d2c00e`) behind two explicit entry points: `REMOTE_CMD` is owned
+   strictly by accept and `REMOTE_RESP` strictly by client. R-RA-27 authorizes this ownership change (C1),
+   with only its necessary staging extraction; no unrelated refactor. Bodies preserve legacy semantics wherever
+   an owner exists; neither gate includes `MR_FEAT_REMOTE_MGMT` and
    a disabled role deliberately falls through to the existing bounded `unsupported_internal` tail guard.
-   Prediction precedes a 36/36 corpus-identity proof, native drives all four role-by-type combinations,
+   Prediction precedes a 36/36 corpus-identity proof. Native drives both real owned paths and the pure routing
+   decision for all four capability pairs × both types; the disabled-role decisions are synthetic, not a claim
+   that the both-on native binary has compiled-out roles. Product compile/wiring controls complete that proof;
    receiver-file mutations pin both entry points and the tail, and the ruled board pair covers the product
    roles. Slices 5/7b and 8b later fill the accept and client bodies respectively; Slice 9 deletes the legacy
    body without removing the capability-owned entry points.
+   ⚠ **SUPERSEDED 2026-09-06 by R-RA-27, old promise retained:** “Under the legacy `MR_FEAT_REMOTE_MGMT` gate
+   their bodies remain behaviour-identical” and the pre-check's legacy-widening recommendation no longer apply.
+   Static/gateway responses now have no owner: the legacy issuer still sends but stops receiving replies.
+   Mobile commands no longer stage into an inert stub; they are ignored at the existing guard. The owner accepts
+   both outcomes on undeployed test hardware. One scalar `unsupported_internal` event accompanies a guard drop
+   in telemetry-enabled builds; devices strip that telemetry. No new metal; suspend the old static-node `rcmd`
+   round-trip check until Slice 9. RAM stays unchanged (`_remote_inbound` remains until Slice 5); flash movement
+   on both boards must be measured and attributed to the role split, not assigned an assumed sign or tolerance.
    ⚠ **CORRECTED 2026-09-04, prior staging plan kept visible:** round 2 left the shared staging arm in place
    until the later semantic slices. That made the role-disabled fail-closed boundary depend on future work.
-   R-RA-19 moves only the ownership/refactor into 1b; it does not enable a v2 body.
-   **Pass-2 seam obligations, recorded 2026-09-05:** behaviour-neutral 1b keeps the legacy arm before the open /
-   sealed-relay processing and preserves its current cleartext body, 8-bit-origin reply key, bounded drop and
+   R-RA-19 moves ownership into 1b; R-RA-27 settles its behaviour change. Neither enables a v2 body.
+   **Pass-2 seam obligations, recorded 2026-09-05, ownership corrected by R-RA-27:** 1b keeps owned staging
+   before the open / sealed-relay processing and preserves its current cleartext body, 8-bit-origin reply key, bounded drop and
    clamp semantics byte-for-byte. It must nevertheless expose role-owned entry points so later v2 bodies can
    require `SOURCE_HASH`, key identity on the 32-bit source hash, refuse instead of clamp, and remove the
    accept-side staging RAM from client-only product builds. Both carrier types remain allocated in the internal
@@ -1760,8 +1788,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 0d | ✅ landed: four home-bound arms, `lib/core/node_hashlocate.cpp` | predicted 0 movers; measured 36/36 byte-identical; no re-anchor; ruled pair RAM +0 | none |
 | 0e | ✅ measured in isolated worktree: generated inventory, ABI/cap/timing probes under `tools/` + fixtures under `test/` | 36/36 unchanged; host/ARM/Xtensa ABI and ruled pair; integration package pending | none |
 | 0f | ✅ landed: BLE line-capacity derivation and real-intake probe, `src/device_ble.h` | native **2604 / 109619 / 0** (+7 / +85); corpus **36/36 anchors**, s18 `32afbf11`/269517/0, `lus` `eb298576` unchanged with 0 build actions (recompile control fired); `sizeof(Node)` 222072/117912/148680 unmoved; `gateway` RAM **+120 B** fully attributed to `g_line` (+115) and alignment (+5), flash ±0; `heltec_mobile` byte-identical in every measured field; census 6/6 at pin; probe **40 checks / 8 controls RED / 0 unusable**; tools sweep 238 OK | **Part 61:** the 274-byte `send_layer` line over real BLE under multiple write chunkings returns `err_unsupported`; the 268-byte plaintext form queues; a 275-byte line refuses loudly |
-| 1 | `lib/core/mr_features.h` plus legacy compile owners | 36/36 unchanged; both endpoint-disabled builds and ruled pair | none |
-| 1b | capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp` | prediction-first 36/36 identity; four role-by-type native arms; ruled pair | none |
+| 1 | ✅ software-complete / QA-passed 2026-09-06; consumer-free `lib/core/mr_features.h`, implementation `5d2c00e` | native 2610/110269/0; feature matrix 9 cells / 97 checks / 19 controls RED; tools 305; forced lus rebuild 34 actions, binary identical; 36/36 anchors; Node ABI and both boards' RAM/flash/sections/objects/symbols unchanged; evidence `2026-09-05-radmin-slice1.md` | none |
+| 1b | strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27, brief awaiting QA | prediction-first 36/36 identity; pure four-pair × two-type native decisions plus real owned RX paths and controlled product wiring; ruled pair RAM ±0, flash attributed | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
 | 2 | remote codec/KDF files and carrier-cap authority | zero remote events, 36/36 unchanged; ruled pair | none |
 | 3 | target identity/ACL storage and USB provisioning owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55a:** target-side physical-USB first owner and local recovery only |
 | 4 | mobile keyring/target-book storage and local command owners | zero remote events, 36/36 unchanged; ruled pair | **Bench Part 55b:** controller `/mrtargets` exchange with the Part-55a target; **Part 56:** USB seed lifecycle and BLE public select/show only |
@@ -2012,7 +2040,7 @@ The following product decisions are no longer open:
 46. **R-RA-18:** every local `remote` line states exactly one security mode. `open` is cleartext and restricted
     to exact `status|routes`; authenticated remote administration requires `-e`. `open -e` and a line with
     neither mode refuse. The independent `-a` E2E-ACK option remains optional and default-off.
-47. **R-RA-19:** Slice 1b, immediately after the feature scaffold, owns the behaviour-neutral split of the
+47. **R-RA-19, neutrality superseded by R-RA-27:** Slice 1b, immediately after the feature scaffold, owns the
     legacy pre-tail receive staging into accept-owned `REMOTE_CMD` and client-owned `REMOTE_RESP` entry points.
     Disabled roles reach the existing fail-closed tail; semantic slices fill the bodies later.
 48. **R-RA-20:** disruptive-action activation uses the exact first-hop formula in §13: configured-PHY airtime
@@ -2038,11 +2066,18 @@ The following product decisions are no longer open:
     carries `SOURCE_HASH`; a supplied or derived `DST_HASH` is also mandatory and never discarded for size. A
     truly unknown by-ID destination may omit that hash but gets no extra capacity. Slice 0h landed the refusal and
     zero-inner fixes before the remote feature phase.
+54. **R-RA-26:** `defined(ARDUINO)` distinguishes products from native/lus, including no-profile static boards.
+    Products have exactly one endpoint; ACCEPT equals the still-existing REMOTE_MGMT switch until Slice 9.
+    The Slice 1 scaffold has no consumer and no `platformio.ini` change; its exact zero-movement proof passed.
+55. **R-RA-27:** 1b uses strict ACCEPT-for-CMD / CLIENT-for-RESP ownership, never legacy-widened gates. It
+    deliberately stops static/gateway legacy response staging and ignores mobile commands at the existing
+    fail-closed guard. One pure routing decision takes capability values; production supplies the macros,
+    native tests the synthetic matrix. No runtime role state, no test-only macro override, no new metal.
 
 ### 20.2 Derived artefacts and later measurement rulings
 
-The owner-decision list through the post-pass-2 rulings is closed by R-RA-1..R-RA-25. What remains before the relevant
-implementation slices may land is evidence and generated authority, not permission to reopen those product
+The owner-decision list, including the feature-boundary rulings, is closed by R-RA-1..R-RA-27. What remains
+before the relevant implementation slices may land is evidence and generated authority, not permission to reopen those product
 choices:
 
 - generate the complete production command/subcommand inventory, then obtain the separate owner ruling that

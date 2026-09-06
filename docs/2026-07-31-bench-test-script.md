@@ -755,7 +755,12 @@ lower, so a `heltec_v3` rerun is still owed.
     what keeps 6 KB off a link that has wedged this node before.)
 
 - [x] **9.9 — the `cfg` SF list appears in the response, not on another transport**
-  - Do: `cfg` over USB; then `rcmd <id> cfg`-style / companion `cfg` if reachable.
+  - Do: `cfg` over USB; then local companion `cfg` if reachable.
+  - **R-RA-27 suspension, recorded 2026-09-06; effective on Slice 1b and later images until Slice 9's
+    replacement:** the former `rcmd <id> cfg`-style round-trip step from a static/gateway issuer is suspended.
+    That issuer still sends, but its CLIENT-disabled receive path no longer stages replies. The prior `[x]`
+    result is historical, not evidence that this round trip remains supported. Local USB/companion `cfg` and
+    the supplied-sink expectation below remain active. No new metal check is owed by 1b.
   - Pass: `sf_list=6,7` (whatever the real list) is inside the `radio :` row of the response itself. ⛔ Fail if the SF
     list appears on the USB console while missing from a captured/remote response — that was the
     `print_sf_list(bitmap)` global-sink bypass.
