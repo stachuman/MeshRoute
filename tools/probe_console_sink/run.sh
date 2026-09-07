@@ -191,11 +191,13 @@ PROFILES=(
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=52
+# Slice 6: S53..S62 add ten controlled entry/context/policy bindings.
+PIN_STRUCTURAL=62
 PIN_BLE_GUARD=905
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
-PIN_CONTROLS=101
+# Slice 6: S6-C1..S6-C13; all prior 101 controls retained.
+PIN_CONTROLS=114
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE

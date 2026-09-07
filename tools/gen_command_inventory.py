@@ -8,9 +8,8 @@
 #     "a generator tool that derives the verb and sub-verb list from source and pins it, like the DataType checker
 #      does. The open/operator/owner classification of each row is then your ruling, taken once against a complete
 #      list rather than guessed per command."
-# ⇒ THIS FILE PRODUCES THE COMPLETE LIST AND NOTHING ELSE. The `authority` column of every emitted row is EMPTY and
-#   the generator REFUSES to run if any row carries one (`verify_rows`). 0e does not classify; the owner does, once,
-#   over the generated table.
+# Slice 0e kept authority EMPTY pending that ruling. Slice 6 INVERTS that invariant: R-RA-33 / R-RA-32
+# supply the ruled table, every source row must resolve to it, and an empty authority now REFUSES.
 #
 # ---- THE TWO COMMANDS, BOTH REAL ([[B295]], slice 0g) -----------------------------------------------------------
 #     python3 tools/gen_command_inventory.py --write     regenerate the tracked inventory
@@ -76,6 +75,8 @@ from dataclasses import dataclass, field
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 TRACKED_OUTPUT = "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md"
+AUTHORITY_TABLE = "docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md"
+AUTHORITY_CLASSES = frozenset(("open", "operator", "owner", "physical", "controller_local", "legacy", "local_only"))
 
 # The comparison helpers whose calls are command tests. `\b` matters: `strncpy(` must not read as `strncmp(`.
 CMP_FUNCS = ("strncmp", "strcmp", "tok_eq", "preset_word_is", "admin_primary_is", "admin_word_is")
@@ -684,6 +685,111 @@ def _alias_note(literals) -> str:
     return " (alias: %s)" % ", ".join(extra) if extra else ""
 
 
+def markdown_cells(line):
+    """Split a table row, preserving the inventory's escaped shared-verb separator."""
+    return [s.strip().strip("`").replace(r"\|", "|") for s in re.split(r"(?<!\\)\|", line)[1:-1]]
+
+
+def parse_authority_table(text):
+    """Read only the positional semantic table, not examples or historical prose."""
+    match = re.search(r"^## Semantic policy\s*$([\s\S]*?)(?=^## |\Z)", text, re.M)
+    if not match:
+        raise GeneratorError("missing Semantic policy table")
+    rows = {}
+    for line in match.group(1).splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = markdown_cells(line)
+        if len(cells) != 5:
+            raise GeneratorError("malformed authority table row: " + line)
+        verb, subverb, cls, disruptive, reference = cells
+        key = (verb, subverb)
+        if not verb or not subverb or not reference or cls not in AUTHORITY_CLASSES or disruptive not in ("yes", "no"):
+            raise GeneratorError("unclassified or malformed authority table row: " + line)
+        if key in rows:
+            raise GeneratorError("duplicate semantic authority row: " + repr(key))
+        rows[key] = (cls, disruptive == "yes")
+    if not rows:
+        raise GeneratorError("empty authority table")
+    return rows
+
+
+def read_authority_table(root):
+    try:
+        with open(os.path.join(root, AUTHORITY_TABLE), encoding="utf-8") as fh:
+            return parse_authority_table(fh.read())
+    except OSError as exc:
+        raise GeneratorError("cannot read ruled authority table: " + str(exc)) from exc
+
+
+def semantic_key(row):
+    # Refusal discriminators describe source arms, not executable subcommands (B345 / B347).
+    subverb = "—" if re.fullmatch(r"(?:<args> )?— refused [a-z_]+", row.subverb) else row.subverb
+    return row.verb, subverb
+
+
+def surface_eligibility(surface):
+    """Eligibility is a property of the already-pinned SURFACE, never a second semantic class."""
+    if surface.kind == "remote":
+        return "legacy"
+    if surface.func == "help_command":
+        return "local"
+    if surface.kind == "caller" and surface.func != "parse_command":
+        return "transport"
+    return "target"
+
+
+def authority_cell(policy, eligibility):
+    cls, disruptive = policy
+    return cls + (" D" if disruptive else "") + (" · surface:" + eligibility if eligibility != "target" else "")
+
+
+def _arm_block(root, site):
+    """The brace-balanced arm at a comparison's source anchor, raw text plus final line."""
+    with open(os.path.join(root, site.file), encoding="utf-8") as fh:
+        lines = fh.readlines()
+    text = "".join(lines[site.line - 1:])
+    neutral = _blank_comments_and_literals(text)
+    first_line = neutral.split("\n", 1)[0]
+    start = first_line.find("{")
+    if start < 0:
+        return text.split("\n", 1)[0], site.line
+    depth = 1
+    end = start + 1
+    while end < len(neutral) and depth:
+        depth += (neutral[end] == "{") - (neutral[end] == "}")
+        end += 1
+    if depth:
+        raise GeneratorError("unbalanced command arm at %s:%d" % (site.file, site.line))
+    return text[start:end], site.line + text[:end].count("\n")
+
+
+def normalize_arms(root, rows, sites):
+    """Drop top-level sub-verb guards; expose colliding execution/refusal arms without losing provenance."""
+    kept = []
+    for row in rows:
+        site = sites[row.source]
+        block, end = _arm_block(root, site)
+        # Only a command block which actually contains subordinate comparison sites is a level guard.
+        children = [s for s in sites.values() if s.file == site.file and s.func == site.func
+                    and site.line < s.line <= end and s.chain
+                    and _normalize(s.chain[0]) == _normalize(site.literals[0])]
+        is_top = any(s.kind == "top" and s.file == site.file and s.func == site.func for s in SURFACES)
+        if is_top and row.subverb == "—" and children:
+            continue
+        kept.append(row)
+    for row in kept:
+        twins = [r for r in kept if (r.surface, r.verb, r.subverb) == (row.surface, row.verb, row.subverb)]
+        if len(twins) < 2:
+            continue
+        block, _ = _arm_block(root, sites[row.source])
+        if re.search(r'\bwrite_\w*err\s*\([^;]*"console_only"', block):
+            row.subverb = "<args> — refused console_only"
+        elif re.search(r'\bprintln\s*\(\s*F\("\> err gateway_build ', block):
+            row.subverb = "— refused gateway_build"
+    return kept
+
+
 def build_rows(root: str) -> tuple:
     surfaces = {(s.file, s.func): s for s in SURFACES}
     all_spans = {rel: _function_spans(root, rel) for rel in SCAN_FILES}
@@ -713,6 +819,7 @@ def build_rows(root: str) -> tuple:
                     % (s.file, s.func, s.transports, crel, cfunc, symbol))
 
     rows, notes, values, retests, per_surface = [], [], [], [], {}
+    row_sites = {}
     for rel in SCAN_FILES:
         sites, value_sites, retest_sites = scan_file(root, rel)
         for (vrel, vline, vfunc, vbuf, vval) in value_sites:
@@ -753,6 +860,7 @@ def build_rows(root: str) -> tuple:
                       gate=site.gate, source="%s:%d" % (site.file, site.line),
                       surface="%s::%s" % (s.file, s.func), shapes=site.shapes)
             rows.append(row)
+            row_sites[row.source] = site
             per_surface.setdefault(key, []).append(row)
 
     # ---- refusal (c): no surface may go empty -------------------------------------------------------------
@@ -765,13 +873,21 @@ def build_rows(root: str) -> tuple:
     if not rows:
         raise GeneratorError("generation produced zero rows — refusing to report success")
 
+    rows = normalize_arms(root, rows, row_sites)
+    policy = read_authority_table(root)
+    by_surface = {"%s::%s" % (s.file, s.func): s for s in SURFACES}
+    for row in rows:
+        key = semantic_key(row)
+        if key not in policy:
+            raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+        row.authority = authority_cell(policy[key], surface_eligibility(by_surface[row.surface]))
     verify_rows(rows)
     rows.sort(key=lambda r: r.key())
     return rows, notes, values, retests
 
 
 def verify_rows(rows) -> None:
-    """Provenance and the empty-authority invariant. Both are STOP conditions of slice 0e."""
+    """Provenance, nonempty ruled authority and per-gate semantic uniqueness (Slice 6 / B347)."""
     seen = {}
     for r in rows:
         for name, val in (("verb", r.verb), ("owning function", r.func),
@@ -779,13 +895,12 @@ def verify_rows(rows) -> None:
                           ("file:line", r.source), ("sub-verb", r.subverb)):
             if not val or not str(val).strip():
                 raise GeneratorError("row %r has no %s — every row must carry full provenance" % (r.source, name))
-        if r.authority != "":
-            raise GeneratorError(
-                "row %s carries an authority classification (%r). 0e generates the COMPLETE LIST; the open/"
-                "operator/owner ruling is the owner's, taken once over it (R-RA-1)." % (r.source, r.authority))
+        if not re.fullmatch(r"(?:" + "|".join(sorted(AUTHORITY_CLASSES))
+                            + r")(?: D)?(?: · surface:(?:transport|local|legacy))?", r.authority):
+            raise GeneratorError("unclassified authority cell at %s: %r" % (r.source, r.authority))
         if not re.match(r"^[^:]+:[0-9]+$", r.source):
             raise GeneratorError("row %r has no file:line provenance" % r.source)
-        k = r.key()
+        k = (r.surface, r.verb, r.subverb, r.gate)
         if k in seen:
             raise GeneratorError(
                 "duplicate normalized row %r — one semantic arm must appear exactly once (aliases are recorded "
@@ -919,9 +1034,10 @@ def render(rows, notes, values, retests) -> str:
     out.append("<!-- Regenerate: python3 tools/gen_command_inventory.py --write ; verify: --check -->")
     out.append("# MeshRoute command/sub-command inventory — remote-admin v2 slice 0e-A (R-RA-1)")
     out.append("")
-    out.append("Derived from source by `tools/gen_command_inventory.py`. **The `authority` column is deliberately "
-               "empty on every row**: 0e produces the complete list; the open/operator/owner classification is the "
-               "owner's single ruling taken over it (R-RA-1).")
+    out.append("Derived from source by `tools/gen_command_inventory.py`. Authority is transcribed from the "
+               "[ruled semantic table](2026-09-07-radmin-command-authority-table.md) (R-RA-33 / R-RA-32): "
+               "one class per row, `D` for disruptive, with non-target surface eligibility marked separately. "
+               "Slice 0e's empty-authority invariant is superseded; missing classifications now refuse.")
     out.append("")
     out.append("Alias spellings of one semantic arm are recorded in the verb/sub-verb cell as `(alias: …)`; they are "
                "never a second row. A `#if`-gated arm is present with its exact macro rather than disappearing under "
@@ -944,7 +1060,7 @@ def render(rows, notes, values, retests) -> str:
                 ("`%s`" % _md_escape(r.subverb)) if r.subverb != "—" else "—",
                 r.func, _md_escape(r.transports),
                 ("`%s`" % _md_escape(r.gate)) if r.gate != "—" else "—",
-                r.source, ""))
+                r.source, r.authority))
         out.append("")
     out.append("## Recognised-but-excluded comparison sites")
     out.append("")

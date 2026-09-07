@@ -20,63 +20,14 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "protocol_constants.h" // meshroute::protocol:: — the NAMED terms the inbound line capacity is derived from
+#include "../lib/console/console_line.h" // binds the remote capacity even in standalone device-header probes
 
 #if defined(ARDUINO) && (defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA) || defined(BOARD_XIAO_WIO_SX1262))
   #define MRBLE_NRF52 1
 #endif
 
 namespace mrble {
-
-// fw_main supplies this: handle ONE inbound console line, writing a single NDJSON response line into `out`
-// (NUL-terminated, '\n'-ended); returns bytes written (0 = no reply). Keeps device_ble.h free of any
-// Node / command / console_json dependency (fw_main owns g_node + the encoders).
-using DispatchFn = size_t (*)(const char* line, size_t len, char* out, size_t cap);
-
-#if defined(MRBLE_NRF52)
-bool begin(uint8_t mode, uint8_t period_min, uint32_t pin, const char* name, DispatchFn dispatch);
-void on_tick(uint64_t now_ms);              // advertising-window policy: start/stop advertising per ble_mode
-void service_rx();                          // poll the NUS RX FIFO -> line buffer -> dispatch -> TX the reply
-void tx_line(const char* s, size_t n);      // TX one pre-formatted JSON line to the client (no-op if none)
-bool connected();                           // a companion is connected (used to inhibit idle light-sleep)
-#else
-// Inert on ESP32 + native: every entry is a no-op so fw_main compiles unchanged on all targets.
-inline bool begin(uint8_t, uint8_t, uint32_t, const char*, DispatchFn) { return false; }
-inline void on_tick(uint64_t) {}
-inline void service_rx() {}
-inline void tx_line(const char*, size_t) {}
-inline bool connected() { return false; }
-#endif
-
-}  // namespace mrble
-
-
-#if defined(MRBLE_NRF52)
-// ===== device implementation (XIAO nRF52840) — header-inline, included by the one device TU (fw_main) =====
-#include <bluefruit.h>
-#include "companion_policy.h"   // meshroute::CompanionPolicy / BleMode (lib/core) — the off/on/periodic scheduler
-#include "protocol_constants.h" // meshroute::protocol:: — the NAMED terms the inbound line capacity is derived from
-#include "device_rng.h"         // mrrng::sd_enabled() — the SD-RNG keystone flag
-#include "console_sink.h"       // `mrcon` guarded sink (the BLE-path debug prints route through it too)
-#include <string.h>
-#include <stdio.h>              // snprintf — format the 6-digit passkey
-
-namespace mrble {
-namespace {
-
-constexpr uint32_t kAdvWindowMs = 30000;    // periodic-mode advertising window (30 s); matches the CompanionPolicy test
-
-BLEUart                    g_bleuart;        // Nordic UART Service (RXD write / TXD notify)
-meshroute::CompanionPolicy g_policy;         // when to advertise (off/on/periodic)
-DispatchFn                 g_dispatch = nullptr;
-bool                       g_started     = false;
-// Connection count, shared with the Bluefruit connect/disconnect callbacks. On the single-core nRF52840 those
-// callbacks run in a higher-priority context that PREEMPTS loop() (not a parallel core), so a `volatile` byte
-// is the correct, sufficient idiom: volatile forces a fresh load (no register caching) and a byte store is
-// atomic — no memory barrier / critical section is needed (adding one would be cargo-cult). Do NOT "fix".
-volatile uint8_t           g_conn_count  = 0;
-volatile uint16_t          g_conn_handle = BLE_CONN_HANDLE_INVALID;   // for getMtu() — chunk long tx_line replies
-char                       g_pin_str[7]  = {0}; // the 6-digit MITM passkey as a string. setPIN() stores it BY
-                                                // POINTER (no copy), so it MUST outlive pairing -> a static.
 
 // ===================================================================================================================
 // ★★ THE INBOUND LINE CAPACITY IS DERIVED FROM THE CONSOLE GRAMMAR — NEVER A LITERAL (R-RA-24' bound 2).
@@ -165,9 +116,11 @@ constexpr size_t kSendLayerLineMaxBytes  = (sizeof("send_layer ") - 1)
 // yet (the target-book record is deferred to its own storage slice, and device_nv.h's node-name field is a DIFFERENT
 // record — do not attribute it there); `using=keyN` is grounded in the design's exact slot names `key0`..`key9`, so a
 // wider key-name grammar would invalidate that term. 201 mirrors R-RA-24' bound 3 (the smallest authenticated
-// carrier's command capacity) until Slice 2 lands the production `remote_body_cap` and this becomes a reference.
+// carrier's command capacity); console_line.h owns the validator bound and the assertion below binds this mirror.
 constexpr size_t kRemoteTargetLabelBytes = 32;    // TRANSITIONAL design pin — replace with the target-book constant
-constexpr size_t kRemoteCommandMaxBytes  = 201;   // TRANSITIONAL mirror of R-RA-24' bound 3 (Slice 2 owns the real one)
+constexpr size_t kRemoteCommandMaxBytes  = 201;   // TRANSITIONAL mirror of console_line.h's remote_command_max_bytes
+static_assert(kRemoteCommandMaxBytes == meshroute::console::remote_command_max_bytes,
+              "the BLE remote tail mirror must equal the shared validator's remote bound");
 constexpr size_t kRemoteWrapperMaxBytes  = (sizeof("remote ") - 1)
                                          + kRemoteTargetLabelBytes
                                          + (sizeof(" -e") - 1)
@@ -195,6 +148,56 @@ static_assert(kLineStorageBytes > kRemoteLineMaxBytes,
 static_assert(kSendLayerBodyCapBytes < meshroute::protocol::dm_max_body_bytes,
               "the cross-layer CARRIER is stricter than the DM semantic cap — that is why the send_layer term is "
               "derived from pack_unicast_inner's overhead and not from dm_max_body_bytes");
+
+// fw_main supplies this: handle ONE inbound console line, writing a single NDJSON response line into `out`
+// (NUL-terminated, '\n'-ended); returns bytes written (0 = no reply). Keeps device_ble.h free of any
+// Node / command / console_json dependency (fw_main owns g_node + the encoders).
+using DispatchFn = size_t (*)(const char* line, size_t len, char* out, size_t cap);
+
+#if defined(MRBLE_NRF52)
+bool begin(uint8_t mode, uint8_t period_min, uint32_t pin, const char* name, DispatchFn dispatch);
+void on_tick(uint64_t now_ms);              // advertising-window policy: start/stop advertising per ble_mode
+void service_rx();                          // poll the NUS RX FIFO -> line buffer -> dispatch -> TX the reply
+void tx_line(const char* s, size_t n);      // TX one pre-formatted JSON line to the client (no-op if none)
+bool connected();                           // a companion is connected (used to inhibit idle light-sleep)
+#else
+// Inert on ESP32 + native: every entry is a no-op so fw_main compiles unchanged on all targets.
+inline bool begin(uint8_t, uint8_t, uint32_t, const char*, DispatchFn) { return false; }
+inline void on_tick(uint64_t) {}
+inline void service_rx() {}
+inline void tx_line(const char*, size_t) {}
+inline bool connected() { return false; }
+#endif
+
+}  // namespace mrble
+
+
+#if defined(MRBLE_NRF52)
+// ===== device implementation (XIAO nRF52840) — header-inline, included by the one device TU (fw_main) =====
+#include <bluefruit.h>
+#include "companion_policy.h"   // meshroute::CompanionPolicy / BleMode (lib/core) — the off/on/periodic scheduler
+#include "device_rng.h"         // mrrng::sd_enabled() — the SD-RNG keystone flag
+#include "console_sink.h"       // `mrcon` guarded sink (the BLE-path debug prints route through it too)
+#include <string.h>
+#include <stdio.h>              // snprintf — format the 6-digit passkey
+
+namespace mrble {
+namespace {
+
+constexpr uint32_t kAdvWindowMs = 30000;    // periodic-mode advertising window (30 s); matches the CompanionPolicy test
+
+BLEUart                    g_bleuart;        // Nordic UART Service (RXD write / TXD notify)
+meshroute::CompanionPolicy g_policy;         // when to advertise (off/on/periodic)
+DispatchFn                 g_dispatch = nullptr;
+bool                       g_started     = false;
+// Connection count, shared with the Bluefruit connect/disconnect callbacks. On the single-core nRF52840 those
+// callbacks run in a higher-priority context that PREEMPTS loop() (not a parallel core), so a `volatile` byte
+// is the correct, sufficient idiom: volatile forces a fresh load (no register caching) and a byte store is
+// atomic — no memory barrier / critical section is needed (adding one would be cargo-cult). Do NOT "fix".
+volatile uint8_t           g_conn_count  = 0;
+volatile uint16_t          g_conn_handle = BLE_CONN_HANDLE_INVALID;   // for getMtu() — chunk long tx_line replies
+char                       g_pin_str[7]  = {0}; // the 6-digit MITM passkey as a string. setPIN() stores it BY
+                                                // POINTER (no copy), so it MUST outlive pairing -> a static.
 
 char                       g_line[kLineStorageBytes];   // inbound line: one derived product line + its NUL
 size_t                     g_pos        = 0;

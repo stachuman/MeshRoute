@@ -175,3 +175,10 @@ sequence change.
 - `docs/2026-07-31-bench-test-script.md` — general firmware bench checklist.
 - `docs/2026-08-11-mobile-home-metal-test-guide.md` — mobile-home-specific hardware scenarios.
 - `docs/2026-07-30-open-bug-register.md` — continuous defect register.
+
+- **Remote-admin Slices 5 and 6 — software QA PASS (2026-09-07; QA now authors and gates, Codex codes):** Slice 5
+  committed `d226189` (target session/admission/on-air bootstrap; B341 fixed in-slice). Slice 6 (shared validator,
+  dispatcher context/outcome, ruled authority table + three-artefact checker; B343–B348 preflight fold-ins)
+  QA-passed, uncommitted at report: native 2839/121831/0, `lus` unchanged, corpus 36/36, inventory 203 rows, union
+  114/0, boards RAM ±0. Register B336–B351 landed; next free B352; open follow-ups B337/B342/B350/B351; bench
+  residue Part 63. NEXT: owner commits Slice 6; Slice 7a/7b pre-check + brief.

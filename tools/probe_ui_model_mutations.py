@@ -110,6 +110,8 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    "consoleline": "lib/console/console_line.h",  # Slice 6: one byte validator and its named bounds
+    "cmdauthority": "src/firmware_command_authority.h",  # Slice 6: pure lookup/admission metadata
     "model":  "src/firmware_ui_model.h",        # §UI-7D slice B — the pure screen/state model
     "config": "src/firmware_config_service.h",  # §UI-13 — the typed staged-configuration service
     "chrome": "src/firmware_ui_chrome.h",       # §CHROME-1 — the frozen chrome projection + the §5.2 nav mapping
@@ -675,7 +677,10 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
+# Slice 6: 2825/119784 + 14 cases / 2047 assertions = 2839/121831, executed native binary.
+# Six consoleline cases + eight command-authority/context cases; no pre-existing case changed.
+PIN_CASES, PIN_ASSERTS = 2839, 121831
+# PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
                                          #   · test/test_remote_session.cpp        NEW, 32 cases — the pure state,
@@ -10964,7 +10969,43 @@ MUTS_RADMIN5RUNTIME = [
   '    const bool acl_ok  = (acl_state == AclState::ok) && census.owners > 0 && id_state == AdminIdState::ok;'),
 ]
 
-MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
+MUTS_CONSOLELINE = [
+ ("L01 inclusive cap becomes exclusive", "if (len > max_bytes)", "if (len >= max_bytes)"),
+ ("L02 length check bypassed", "if (len > max_bytes)", "if (false)"),
+ ("L03 last byte is not scanned", "i < len; ++i", "i + 1 < len; ++i"),
+ ("L04 first byte is not scanned", "size_t i = 0;", "size_t i = 1;"),
+ ("L05 NUL accepted", "if (line[i] == '\\0')", "if (false)"),
+ ("L06 CR accepted", "if (line[i] == '\\r')", "if (false)"),
+ ("L07 LF accepted", "if (line[i] == '\\n')", "if (false)"),
+ ("L08 LF reason collapses to CR", 'case LineErr::embedded_lf:  return "embedded_lf";', 'case LineErr::embedded_lf:  return "embedded_cr";'),
+ ("L09 remote command cap drifts above the live codec derivation", "remote_command_max_bytes = 201;", "remote_command_max_bytes = 202;"),
+ ("L10 USB command bound drifts", "local_command_max_bytes = 1023;", "local_command_max_bytes = 1024;"),
+ ("L11 byte error incorrectly precedes length error", "    if (len > max_bytes) return LineErr::too_long;",
+  "    if (len && line[0] == '\\r') return LineErr::embedded_cr;\n    if (len > max_bytes) return LineErr::too_long;"),
+ ("L12 unknown reason silently means ok", 'return "unknown";', 'return "ok";'),
+]
+
+MUTS_CMDAUTHORITY = [
+ ("A01 security configuration downgraded", '{"cfg set", "e2e_dm", CommandClass::owner, false}', '{"cfg set", "e2e_dm", CommandClass::operator_, false}'),
+ ("A02 acl list incorrectly physical remotely", '{"acl", "list", CommandClass::owner, false}', '{"acl", "list", CommandClass::physical, false}'),
+ ("A03 physical reset admitted to a remote owner", '{"acl", "reset", CommandClass::physical, false}', '{"acl", "reset", CommandClass::owner, false}'),
+ ("A04 open commands inherit arguments", 'row.cls == CommandClass::open && std::string_view(line, len) == row.verb', 'row.cls == CommandClass::open'),
+ ("A05 operator gains owner authority", 'return row.cls == CommandClass::open || row.cls == CommandClass::operator_;', 'return row.cls == CommandClass::open || row.cls == CommandClass::operator_ || row.cls == CommandClass::owner;'),
+ ("A06 remote owner gains physical authority", '|| row.cls == CommandClass::owner;', '|| row.cls == CommandClass::owner || row.cls == CommandClass::physical;'),
+ ("A07 local no longer admits unconditionally", 'case CommandAuthority::local:\n            return true;', 'case CommandAuthority::local:\n            return false;'),
+ ("A08 unknown command acquires a default policy", 'const CommandPolicy* best = nullptr;', 'const CommandPolicy* best = &kCommandPolicy[0];'),
+ ("A09 shortest verb wins", 'verb > best_verb', 'verb < best_verb'),
+ ("A10 shortest subverb wins", 'sub > best_sub', 'sub < best_sub'),
+ ("A11 owner-prefixed legacy subcommand falls to a weaker family", 'cell_match(input.substr(tail), row.subverb, false)', 'cell_match(input.substr(tail), row.subverb, true)'),
+ ("A12 primary token boundary disappears", 'cell_match(input, row.verb, true)', 'cell_match(input, row.verb, false)'),
+ ("A13 alias spellings are ignored", 'return primary > other ? primary : other;', 'return primary;'),
+ ("A14 team mint loses its disruptive flag", '{"team", "new", CommandClass::owner, true}', '{"team", "new", CommandClass::owner, false}'),
+ ("A15 inter-token spaces bypass the stronger subcommand", 'while (tail < len && whitespace(input[tail])) ++tail;', '(void)tail;'),
+ ("A16 first matching row wins before the most-specific policy", 'if (!bare && !sub) continue;', 'if (!bare && !sub) continue;\n        return &row;'),
+]
+
+MUTS_BY_TARGET = {"consoleline": MUTS_CONSOLELINE, "cmdauthority": MUTS_CMDAUTHORITY,
+                  "a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
                   "sliceBmac": MUTS_SLICEBMAC, "sliceBrx": MUTS_SLICEBRX,

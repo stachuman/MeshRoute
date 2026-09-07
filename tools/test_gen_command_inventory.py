@@ -170,6 +170,16 @@ FIX_FILES = {
     "src/firmware_ui_preset_verbs.h": FIX_PRESET,
 }
 
+# Fixture-only classifications, explicitly provided independently of scanning. Extra rows cover the
+# deliberate source additions below; the real three-artifact checker separately refuses orphans.
+FIX_POLICY = {
+    "extra": "—", "help": "identity|messaging|mobile|audio", "help (alias: ?)": "—",
+    "send": "—", "status": "—", "thing": "—|alpha|beta|gamma", "ui": "preset|preset list",
+    "whoami": "—", "widget": "—", "zzz": "—", "peek": "—", "cfg set": "—", "quit": "—",
+    "erase (alias: wipe)": "—", "gizmo": "—", "reboot": "—", "zzznew": "—",
+    "joinprofile": "—", "peers": "—|all", "stateus": "—",
+}
+
 
 class FixtureTree:
     """An isolated copy of the synthetic tree, with the generator's pins swapped to match it."""
@@ -193,6 +203,13 @@ class FixtureTree:
         G.SURFACES = self.surfaces
         G.NON_COMMAND = self.non_command
         G.SCAN_FILES = tuple(sorted(FIX_FILES))
+        policy_path = os.path.join(self.root, G.AUTHORITY_TABLE)
+        os.makedirs(os.path.dirname(policy_path), exist_ok=True)
+        with open(policy_path, "w", encoding="utf-8") as fh:
+            fh.write("## Semantic policy\n\n| verb | sub-verb | class | disruptive | authority |\n")
+            for verb, subs in FIX_POLICY.items():
+                for sv in subs.split("|"):
+                    fh.write("| `%s` | `%s` | operator | no | synthetic fixture |\n" % (verb, sv))
         return self
 
     def __exit__(self, *exc):
@@ -360,14 +377,14 @@ class TestSabotage(unittest.TestCase):
                 G.verify_rows(rows)
         self.assertIn("file:line", str(cm.exception))
 
-    # ---- 11: a populated authority cell ------------------------------------------------------------------------
-    def test_populated_authority_cell_is_refused(self):
+    # Slice 0e's test_populated_authority_cell_is_refused is INVERTED by the owner's Slice 6 ruling.
+    def test_unclassified_row_is_refused(self):
         with FixtureTree() as t:
             rows = t.rows()
-            rows[0].authority = "owner"
+            rows[0].authority = ""
             with self.assertRaises(G.GeneratorError) as cm:
                 G.verify_rows(rows)
-        self.assertIn("authority classification", str(cm.exception))
+        self.assertIn("unclassified authority", str(cm.exception))
 
     # ---- 12: a NEW dispatcher must not be able to land silently -----------------------------------------------
     def test_unclassified_dispatcher_is_a_hard_error(self):
@@ -505,16 +522,19 @@ class TestRealTree(unittest.TestCase):
             self.assertEqual(fh.read(), text,
                              "regenerate with `python3 tools/gen_command_inventory.py --write`")
 
-    def test_every_authority_cell_is_empty(self):
+    # Slice 0e's test_every_authority_cell_is_empty is now the opposite obligation.
+    def test_every_row_carries_exactly_one_authority(self):
         self.assertTrue(self.rows)
+        table = G.read_authority_table(REPO_ROOT)
+        surfaces = {"%s::%s" % (s.file, s.func): s for s in G.SURFACES}
         for r in self.rows:
-            self.assertEqual("", r.authority, "0e must not classify %s" % r.source)
+            self.assertEqual(G.authority_cell(table[G.semantic_key(r)], G.surface_eligibility(surfaces[r.surface])), r.authority)
         path = os.path.join(REPO_ROOT, G.TRACKED_OUTPUT)
         with open(path, "r", encoding="utf-8") as fh:
             body = fh.read()
         for line in body.split("\n"):
             if line.startswith("| `") and line.count("|") == 8:
-                self.assertRegex(line, r"\|\s*\|\s*$", "the authority cell must be blank: %s" % line)
+                self.assertTrue(G.markdown_cells(line)[-1], "an authority cell must not be blank: %s" % line)
 
     def test_the_help_family_is_present_in_the_tracked_table(self):
         """§0g: the help surface yields EXACTLY the primary `help (alias: ?)` row — the nine topics are RETIRED.
@@ -608,8 +628,13 @@ class TestRealTree(unittest.TestCase):
 #   arms, a BLE-only caller, a sub-verb dispatcher, a gated arm and the `help`/`?` punctuation alias.
 PROJ_ARMS = (
     '    if (len > 8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8, out); return true; }\n'
+    # The old fixture had same-gate duplicate arms. Slice 6 rejects those; keep the projection's
+    # union test with complementary gates, and test same-gate duplicate refusal separately below.
+    '#if MR_FEAT_WIDGET\n'
     '    if (len == 4 && !strncmp(line, "quit", 4)) { do_quit(out); return true; }\n'
+    '#else\n'
     '    if (len == 4 && !strncmp(line, "quit", 4)) { do_quit(out); return true; }\n'
+    '#endif\n'
     '    if ((len == 5 && !strncmp(line, "erase", 5)) || (len == 4 && !strncmp(line, "wipe", 4)))'
     ' { do_erase(out); return true; }\n'
     '#if MR_FEAT_WIDGET\n'
@@ -913,6 +938,66 @@ class TestRadminClientAxis(unittest.TestCase):
         self.assertEqual(1, len(acl_list))
         self.assertEqual("serial", acl_list[0].transports,
                          "R-RA-29 refuses the WHOLE target family over BLE — `acl list` included")
+
+
+class TestSlice6Normalization(unittest.TestCase):
+    ARMS = '''\
+#if MR_N_LAYERS < 2
+    if (!strncmp(line, "joinprofile", 11)) { handle_joinprofile(line, out); return true; }
+#else
+    if (!strncmp(line, "joinprofile", 11)) {
+        out.println(F("> err gateway_build (joinprofile is normal-node only)"));
+        return true;
+    }
+#endif
+    if (len == 5 && !strncmp(line, "peers", 5)) { dump_peers(out); return true; }
+    if (len > 5 && !strncmp(line, "peers ", 6)) {
+        if (!strncmp(args, "all", 3)) { dump_all(out); return true; }
+        return true;
+    }
+'''
+
+    def fixture(self):
+        return FixtureTree({"src/firmware_commands.cpp": lambda s: s.replace("    return false;", self.ARMS + "    return false;", 1)})
+
+    def test_joinprofile_keeps_both_gates_anchors_and_refusal(self):
+        with self.fixture() as t:
+            rows = [r for r in t.rows() if r.verb == "joinprofile"]
+        self.assertEqual(2, len(rows))
+        self.assertEqual({"MR_N_LAYERS < 2", "!(MR_N_LAYERS < 2)"}, {r.gate for r in rows})
+        self.assertEqual(2, len({r.source for r in rows}))
+        self.assertEqual({"—", "— refused gateway_build"}, {r.subverb for r in rows})
+        self.assertEqual({("joinprofile", "—")}, {G.semantic_key(r) for r in rows})
+
+    def test_equalized_gates_and_dropped_discriminator_refuse(self):
+        with self.fixture() as t:
+            rows = [r for r in t.rows() if r.verb == "joinprofile"]
+        rows[1].gate, rows[1].subverb = rows[0].gate, rows[0].subverb
+        with self.assertRaisesRegex(G.GeneratorError, "duplicate normalized row"):
+            G.verify_rows(rows)
+
+    def test_peers_level_guard_is_not_an_extra_bare_row(self):
+        with self.fixture() as t:
+            rows = [r for r in t.rows() if r.verb == "peers"]
+        self.assertEqual(["all", "—"], sorted(r.subverb for r in rows))
+
+    def test_real_normalization_and_discriminator_bindings(self):
+        rows = G.build_rows(REPO_ROOT)[0]
+        self.assertEqual(203, len(rows))
+        refusals = [r for r in rows if "— refused" in r.subverb]
+        self.assertEqual({("peers", "<args> — refused console_only"), ("joinprofile", "— refused gateway_build")},
+                         {(r.verb, r.subverb) for r in refusals})
+        self.assertTrue(all(G.semantic_key(r)[1] == "—" for r in refusals))
+
+    def test_missing_ruled_classification_refuses_generation(self):
+        with FixtureTree() as t:
+            path = os.path.join(t.root, G.AUTHORITY_TABLE)
+            with open(path, encoding="utf-8") as fh:
+                table = fh.read()
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(table.replace("| `status` | `—` | operator | no | synthetic fixture |\n", "", 1))
+            with self.assertRaisesRegex(G.GeneratorError, "unclassified inventory row"):
+                t.rows()
 
 
 if __name__ == "__main__":

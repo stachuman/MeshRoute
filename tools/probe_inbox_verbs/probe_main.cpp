@@ -97,6 +97,16 @@ static void wipe_watch_end()   { g_wipe_watch = false; }
 
 #include <cstdio>
 #include <cstring>
+#include <string>
+
+// Slice 6: count calls through the REAL Node command entry, using the existing link-interposer idiom.
+// This is observation, not a fake executor: every call is forwarded to the genuine implementation.
+static unsigned g_command_calls = 0;
+extern "C" meshroute::CmdResult __real__ZN9meshroute4Node10on_commandERKNS_7CommandE(meshroute::Node*, const meshroute::Command&);
+extern "C" meshroute::CmdResult __wrap__ZN9meshroute4Node10on_commandERKNS_7CommandE(meshroute::Node* node, const meshroute::Command& command) {
+    ++g_command_calls;
+    return __real__ZN9meshroute4Node10on_commandERKNS_7CommandE(node, command);
+}
 
 // ================================================================================================================
 // The probe's report primitive (the `probe_firmware_ui` idiom, verbatim: `  ok  ` / `  FAIL ` and a failure count).
@@ -735,13 +745,17 @@ int main() {
 
         static char x_reply[256];        // fw_main.cpp's `g_out` capacity, verbatim (device_ble.h:202)
         static char x_line[512];
+        const mrfw::CommandContext x_usb{mrfw::CommandTransport::usb, mrfw::CommandAuthority::local,
+                                          true, 0, meshroute::console::local_command_max_bytes};
+        // This direct-seam probe has no device_ble.h. The real BLE bound is structurally bound at its caller.
+        const mrfw::CommandContext x_ble{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local, false, 0, 274};
 
         // The TWO transport shapes, each built from the REAL sinks the production adapters use.
         auto run_text = [&](const char* line) {
             std::snprintf(x_line, sizeof x_line, "%s", line);
             mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
             const mrfw::LineExec ex = mrfw::exec_console_line(x_line, std::strlen(x_line),
-                                                              mrfw::LineFormat::text, mrcon, nullptr, 0);
+                                                              mrfw::LineFormat::text, mrcon, nullptr, 0, x_usb);
             mrcon.service();
             return ex;
         };
@@ -750,7 +764,7 @@ int main() {
             mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
             LineSink ls(ble_capture);
             const mrfw::LineExec ex = mrfw::exec_console_line(x_line, std::strlen(x_line),
-                                                              mrfw::LineFormat::json, ls, x_reply, sizeof x_reply);
+                                                              mrfw::LineFormat::json, ls, x_reply, sizeof x_reply, x_ble);
             if (ex.state == mrfw::LineExec::State::streamed) ls.flush();   // the BLE adapter's rule, verbatim
             mrcon.service();
             return ex;
@@ -869,7 +883,7 @@ int main() {
             mrcon.service(); Serial.reset(); ble_reset();
             g_sink.reset();
             const mrfw::LineExec e2 = mrfw::exec_console_line("whoami", 6, mrfw::LineFormat::text, g_sink,
-                                                              nullptr, 0);
+                                                              nullptr, 0, x_usb);
             mrcon.service();
             CHK(e2.state == St::streamed && g_sink.has("[whoami]") && Serial.n_out == 0 && g_ble_n == 0,
                 "X17 the ROUTER arm writes ONLY to the Print& it is handed — a third sink receives it, `mrcon` "
@@ -881,7 +895,7 @@ int main() {
             mrcon.service(); Serial.reset(); ble_reset();
             g_sink.reset();
             const mrfw::LineExec e2b = mrfw::exec_console_line("send 5 \"hi\"", 11, mrfw::LineFormat::text,
-                                                               g_sink, nullptr, 0);
+                                                               g_sink, nullptr, 0, x_usb);
             mrcon.service();
             CHK(e2b.state == St::streamed && g_sink.has("> ") && Serial.n_out == 0 && g_ble_n == 0,
                 "X18 ...and so does the TEXT RENDERING itself — the `> …` result line lands on the supplied sink, "
@@ -895,7 +909,7 @@ int main() {
             mrcon.service(); Serial.reset(); ble_reset(); std::memset(x_reply, 0, sizeof x_reply);
             LineSink ls(ble_capture);
             const mrfw::LineExec e3 = mrfw::exec_console_line(x_line, std::strlen(x_line), mrfw::LineFormat::json,
-                                                              ls, x_reply, sizeof x_reply);
+                                                              ls, x_reply, sizeof x_reply, x_ble);
             char snapshot[256];
             std::memcpy(snapshot, x_reply, sizeof snapshot);
             std::memset(x_line, 'Z', sizeof x_line);            // the caller's buffer is reused, as it is in production
@@ -1819,6 +1833,83 @@ int main() {
         reset_nv(false);
     }
 #endif   // MR_FEAT_RADMIN_CLIENT
+
+    // Slice 6: synthetic contexts through the real transport-neutral seam, on BOTH compiled arms.
+    // No fw_main.cpp execution is claimed: its BLE head is structurally checked and has a bench residue.
+    {
+        using namespace mrfw;
+        using namespace meshroute::console;
+        const CommandContext local{CommandTransport::usb, CommandAuthority::local, true, 0, local_command_max_bytes};
+        char reply[256];
+        auto call = [&](const std::string& line, LineFormat format, const CommandContext& ctx) {
+            g_sink.reset(); std::memset(reply, 0, sizeof reply); g_routed[0] = '\0'; g_command_calls = 0;
+            return exec_console_line(line.data(), line.size(), format, g_sink, reply, sizeof reply, ctx);
+        };
+        for (const auto format : {LineFormat::text, LineFormat::json}) {
+            for (const char bad : {'\0', '\r', '\n'}) {
+                std::string line = "send 5 \"A?B\"";
+                line[9] = bad;
+                const LineErr reason = bad == '\0' ? LineErr::embedded_nul : bad == '\r' ? LineErr::embedded_cr : LineErr::embedded_lf;
+                const auto result = call(line, format, local);
+                CHK(result.outcome == DispatchOutcome::refused && result.refuse == RefuseReason::bad_line
+                    && result.line_err == reason && result.parse_err == ParseErr::ok,
+                    "Y1 validator refuses %s before parsing (format=%u)", line_err_name(reason), unsigned(format));
+                const std::string expected = format == LineFormat::text ? std::string("> err bad_line ") + line_err_name(reason) + "\n"
+                    : std::string("{\"err\":\"bad_line\",\"msg\":\"") + line_err_name(reason) + "\"}\n";
+                CHK(format == LineFormat::text ? g_sink.is(expected.c_str()) && reply[0] == '\0'
+                                               : std::strcmp(reply, expected.c_str()) == 0 && g_sink.n == 0,
+                    "Y2 exact bad-line envelope, only on the supplied output (format=%u)", unsigned(format));
+                CHK(g_command_calls == 0 && g_routed[0] == '\0', "Y3 bad bytes execute no Node command or router handler");
+            }
+            for (const size_t cap : {local_command_max_bytes, size_t(274), remote_command_max_bytes}) {
+                CommandContext bounded = local; bounded.line_max_bytes = cap;
+                const std::string line = "send 5 \"" + std::string(cap - 9, 'x') + "\"";
+                const auto accepted = call(line, format, bounded);
+                CHK(accepted.outcome == DispatchOutcome::completed && accepted.line_err == LineErr::ok
+                    && g_command_calls == 1, "Y4 inclusive bound %u reaches the real Node once (format=%u); not an RF-admission claim", unsigned(cap), unsigned(format));
+                const auto refused = call(line + "x", format, bounded);
+                CHK(refused.outcome == DispatchOutcome::refused && refused.line_err == LineErr::too_long
+                    && g_command_calls == 0, "Y5 cap+1 refuses before execution (%u, format=%u)", unsigned(cap), unsigned(format));
+            }
+            const char* lines[] = {"status", "status x", "version", "factory_reset confirm", "acl list", "acl reset confirm",
+                                   "admin-key list", "rcmd 1 status", "unknown-verb"};
+            // Admission is not completion: status x and the absent-role ACL arm can be unmatched after admission.
+            const bool admitted[3][9] = {{true,false,false,false,false,false,false,false,false},
+                                         {true,true,true,false,false,false,false,false,false},
+                                         {true,true,true,true,true,false,false,false,false}};
+            for (unsigned a = 0; a < 3; ++a) {
+                const CommandContext remote{CommandTransport::remote, static_cast<CommandAuthority>(a + 1), false, 42, remote_command_max_bytes};
+                for (unsigned i = 0; i < 9; ++i) {
+                    auto& nv = mrprobe_nv(); const int writes = nv.writes;
+                    const int stores = production_store_touches();
+                    const auto result = call(lines[i], format, remote);
+                    CHK((result.outcome != DispatchOutcome::refused) == admitted[a][i],
+                        "Y6 remote authority %u admission for %s (format=%u)", a + 1, lines[i], unsigned(format));
+                    if (!admitted[a][i]) {
+                        CHK(g_sink.n == 0 && reply[0] == '\0' && result.n == 0 && g_command_calls == 0
+                            && g_routed[0] == '\0' && nv.writes == writes && production_store_touches() == stores
+                            && result.refuse == (i == 8 ? RefuseReason::unclassified : RefuseReason::authority),
+                            "Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes");
+                    }
+                    CHK(result.outcome != DispatchOutcome::scheduled && result.outcome != DispatchOutcome::internal_failure,
+                        "Y8 scheduled/internal_failure have no producer in Slice 6");
+                }
+                std::string bad = "status"; bad.push_back('\0');
+                const auto result = call(bad, format, remote);
+                CHK(result.refuse == RefuseReason::bad_line && result.line_err == LineErr::embedded_nul
+                    && g_sink.n == 0 && reply[0] == '\0' && g_command_calls == 0,
+                    "Y9 remote validation refusal also writes nothing (authority=%u format=%u)", a + 1, unsigned(format));
+            }
+        }
+        g_command_calls = 0;
+        const char panel[] = "send 5 \"A\0B\"";
+        const auto result = exec_command(panel, sizeof panel - 1);
+        CHK(!result.ok && result.line_err == LineErr::embedded_nul && result.parse_err == ParseErr::ok
+            && g_command_calls == 0, "Y10 real panel executor refuses NUL without parsing or executing");
+        const auto good = exec_command("send 5 \"ok\"", 11);
+        CHK(good.ok && good.line_err == LineErr::ok && g_command_calls == 1,
+            "Y11 panel success proves the real Node command counter discriminates");
+    }
 
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");

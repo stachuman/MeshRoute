@@ -6,6 +6,7 @@
 // handle_crashtest/handle_prep_restart) is reached ONLY via the fw_context.h wrappers — this TU MUST NOT include
 // device_fault.h (its ISR vectors + the MRFAULT_HW/MRFAULT_ESP32 macros are single-TU). Behaviour-preserving.
 #include "firmware_commands.h"
+#include "firmware_command_authority.h"
 #include "fw_context.h"        // g_node + the shared state
 #include "device_nv.h"         // mrnv::PeerBlob / load_peers / save_peers
 #include <cstdio>              // snprintf
@@ -1558,11 +1559,37 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
 // ⓘ THE SIGNATURE STAYS ON ONE LINE ON PURPOSE: `tools/gen_command_inventory.py`'s function-span scanner requires
 // the opening brace on the definition line (`_function_spans`), and this function is now a named hop in the wiring
 // chain that proves `dispatch`'s and `parse_command`'s transport claims. Wrapping it makes the generator refuse.
-LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& stream, char* reply, size_t reply_cap) {
+LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& stream, char* reply, size_t reply_cap, const CommandContext& ctx) {
     LineExec r{};
+    r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);
+    if (r.line_err != meshroute::console::LineErr::ok) {
+        r.outcome = DispatchOutcome::refused;
+        r.refuse = RefuseReason::bad_line;
+        if (ctx.authority != CommandAuthority::local) return r;  // no remote envelope before Slice 7b
+        if (fmt == LineFormat::json) {
+            r.state = LineExec::State::buffered;
+            r.n = meshroute::console::write_err(reply, reply_cap, "bad_line", meshroute::console::line_err_name(r.line_err));
+        } else {
+            r.state = LineExec::State::streamed;
+            stream.print(F("> err bad_line "));
+            stream.print(meshroute::console::line_err_name(r.line_err));
+            stream.write(static_cast<uint8_t>('\n'));
+        }
+        return r;
+    }
+
+    // Local output/transport policy is unchanged; only a remote context consults this metadata.
+    if (ctx.authority != CommandAuthority::local) {
+        const CommandPolicy* policy = command_policy_lookup(line, len);
+        if (!policy || !command_authority_admits(*policy, ctx, line, len)) {
+            r.outcome = DispatchOutcome::refused;
+            r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;
+            return r;
+        }
+    }
 
     // (1) the console verb router — one offer, through the sink the caller supplied.
-    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }
+    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }
 
     // (2) the command parser. ⓘ `cmd.body` borrows into `line`; everything that reads it runs below, inside this
     //     call, while the caller's buffer is still alive.
@@ -1570,6 +1597,7 @@ LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& 
     r.parse_err = meshroute::console::parse_command(line, len, cmd);
     if (r.parse_err == meshroute::console::ParseErr::empty)    { r.state = LineExec::State::empty;     return r; }
     if (r.parse_err != meshroute::console::ParseErr::ok)       { r.state = LineExec::State::unmatched; return r; }
+    r.outcome = DispatchOutcome::completed;
 
     if (fmt == LineFormat::json) {
         // ---- the companion envelope: ONE NDJSON line, staged in the caller's reply buffer (device_ble.h `g_out`).
@@ -1715,13 +1743,15 @@ meshroute::console::CfgExtras make_cfg_extras() {
 }
 
 // ★★ UI-7: the TYPED command executor (declared in firmware_commands.h — read the contract there). It is the exact
-// sequence `service_console` and `ble_dispatch_line` each open-code, with the human-readable rendering left out: the
-// board UI needs the `CmdResult`, not a string. Additive; neither existing caller is touched (C1).
+// typed parser/Node path, without text rendering. Since Slice 0c the transport callers use exec_console_line;
+// the panel keeps this distinct contract. Slice 6 validates its bytes with the same shared validator.
 // ⓘ `parse_command` leaves `cmd.body` BORROWING into `line`, so `on_command` runs inside this function while `line` is
 //   still the caller's live buffer — never after a return.
 ExecResult exec_command(const char* line, size_t len) {
     ExecResult r{};
     if (!line || len == 0) { r.parse_err = meshroute::console::ParseErr::empty; return r; }
+    r.line_err = meshroute::console::validate_command_line(line, len, meshroute::console::local_command_max_bytes);
+    if (r.line_err != meshroute::console::LineErr::ok) return r;
     meshroute::Command cmd{};
     r.parse_err = meshroute::console::parse_command(line, len, cmd);
     if (r.parse_err != meshroute::console::ParseErr::ok) return r;

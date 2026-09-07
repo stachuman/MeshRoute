@@ -265,8 +265,8 @@ SRC_CTL = [
     # ---- X14: THE BLE CALLER BYPASSES THE SEAM for the router half — the "helper plus a residual second path"
     #          failure the brief names explicitly. The seam still runs; so does a second router offer.
     ('X14 the BLE adapter keeps a residual direct dispatch() beside the seam call', FWMAIN,
-     '    LineSink ls(ble_sink);\n    const mrfw::LineExec ex = mrfw::exec_console_line(',
-     '    LineSink ls(ble_sink);\n    if (mrfw::dispatch(line, len, ls)) { ls.flush(); return 0; }\n'
+     '\n    const mrfw::LineExec ex = mrfw::exec_console_line(',
+     '\n    if (mrfw::dispatch(line, len, ls)) { ls.flush(); return 0; }\n'
      '    const mrfw::LineExec ex = mrfw::exec_console_line(', ('S23',)),
 
     # ---- X15: THE BLE CALLER LOSES ITS ONE FLUSH. Every streamed router response would end one partial line short
@@ -278,8 +278,8 @@ SRC_CTL = [
     # ---- X16: THE BLE CALLER ROUTES THE STREAM THROUGH THE 256-B DIRECT BUFFER — [[B292]]'s hazard, made real:
     #          a multi-kilobyte `routes` dump handed to a single 244-byte notification.
     ('X16 the BLE adapter hands the seam its direct buffer where the stream belongs', FWMAIN,
-     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap)',
-     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, nullptr, 0)', ('S23',)),
+     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx)',
+     'mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, nullptr, 0, ctx)', ('S23',)),
 
     # ---- X17: THE SEAM'S FORK IS REVERSED. ⛔ THIS IS THE ONE CONTROL WITH NO BEHAVIOURAL TWIN, and that is a
     #          MEASUREMENT, not an omission: with the router/parser intersection measured EMPTY on all six real
@@ -287,7 +287,7 @@ SRC_CTL = [
     #          which is exactly why 0c could unify the two orders at all. A structural pin is therefore the only
     #          honest instrument for it, and this control is what proves the pin is not decorative.
     ('X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)', CMDS,
-     '    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }\n'
+     '    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }\n'
      '\n'
      '    // (2) the command parser.',
      '    // (2) the command parser.', ('S24',)),
@@ -320,6 +320,46 @@ SRC_CTL = [
      '// ⛔ V1 CORRECTION (§RADMIN-0c / [[B298]], 2026-09-05) — THE OLD CLAIM IS KEPT VISIBLE AND IS NOW FALSE. This',
      '// The two existing call sites are DELIBERATELY NOT retrofitted onto this helper.\n'
      '// ⛔ NOTE (§RADMIN-0c) — THE OLD CLAIM IS KEPT VISIBLE AND IS NOW FALSE. This', ('S29',)),
+]
+
+BLE_VALIDATION = ('    const LineErr e = validate_command_line(line, len, mrble::kLineStorageBytes - 1);\n'
+                  '    if (e != LineErr::ok) return write_err(out, cap, "bad_line", line_err_name(e));\n')
+SRC_CTL += [
+    ('S6-C1 seam validator call deleted', CMDS,
+     '    r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);',
+     '    r.line_err = meshroute::console::LineErr::ok;', ('S53',)),
+    ('S6-C2 panel validator call deleted', CMDS,
+     '    r.line_err = meshroute::console::validate_command_line(line, len, meshroute::console::local_command_max_bytes);',
+     '    r.line_err = meshroute::console::LineErr::ok;', ('S54',)),
+    ('S6-C3 admission inverted', CMDS,
+     'if (!policy || !command_authority_admits(*policy, ctx, line, len))',
+     'if (!policy || command_authority_admits(*policy, ctx, line, len))', ('S55',)),
+    ('S6-C4 local commands consult the table', CMDS,
+     '    if (ctx.authority != CommandAuthority::local) {',
+     '    if (ctx.authority == CommandAuthority::local) {', ('S55',)),
+    ('S6-C5 remote refusal writes a local envelope', CMDS,
+     '            r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;',
+     '            r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;\n'
+     '            stream.print("refused");', ('S56',)),
+    ('S6-C6 USB bad_line token drifts', CMDS,
+     'stream.print(F("> err bad_line "));', 'stream.print(F("> err invalid "));', ('S57',)),
+    ('S6-C7 context becomes optional', CMDSH,
+     'char* reply, size_t reply_cap, const CommandContext& ctx);',
+     'char* reply, size_t reply_cap, const CommandContext& ctx = {});', ('S58',)),
+    ('S6-C8 USB bound becomes a literal', FWMAIN,
+     'true, 0, sizeof(line) - 1};', 'true, 0, 1023};', ('S59',)),
+    ('S6-C9 BLE bound becomes a literal', FWMAIN,
+     'false, 0, mrble::kLineStorageBytes - 1};', 'false, 0, 274};', ('S60',)),
+    ('S6-C10 BLE head validator deleted', FWMAIN, BLE_VALIDATION, '', ('S61',)),
+    ('S6-C11 BLE validator moved below the first command-owning arm', FWMAIN,
+     BLE_VALIDATION + '    if (len == 6 && !strncmp(line, "whoami", 6)) {',
+     '    if (len == 6 && !strncmp(line, "whoami", 6)) {\n' + BLE_VALIDATION, ('S61',)),
+    ('S6-C12 BLE refusal replaced with fall-through', FWMAIN,
+     '    if (e != LineErr::ok) return write_err(out, cap, "bad_line", line_err_name(e));',
+     '    (void)e;', ('S61',)),
+    ('S6-C13 a scheduled producer appears before Slice 7b', CMDS,
+     '\n    r.outcome = DispatchOutcome::completed;\n',
+     '\n    r.outcome = DispatchOutcome::scheduled;\n', ('S62',)),
 ]
 
 for idx, (label, path, find, repl, expect_ids) in enumerate(SRC_CTL):

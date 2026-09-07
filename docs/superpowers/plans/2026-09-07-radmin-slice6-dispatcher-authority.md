@@ -34,8 +34,10 @@ context (of which no producer exists yet) — with the generator's `peers` dupli
 | **B345** — the prescribed `peers` edits remove ONE row, not two | inventory :44-46 (`all` + two bare `dispatch` rows) and :213-214 (two bare BLE rows); §4.5 drops the `dispatch` level-guard row and RELABELS the BLE refusal row | §4.5/§7: predicted **203**, with the exact before/after mapping; the `<args>` discriminator is bound to the bare `peers` semantic row, never fed to the native lookup as a sub-verb |
 
 | **B346** — `acl list` classified `physical` in §6 contradicts R-RA-33 call 8 (a remote OWNER may list) | proposal §G: `acl list` = owner (remote) / physical (local); `acl reset` = physical | §4.4 (the transcription rule for dual readings), §6 items 2–3 (`acl list` → owner; `acl reset confirm` is the all-remote-refused control) |
+| **B347** — the semantic duplicate rule as written rejects `joinprofile`'s execution/refusal pair | inventory :33/:34: `dispatch` `:1454` (`MR_N_LAYERS < 2`, executes) and `:1468` (`!(MR_N_LAYERS < 2)`, refuses `gateway_build`) — opposite gates, one verb | §4.5: the duplicate key includes the feature gate; a refusal arm carries its discriminator; both rows preserved, 203 unchanged |
+| **B348** — `mrble::kLineStorageBytes` exists only under `MRBLE_NRF52`, so the prescribed BLE bound does not compile on ESP32 (`heltec_mobile`: `src/fw_main.cpp:481`, `:643` "not a member of 'mrble'") | `src/device_ble.h:24-26` defines `MRBLE_NRF52` for nRF52 only; `:35-48` the API split (ESP32 = inert stubs); `:53-325` the device implementation gate INCLUDES the capacity derivation (`:96-196`: grammar atoms → `kSendLineMaxBytes`, `kSendLayerLineMaxBytes`, `kRemoteLineMaxBytes`, `kProductLineMaxBytes`, `kLineStorageBytes`), which references ONLY `protocol_constants.h` and `sizeof` literals — no Bluefruit/nRF symbol — yet `ble_dispatch_line` compiles on every target (`fw_main.cpp:1085` hands it to the inert `begin`) | §4.1 (the authorized mechanism: hoist the derivation above the gate), §5 (`src/device_ble.h` enters the fence for that hoist only) |
 
-The four are registered (B343–B346, next free **B347**); the coder's report stays as the preflight record at the head
+The six are registered (B343–B348, next free **B349**); the coder's report stays as the preflight record at the head
 of the evidence file, and the implementation sections are appended to the same file.
 
 ## 1. Closure bindings — the Slice 5 QA PASS pins (measured by QA 2026-09-07, brief §10 of the Slice 5 brief)
@@ -66,7 +68,7 @@ note of revision 1 is withdrawn. The coder's clean-start check (`git status --sh
 | Inventory / help | **204 rows**, `--check` byte-for-byte; help union 53 (router 44/43/41/42/40/41 per profile, parser 7) |
 | Tools sweep | `Ran 329 tests … OK` |
 | Mutation harness | `tools/probe_ui_model_mutations.py` `PIN_CASES, PIN_ASSERTS = 2825, 119784`; union 28 targets 516 RED / 1 unusable (`sliceBmac` M04 = B342, pre-existing at base — ⛔ not this slice's to repair) |
-| Register | next free finding number **B347** (B336–B342 = Slice 5's proposals; B343–B346 = this brief's preflight findings, registered) |
+| Register | next free finding number **B349** (B336–B342 = Slice 5's proposals; B343–B348 = this slice's preflight/implementation findings, registered) |
 
 ## 2. Verbatim authority pins
 
@@ -116,6 +118,7 @@ authority table has received its separate owner classification; missing or dupli
 | `src/firmware_commands.cpp:1722` `ExecResult exec_command(line, len)` — the OLED panel's typed path, parser → `Node::on_command`, no router, no `Print` | the validator must sit here too, or the panel bypasses it |
 | `src/fw_main.cpp:1145-1154` `service_console`: `static char line[1024]`, `\r` skipped, `\n` terminates, over-long refused loudly (`> err: line too long (>1023) — rejected`); an embedded NUL is NOT refused (the `strncmp` arms stop at it silently) | the USB bound is 1023 command bytes (1024 storage incl. NUL); the buffer size becomes the NAMED constant, behaviour byte-identical |
 | `src/device_ble.h:180-193` `kLineStorageBytes = kProductLineMaxBytes + 1` (derived: `larger_of(send, send_layer, remote) + NUL`, `static_assert`ed against the grammar maxima); `:212-216` overflow refuses `{"err":"line_too_long"}`; `:301-302` the same NUL blindness | the BLE bound is `kLineStorageBytes − 1` command bytes, PASSED by the BLE caller from that one constant — ⛔ never a literal |
+| **B348:** that derivation lives INSIDE the `#if defined(MRBLE_NRF52)` implementation gate (`:53`…`:325`), in `namespace mrble { namespace {`; ESP32 builds see only the inert API stubs (`:41-48`), while `ble_dispatch_line` is compiled on every target | the derivation is HOISTED above the gate (§4.1) so the constant names the BLE product-line capacity on every build; the storage and everything Bluefruit stay gated |
 | `src/fw_main.cpp:478` `ble_dispatch_line`; `:560-561` the two `peers` arms (bare streams; `peers <args>` refuses `console_only`); `src/firmware_commands.cpp:1434-1439` the two `dispatch` arms (`len == 5` bare; `len > 5 "peers "` = the family guard whose block parses `all`) | the generator's duplicate: rows 45/46 and 213/214 of the inventory (`:1434`/`:1435`, `:560`/`:561`) |
 | `src/fw_main.cpp:480` `if (len == 0) return 0;` then FOURTEEN command-owning BLE arms (`:481-565`) BEFORE the seam fallback (B343) | the validator's BLE call site is the head of `ble_dispatch_line`, immediately after the empty-line return; the seam's own call stays (USB's only entry, and the remote consumer's) |
 | the inventory's SURFACES (`tools/gen_command_inventory.py:113-195`): `dispatch` / sub-verb handlers / `parse_command` (target semantic), `ble_dispatch_line` + `service_console` (transport twins), `help_command` (local), `remote_encode` + `remote_exec` (the §17 legacy surfaces, `src/firmware_remote.cpp`) — and `status`/`routes`/`duty`/`limits` occur on THREE of them (B344) | the class is per semantic (verb, sub-verb); surface eligibility is per SURFACE; §4.3–4.5 |
@@ -145,6 +148,22 @@ const char* line_err_name(LineErr);                         // the ONE token map
   storage; the literal `1024` in `fw_main.cpp:1146` becomes the named constant + 1); the BLE caller passes
   `mrble::kLineStorageBytes − 1`; the panel passes `local_command_max_bytes`; the future remote consumer passes
   `remote_command_max_bytes`. ⛔ ONE function, three named bounds, no per-transport twin.
+* **B348 — the authorized mechanism (and the two refused ones).** `mrble::kLineStorageBytes` must be nameable on
+  EVERY build that compiles `ble_dispatch_line`, i.e. all of them. AUTHORIZED: in `src/device_ble.h`, HOIST the
+  capacity derivation — the grammar atoms, the three producer maxima, `larger_of`, `kProductLineMaxBytes`,
+  `kLineStorageBytes` and every `static_assert` that references constants only — out of the
+  `#if defined(MRBLE_NRF52)` implementation gate into the always-compiled `namespace mrble` (a NAMED namespace, not
+  the anonymous one), together with the `protocol_constants.h` include it needs; ⛔ NO value changes (275 stays
+  275 — the probe pins it), ⛔ no wording of the derivation changed beyond the move; `g_line[kLineStorageBytes]`,
+  `g_pos`, `g_overflow`, every Bluefruit symbol and the storage-binding assertions that name `g_line` STAY under
+  the gate. While the block is touched, bind its TRANSITIONAL mirror `kRemoteCommandMaxBytes = 201` to the new
+  authority with `static_assert(kRemoteCommandMaxBytes == meshroute::console::remote_command_max_bytes)` (no value
+  change; the "Slice 2 owns the real one" comment is corrected to name `console_line.h`). REFUSED: (a) gating
+  `ble_dispatch_line`'s body under `MRBLE_NRF52` with an inert stub — it would add an MCU axis the inventory
+  generator does not have (`eval_gate` refuses an un-axised macro), churn the gate provenance of every BLE row and
+  restructure dead code beyond this slice; (b) any fallback bound (`local_command_max_bytes` on ESP32) — a lying
+  bound. Proof: `tools/probe_ble_line` pins UNCHANGED (40/8; it compiles the header with the nRF52 fakes), the
+  warning census's six ESP32 envs compile and stay at their pins, and the ruled pair builds both MCUs.
 * **The 201 binding:** `remote_body_cap` is not `constexpr`, so `remote_command_max_bytes` is a named constant whose
   DERIVATION is executed natively: `test/test_console_line.cpp` builds the depth-4 cross-layer by-hash
   `RemoteCarrier` (the smallest authenticated carrier per R-RA-24′), asserts `remote_body_cap(...) == 226` and
@@ -259,10 +278,22 @@ bool command_authority_admits(const CommandPolicy& row, const CommandContext& ct
    beside the bare `:1434` row); an arm whose body is a REFUSAL (`write_*_err(…, "console_only")`) exposes its
    discriminator in the sub-verb cell (`ble_dispatch_line` `:561` → `peers | <args> — refused console_only`), so the
    two BLE rows are no longer indistinguishable. `verify_rows` gains a SEMANTIC duplicate refusal — equal
-   (surface, verb, sub-verb) regardless of `file:line` — with unit tests for the merged shape and the refusal.
-   **Predicted (B345, corrected): 204 → 203 rows.** Exact mapping: inventory :45 (`peers —` @`:1434`) stays; :46
-   (`peers —` @`:1435`, the level guard) is REMOVED; :44 (`peers all`) stays; :213 (`peers —` BLE @`:560`) stays;
-   :214 (`peers —` BLE @`:561`) becomes `peers | <args> — refused console_only` (relabelled, not removed). The
+   (surface, verb, sub-verb, **feature gate**) with NO refusal discriminator, regardless of `file:line` — with unit
+   tests for the merged shape and the refusal. **B347 (coder preflight, verified):** `joinprofile` has TWO
+   `dispatch` arms under OPPOSITE gates (`:1454` `MR_N_LAYERS < 2` executes `handle_joinprofile`; `:1468-1470`
+   `!(MR_N_LAYERS < 2)` prints `> err gateway_build (joinprofile is normal-node only)` and returns). They are an
+   execution-versus-refusal PAIR, not a duplicate: BOTH rows, anchors and gates are PRESERVED; the gateway arm
+   carries the refusal discriminator in its sub-verb cell (`— refused gateway_build`), exactly the BLE `peers`
+   mechanism, and binds to the bare `joinprofile` semantic row (class operator). Mutually exclusive gates alone
+   already make the pair distinct under the corrected key; the discriminator makes the refusal visible. A unit
+   fixture holds the pair, and a control that equalizes the two gates AND drops the discriminator must be REFUSED as
+   a duplicate. The `dispatch` `peers` `:1435` arm is still REMOVED — it is a sub-verb LEVEL GUARD, not a refusal.
+   **Predicted (B345, corrected; B347 keeps it): 204 → 203 rows.** Exact mapping: inventory :45 (`peers —`
+   @`:1434`) stays; :46 (`peers —` @`:1435`, the level guard) is REMOVED; :44 (`peers all`) stays; :213 (`peers —`
+   BLE @`:560`) stays; :214 (`peers —` BLE @`:561`) becomes `peers | <args> — refused console_only` (relabelled,
+   not removed); :33 (`joinprofile —` @`:1454`) stays; :34 (`joinprofile —` @`:1468`, `!(MR_N_LAYERS < 2)`)
+   becomes `joinprofile | — refused gateway_build` (relabelled, not removed). Both discriminator rows bind to their
+   bare semantic row for classification and are never fed to `command_policy_lookup` as sub-verbs. The
    `<args>` cell is a DISCRIMINATOR, not a sub-verb: the generator and the checker bind that row to the bare
    `peers` semantic row (class operator, transport arm), and ⛔ it is never fed to `command_policy_lookup` as a
    sub-verb in any test. Help union 53 unchanged; ownership.py's router/parser NAME sets unchanged.
@@ -284,7 +315,7 @@ bool command_authority_admits(const CommandPolicy& row, const CommandContext& ct
 
 ### 4.7 Numbering
 
-Proposed findings start at **B347** (B343–B346 are this brief's own preflight findings, already registered); the
+Proposed findings start at **B349** (B343–B348 are this slice's own findings, already registered); the
 coder proposes in the evidence and ⛔ never edits the register.
 
 ## 5. Exact implementation/instrument fence
@@ -300,7 +331,9 @@ coder proposes in the evidence and ⛔ never edits the register.
   the named constant; **the ONE validator call + `bad_line` envelope at the head of `ble_dispatch_line` (B343)**,
   immediately after the empty-line return and before `whoami`. ⛔ Nothing else — no arm reordered, no companion
   envelope changed; the intakes' own refusals stay byte-identical.
-- `src/device_ble.h`: ⛔ untouched (its constant is READ by `fw_main.cpp`).
+- `src/device_ble.h`: the B348 hoist ONLY (§4.1) — the derivation block moves above the implementation gate into
+  the named `mrble` namespace with its `protocol_constants.h` include, plus the one `static_assert` binding the
+  transitional 201 mirror to `console_line.h`; ⛔ no value, storage, intake, envelope or Bluefruit change.
 - `tools/gen_command_inventory.py` + `tools/test_gen_command_inventory.py` (§4.5); the regenerated
   `docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md` (`--write`, coder-owned).
 - NEW `docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md`; NEW `tools/check_command_authority.py`
@@ -318,7 +351,7 @@ coder proposes in the evidence and ⛔ never edits the register.
   untouched; `tools/probe_features/ownership.py`: expected untouched (no new capability site).
 - Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice6.md` (the preflight report stays at its head; the
   implementation sections are appended), both repository statuses/diffs (the simulator diff must be EMPTY),
-  proposed findings from B347.
+  proposed findings from B349.
 - ⛔ OUT OF FENCE: `lib/core/*`, `src/firmware_ui*`, `src/device_ble.h`, `src/firmware_help.h`, any handler, the
   register/bench/manual/design/rulings/QA ledgers/BASELINE, the simulator.
 
@@ -407,8 +440,47 @@ the union, the two-repo manifests (simulator diff EMPTY), proposed findings, and
 Read the evidence; verify the ruled table transcription row by row against the proposal (R-RA-33/32); close only
 proven register obligations; land design §12/§12.1/§13/§19.1 row 6 as measured; publish the command authority
 table in the manual from the generated inventory; keep B312/B317/B330/B337/B342 open for their own scope; close
-B343–B346 as folded in. **One bench residue (M2, QA lands it in the bench script):** the BLE head is host-unexecutable,
+B343–B348 as folded in. **One bench residue (M2, QA lands it in the bench script):** the BLE head is host-unexecutable,
 so the bench sends a BLE-NUS line carrying an embedded NUL (`cfg set name AB␀CD`) and expects
 `{"err":"bad_line","msg":"embedded_nul"}` with the node name UNCHANGED — the only metal-only behaviour this slice
 adds (§19.1 row 6 otherwise: none). Propose, not do: consolidating the R-RA-29/30 BLE guards onto the table's `physical` /
 `controller_local` classes (a later refactor slice, C1).
+
+
+## 10. QA final gate — PASS 2026-09-07 (independent re-run on the coder's final tree at `356dad7`, simulator `06746a9`)
+
+**Verdict: PASS.** Six preflight/implementation findings (B343–B348) were folded in before implementation and are
+verified closed; the coder's three proposals B349–B351 are landed (B349 closed in-slice; B350/B351 open follow-ups).
+Evidence: `docs/superpowers/evidence/2026-09-07-radmin-slice6.md` §9. QA's own figures (`scratchpad/s6gate/`):
+
+| instrument | QA figure (each reproduces the coder's §9.2) |
+| --- | --- |
+| native | **2839 / 121831 / 0** (+14 cases: `test_console_line.cpp` 6, `test_command_authority.cpp` 8) |
+| simulator | `lus` md5 `db6582a171a6d785720e324c2cfe43f1` UNCHANGED, **0 build actions** (the checked no-op) |
+| corpus | 36/36, anchors 36/36, s18 `32afbf11` / 269517 / 0 |
+| ABI probes | Node 224136/8 · 117912/8 · 150504/8 unmoved; B278 42/6 unmoved |
+| console sink | `profiles=6 checks=720 structural=62 ble_guard=905 ownership=6 ownership_controls=3 controls=114 unusable_controls=0` |
+| inbox verbs | ACCEPT **362 / 39** · CLIENT **360 / 42**, 0 unusable |
+| firmware UI · custody · BLE line | 223 · 27/10 · 40/8 (the BLE intake probe UNCHANGED after the B348 hoist) |
+| features | 9 / 120 / 59 + ownership 40 (nine-file census unchanged — the three new headers name no capability) |
+| tools sweep | **`Ran 342 tests … OK`** (329 + 5 generator + 8 checker) |
+| inventory | **203 rows**, bare + `--check` byte-for-byte; help union 53 |
+| `check_command_authority.py` | PASS: ruled table / production header / generated inventory agree; `--selftest` **6/6 RED** |
+| a0 · DATA-type literals · `git diff --check` (both repos) | PASS · PASS · clean; simulator diff EMPTY |
+| warning census | 173 / 178 / 177 / 177 / 182 / 182 at pins, `-Wswitch` 0 |
+| boards (`.pio-measure/qa-s6-final`) | gateway **197180 / 550204 / 285** (RAM ±0, flash +5536) · heltec_mobile **207748 / 1371260 / 329** (RAM ±0, flash +3816) |
+| mutation union (7 targets, fresh stage) | **114 RED / 0 unusable** (`consoleline` 12, `cmdauthority` 16, `radmin2codec` 66, `sliceAjson` 1, `sliceDack` 1, `sliceGjson` 16, `b134ack` 2) |
+
+**The ruled-table transcription was verified by QA row by row** against the classification proposal (R-RA-33 with
+R-RA-32): every §A–§H row, every disruptive flag, the B346 dual-reading rule (`acl list/add/set/remove`,
+`admin-id show` = owner; `acl reset`, `admin-id generate/rotate/reset` = physical), `help` = local_only, the five
+legacy verbs = legacy, the controller families = controller_local. No deviation.
+
+**Accepted implementation readings (recorded, no action):** (a) `command_policy_lookup` matches privileged
+sub-verb PREFIXES (the real `handle_team` `mint_form` accepts a `new` prefix), so such spellings classify as the
+stricter row rather than the bare family — fail-closed; (b) `src/device_ble.h` includes the validator by the
+relative path `../lib/console/console_line.h` so the standalone BLE-intake probe needs no new include directory;
+(c) a well-formed BLE line is scanned twice (head + seam), as the brief stated.
+
+**Residue:** ONE bench line (Part 63): a BLE-NUS line carrying an embedded NUL is refused
+`{"err":"bad_line","msg":"embedded_nul"}` with the node name unchanged — no host instrument compiles `fw_main.cpp`.

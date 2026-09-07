@@ -158,3 +158,10 @@
   the existing REJECT-default confirmation. Missing callers fail closed, and unrelated provisioning close or
   emergency pre-emption retires the context; no parent is inferred from window, screen or sentinel fields. See
   `docs/superpowers/specs/2026-08-26-b250-roster-grant-return-context-design.md`.
+
+- **Remote-admin Slices 5 and 6 — software QA PASS (2026-09-07; QA now authors and gates, Codex codes):** Slice 5
+  committed `d226189` (target session/admission/on-air bootstrap; B341 fixed in-slice). Slice 6 (shared validator,
+  dispatcher context/outcome, ruled authority table + three-artefact checker; B343–B348 preflight fold-ins)
+  QA-passed, uncommitted at report: native 2839/121831/0, `lus` unchanged, corpus 36/36, inventory 203 rows, union
+  114/0, boards RAM ±0. Register B336–B351 landed; next free B352; open follow-ups B337/B342/B350/B351; bench
+  residue Part 63. NEXT: owner commits Slice 6; Slice 7a/7b pre-check + brief.

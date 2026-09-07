@@ -478,6 +478,8 @@ uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a 
 static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t cap) {
     using namespace meshroute::console;
     if (len == 0) return 0;
+    const LineErr e = validate_command_line(line, len, mrble::kLineStorageBytes - 1);
+    if (e != LineErr::ok) return write_err(out, cap, "bad_line", line_err_name(e));
     if (len == 6 && !strncmp(line, "whoami", 6)) {
         mrnv::IdBlob idb{}; mrnv::load_id(idb);              // the /mrid name (no RAM copy kept; whoami is rare)
         const size_t nl = (idb.name_len <= sizeof idb.name) ? idb.name_len : 0;
@@ -637,7 +639,9 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     //   router response (mrble::tx_line, MTU-chunked, reassembled on '\n'). `ls` is flushed EXACTLY ONCE, and only
     //   on the streamed arm — the other arms write nothing to it, exactly as before.
     LineSink ls(ble_sink);
-    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap);
+    const mrfw::CommandContext ctx{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local,
+                                   false, 0, mrble::kLineStorageBytes - 1};
+    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);
     if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }
     if (ex.state == mrfw::LineExec::State::buffered) return ex.n;
     if (ex.state == mrfw::LineExec::State::empty)    return 0;
@@ -1143,7 +1147,7 @@ static inline bool serial_has_input() { return false; }
 
 #if MR_CONSOLE
 static void service_console() {
-    static char   line[1024];  // 1024 (Part 4): matched to CFG_TUD_CDC_RX_BUFSIZE so a long `testsend … -t ms,…` arm line fits
+    static char   line[meshroute::console::local_command_max_bytes + 1];  // Part 4: unchanged 1024-byte USB storage
     static size_t pos = 0;
     static bool   overflow = false;
     while (Serial.available()) {
@@ -1158,8 +1162,10 @@ static void service_console() {
             // ★★ §RADMIN-0c: ONE call into the transport-neutral seam (firmware_commands.cpp). It owns the
             // router-versus-parser fork, the peer-book/Node execution and the TEXT rendering; this file keeps only
             // what is transport glue — the intake above and USB's own refusal envelope below (U3).
+            const mrfw::CommandContext ctx{mrfw::CommandTransport::usb, mrfw::CommandAuthority::local,
+                                           true, 0, sizeof(line) - 1};
             const mrfw::LineExec ex = mrfw::exec_console_line(line, pos, mrfw::LineFormat::text, mrcon,
-                                                              /*reply=*/nullptr, /*reply_cap=*/0);
+                                                              /*reply=*/nullptr, /*reply_cap=*/0, ctx);
             if (ex.state == mrfw::LineExec::State::unmatched) {   // neither the router nor the parser owned the line
                 if (pos >= 8 && !strncmp(line, "peerkey ", 8))    // §3: a malformed peerkey -> the contract's peerkey_err
                     mrcon.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));

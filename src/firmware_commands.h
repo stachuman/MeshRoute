@@ -21,6 +21,8 @@
 #include "console_json.h" // meshroute::console::StatusFields / CfgExtras
 #include "console_parse.h" // meshroute::console::ParseErr — NAMED in ExecResult below, so it is included directly
                            // rather than left to arrive transitively through an unrelated header (U3).
+#include "console_line.h"
+#include "firmware_command_context.h"
 #include "mr_features.h"   // MR_FEAT_OLED — the emergency seam below is compiled per profile (U3: named, not
                            // left to arrive transitively)
 
@@ -139,9 +141,9 @@ meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispa
 //    put verb knowledge inside the one place that must have none. ⇒ a line neither surface owns comes back
 //    `State::unmatched` WITH its `ParseErr`, and each caller renders its own established contract.
 //
-// ⛔ NOT the future `DispatchResult`. `State` is a narrow, local completion — were bytes buffered, streamed, or
-//    neither, and was the line unowned — enough for a caller to act without scraping output text. Remote
-//    authority, `CommandContext` and feature policy are Slice 6's and are deliberately absent here.
+// Slice 6: `State` preserves local rendering completion; `outcome`/`refuse` are the independent typed
+// dispatch result. The required context supplies the validator's bound and remote authority. Local
+// authority never consults the policy table; no production remote caller exists yet.
 //
 // ⓘ `Command::body` BORROWS into `line` (console_parse.h:17-20), so the parse, the peer-book handlers and
 //    `Node::on_command` all run INSIDE this call, while the caller's buffer is still alive. Nothing returned from
@@ -156,12 +158,15 @@ struct LineExec {
         buffered     // a parser-owned result was rendered into `reply`; `n` bytes
     };
     State                        state     = State::unmatched;
+    DispatchOutcome              outcome   = DispatchOutcome::unmatched;
+    RefuseReason                 refuse    = RefuseReason::none;
+    meshroute::console::LineErr   line_err  = meshroute::console::LineErr::ok;
     size_t                       n         = 0;                                  // valid only on `buffered`
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;   // the parser's verdict, for the
                                                                                  // caller's `unmatched` envelope
 };
 LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& stream,
-                           char* reply, size_t reply_cap);
+                           char* reply, size_t reply_cap, const CommandContext& ctx);
 
 // ★★ UI-7 — THE ONE FIRMWARE SURFACE THIS PLAN ADDS (owner-approved 2026-08-01). Parse ONE command line and execute
 // it on the node, returning the TYPED result. No text output at all: the caller wants the `CmdResult`, not a human
@@ -243,7 +248,8 @@ void admin_client_stores_boot_report_console();
 #endif   // MR_FEAT_RADMIN_CLIENT
 
 struct ExecResult {
-    bool                         ok        = false;                                  // false => the line did not parse
+    bool                         ok        = false;                                  // false => validation or parsing refused
+    meshroute::console::LineErr  line_err  = meshroute::console::LineErr::ok;
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;
     meshroute::CmdResult         result{};                                           // valid only when `ok`
 };

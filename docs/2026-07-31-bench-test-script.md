@@ -4315,3 +4315,18 @@ target. These scratch-node commands erase keys/data; retain no wanted identity o
 
 Parts 55b/56 remain metal-pending until the owner reports backend/transport results. Software size,
 fake-store controls, no-op simulator builds and no new RPC events do not close them or older bench debts.
+
+
+## Part 63 — the shared command-line validator at the BLE head (Slice 6)
+
+**Software QA PASS 2026-09-07 — METAL-PENDING / NOT RUN.** Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice6.md`.
+The ONE metal-only behaviour Slice 6 adds: the validator call at the head of `ble_dispatch_line` runs BEFORE every
+companion arm, and no host instrument compiles `fw_main.cpp` (its proof is structural + the function natively).
+
+1. On a secured BLE-NUS connection to an nRF52 node whose name is known (`whoami`), send the raw bytes
+   `cfg set name AB` + `0x00` + `CD` + `\n` (a tool that can inject a NUL byte, e.g. nRF Connect's byte editor).
+   Expected: exactly `{"err":"bad_line","msg":"embedded_nul"}` on the BLE link, NO `> cfg ok name` line on USB,
+   and a following `whoami` shows the name UNCHANGED (before Slice 6 the arm executed with the tail dropped).
+2. Send `status\r\n` from the same client: today's behaviour (the intake strips `\r`), i.e. the status JSON — the
+   validator sees no CR because the intake never forwards one. Record that the line was accepted.
+3. Over USB, the same NUL-bearing line (a terminal that can send `0x00`) answers `> err bad_line embedded_nul`.

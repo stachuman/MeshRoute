@@ -674,6 +674,49 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
             n_client_env == 1 and n_admin_env == 1
             and 'admin_client_ble_refuses' in ble_body
             and 'admin_verb_owns' in ble_body, f'client={n_client_env} admin={n_admin_env}')
+    # Slice 6: structural coverage of entry points no host instrument compiles (BLE), plus wiring
+    # independently executed by inbox-verbs. Each row below has a source-copy sabotage in negctl.py.
+    panel = _body(cmds, 'ExecResult exec_command(')
+    validation = 'r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);'
+    policy_guard = 'if (ctx.authority != CommandAuthority::local) {'
+    policy_body = _body(seam, policy_guard) if policy_guard in seam else ''
+    add('S53', 'shared seam validation precedes remote policy and the router/parser fork',
+        validation in seam and 0 <= seam.find(validation) < seam.find('command_policy_lookup(') < seam.find('dispatch(')
+        and 'if (r.line_err != meshroute::console::LineErr::ok)' in seam, '')
+    add('S54', 'the real panel executor validates with the local bound before parsing',
+        'validate_command_line(line, len, meshroute::console::local_command_max_bytes)' in panel
+        and panel.find('validate_command_line(') < panel.find('parse_command(')
+        and 'if (r.line_err != meshroute::console::LineErr::ok) return r;' in panel, '')
+    add('S55', 'only non-local authority consults the table and admission is not inverted',
+        bool(policy_body) and policy_body.count('command_policy_lookup(') == seam.count('command_policy_lookup(') == 1
+        and 'if (!policy || !command_authority_admits(*policy, ctx, line, len))' in policy_body, '')
+    add('S56', 'remote refusals return typed results without writing a transport envelope',
+        bool(policy_body) and not re.search(r'\b(?:stream|reply)\b', policy_body)
+        and 'return r;' in policy_body and 'RefuseReason::unclassified' in policy_body
+        and 'if (ctx.authority != CommandAuthority::local) return r;' in seam
+        and seam.find('if (ctx.authority != CommandAuthority::local) return r;') < seam.find('write_err('), '')
+    add('S57', 'local bad-line refusals use the two exact new envelopes',
+        'write_err(reply, reply_cap, "bad_line", meshroute::console::line_err_name(r.line_err))' in seam
+        and 'stream.print(F("> err bad_line "))' in seam
+        and "stream.write(static_cast<uint8_t>('\\n'))" in seam, '')
+    declaration = re.search(r'LineExec\s+exec_console_line\s*\(([^;]+)\);', hdr, re.S)
+    add('S58', 'the seam context is required, trailing and const-reference, with no default',
+        bool(declaration) and re.search(r'const CommandContext& ctx\s*$', declaration.group(1)) is not None
+        and '=' not in declaration.group(1), '')
+    add('S59', 'USB uses named storage and passes its derived bound in a local physical context',
+        'line[meshroute::console::local_command_max_bytes + 1]' in sc
+        and re.search(r'CommandContext ctx\{mrfw::CommandTransport::usb, mrfw::CommandAuthority::local,\s*true, 0, sizeof\(line\) - 1\}', sc) is not None
+        and re.search(r'exec_console_line\([^;]+, ctx\)', sc) is not None, '')
+    add('S60', 'BLE uses a local nonphysical context with the device-owned bound',
+        re.search(r'CommandContext ctx\{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local,\s*false, 0, mrble::kLineStorageBytes - 1\}', ble) is not None
+        and re.search(r'exec_console_line\([^;]+, ctx\)', ble) is not None, '')
+    add('S61', 'BLE validates immediately after the empty return, before every command arm, with bad_line',
+        re.search(r'if \(len == 0\) return 0;\s*const LineErr e = validate_command_line\(line, len, mrble::kLineStorageBytes - 1\);\s*'
+                  r'if \(e != LineErr::ok\) return write_err\(out, cap, "bad_line", line_err_name\(e\)\);', ble) is not None, '')
+    add('S62', 'typed outcome fields exist and scheduling/internal-failure have no producer yet',
+        'DispatchOutcome' in hdr and 'RefuseReason' in hdr and 'line_err' in hdr
+        and seam.count('DispatchOutcome::completed') == 2 and seam.count('DispatchOutcome::refused') == 2
+        and 'DispatchOutcome::scheduled' not in seam and 'DispatchOutcome::internal_failure' not in seam, '')
     return out
 
 def _line_of(txt, needle):

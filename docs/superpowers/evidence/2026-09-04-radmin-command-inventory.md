@@ -2,235 +2,234 @@
 <!-- Regenerate: python3 tools/gen_command_inventory.py --write ; verify: --check -->
 # MeshRoute command/sub-command inventory — remote-admin v2 slice 0e-A (R-RA-1)
 
-Derived from source by `tools/gen_command_inventory.py`. **The `authority` column is deliberately empty on every row**: 0e produces the complete list; the open/operator/owner classification is the owner's single ruling taken over it (R-RA-1).
+Derived from source by `tools/gen_command_inventory.py`. Authority is transcribed from the [ruled semantic table](2026-09-07-radmin-command-authority-table.md) (R-RA-33 / R-RA-32): one class per row, `D` for disruptive, with non-target surface eligibility marked separately. Slice 0e's empty-authority invariant is superseded; missing classifications now refuse.
 
 Alias spellings of one semantic arm are recorded in the verb/sub-verb cell as `(alias: …)`; they are never a second row. A `#if`-gated arm is present with its exact macro rather than disappearing under the host's current flags.
 
-Total rows: **204**.
+Total rows: **203**.
 
 ## Surface 1 — top-level `dispatch()` verbs
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:465` |  |
-| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:466` |  |
-| `acl` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:326` |  |
-| `admin-id` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:325` |  |
-| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1475` |  |
-| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1474` |  |
-| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1532` |  |
-| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1430` |  |
-| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1455` |  |
-| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1477` |  |
-| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1529` |  |
-| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1443` |  |
-| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1446` |  |
-| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1421` |  |
-| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1449` |  |
-| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1526` |  |
-| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1451` |  |
-| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1461` |  |
-| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1454` |  |
-| `joinprofile` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1468` |  |
-| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1473` |  |
-| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1444` |  |
-| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1536` |  |
-| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1524` |  |
-| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1528` |  |
-| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1458` |  |
-| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1525` |  |
-| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1448` |  |
-| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1534` |  |
-| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1438` |  |
-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1434` |  |
-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1435` |  |
-| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1422` |  |
-| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1527` |  |
-| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1423` |  |
-| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1445` |  |
-| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1447` |  |
-| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1441` |  |
-| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1431` |  |
-| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1476` |  |
-| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1442` |  |
-| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1456` |  |
-| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1428` |  |
-| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1424` |  |
-| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1426` |  |
-| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1425` |  |
-| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1493` |  |
-| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1535` |  |
-| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1420` |  |
-| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1523` |  |
-| `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:165` |  |
+| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:466` | controller_local |
+| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:467` | controller_local |
+| `acl` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:327` | owner |
+| `admin-id` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:326` | owner |
+| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1476` | operator |
+| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1475` | operator |
+| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1533` | owner |
+| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1431` | owner D |
+| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1456` | operator D |
+| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1478` | operator |
+| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1530` | owner |
+| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1444` | operator |
+| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1447` | owner D |
+| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1422` | operator |
+| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1450` | operator D |
+| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1527` | operator |
+| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1452` | operator D |
+| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1462` | operator D |
+| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1455` | operator |
+| `joinprofile` | `— refused gateway_build` | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1469` | operator |
+| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1474` | operator D |
+| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1445` | operator |
+| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1537` | legacy |
+| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1525` | operator |
+| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1529` | operator |
+| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1459` | operator |
+| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1526` | operator |
+| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1449` | owner D |
+| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1535` | legacy |
+| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1439` | operator |
+| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1435` | operator |
+| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1423` | operator D |
+| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1528` | operator |
+| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1424` | legacy |
+| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1446` | operator D |
+| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1448` | owner D |
+| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1442` | operator |
+| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1432` | open |
+| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1477` | operator D |
+| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1443` | open |
+| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1457` | operator D |
+| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1429` | operator |
+| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1425` | operator |
+| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1427` | operator |
+| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1426` | operator |
+| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1494` | operator |
+| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1536` | legacy |
+| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1421` | operator |
+| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1524` | operator |
+| `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:165` | local_only · surface:local |
 
 ## Surface 2 — sub-verb dispatchers
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `admin-key` | `export` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:411` |  |
-| `admin-key` | `generate` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:380` |  |
-| `admin-key` | `import` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:389` |  |
-| `admin-key` | `list` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:350` |  |
-| `admin-key` | `remove` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:426` |  |
-| `admin-key` | `reset` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:438` |  |
-| `admin-key` | `show` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:364` |  |
-| `admin-key` | `show self` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:366` |  |
-| `admin-target` | `add` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:537` |  |
-| `admin-target` | `list` | `admin_target_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:498` |  |
-| `admin-target` | `remove` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:605` |  |
-| `admin-target` | `reset` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:624` |  |
-| `admin-target` | `set` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:573` |  |
-| `admin-target` | `show` | `admin_target_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:522` |  |
-| `acl` | `add` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:333` |  |
-| `acl` | `list` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:317` |  |
-| `acl` | `remove` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:384` |  |
-| `acl` | `reset` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:398` |  |
-| `acl` | `set` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:362` |  |
-| `admin-id` | `generate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:266` |  |
-| `admin-id` | `reset` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:278` |  |
-| `admin-id` | `rotate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:272` |  |
-| `admin-id` | `show` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:260` |  |
-| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1028` |  |
-| `factory_reset` | `confirm` | `handle_factory_reset` | serial,ble | — | `src/firmware_commands.cpp:990` |  |
-| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:527` |  |
-| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:540` |  |
-| `sleep` | `off` | `handle_sleep` | serial,ble | — | `src/firmware_commands.cpp:1015` |  |
-| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1352` |  |
-| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1353` |  |
-| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1354` |  |
-| `cfg set` | `active_fraction` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:402` |  |
-| `cfg set` | `beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:331` |  |
-| `cfg set` | `ble_mode` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:490` |  |
-| `cfg set` | `ble_mode off` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:492` |  |
-| `cfg set` | `ble_mode on` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:493` |  |
-| `cfg set` | `ble_mode periodic` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:494` |  |
-| `cfg set` | `ble_period` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:498` |  |
-| `cfg set` | `ble_pin` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:503` |  |
-| `cfg set` | `bw` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:314` |  |
-| `cfg set` | `ch_min_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:406` |  |
-| `cfg set` | `cr` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:317` |  |
-| `cfg set` | `dm_min_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:410` |  |
-| `cfg set` | `duty` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:334` |  |
-| `cfg set` | `e2e_dm` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:378` |  |
-| `cfg set` | `freq` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:301` |  |
-| `cfg set` | `gateway_only` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:424` |  |
-| `cfg set` | `gw_announce_interval` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:396` |  |
-| `cfg set` | `gw_announce_pct` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:395` |  |
-| `cfg set` | `gw_herd_slack` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:397` |  |
-| `cfg set` | `hop_cap` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:357` |  |
-| `cfg set` | `host_mobiles` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:341` |  |
-| `cfg set` | `intra_layer_relay` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:340` |  |
-| `cfg set` | `intro_attach` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:392` |  |
-| `cfg set` | `l0_window_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:526` |  |
-| `cfg set` | `l0_window_offset_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:531` |  |
-| `cfg set` | `l1_beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:556` |  |
-| `cfg set` | `l1_bw` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:576` |  |
-| `cfg set` | `l1_cr` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:581` |  |
-| `cfg set` | `l1_freq` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:571` |  |
-| `cfg set` | `l1_layer_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:536` |  |
-| `cfg set` | `l1_node_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:541` |  |
-| `cfg set` | `l1_routing_sf` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:546` |  |
-| `cfg set` | `l1_sf_list` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:551` |  |
-| `cfg set` | `l1_window_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:561` |  |
-| `cfg set` | `l1_window_offset_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:566` |  |
-| `cfg set` | `lat (alias: lon)` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:260` |  |
-| `cfg set` | `layer0_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:516` |  |
-| `cfg set` | `lbt` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:330` |  |
-| `cfg set` | `leaf_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:419` |  |
-| `cfg set` | `leaf_name` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:414` |  |
-| `cfg set` | `mobile` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:447` |  |
-| `cfg set` | `mobile_autoregister` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:480` |  |
-| `cfg set` | `mobile_autoregister true` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:481` |  |
-| `cfg set` | `n_layers` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:511` |  |
-| `cfg set` | `name` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:272` |  |
-| `cfg set` | `nav` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:339` |  |
-| `cfg set` | `nav_ignore` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:356` |  |
-| `cfg set` | `node_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:292` |  |
-| `cfg set` | `routing_sf (alias: control_sf)` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:311` |  |
-| `cfg set` | `sf_list` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:326` |  |
-| `cfg set` | `team_channel_crypt` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:389` |  |
-| `cfg set` | `team_hop_cap` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:366` |  |
-| `cfg set` | `tx_power` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:320` |  |
-| `cfg set` | `window_period_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:521` |  |
-| `create` | `active_fraction` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1167` |  |
-| `create` | `ch_min_ms` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1168` |  |
-| `create` | `dm_min_ms` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1169` |  |
-| `create` | `duty` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1165` |  |
-| `create` | `name` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1166` |  |
-| `create` | `sf_list` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1164` |  |
-| `joinprofile` | `clear` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1081` |  |
-| `joinprofile` | `list` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1038` |  |
-| `joinprofile` | `reset` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1068` |  |
-| `joinprofile` | `reset confirm` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1074` |  |
-| `joinprofile` | `set` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1099` |  |
-| `joinprofile` | `set name` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1114` |  |
-| `mobile` | `gateways` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2321` |  |
-| `mobile` | `query` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2340` |  |
-| `mobile` | `register` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2291` |  |
-| `mobile` | `register scan` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2293` |  |
-| `mobile` | `status` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2347` |  |
-| `mobile` | `unregister` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2316` |  |
-| `team` | `exportkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2016` |  |
-| `team` | `forgetkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2033` |  |
-| `team` | `grantkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2025` |  |
-| `team` | `keys` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2034` |  |
-| `team` | `new` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2041` |  |
-| `team forgetkey` | `confirm` | `team_forget_key` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1951` |  |
-| `ui` | `preset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:325` |  |
-| `ui` | `preset clear` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:357` |  |
-| `ui` | `preset list` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:328` |  |
-| `ui` | `preset reset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:372` |  |
-| `ui` | `preset reset all` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:376` |  |
-| `ui` | `preset set` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:333` |  |
-| `crashtest` | `fault` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:398` |  |
-| `crashtest` | `hang` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:395` |  |
-| `crashtest` | `reboot` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:408` |  |
+| `admin-key` | `export` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:411` | controller_local |
+| `admin-key` | `generate` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:380` | controller_local |
+| `admin-key` | `import` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:389` | controller_local |
+| `admin-key` | `list` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:350` | controller_local |
+| `admin-key` | `remove` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:426` | controller_local |
+| `admin-key` | `reset` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:438` | controller_local |
+| `admin-key` | `show` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:364` | controller_local |
+| `admin-key` | `show self` | `admin_key_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:366` | controller_local |
+| `admin-target` | `add` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:537` | controller_local |
+| `admin-target` | `list` | `admin_target_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:498` | controller_local |
+| `admin-target` | `remove` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:605` | controller_local |
+| `admin-target` | `reset` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:624` | controller_local |
+| `admin-target` | `set` | `admin_target_verb` | serial | — | `src/firmware_admin_client_verbs.h:573` | controller_local |
+| `admin-target` | `show` | `admin_target_verb` | serial,ble | — | `src/firmware_admin_client_verbs.h:522` | controller_local |
+| `acl` | `add` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:333` | owner |
+| `acl` | `list` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:317` | owner |
+| `acl` | `remove` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:384` | owner |
+| `acl` | `reset` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:398` | physical |
+| `acl` | `set` | `acl_verb` | serial | — | `src/firmware_admin_verbs.h:362` | owner |
+| `admin-id` | `generate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:266` | physical |
+| `admin-id` | `reset` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:278` | physical |
+| `admin-id` | `rotate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:272` | physical |
+| `admin-id` | `show` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:260` | owner |
+| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1029` | operator |
+| `factory_reset` | `confirm` | `handle_factory_reset` | serial,ble | — | `src/firmware_commands.cpp:991` | owner D |
+| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:528` | operator |
+| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:541` | operator |
+| `sleep` | `off` | `handle_sleep` | serial,ble | — | `src/firmware_commands.cpp:1016` | operator D |
+| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1353` | operator |
+| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1354` | operator |
+| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1355` | operator |
+| `cfg set` | `active_fraction` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:402` | operator |
+| `cfg set` | `beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:331` | operator |
+| `cfg set` | `ble_mode` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:490` | owner |
+| `cfg set` | `ble_mode off` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:492` | owner |
+| `cfg set` | `ble_mode on` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:493` | owner |
+| `cfg set` | `ble_mode periodic` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:494` | owner |
+| `cfg set` | `ble_period` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:498` | owner |
+| `cfg set` | `ble_pin` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:503` | owner |
+| `cfg set` | `bw` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:314` | operator D |
+| `cfg set` | `ch_min_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:406` | operator |
+| `cfg set` | `cr` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:317` | operator D |
+| `cfg set` | `dm_min_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:410` | operator |
+| `cfg set` | `duty` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:334` | operator |
+| `cfg set` | `e2e_dm` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:378` | owner |
+| `cfg set` | `freq` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:301` | operator D |
+| `cfg set` | `gateway_only` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:424` | operator D |
+| `cfg set` | `gw_announce_interval` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:396` | operator |
+| `cfg set` | `gw_announce_pct` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:395` | operator |
+| `cfg set` | `gw_herd_slack` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:397` | operator |
+| `cfg set` | `hop_cap` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:357` | operator |
+| `cfg set` | `host_mobiles` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:341` | operator D |
+| `cfg set` | `intra_layer_relay` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:340` | operator |
+| `cfg set` | `intro_attach` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:392` | operator |
+| `cfg set` | `l0_window_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:526` | operator |
+| `cfg set` | `l0_window_offset_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:531` | operator |
+| `cfg set` | `l1_beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:556` | operator |
+| `cfg set` | `l1_bw` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:576` | operator D |
+| `cfg set` | `l1_cr` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:581` | operator D |
+| `cfg set` | `l1_freq` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:571` | operator D |
+| `cfg set` | `l1_layer_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:536` | operator D |
+| `cfg set` | `l1_node_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:541` | operator D |
+| `cfg set` | `l1_routing_sf` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:546` | operator D |
+| `cfg set` | `l1_sf_list` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:551` | operator D |
+| `cfg set` | `l1_window_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:561` | operator |
+| `cfg set` | `l1_window_offset_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:566` | operator |
+| `cfg set` | `lat (alias: lon)` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:260` | operator |
+| `cfg set` | `layer0_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:516` | operator D |
+| `cfg set` | `lbt` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:330` | operator |
+| `cfg set` | `leaf_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:419` | operator D |
+| `cfg set` | `leaf_name` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:414` | operator |
+| `cfg set` | `mobile` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:447` | operator D |
+| `cfg set` | `mobile_autoregister` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:480` | operator D |
+| `cfg set` | `mobile_autoregister true` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:481` | operator D |
+| `cfg set` | `n_layers` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:511` | operator D |
+| `cfg set` | `name` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:272` | operator |
+| `cfg set` | `nav` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:339` | operator |
+| `cfg set` | `nav_ignore` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:356` | operator |
+| `cfg set` | `node_id` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:292` | operator D |
+| `cfg set` | `routing_sf (alias: control_sf)` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:311` | operator D |
+| `cfg set` | `sf_list` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:326` | operator D |
+| `cfg set` | `team_channel_crypt` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:389` | owner |
+| `cfg set` | `team_hop_cap` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:366` | operator |
+| `cfg set` | `tx_power` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:320` | operator D |
+| `cfg set` | `window_period_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:521` | operator |
+| `create` | `active_fraction` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1167` | operator D |
+| `create` | `ch_min_ms` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1168` | operator D |
+| `create` | `dm_min_ms` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1169` | operator D |
+| `create` | `duty` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1165` | operator D |
+| `create` | `name` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1166` | operator D |
+| `create` | `sf_list` | `handle_create` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1164` | operator D |
+| `joinprofile` | `clear` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1081` | operator |
+| `joinprofile` | `list` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1038` | operator |
+| `joinprofile` | `reset` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1068` | operator |
+| `joinprofile` | `reset confirm` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1074` | operator |
+| `joinprofile` | `set` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1099` | operator |
+| `joinprofile` | `set name` | `handle_joinprofile` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1114` | operator |
+| `mobile` | `gateways` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2321` | operator |
+| `mobile` | `query` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2340` | operator |
+| `mobile` | `register` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2291` | operator |
+| `mobile` | `register scan` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2293` | operator |
+| `mobile` | `status` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2347` | operator |
+| `mobile` | `unregister` | `handle_mobile` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_config.cpp:2316` | operator |
+| `team` | `exportkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2016` | owner |
+| `team` | `forgetkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2033` | owner |
+| `team` | `grantkey` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2025` | owner |
+| `team` | `keys` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2034` | operator |
+| `team` | `new` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2041` | owner D |
+| `team forgetkey` | `confirm` | `team_forget_key` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1951` | owner |
+| `ui` | `preset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:325` | operator |
+| `ui` | `preset clear` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:357` | operator |
+| `ui` | `preset list` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:328` | operator |
+| `ui` | `preset reset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:372` | operator |
+| `ui` | `preset reset all` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:376` | operator |
+| `ui` | `preset set` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:333` | operator |
+| `crashtest` | `fault` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:398` | owner D |
+| `crashtest` | `hang` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:395` | owner D |
+| `crashtest` | `reboot` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:408` | owner D |
 
 ## Surface 3 — caller-only arms around `dispatch()`
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `peerkey` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:178` |  |
-| `peername` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:206` |  |
-| `reqpubkey` | `-s` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:246` |  |
-| `reqpubkey` | `-t` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:245` |  |
-| `reqpubkey` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:228` |  |
-| `resolve` | `hard` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:161` |  |
-| `resolve` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:156` |  |
-| `send` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:264` |  |
-| `send_channel` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:265` |  |
-| `send_layer` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:266` |  |
-| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:549` |  |
-| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:543` |  |
-| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:565` |  |
-| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:518` |  |
-| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:591` |  |
-| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:522` |  |
-| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:564` |  |
-| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:650` |  |
-| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:652` |  |
-| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:560` |  |
-| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:561` |  |
-| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:510` |  |
-| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:563` |  |
-| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:514` |  |
-| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:554` |  |
-| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:535` |  |
-| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:504` |  |
-| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:481` |  |
-| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1164` |  |
+| `peerkey` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:178` | owner |
+| `peername` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:206` | operator |
+| `reqpubkey` | `-s` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:246` | operator |
+| `reqpubkey` | `-t` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:245` | operator |
+| `reqpubkey` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:228` | operator |
+| `resolve` | `hard` | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:161` | operator |
+| `resolve` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:156` | operator |
+| `send` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:264` | operator |
+| `send_channel` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:265` | operator |
+| `send_layer` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:266` | operator |
+| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:551` | operator · surface:transport |
+| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:545` | operator · surface:transport |
+| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:567` | owner · surface:transport |
+| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:520` | operator · surface:transport |
+| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:593` | local_only · surface:transport |
+| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:524` | operator · surface:transport |
+| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:566` | operator · surface:transport |
+| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:654` | owner · surface:transport |
+| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:656` | operator · surface:transport |
+| `peers` | `<args> — refused console_only` | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:563` | operator · surface:transport |
+| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:562` | operator · surface:transport |
+| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:512` | operator D · surface:transport |
+| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:565` | operator · surface:transport |
+| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:516` | legacy · surface:transport |
+| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:556` | open · surface:transport |
+| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:537` | open · surface:transport |
+| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:506` | operator · surface:transport |
+| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:483` | operator · surface:transport |
+| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1170` | owner · surface:transport |
 
 ## Legacy over-the-air remote-admin verbs (what v2 replaces)
 
 | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
 | --- | --- | --- | --- | --- | --- | --- |
-| `duty` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:47` |  |
-| `limits` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:50` |  |
-| `routes` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:39` |  |
-| `status` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:26` |  |
-| `password rotate` | — | `remote_exec` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:125` |  |
-| `reboot (alias: prep-restart)` | — | `remote_exec` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:143` |  |
+| `duty` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:47` | operator · surface:legacy |
+| `limits` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:50` | operator · surface:legacy |
+| `routes` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:39` | open · surface:legacy |
+| `status` | — | `remote_encode` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:26` | open · surface:legacy |
+| `password rotate` | — | `remote_exec` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:125` | legacy · surface:legacy |
+| `reboot (alias: prep-restart)` | — | `remote_exec` | radio(REMOTE_CMD) | `MR_FEAT_REMOTE_MGMT` | `src/firmware_remote.cpp:143` | operator D · surface:legacy |
 
 ## Recognised-but-excluded comparison sites
 

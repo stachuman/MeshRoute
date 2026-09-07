@@ -106,7 +106,7 @@ DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
 # ★★ [[B321]]'s OBSERVATION SEAM, at LINK time: every `crypto_wipe` call is routed to the probe's `__wrap_` symbol,
 #    which copies the bytes, performs the REAL wipe and re-reads the SAME LIVE storage. ⛔ Production is unmodified
 #    and unaware; the wrapper is a straight forward unless a case arms it.
-LDWRAP=(-Wl,--wrap=crypto_wipe)
+LDWRAP=(-Wl,--wrap=crypto_wipe -Wl,--wrap=_ZN9meshroute4Node10on_commandERKNS_7CommandE)
 INCS=(-I"$HERE/fakes" -I"$ROOT/tools/probe_board_ui/fakes" -I"$ROOT/tools/probe_device_radio/fakes"
       -I"$ROOT/variants/heltec_common" -I"$ROOT/src" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console"
       -I"$ROOT/lib/monocypher/src")
@@ -229,8 +229,10 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #   end to end over the ONE resident scratch, the read-only boot report, the io_failed arm including both
 #   confirm-gated recoveries, the supplied-sink rule, and ★ the byte-identical preservation of BOTH controller
 #   records across `regen` with its ruled warning).
-PIN_CHECKS_ACCEPT=180
-PIN_CHECKS_CLIENT=178
+# Slice 6: +182 on EACH arm, with all old rows retained: Y1..Y3=18, Y4..Y5=12,
+# Y6=54, Y7=36 (18 refusals per format), Y8=54, Y9=6, Y10..Y11=2.
+PIN_CHECKS_ACCEPT=362
+PIN_CHECKS_CLIENT=360
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -244,8 +246,8 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
-PIN_CONTROLS_ACCEPT=30
-PIN_CONTROLS_CLIENT=33
+PIN_CONTROLS_ACCEPT=39  # Slice 6: +9 S6-C1..S6-C9, exact-one-match executed seam controls.
+PIN_CONTROLS_CLIENT=42
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -645,12 +647,48 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ---- C20: A STREAMED ROUTER RESPONSE IS REPORTED AS BUFFERED. The BLE adapter would then return `ex.n` (0) and
   #          never flush — the bytes are in the sink, the transport is told nothing happened.
   ctl 'C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush)' router \
-      's|if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; return r; }|if (dispatch(line, len, stream)) { r.state = LineExec::State::buffered; return r; }|'
+      's|if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }|if (dispatch(line, len, stream)) { r.state = LineExec::State::buffered; r.outcome = DispatchOutcome::completed; return r; }|'
 
   # ---- C21: THE COMMAND IS EXECUTED TWICE on the text arm — two counters burned, two frames queued, one answer
   #          printed. The failure a byte-comparison alone cannot see, which is why the X rows measure the counter.
   ctl 'C21 the TEXT arm executes the Node command TWICE (two ctrs burned, one answer printed)' router \
       '/^    r.state = LineExec::State::streamed;$/,$ s|const meshroute::CmdResult cr = g_node.on_command(cmd);|g_node.on_command(cmd); const meshroute::CmdResult cr = g_node.on_command(cmd);|'
+
+  # New controls must have exactly one literal source anchor before sed applies their edit.
+  s6_ctl() {
+    local label=$1 needle=$2 script=$3
+    if ! python3 -c 'import pathlib,sys; n=pathlib.Path(sys.argv[1]).read_text().count(sys.argv[2]); print("    source match count",n); sys.exit(0 if n==1 else 1)' "$FW_CMDS" "$needle"; then
+      n_bad=$((n_bad+1)); echo "  FAIL $label — not exactly one source match"; return
+    fi
+    ctl "$label" router "$script"
+  }
+  s6_ctl 'S6-C1 seam validator bypassed' \
+    'r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);' \
+    's|r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);|r.line_err = meshroute::console::LineErr::ok;|'
+  s6_ctl 'S6-C2 remote policy bypassed' \
+    'if (ctx.authority != CommandAuthority::local) {' \
+    's|if (ctx.authority != CommandAuthority::local) {|if (false) {|'
+  s6_ctl 'S6-C3 local contexts consult the remote table' \
+    'if (ctx.authority != CommandAuthority::local) {' \
+    's|if (ctx.authority != CommandAuthority::local) {|if (ctx.authority == CommandAuthority::local) {|'
+  s6_ctl 'S6-C4 remote admission inverted' \
+    '!command_authority_admits(*policy, ctx, line, len)' \
+    's|!command_authority_admits(\*policy, ctx, line, len)|command_authority_admits(*policy, ctx, line, len)|'
+  s6_ctl 'S6-C5 remote refusal emits local bytes' \
+    'r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;' \
+    's|r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;|r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified; stream.print("refused");|'
+  s6_ctl 'S6-C6 real panel validator bypassed' \
+    'r.line_err = meshroute::console::validate_command_line(line, len, meshroute::console::local_command_max_bytes);' \
+    's|r.line_err = meshroute::console::validate_command_line(line, len, meshroute::console::local_command_max_bytes);|r.line_err = meshroute::console::LineErr::ok;|'
+  s6_ctl 'S6-C7 parser success loses its typed completed outcome' \
+    $'\n    r.outcome = DispatchOutcome::completed;\n' \
+    's|^    r.outcome = DispatchOutcome::completed;$|    r.outcome = DispatchOutcome::unmatched;|'
+  s6_ctl 'S6-C8 JSON bad_line envelope changes its reason domain' \
+    'write_err(reply, reply_cap, "bad_line", meshroute::console::line_err_name(r.line_err))' \
+    's|write_err(reply, reply_cap, "bad_line",|write_err(reply, reply_cap, "parse",|'
+  s6_ctl 'S6-C9 remote byte-validation refusal emits a local envelope' \
+    'if (ctx.authority != CommandAuthority::local) return r;' \
+    's|if (ctx.authority != CommandAuthority::local) return r;|(void)ctx;|'
 fi
 
 MD5_AFTER=$(md5_sources)
