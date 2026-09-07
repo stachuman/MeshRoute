@@ -33,7 +33,9 @@ context (of which no producer exists yet) — with the generator's `peers` dupli
 | **B344** — (verb, sub-verb) alone cannot carry a per-surface class | `status`/`routes`/`duty`/`limits` occur on `dispatch` (inventory :26/:53/:55), `ble_dispatch_line` (:207/:218/:219) AND the legacy `remote_encode` surface (:228-231, `src/firmware_remote.cpp:26-50`). Revision 1 keyed the table by semantic (verb, sub-verb) with one class per key AND demanded the `remote_encode`/`remote_exec` rows be `legacy` — unsatisfiable | §4.3/§4.4/§4.5: the CLASS is semantic and surface-independent; SURFACE ELIGIBILITY is a separate, generator-known attribute; the `legacy` class is reserved for the semantic legacy verbs |
 | **B345** — the prescribed `peers` edits remove ONE row, not two | inventory :44-46 (`all` + two bare `dispatch` rows) and :213-214 (two bare BLE rows); §4.5 drops the `dispatch` level-guard row and RELABELS the BLE refusal row | §4.5/§7: predicted **203**, with the exact before/after mapping; the `<args>` discriminator is bound to the bare `peers` semantic row, never fed to the native lookup as a sub-verb |
 
-The three are registered (B343–B345, next free **B346**); the coder's report stays as the preflight record at the head
+| **B346** — `acl list` classified `physical` in §6 contradicts R-RA-33 call 8 (a remote OWNER may list) | proposal §G: `acl list` = owner (remote) / physical (local); `acl reset` = physical | §4.4 (the transcription rule for dual readings), §6 items 2–3 (`acl list` → owner; `acl reset confirm` is the all-remote-refused control) |
+
+The four are registered (B343–B346, next free **B347**); the coder's report stays as the preflight record at the head
 of the evidence file, and the implementation sections are appended to the same file.
 
 ## 1. Closure bindings — the Slice 5 QA PASS pins (measured by QA 2026-09-07, brief §10 of the Slice 5 brief)
@@ -64,7 +66,7 @@ note of revision 1 is withdrawn. The coder's clean-start check (`git status --sh
 | Inventory / help | **204 rows**, `--check` byte-for-byte; help union 53 (router 44/43/41/42/40/41 per profile, parser 7) |
 | Tools sweep | `Ran 329 tests … OK` |
 | Mutation harness | `tools/probe_ui_model_mutations.py` `PIN_CASES, PIN_ASSERTS = 2825, 119784`; union 28 targets 516 RED / 1 unusable (`sliceBmac` M04 = B342, pre-existing at base — ⛔ not this slice's to repair) |
-| Register | next free finding number **B346** (B336–B342 = Slice 5's proposals; B343–B345 = this brief's preflight findings, registered) |
+| Register | next free finding number **B347** (B336–B342 = Slice 5's proposals; B343–B346 = this brief's preflight findings, registered) |
 
 ## 2. Verbatim authority pins
 
@@ -228,7 +230,12 @@ bool command_authority_admits(const CommandPolicy& row, const CommandContext& ct
 
 * The coder writes `docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md`: ONE row per semantic
   (verb, sub-verb) with `class` and `disruptive`, transcribed from the RULED proposal (its §A–§H tables, R-RA-33 +
-  R-RA-32), cited row by row; the file header names both rulings. It is the normalized rendering of the owner's
+  R-RA-32), cited row by row; the file header names both rulings. **Transcription rule for the proposal's dual
+  readings (B346):** a row ruled "owner (remote) / physical (local)" — `acl list`, `acl add`/`set`/`remove`,
+  `admin-id show` — transcribes as class **`owner`** (a remote owner may run it); its "physical (local)" half is the
+  R-RA-29 TRANSPORT fact (USB-only locally, the shipped BLE guard), not a second class. Class **`physical`** is only
+  for rows ruled physical in every reading: `acl reset`, `admin-id generate`/`rotate`/`reset`, and the controller's
+  seed operations (which are `controller_local` anyway). It is the normalized rendering of the owner's
   one-shot ruling — ⛔ not a re-classification: a row the proposal does not cover is a STOP to QA, never a guess.
 * **Surface eligibility (B344)** is a per-SURFACE attribute the generator already knows (`SURFACES`, `:113-195`):
   `target` (dispatch, the sub-verb handlers, `parse_command` — remote-dispatchable by class), `transport` (the
@@ -277,7 +284,7 @@ bool command_authority_admits(const CommandPolicy& row, const CommandContext& ct
 
 ### 4.7 Numbering
 
-Proposed findings start at **B346** (B343–B345 are this brief's own preflight findings, already registered); the
+Proposed findings start at **B347** (B343–B346 are this brief's own preflight findings, already registered); the
 coder proposes in the evidence and ⛔ never edits the register.
 
 ## 5. Exact implementation/instrument fence
@@ -311,7 +318,7 @@ coder proposes in the evidence and ⛔ never edits the register.
   untouched; `tools/probe_features/ownership.py`: expected untouched (no new capability site).
 - Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice6.md` (the preflight report stays at its head; the
   implementation sections are appended), both repository statuses/diffs (the simulator diff must be EMPTY),
-  proposed findings from B346.
+  proposed findings from B347.
 - ⛔ OUT OF FENCE: `lib/core/*`, `src/firmware_ui*`, `src/device_ble.h`, `src/firmware_help.h`, any handler, the
   register/bench/manual/design/rulings/QA ledgers/BASELINE, the simulator.
 
@@ -328,7 +335,9 @@ flag, no default argument on the seam, no second validator, no per-transport cap
    line built from its own cells (and from that line plus an argument); `cfg set e2e_dm` → owner, `cfg set name` →
    operator, `mobile register scan` → operator (not disruptive), `peers all` and bare `peers` → operator, `status` →
    open and `status x` refused under `remote_open` but admitted under `remote_operator`, `team new` → owner +
-   disruptive, `acl list` → physical, `admin-key list` → controller_local, `rcmd` → legacy, `help` → local_only, an
+   disruptive, `acl list` → owner (R-RA-33 judgment call 8: a remote OWNER may list), `acl reset` → physical,
+   `admin-id show` → owner, `admin-id generate` → physical, `admin-key list` → controller_local, `rcmd` → legacy,
+   `help` → local_only, an
    unknown verb → `nullptr`; the `admits` truth table for all 4 authorities × 7 classes; the disruptive set equals
    the ruled list; `local` never consults (a fake table with a poisoned row is never read for a local context —
    prove by a counting lookup or by the seam control, whichever is reachable).
@@ -340,8 +349,10 @@ flag, no default argument on the seam, no second validator, no per-transport cap
    IDENTICAL (the arm's whole prior transcript re-asserted); synthetic remote contexts `{remote, remote_open|
    remote_operator|remote_owner, false, 42, 201}` on `status` (admitted at all three), `status x` (refused only at
    open), `version` (refused at open, admitted at operator), `factory_reset confirm` (refused at open and operator,
-   admitted at owner — and the fake NV proves it was NOT executed when refused), `acl list` (refused at ALL three:
-   physical), `admin-key list` (refused at all three: controller_local), `rcmd 1 status` (legacy: refused), an
+   admitted at owner — and the fake NV proves it was NOT executed when refused), `acl list` (refused at open and
+   operator, ADMITTED at owner — R-RA-33 call 8), `acl reset confirm` (refused at ALL three: physical — the
+   all-remote-refused control), `admin-key list` (refused at all three: controller_local), `rcmd 1 status`
+   (legacy: refused), an
    unknown verb (refused `unclassified`) — each refusal writing zero bytes.
 4. **Console-sink probe:** structural rows S53+ per §5 with their controls — including **the BLE head (B343): the
    validator call is the first statement of `ble_dispatch_line` after the empty-line return, precedes the first
@@ -396,7 +407,7 @@ the union, the two-repo manifests (simulator diff EMPTY), proposed findings, and
 Read the evidence; verify the ruled table transcription row by row against the proposal (R-RA-33/32); close only
 proven register obligations; land design §12/§12.1/§13/§19.1 row 6 as measured; publish the command authority
 table in the manual from the generated inventory; keep B312/B317/B330/B337/B342 open for their own scope; close
-B343–B345 as folded in. **One bench residue (M2, QA lands it in the bench script):** the BLE head is host-unexecutable,
+B343–B346 as folded in. **One bench residue (M2, QA lands it in the bench script):** the BLE head is host-unexecutable,
 so the bench sends a BLE-NUS line carrying an embedded NUL (`cfg set name AB␀CD`) and expects
 `{"err":"bad_line","msg":"embedded_nul"}` with the node name UNCHANGED — the only metal-only behaviour this slice
 adds (§19.1 row 6 otherwise: none). Propose, not do: consolidating the R-RA-29/30 BLE guards onto the table's `physical` /

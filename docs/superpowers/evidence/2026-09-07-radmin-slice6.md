@@ -78,3 +78,40 @@ QA authors the corrections and records these findings in the maintained register
 preparation. Codex resumes against the corrected, explicitly pinned clean-start contract.
 Native, corpus, probes, mutations, boards and tool sweep were NOT run. No Slice 5 figure has been
 relabelled as a coder-derived Slice 6 baseline, and no software PASS or PIN re-sync is claimed.
+
+## 4. Revision 2 follow-up preflight — clean inputs; new authority conflict (2026-09-07)
+
+The original preflight record above is preserved. B343–B345's author fold-ins and the new roles are
+present. Measured-start input checks, before this report append:
+
+- MeshRoute HEAD f948c2558bcdb03934a3fc73b8c6ee7f61f88772, clean. The successor diff against d1a2906
+  names only the brief; it contains the dispatch pin and the requested B346/six-selftests wording fixes.
+- Simulator HEAD 06746a97de5764415d6fcef10b97bca90569b9c7, clean. MESHROUTE_DIR in build/CMakeCache.txt
+  points to /home/staszek/lora-universal-simulator/../MeshRoute, the intended checkout.
+- Current brief SHA256 c964a0731b4fbe79d756ecc2d6e619c898b82221ebdc0b11b65759803c89f180.
+
+**STOP-2 before baseline runs or implementation: proposed B346 — acl list test classification contradicts
+the owner's remote-authority ruling.** This emerged while reading the complete ruled classification
+for its normalized transcription, not from a runtime measurement.
+
+| Authority | Required behavior |
+| --- | --- |
+| R-RA-33, rulings ledger :743–753, judgment call 8 | acl list and admin-id show are owner when remote, physical when local |
+| Ruled classification proposal :113–117 | acl list/add/set/remove admit remote owner; acl reset and admin-id generate/rotate/reset remain physical; admin-id show is owner |
+| Slice 6 revision 2 brief :331 | the native table test must classify acl list as physical |
+| Same brief :343–344 | the real-seam probe must refuse acl list at ALL three remote authorities |
+
+Those test expectations cannot coexist with the ruled semantic table. R-RA-29's existing local BLE
+whole-family refusal does not prohibit the separately ruled remote-owner access; the brief itself
+keeps local contexts off the authority table and preserves that BLE guard.
+
+**Required author correction, not a new product ruling:** align the table examples and probe expectations
+with R-RA-33. Use acl list as owner-only remotely (open/operator refused, owner admitted); a genuinely
+physical operation such as acl reset confirm can retain the all-remote-refused control. Check the
+sibling admin-id show and owner ACL mutation rows against the same approved table. Do not widen local
+BLE or implement future remote-only execution semantics outside the slice's fence.
+
+QA owns the brief correction and maintained-register landing for B346. The coder has not silently
+chosen between the conflicting obligations, changed production/tests/tools, committed, or run a software
+gate. Only this evidence append changed the tree. Baseline collection and implementation remain pending
+the corrected dispatch input contract.
