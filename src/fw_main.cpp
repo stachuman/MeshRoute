@@ -1740,6 +1740,14 @@ static void mesh_service_once() {
 
     // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a
     // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
+    // ⛔⛔ CLIENT-ONLY SINCE §remote-admin v2 SLICE 5, and the WHOLE block is gated rather than only its execute
+    //    arm — including the two statics (`ri`, ~245 B, and the sealed arm's `pt[241]`), which is why an ACCEPT
+    //    board's RAM delta is NOT just `sizeof(Node)`'s. On an ACCEPT product `Node::take_remote_inbound` is a
+    //    zero-state `false` stub and there is nothing to drain: the v2 admission owns `DATA_TYPE_REMOTE_CMD` end
+    //    to end (`rx_remote_cmd_accept`), and legacy target-side `rcmd` EXECUTION ends here. ⛔ NO FALLBACK.
+    // ⓘ ON A CLIENT PRODUCT EVERY BYTE OF THIS BLOCK IS PRESERVED: the response copy, the sealed/TLV/plain print
+    //   arms and the full-slot refusal are unchanged until Slice 8a's controller pending table replaces them.
+#if MR_FEAT_RADMIN_CLIENT
     { static meshroute::Node::RemoteInbound ri;
       if (g_node.take_remote_inbound(ri)) {
           if (ri.is_response) {
@@ -1765,6 +1773,7 @@ static void mesh_service_once() {
           }
           else remote_exec(ri.from, ri.body, ri.len);
       } }
+#endif   // MR_FEAT_RADMIN_CLIENT
     // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
     // the `ok …` response DM has aired first.
     if (g_remote_action && g_hal.now() >= g_remote_action_at) {

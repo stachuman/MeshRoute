@@ -143,6 +143,10 @@ inline const char* admin_id_err_name(AdminIdErr e) {
         case AdminIdErr::not_invalid:     return "not_invalid";
         case AdminIdErr::entropy_failed:  return "entropy_failed";
         case AdminIdErr::nv_save_failed:  return "nv_save_failed";
+        // ★ §RADMIN SLICE 5: the LIVE preparation refused before any write. ⛔ A DISTINCT lexeme from
+        //   `entropy_failed` (the SEED draw, one step earlier, about a different secret) and from
+        //   `nv_save_failed` (about the medium) — collapsing any two would misreport what survived.
+        case AdminIdErr::runtime_unavailable: return "runtime_unavailable";
     }
     return "none";
 }
@@ -164,6 +168,7 @@ inline const char* acl_err_name(AclErr e) {
         case AclErr::last_owner:           return "last_owner";
         case AclErr::self_slot:            return "self_slot";
         case AclErr::nv_save_failed:       return "nv_save_failed";
+        case AclErr::runtime_unavailable:  return "runtime_unavailable";   // ★ §RADMIN SLICE 5, as above
     }
     return "none";
 }

@@ -93,13 +93,43 @@ import gen_command_inventory as GEN  # noqa: E402
 #                  structural + 3 router + 5 oracle + 3 BLE executed + 2 BLE structural = 58. (§0b/[[B279]] took
 #                  the source family 5 -> 6 with X12, the control that reddens S21; §RADMIN-0c took it 6 -> 16 with
 #                  X13..X22, the controls that redden S22..S29.)
-PIN_PROFILES = 6
-PIN_CHECKS = 720
-PIN_STRUCTURAL = 50
-PIN_BLE_GUARD = 905
-PIN_OWNERSHIP = 6
-PIN_OWN_CTL = 3
-PIN_CONTROLS = 99
+# ⛔⛔ THE PINS ARE **READ FROM `run.sh`**, NOT DUPLICATED HERE — corrected 2026-09-07 by §RADMIN SLICE 5 after
+#    this wrapper failed for the SECOND time in the same way (Slice 3's STOP-7 repaired the identical shape in
+#    this exact file). A literal copy of a pin is a SECOND pin: the moment a slice legitimately re-pins the
+#    probe, the two disagree and the sweep fails for a reason that has nothing to do with the probe's health.
+# ★ AND THE CHECK GOT STRONGER, NOT LOOSER. Duplicated literals only ever asserted "the probe printed what this
+#   file remembers". Reading `run.sh` asserts the property that actually matters: **the runner PRINTS exactly the
+#   pins it ENFORCES.** A runner that printed `structural=52` while comparing against 50 — i.e. a pin that no
+#   longer guards anything — passed the old form and fails this one. `test_probe_custody_usb.py` already reads
+#   its sibling this way (it asserts `run.sh` both declares and compares its pins); this is that idiom applied.
+# ⛔ A DELIBERATE RE-PIN THEREFORE HAPPENS IN **ONE** PLACE, `run.sh`, WITH ITS DERIVATION — which is where the
+#   reviewed contract lives. This file no longer has an opinion about the values, only about their consistency.
+def _run_sh_pins() -> dict:
+    """The pins the runner DECLARES, parsed from its own source. Refuses loudly rather than defaulting."""
+    with open(os.path.join(PROBE_DIR, "run.sh"), encoding="utf-8") as fh:
+        text = fh.read()
+    simple = dict(re.findall(r"(?m)^(PIN_[A-Z_]+|CHECKS_PER_PROFILE)=(\d+)$", text))
+    # `PIN_CHECKS` is DERIVED in the runner (per-profile x profiles); reproduce that derivation rather than
+    # re-typing its product, so the two cannot drift either.
+    if "PIN_CHECKS" not in simple:
+        m = re.search(r"(?m)^PIN_CHECKS=\$\(\(CHECKS_PER_PROFILE \* PIN_PROFILES\)\)$", text)
+        assert m, "run.sh: PIN_CHECKS is neither a literal nor the expected CHECKS_PER_PROFILE * PIN_PROFILES"
+        simple["PIN_CHECKS"] = str(int(simple["CHECKS_PER_PROFILE"]) * int(simple["PIN_PROFILES"]))
+    out = {k: int(v) for k, v in simple.items()}
+    for required in ("PIN_PROFILES", "PIN_CHECKS", "PIN_STRUCTURAL", "PIN_BLE_GUARD",
+                     "PIN_OWNERSHIP", "PIN_OWN_CTL", "PIN_CONTROLS"):
+        assert required in out, f"run.sh no longer declares {required} — the pin it names cannot be checked"
+    return out
+
+
+_PINS = _run_sh_pins()
+PIN_PROFILES = _PINS["PIN_PROFILES"]
+PIN_CHECKS = _PINS["PIN_CHECKS"]
+PIN_STRUCTURAL = _PINS["PIN_STRUCTURAL"]
+PIN_BLE_GUARD = _PINS["PIN_BLE_GUARD"]
+PIN_OWNERSHIP = _PINS["PIN_OWNERSHIP"]
+PIN_OWN_CTL = _PINS["PIN_OWN_CTL"]
+PIN_CONTROLS = _PINS["PIN_CONTROLS"]
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 

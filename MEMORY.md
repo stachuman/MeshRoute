@@ -1,6 +1,6 @@
 # MeshRoute durable decisions
 
-- **Standalone mobile Home redesign (owner discussion, 2026-09-06):**
+- **Standalone mobile Home redesign (owner discussion, updated 2026-09-07):**
   `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated
   DRAFT, not dispatch authority or a change to the remote-admin queue. Agreed direction: visible own
   name; no-team join/create entry points; in-team communication/attention Home. Ordinary team-channel
@@ -8,7 +8,12 @@
   Owner rejects the old 17-byte/single-row preset limit: messages must use multiple lines/pages, with
   bounded capacity derived from transport/storage and explicit catalog migration, not shortened wording.
   Boot-only logo splash and non-interrupting received-team Home preview are proposals; preview is not
-  read/ACK/delivery evidence. Name editor, gestures, exact capacity and preview policy await review.
+  read/ACK/delivery evidence. Owner agrees one shared editor for names and manually composed DM/team
+  messages: short next, double choose; equal-sized fixed-order groups; minimal letters/digits/space/
+  punctuation, no language-frequency/predictive ordering. Long holds keep emergency ownership. Seven
+  groups of six is an Author candidate, not a frozen alphabet; exact case/layout/capacities await review.
+  Done opens review, never sends; manual drafts do not overwrite presets or inherit their 17-byte cap.
+  Home gestures and preview policy remain proposals; no overlapping implementation is authorized.
   HOME-A1/HOME-A2 are maintained intake aliases; no code, tests, tools, bench or commit changed for this draft.
 
 - **Remote administration v2 controller boundary (owner-ruled; design QA-passed 2026-09-04):** the locally

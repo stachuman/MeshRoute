@@ -203,6 +203,23 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #    4+2+8+1+6+9+1+2+1+3+3+1+7 = 48 named rows; two of them (R34's five spellings) share one id, so the executed
 #    count rises by 46: 91 + 46 = 137. ✓
 # ★★ §RADMIN SLICE 4 — THE PINS ARE **PER ARM**, because the two arms measure two different products.
+#   ★★ ACCEPT 146 -> 168 = +22 §RADMIN SLICE 5 rows, and the derivation is exact:
+#        R32h/R32i     (2)  the generated pair is INSTALLED into the running `g_node`, and a root alone is not
+#                           readiness — the two facts a callback count cannot distinguish;
+#        S5-1a..S5-1f  (6)  the BOOT INSTALL: provisioning, activation, the one `admin-session boot` line, its
+#                           zero writes, its zero key/fingerprint bytes and its idempotence;
+#        S5-2a..S5-2f  (6)  SLOT-LOCAL vs ROOT-WIDE invalidation, measured on the REAL per-slot epochs;
+#        S5-3a..S5-3c  (3)  PREPARE FAILS BEFORE THE WRITE — `runtime_unavailable`, zero writes, image intact;
+#        S5-4a..S5-4b  (2)  NV FAILS AFTER A SUCCESSFUL PREPARE — the plan is discarded, the image is exact;
+#        S5-5          (1)  ordinary `regen` preserves the administration root AND every session epoch;
+#        S5-6a..S5-6b  (2)  a bad prerequisite installs the CLEARED image, never a stale live ACL;
+#      ★★ +12 MORE at the [[B341]] fold-in (168 -> 180):
+#        S5-7a..S5-7f  (6)  sequence B — generate, REBOOT with no ACL, `acl add owner` must ACTIVATE, and a
+#                           fresh boot on the same medium must install exactly that readiness;
+#        S5-8a..S5-8f  (6)  sequence D — a valid owner ACL with a CORRUPT root, REBOOT, `admin-id reset confirm`
+#                           must ACTIVATE and the ACL must survive it.
+#      ⓘ R32g was REPLACED IN PLACE (8 -> 28 platform draws), so it adds no row: the ten prepared epochs are
+#        2 draws each and the count moving IS the evidence that the preparation really asks the platform.
 #   ACCEPT 137 -> 146 = +8 [[B321]] rows (Z1..Z8: the EXECUTED `crypto_wipe` observation through the link-time
 #   interposer, on success, on a post-allocation refusal, on the null input, plus the control that the interposer
 #   is linked at all) +1 X8b (the `/mrpeers` wear guard, newly OBSERVABLE — see the X8 note in probe_main.cpp).
@@ -212,7 +229,7 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #   end to end over the ONE resident scratch, the read-only boot report, the io_failed arm including both
 #   confirm-gated recoveries, the supplied-sink rule, and ★ the byte-identical preservation of BOTH controller
 #   records across `regen` with its ruled warning).
-PIN_CHECKS_ACCEPT=146
+PIN_CHECKS_ACCEPT=180
 PIN_CHECKS_CLIENT=178
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the

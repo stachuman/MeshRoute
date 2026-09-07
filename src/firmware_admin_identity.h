@@ -167,6 +167,34 @@ struct IAdminSeedSource {
     virtual bool fill(uint8_t out[32]) = 0;
 };
 
+// ---- §RADMIN SLICE 5: THE LIVE-INSTALL SEAM, AS THE SERVICE SEES IT -----------------------------------------
+// ★★★ THE ORDER IS THE CONTRACT (design §6.5, brief §4.1) and it is enforced HERE, inside the service that owns
+//     the durable save, because nowhere else can be: `prepare` -> save -> `commit`, with `discard` on the failure
+//     path. A caller that installed AFTER the save could not tell a failed draw from a successful one, and a
+//     caller that installed BEFORE it would publish state the medium never accepted.
+// ⛔ EVERY FALLIBLE STEP IS IN `prepare`: candidate validation, the Ed25519 derivation and EVERY fresh epoch
+//    draw. `false` means `runtime_unavailable` and ⛔ ZERO NV WRITES have happened.
+// ⛔ `commit` IS NON-FAILING and runs only after the save succeeded, so a success line can never describe state
+//    that was not installed. `discard` scrubs the prepared plan — it is a per-call transient, ⛔ never a second
+//    resident image.
+// ⓘ IT IS AN INTERFACE AND NOT A `Node&`: `platformio.ini`'s native env compiles no `src/*.cpp` (§B115), so the
+//   ordering above is driven by `test/test_firmware_admin_runtime.cpp` against an explicit FAKE that counts
+//   prepares, commits and discards and can be told to refuse. The real implementation is
+//   `mrfw::AdminLiveInstall` (`src/firmware_admin_runtime.h`), bound to `Node` in `firmware_commands.cpp`.
+// ⓘ IT IS OPTIONAL BY CONSTRUCTION (`nullptr`): a service constructed without one behaves EXACTLY as Slice 3/4
+//   left it — which is what keeps every pre-existing native case and every Slice 3/4 mutation battery honest.
+struct IAdminLiveInstall {
+    virtual ~IAdminLiveInstall() = default;
+    // PREPARE the plan for a new administration ROOT (generate / rotate / recover).
+    [[nodiscard]] virtual bool prepare_root(const uint8_t seed[32]) = 0;
+    // PREPARE the plan for an ACL change, from the two DURABLE candidates the service composed.
+    [[nodiscard]] virtual bool prepare_acl(const mrnv::AclBlob& before, const mrnv::AclBlob& after) = 0;
+    // PREPARE the `acl reset confirm` plan. ⛔ It needs no entropy, so it cannot fail (see its note in runtime.h).
+    virtual void prepare_acl_reset() = 0;
+    virtual void commit()  = 0;   // ⛔ NON-FAILING, AFTER a successful save, BEFORE any success line
+    virtual void discard() = 0;   // the failure path — and the destructor's, so a plan cannot leak
+};
+
 // ---- the typed verdicts ------------------------------------------------------------------------------------
 // ⓘ EXHAUSTIVE AND MINIMAL: every reason below is REACHED by a native case. ⛔ No unreachable enumerator is added
 //   to round out a symmetry — an unreachable reason is an untestable claim.
@@ -181,6 +209,10 @@ enum class AdminIdErr : uint8_t {
     not_invalid,      // recovery attempted on a record that is not corrupt (absent or ok)
     entropy_failed,   // ⛔ the draw did not complete, or completed all-zero — ⛔ never minted from
     nv_save_failed,   // the durable write reported failure. ⛔ Does NOT promise the old bytes survived.
+    runtime_unavailable,  // ★ §RADMIN SLICE 5: the LIVE preparation refused BEFORE any write — a fresh epoch could
+                          //   not be drawn. ⛔ ZERO NV writes happened and the running state is untouched; this is
+                          //   ⛔ NOT `entropy_failed` (which is the SEED draw, one step earlier and about a
+                          //   different secret) and ⛔ NOT `nv_save_failed` (which is about the medium).
 };
 struct AdminIdResult {
     bool       ok  = false;
@@ -201,7 +233,9 @@ struct AdminIdBoot { AdminIdState state = AdminIdState::absent; };
 // go stale, which is what makes "load, derive, render, wipe" honest rather than aspirational.
 class AdminIdService {
   public:
-    AdminIdService(IAdminIdStore& store, IAdminSeedSource& seed) : _store(store), _seed(seed) {}
+    // `live` is OPTIONAL: `nullptr` reproduces Slice 3's behaviour byte for byte (no preparation, no install).
+    AdminIdService(IAdminIdStore& store, IAdminSeedSource& seed, IAdminLiveInstall* live = nullptr)
+        : _store(store), _seed(seed), _live(live) {}
 
     // Read-only classification. ONE load, ZERO writes, on every arm.
     AdminIdState state() {
@@ -282,7 +316,16 @@ class AdminIdService {
         mrnv::admin_id_blob_init(cand);                    // the ONE composition path — magic/version/reserved
         if (!_seed.fill(cand.seed))            return fail_(AdminIdErr::entropy_failed);   // provider said NO
         if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);   // a DEAD, all-zero draw
-        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);
+        // ★★ §RADMIN SLICE 5 — PREPARE BEFORE THE DURABLE SAVE. This derives the pair and draws every fresh
+        //    epoch the new root needs, mutating ⛔ NOTHING. A refusal here costs ⛔ ZERO writes, which is exactly
+        //    what the naive "install after the save" shape could not promise.
+        if (_live && !_live->prepare_root(cand.seed)) return fail_(AdminIdErr::runtime_unavailable);
+        // ⛔ A FAILED SAVE DISCARDS THE PLAN AND CHANGES NO RUNNING STATE — the old pair, ACL, epochs, seen rows
+        //    and ingress are preserved EXACTLY. (⚠ [[B317]]: that is a claim about the RUNNING state, ⛔ not a
+        //    promise that the previous flash bytes survived a remove-then-write backend.)
+        if (!_store.save(cand))                { if (_live) _live->discard(); return fail_(AdminIdErr::nv_save_failed); }
+        // ⛔ NON-FAILING, AND BEFORE THE CALLER'S SUCCESS LINE: by here nothing is left that can refuse.
+        if (_live) _live->commit();
         AdminIdResult r;
         r.ok = true;
         pub_of_(cand.seed, r.ed_pub);
@@ -299,8 +342,9 @@ class AdminIdService {
         memcpy(out_pub, id.ed_pub, 32);
     }
 
-    IAdminIdStore&    _store;
-    IAdminSeedSource& _seed;
+    IAdminIdStore&     _store;
+    IAdminSeedSource&  _seed;
+    IAdminLiveInstall* _live;   // ⛔ OPTIONAL. RAM: one pointer. ⛔ No cached record, no plan and no secret member.
 };
 
 }  // namespace mrfw

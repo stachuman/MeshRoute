@@ -22,12 +22,24 @@ namespace meshroute {
 
 class TimerWheel {
 public:
-    static constexpr uint32_t kCap = 91;   // matches the Hal "cap" caller-id contract (64->80 in Slice 3b for the dual-layer
+    static constexpr uint32_t kCap = 92;   // matches the Hal "cap" caller-id contract (64->80 in Slice 3b for the dual-layer
                                            // gateway band; 80->82 in §S6 for the presence probe/roster [78,79] + the mobile
                                            // OFFER-backoff de-storm [80]; 82->85 in §F-XL-1 for the h_forward de-storm ring
                                            // [81..84]; 85->89 in §F-XL-2 for the rreq_forward de-storm ring [85..88];
                                            // 89->90 in §F-SL-1 for the parked-send re-flood scan [89]; 90->91 in shelf-item-(i)
-                                           // for the E2E-ack deadline scan [90]; ids 1..63 are dense)
+                                           // for the E2E-ack deadline scan [90];
+                                           // ★★★ 91->92 in §remote-admin v2 SLICE 5 (R-RA-22 / design §15) for the ONE shared
+                                           // remote-admin ingress/staging earliest-deadline scan [91] — `Node::kRadminExpiryTimerId`.
+                                           // ⛔ EXACTLY ONE id, ⛔ not one per expiring record class: Slice 7b's transcript,
+                                           // deferred-action and rollover deadlines JOIN that same scan. The price is MEASURED,
+                                           // not argued — the storage is `bool _active[kCap]` + `uint64_t _due[kCap]`, so one
+                                           // extra id costs **+8 bytes on all three ABIs** (the 0e faithful mirror
+                                           // `TimerWheelStorageAtCapP1` prices exactly this, and the native suite asserts the
+                                           // production wheel EQUALS that 92 mirror). ⚠ AND THE +8 IS **HAL RAM ON EVERY
+                                           // BUILD**, `heltec_mobile` included: the wheel is `DeviceHal::_wheel`
+                                           // (`lib/hal/device_hal.h`), ⛔ NOT a `Node` member — an unchanged mobile
+                                           // `sizeof(Node)` does NOT mean unchanged mobile RAM ([[B331]]);
+                                           // ids 1..63 are dense)
 
     // false ONLY if timer_id is out of range (>= kCap); otherwise (re)arms id to fire at now+delay.
     bool after(uint32_t delay_ms, uint32_t timer_id, uint64_t now_ms);

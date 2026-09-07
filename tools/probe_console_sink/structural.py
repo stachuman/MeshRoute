@@ -523,11 +523,39 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         resident += re.findall(r'\bstatic\s+(?:meshroute::)?Identity\b', cmds)
         add('S33', 'no RESIDENT administration identity, ACL, service or static record buffer exists (design §6.2)',
             not resident, f'{len(resident)} occurrence(s): {resident[:3]}')
-        # ⛔ AND NO Node LINK: the target stores are `src/` state and touch no core member (no sizeof(Node) move).
+        # ⛔⛔ CORRECTED 2026-09-07 BY §RADMIN SLICE 5, AND THE OLD CLAIM IS KEPT VISIBLE. This check read
+        #    *"the ACCEPT bindings touch NO Node state and no legacy single-admin symbol"* and forbade `g_node`
+        #    outright, because Slice 3 deliberately installed nothing ("there is no live cache in this slice to
+        #    install into"). Slice 5 IS that installation: design §6.5's live activation needs a core→Node link,
+        #    and R-RA-31 ruled it. ⇒ the `g_node` half is replaced by a NARROWER and STRONGER rule, and the half
+        #    that still matters is unchanged.
+        # ★ THE NEW RULE, in two parts:
+        #    (a) the LEGACY single-admin link stays FORBIDDEN — `admin_load`, `g_admin_id` and `remote_exec` are
+        #        Slice 9/10's to delete and must never be wired to the v2 family (S34);
+        #    (b) every `g_node` contact inside an ACCEPT block is one of the THREE RULED session entry points,
+        #        and nothing else — so a fourth, unreviewed Node call cannot appear here (S51).
         acc_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_ACCEPT(.*?)#endif', cmds, re.S)
-        add('S34', 'the ACCEPT bindings touch NO Node state and no legacy single-admin symbol',
-            all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b', b)
+        add('S34', 'the ACCEPT bindings touch NO legacy single-admin symbol (admin_load / g_admin_id / remote_exec)',
+            all(not re.search(r'\badmin_load\b|\bg_admin_id\b|\bremote_exec\b', b)
                 for b in acc_blocks), f'{len(acc_blocks)} ACCEPT block(s)')
+        # ★★ §RADMIN SLICE 5: the ruled Node surface, spelled out. ⛔ `g_node.` followed by anything else — an
+        #    inbox reach, a config read, a send — is an unreviewed core link inside a store binding.
+        node_calls = []
+        for b in acc_blocks:
+            node_calls += re.findall(r'\bg_node\s*\.\s*(\w+)', b)
+        allowed_node = {'admin_draw_epoch', 'admin_session_commit', 'admin_session_entropy_failed'}
+        add('S51', 'the ACCEPT bindings reach Node ONLY through the three ruled session entry points '
+                   '(admin_draw_epoch / admin_session_commit / admin_session_entropy_failed)',
+            bool(node_calls) and set(node_calls) <= allowed_node,
+            f'{len(node_calls)} call(s): {sorted(set(node_calls))}')
+        # ★★ §RADMIN SLICE 5: THE SEAM IS ACTUALLY BOUND. Design §6.5's live activation exists only if the two
+        #    entry points HAND the services an `AdminLiveInstall` — dropping the argument leaves both services at
+        #    their Slice 3 behaviour (a durable change that never reaches the running node), and ⛔ nothing else
+        #    in this probe would notice, because every emitted byte would be identical.
+        add('S52', 'both target entry points construct an AdminLiveInstall and BIND it to their mutating service',
+            re.search(r'AdminLiveInstall\s+live\s*\(\s*rt\s*\)', cmds) is not None
+            and re.search(r'AdminIdService\s+svc\s*\(\s*store\s*,\s*seed\s*,\s*&live\s*\)', cmds) is not None
+            and re.search(r'AclService\s+acl\s*\(\s*acl_store\s*,\s*&live\s*\)', cmds) is not None, '')
 
         # ---- the typed wrappers address the CORRECT slots -----------------------------------------------------
         admid_body = _body(nv, 'inline AdminIdRead load_admin_id(AdminIdBlob& out)')

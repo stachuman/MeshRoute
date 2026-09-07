@@ -1,7 +1,7 @@
 <!-- Author: OpenAI Codex -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**2026-09-06 · DRAFT product design — owner discussion captured; awaiting design review.**
+**2026-09-06 · updated 2026-09-07 · DRAFT product design — owner agreements captured; detailed review pending.**
 Not an implementation brief, QA PASS, dispatch authorization, measured resource result or change to the
 remote-admin sequence. Author writes documentation only. The owner commits; QA pre-checks and gates
 each eventual implementation brief. Illustrative screen strings below are proposals, not frozen literals.
@@ -26,8 +26,16 @@ paging are required; the old 17-byte preset limit is a current implementation fa
 The longer example Return to base now must remain intact. This supersedes the Author's initial
 recommendation to keep 17 bytes and shorten the wording; that recommendation is withdrawn.
 
-Specific mechanisms remain proposals: the name editor, exact action/rail gestures, boot splash duration,
-incoming-message preview policy, new stored-body capacity and preset vocabulary. Moving the logo from Home to a new boot splash is
+**Owner agreement, 2026-09-07:** "Proposal makes sense, grouping should be equal (we can't consider english specific statistic of letter use) and limited to bare minimum (letter, numbers, limited punctaction)."
+The accepted direction is one shared standalone text editor for naming and manually composing ordinary
+team/person messages: short advances, double chooses, with equal-sized fixed character groups and a
+minimal letters/digits/punctuation repertoire. No English letter-frequency layout, predictive selection
+or learned reordering. Long holds remain the existing emergency gestures. §4.1 records the interaction
+contract and an explicitly proposed equal-group layout; §6.2 records manual sending.
+
+Detailed mechanisms remain proposals: the exact alphabet/case/group size and editor geometry, Home
+action/rail gestures, boot splash duration, incoming-message preview policy, new stored-body capacity
+and preset vocabulary. Moving the logo from Home to a new boot splash is
 under consideration. The owner's question about showing incoming messages on Home is answered by the
 recommendation in §7, not treated as a final owner ruling.
 
@@ -78,6 +86,16 @@ test/test_firmware_ui_model.cpp:263. The byte-level composer case at
 test/test_firmware_ui_send.cpp:1299 expects an ordinary encrypted team-channel line.
 These tests were inspected, **not run in this documentation turn**.
 
+**Text-editor follow-up inspection, 2026-09-07 at 1677b44 (V1/V2):** the active Slice 5 coder has
+untracked remote_session files; they are outside this documentation task. src/firmware_ui_input.h:18–41
+already classifies short/double and emergency holds, with double_gap_ms=350 and short emitted only after
+that window. UiModel::on_gesture at :2668–2675 gives emergency holds precedence and consumes the waking
+press. The name mutation at firmware_config.cpp:272–279 updates the live name only after save succeeds.
+SendReq at firmware_ui_model.h:1672–1677 carries a preset slot/generation, not an owned manual text body;
+firmware_ui_send.h's send_gate_of validates that catalog binding for ordinary sends. A shared keyboard
+therefore needs an explicitly designed manual-body submission path, not a fictitious existing free-text
+UI path or a bypass of the preset gate. No implementation, timing change or new gate result is claimed.
+
 ## 3. Product model: identity, membership and attention are separate
 
 Home answers, in order: **which device is this; which group is it with; what needs attention; what can I do?**
@@ -108,14 +126,71 @@ failed save leaves the old live name intact. Do not assume the current console m
 into a new UI service without checking its persistence/error contract.
 
 USB preparation already supports a name and is useful for an organizer distributing devices. The
-proposed standalone editor is new: grouped character selection, short to advance, double to choose,
-with explicit Delete, Done and Cancel. Long holds retain emergency ownership. Alphabet, case,
-non-ASCII handling, full-name paging and the editor's practical length remain review decisions.
+standalone editor is new software, but its shared name/manual-message purpose and equal-group direction
+are now agreed (§4.1). Naming uses My device → Change name → editor → full-name review → Save;
+Cancel leaves the old name intact. Alphabet/case, non-ASCII handling, geometry and the editor's practical
+length remain detailed review decisions, not a reason to reintroduce frequency-based or unequal groups.
 The existing 32-byte storage is not permission to treat 32 arbitrary characters as fitting.
 
 A peer name is a cached label, not a unique or instantly synchronized identity. A rename must not promise
 that John's device already calls this device Stan. Recipient selection keeps its actual identity bound
 through compose/confirmation despite name changes, roster movement or team-local-ID reassignment.
+
+### 4.1 Shared one-button text editor — agreed direction, 2026-09-07
+
+One editor supplies text to two different callers: naming and ordinary message composition. It does
+not itself save identity, modify the saved-phrase catalog or send a packet. Those are explicit caller
+actions after review. Keep the first editor small and predictable:
+
+- Two selection levels: group, then character. Short advances one selection; double chooses it.
+  Both levels use the same grammar. Selecting a character inserts exactly that character and returns
+  to group selection; the proposed return highlight is the group just used, without changing its order.
+- Every character group has the same number of selectable characters. Use a fixed alphabetical/numeric
+  order, independent of language statistics, message content, usage history or a predicted next letter.
+  Do not hide an undersized final group, duplicate letters or add dummy selectable cells to claim equality.
+- The repertoire is letters, digits, space and a small explicitly enumerated punctuation set. No emoji,
+  symbol library, word prediction or dictionary in this first editor. Alphabet/case support is a separate
+  explicit choice; equal grouping is not a claim that every language or existing name is representable.
+- Editor controls are separate from character groups: Back returns from characters without insertion;
+  Edit exposes Backspace, Move cursor, Done and Cancel. Control labels are not transmitted characters
+  or padding used to balance the alphabet. No long-press editing shortcut or automatic timed scanning.
+- The text remains visible, wraps over multiple lines and follows the cursor across longer drafts.
+  Show the selected character and remaining capacity without interpreting row width as the body cap.
+  Name and message callers apply their own source-derived byte bounds; neither inherits the old
+  17-byte preset limit just because the editor is shared. Refuse a character that cannot fit, never clip.
+- Preserve the draft through ordinary display blank/wake and incoming notifications. A waking press
+  only wakes; it must not also insert/select. Incoming content cannot replace the editor or move its
+  selection. Emergency holds retain immediate precedence; no draft or pending Send may be submitted
+  automatically when the emergency UI ends. Revalidate context and require fresh send confirmation.
+- Draft state is bounded RAM, not an NV write per character. Reboot/power-loss draft recovery and saving
+  a draft as a reusable preset are not included by this agreement. Cancel/discard is explicit. Unsupported
+  characters in an existing name/message must not be silently uppercased, transliterated or removed to
+  fit a smaller editor alphabet; the non-lossy edit/refusal behavior is part of detailed review.
+
+**Author layout candidate, not an owner-frozen alphabet:** seven groups of six characters, using one
+uppercase Latin alphabet, ten digits, a space and five punctuation marks. All 42 characters occur once:
+
+| Group | Six selectable characters, in order |
+| --- | --- |
+| 1 | A B C D E F |
+| 2 | G H I J K L |
+| 3 | M N O P Q R |
+| 4 | S T U V W X |
+| 5 | Y Z 0 1 2 3 |
+| 6 | 4 5 6 7 8 9 |
+| 7 | SPACE . , ? ! - |
+
+SPACE inserts one ordinary space. The mixed Y/Z/digit group preserves equal size without assuming
+which letters are common. This is a selection map, not a claim that all groups fit simultaneously on
+the OLED. Exact glyphs/case, six-character geometry and control placement await review; additions must
+keep the minimal repertoire and equal-group rule rather than silently expanding an exceptional group.
+The earlier A–F / G–L / M–R / S–Z sketch is superseded because its last letter group had eight entries.
+
+The current classifier waits 350 ms to distinguish short from double; rapid repeated taps can become
+a selection rather than repeated navigation. Reuse the classified gestures, not raw button edges, and
+measure the actual button interaction before claiming a typing rate or changing timing. Saved phrases
+remain the fast route; manual text is useful even when slow, without borrowing emergency-repeat behavior
+or implying guaranteed delivery of an urgent message.
 
 ## 5. Home without a team, and provisioning
 
@@ -171,12 +246,12 @@ because the three visible communication actions fill this illustration.
 
 Whole-team flow:
 
-**Send message → To team → select saved phrase → review full text and team → explicit send → real result.**
+**Send message → To team → Saved phrase / Write message → review full text and team → explicit send → real result.**
 
-This reuses the existing channel preset catalog, team channel constant, shared command executor and
+The Saved phrase branch reuses the existing channel preset catalog, team channel constant, shared command executor and
 ordinary-send tracker. No emergency repeat/retry behavior is borrowed. An explicit pre-send review is
 a proposed change: today a double on a preset queues it directly (src/firmware_ui_model.h:5421).
-Bind the selected slot, catalog generation and team context so a changed catalog or team cannot turn
+Bind the selected preset slot, catalog generation and team context so a changed catalog or team cannot turn
 the confirmation into a different transmission. No send is inferred merely from opening the preview.
 
 Example vocabulary:
@@ -227,18 +302,39 @@ This is now more than moving the existing Send entry: it includes a bounded pres
 multiline-review feature. C1 still forbids bundling unrelated refactors or file moves with that change.
 
 Preset selection is not text authoring. Current defaults do not contain either new example. USB catalog
-editing can prepare a deployment without iOS; on-device phrase editing is a separate proposed capability,
-not provided by this Home relocation or automatically by the name editor. Keep empty/disabled catalogs
-honest and guide the user to configuration.
+editing can prepare a deployment without iOS. The earlier statement leaving all on-device text authoring
+as a separate possible capability is superseded by the shared-editor agreement: Write message is now
+part of this design (§6.2). Editing or saving the persistent preset catalog from the panel remains separate;
+one-off manual composition must not rewrite a preset slot. Keep empty/disabled catalogs honest, with
+Write message available through its own admission checks rather than pretending a preset exists.
 
 Person flow:
-**Send message → To a person → bound recipient → phrase → recipient/text review → send result.**
+**Send message → To a person → bound recipient → Saved phrase / Write message → recipient/text review → explicit send → result.**
 Expose ambiguity rather than invent a name or claim a short identifier proves who is holding the radio.
 
 An ordinary channel post does not have an all-recipients-delivered result. Preserve queued, aired,
 relay-observed, blocked and unconfirmed distinctions from the real tracker. Never show Everyone received
 or infer a human acknowledgement from radio traffic. Received instruction-like text never executes
 a device command; this feature is unrelated to remote-admin RPC.
+
+### 6.2 Manual message flow — shared editor, separate explicit send
+
+Choose the recipient/team first, then Write message opens the §4.1 editor. Keep that destination visible
+and bound while typing. Done leaves the keyboard for full-text/recipient review; it never transmits.
+Review offers Edit, Send and Cancel. Paging never sends, and returning to edit invalidates the previous
+review. The reviewed byte sequence is the one submitted, not a later mutable draft or a catalog lookup.
+
+Use one owned bounded draft and an explicit handoff/lifetime contract through any queued submission;
+no dangling editor buffer, temporary NV preset, fabricated slot/generation or exemption through the
+emergency kind. Extend the existing normal DM/team-channel submission and outcome path under a reviewed
+implementation fence; keep saved-phrase generation validation intact. Apply the real destination,
+team/key, optional-location and body-capacity checks to manual text too. Revalidate a changed team or
+recipient before sending; never silently retarget. Display wrapping adds no transport newline (§6.1).
+
+Saved phrases remain the everyday fast option. Write message covers unanticipated information such as
+an injury, a changed meeting point or a name/location absent from the catalog; it remains an ordinary
+message. It creates no emergency priority/retries, guaranteed reachability or all-recipients receipt.
+The existing emergency hold remains usable while composing, independently of typing progress.
 
 ## 7. Should a received team message appear on Home?
 
@@ -358,7 +454,10 @@ the new multiline ruling; it does not claim that the running code or old catalog
 Owner/design review still selects:
 
 1. Exact Home states, strip/rail geometry, gesture map and full-name/identity-detail path.
-2. Name-editing alphabet/length and whether on-device phrase editing is a separate later increment.
+2. Exact minimal alphabet/case, equal group size/layout, edit controls, non-lossy handling of existing
+   unsupported text, and caller-specific byte capacities. Shared naming/manual composition, equal fixed
+   groups and no frequency-based ordering are agreed; the seven-by-six map in §4.1 is a candidate.
+   Persistent on-device preset editing remains a separate possible increment, not implicit in Write message.
 3. Scenario preset vocabulary/default policy and the source-derived bounded capacity/migration design.
    Multiline presentation and removal of the single-row 17-byte limit are settled direction, not an
    outstanding keep-versus-expand question.
@@ -366,7 +465,8 @@ Owner/design review still selects:
 5. Whether direct-message previews or any additional interruption policy are wanted; neither is assumed.
 6. Splash timing and the precise changes to earlier geometry/navigation rulings.
 
-Suggested work packages, not dispatch slices: identity/Home/setup entry points; standalone name editor;
+Suggested work packages, not dispatch slices: identity/Home/setup entry points; shared standalone text
+editor with name save/review; manual DM/team-message draft ownership, review and normal-send integration;
 bounded catalog-capacity/migration and multiline composition/review; ordinary-send discoverability and
 scenario vocabulary; incoming Home preview; boot splash/artwork
 relocation as a separately attributable visual change if useful. Dependencies and actual fences come
@@ -389,10 +489,16 @@ multiple arrivals while selecting, and blank/wake during every confirmation or e
 multiline/page-boundary cases, 17 versus 18 versus actual capacity/cap-plus-one, location-dependent
 admission, no silent clipping, full-review/send identity, valid-record upgrade/custom-text preservation,
 failed migration and shared emergency-catalog regressions. Page advancement must never score as send.
+For the editor, assert equal group sizes, unique/reachable exact repertoire and fixed order; drive
+character/group wrap, Back, Backspace, cursor movement, Done versus Save/Send, full-buffer refusal and
+cancel without mutation. Exercise the short/double timing boundary, blank/wake, notification arrival,
+emergency pre-emption, changed recipient/team and queued draft lifetime. Manual sending must prove the
+reviewed bytes reach the normal DM/channel path without touching NV presets or bypassing preset guards.
 
 Future metal residue belongs in the maintained bench script (M2), under the eventual brief:
 readability and one-button discovery without coaching; setup of two devices; John identifies/sends to
-Stan; whole-team ordinary send and truthful outcome; message arrival while another task is active;
+Stan; enter a name and a new message using only short/double gestures, with errors corrected and no
+timing coaching; whole-team ordinary send and truthful outcome; message arrival while another task is active;
 screen sleep/receive wake and power cost under event traffic; splash/radio/emergency coexistence.
 No new bench part is numbered or claimed run here. Exact console/panel expectations are frozen with
 the implementation brief, not inferred from these illustrative wireframes.
@@ -403,3 +509,9 @@ Dedicated discussion capture plus MEMORY/tracker pointers and maintained HOME-A1
 No code, test, tool, generated inventory, bench script, QA ledger, remote-admin brief/evidence or ruling
 was edited for this design. No build, test suite, simulator, board gate, regeneration or commit was run.
 Concurrent-input auditing remains the active coder/QA's responsibility; this note waives no STOP.
+
+**2026-09-07 editor update:** captured the owner's shared-editor/equal-group/minimal-repertoire agreement,
+the Author's seven-by-six candidate, manual-message flow and verification obligations; updated MEMORY
+and tracker pointers. No new defect finding or register number: this is proposed feature scope, not a
+measured bug. No production/test/tool/QA-ledger/evidence/bench edit, regeneration, software gate or commit.
+Active Slice 5 files are untouched; this design still authorizes no overlapping implementation.

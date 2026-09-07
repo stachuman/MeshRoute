@@ -5262,10 +5262,20 @@ TEST_CASE("★★★ §S0-5 REWRITTEN (§MH-S5 §9.1/§9.3) — at mobile_livene
     // −8 dB sits in [−12, −4) => tier `weak` (1), two tiers from the corpse's `strong` (3).
     RxMeta meta_weak{-8.0f, -80.0f, 0, -1};
 
-    // ⛔ GATE 16 — ASSERTED, NOT INSPECTED. The 25-minute expiry is a DEADLINE SCAN on the EXISTING periodic
-    // aging timer precisely because there are ZERO free timer ids: the wheel's cap is 91 and the top allocated
-    // id is 90. If a future slice raises the cap "as a convenience", this line fails before any behaviour does.
-    CHECK(TimerWheel::kCap == 91);
+    // ⛔ GATE 16 — ASSERTED, NOT INSPECTED, AND ITS OBLIGATION IS UNCHANGED: **this mechanism allocates NO timer
+    // id of its own.** The 25-minute expiry is a DEADLINE SCAN on the EXISTING periodic aging timer, and that is
+    // what this line has always been protecting.
+    // ⛔⛔ UPDATED 2026-09-07 BY §remote-admin v2 SLICE 5, old value kept visible: it read `kCap == 91` and its
+    //    note said "there are ZERO free timer ids … if a future slice raises the cap *as a convenience*, this
+    //    line fails before any behaviour does". A slice HAS raised it — 91 -> 92 — and ⛔ NOT as a convenience:
+    //    R-RA-22 and design §15 rule ONE shared remote-admin earliest-deadline scan
+    //    (`Node::kRadminExpiryTimerId` = 91), explicitly INSTEAD of one id per expiring record class. ⇒ the pin
+    //    moves to 92 and the mobile-aging proof below is untouched.
+    // ★ AND THE REAL GUARD IS THE SECOND LINE, which the first never expressed: this mechanism's own id must
+    //   still not exist. `kRadminExpiryTimerId` is the LAST allocated id, so anything above it is unallocated —
+    //   a future slice that quietly took one FOR THIS aging path would push that number and fail here.
+    CHECK(TimerWheel::kCap == 92);
+    CHECK(Node::test_last_allocated_timer_id() == 91);   // §radmin-5's shared scan is the top id; aging owns none
 
     TestHal hal; hal._now = kT0;
     Node home(hal, kHomeId, /*key_hash32=*/0x00004242u);

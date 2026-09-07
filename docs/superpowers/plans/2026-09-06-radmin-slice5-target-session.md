@@ -541,3 +541,51 @@ activation documentation. Keep B312/B317 and prior metal debts open for their ac
 existing bench suspension to target receive removed in Slice 5; no new bench part or RF metal PASS.
 Part 57c remains the later full controller/carrier observation. Update manual/boot/error documentation
 only from verified transcripts; help remains bare names. Owner commits each repository; Author does not.
+
+## 10. QA final gate — PASS 2026-09-07 (independent re-run on the coder's final tree, base `1677b44`, simulator `8688884`)
+
+**Verdict: PASS with one fold-in applied and verified ([[B341]]) and one pre-existing harness gap registered ([[B342]]).**
+Evidence: `docs/superpowers/evidence/2026-09-07-radmin-slice5.md` (coder, 942 lines). Every figure below is QA's own
+measurement (scratchpad `s5gate/chain.log`, `s5gate/mut_*.log`); each reproduces the coder's §9 exactly unless noted.
+
+| instrument | QA figure |
+| --- | --- |
+| native (`pio test -e native` then the binary) | **2825 / 119784 / 0** |
+| simulator `lus` md5 | **`db6582a171a6d785720e324c2cfe43f1`** (moved from `b1b1d92c…` by design: Node's host layout grew) |
+| corpus `--require-anchors` | **36/36**, anchors 36/36, s18 `32afbf11` / 269517 / 0, zero `radmin*` in any stream |
+| `probe_board_abi.py` | PASS — `meshroute::Node` **224136/8 · 117912/8 · 150504/8** (R-RA-31 re-pin; mobile unmoved) |
+| `probe_b278_row_abi.py` | PASS — 42 measurements, 6/6 controls RED, no row moved |
+| `probe_console_sink` | `profiles=6 checks=720 structural=52 ble_guard=905 ownership=6 ownership_controls=3 controls=101 unusable_controls=0` |
+| `probe_inbox_verbs` | ACCEPT arm **180 / 30** · CLIENT arm **178 / 33**, 0 unusable |
+| `probe_firmware_ui` · `probe_custody_usb` · `probe_ble_line` | 223 · 27/10 · 40/8, all 0 unusable |
+| `probe_features` (+ `--no-neg`) | 9 cells / **120** checks / **59** controls + ownership **40**, 0 unusable |
+| tools sweep | **`Ran 329 tests … OK`** (the two wrapper pins the coder's own gate3 tripped are now derived from `run.sh` / `ownership.CONTROLS`) |
+| inventory bare + `--check` | 204 rows, byte-for-byte |
+| warning census | 173 / 178 / 177 / 177 / 182 / 182 at pins, `-Wswitch` 0 |
+| `check_a0_matrix.py` · `check_data_type_literals.py` · `git diff --check` (both repos) | PASS · PASS (21 semantic values) · clean |
+| board pair (`.pio-measure/qa-s5-final`) | gateway **197180 / 544668 / 285** · heltec_mobile **207748 / 1367444 / 329** |
+| mutation union, 28 targets, fresh stage, `--workers=2` | **516 RED / 1 unusable** — the one is `sliceBmac` M04 |
+
+**[[B342]] independently confirmed:** QA applied M04 (delete the `terminal_carrier_outcome` call in `do_data_tx`'s
+pack-failed path) to a clean `git archive 1677b44` copy: native still **2763 / 118344 / 0**. The control was
+worthless BEFORE Slice 5; Slice 4's union never ran `sliceBmac`. QA's earlier claim to the coder that M04 "was
+RED at the Slice 4 gate" was wrong and is withdrawn.
+
+**One evidence correction for the Author's landing (doc only, no gate effect):** evidence §9's "Warning census,
+final" table quotes the PRE-fold-in (gate2) flash column for the three ACCEPT OLED envs — `gateway_heltec`
+1319332, `heltec_v3` 1374512, `heltec_v4` 1372532. The coder's own gate3 log and QA's run read **1319432 /
+1374676 / 1372684** (+100 / +164 / +152 B: the per-half boot install's code; the CLIENT envs are unchanged, as
+expected). Warning counts and verdicts are identical in all three runs.
+
+**Interpretation notes for the Author (no action required in this slice):**
+* §4.3 "an owner execute … is eligible for the reserved class" was implemented as: an owner execute uses the
+  CONTROL row ONLY (never the general row, even when free) — `remote_session.cpp` `partition = (is_control ||
+  is_owner) ? control : general`, tested by `§radmin-5/P2`. It satisfies the starvation guarantee; it also means
+  two owner executes cannot be in flight while the general row idles. Confirm or refine at 7b.
+* `bootstrap_staging_busy` and the bootstrap row's expiry are reachable only synthetically: the row is taken and
+  released inside one `rx_remote_cmd_accept` call. Correct, but the verdict has no production producer.
+
+**Coder proposals B336–B340, B342 (evidence §12) — QA reading:** B336 (concurrent doc edits in the measured
+tree) is the accepted consequence of the owner's 2026-09-06 main-tree-only ruling — close as "by ruling", no
+change; B337 (`measure_board.py` hashes untracked docs) is real and cheap — a scoped tools follow-up; B338/B339
+closed by the slice; B340 is the bench-note update; B342 stands as measured above. Register next free: **B343**.

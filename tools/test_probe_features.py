@@ -33,6 +33,7 @@ RUN:  python3 -m unittest discover -s tools -p "test_*.py"
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
@@ -49,6 +50,17 @@ MAIN = PROBE / "probe_main.cpp"
 ENVMAP = PROBE / "envmap.py"
 MUTATE = PROBE / "mutate.py"
 OWNERSHIP = PROBE / "ownership.py"       # §slice 1b: the first-consumer ownership contract
+
+
+def _load_ownership_module():
+    """Import `ownership.py` as a module so its CONTROLS list — the SOURCE OF TRUTH for the control census —
+    can be counted rather than re-typed here. ⛔ Loaded by path, not by `sys.path` surgery, so this wrapper
+    cannot accidentally pick up a different copy."""
+    spec = importlib.util.spec_from_file_location("_mr_probe_features_ownership", OWNERSHIP)
+    assert spec and spec.loader, f"cannot load {OWNERSHIP}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 HDR = ROOT / "lib" / "core" / "mr_features.h"
 RX = ROOT / "lib" / "core" / "node_mac_rx.cpp"
 
@@ -301,7 +313,24 @@ class TheGateRuns(unittest.TestCase):
         #   inverted onto ACCEPT, a duplicate guard in the boot-wrapper header, and BOTH new pure headers
         #   acquiring a capability macro).
         #   13 prior W-* + 6 slice-3 + 8 slice-4 + Y0..Y5 = 33. ⛔ Every prior control is preserved and rejected.
-        self.assertIn("ownership controls: 33 verified / 0 unusable", out)
+        # ⛔⛔ THE COUNT IS **DERIVED FROM `ownership.py`'s OWN CONTROLS LIST**, not typed here — corrected
+        #    2026-09-07 by §RADMIN SLICE 5 after this line failed for the SECOND time in the same way (Slice 3's
+        #    STOP-7 repaired the identical shape in this exact file, and the two comment blocks above are the
+        #    scars of the first two re-derivations). A literal copy of a count is a SECOND pin: the moment a
+        #    slice legitimately adds a control per new owner boundary — which is the contract's whole point —
+        #    the two disagree and the sweep fails for a reason that has nothing to do with the probe's health.
+        # ★ AND IT STAYS AN ANTI-REDUCTION PIN: the expected number is `len(ownership.CONTROLS)` plus the SIX
+        #   controls-of-the-controls (Y0..Y5) the runner adds itself, so DELETING a control still moves the
+        #   number and still fails here. What it no longer does is fail for ADDING one correctly.
+        # ⛔ `/ 0 unusable` is asserted separately and is the half that must never be relaxed: a control that
+        #   could not be applied is an INSTRUMENT ERROR, never a pass.
+        ownership_mod = _load_ownership_module()
+        expected_own_ctl = len(ownership_mod.CONTROLS) + 6      # + Y0..Y5, the controls of the controls
+        self.assertIn(f"ownership controls: {expected_own_ctl} verified / 0 unusable", out,
+                      f"the ownership control census moved: expected {expected_own_ctl} "
+                      f"(= len(CONTROLS) {len(ownership_mod.CONTROLS)} + Y0..Y5)")
+        self.assertEqual(6, len(re.findall(r"(?m)^  ctl-ok   Y\d ", out)),
+                         "the SIX controls-of-the-controls (Y0..Y5) must all run — the +6 above assumes it")
         self.assertLess(out.index("control classification (declared up-front"),
                         out.index("== class W/Y —"), "class W/Y must be declared before it runs")
 

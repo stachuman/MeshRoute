@@ -76,13 +76,20 @@ TEST_CASE("TimerWheel — a fired timer that re-arms with a positive delay does 
     CHECK(w.pop_due(5020) == 1);                   // fires next tick
 }
 
-TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 91)") {
+TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 92)") {
+    // ⛔⛔ UPDATED 2026-09-07 BY §remote-admin v2 SLICE 5, and the OBLIGATION IS PRESERVED rather than moved: this
+    //    case asks "does the wheel admit the LAST allocated id and refuse the one past the cap?", and both halves
+    //    are still asserted — at 91/92 instead of 90/91. `kCap` went 91 -> 92 for the ONE shared remote-admin
+    //    expiry scan (`Node::kRadminExpiryTimerId` = 91, R-RA-22 / design §15).
+    // ★ 90 IS STILL CHECKED TOO, deliberately: raising the cap must not disturb the id below the new one.
     TimerWheel w;
-    CHECK(w.after(10, /*id=*/90, 0));              // last valid id (kCap=91; §F-SL-1 the parked-send re-flood scan [89], shelf-item-(i) the E2E-ack deadline scan [90])
-    CHECK_FALSE(w.after(10, /*id=*/91, 0));        // == kCap -> rejected
+    CHECK(w.after(10, /*id=*/90, 0));              // shelf-item-(i), the E2E-ack deadline scan — still admitted
+    CHECK(w.after(10, /*id=*/91, 0));              // ★ the LAST valid id now: §radmin-5's shared expiry scan
+    CHECK_FALSE(w.after(10, /*id=*/92, 0));        // == kCap -> rejected
     CHECK_FALSE(w.after(10, /*id=*/255, 0));
-    CHECK(!w.active(91));
-    CHECK(w.pop_due(100) == 90);                   // the valid one still fires
+    CHECK(!w.active(92));
+    CHECK(w.pop_due(100) == 90);                   // the valid ones still fire, smallest-id-first on a tie
+    CHECK(w.pop_due(100) == 91);
 }
 
 TEST_CASE("TimerWheel — a Slice-3 gateway-band id (64..79) arms + fires (kCap raised 64->80)") {

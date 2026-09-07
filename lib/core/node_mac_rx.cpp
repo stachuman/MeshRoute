@@ -1942,10 +1942,20 @@ Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool acc
     return RadminRxOwner::none;   // every other type belongs to another handler — this decision never steals one
 }
 
-#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT
-// THE SHARED STAGING BODY — the legacy arm's statements, moved VERBATIM (U1/U2: one conversion path for the
-// carrier, never a field-by-field rebuild). `is_response` is now supplied by the OWNER instead of re-derived from
+#if MR_FEAT_RADMIN_CLIENT
+// THE STAGING BODY — the legacy arm's statements, moved VERBATIM in Slice 1b (U1/U2: one conversion path for the
+// carrier, never a field-by-field rebuild). `is_response` is supplied by the OWNER instead of re-derived from
 // `pa.type`; the owner is selected by that same type, so the stored value is identical.
+// ⛔⛔ CORRECTED 2026-09-07 BY **SLICE 5**, the old guard kept visible: this was
+//    `#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT` and the comment above called it "THE SHARED STAGING
+//    BODY", because BOTH owners fed the one legacy slot. R-RA-27 handed the replacement to Slice 5 in as many
+//    words, and it has landed: the ACCEPT owner now runs the v2 admission below and stages NOTHING here. ⇒ the
+//    helper, the slot and `fw_main`'s drain are CLIENT-ONLY, and an ACCEPT product pays none of their RAM.
+// ⛔ THE THREE OTHER DEFERRED OBLIGATIONS in the header block above are discharged in `rx_remote_cmd_accept`,
+//    not here: this body still keys on the 8-bit `pa.origin`, still requires no `SOURCE_HASH` and still CLAMPS.
+//    That is correct for what remains of it — a CLIENT draining a legacy `rcmd` RESPONSE it itself issued — and
+//    Slice 8a replaces the whole of it with the controller's pending table. It is ⛔ NOT a fallback for the v2
+//    arm and nothing in the accept path may ever reach it.
 void Node::remote_inbound_stage(const PostAck& pa, const data_unicast_inner* ui, bool is_response)
 {
     if (_remote_inbound.active) {
@@ -1964,17 +1974,210 @@ void Node::remote_inbound_stage(const PostAck& pa, const data_unicast_inner* ui,
 #endif
 
 #if MR_FEAT_RADMIN_ACCEPT
-// ACCEPT-OWNED. A command for us to execute: staged for the main loop, never inbox'd, never delivered as a message
-// and never consumed silently like an E2E ack — fw_main runs the whitelist on the main loop, never on the RX path.
+// ACCEPT-OWNED. (⛔ This marker line is LOAD-BEARING, not decoration: `tools/probe_features/ownership.py`'s
+// W-OWNER-CMD / W-WIDEN-ACCEPT controls anchor their one-match edit on exactly `#if MR_FEAT_RADMIN_ACCEPT`
+// followed by it, so moving or rewording it turns two ownership controls into instrument errors.)
+// =========================================================================================================
+// §remote-admin v2 SLICE 5 — THE ACCEPT-OWNED v2 ADMISSION, AND IT **REPLACES** THE LEGACY STAGING.
+//
+// ★★★ WHAT CHANGED, IN ONE LINE: this arm used to call `remote_inbound_stage(pa, ui, false)` — one unconditional
+//     246-byte slot keyed on an 8-bit origin, requiring no `SOURCE_HASH` and silently clamping an over-cap body,
+//     drained into the legacy `remote_exec` whitelist. It now runs the ruled v2 path: require the source hash,
+//     refuse over-cap, decode/authenticate through the Slice 2 codec, classify against the bounded seen table,
+//     reserve the partitioned ingress — and, for a BOOTSTRAP alone, answer on air.
+//
+// ⛔⛔ THIS ENDS TARGET-SIDE LEGACY `rcmd` EXECUTION, AND THE OWNER RULED IT (R-RA-27's hand-off, R-RA-31).
+//     There is ⛔ NO FALLBACK: an absent `SOURCE_HASH`, an old-format body, a malformed `ctl` or a failed
+//     authentication is REFUSED here and is never retried through `admin_auth`/`remote_exec`. The bench's
+//     static/gateway `rcmd` round trip was already SUSPENDED at Slice 1b; Slice 5 is where the receive half is
+//     actually removed. Slice 9 deletes the remaining legacy issuer/definitions.
+//
+// ⛔ WHAT THIS ARM STILL DOES NOT DO (mark done-vs-missing IN CODE):
+//     · ⛔ NO EXECUTION and no dispatcher context — the verdict is what Slice 7b/6 act on.
+//     · ⛔ NO output/terminal/ACK/rollover/protocol-error reply. `already_acknowledged` and `session_full` are
+//       classified and NOT answered; the only frame this slice ever emits is the bootstrap response.
+//     · ⛔ NO transcript or deferred-action reservation — those rows do not exist yet (R-RA-22 / 7b).
+// =========================================================================================================
+
+// Build the two REAL carrier descriptors: the leg the request ARRIVED on, and the leg an answer would LEAVE on.
+// ⛔ Neither is a convenient shape — both are derived from the parsed inner and this node's own layer, because
+//   `remote_body_cap` is the ONE capacity authority and it must be asked about the frame that actually exists.
+// ⓘ `addr_len` is 0 on BOTH, and that is a fact rather than a default: `PostAck` deliberately carries neither
+//   `next` nor `addr_len` (node_carriers.h), and `addr_len` is a HEADER field that costs no inner byte — so it
+//   cannot change either cap. Anything that could is read from `pa.flags` / `ui` directly.
+void Node::radmin_build_carriers(const PostAck& pa, const data_unicast_inner& ui, RemoteRxInput& in) const
+{
+    in.request_carrier = RemoteCarrier{};
+    in.request_carrier.outer_data_type     = pa.type;
+    in.request_carrier.enclosed_type       = 0;
+    in.request_carrier.wrapper             = false;   // a home UNWRAPS a MOBILE_SEND before this seam; we see the real type
+    in.request_carrier.cross_layer         = ui.has_cross_layer;
+    in.request_carrier.path_depth          = ui.has_cross_layer ? ui.n_layers : 0;
+    in.request_carrier.path_cursor         = ui.has_cross_layer ? ui.cur      : 0;
+    in.request_carrier.addr_len            = 0;
+    in.request_carrier.dst_hash_on_wire    = ui.has_dst_hash;
+    in.request_carrier.source_hash_on_wire = true;    // checked by the caller BEFORE this is built (R-RA-13)
+    in.request_carrier.outer_crypted       = (pa.flags & DATA_FLAG_CRYPTED) != 0;
+
+    // The REPLY leg. Same-layer answers by hash; a cross-layer request is answered on the REVERSED path at the
+    // SAME depth with `cur = 1` (`enqueue_cross_layer`'s own origination shape), and it always carries DST_HASH
+    // and SOURCE_HASH (node_mac.cpp stamps both unconditionally on that path).
+    in.reply_carrier = RemoteCarrier{};
+    in.reply_carrier.outer_data_type     = DATA_TYPE_REMOTE_RESP;
+    in.reply_carrier.enclosed_type       = 0;
+    in.reply_carrier.wrapper             = false;
+    in.reply_carrier.cross_layer         = ui.has_cross_layer && ui.n_layers >= 2;
+    in.reply_carrier.path_depth          = in.reply_carrier.cross_layer ? ui.n_layers : 0;
+    in.reply_carrier.path_cursor         = in.reply_carrier.cross_layer ? 1 : 0;
+    in.reply_carrier.addr_len            = 0;
+    in.reply_carrier.dst_hash_on_wire    = true;
+    in.reply_carrier.source_hash_on_wire = true;
+    in.reply_carrier.outer_crypted       = false;     // ⛔ CryptIntent::off — a v2 body is already sealed inside
+
+    // The captured RETURN metadata. Same-layer zeroes the path bytes, the count and the cursor; cross-layer
+    // retains EVERY validated received field. `origin` is diagnostic and is ⛔ never a reply identity.
+    in.route = ReplyRoute{};
+    in.route.origin  = pa.origin;
+    in.route.carrier = static_cast<uint8_t>(ui.has_cross_layer && ui.n_layers >= 2
+                                            ? RadminCarrierKind::cross_layer : RadminCarrierKind::same_layer);
+    if (in.route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {
+        in.route.n_layers = ui.n_layers;
+        in.route.cur      = ui.cur;
+        for (uint8_t i = 0; i < ui.n_layers && i < protocol::gw_env_max_hops; ++i)
+            in.route.layer_ids[i] = ui.layer_ids[i];
+    }
+}
+
+// ★ THE ONLY TRANSMITTER SLICE 5 OWNS (R-RA-31). One bootstrap response, two-shaped, then the reserved staging
+//   row is released on the CHECKED outcome — success or failure alike.
+void Node::radmin_send_reply(RemoteRxResult& res)
+{
+    if (!res.has_reply) return;
+    // ⛔ THE REPLY DST IS THE CAPTURED, AUTHENTICATED CONTROLLER SOURCE. A zero value is an explicit SEND
+    //    FAILURE — ⛔ never a fallback to `pa.origin`, which is an 8-bit local id that aliases across leaves.
+    if (res.source_hash == 0) {
+        MR_EMIT("radmin_reply_no_dst", EF_I("slot", res.controller_slot));
+        remote_session_staging_release(_radmin_session, res.staging_index);
+        return;
+    }
+    if (res.route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {
+        // §6.6 — reverse the captured COMPLETE path ONCE, then validate it. `send_xl_ack`'s PRINCIPLE is reused
+        // (a cross-layer answer is a NORMAL send on the reversed path); ⛔ its ACK payload and its type are not.
+        const uint8_t n = res.route.n_layers;
+        if (n < 2 || n > protocol::gw_env_max_hops || res.route.cur >= n) {
+            MR_EMIT("radmin_reply_bad_path", EF_I("n_layers", n), EF_I("cur", res.route.cur));
+            remote_session_staging_release(_radmin_session, res.staging_index);
+            return;
+        }
+        uint8_t rev[protocol::gw_env_max_hops] = {};
+        for (uint8_t i = 0; i < n; ++i) rev[i] = res.route.layer_ids[n - 1 - i];
+        // The DESTINATION-side end of the received path must be OUR active layer, and the far ORIGIN end must be
+        // a real layer. ⛔ Neither is assumed: a path that does not terminate here cannot be reversed into a
+        // return leg, and substituting a same-layer reply for it would answer the wrong node.
+        if (rev[0] != active_layer_id() || rev[n - 1] == 0) {
+            MR_EMIT("radmin_reply_bad_path", EF_I("rev0", rev[0]), EF_I("mine", active_layer_id()));
+            remote_session_staging_release(_radmin_session, res.staging_index);
+            return;
+        }
+        // ⛔ Only the REVERSED DESTINATION HOPS are handed over: `originate_layer_path` prepends our own layer
+        //    as path[0] itself, so passing `rev` whole would duplicate it.
+        // ⚠⚠ `[[maybe_unused]]` IS LOAD-BEARING AND IS [[B169]]'s SHAPE, ⛔ not decoration — and it was MEASURED,
+        //    not foreseen: `rc`'s only reader is the `MR_EMIT` below, which is DEVICE-STRIPPED, so on every
+        //    ACCEPT board the definition becomes `-Wunused-variable`. Native and all 36 corpus streams stay
+        //    green; the warning census is the ONLY instrument that sees it, and it did — the four ACCEPT envs
+        //    read 174/179/178/183 against pins 173/178/177/182 while the two CLIENT envs (which do not compile
+        //    this function at all) stayed exactly at 177 and 182. Same remedy as `node_mac.cpp`'s
+        //    `generic_lifecycle` and `node.cpp`'s `dsp`.
+        // ⛔ THE RESULT IS STILL CHECKED, not discarded: `rc` is what the emit reports as `queued`, which is the
+        //    §6.6 "check its CmdCode" obligation. Deleting the variable would delete that report.
+        uint16_t out_ctr = 0;
+        [[maybe_unused]] const CmdCode rc = originate_layer_path(res.source_hash, rev + 1, static_cast<uint8_t>(n - 1),
+                                                res.reply, res.reply_len, /*flags=*/0, out_ctr,
+                                                /*type=*/DATA_TYPE_REMOTE_RESP, /*override_source_hash=*/0);
+        MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "cross_layer"),
+                EF_I("slot", res.controller_slot),
+                EF_I("to_hash", static_cast<int64_t>(res.source_hash)),
+                EF_I("queued", rc == CmdCode::queued ? 1 : 0), EF_I("ctr", out_ctr));
+    } else {
+        // §6.5 — explicit GLOBAL plane, explicit REMOTE_RESP type, `CryptIntent::off`, ZERO optional ACK flags,
+        // no delegated override and no INTRO attach. ⛔ THE ADMISSION FACT IS `SendDispatch`, ⛔ not the return
+        // value: a non-zero ctr survives a full TX queue and a zero one covers a stored PARK, a full parked ring
+        // and a loud refusal alike ([[B333]]). ⛔ `send_by_hash` has NO `app_dm` parameter — that belongs to
+        // `do_send`/`enqueue_data`, which this path reaches with `app_dm = true` and therefore stamps our OWN
+        // `SOURCE_HASH` (the target's routing identity) and obeys DST_HASH admission.
+        SendDispatch dsp{};
+        (void)send_by_hash(res.source_hash, res.reply, res.reply_len, /*flags=*/0, CryptIntent::off,
+                           /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,
+                           /*type=*/DATA_TYPE_REMOTE_RESP, /*suppress_intro=*/true, &dsp);
+        MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "same_layer"),
+                EF_I("slot", res.controller_slot),
+                EF_I("to_hash", static_cast<int64_t>(res.source_hash)),
+                EF_I("admit", static_cast<int64_t>(dsp.admit)), EF_I("ctr", dsp.ctr));
+    }
+    // ⛔ RELEASED ON THE CHECKED OUTCOME, whatever it was. A PARKED copy is transport-owned and is not aired TX
+    //    yet; this slice adds ⛔ no application retry scheduler for it (design §7.2: a lost bootstrap response is
+    //    recovered by the controller REPEATING the read-only request, which is exactly what makes it safe).
+    remote_session_staging_release(_radmin_session, res.staging_index);
+}
+
+// §4.5 — the ONE shared earliest-deadline scan. `park_reflood_arm` / `e2e_ack_deadline_arm_timer` idiom (U1):
+// cancel when nothing pends, otherwise re-arm to the TRUE earliest remaining deadline. ⛔ Never a stale cached
+// minimum, and ⛔ never a per-class id.
+void Node::radmin_expiry_arm()
+{
+    const uint64_t earliest = remote_session_earliest_deadline(_radmin_session);
+    if (earliest == ~uint64_t{0}) { _hal.cancel(kRadminExpiryTimerId); return; }
+    const uint64_t now = _hal.now();
+    (void)_hal.after(earliest > now ? static_cast<uint32_t>(earliest - now) : 0, kRadminExpiryTimerId);
+}
+
+void Node::radmin_expiry_fire()
+{
+    // ★ ONE HAL snapshot per scan — every row is judged against the SAME `now`, so two rows with the identical
+    //   deadline can never fall on opposite sides of it.
+    const uint64_t now = _hal.now();
+    const uint8_t released = remote_session_expire(_radmin_session, now);
+    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));
+    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is
+    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.
+    radmin_expiry_arm();
+}
+
+// THE ACCEPT ENTRY POINT. A v2 remote command addressed to us.
 void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
 {
-    remote_inbound_stage(pa, ui, /*is_response=*/false);
+    // ★★ R-RA-13, DISCHARGED: `SOURCE_HASH` is MANDATORY on every RPC carrier. A frame whose standard unicast
+    //    parse failed, or which carries no source hash, is REFUSED — ⛔ never keyed on `pa.origin` instead.
+    if (!ui || !ui->has_source_hash) {
+        MR_EMIT("radmin_rx_refused", EF_S("verdict", "silent_no_source"), EF_I("origin", pa.origin));
+        return;
+    }
+    RemoteRxInput in{};
+    in.now_ms     = _hal.now();
+    in.outer_type = pa.type;
+    in.body       = ui->body;
+    in.source     = RemoteSource{ /*present=*/true, ui->source_hash };
+    radmin_build_carriers(pa, *ui, in);
+
+    RemoteRxResult res{};
+    remote_session_receive(_radmin_session, in, res);
+    MR_EMIT("radmin_rx", EF_S("verdict", remote_admit_name(res.verdict)),
+            EF_I("slot", res.controller_slot),
+            EF_I("src_hash", static_cast<int64_t>(res.source_hash)),
+            EF_I("seen", res.seen_index), EF_I("ingress", res.ingress_index));
+    radmin_send_reply(res);      // a no-op unless the verdict is `bootstrap_answered`
+    // A reservation may have been taken (or a bootstrap row taken and released), so the shared scan is re-armed
+    // from the CURRENT rows on every path — including the refusals, which changed nothing and therefore re-arm
+    // to exactly what was already armed.
+    radmin_expiry_arm();
 }
 #endif
 
 #if MR_FEAT_RADMIN_CLIENT
 // CLIENT-OWNED. A response to a command WE issued: staged for the main loop, which prints it. One in flight; a
 // second while one is pending drops with `remote_inbound_drop_full` (rcmd is human-paced).
+// ⓘ UNCHANGED BY SLICE 5, DELIBERATELY: this is now the SOLE user of the staging slot, and its copy/clamp/print
+//   behaviour is preserved BYTE FOR BYTE until Slice 8a's controller pending table replaces it.
 void Node::rx_remote_resp_client(const PostAck& pa, const data_unicast_inner* ui)
 {
     remote_inbound_stage(pa, ui, /*is_response=*/true);

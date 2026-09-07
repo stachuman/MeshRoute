@@ -1010,6 +1010,7 @@ int main() {
         // A key the probe can paste, and the SAME 64 hex characters the assertions compare back out of the line.
         const char* kKeyA = "1111111111111111111111111111111111111111111111111111111111111111";
         const char* kKeyB = "2222222222222222222222222222222222222222222222222222222222222222";
+        const char* kKeyC = "4444444444444444444444444444444444444444444444444444444444444444";   // §radmin-5: a THIRD distinct controller, for the refusal rows
 
         // ---- R30: the family REACHES the router at all, on both primary tokens -----------------------------
         reset_nv(true);
@@ -1070,8 +1071,24 @@ int main() {
         // ★★ THE BINDING REALLY ASKS THE PLATFORM. `mrrng::fill` draws 32 bytes as 8 x 32-bit `esp_random()`
         //    calls on this arm, so a binding that stopped drawing — or that answered from a cached/derived value —
         //    shows up as a DRAW COUNT, which no pure test can see (the binding lives in firmware_commands.cpp).
-        CHK(rng.draws == 8, "R32g the seed came from EXACTLY 8 platform draws (32 B / 4) [%u]",
+        // ⛔⛔ THE COUNT MOVED 8 -> 28 IN §RADMIN SLICE 5, AND THE DERIVATION IS EXACT rather than accommodated:
+        //    a `generate` now PREPARES the live administration state before its durable save, and that
+        //    preparation mints the TEN per-slot session epochs (design §4.1's complete candidate). Each epoch is
+        //    64 bits, i.e. 8 B / 4 = 2 platform draws. ⇒ 8 (the 32-byte seed) + 10 x 2 (the epochs) = 28.
+        //    ★ AND THE MOVE IS ITSELF THE EVIDENCE: it is the only place the ten draws are observable at all —
+        //      the native suite drives a FAKE runtime, so a binding that stopped preparing would be green there.
+        CHK(rng.draws == 28,
+            "R32g the seed AND the ten prepared epochs came from EXACTLY 28 platform draws (32/4 + 10 x 8/4) [%u]",
             unsigned(rng.draws));
+        // ★★★ §RADMIN SLICE 5 — THE LIVE INSTALL REALLY HAPPENED, observed on the REAL `g_node` rather than on a
+        //     callback count: a successful `admin-id generate` leaves the running administration pair installed.
+        //     ⓘ Readiness stays `disabled` here BY DESIGN — the conjunction also needs a valid ACL with an owner,
+        //       and this fixture has none yet. That is asserted, so "installed" cannot be read as "accepting".
+        CHK(g_node.admin_session_state().root_present == 1,
+            "R32h ★ §radmin-5: the generated pair is INSTALLED into the running Node (root_present=1)");
+        CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::disabled
+            && g_node.admin_session_slots() == 0,
+            "R32i ...and readiness is still `disabled` with 0 slots — a root alone is not an accepting node");
         // ⛔ NO SEED BYTE ESCAPES: the stored seed's hex must appear NOWHERE in the console output.
         {
             mrnv::AdminIdBlob stored{};
@@ -1237,6 +1254,228 @@ int main() {
             CHK(std::strstr(Serial.out, "state=io_failed") != nullptr && nv.writes == w0,
                 "R42g the BOOT report says `io_failed` and still writes nothing");
             mrprobe_nvs().backend_dead = false;
+        }
+
+        // ================================================================================================
+        // ---- §RADMIN SLICE 5 — THE LIVE-INSTALL WIRING, ON THE REAL `g_node` AND THE REAL PLATFORM FACTS.
+        //
+        // ⛔⛔ WHY THESE ROWS EXIST, as the defect they close: `test/test_firmware_admin_runtime.cpp` pins the
+        //     prepare/commit/discard ORDER against a FAKE runtime, and every one of its cases stays green if
+        //     `DeviceAdminRuntime` is never constructed, if the services are handed `nullptr` instead of the
+        //     seam, if `commit()` forwards to nothing, if the boot install is never called, or if the boot line
+        //     is printed without installing anything. None of that is reachable from a host build of `test/`,
+        //     because `platformio.ini`'s native env compiles no `src/*.cpp` at all (§B115).
+        // ⛔ AND IT IS STILL NOT METAL: the NV medium and the RNG are fakes, so no flash wear, no power cut and
+        //    no real entropy source is exercised. [[B312]] and [[B317]] are untouched by every row below.
+        // ================================================================================================
+        {
+            // ---- S5-1: BOOT INSTALL — a valid root + a valid ACL with an owner installs and reports `ready`
+            reset_nv(true);
+            {
+                char line[128];
+                s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+                std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                CHK(s.has("> acl added slot=0 role=owner"),
+                    "S5-1a a root and a first OWNER are provisioned [%s]", s.buf);
+            }
+            const uint64_t e0_after_add = g_node.admin_session_state().epoch[0];
+            CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::ready
+                && g_node.admin_session_slots() == 1 && e0_after_add != 0,
+                "S5-1b ★ the ACL add ACTIVATED the running session: ready, 1 slot, a NON-ZERO epoch");
+            {
+                mrcon.service(); Serial.reset();
+                const int w0 = nv.writes;
+                mrfw::admin_stores_boot_report_console();
+                mrcon.service();
+                CHK(std::strstr(Serial.out, "> admin-session boot state=ready slots=1") != nullptr,
+                    "S5-1c ★ the BOOT line reports the installed state exactly [%s]", Serial.out);
+                CHK(nv.writes == w0, "S5-1d ...and the boot install writes NOTHING");
+                CHK(!std::strstr(Serial.out, "pub=") && !std::strstr(Serial.out, "fp="),
+                    "S5-1e ...with ⛔ no key byte, fingerprint or epoch on the session line");
+                CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::ready
+                    && g_node.admin_session_slots() == 1,
+                    "S5-1f ...and the node is STILL ready afterwards (a re-read installs the same image)");
+            }
+            // ---- S5-2: SLOT-LOCAL vs ROOT-WIDE invalidation, measured on the REAL epochs -------------------
+            // ⓘ THE BASELINE IS RE-READ HERE, AFTER the boot install above, and that is a FACT rather than a
+            //   convenience: a boot install mints a COMPLETE fresh candidate (§4.1), so the epochs it published
+            //   are not the ones the earlier `acl add` did. Comparing across it would measure the boot, not the
+            //   per-slot rule this block is about.
+            const uint64_t e0_base = g_node.admin_session_state().epoch[0];
+            {
+                char line[128];
+                std::snprintf(line, sizeof line, "acl add operator %s", kKeyB);
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                CHK(s.has("> acl added slot=1 role=operator"),
+                    "S5-2a a second controller is granted [%s]", s.buf);
+            }
+            const uint64_t e0 = g_node.admin_session_state().epoch[0];
+            const uint64_t e1 = g_node.admin_session_state().epoch[1];
+            CHK(e0 == e0_base && e1 != 0 && e1 != e0,
+                "S5-2b ★ the ADD minted a fresh epoch for the NEW slot and left slot 0's EXACTLY as it was");
+            {
+                s.reset(); mrfw::dispatch("acl set 1 owner", 15, s);
+                CHK(s.has("> acl updated slot=1 role=owner"),
+                    "S5-2c a role change on slot 1 succeeds [%s]", s.buf);
+            }
+            CHK(g_node.admin_session_state().epoch[0] == e0
+                && g_node.admin_session_state().epoch[1] != e1,
+                "S5-2d ★★ SLOT-LOCAL invalidation: slot 1's epoch rotated, slot 0's did NOT");
+            {
+                const uint64_t a0 = g_node.admin_session_state().epoch[0];
+                const uint64_t a1 = g_node.admin_session_state().epoch[1];
+                s.reset(); mrfw::dispatch("admin-id rotate confirm", 23, s);
+                CHK(s.has("> admin-id rotated"), "S5-2e the administration ROOT rotates [%s]", s.buf);
+                CHK(g_node.admin_session_state().epoch[0] != a0
+                    && g_node.admin_session_state().epoch[1] != a1
+                    && g_node.admin_session_state().acl_occupied == 2,
+                    "S5-2f ★★ ROOT-WIDE invalidation: BOTH epochs rotated and the ACL SURVIVED");
+            }
+            // ---- S5-3: PREPARE FAILS BEFORE THE WRITE — a dead RNG costs zero durable writes ---------------
+            {
+                const int w0 = nv.writes;
+                const uint64_t keep0 = g_node.admin_session_state().epoch[0];
+                rng.force_zero = true;
+                char line[128];
+                std::snprintf(line, sizeof line, "acl add operator %s", kKeyC);
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                rng.force_zero = false;
+                CHK(s.is("> acl err runtime_unavailable\n"),
+                    "S5-3a ★★ a refused epoch draw answers `runtime_unavailable` [%s]", s.buf);
+                CHK(nv.writes == w0, "S5-3b ...at ZERO durable writes — the preparation ran BEFORE the save");
+                CHK(g_node.admin_session_state().acl_occupied == 2
+                    && g_node.admin_session_state().epoch[0] == keep0,
+                    "S5-3c ...and the RUNNING image is untouched (2 slots, slot 0's epoch exact)");
+            }
+            // ---- S5-4: NV FAILS AFTER A SUCCESSFUL PREPARE — nothing is installed --------------------------
+            {
+                const uint64_t keep0 = g_node.admin_session_state().epoch[0];
+                const uint8_t  occ0  = g_node.admin_session_state().acl_occupied;
+                nv.fail_write = true;
+                char line[128];
+                std::snprintf(line, sizeof line, "acl add operator %s", kKeyC);
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                nv.fail_write = false;
+                CHK(s.is("> acl err nv_save_failed\n"),
+                    "S5-4a a refused medium answers `nv_save_failed` [%s]", s.buf);
+                CHK(g_node.admin_session_state().acl_occupied == occ0
+                    && g_node.admin_session_state().epoch[0] == keep0,
+                    "S5-4b ★★ the plan was DISCARDED: the running ACL, epochs and pair are EXACTLY as before");
+                // ⚠ [[B317]]: this is a claim about the RUNNING state. It is ⛔ NOT a claim that the previous
+                //   flash bytes survived a remove-then-write backend.
+            }
+            // ---- S5-5: ORDINARY `regen` does NOT rotate the administration root ---------------------------
+            {
+                const uint8_t before_pub[32] = {
+                    g_node.admin_session_state().admin_ed_pub[0],  g_node.admin_session_state().admin_ed_pub[1],
+                    g_node.admin_session_state().admin_ed_pub[2],  g_node.admin_session_state().admin_ed_pub[3],
+                    g_node.admin_session_state().admin_ed_pub[4],  g_node.admin_session_state().admin_ed_pub[5],
+                    g_node.admin_session_state().admin_ed_pub[6],  g_node.admin_session_state().admin_ed_pub[7],
+                    g_node.admin_session_state().admin_ed_pub[8],  g_node.admin_session_state().admin_ed_pub[9],
+                    g_node.admin_session_state().admin_ed_pub[10], g_node.admin_session_state().admin_ed_pub[11],
+                    g_node.admin_session_state().admin_ed_pub[12], g_node.admin_session_state().admin_ed_pub[13],
+                    g_node.admin_session_state().admin_ed_pub[14], g_node.admin_session_state().admin_ed_pub[15],
+                    g_node.admin_session_state().admin_ed_pub[16], g_node.admin_session_state().admin_ed_pub[17],
+                    g_node.admin_session_state().admin_ed_pub[18], g_node.admin_session_state().admin_ed_pub[19],
+                    g_node.admin_session_state().admin_ed_pub[20], g_node.admin_session_state().admin_ed_pub[21],
+                    g_node.admin_session_state().admin_ed_pub[22], g_node.admin_session_state().admin_ed_pub[23],
+                    g_node.admin_session_state().admin_ed_pub[24], g_node.admin_session_state().admin_ed_pub[25],
+                    g_node.admin_session_state().admin_ed_pub[26], g_node.admin_session_state().admin_ed_pub[27],
+                    g_node.admin_session_state().admin_ed_pub[28], g_node.admin_session_state().admin_ed_pub[29],
+                    g_node.admin_session_state().admin_ed_pub[30], g_node.admin_session_state().admin_ed_pub[31] };
+                const uint64_t keep0 = g_node.admin_session_state().epoch[0];
+                s.reset(); mrfw::dispatch("regen confirm", 13, s);
+                CHK(std::memcmp(before_pub, g_node.admin_session_state().admin_ed_pub, 32) == 0
+                    && g_node.admin_session_state().epoch[0] == keep0,
+                    "S5-5 ★★ `regen` rotates the MESSAGING identity and leaves the ADMINISTRATION root and every "
+                    "session epoch EXACTLY as they were — two secrets, two lifetimes [%s]", s.buf);
+            }
+            // ---- S5-7 / S5-8: ★★ [[B341]] — LIVE ACTIVATION ACROSS A REBOOT, on the REAL `g_node` ----------
+            //   The native cases (§radmin-5/R16/R17) drive the same two sequences through the pure services; these
+            //   drive them through the REAL router, the REAL NV wrappers and the REAL
+            //   `admin_stores_boot_report_console()` — i.e. across the actual `setup()` path, which is the only
+            //   place the boot install exists. ⛔ Neither instrument alone proves it: the native one cannot reach
+            //   `firmware_commands.cpp`, and this one cannot reach the ordering rules.
+            {
+                // (B) root generated -> REBOOT with the ACL still absent -> `acl add owner` must ACTIVATE.
+                reset_nv(true);
+                s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+                CHK(s.has("> admin-id generated"), "S5-7a a root is provisioned with no ACL yet [%s]", s.buf);
+                mrcon.service(); Serial.reset();
+                mrfw::admin_stores_boot_report_console();          // ★ THE REBOOT
+                mrcon.service();
+                CHK(std::strstr(Serial.out, "> admin-session boot state=disabled slots=0") != nullptr,
+                    "S5-7b ...and the boot correctly reports `disabled` (no ACL) [%s]", Serial.out);
+                CHK(g_node.admin_session_state().root_present == 1,
+                    "S5-7c ★★ [[B341]]: the VALID ROOT HALF IS INSTALLED across the boot — before the fix this "
+                    "was 0 and every durable success below described state the node did not hold");
+                char line[128];
+                std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+                s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                CHK(s.has("> acl added slot=0 role=owner"), "S5-7d the first owner is granted [%s]", s.buf);
+                CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::ready
+                    && g_node.admin_session_slots() == 1,
+                    "S5-7e ★★★ THE PROPERTY: a durable success ACTIVATED the running node — ready, 1 slot");
+                // …and a fresh boot on the SAME medium installs the SAME readiness.
+                mrcon.service(); Serial.reset();
+                mrfw::admin_stores_boot_report_console();
+                mrcon.service();
+                CHK(std::strstr(Serial.out, "> admin-session boot state=ready slots=1") != nullptr
+                    && g_node.admin_session_readiness() == meshroute::AdminReadiness::ready,
+                    "S5-7f ...and a fresh boot on the same medium installs EXACTLY that [%s]", Serial.out);
+            }
+            {
+                // (D) a valid owner ACL + a CORRUPT root -> REBOOT -> `admin-id reset confirm` must ACTIVATE.
+                reset_nv(true);
+                {
+                    char line[128];
+                    s.reset(); mrfw::dispatch("admin-id generate", 17, s);
+                    std::snprintf(line, sizeof line, "acl add owner %s", kKeyA);
+                    s.reset(); mrfw::dispatch(line, std::strlen(line), s);
+                    CHK(s.has("> acl added slot=0 role=owner"), "S5-8a a root and an owner are provisioned [%s]", s.buf);
+                }
+                // CORRUPT the root record in place — the ACL stays valid.
+                {
+                    mrnv::AdminIdBlob bad{};
+                    mrnv::admin_id_blob_init(bad);
+                    bad.version = 99;                              // a version the equality policy REJECTS
+                    nv.put("mr", "admid", reinterpret_cast<const unsigned char*>(&bad), sizeof bad);
+                    s.reset(); mrfw::dispatch("admin-id show", 13, s);
+                    CHK(s.is("> admin-id err store_invalid\n"),
+                        "S5-8b the root record now reads `store_invalid` [%s]", s.buf);
+                }
+                mrcon.service(); Serial.reset();
+                mrfw::admin_stores_boot_report_console();          // ★ THE REBOOT
+                mrcon.service();
+                CHK(std::strstr(Serial.out, "> admin-session boot state=disabled slots=0") != nullptr,
+                    "S5-8c ...and the boot correctly reports `disabled` (no usable root) [%s]", Serial.out);
+                CHK(g_node.admin_session_state().root_present == 0
+                    && g_node.admin_session_state().acl_occupied == 1
+                    && g_node.admin_session_state().epoch[0] != 0,
+                    "S5-8d ★★ [[B341]]: the BAD half is CLEARED and the VALID ACL HALF IS INSTALLED with a "
+                    "prepared epoch — before the fix `acl_occupied` was 0");
+                s.reset(); mrfw::dispatch("admin-id reset confirm", 22, s);
+                CHK(s.has("> admin-id recovered"), "S5-8e the operator recovers the root [%s]", s.buf);
+                CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::ready
+                    && g_node.admin_session_slots() == 1
+                    && g_node.admin_session_state().acl_occupied == 1,
+                    "S5-8f ★★★ THE PROPERTY: the recovery ACTIVATED the node and the ACL SURVIVED it");
+            }
+
+            // ---- S5-6: an EMPTY/INVALID prerequisite installs the CLEARED image, never a stale one --------
+            {
+                reset_nv(true);
+                mrcon.service(); Serial.reset();
+                mrfw::admin_stores_boot_report_console();
+                mrcon.service();
+                CHK(std::strstr(Serial.out, "> admin-session boot state=disabled slots=0") != nullptr,
+                    "S5-6a an unprovisioned node boots `disabled slots=0` [%s]", Serial.out);
+                CHK(g_node.admin_session_readiness() == meshroute::AdminReadiness::disabled
+                    && g_node.admin_session_state().root_present == 0
+                    && g_node.admin_session_state().acl_occupied == 0,
+                    "S5-6b ★★ …and the RUNNING image was CLEARED — ⛔ no stale live ACL survives a bad record");
+            }
         }
 
         // ---- R41: every response goes to the SUPPLIED sink — `mrcon` gets zero bytes -----------------------

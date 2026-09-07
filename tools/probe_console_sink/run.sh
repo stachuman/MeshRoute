@@ -96,7 +96,15 @@ PROFILES=(
 #                                            the SAME rows — a gated name changes the LIST, not the row count —
 #                                            which is why one per-profile constant is enough. (§0a was 166/160: the
 #                                            per-topic rows scaled with topic availability.)
-#     PIN_STRUCTURAL = 50                    structural.py's S1..S50. ⚠ RE-PINNED 2026-09-06 BY §RADMIN
+#     PIN_STRUCTURAL = 52                    structural.py's S1..S52. ⚠ RE-PINNED 2026-09-07 BY §RADMIN
+#         SLICE 5: +2 (S51, S52) — the ACCEPT bindings acquire a RULED `Node` link (design §6.5's live activation,
+#         R-RA-31), so S34's blanket "touch NO Node state" was replaced IN PLACE by the narrower legacy-symbol
+#         rule plus S51, which pins the Node surface to EXACTLY the three session entry points. ⛔ The count
+#         moved because checks were ADDED, not because one was weakened: S34 still forbids every legacy
+#         single-admin symbol, S51 refuses any fourth unreviewed `g_node.` call inside those blocks, and S52
+#         pins that both entry points actually BIND the seam (dropping the argument would leave every emitted
+#         byte identical while silently reverting the slice to Slice 3's install-nothing behaviour).
+#     (historical:) PIN_STRUCTURAL = 50       structural.py's S1..S50. ⚠ RE-PINNED 2026-09-06 BY §RADMIN
 #         SLICE 4, 39 -> 50, FULLY ATTRIBUTED: eleven NEW device-boundary rows for the two CONTROLLER
 #         stores — S40 the CLIENT boot report is called exactly once from setup() under
 #         MR_FEAT_RADMIN_CLIENT · S41 and it runs AFTER the mount/self-heal · S42 that path writes
@@ -173,14 +181,21 @@ PROFILES=(
 #           S-C34 the bindings reach into Node, S-C35 load_acl re-pointed at the other slot, S-C36 /mradmid added
 #           to the self-heal probe list, S-C37 do_regen starts writing the ACL, S-C38 handle_leave starts writing
 #           /mradmid, S-C39 factory_erase stops erasing wholesale). 3 + 6 + 11 = 20. ✓
+#         ⚠ RE-PINNED 2026-09-07 BY §RADMIN SLICE 5, 99 -> 101, and ⛔ not one prior control dropped. The 2 are
+#           S-C34b (the ACL service loses its live-install seam) and S-C34c (the IDENTITY service loses it), both
+#           checked by the new S52. ★ S-C34 itself was RE-POINTED from S34 to S51 rather than added or removed:
+#           its injected defect (an unreviewed `g_node.` reach inside an ACCEPT binding) is unchanged, but the
+#           rule that catches it moved when S34 legitimately stopped forbidding every Node contact. Left
+#           unchanged it STAYED GREEN — the runner said so and refused to score it, which is what forced this
+#           re-pointing instead of a silent pass.
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=50
+PIN_STRUCTURAL=52
 PIN_BLE_GUARD=905
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
-PIN_CONTROLS=99
+PIN_CONTROLS=101
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE

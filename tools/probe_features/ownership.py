@@ -67,6 +67,16 @@ RX = "lib/core/node_mac_rx.cpp"
 #    macro at all, so the native suite drives every service arm without defining a product role. If one of them
 #    ever names `MR_FEAT_RADMIN_*`, check O1 REJECTS it as an unapproved consumer — which is exactly the guard
 #    that keeps the gating at the instantiation instead of leaking into the policy.
+# ★★ §RADMIN SLICE 5 (2026-09-07) — THE CENSUS GROWS FROM SEVEN FILES TO NINE. The target's session state is a
+#    `Node` member and its expiry is a `Node` timer case, so `lib/core/node.cpp` becomes an owner; the legacy
+#    staging slot became CLIENT-only, so `lib/core/node_mac.cpp`'s `take_remote_inbound` guard does too.
+# ⛔ AND TWO NEW PRODUCTION FILES ARE **DELIBERATELY ABSENT**, which is the [[B255]] idiom holding rather than a
+#    gap: `lib/core/remote_session.{h,cpp}` (the whole session/admission/bootstrap implementation) and
+#    `src/firmware_admin_runtime.h` (the prepare/commit/discard seam) carry ⛔ NO `MR_FEAT_RADMIN_*` reference at
+#    all, so the native suite drives every arm of both without declaring a product role. Check O1 REJECTS either
+#    of them the moment one names the pair — controls W-S5-GATE-PURE-SESSION / -RUNTIME prove exactly that.
+NODE_CPP = "lib/core/node.cpp"
+MAC_CPP = "lib/core/node_mac.cpp"
 CMDS_CPP = "src/firmware_commands.cpp"
 CMDS_H = "src/firmware_commands.h"
 FW_MAIN = "src/fw_main.cpp"
@@ -87,14 +97,29 @@ APPROVED_SITES = {
         "# if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT",         # the legacy AGREEMENT pin (not a widening)
     ],
     NODE_H: [
-        "#if MR_FEAT_RADMIN_ACCEPT",                          # rx_remote_cmd_accept  declaration
-        "#if MR_FEAT_RADMIN_CLIENT",                          # rx_remote_resp_client declaration
-        "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT",  # the shared staging helper declaration
+        "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-5: the firmware-installed session API (commit/draw/readiness)
+        "#if MR_FEAT_RADMIN_ACCEPT",   # rx_remote_cmd_accept + the four private radmin_* halves of the arm
+        "#if MR_FEAT_RADMIN_CLIENT",   # rx_remote_resp_client declaration
+        # ⛔⛔ CORRECTED 2026-09-07 BY SLICE 5, the old entry kept visible: this row read
+        #    "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT"  # the shared staging helper declaration.
+        #    The ACCEPT owner no longer stages anything legacy (R-RA-22's partitioned admission replaced it), so
+        #    the helper is CLIENT-ONLY. ⇒ the multiset changes without the COUNT changing, which is exactly the
+        #    class of drift this per-file sorted comparison exists to catch.
+        "#if MR_FEAT_RADMIN_CLIENT",   # the staging helper declaration — CLIENT-only since slice 5
+        "#if MR_FEAT_RADMIN_CLIENT",   # §radmin-5: the legacy `_remote_inbound` SLOT — CLIENT-only storage
+        "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-5: the ONE `_radmin_session` state block (2 064 B, accept-only)
+    ],
+    NODE_CPP: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-5: the ONE shared expiry timer case in `on_timer`
+        "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-5: the checked epoch draw + commit/entropy-failed install seam
+    ],
+    MAC_CPP: [
+        "#if MR_FEAT_RADMIN_CLIENT",   # §radmin-5: `take_remote_inbound`'s real body (⛔ `#else` = a false stub)
     ],
     RX: [
-        "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT",  # the shared staging helper definition
-        "#if MR_FEAT_RADMIN_ACCEPT",                          # rx_remote_cmd_accept  definition
-        "#if MR_FEAT_RADMIN_CLIENT",                          # rx_remote_resp_client definition
+        "#if MR_FEAT_RADMIN_CLIENT",   # the staging helper DEFINITION — CLIENT-only since slice 5 (was ACCEPT||CLIENT)
+        "#if MR_FEAT_RADMIN_ACCEPT",   # the accept-owned v2 admission (rx_remote_cmd_accept + its three halves)
+        "#if MR_FEAT_RADMIN_CLIENT",   # rx_remote_resp_client definition
         "const RadminRxOwner radmin_owner = radmin_rx_owner(pa.type, "
         "MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT);",     # ★ THE ONE production call, argument order pinned
         "#if MR_FEAT_RADMIN_ACCEPT",                          # the accept-owned dispatch arm
@@ -120,9 +145,10 @@ APPROVED_SITES = {
     ],
     FW_MAIN: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # R-RA-29's BLE refusal, BEFORE the transport-neutral seam
-        "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s READ-ONLY boot report call, beside the legacy admin_load
+        "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s boot report + §radmin-5's LIVE INSTALL, beside the legacy admin_load
         "#if MR_FEAT_RADMIN_CLIENT",   # R-RA-30's SUB-VERB-AWARE BLE refusal, also before the seam
         "#if MR_FEAT_RADMIN_CLIENT",   # setup()'s READ-ONLY controller boot report call
+        "#if MR_FEAT_RADMIN_CLIENT",   # §radmin-5: the WHOLE legacy rcmd drain block, statics included
     ],
     HELP_H: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # the two sorted primary names in the bare index
@@ -141,7 +167,12 @@ DECISION_DECL = "static RadminRxOwner radmin_rx_owner(uint8_t type, bool client_
 DECISION_DEF = "Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool accept_on)"
 OWNED = (("rx_remote_cmd_accept", "MR_FEAT_RADMIN_ACCEPT", "MR_FEAT_RADMIN_CLIENT"),
          ("rx_remote_resp_client", "MR_FEAT_RADMIN_CLIENT", "MR_FEAT_RADMIN_ACCEPT"))
-SHARED_HELPER_GUARD = "MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT"
+# ⛔⛔ CORRECTED 2026-09-07 BY SLICE 5, the old value kept visible: this was
+#    `"MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT"` and the check below called it "the SHARED staging helper".
+#    It is not shared any more — the ACCEPT owner runs the v2 admission and stages nothing legacy — so the guard
+#    is the CLIENT capability alone. ⛔ Do NOT restore the disjunction: it would re-admit an accept-side legacy
+#    consumer that R-RA-27 handed to this slice to remove.
+STAGING_HELPER_GUARD = "MR_FEAT_RADMIN_CLIENT"
 
 
 class GateError(RuntimeError):
@@ -364,14 +395,22 @@ def run_checks(root: Path) -> list[tuple[str, bool, str]]:
             if "remote_inbound_stage" not in l:
                 continue
             conds = [norm(c) for c in stacks[i]]
-            if SHARED_HELPER_GUARD in conds:      # the declaration/definition sites
+            if STAGING_HELPER_GUARD in conds:      # the declaration/definition sites
                 seen += 1
             elif not ({"MR_FEAT_RADMIN_ACCEPT", "MR_FEAT_RADMIN_CLIENT"} & set(conds)):
                 off.append(f"{rel}:{i+1} ungated (active: {conds})")
-    if seen == 2 and not off:
-        ok("O6c", f"the shared staging helper is declared and defined under exactly `{SHARED_HELPER_GUARD}`")
+    # ⛔⛔ THE EXPECTED COUNT WENT 2 -> 3 IN SLICE 5, AND THE CHECK GOT STRONGER RATHER THAN LOOSER. Under the
+    #    old `ACCEPT || CLIENT` guard only the DECLARATION and the DEFINITION matched it; the two CALL sites sat
+    #    one level deeper, under their own owners, and were merely "not ungated". Now that the helper's guard IS
+    #    `MR_FEAT_RADMIN_CLIENT`, its one surviving CALL site matches too — so the count 3 asserts exactly what
+    #    Slice 5 removed: declaration + definition + THE SINGLE CLIENT CALLER, and ⛔ no accept-side caller.
+    #    A restored `remote_inbound_stage(pa, ui, false)` inside the accept arm would make it 4 and fail here.
+    if seen == 3 and not off:
+        ok("O6c", f"the legacy staging helper is declared, defined and called under exactly "
+                  f"`{STAGING_HELPER_GUARD}` — 3 sites, ⛔ CLIENT-only since slice 5, and ⛔ never the old "
+                  f"ACCEPT||CLIENT disjunction that let the accept arm stage a legacy body")
     else:
-        bad("O6c", f"shared staging helper guard moved: {seen} guarded site(s) (want 2); {off}")
+        bad("O6c", f"legacy staging helper guard moved: {seen} guarded site(s) (want 3); {off}")
 
     # O7 — the router CALLS the decision, argument order pinned, and SELECTS on its result.
     rx = code[RX]
@@ -466,9 +505,9 @@ CONTROLS = [
      "src/firmware_remote.cpp", "// MeshRoute — src/firmware_remote.cpp",
      "// MeshRoute — src/firmware_remote.cpp\n#if MR_FEAT_RADMIN_ACCEPT\n#endif", ("O1",)),
     ("W-EXTRA-SITE", "an EXTRA capability guard appears inside an ALLOWED file (a second, unreviewed consumer)",
-     RX, "void Node::do_post_ack() {", "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nvoid Node::do_post_ack() {", ("O4c",)),
+     RX, "void Node::do_post_ack() {", "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nvoid Node::do_post_ack() {", ("O4e",)),
     ("W-NOCALL", "the production call to the pure decision is DELETED and replaced by a constant",
-     RX, DECISION_CALL, "const RadminRxOwner radmin_owner = RadminRxOwner::command_accept;", ("O4c", "O7a")),
+     RX, DECISION_CALL, "const RadminRxOwner radmin_owner = RadminRxOwner::command_accept;", ("O4e", "O7a")),
     ("W-BYPASS", "the decision is still called but the router BYPASSES it and re-tests the raw type byte "
                  "(a correctly tested helper the real router does not use)",
      RX, "if (radmin_owner == RadminRxOwner::command_accept) {",
@@ -477,19 +516,19 @@ CONTROLS = [
                "which is exactly why this control lives here and not in a mutation battery",
      RX, DECISION_CALL,
      "const RadminRxOwner radmin_owner = radmin_rx_owner(pa.type, MR_FEAT_RADMIN_ACCEPT, MR_FEAT_RADMIN_CLIENT);",
-     ("O4c", "O7a")),
+     ("O4e", "O7a")),
     ("W-OWNER-CMD", "the COMMAND entry point is compiled under the CLIENT capability (the R-RA-8 inversion)",
      RX, "#if MR_FEAT_RADMIN_ACCEPT\n// ACCEPT-OWNED.",
-     "#if MR_FEAT_RADMIN_CLIENT\n// ACCEPT-OWNED.", ("O4c", "O6a")),
+     "#if MR_FEAT_RADMIN_CLIENT\n// ACCEPT-OWNED.", ("O4e", "O6a")),
     ("W-OWNER-RESP", "the RESPONSE entry point is compiled under the ACCEPT capability (the mirror inversion)",
      RX, "#if MR_FEAT_RADMIN_CLIENT\n// CLIENT-OWNED.",
-     "#if MR_FEAT_RADMIN_ACCEPT\n// CLIENT-OWNED.", ("O4c", "O6b")),
+     "#if MR_FEAT_RADMIN_ACCEPT\n// CLIENT-OWNED.", ("O4e", "O6b")),
     ("W-WIDEN-ACCEPT", "the ACCEPT owner is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)",
      RX, "#if MR_FEAT_RADMIN_ACCEPT\n// ACCEPT-OWNED.",
-     "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n// ACCEPT-OWNED.", ("O4c", "O5")),
+     "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n// ACCEPT-OWNED.", ("O4e", "O5")),
     ("W-WIDEN-CLIENT", "the CLIENT owner is legacy-widened with `|| MR_FEAT_REMOTE_MGMT`",
      RX, "#if MR_FEAT_RADMIN_CLIENT\n// CLIENT-OWNED.",
-     "#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n// CLIENT-OWNED.", ("O4c", "O5")),
+     "#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n// CLIENT-OWNED.", ("O4e", "O5")),
     ("W-NONE-ARM", "an early consume/return is added for the `none` decision — an unowned type would stop "
                    "reaching the fail-closed guard, and NO capability name appears in the edit at all",
      RX, "        (void)radmin_owner;",
@@ -505,7 +544,7 @@ CONTROLS = [
     ("W-DECISION-GATED", "the pure decision itself becomes capability-gated, so a role-disabled build could not "
                          "even compute an owner and the four-combination native test would stop being possible",
      NODE_H, "    " + DECISION_DECL,
-     "#if MR_FEAT_RADMIN_ACCEPT\n    " + DECISION_DECL + "\n#endif", ("O4b", "O11")),
+     "#if MR_FEAT_RADMIN_ACCEPT\n    " + DECISION_DECL + "\n#endif", ("O4c", "O11")),
     # ---- §RADMIN slice 3: one control PER NEW OWNER BOUNDARY, in the shape of the twelve above ----------------
     # ★ EACH IS THE TEMPTING WRONG EDIT, not a bare deletion: a boundary DELETED, a boundary WIDENED with the
     #   legacy switch, a boundary INVERTED onto the wrong capability, a DUPLICATE guard, and the pure service
@@ -513,16 +552,16 @@ CONTROLS = [
     ("W-S3-DROP-DISPATCH", "§RADMIN slice 3: the ACCEPT gate around the ROUTER FORWARDING arm is deleted, so a "
                            "CLIENT board would route `acl`/`admin-id` into a target store it must not have",
      CMDS_CPP, "#if MR_FEAT_RADMIN_ACCEPT\n    if (admin_router_arm(line, len, out)) return true;\n#endif",
-     "    if (admin_router_arm(line, len, out)) return true;", ("O4d",)),
+     "    if (admin_router_arm(line, len, out)) return true;", ("O4f",)),
     ("W-S3-DROP-BLE", "§RADMIN slice 3: the ACCEPT gate around the R-RA-29 BLE REFUSAL is deleted, so a CLIENT "
                       "board acquires an unused target-family guard it was ruled not to carry",
      FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    if (mrfw::admin_verb_owns(line, len))",
-     "    if (mrfw::admin_verb_owns(line, len))", ("O4g",)),
+     "    if (mrfw::admin_verb_owns(line, len))", ("O4i",)),
     ("W-S3-WIDEN-BOOT", "§RADMIN slice 3: the boot-call gate is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` "
                         "(forbidden by R-RA-27 — the capability must not be aliased to the legacy switch)",
      FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::admin_stores_boot_report_console();",
      "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_stores_boot_report_console();",
-     ("O4g", "O5")),
+     ("O4i", "O5")),
     ("W-S3-INVERT-HELP", "§RADMIN slice 3: the help index's two names are compiled under the CLIENT capability — "
                          "the R-RA-8 inversion, which would advertise a target surface on a MOBILE build",
      # ⓘ REJECTED BY O4f ALONE, and that is the CORRECT answer rather than a weaker one: the file census (O1) is
@@ -530,11 +569,11 @@ CONTROLS = [
      #   precisely the class O4's per-file MULTISET exists to catch. Naming O1 here would have been a control that
      #   passed for the wrong reason.
      HELP_H, "#if MR_FEAT_RADMIN_ACCEPT\n    out.println(F(\"acl\"));",
-     "#if MR_FEAT_RADMIN_CLIENT\n    out.println(F(\"acl\"));", ("O4f",)),
+     "#if MR_FEAT_RADMIN_CLIENT\n    out.println(F(\"acl\"));", ("O4h",)),
     ("W-S3-DUP-DECL", "§RADMIN slice 3: a DUPLICATE capability guard appears in the boot wrapper's header — a "
                       "second, unreviewed gating site inside an allowed file",
      CMDS_H, "void admin_stores_boot_report_console();",
-     "void admin_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_ACCEPT", ("O4e",)),
+     "void admin_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_ACCEPT", ("O4g",)),
     ("W-S3-GATE-PURE", "§RADMIN slice 3: a PURE SERVICE HEADER acquires a capability macro — the [[B255]] idiom's "
                        "own violation, which would stop the native suite exercising the service arms at all",
      "src/firmware_admin_acl.h", "namespace mrfw {",
@@ -544,30 +583,71 @@ CONTROLS = [
                            "deleted, so an ACCEPT board would route `admin-key`/`admin-target` into controller "
                            "stores it was ruled not to have",
      CMDS_CPP, "#if MR_FEAT_RADMIN_CLIENT\n    if (admin_client_router_arm(line, len, out)) return true;\n#endif",
-     "    if (admin_client_router_arm(line, len, out)) return true;", ("O4d",)),
+     "    if (admin_client_router_arm(line, len, out)) return true;", ("O4f",)),
     ("W-S4-DROP-BLE", "§RADMIN slice 4: the CLIENT gate around the R-RA-30 BLE SPLIT is deleted, so an ACCEPT "
                       "board acquires a controller-family guard it was ruled not to carry",
      FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    if (mrfw::admin_client_ble_refuses(line, len))",
-     "    if (mrfw::admin_client_ble_refuses(line, len))", ("O4g",)),
+     "    if (mrfw::admin_client_ble_refuses(line, len))", ("O4i",)),
     ("W-S4-WIDEN-BOOT", "§RADMIN slice 4: the controller boot-call gate is legacy-widened with "
                         "`|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)",
      FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    mrfw::admin_client_stores_boot_report_console();",
      "#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_client_stores_boot_report_console();",
-     ("O4g", "O5")),
+     ("O4i", "O5")),
     ("W-S4-INVERT-HELP", "§RADMIN slice 4: the help index's two CONTROLLER names are compiled under the ACCEPT "
                          "capability — the R-RA-8 inversion, which would advertise a controller surface on a "
                          "GATEWAY build",
      HELP_H, "#if MR_FEAT_RADMIN_CLIENT\n    out.println(F(\"admin-key\"));",
-     "#if MR_FEAT_RADMIN_ACCEPT\n    out.println(F(\"admin-key\"));", ("O4f",)),
+     "#if MR_FEAT_RADMIN_ACCEPT\n    out.println(F(\"admin-key\"));", ("O4h",)),
     ("W-S4-INVERT-REGEN", "★★ §RADMIN slice 4: `do_regen`'s CLIENT ADMISSION is compiled under the ACCEPT "
                           "capability — the controller check would run on the managed half and never on the "
                           "controller, which is the exact inversion R-RA-8 exists to forbid",
      CMDS_CPP, "#if MR_FEAT_RADMIN_CLIENT\n    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION",
-     "#if MR_FEAT_RADMIN_ACCEPT\n    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION", ("O4d",)),
+     "#if MR_FEAT_RADMIN_ACCEPT\n    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION", ("O4f",)),
     ("W-S4-DUP-DECL", "§RADMIN slice 4: a DUPLICATE capability guard appears in the controller boot wrapper's "
                       "header — a second, unreviewed gating site inside an allowed file",
      CMDS_H, "void admin_client_stores_boot_report_console();",
-     "void admin_client_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_CLIENT", ("O4e",)),
+     "void admin_client_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_CLIENT", ("O4g",)),
+    # ---- §RADMIN slice 5: one control PER NEW OWNER BOUNDARY, in the same five shapes ------------------------
+    # ★ THE FIRST TWO ARE THE ONES THIS SLICE MOST NEEDED: the state block and the legacy slot are now on
+    #   OPPOSITE capabilities, and getting either wrong is invisible to the `{1,1}` native binary — it would
+    #   simply move ~2 kB of RAM onto the wrong product, which no native case and no corpus stream can see.
+    ("W-S5-DROP-SESSION", "★ §RADMIN slice 5: the ACCEPT gate around the 2 064-byte session STATE BLOCK is "
+                          "deleted, so a CLIENT board would carry the whole target-side session state it was "
+                          "ruled not to have — invisible to a {1,1} host binary",
+     # ⓘ THE GATE IS NEUTRALISED, NOT DELETED, and that is the honest edit rather than the convenient one:
+     #   removing the `#if` line alone leaves its `#endif` orphaned, which is an UNBALANCED SOURCE and therefore
+     #   an INSTRUMENT ERROR (`ctl-BAD`), never a control. `#if 1` compiles the block on EVERY profile — exactly
+     #   the defect this control is about — while keeping the file well-formed.
+     NODE_H, "#if MR_FEAT_RADMIN_ACCEPT\n    // ★★★ §remote-admin v2 SLICE 5 — **THE ONE ACCEPT-ONLY REMOTE-ADMIN STATE BLOCK.**",
+     "#if 1\n    // ★★★ §remote-admin v2 SLICE 5 — **THE ONE ACCEPT-ONLY REMOTE-ADMIN STATE BLOCK.**", ("O4c",)),
+    ("W-S5-INVERT-SLOT", "★ §RADMIN slice 5: the LEGACY STAGING SLOT is compiled under ACCEPT instead of CLIENT "
+                         "— the R-RA-8 inversion for storage: the target keeps the slot Slice 5 removed and the "
+                         "controller loses the one it still needs",
+     NODE_H, "#if MR_FEAT_RADMIN_CLIENT\n    // §remote-mgmt: single inbound `rcmd`/resp slot",
+     "#if MR_FEAT_RADMIN_ACCEPT\n    // §remote-mgmt: single inbound `rcmd`/resp slot", ("O4c",)),
+    ("W-S5-WIDEN-TIMER", "§RADMIN slice 5: the ACCEPT gate on the shared EXPIRY TIMER case is legacy-widened "
+                         "with `|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)",
+     NODE_CPP, "#if MR_FEAT_RADMIN_ACCEPT\n    // §remote-admin v2 SLICE 5 (R-RA-22 / design §15): the ONE shared",
+     "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    // §remote-admin v2 SLICE 5 (R-RA-22 / design §15): the ONE shared",
+     ("O4b", "O5")),
+    ("W-S5-INVERT-TAKE", "§RADMIN slice 5: `take_remote_inbound`'s real body is compiled under ACCEPT instead of "
+                         "CLIENT, so the drain returns to the role that no longer has a slot to drain",
+     MAC_CPP, "#if MR_FEAT_RADMIN_CLIENT\nbool Node::take_remote_inbound(RemoteInbound& out) {",
+     "#if MR_FEAT_RADMIN_ACCEPT\nbool Node::take_remote_inbound(RemoteInbound& out) {", ("O4d",)),
+    ("W-S5-DROP-DRAIN", "§RADMIN slice 5: the CLIENT gate around fw_main's whole LEGACY DRAIN block is deleted, "
+                        "so an ACCEPT board keeps the legacy `rcmd` execution path this slice removed AND pays "
+                        "its two statics again",
+     FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    { static meshroute::Node::RemoteInbound ri;",
+     "    { static meshroute::Node::RemoteInbound ri;", ("O4i",)),
+    ("W-S5-GATE-PURE-SESSION", "★ §RADMIN slice 5: the PURE SESSION IMPLEMENTATION acquires a capability macro — "
+                               "the [[B255]] idiom's own violation, which would stop the native suite driving "
+                               "the classifier, the crypto and the expiry at all",
+     "lib/core/remote_session.h", "namespace MESHROUTE_NS {",
+     "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nnamespace MESHROUTE_NS {", ("O1",)),
+    ("W-S5-GATE-PURE-RUNTIME", "§RADMIN slice 5: the PURE prepare/commit/discard SEAM acquires a capability "
+                               "macro — the same violation on the file that owns the durable/live ORDERING",
+     "src/firmware_admin_runtime.h", "namespace mrfw {",
+     "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nnamespace mrfw {", ("O1",)),
     ("W-S4-GATE-PURE", "§RADMIN slice 4: a PURE CONTROLLER SERVICE HEADER acquires a capability macro — the "
                        "[[B255]] idiom's own violation, which would stop the native suite exercising the "
                        "keyring's arms at all",

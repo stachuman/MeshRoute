@@ -121,7 +121,10 @@ no-team/in-team Home, visible device name, standalone setup, ordinary team messa
 Home previews/boot splash. Owner now requires multiline messages, superseding the single-row 17-byte
 preset premise; bounded capacity and catalog migration await source-derived QA preparation. Ordinary
 channel sending already exists in source, with no user-reported hardware failure. HOME-A1/HOME-A2
-track the correction/remaining design work. DRAFT only; no implementation dispatch or remote-admin
+track the correction/remaining design work. Update 2026-09-07: shared name/manual-message editor agreed,
+equal-sized fixed groups and minimal characters, no letter-frequency ordering; seven-by-six layout is
+an Author candidate. Explicit review before Save/Send, no preset rewrite for a manual draft. DRAFT only;
+no implementation dispatch or remote-admin
 sequence change.
 
 - **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner commits

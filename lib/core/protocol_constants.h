@@ -400,8 +400,12 @@ inline constexpr uint32_t hash_locate_giveup_ms         = park_reflood_retry_ms 
 //   same question — so an intent expires somewhere in
 //        [id_pubkey_intent_ttl_ms, id_pubkey_intent_ttl_ms + rt_aging_check_period_ms]  = [25 s, 85 s].
 //   That is a real bound and the operator report names the window; a dedicated one-shot timer would tighten it to the
-//   ms at the cost of the last free timer-wheel id (kCap 91, all consumed) for a diagnostic deadline. Recorded so the
-//   choice is visible, not inferred.
+//   ms at the cost of a timer-wheel id for a diagnostic deadline. Recorded so the choice is visible, not inferred.
+//   ⛔⛔ CORRECTED 2026-09-07 BY §remote-admin v2 SLICE 5, the old claim kept visible: this read "the LAST FREE
+//      timer-wheel id (kCap 91, all consumed)". `kCap` is **92** now and id 91 is `Node::kRadminExpiryTimerId`
+//      (R-RA-22 / design §15) — so the wheel is once again "all consumed", but at a different number, and this
+//      sentence's arithmetic would otherwise read as a live inventory of free ids that no longer exists. ⛔ The
+//      correction does NOT re-open the trade above: the intent sweep still rides `kAgingTimerId` and is unchanged.
 inline constexpr uint32_t id_pubkey_intent_ttl_ms       = park_reflood_retry_ms;   // 25 s = one by-id flood round trip
 inline constexpr uint8_t  cap_pending_id_pubkey         = 4;                       // see CAPACITY above — an airtime bound, refuse-when-full
 // NOTE: the E2E-ack DEADLINE constants (e2e_ack_deadline_ms / _xl_ms / cap_pending_e2e_acks) live in the Gateway-scheduling
@@ -778,6 +782,12 @@ inline constexpr uint8_t  cap_completed_flights = 12;
 // at/under mobile_home_cache_ttl_ms (300 s) so a re-home invalidates a stale wait first.
 inline constexpr uint32_t e2e_ack_deadline_ms    = 2 * send_defer_ttl_ms;       // 60 s  — same-layer round trip
 inline constexpr uint32_t e2e_ack_deadline_xl_ms = 2 * gateway_send_giveup_ms;  // 300 s — cross-layer / delegated (gateway-window latency class)
+// ★ §remote-admin v2 SLICE 5 (Author decision §4.5) — `remote_session.h`'s `radmin_staging_lifetime_ms` is DERIVED
+//   from the value above rather than minted as a new literal: it is the MAXIMUM TRANSPORT HORIZON this protocol
+//   already admits, and a pre-dispatch reservation may not outlive it. ⚠ WHAT IT IS NOT, so no later reader
+//   promotes it: ⛔ NOT a seen/session timeout (a seen fingerprint has NO TTL at all), ⛔ not an execution promise
+//   and ⛔ not an RPC terminal deadline. It is a RESOURCE-HOLDING CEILING for state that has no executor yet;
+//   Slice 7b owns the active operation, transcript and deferred-action lifetimes and may pick different ones.
 inline constexpr uint8_t  cap_pending_e2e_acks   = 8;                           // fixed no-heap ring; a full ring REFUSES a new -a send LOUD (CmdCode::err_ack_ring_full) — NEVER evict-oldest (that would re-create the silent class)
 // §B278 §10.1 (owner ruling 2026-09-02) — the ONE lifetime of a delegated-flight correlation row: the ACK mapping,
 // the custody eligibility and the forwarded state all expire together at this single boundary. ⛔ It is EQUAL to

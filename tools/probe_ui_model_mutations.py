@@ -234,6 +234,29 @@ TARGET_SRC = {
     #                     restore-on-failure contract of the single resident scratch.
     #  · radmin4verbs   — R-RA-30's BLE split predicate, the grammar's token boundaries, the confirm gates, the
     #                     bounded numeric/layer/label parsers, the four fixed pages and every emitted byte.
+    # ★★ ADDED 2026-09-07 BY §RADMIN SLICE 5, and for the reason every target above it was added: a battery is
+    #    per-SOURCE-FILE, and this slice's ruled decisions genuinely live in THREE production files.
+    #  · radmin5session — `lib/core/remote_session.cpp`: design §10's five classification cases, the exact
+    #                     128-bit fingerprint comparison, the NO-EVICTION and NO-TTL rules, the hard ingress
+    #                     partition, the three-open + one-bootstrap staging split, the per-source open bound,
+    #                     the read-only bootstrap (⛔ no seen row, ⛔ no epoch change), the refuse-don't-clamp
+    #                     admission, the ORDERED base/session key derivation and the saturating deadline.
+    #  · radmin5rx      — `lib/core/node_mac_rx.cpp`: the ACCEPT arm's own decisions — R-RA-13's mandatory
+    #                     `SOURCE_HASH`, the two carrier descriptions, the reply's DESTINATION, the cross-layer
+    #                     reversal and its validation, and the ONE shared expiry timer's arm/fire shape.
+    #                     Kept SEPARATE from `b161rx`/`b251rx`/`a0rx`/`sliceBrx`/`sliceGrx` (same production
+    #                     file) exactly as those five are kept separate from each other.
+    #  · radmin5runtime — `src/firmware_admin_runtime.h`: the prepare/commit/discard ORDER, the per-slot
+    #                     invalidation rule, the ten-epoch complete candidate and the boot conjunction. Bound in
+    #                     `src/firmware_commands.cpp` these would have had NO battery at all (§B115).
+    # ⛔ THERE IS NO `radmin5header` TARGET, and the absence is a decision rather than an omission:
+    #    `lib/core/remote_session.h` holds types, capacities and `static_assert`ed offsets — the CAPACITIES are
+    #    attacked from the `.cpp` side (a battery entry that shrinks the pool changes behaviour there), and the
+    #    layout assertions cannot be mutated into a green build at all, which is the compiler-level control the
+    #    `sliceAcodec` note describes.
+    "radmin5session": "lib/core/remote_session.cpp",
+    "radmin5rx":      "lib/core/node_mac_rx.cpp",
+    "radmin5runtime": "src/firmware_admin_runtime.h",
     "radmin4key":     "src/firmware_admin_keyring.h",
     "radmin4targets": "src/firmware_admin_targets.h",
     "radmin4verbs":   "src/firmware_admin_client_verbs.h",
@@ -652,7 +675,24 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2763, 118344    # ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 4** (the CONTROLLER stores:
+PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
+                                         # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
+                                         # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
+                                         #   · test/test_remote_session.cpp        NEW, 32 cases — the pure state,
+                                         #     §10's five classification cases, the partitions, the read-only
+                                         #     bootstrap, the shared expiry and the layout/N assertions;
+                                         #   · test/test_node_remote_session.cpp   NEW, 12 cases — the REAL
+                                         #     RTS/DATA/post-ACK accept path, the on-air bootstrap answer read back
+                                         #     out of the captured TX bytes, the cross-layer reversal and the timer;
+                                         #   · test/test_firmware_admin_runtime.cpp NEW, 18 cases — the
+                                         #     prepare/commit/discard ordering, the per-slot invalidation rule and
+                                         #     the boot conjunction, against an explicit counting fake.
+                                         # ⓘ NO case was deleted. Four EXISTING cases were superseded IN PLACE
+                                         #   (test_node_r3.cpp's three legacy-ACCEPT staging cases and its
+                                         #   cross-owner-collision case) and four re-pinned (the two kCap gates, the
+                                         #   0e timer mirror and the custody `sizeof(Node)` line) — those move
+                                         #   assertions, not case counts.
+                                         # PIN_CASES, PIN_ASSERTS = 2763, 118344 — ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 4** (the CONTROLLER stores:
                                          # `/mrmkeys` + `/mrtargets`, their pure services, the two verb families,
                                          # R-RA-30's BLE split and [[B321]]'s parser-scratch wipe).
                                          # 2702 -> 2763 = **+61 test cases**, DERIVED PER FILE, not rounded:
@@ -7425,13 +7465,16 @@ MUTS_RADMIN3ID = [
  ("A02 the PROVIDER'S ANSWER is ignored — a refused/partial draw is minted from anyway",
   "        if (!_seed.fill(cand.seed))            return fail_(AdminIdErr::entropy_failed);   // provider said NO",
   "        (void)_seed.fill(cand.seed);"),
+ # ⛔⛔ A03 AND A04 WERE RE-ANCHORED 2026-09-07 BY §RADMIN SLICE 5, ⛔ not rewritten and ⛔ not deleted. Both
+ #    anchored on `if (!_store.save(cand)) return fail_(AdminIdErr::nv_save_failed);`, and that line now carries
+ #    the slice's `discard()` on its failure path. The DEFECT each injects is unchanged: A03 still saves BEFORE
+ #    the dead-draw check, A04 still reports success over a refused medium.
  ("A03 ★★ THE ORDER IS INVERTED: the record is SAVED BEFORE the draw is validated",
-  "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);   // a DEAD, all-zero draw\n"
-  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);",
-  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);\n"
+  "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);   // a DEAD, all-zero draw",
+  "        if (!_store.save(cand))                { if (_live) _live->discard(); return fail_(AdminIdErr::nv_save_failed); }\n"
   "        if (!admin_id_content_valid(cand))     return fail_(AdminIdErr::entropy_failed);"),
  ("A04 a FAILED SAVE is reported as success (the record is not there, the console says it is)",
-  "        if (!_store.save(cand))                return fail_(AdminIdErr::nv_save_failed);",
+  "        if (!_store.save(cand))                { if (_live) _live->discard(); return fail_(AdminIdErr::nv_save_failed); }",
   "        (void)_store.save(cand);"),
  ("A05 the all-zero predicate EXITS EARLY on the first byte — a seed of 00 ff ff … would read as zero",
   "    for (size_t i = 0; i < n; ++i) acc = static_cast<uint8_t>(acc | p[i]);   // ⛔ no early exit: constant-time-ish\n"
@@ -7603,15 +7646,21 @@ MUTS_RADMIN3ACL = [
  ("B30 recovery re-initialises an `ok` record too (a 'repair' that erases a healthy authority list)",
   "        if (s != AclState::invalid)   return fail_(AclErr::not_invalid);",
   "        (void)0;"),
+ # ⛔⛔ B31 AND B33 WERE RE-ANCHORED 2026-09-07 BY §RADMIN SLICE 5, ⛔ not rewritten and ⛔ not deleted. Both
+ #    anchored on `if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);`, and that line now carries the
+ #    slice's `discard()` on its failure path — so both went VACUOUS (match count 0), which the harness correctly
+ #    refused as worthless rather than scoring. The DEFECT each one injects is unchanged; only the surrounding
+ #    text moved. ⓘ This is the documented maintenance shape: an entry whose anchor a later slice legitimately
+ #    moves is re-pointed WITH its reason, never quietly dropped to keep a battery green.
  ("B31 ★ RECOVERY GRANTS AN OWNER — design §6.4's 'never invents an active owner' reversed",
-  "        mrnv::AclBlob cand{};\n        mrnv::acl_blob_init(cand);\n        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);",
+  "        mrnv::AclBlob cand{};\n        mrnv::acl_blob_init(cand);\n        // ★★ §RADMIN SLICE 5 — PREPARE, save, COMMIT.",
   "        mrnv::AclBlob cand{};\n        mrnv::acl_blob_init(cand);\n"
   "        for (int i = 0; i < 32; ++i) cand.rec[0].ed_pub[i] = 0xAB;\n"
   "        cand.rec[0].role = mrnv::kAclRoleOwner; cand.count = 1;\n"
-  "        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);"),
+  "        // ★★ §RADMIN SLICE 5 — PREPARE, save, COMMIT."),
  ("B33 a FAILED SAVE is reported as success",
-  "        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);\n        r.ok = true;\n        r.changed = true;",
-  "        (void)_store.save(cand);\n        r.ok = true;\n        r.changed = true;"),
+  "        if (!_store.save(cand)) { if (_live) _live->discard(); return fail_(AclErr::nv_save_failed); }\n        // ⛔ NON-FAILING, AND BEFORE THE CALLER'S SUCCESS LINE.\n        if (_live) _live->commit();\n        r.ok = true;",
+  "        (void)_store.save(cand);\n        if (_live) _live->commit();\n        r.ok = true;"),
  ("B34 ★ THE BYTE-COMPARISON WRITE GUARD IS INVERTED — a real change writes NOTHING and reports success",
   "        if (!memcmp(&cand, &before, sizeof cand)) { r.ok = true; r.changed = false; return r; }",
   "        if (memcmp(&cand, &before, sizeof cand)) { r.ok = true; r.changed = false; return r; }"),
@@ -8685,6 +8734,19 @@ MUTS_SLICEBMAC = [
   "    const bool generic_lifecycle = app_dm;\n"
   "    // R6.1 §6.4 join-participation gate"),
 
+ # ⛔⛔ MEASURED WORTHLESS 2026-09-07 (§radmin-5 union; registered as the coder proposal [[B342]]) — AND IT WAS
+ #    ALREADY WORTHLESS AT THE BASE COMMIT `1677b44`, so ⛔ NOTHING in Slice 5 broke it. PROOF, not assertion: the
+ #    mutation was applied to a scratch copy of the BASE tree and the native suite still ran 2763 / 118344 / 0.
+ #    WHY IT CANNOT REDDEN, stated per entry as the gate requires: this call passes `generic_owed = false`, so the
+ #    ONLY effect `terminal_carrier_outcome` can have here is the `team_key_grant_failed` push — and that arm is
+ #    gated on `own_origination`. The `dlen == 0` bail above it is reachable ONLY FROM A FORWARD: `node_mac.cpp`'s
+ #    own §0h note records that neither `enqueue_data` arm admits a zero-length inner any more, and
+ #    `test_node_r3.cpp` §B20/B21 PROVES it by asserting `pack_failed == false` for every carrier shape across the
+ #    whole body-length band; the one case that does reach the line (`test_node_r3.cpp:7888`) builds a doomed
+ #    FORWARD, where `own_origination` is false and BOTH arms are skipped by design.
+ #    ⇒ the call is a deliberate no-op on every reachable path, so no single-site edit of it can change behaviour.
+ #    ⛔ THE ENTRY IS KEPT, NOT DELETED: it becomes measurable again the moment an ORIGINATED grant can reach a
+ #      pack failure, and deleting it would silently retire [[B268]]'s "EVERY site" claim.
  ("M04 ★★ THE HELPER CALL IN `do_data_tx`'s PACK-FAILED PATH IS DELETED — the SEVENTH site this sweep found "
   "reverts to destroying an admitted carrier in total silence, grant included ([[B268]] blocker-1)",
   "        terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/false,\n"
@@ -10695,6 +10757,213 @@ MUTS_RADMIN4VERBS = [
   '            mgmt_key_emit_row(out, "self", svc.show_self().ed_pub);'),
 ]
 
+
+# ==================================================================================================================
+# §RADMIN SLICE 5 — the target's authenticated session, admission and on-air bootstrap.
+# ⛔ EVERY ENTRY BELOW IS A **RULED** DECISION, not a line that happens to exist: design §10's five cases, §7.2's
+#    read-only bootstrap, §4.2's no-eviction/no-TTL rules, §4.3's hard partitions and §4.5's single shared scan.
+# ==================================================================================================================
+MUTS_RADMIN5SESSION = [
+ ('S01 ★★★ the request FINGERPRINT is taken from the FRONT of the body instead of the authenticated TAG at its end — a same-id retry with a different payload would compare EQUAL on its clear header and be answered as a replay (design §10 case 3 collapses into case 2)',
+  '    const uint8_t* tag = in.body.data() + in.body.size() - kRemoteTagBytes;',
+  '    const uint8_t* tag = in.body.data();'),
+ ('S02 ★★★ the tag comparison always succeeds, so an ID-REUSE request (case 3) is answered as a replay and the shared credential loses its at-most-once separation',
+  '    for (int i = 0; i < 16; ++i) acc = static_cast<uint8_t>(acc | (a[i] ^ b[i]));\n    return acc == 0;\n}',
+  '    for (int i = 0; i < 16; ++i) acc = static_cast<uint8_t>(acc | (a[i] ^ b[i]));\n    return true;\n}'),
+ ('S03 ★★★ the AUTHENTICATED SOURCE is dropped from the retry comparison, so a second controller holding the same credential can take over an existing request id',
+  '        if (!tag_equal(e.record.request_tag, tag) || e.record.source_hash != in.source.hash) {',
+  '        if (!tag_equal(e.record.request_tag, tag)) {'),
+ ('S04 ★★★ a FULL seen pool EVICTS row 0 instead of refusing — design §10, verbatim: "session records are not silently evicted while their session key remains valid"',
+  '    const uint8_t si = seen_free_index(s);\n    if (si == kRadminNoSlot) { crypto_wipe(pt, sizeof pt); out.verdict = RemoteAdmitVerdict::session_full; return; }',
+  '    uint8_t si = seen_free_index(s);\n    if (si == kRadminNoSlot) si = 0;'),
+ ('S05 ★★★ EXPIRY ALSO CLEARS THE SEEN ROW — the tombstone design §10 case 4 answers from is time-evicted, and an expired-then-retried request re-executes',
+  '        if (s.ingress[i].state != static_cast<uint8_t>(IngressState::free)\n            && now_ms >= s.ingress[i].expires_at_ms) { ingress_release(s, i); ++released; }',
+  '        if (s.ingress[i].state != static_cast<uint8_t>(IngressState::free)\n            && now_ms >= s.ingress[i].expires_at_ms) { const uint8_t si_ = s.ingress[i].seen_index; if (si_ < kRadminSeenSlots) s.seen[si_] = SeenEntry{}; ingress_release(s, i); ++released; }'),
+ ('S06 ★★ the expiry boundary becomes STRICTLY greater, so a row whose deadline is exactly `now` survives the scan it was armed for and the next arm is a zero delay',
+  '            && now_ms >= s.ingress[i].expires_at_ms) { ingress_release(s, i); ++released; }',
+  '            && now_ms > s.ingress[i].expires_at_ms) { ingress_release(s, i); ++released; }'),
+ ('S07 ★★★ the deadline addition WRAPS instead of saturating, so a `now` near the top of the range produces a deadline in the PAST and the row expires instantly',
+  '    return (now_ms > (~uint64_t{0}) - add) ? ~uint64_t{0} : now_ms + add;',
+  '    return now_ms + add;'),
+ ('S08 ★★★ an OVER-CAP body is CLAMPED to the storage array instead of refused — Slice 1b named refuse-not-clamp as this slice\'s obligation, and a clamp hands a truncated ciphertext to the AEAD',
+  '    if (in.body.size() > cap)                        { out.verdict = RemoteAdmitVerdict::silent_over_cap;   return; }',
+  '    if (in.body.size() > cap)                        { cap = kRadminBodyBytes; }'),
+ ('S09 ★★★ ABSENCE is re-spelled as the VALUE ZERO, so a legitimate source hash of 0 is refused and a missing field is admitted — the exact confusion `RemoteSource`\'s two separate members exist to prevent',
+  '    if (!in.source.present)                          { out.verdict = RemoteAdmitVerdict::silent_no_source;  return; }',
+  '    if (in.source.hash == 0)                         { out.verdict = RemoteAdmitVerdict::silent_no_source;  return; }'),
+ ('S10 ★★★ BOOTSTRAP ROTATES THE EPOCH it reports, so a replayed read-only discovery disrupts every live session — design §7.2 says in as many words that it "never changes the epoch"',
+  '            m.admin_epoch = s.epoch[slot];\n            size_t rlen = 0;',
+  '            s.epoch[slot] = s.epoch[slot] + 1;\n            m.admin_epoch = s.epoch[slot];\n            size_t rlen = 0;'),
+ ('S11 ★★★ BOOTSTRAP CONSUMES A SEEN ROW, so a controller that repeats a lost discovery exhausts the shared pool the executes need',
+  '            out.staging_index    = kRadminBootstrapSlot;',
+  '            out.staging_index    = kRadminBootstrapSlot;\n            { const uint8_t si_ = seen_free_index(s); if (si_ != kRadminNoSlot) { s.seen[si_].record.state = static_cast<uint8_t>(SeenState::admitted); s.seen[si_].record.controller_slot = slot; s.seen[si_].record.request_id = d.msg.request_id; } }'),
+ ('S12 ★★★ the bootstrap key lookup matches the FIRST OCCUPIED ROW instead of the exact full key — an ACL-membership oracle, and it would answer a stranger under someone else\'s slot',
+  '        if (row_occupied(s.acl[i]) && key_equal32(s.acl[i].ed_pub, ed_pub) && hit == kRadminNoSlot) hit = i;',
+  '        if (row_occupied(s.acl[i]) && hit == kRadminNoSlot) hit = i;'),
+ # ⛔ THERE IS NO "compare only the first four key bytes" ENTRY, and the absence is deliberate rather than an
+ #   oversight: with ten distinct Ed25519 identities a 4-byte collision is vanishingly unlikely, so such a mutant
+ #   would be behaviourally identical on every reachable fixture — worthless, exactly the class [[B338]] records.
+ #   The full-key rule is instead attacked by S12 (match the first OCCUPIED row), which really does change the
+ #   answer. What S13 attacks below is the ANSWER's slot, which the controller must be able to trust.
+ ('S13 ★★★ the bootstrap response reports the SENTINEL slot instead of the MATCHED ACL slot, so a controller cannot learn which credential the target actually recognised',
+  '            m.slot        = slot;\n            m.request_id  = d.msg.request_id;',
+  '            m.slot        = kRemoteSlotSentinel;\n            m.request_id  = d.msg.request_id;'),
+ ('S14 ★★★ an occupied slot holding EPOCH 0 counts as usable, so a node publishes readiness while a slot would run the zero epoch §4.1 forbids',
+  '        if (s.epoch[i] == 0) usable = false;',
+  '        if (s.epoch[i] == 0) usable = true;'),
+ ('S15 ★★★ the HARD PARTITION collapses: control work takes the general row, so a saturated ordinary-execute stream starves the reserved owner/control class',
+  '    const uint8_t partition = (is_control || is_owner) ? kRadminIngressControl : kRadminIngressGeneral;',
+  '    const uint8_t partition = kRadminIngressGeneral;'),
+ # ⓘ THE MUTANT MUST ACTUALLY RESERVE THE ROW, not merely record an index: writing `h.seen_index` alone leaves
+ #   `remote_session_seen_used` untouched, so that shape is behaviourally identical and measures nothing.
+ ('S16 ★★★ CONTROL ADMISSION ALLOCATES AN EXECUTE SEEN ROW, so seen exhaustion consumes the reservation the partition exists to protect',
+  '        h.seen_index    = kRadminNoSlot;\n        h.ctl           = in.body[0];',
+  '        h.seen_index    = seen_free_index(s);\n        if (h.seen_index < kRadminSeenSlots) { s.seen[h.seen_index].record.state = static_cast<uint8_t>(SeenState::admitted); s.seen[h.seen_index].record.controller_slot = slot; s.seen[h.seen_index].record.request_id = d.msg.request_id; }\n        out.seen_index  = h.seen_index;\n        h.ctl           = in.body[0];'),
+ ('S17 ★★★ the reservation stops being ATOMIC — the seen row is committed before the ingress row is known to be free, so a refused ingress strands a fingerprint that will answer `replay` for a request that was never admitted',
+  '    const uint8_t ii = ingress_free_index(s, partition);\n    if (ii == kRadminNoSlot) { crypto_wipe(pt, sizeof pt); out.verdict = RemoteAdmitVerdict::ingress_full; return; }\n    commit_admit(s, in, d, slot, tag, si, ii, out);',
+  '    const uint8_t ii = ingress_free_index(s, partition);\n    if (ii == kRadminNoSlot) { s.seen[si].record.state = static_cast<uint8_t>(SeenState::admitted); s.seen[si].record.controller_slot = slot; s.seen[si].record.request_id = d.msg.request_id; crypto_wipe(pt, sizeof pt); out.verdict = RemoteAdmitVerdict::ingress_full; return; }\n    commit_admit(s, in, d, slot, tag, si, ii, out);'),
+ ('S18 ★★ an OPEN request BORROWS the reserved bootstrap row, so an open flood locks out the one thing this slice can actually answer',
+  '            for (uint8_t i = 0; i < kRadminOpenSlots; ++i)\n                if (s.staging[i].kind == static_cast<uint8_t>(OpenStagingKind::free)) { idx = i; break; }',
+  '            for (uint8_t i = 0; i < kRadminStagingSlots; ++i)\n                if (s.staging[i].kind == static_cast<uint8_t>(OpenStagingKind::free)) { idx = i; break; }'),
+ ('S19 ★★ the PER-SOURCE open bound is dropped, so one peer fills all three open rows by changing its request id',
+  '                if (s.staging[i].kind == static_cast<uint8_t>(OpenStagingKind::open_execute)\n                    && s.staging[i].peer_source_hash == in.source.hash)',
+  '                if (false)',
+  ),
+ ('S20 ★★★ an ACL change invalidates EVERY slot instead of the one that moved, so an unrelated controller\'s live session dies on someone else\'s role edit',
+  '            if (!plan.epoch_set[i]) continue;\n            s.epoch[i] = plan.epoch[i];\n            invalidate_slot(s, i);',
+  '            if (!plan.epoch_set[i]) continue;\n            s.epoch[i] = plan.epoch[i];\n            invalidate_everything(s);'),
+ ('S21 ★★★ a ROOT change no longer invalidates the old sessions, so a rotated node keeps answering `replay` for requests sealed under a key it no longer holds',
+  '    if (root_moved || plan.invalidate_all) invalidate_everything(s);',
+  '    if (plan.invalidate_all) invalidate_everything(s);'),
+ ('S22 ★★★ the RETRY\'s route replaces the FIRST-ADMITTED one, so a later request re-addresses an already-admitted operation\'s answer',
+  '        out.route = e.route;',
+  '        out.route = in.route;'),
+ ('S23 ★★★ an admitted row is stored as FREE, so the pool never fills, every retry RE-ADMITS instead of classifying, and at-most-once execution is gone entirely',
+  '    e.record.state           = static_cast<uint8_t>(SeenState::admitted);',
+  '    e.record.state           = static_cast<uint8_t>(SeenState::free);'),
+ ('S24 ★★★ the bootstrap response is sealed against the RESPONSE carrier\'s own source instead of the ORIGINAL controller\'s, so the controller cannot open its own answer',
+  '                                    std::span<const uint8_t>{}, keys, in.source, in.reply_carrier);',
+  '                                    std::span<const uint8_t>{}, keys, RemoteSource{true, 0}, in.reply_carrier);'),
+ # ⚠ BOTH LINES MUST GO, and that is a fact about the code rather than a bigger mutation for its own sake: the
+ #   explicit `crypto_wipe` is followed by a whole-struct reassignment, so removing the wipe ALONE leaves the
+ #   bytes zeroed anyway and the mutant is behaviourally identical. The DEFECT this entry is about is releasing
+ #   the row while its decoded administration plaintext stays readable, which needs both removed.
+ ('S25 ★★★ the released ingress body keeps its decoded plaintext, so administration command bytes outlive the row that owned them',
+  '        crypto_wipe(s.body[slot].bytes, sizeof s.body[slot].bytes);   // ⛔ plaintext never outlives its row\n        s.body[slot] = IngressBodySlot{};',
+  '        ;'),
+]
+
+MUTS_RADMIN5RX = [
+ ('X01 ★★★ R-RA-13 is dropped: the v2 arm stops REQUIRING `SOURCE_HASH`, so an unidentifiable request reaches the classifier and the reply has no destination',
+  '    if (!ui || !ui->has_source_hash) {\n        MR_EMIT("radmin_rx_refused", EF_S("verdict", "silent_no_source"), EF_I("origin", pa.origin));\n        return;\n    }',
+  '    if (!ui) { return; }'),
+ ('X02 ★★★ the reply is addressed to the 8-bit `pa.origin` instead of the captured 32-bit controller source — the alias-across-leaves defect Slice 1b named as this slice\'s obligation',
+  '        (void)send_by_hash(res.source_hash, res.reply, res.reply_len, /*flags=*/0, CryptIntent::off,',
+  '        (void)send_by_hash(res.route.origin, res.reply, res.reply_len, /*flags=*/0, CryptIntent::off,'),
+ ('X03 ★★★ a cross-layer request is answered SAME-LAYER, which sends the response to a hash on the wrong plane',
+  '    if (res.route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {',
+  '    if (false) {'),
+ ('X04 ★★★ the captured path is NOT reversed — the reply is sent back along the OUTBOUND order, i.e. away from the controller',
+  '        for (uint8_t i = 0; i < n; ++i) rev[i] = res.route.layer_ids[n - 1 - i];',
+  '        for (uint8_t i = 0; i < n; ++i) rev[i] = res.route.layer_ids[i];'),
+ # ⓘ THE ANCHOR CARRIES `[[maybe_unused]]` DELIBERATELY: `rc`'s only reader is the device-stripped `MR_EMIT`
+ #   beside it, so the attribute is production ([[B169]]) and an anchor without it matches ZERO times. Recorded
+ #   because this entry DID go vacuous once for exactly that reason.
+ ('X05 ★★★ the WHOLE reversed path is handed to `originate_layer_path`, which prepends our layer AGAIN — a duplicated first hop',
+  '[[maybe_unused]] const CmdCode rc = originate_layer_path(res.source_hash, rev + 1, static_cast<uint8_t>(n - 1),',
+  '[[maybe_unused]] const CmdCode rc = originate_layer_path(res.source_hash, rev, n,'),
+ ('X06 ★★ the reversed path\'s DESTINATION END is no longer checked against our own layer, so a path that does not terminate here is reversed into a return leg anyway',
+  '        if (rev[0] != active_layer_id() || rev[n - 1] == 0) {',
+  '        if (false) {'),
+ ('X07 ★★★ the received CROSS-LAYER path is not captured at all, so every cross-layer controller is answered same-layer',
+  '    if (in.route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {\n        in.route.n_layers = ui.n_layers;',
+  '    if (false) {\n        in.route.n_layers = ui.n_layers;'),
+ ('X08 ★★ the request carrier claims SAME-LAYER whatever arrived, so `remote_body_cap` admits a body the real leg cannot carry',
+  '    in.request_carrier.cross_layer         = ui.has_cross_layer;',
+  '    in.request_carrier.cross_layer         = false;'),
+ ('X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node',
+  '    // to exactly what was already armed.\n    radmin_expiry_arm();',
+  '    // to exactly what was already armed.\n    ;'),
+ ('X10 ★★ the scan RE-ARMS BEFORE releasing instead of after, so it re-arms to the deadline that just fired — a zero-delay livelock, and the wheel is never cancelled on an emptied pool',
+  '    const uint64_t now = _hal.now();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is\n    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.\n    radmin_expiry_arm();',
+  '    const uint64_t now = _hal.now();\n    radmin_expiry_arm();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));'),
+ # ⛔ THERE IS NO "FRESH `now` PER CLASS" ENTRY HERE, and the ABSENCE IS THE STRONGER STATEMENT. §4.5 requires
+ #   ONE HAL snapshot per scan; that property is guaranteed BY CONSTRUCTION rather than by a check, because
+ #   `remote_session_expire` is PURE and takes `now_ms` BY VALUE — there is no HAL inside `remote_session.cpp`
+ #   for a second read to come from, so no single-site edit can break it. An entry that "mutated" it would have
+ #   been behaviourally identical (worthless), which is exactly what the first draft of this battery measured.
+ ('X11 ★★★ the receive path stamps the deadline from ZERO instead of the current time, so every reservation is born already expired and the first scan releases work that just arrived',
+  '    in.now_ms     = _hal.now();',
+  '    in.now_ms     = 0;'),
+ ('X14 ★★★ the request carrier claims NO `SOURCE_HASH` on the wire, so `remote_body_cap` refuses the leg and every authenticated request is silently dropped as a bad carrier',
+  '    in.request_carrier.source_hash_on_wire = true;    // checked by the caller BEFORE this is built (R-RA-13)',
+  '    in.request_carrier.source_hash_on_wire = false;'),
+ ('X12 ★★★ the bootstrap staging row is NEVER released, so the second discovery a controller ever sends is refused for want of the one reserved row',
+  '    remote_session_staging_release(_radmin_session, res.staging_index);\n}\n\n// §4.5 — the ONE shared earliest-deadline scan.',
+  ';\n}\n\n// §4.5 — the ONE shared earliest-deadline scan.'),
+ ('X13 ★★ a ZERO reply destination is treated as sendable instead of an explicit failure, so an unroutable answer is handed to the transport',
+  '    if (res.source_hash == 0) {',
+  '    if (false) {'),
+]
+
+MUTS_RADMIN5RUNTIME = [
+ ('T01 ★★★ every slot gets a fresh epoch on any ACL edit, so an unrelated controller\'s live session dies whenever someone else\'s row changes (design §6.5: "role change or removal invalidates THAT SLOT\'s session")',
+  '        if (admin_acl_row_same(before.rec[i], after.rec[i])) { plan.epoch_set[i] = false; continue; }',
+  '        if (false) { plan.epoch_set[i] = false; continue; }'),
+ ('T02 ★★★ a REMOVED slot is re-minted with a fresh epoch instead of being made unusable, so a revoked controller\'s slot number stays live',
+  '        if (!admin_acl_row_live(after.rec[i])) { plan.epoch[i] = 0; continue; }',
+  '        if (false) { plan.epoch[i] = 0; continue; }'),
+ ('T03 ★★★ a ROLE change is no longer a change, so demoting an owner to operator leaves that slot\'s session running under its old authority',
+  '    return a.role == b.role && memcmp(a.ed_pub, b.ed_pub, 32) == 0;',
+  '    return memcmp(a.ed_pub, b.ed_pub, 32) == 0;'),
+ ('T04 ★★★ a refused epoch draw does not abort the preparation, so a partially prepared plan reaches the durable save and the commit',
+  '        if (!rt.draw_epoch(e)) return false;                                      // ⛔ refuse; nothing written',
+  '        if (!rt.draw_epoch(e)) e = 1;'),
+ ('T05 ★★★ a ROOT preparation publishes an INCOMPLETE candidate — a refused draw part-way through still installs, so some slots run whatever the plan left behind',
+  '        if (!rt.draw_epoch(e)) return false;              // ⛔ an INCOMPLETE candidate is never published',
+  '        if (!rt.draw_epoch(e)) break;'),
+ ('T06 ★★★ an ALL-ZERO seed is accepted as an administration root, so a dead RNG mints one world-known identity on every such device',
+  '    if (admin_buf_all_zero(seed, 32)) return false;      // ⛔ a dead seed never becomes a live root',
+  '    if (false) return false;      // ⛔ a dead seed never becomes a live root'),
+ ('T07 ★★★ a ROOT change no longer invalidates the old sessions, so requests sealed to the previous pair keep matching stored fingerprints',
+  '    plan.set_root       = true;\n    plan.invalidate_all = true;',
+  '    plan.set_root       = true;'),
+ ('T08 ★★★ `commit()` installs even when NOTHING was prepared, so a refused preparation followed by a commit publishes an EMPTY image over the running one',
+  '        if (_armed) _rt.commit(_plan);\n        discard();',
+  '        _rt.commit(_plan);\n        discard();'),
+ ('T09 ★★★ a failed PREPARATION leaves the plan ARMED, so the next commit installs the half-built state the refusal was supposed to abandon',
+  '        if (!admin_runtime_prepare_root(_rt, seed, _plan)) { discard(); return false; }',
+  '        if (!admin_runtime_prepare_root(_rt, seed, _plan)) { _armed = true; return false; }'),
+ # ⛔ T10-T12 WERE RE-ANCHORED 2026-09-07 AT THE [[B341]] FOLD-IN, ⛔ not rewritten and ⛔ not deleted: all three
+ #   anchored on the OLD conjunction-gated boot body, which the per-half fix replaced. Each injects the SAME
+ #   defect it always did, at the line that now owns that decision.
+ ('T10 ★★★ BOOT reports READY without the readiness conjunction, so a node with a bad half still publishes an accepting boot line and a slot count',
+  '    if (admin_provisioning_ready(id_state, acl_state, census)) {\n        r.state = AdminSessionBootState::ready;\n        r.slots = census.count;\n    }',
+  '    r.state = AdminSessionBootState::ready;\n    r.slots = census.count;'),
+ ('T11 ★★★ a BAD ACL half leaves the running image ALONE instead of installing the CLEARED one, so a node whose record went bad keeps its stale live ACL across the reboot',
+  '        for (uint8_t i = 0; i < meshroute::kRadminAclSlots; ++i) {\n            plan.acl[i]       = meshroute::AdminAclRow{};\n            plan.epoch[i]     = 0;\n            plan.epoch_set[i] = true;\n        }',
+  '        plan.set_acl = false;'),
+ ('T12 ★★★ a cold-boot entropy refusal on the ROOT half is reported as an ordinary `disabled` and the seam is never told, so a live RNG fault is indistinguishable from an unprovisioned node',
+  '            rt.entropy_failed();\n            r.state = AdminSessionBootState::entropy_failed;\n            return r;',
+  '            r.state = AdminSessionBootState::disabled;\n            return r;'),
+ ('T13 ★★ the live image copies an UNRECOGNISED role byte verbatim, so a corrupt record could install a row no policy accepts',
+  '        if (r.role != mrnv::kAclRoleOperator && r.role != mrnv::kAclRoleOwner) continue;   // hole -> canonical zero',
+  '        ;'),
+ ('T14 ★★ `acl reset` leaves the epochs untouched, so the slots it emptied keep usable session keys',
+  '        plan.epoch[i]     = 0;\n        plan.epoch_set[i] = true;',
+  '        plan.epoch_set[i] = false;'),
+ # ★★★ [[B341]] — THE PRE-FIX BOOT, RESTORED AS A MUTATION. The two halves stop being independent: a false
+ #     CONJUNCTION discards the VALID half too, which is exactly the defect QA reproduced (a durable success line
+ #     over a running node that is not accepting, until the next reboot). ⛔ Do not weaken this entry: it is the
+ #     only thing standing between the fix and a silent regression to it.
+ ('T15 ★★★ [[B341]] RESTORED: the boot installs NOTHING when the CONJUNCTION fails, so a valid half is discarded and live activation stops composing across a reboot',
+  '    const bool root_ok = (id_state == AdminIdState::ok);',
+  '    if (!admin_provisioning_ready(id_state, acl_state, census)) {\n        meshroute::RemoteSessionInstall off{};\n        SecretWipeGuard<meshroute::RemoteSessionInstall> og{off};\n        off.clear_root = true;\n        admin_runtime_prepare_acl_reset(off);\n        rt.commit(off);\n        return r;\n    }\n    const bool root_ok = (id_state == AdminIdState::ok);'),
+ ('T16 ★★★ [[B341]] HALF-FIX: the ROOT half composes but the ACL half does not — a valid owner ACL is discarded whenever the root record is bad, so sequence D still leaves the node disabled after recovery',
+  '    const bool acl_ok  = (acl_state == AclState::ok) && census.owners > 0;',
+  '    const bool acl_ok  = (acl_state == AclState::ok) && census.owners > 0 && id_state == AdminIdState::ok;'),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -10729,6 +10998,8 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "radmin3id": MUTS_RADMIN3ID, "radmin3acl": MUTS_RADMIN3ACL,
                   "radmin3verbs": MUTS_RADMIN3VERBS,
+                  "radmin5session": MUTS_RADMIN5SESSION, "radmin5rx": MUTS_RADMIN5RX,
+                  "radmin5runtime": MUTS_RADMIN5RUNTIME,
                   "radmin4key": MUTS_RADMIN4KEY, "radmin4targets": MUTS_RADMIN4TARGETS,
                   "radmin4verbs": MUTS_RADMIN4VERBS,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,

@@ -252,9 +252,35 @@ FIXTURE_SOURCE = (
 #    so MR_PROFILE_GATEWAY (MR_FEAT_MOBILE 0) pays it exactly as MR_PROFILE_MOBILE does. A target that had NOT moved
 #    would have been the [[B246]] signal to investigate, not to re-pin.
 #    The RAM authority for this slice is the per-board `RAM_used` diff run with `tools/measure_board.py pair`.
+#
+# ★★ RE-PIN 2 — 2026-09-07, §remote-admin v2 SLICE 5, AND IT IS AUTHORIZED RATHER THAN ASSUMED. R-RA-31,
+#    verbatim: *"Agree - Slice 5 answers bootstrap on air, ABI re-pin authorized"*. TWO of the three `Node` rows
+#    move and the third is the CONTROL:
+#      meshroute::Node   native  222072 -> 224136 (+2064)   |   gateway  148680 -> 150504 (+1824)
+#      meshroute::Node   heltec_mobile  117912 -> 117912    (**+0, UNMOVED — the control**)
+#    ⛔ NO OTHER ROW MOVES on any target, and ⛔ no `tools/probe_b278_row_abi.py` pin moves either: that probe
+#    measures the delegated-custody CORRELATION ROW and its neighbours, none of which this slice touches — its
+#    42 measurements reproducing unchanged is itself the proof, not an assumption about what mirrors what.
+#    THE DERIVATION, measured by THIS FILE's compile-and-read mechanism on each target's real `idedata` flags
+#    (a compile-only `Reveal<sizeof(...)>`, never inferred from a delta):
+#      (a) +2064 = `sizeof(meshroute::RemoteSessionState)`, the ONE `MR_FEAT_RADMIN_ACCEPT` state block
+#          (pair 64 + ACL 340 + status 4 + epochs 80 + seen 896 + headers 80 + bodies 472 + staging 128 —
+#          every offset `static_assert`ed in `lib/core/remote_session.cpp`, zero tail padding);
+#      (b) -245 = `Node::RemoteInbound`, the legacy staging slot, now `#if MR_FEAT_RADMIN_CLIENT`.
+#    ★ THE TWO TERMS ARE INDEPENDENT AND WERE MEASURED SO: a variant tree carrying the CLIENT gate but NOT the
+#      block reproduces the BASE sizeof byte for byte on all three targets (222072 / 117912 / 148680).
+#    ⇒ native compiles BOTH roles (R-RA-17) and therefore KEEPS the slot: +2064 and nothing else, landing at an
+#      already-8-aligned offset (`_channel_seal_ctr` ends at 472) so no hole opens. `heltec_mobile` is
+#      CLIENT-only: it keeps the slot and never compiles the block, so BOTH terms are zero and every member
+#      offset is byte-identical (`_remote_inbound`@180, `_channel_seal_ctr`@426, `_cfg`@432). `gateway` is
+#      ACCEPT-only: -244 (the 245-byte slot, less the ONE new pad byte the 2-aligned `_channel_seal_ctr` needs
+#      at the now-odd offset 153) + 4 (the block's own 8-alignment pad, 156..159) + 2064 = +1824.
+#    ⚠ AN UNMOVED MOBILE `sizeof(Node)` IS NOT UNMOVED MOBILE RAM ([[B331]]): `TimerWheel::kCap` 91 -> 92 costs
+#      +8 B inside `DeviceHal::_wheel` on EVERY build. That is HAL storage, not `Node`, and its authority is
+#      `tools/measure_board.py pair`, not this probe.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (222072, 8, True),
+        "meshroute::Node":         (224136, 8, True),   # T: RE-PIN 2 (R-RA-31, §radmin-5) — derivation in the block above
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -299,7 +325,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         # ⓘ `Node` differs from xtensa's by far more than the ABI: `gateway` is MR_PROFILE_GATEWAY
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
-        "meshroute::Node":         (148680, 8, True),
+        "meshroute::Node":         (150504, 8, True),   # T: RE-PIN 2 (R-RA-31, §radmin-5) — derivation in the block above
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),

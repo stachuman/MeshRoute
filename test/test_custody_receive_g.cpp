@@ -2447,7 +2447,12 @@ TEST_CASE("§B278-S3/20 the bounded translation action is 56 B of value types an
     CHECK(Node::test_custody_action_align() == 4);
     CHECK(sizeof(CustodyFailureRecord) == 28);          // 24 wire bytes + the dst_hash32 4-alignment
     CHECK(sizeof(CustodyTranslatedTail) == 8);
-    CHECK(sizeof(Node) == 222072);                      // ⛔ the S1a figure, unmoved: S3 adds no member
+    // ⛔⛔ RE-PINNED 2026-09-07 BY §remote-admin v2 SLICE 5 (R-RA-31 authorizes the native/gateway `Node` re-pin),
+    //    and THIS CASE'S OWN OBLIGATION IS UNCHANGED: it asserts that the bounded TRANSLATION ACTION is a stack
+    //    object costing `Node` nothing. Slice 5 adds a `Node` member of its own (2 064 B, ACCEPT-only) and this
+    //    number moves with it — 222072 -> 224136 — but the four lines above, which are what S3 actually pins,
+    //    do not move at all. ⛔ Do NOT read this line as "S3 grew": the derivation is in node.h's ledger.
+    CHECK(sizeof(Node) == 224136);
     // and the four dispositions really are four distinct values (a collapsed enum would make three of the
     // product decisions above indistinguishable).
     CHECK(Node::test_custody_disposition_no_live_rows() == 0);

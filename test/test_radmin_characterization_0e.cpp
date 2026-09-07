@@ -327,14 +327,24 @@ TEST_CASE("radmin 0e-B: the candidate value types compile and their host layout 
 TEST_CASE("radmin 0e-B: the timer-wheel mirror is FAITHFUL, and one extra id is priced") {
     // ★ Without this the mirror would be pricing a struct that is not the one in the image. It is asserted, not
     //   assumed: the mirror at the REAL `kCap` must reproduce the REAL wheel byte for byte.
-    CHECK(meshroute::TimerWheel::kCap == 91);
-    CHECK(sizeof(radmin0e::TimerWheelStorageAtCap) == sizeof(meshroute::TimerWheel));
-    CHECK(alignof(radmin0e::TimerWheelStorageAtCap) == alignof(meshroute::TimerWheel));
+    // ⛔⛔ THE PRODUCTION WHEEL MOVED 2026-09-07 (§remote-admin v2 SLICE 5 spent the id 0e priced), and the two
+    //    historical mirrors are KEPT — that is what makes 0e's pricing checkable AFTER the fact instead of
+    //    merely remembered. ⚠ `AtCapP1` is STILL "kCap + 1 relative to the 0e baseline of 91", i.e. **92**; it is
+    //    ⛔ NOT re-pointed at 93, because renaming 0e's +1 OPTION into a SECOND increase would erase the very
+    //    measurement this case exists to preserve.
+    CHECK(meshroute::TimerWheel::kCap == 92);
+    // ★★ THE DIRECT PROOF THE SLICE OWED: the SHIPPED wheel is now byte-identical to the 92-id mirror 0e priced,
+    //    and exactly +8 versus the 91-id one. ⇒ "one shared scan costs 8 bytes" is no longer a projection.
+    CHECK(sizeof(radmin0e::TimerWheelStorageAtCapP1) == sizeof(meshroute::TimerWheel));
+    CHECK(alignof(radmin0e::TimerWheelStorageAtCapP1) == alignof(meshroute::TimerWheel));
+    CHECK(sizeof(meshroute::TimerWheel) - sizeof(radmin0e::TimerWheelStorageAtCap) == 8);
+    // ⛔ AND THE 91-ID MIRROR IS NO LONGER THE IMAGE — asserted, so nobody re-reads it as current.
+    CHECK(sizeof(radmin0e::TimerWheelStorageAtCap) != sizeof(meshroute::TimerWheel));
 
-    // ⛔ THERE IS NO FREE ID. `protocol_constants.h:403` records "(kCap 91, all consumed)" and `node.h:1528`'s
-    //    `kE2eAckDeadlineTimerId = 90` is the last one taken. BOTH strategies below therefore need kCap to GROW;
-    //    the shared scan does not avoid the increase, it makes it ONE id instead of one per expiring class.
-    //    ⓘ That exhaustion is a documented fact of those two files, not a value this fixture can assert; what it
+    // ⛔ THERE WAS NO FREE ID, AND THERE IS NONE NOW EITHER — at a different number. `node.h`'s
+    //    `kRadminExpiryTimerId = 91` is the last one taken and it is the ONE the shared scan spent; the option
+    //    priced at +8 below is the one that shipped, and option 1's eight per-class ids were NOT taken.
+    //    ⓘ That exhaustion is a documented fact of those files, not a value this fixture can assert; what it
     //      CAN assert is the price of growing the wheel, which is what the three sizes below are.
     const size_t at_cap = sizeof(radmin0e::TimerWheelStorageAtCap);
     const size_t plus_1 = sizeof(radmin0e::TimerWheelStorageAtCapP1);   // option 2: one shared expiry scan

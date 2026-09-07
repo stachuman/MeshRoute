@@ -201,6 +201,9 @@ enum class AclErr : uint8_t {
     last_owner,            // ⛔ the last owner may not be removed or demoted
     self_slot,             // ⛔ a request may not remove or demote its own authenticating slot
     nv_save_failed,        // the durable write reported failure. ⛔ Does NOT promise the old bytes survived.
+    runtime_unavailable,   // ★ §RADMIN SLICE 5: the LIVE preparation refused BEFORE any write — a fresh epoch for a
+                           //   changed/added slot could not be drawn. ⛔ ZERO NV writes; the running ACL, pair,
+                           //   epochs, seen rows and ingress are untouched. ⛔ NOT `nv_save_failed` (the medium).
 };
 struct AclResult {
     bool    ok      = false;
@@ -225,7 +228,8 @@ struct AclBoot {
 //   suggest one exists. The identity store — which does hold a secret — guards every one of its transients.
 class AclService {
   public:
-    explicit AclService(IAclStore& store) : _store(store) {}
+    // `live` is OPTIONAL: `nullptr` reproduces Slice 3's behaviour byte for byte (no preparation, no install).
+    explicit AclService(IAclStore& store, IAdminLiveInstall* live = nullptr) : _store(store), _live(live) {}
 
     // ★ READ-ONLY. `out` is left as a VALID EMPTY record on every non-ok arm, so a caller can never print bytes
     //   from a partial read (`mrnv::load_acl` documents that `out` may hold one). ZERO writes on every arm.
@@ -363,7 +367,12 @@ class AclService {
         if (s != AclState::invalid)   return fail_(AclErr::not_invalid);
         mrnv::AclBlob cand{};
         mrnv::acl_blob_init(cand);
-        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);
+        // ★★ §RADMIN SLICE 5 — PREPARE, save, COMMIT. The reset's plan needs ⛔ NO ENTROPY (every slot becomes
+        //    empty, so every epoch becomes 0 = unusable), which is why it cannot refuse. Said explicitly so its
+        //    missing `if (!...)` reads as a fact rather than as a dropped guard.
+        if (_live) _live->prepare_acl_reset();
+        if (!_store.save(cand)) { if (_live) _live->discard(); return fail_(AclErr::nv_save_failed); }
+        if (_live) _live->commit();
         AclResult r; r.ok = true; r.changed = true; return r;
     }
 
@@ -389,14 +398,26 @@ class AclService {
         AclResult r;
         r.slot = slot;
         r.role = role;
+        // ⛔ THE NO-OP RETURNS FIRST, AND THAT ORDER IS LOAD-BEARING IN SLICE 5 TOO: identical material must cost
+        //    ZERO draws, ZERO writes, ZERO reinstall AND ZERO invalidation. Preparing before this comparison
+        //    would burn entropy and re-mint an epoch for a change that never happened.
         if (!memcmp(&cand, &before, sizeof cand)) { r.ok = true; r.changed = false; return r; }
-        if (!_store.save(cand)) return fail_(AclErr::nv_save_failed);
+        // ★★ §RADMIN SLICE 5 — PREPARE BEFORE THE DURABLE SAVE. Per slot: an UNCHANGED row keeps its epoch and its
+        //    work EXACTLY; an added/changed occupied row gets a FRESH non-zero epoch drawn here; a removed row
+        //    becomes unusable. A refusal costs ⛔ ZERO writes.
+        if (_live && !_live->prepare_acl(before, cand)) return fail_(AclErr::runtime_unavailable);
+        // ⛔ A FAILED SAVE DISCARDS THE PLAN: the running ACL image, pair, epochs, seen rows and ingress are
+        //    preserved EXACTLY, and the invalidation the plan described never happens.
+        if (!_store.save(cand)) { if (_live) _live->discard(); return fail_(AclErr::nv_save_failed); }
+        // ⛔ NON-FAILING, AND BEFORE THE CALLER'S SUCCESS LINE.
+        if (_live) _live->commit();
         r.ok = true;
         r.changed = true;
         return r;
     }
 
-    IAclStore& _store;
+    IAclStore&         _store;
+    IAdminLiveInstall* _live;   // ⛔ OPTIONAL. RAM: one pointer. ⛔ No cached record and no plan member.
 };
 
 // ---- provisioning readiness: a READ-ONLY CONJUNCTION, ⛔ never a stored flag --------------------------------

@@ -35,6 +35,7 @@
 // CLIENT build — where the bindings, the dispatch arms, the help names and the BLE guard are all compiled out —
 // nothing references them and ⛔ nothing is emitted. Only the INSTANTIATION and the console surfacing are gated.
 #include "firmware_admin_verbs.h"   // mrfw::admin_id_verb / acl_verb / admin_boot_report / admin_id_owns / acl_owns
+#include "firmware_admin_runtime.h"  // §RADMIN slice 5: mrfw::AdminLiveInstall / IAdminRuntime / admin_runtime_boot
                                     //   + AdminIdService / AclService — PURE; this file binds the stores, the
                                     //   checked draw, a Print sink and the two dispatch arms, and ⛔ decides nothing
 // §RADMIN slice 4 — the CONTROLLER half, UNGATED for the same [[B255]] reason: the header carries no capability
@@ -256,6 +257,21 @@ struct DeviceAdminSeed : mrfw::IAdminSeedSource {
         return !mrfw::admin_buf_all_zero(out, 32);
     }
 };
+// ★★★ §RADMIN SLICE 5 — THE NODE BINDING OF THE LIVE SEAM, AND ⛔ NOTHING BELOW IS A DECISION. It forwards a
+//     checked entropy draw and a prepared plan to the running `Node`; the ORDER (prepare -> save -> commit) lives
+//     in `firmware_admin_identity.h` / `firmware_admin_acl.h`, and the PLAN is built by the pure
+//     `firmware_admin_runtime.h` — both of which the native suite drives end to end and
+//     `--target=radmin5runtime` can attack. This TU is compiled by neither the native suite nor the simulator
+//     (§B115), so anything decided here would be unreachable by every automated gate; its cover is
+//     `tools/probe_inbox_verbs`' executed controls.
+// ⛔ `draw_epoch` RETURNS THE NODE'S OWN CHECKED ANSWER — ⛔ never an unconditional `true`. `Node::admin_draw_epoch`
+//    refuses an all-zero draw (`IHal::rand_bytes` is `void`, so that is the strongest honest claim; [[B312]]
+//    stays OPEN).
+struct DeviceAdminRuntime : mrfw::IAdminRuntime {
+    bool draw_epoch(uint64_t& out) override                                 { return g_node.admin_draw_epoch(out); }
+    void commit(const meshroute::RemoteSessionInstall& plan) override       { g_node.admin_session_commit(plan); }
+    void entropy_failed() override                                          { g_node.admin_session_entropy_failed(); }
+};
 // The `PresetPrintLines` shape (U3): the sink the caller was HANDED, ⛔ never `mrcon` and ⛔ never a global.
 // ⓘ The body carries a trailing marker so `tools/probe_inbox_verbs`' [[B279]]-shaped control can target THIS
 //   adapter and not the byte-identical `PresetPrintLines` above it — a sed that hit both would still redden, but
@@ -271,7 +287,12 @@ struct AdminPrintLines : mrfw::IAdminLines {
 static void handle_admin_id(const char* args, size_t len, Print& out) {
     DeviceAdminIdStore store;
     DeviceAdminSeed    seed;
-    mrfw::AdminIdService svc(store, seed);
+    // §RADMIN slice 5: the live-install seam, constructed PER CALL on this task's stack — ⛔ no resident plan and
+    // ⛔ no static image. Its `~AdminLiveInstall` scrubs the administration secret on every path out, including
+    // the refusal ones.
+    DeviceAdminRuntime   rt;
+    mrfw::AdminLiveInstall live(rt);
+    mrfw::AdminIdService svc(store, seed, &live);
     AdminPrintLines lines(out);
     mrfw::admin_id_verb(svc, args, len, lines);
 }
@@ -281,8 +302,13 @@ static void handle_acl(const char* args, size_t len, Print& out) {
     DeviceAdminIdStore id_store;
     DeviceAdminSeed    seed;
     DeviceAclStore     acl_store;
+    DeviceAdminRuntime rt;
+    mrfw::AdminLiveInstall live(rt);
+    // ⛔ ONLY THE ACL SERVICE INSTALLS HERE. The identity service is handed over READ-ONLY (design §6.4: `acl add`
+    //    requires a SEPARATELY READ administration root) and must not acquire a seam it would never use on this
+    //    path — an `admin-id` mutation is the OTHER verb's, with its own ordering.
     mrfw::AdminIdService id(id_store, seed);
-    mrfw::AclService     acl(acl_store);
+    mrfw::AclService     acl(acl_store, &live);
     AdminPrintLines lines(out);
     mrfw::acl_verb(acl, id, args, len, lines);
 }
@@ -310,7 +336,26 @@ void admin_stores_boot_report_console() {
     mrfw::AdminIdService id(id_store, seed);
     mrfw::AclService     acl(acl_store);
     AdminPrintLines lines(mrcon);
+    // ⛔ THE TWO EXISTING PER-RECORD LINES ARE UNCHANGED, and they keep the DETAILED cause (absent / invalid /
+    //    io_failed). The one line added below reports only the SESSION's resulting state.
     mrfw::admin_boot_report(id, acl, lines);
+    // ★★★ §RADMIN SLICE 5 — THE LIVE INSTALL. Slice 3's boot report said in as many words "there is no live cache
+    //     in this slice to install into"; there is now. ⛔ IT STILL WRITES NOTHING, DRAWS NO SEED AND
+    //     AUTO-GENERATES NOTHING: it re-reads the two records, and only a VALID root plus a VALID ACL with an
+    //     owner installs anything at all. Every other state installs the CLEARED image, so a node can never boot
+    //     into a stale live ACL after its record went bad.
+    // ⛔ NO KEY, SEED, EPOCH OR FINGERPRINT BYTE IS PRINTED — the line carries a state word and a count.
+    mrnv::AdminIdBlob idb{};
+    mrfw::SecretWipeGuard<mrnv::AdminIdBlob> g{idb};   // ⚠ carries the SEED on every path out
+    const mrfw::AdminIdState id_state = mrfw::admin_id_state_of(mrnv::load_admin_id(idb), idb);
+    mrnv::AclBlob aclb{};
+    const mrfw::AclState acl_state = acl.read(aclb);   // ⛔ read-only; leaves a VALID EMPTY record on every non-ok arm
+    DeviceAdminRuntime rt;
+    const mrfw::AdminSessionBoot boot = mrfw::admin_runtime_boot(rt, id_state, idb.seed, acl_state, aclb);
+    mrcon.print(F("> admin-session boot state="));
+    mrcon.print(mrfw::admin_session_boot_state_name(boot.state));
+    mrcon.print(F(" slots="));
+    mrcon.println(boot.slots);
 }
 #endif   // MR_FEAT_RADMIN_ACCEPT
 

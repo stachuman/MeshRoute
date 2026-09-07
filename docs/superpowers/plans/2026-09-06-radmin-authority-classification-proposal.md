@@ -1,6 +1,10 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Remote-admin v2 — command authority classification PROPOSAL for the owner's one-shot ruling (QA, 2026-09-06)
 
+**★ RULED 2026-09-07 (R-RA-33): the owner confirmed this table as a whole — "with rest - I do agree" — with ONE
+exception, R-RA-32 (`pull_inbox` / `mark_read` = operator, remote view excludes direct messages). This file is now the
+owner's one-shot classification; the Author lands it as the signed table the generator consumes.**
+
 **What this is.** R-RA-1 makes the command list GENERATED and the classification the OWNER's, taken once over the
 complete list; R-RA-21 fixes the policy (open = exact `status`/`routes`; operator = ordinary target-applicable
 commands; owner = identity/security/ACL/key material, destructive inbox/storage, factory reset, fault injection, OTA;
@@ -39,19 +43,19 @@ command) · **legacy** (deleted in Slice 9; never given a remote authority). Fla
 
 ## B. Configuration (`cfg`, `cfg set <key>`)
 
-| command | proposed | D | note |
-| --- | --- | --- | --- |
-| `cfg` (read) | operator | | |
-| `cfg set name` / `leaf_name` | operator | | |
-| `cfg set node_id` / `leaf_id` / `layer0_id` / `l1_layer_id` / `l1_node_id` / `n_layers` | operator | **D** | changes routable identity/topology ⇒ detaches (§13) |
-| `cfg set freq` / `bw` / `cr` / `sf_list` / `routing_sf` (alias `control_sf`) / `tx_power` / `l1_freq` / `l1_bw` / `l1_cr` / `l1_sf_list` / `l1_routing_sf` | operator | **D** | retune (§13) |
-| `cfg set beacon_ms` / `l1_beacon_ms` / `window_period_ms` / `l0_window_ms` / `l0_window_offset_ms` / `l1_window_ms` / `l1_window_offset_ms` / `gw_announce_interval` / `gw_announce_pct` / `gw_herd_slack` | operator | | cadence/scheduler, no detach |
-| `cfg set hop_cap` / `team_hop_cap` / `nav` / `nav_ignore` / `lbt` / `duty` / `active_fraction` / `ch_min_ms` / `dm_min_ms` / `intra_layer_relay` / `intro_attach` | operator | | ordinary radio/anti-spam policy |
-| `cfg set gateway_only` / `host_mobiles` / `mobile` / `mobile_autoregister` | operator | **D** | role changes that detach/attach planes |
-| `cfg set lat` / `lon` | operator | | |
-| `cfg set e2e_dm` | ⚖ **owner** | | the DM encryption default is a security policy |
-| `cfg set team_channel_crypt` | ⚖ **owner** | | channel crypto policy |
-| `cfg set ble_mode` (+ `on`/`off`/`periodic`) / `ble_period` / `ble_pin` | ⚖ **owner** | | the BLE admin surface and its PIN are security material (design §12.1 "security, identity") |
+| command                                                                                                                                                                                                    | proposed    | D     | note                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----- | ------------------------------------------------------------------------------------------- |
+| `cfg` (read)                                                                                                                                                                                               | operator    |       |                                                                                             |
+| `cfg set name` / `leaf_name`                                                                                                                                                                               | operator    |       |                                                                                             |
+| `cfg set node_id` / `leaf_id` / `layer0_id` / `l1_layer_id` / `l1_node_id` / `n_layers`                                                                                                                    | operator    | **D** | changes routable identity/topology ⇒ detaches (§13)                                         |
+| `cfg set freq` / `bw` / `cr` / `sf_list` / `routing_sf` (alias `control_sf`) / `tx_power` / `l1_freq` / `l1_bw` / `l1_cr` / `l1_sf_list` / `l1_routing_sf`                                                 | operator    | **D** | retune (§13)                                                                                |
+| `cfg set beacon_ms` / `l1_beacon_ms` / `window_period_ms` / `l0_window_ms` / `l0_window_offset_ms` / `l1_window_ms` / `l1_window_offset_ms` / `gw_announce_interval` / `gw_announce_pct` / `gw_herd_slack` | operator    |       | cadence/scheduler, no detach                                                                |
+| `cfg set hop_cap` / `team_hop_cap` / `nav` / `nav_ignore` / `lbt` / `duty` / `active_fraction` / `ch_min_ms` / `dm_min_ms` / `intra_layer_relay` / `intro_attach`                                          | operator    |       | ordinary radio/anti-spam policy                                                             |
+| `cfg set gateway_only` / `host_mobiles` / `mobile` / `mobile_autoregister`                                                                                                                                 | operator    | **D** | role changes that detach/attach planes                                                      |
+| `cfg set lat` / `lon`                                                                                                                                                                                      | operator    |       |                                                                                             |
+| `cfg set e2e_dm`                                                                                                                                                                                           | ⚖ **owner** |       | the DM encryption default is a security policy                                              |
+| `cfg set team_channel_crypt`                                                                                                                                                                               | ⚖ **owner** |       | channel crypto policy                                                                       |
+| `cfg set ble_mode` (+ `on`/`off`/`periodic`) / `ble_period` / `ble_pin`                                                                                                                                    | ⚖ **owner** |       | the BLE admin surface and its PIN are security material (design §12.1 "security, identity") |
 
 ## C. Network membership and roles
 
@@ -81,7 +85,7 @@ command) · **legacy** (deleted in Slice 9; never given a remote authority). Fla
 | `reqpubkey` (+ `-s` / `-t`) | operator | | |
 | `peerkey` | ⚖ **owner** | | installs a PINNED (verified) peer key = trust material |
 | `peername` | operator | | a label |
-| `pull_inbox` / `mark_read` | ⚖ **owner** | | READS the target's private messages — not a diagnostic |
+| `pull_inbox` / `mark_read` | **operator** ✅ RULED (R-RA-32) | | remote form = every record class EXCEPT direct messages; `mark_read` marks only what the remote view shows; local form unchanged. (Proposed owner; overruled by the owner 2026-09-07.) |
 | `del_msg` / `clear_inbox` | **owner** | | R-RA-21: destructive inbox operations |
 
 ## E. Disruptive actions, fault injection, OTA
@@ -129,12 +133,12 @@ command) · **legacy** (deleted in Slice 9; never given a remote authority). Fla
    than ordinary configuration.
 2. `team new` and `team grantkey` → **owner** (they create/air a secret), while `team <id>` and `team keys` stay operator.
 3. `peerkey` → **owner** (installs pinned trust), `peername` operator.
-4. `pull_inbox` / `mark_read` → **owner** (private content), matching the destructive inbox verbs.
+4. ✅ RULED R-RA-32: `pull_inbox` / `mark_read` → **operator**, with the REMOTE form excluding direct messages (proposed owner; overruled).
 5. `send` / `send_channel` / `send_layer` → operator (a remote operator may transmit in the target's name).
 6. `testsend` / `testch` / `testclear` → operator (test workloads, not fault injection).
 7. `sleep` flagged disruptive (console responsiveness), `mobile register`/`unregister` NOT flagged.
 8. `acl list` and `admin-id show` → owner when REMOTE (an operator never sees full keys), physical when local.
 9. `ui preset reset all` → operator (UI text, not a secret).
 
-Everything not marked ⚖ follows R-RA-21's wording directly. Rows that Slice 4/5/6 add later are classified at
+All nine judgment calls are RULED (R-RA-33 confirms 1-3 and 5-9 as proposed; R-RA-32 overrules 4). Everything not marked ⚖ follows R-RA-21's wording directly. Rows that Slice 4/5/6 add later are classified at
 their closure under the same policy and appended here by the Author; the checker refuses an unclassified row.

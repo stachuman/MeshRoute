@@ -179,6 +179,12 @@ struct AckDebtEntry {
 
 // §10/§15: the seen-request / fingerprint record that makes execution at-most-once and lets an exact retry replay
 // the transcript instead of re-executing.
+// ⛔⛔ HISTORY, KEPT DELIBERATELY: this 32-byte candidate is what 0e PRICED, and it is ⛔ NOT what shipped. Design
+//     §10 also requires "the original authenticated request tag as the exact 128-bit request fingerprint", which
+//     this row omits — so §remote-admin v2 Slice 5's production `meshroute::SeenRequestRecord` is **48 bytes**
+//     (32 + the 16-byte tag) and its `SeenEntry` is 56 (plus the captured `ReplyRoute`). The row below is
+//     RETAINED unchanged as the 0e measurement it was; ⛔ do not "correct" it into the production shape, and
+//     ⛔ do not read its 512-byte total as the shipped cost.
 struct SeenRequestRecord {
     uint64_t request_id;                     // §9: the identity of the logical operation
     uint64_t admin_epoch;                    // §13: an old epoch cannot match after a reboot
@@ -263,11 +269,17 @@ struct DeferredActionRecord {
 // free id as consumed. Every deferred action, session expiry or seen-table sweep needs a timer, so the design must
 // budget a cap increase or a shared scan timer up front."
 //
-// ⛔⛔ THERE IS NO FREE ID AND NO 92nd SLOT MAY BE SPENT. `lib/hal/timer_wheel.h:25` sets `kCap = 91`;
-//     `lib/core/protocol_constants.h:403` states outright "(kCap 91, all consumed)"; `node.h:1528`'s
-//     `kE2eAckDeadlineTimerId = 90` is the last one taken. ⇒ BOTH strategies below need `kCap` to GROW. The shared
-//     scan does not avoid the increase — it makes it ONE id instead of one per expiring record class, which is the
-//     actual difference the owner is ruling on.
+// ⛔⛔ THERE WAS NO FREE ID AND A 92nd SLOT HAD TO BE SPENT — AND IT SINCE WAS. At 0e time
+//     `lib/hal/timer_wheel.h` set `kCap = 91`, `lib/core/protocol_constants.h` stated outright
+//     "(kCap 91, all consumed)" and `node.h`'s `kE2eAckDeadlineTimerId = 90` was the last one taken, so BOTH
+//     strategies below needed `kCap` to GROW; the shared scan did not avoid the increase, it made it ONE id
+//     instead of one per expiring record class, which is the difference the owner was ruling on.
+//     ★ RESOLVED 2026-09-07 BY §remote-admin v2 SLICE 5 (R-RA-22 / design §15): **option 2 shipped.** `kCap` is
+//     92 and the single new id is `Node::kRadminExpiryTimerId = 91`. ⛔ The mirrors below are NOT re-pointed —
+//     `TimerWheelStorageAtCapP1` is still "the 0e baseline 91, plus one", i.e. 92, and it is now the SHIPPED
+//     size; `test_radmin_characterization_0e.cpp` asserts the production wheel equals it byte for byte and is
+//     +8 versus `TimerWheelStorageAtCap`. Renaming P1's meaning into a SECOND increase would erase exactly the
+//     measurement this file exists to preserve.
 //
 // The wheel is `bool _active[kCap]` + `uint64_t _due[kCap]`, so one extra id costs one bool and one u64 plus
 // whatever re-alignment the two arrays force. That is measured rather than argued: the mirror below is compiled on

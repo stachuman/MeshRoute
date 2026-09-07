@@ -82,6 +82,48 @@ void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[
     _crypto_ready = true;        // DP1: seal/open are now permitted (until set, they FAIL LOUD — never cleartext)
 }
 
+#if MR_FEAT_RADMIN_ACCEPT
+// ★★★ §remote-admin v2 SLICE 5 — THE THREE CORE HALVES OF THE FIRMWARE'S LIVE-INSTALL SEAM (design §6.5).
+//     Mirrors `set_crypto_identity` above, deliberately and for the same reason: `lib/core` cannot read NV, so
+//     the durable administration root and the `/mracl` image are INSTALLED by `src/`.
+// ⛔⛔ NONE OF THIS RUNS AT `on_init`, AND THAT IS THE RNG-ISOLATION CONTRACT: an unprovisioned Node — which is
+//     EVERY node in EVERY simulator scenario — performs ZERO new entropy draws, arms no timer and emits no
+//     session telemetry during initialization. The corpus streams are byte-identical BY CONSTRUCTION, not by a
+//     measurement that happened to come out even. ⛔ Do NOT mint ten epochs in `on_init` "for convenience".
+
+// ONE checked 64-bit epoch draw. ⛔ NO retry loop, ⛔ no clock/counter fallback, ⛔ no cached entropy and
+// ⛔ no reserved sentinel standing in for failure — an all-zero draw simply REFUSES, exactly as
+// `team_channel_key_mint` refuses a dead scalar (C2, and the established idiom rather than a new one).
+// ⚠⚠ WHAT `true` MEANS, EXACTLY, and it is the weakest honest claim: "eight bytes arrived and they are not all
+//    zero". `IHal::rand_bytes` returns VOID (hal.h), so no HAL call can report an entropy failure at all —
+//    [[B312]] stays OPEN for the truthful first-RF entropy integration and ⛔ nothing here closes it.
+bool Node::admin_draw_epoch(uint64_t& out) const {
+    uint8_t b[8] = {};
+    _hal.rand_bytes(b, sizeof b);
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; --i) v = (v << 8) | static_cast<uint64_t>(b[i]);
+    crypto_wipe(b, sizeof b);
+    if (v == 0) return false;    // a DEAD draw -> the caller refuses, writes nothing and publishes no readiness
+    out = v;
+    return true;
+}
+
+// The COMMIT half. ⛔ Non-failing by construction: validation, key derivation and every entropy draw already
+// happened in the firmware's PREPARE, before the durable save, so nothing here can fail after NV succeeded.
+void Node::admin_session_commit(const RemoteSessionInstall& plan) {
+    remote_session_install(_radmin_session, plan);
+    // An invalidation may have RELEASED rows, so the shared scan is re-armed against what actually remains.
+    radmin_expiry_arm();
+}
+
+// ⛔ A COLD-BOOT ENTROPY REFUSAL. Acceptance stays OFF, every key and row is wiped, the scan is cancelled, and
+//    ⛔ NOTHING DURABLE IS TOUCHED — the caller owns NV and this path writes none of it.
+void Node::admin_session_entropy_failed() {
+    remote_session_mark_entropy_failed(_radmin_session);
+    _hal.cancel(kRadminExpiryTimerId);
+}
+#endif   // MR_FEAT_RADMIN_ACCEPT
+
 #if MR_FEAT_TEAM
 // §team-ch-key (T-K1, spec 2026-07-26 §2.1) — the TEAM CHANNEL content keypair. Three entry points, ONE
 // derivation path (team_channel_key_derive, identity.cpp), so a minted key and an adopted one are
@@ -1338,6 +1380,12 @@ void Node::on_timer(uint32_t timer_id) {
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kParkRefloodTimerId:     park_reflood_fire();     break;   // §F-SL-1: bounded jittered H re-flood for still-parked sends
     case kE2eAckDeadlineTimerId:  e2e_ack_deadline_fire(); break;   // shelf item (i): -a sends whose DATA_TYPE_E2E_ACK never returned -> send_failed{e2e_ack_timeout}
+#if MR_FEAT_RADMIN_ACCEPT
+    // §remote-admin v2 SLICE 5 (R-RA-22 / design §15): the ONE shared remote-admin earliest-deadline scan — the
+    // authenticated ingress reservations AND the open/bootstrap staging rows, in ONE pass, on ONE id.
+    // ⛔ It is never armed on an unprovisioned node: nothing reserves a row until an authenticated request lands.
+    case kRadminExpiryTimerId:    radmin_expiry_fire();   break;
+#endif
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
 #if MR_FEAT_MOBILE
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)

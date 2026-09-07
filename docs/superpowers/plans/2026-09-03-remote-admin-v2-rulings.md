@@ -717,3 +717,43 @@ MR_FEAT_RADMIN_CLIENT`. `TimerWheel::kCap` 91 → 92 (R-RA-22) is part of the sa
 **Source facts:** `lib/core/node_mac_rx.cpp:1915-1983` (the 1b seam and its four deferred-to-Slice-5 notes),
 `lib/core/node.h:154-163, :2944, :3997`, `tools/probe_board_abi.py:257/:278/:302`, `lib/core/frame_codec.h:1335-1341`
 (the received cross-layer path), `lib/core/remote_codec.h:266-345`, R-RA-22 (the managed profile + one timer).
+
+### R-RA-32 (owner, 2026-09-07) — `pull_inbox` is OPERATOR; its remote form shows everything EXCEPT direct messages
+
+**Owner:** *"pull_inbox - we allow it for operator - as it might contain diagnostic data - best, if we'd implement
+pull_inbox which would show all with exception of dm"*
+
+**Settled (the authority classification, judgment call 4 of the QA proposal):** `pull_inbox` is classified
+**operator**, not owner — the inbox carries diagnostic records (custody notices, delivery outcomes, channel posts) an
+operator legitimately needs. **Its REMOTE form is a scoped view: every record class EXCEPT direct messages** — the
+target's private DM content never leaves the node through an RPC. `mark_read` follows the same reading (operator; a
+remote caller can only mark what the remote view shows, so DM records are never marked remotely). The local USB/BLE
+`pull_inbox` is unchanged (the companion's full inbox sync is a local contract).
+
+**Where it lands:** the classification row is Slice 6's (the table carries `pull_inbox = operator` plus a `remote
+view: no-DM` attribute the dispatcher can read as metadata); the DM-excluding remote view is IMPLEMENTED by the first
+slice that executes a remote command with a `CommandContext` (7b's transcript owner) — Slice 6 changes no local
+behaviour. **QA reading to confirm:** a remote OWNER is bound by the same no-DM view (an administrator is not the
+recipient); if the owner wants owner-class DM access remotely, that is a separate ruling.
+
+**Source facts:** `src/firmware_commands.cpp` `handle_pull_inbox` (the one inbox renderer, `dispatch` +
+`ble_dispatch_line`), the inbox record kinds in `lib/core/inbox.h` (DM vs channel vs custody), R-RA-21 (destructive
+inbox operations stay owner: `del_msg`, `clear_inbox`).
+
+### R-RA-33 (owner, 2026-09-07) — the command authority classification is RULED: the QA proposal table as a whole, with R-RA-32 the one exception
+
+**Owner:** *"with rest - I do agree"* (after R-RA-32).
+
+**Settled:** `docs/superpowers/plans/2026-09-06-radmin-authority-classification-proposal.md` is the owner's one-shot
+classification (R-RA-1: taken once over the complete generated list). Every row stands as proposed; the eight
+remaining judgment calls are ruled AS PROPOSED: (1) `cfg set e2e_dm` / `team_channel_crypt` / `ble_mode` /
+`ble_period` / `ble_pin` = owner; (2) `team new` + `team grantkey` = owner, `team <id>` + `team keys` = operator;
+(3) `peerkey` = owner, `peername` = operator; (5) `send` / `send_channel` / `send_layer` = operator; (6) `testsend` /
+`testch` / `testclear` = operator; (7) `sleep` flagged disruptive, `mobile register` / `unregister` NOT flagged;
+(8) `acl list` + `admin-id show` = owner when remote, physical when local; (9) `ui preset reset all` = operator.
+Judgment call (4) is R-RA-32 (`pull_inbox` / `mark_read` = operator; remote view excludes DMs).
+
+**Consequence:** the Author lands the signed table (the proposal file becomes the RULED table, or is copied
+verbatim into the design's classification appendix), the generator consumes it, and the Slice 6 checker refuses any
+inventory row the table does not cover. Rows added by later slices are classified at their closure under the same
+policy and appended (the proposal's closing paragraph).

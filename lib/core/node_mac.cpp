@@ -871,12 +871,24 @@ uint16_t Node::send_remote_response(uint8_t dst, const uint8_t* body, uint8_t le
     return enqueue_data(dst, body, len, /*flags=*/0, "rcmd_resp_tx", /*app_dm=*/false, DATA_TYPE_REMOTE_RESP);
 }
 // Drain the single inbound slot (fw_main, each loop). Returns true + copies out when one was staged; clears the slot.
+// ⛔⛔ CLIENT-ONLY SINCE §remote-admin v2 SLICE 5, and the guard is the WHOLE change here — the body is
+//    byte-for-byte what it was. R-RA-27 handed the ACCEPT replacement to Slice 5 explicitly, and it has landed:
+//    an ACCEPT product runs the v2 admission in `rx_remote_cmd_accept` and has neither this slot nor the legacy
+//    `remote_exec` drain behind it. On a CLIENT product every byte of the response path is preserved.
+// ⓘ THE `#else` IS A ZERO-STATE `false` STUB, and it is ⛔ NOT hidden storage: there is no `_remote_inbound`
+//   member to answer from on that build. It exists because the declaration is unconditional for every profile
+//   (node.h), so an API user that is itself gated elsewhere still links. `out` is deliberately left UNTOUCHED —
+//   "nothing was staged" must not also mean "your buffer was cleared for you".
+#if MR_FEAT_RADMIN_CLIENT
 bool Node::take_remote_inbound(RemoteInbound& out) {
     if (!_remote_inbound.active) return false;
     out = _remote_inbound;
     _remote_inbound.active = false;
     return true;
 }
+#else
+bool Node::take_remote_inbound(RemoteInbound&) { return false; }
+#endif
 
 // §GapB (2026-07-18): the cross-layer E2E ack, UNIFIED onto the normal send machinery — "an E2E ack IS a normal DM
 // from receiver to sender, NO ack-specific addressing." The inbound DM `dm` preserved the full layer-path (§0.10), so

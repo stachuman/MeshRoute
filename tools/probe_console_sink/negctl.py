@@ -907,9 +907,25 @@ S3_CTL = [
      'void admin_stores_boot_report_console() {',
      'static DeviceAclStore s_admin_resident_store;\nstatic mrfw::AclService s_admin_resident(s_admin_resident_store);\n'
      'void admin_stores_boot_report_console() {', 'S33'),
-    ('S-C34 the ACCEPT bindings reach into Node state', CMDS,
+    # ⛔⛔ RE-POINTED 2026-09-07 BY §RADMIN SLICE 5, the old form kept visible. This control injected
+    #    `(void)g_node.node_id();` and was checked by S34, whose rule was "the ACCEPT bindings touch NO Node
+    #    state" — a rule the slice's ruled live-install seam legitimately ends (design §6.5, R-RA-31). ⇒ the
+    #    INJECTED DEFECT is unchanged in shape (an unreviewed Node reach inside an ACCEPT binding) and it is now
+    #    checked by **S51**, which pins the Node surface to EXACTLY the three ruled session entry points.
+    #    ⓘ Left as-is it STAYED GREEN, i.e. it proved nothing — the runner reported that itself and refused to
+    #      score it, which is why this note exists instead of a quietly passing control.
+    ('S-C34 the ACCEPT bindings reach into Node state OUTSIDE the three ruled session entry points', CMDS,
      '    mrfw::acl_verb(acl, id, args, len, lines);',
-     '    (void)g_node.node_id();\n    mrfw::acl_verb(acl, id, args, len, lines);', 'S34'),
+     '    (void)g_node.node_id();\n    mrfw::acl_verb(acl, id, args, len, lines);', 'S51'),
+    # ★ AND THE OTHER DIRECTION: the ruled seam is DELETED, so `acl` mutations stop activating anything live.
+    ('S-C34b ★★ §RADMIN slice 5: the ACL service loses its live-install seam, so a durable ACL change never '
+     'reaches the running node (design §6.5 activation silently gone)', CMDS,
+     '    mrfw::AclService     acl(acl_store, &live);',
+     '    mrfw::AclService     acl(acl_store);', 'S52'),
+    ('S-C34c ★★ §RADMIN slice 5: the IDENTITY service loses its live-install seam, so a root rotation never '
+     'reaches the running node and the old pair keeps authenticating', CMDS,
+     '    mrfw::AdminIdService svc(store, seed, &live);',
+     '    mrfw::AdminIdService svc(store, seed);', 'S52'),
     ('S-C35 load_acl is re-pointed at the ADMIN slot (one record read through the other\'s name)', NVH,
      '    const int n = read_slot(kSlotAcl, &out, sizeof out, &io);',
      '    const int n = read_slot(kSlotAdmid, &out, sizeof out, &io);', 'S35'),
