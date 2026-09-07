@@ -4069,8 +4069,9 @@ identity. Run it only on a scratch node and expect peers to re-bind by the new `
 *Why metal remains:* the host gate executes the real dispatcher and proves exact bytes and sink isolation, but
 only hardware exercises BLE-NUS notification/reassembly and the real `Preferences`/`InternalFS` `/mrid` write.
 
-**DRAFT Slice 4 mobile extension (2026-09-06), NOT CURRENT FIRMWARE / NOT RUN.** After Slice 4 QA PASS,
-steps 2 and 3 on a CLIENT build must receive the existing success/name line followed by exactly one
+**Slice 4 mobile extension — software QA PASS 2026-09-07, METAL-PENDING / NOT RUN.**
+Evidence: docs/superpowers/evidence/2026-09-06-radmin-slice4.md §§5/6; implementation 19c10bf.
+Steps 2 and 3 on a CLIENT build must receive the existing success/name line followed by exactly one
 additional complete line on the same requested transport:
 
 ```text
@@ -4079,9 +4080,10 @@ additional complete line on the same requested transport:
 
 ACCEPT builds keep the original single-line contract. Use xiao_mobile for the real BLE client; capture
 the two lines with no USB/BLE cross-sink leak, reboot, then use Parts 55b/56's public show commands to
-confirm the target book and dedicated keys survived while self changed. Re-derive the client transcript
-pins from Slice 4's executed inbox/console probes before owner execution; do not substitute these draft
-bytes for a measurement. Busy-debt refusal is a future-caller host test until Slice 8a, not metal owed here.
+confirm the target book and dedicated keys survived while self changed. The client transcript
+pins are now bound to Slice 4's executed CLIENT inbox arm (178 checks/33 RED) and console guard
+(905 checks, of which 425 are the client family); these host proofs do not replace this physical
+transport/reboot check. Busy-debt refusal is a future-caller host test until Slice 8a, not metal owed here.
 
 ## Part 61 — BLE inbound line capacity on an nRF52 gateway (2026-09-04)
 
@@ -4228,8 +4230,9 @@ static/gateway `rcmd` round trip are unchanged. Part 55a closes only on owner-re
 
 ## Part 55b — remote-admin v2 controller half of the physical USB exchange (Slice 4)
 
-**DRAFT 2026-09-06 — NOT RUN; awaits QA-passed Slice 3 and Slice 4 plus their evidence.** Reserved name
-from design §19.1. Exact local contract: Slice 4 brief §§4/10. Use a disposable Part-55a ACCEPT target
+**Software QA PASS 2026-09-07 — METAL-PENDING / NOT RUN.** Slice 4 implementation/evidence committed
+in 19c10bf; transcript authority: docs/superpowers/evidence/2026-09-06-radmin-slice4.md §§5/6/11 and
+Slice 4 brief §§4/10. Reserved name from design §19.1. Use a disposable Part-55a ACCEPT target
 and a CLIENT controller (heltec_mobile for ESP32 flash, xiao_mobile for nRF52 flash/BLE). Record both
 firmware commits, backends and public transcripts. Public `<Kc>`/`<Kt>` are 64 lowercase hex characters;
 `<Fc>`/`<Ft>` are their R-RA-29 16-hex fingerprints. Never paste a controller seed onto the target.
@@ -4260,7 +4263,8 @@ in Slice 4. Host write-counting and corpus identity do not prove these records s
 
 ## Part 56 — controller secret-store lifecycle and secured-BLE public boundary (Slice 4)
 
-**DRAFT 2026-09-06 — NOT RUN.** Requires QA-passed Slice 4, a disposable CLIENT node and a second
+**Software QA PASS 2026-09-07 — METAL-PENDING / NOT RUN.** Evidence and implementation as Part 55b.
+Requires a disposable CLIENT node and a second
 CLIENT fixture for the export/import round trip. Use xiao_mobile for BLE; run storage/reboot residue on
 both available nRF52 and ESP32 client backends and record which ran. Seed export is intentionally
 sensitive: keep it local/off durable logs, do not put real seeds in evidence or paste them to an ACCEPT
@@ -4300,6 +4304,14 @@ target. These scratch-node commands erase keys/data; retain no wanted identity o
    `> admin-key boot state=absent count=0` and `> admin-target boot state=absent count=0`.
    Self is a new ordinary identity, not a retained management seed. This also erases the node's other
    ordinary factory data; neither store is covered by fault-history preservation.
+
+6. **Actual stack headroom (nRF52).** Using an owner-reviewed stack-observation setup, record the
+   task/stack budget and measured high-water/remaining bytes across client-store boot, key import/list
+   and a full eight-slot target page. The 2056-byte book must not be an automatic stack object; the
+   relevant boot loop task has a 4096-byte budget, distinct from the target console's MESH task (B323).
+   Record each measured task separately; no compiler scratch sum is a hardware high-water result.
+   If that observation setup is unavailable, leave this row pending; no production debug verb or new
+   numeric acceptance threshold is authorized here. Unexpected exhaustion/reset is a finding.
 
 Parts 55b/56 remain metal-pending until the owner reports backend/transport results. Software size,
 fake-store controls, no-op simulator builds and no new RPC events do not close them or older bench debts.

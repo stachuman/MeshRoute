@@ -394,11 +394,11 @@ holding controller public keys, while `/mradmid` plus `/mrtargets` answer **whic
 to**. Authenticated encryption needs both. Merely preserving the ACL cannot authenticate or encrypt to a
 target whose only private identity was regenerated.
 
-### 6.3.1 Slice 4 Author storage/console contract — advance draft, 2026-09-06
+### 6.3.1 Slice 4 storage/console contract — software-complete, QA PASS 2026-09-07
 
-**DRAFT / awaiting QA; no implementation or ABI measurement claimed.** The owner authorizes preparing
-Slice 4 while Slice 3 runs. Its QA pre-check and R-RA-30 are the authority; the dispatch base and delivered
-helper/census anchors wait for the owner's Slice 3 closure. Full contract and frozen output bytes:
+**Software-complete / METAL-PENDING.** Independent QA reproduced every instrument; implementation and
+evidence are committed in 19c10bf. Evidence: docs/superpowers/evidence/2026-09-06-radmin-slice4.md.
+The following Author decisions are implemented, not an advance-draft prediction. Full contract/output bytes:
 `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` §§1/4–8.
 
 Author resolutions of pre-check §6.3–6.7:
@@ -424,7 +424,8 @@ Author resolutions of pre-check §6.3–6.7:
 - R-RA-30 settles public list/show over secured BLE and USB-only secret/book mutations. A separate
   client envelope `{"err":"admin-client","msg":"console_only"}` refuses non-list/show forms before
   the transport-neutral seam; the target's whole-family `admin` envelope remains unchanged.
-- The real-router gate gains a second full heltec_mobile arm; inventory gets a typed literal CLIENT
+- The real-router gate gains a second independently compiled mobile-role arm; neither arm includes the
+  real boards' OLED define (B328), so this is not full board-define parity. Inventory gets a typed literal CLIENT
   column, one on mobile/mobile_oled and zero on all four static/gateway profiles. Extend Slice 3's
   delivered census, never relearn it from the edited source. B320 is closed after QA corrected the
   pre-check's contrary full_* host claim in place. B321 fences scope-wiping the shared hex decoder's
@@ -437,11 +438,16 @@ Author resolutions of pre-check §6.3–6.7:
   producer before Slice 8a; no remote request/result implementation is implied. ACCEPT output unchanged.
 - R-RA-30 requires one-off xiao_mobile fixed-path/fixed-identity base/final RAM/flash and stack attribution,
   not a third ruled board. Native/Xtensa/ARM record assertions and the two ruled boards remain required.
-  Bench Parts 55b/56 and Part 59's conditional mobile output extension are drafted, not run.
+  Bench Parts 55b/56 and Part 59's conditional mobile output extension are software-bound, not run.
 
-**Preliminary QA review 2026-09-06:** otherwise PASS pending Slice 3 closure; the sole B321 mechanism
-fold-in is applied in the brief and above. Base/delivered anchors and final QA re-gate remain pending;
-this review is not dispatch authorization or a software PASS.
+**Closure 2026-09-07:** native 2763/118344/0; mutation union 296 RED / 0 unusable; six probes, 329 tools
+tests and 204-row inventory pass. Both client ABIs pay exactly 2056 RAM bytes for the one book. Gateway
+195844 RAM / 531004 flash (+0/+32, B321 wipe only); heltec_mobile 207740 / 1367448 (+2056/+12156);
+one-off xiao_mobile 172572 / 664636 (+2056/+86992). Record assertions and Node ABI pins unchanged;
+36/36 anchored streams, s18 unchanged, simulator byte-identical with zero post-edit actions.
+B321 and B327 closed; B328/B329 retain instrument scope obligations. B330 tracks the nRF52 client flash
+cost (82.0% application-region use) for a separate size-control pre-check, not a Slice 4 gate failure or
+Slice 5 optimization. No remote issuer, session, live debt producer or metal result is claimed.
 
 ### 6.4 Initial physical USB trust exchange
 
@@ -664,8 +670,9 @@ Key sharing does not recreate a continuous per-command counter or prevent later 
 **Preliminary brief QA PASS 2026-09-06, no fold-ins; not a software completion or measured ABI result.** R-RA-31 permits target
 bootstrap responses on air in Slice 5 (same-layer by hash and reversed cross-layer path) and authorizes
 only native/gateway Node re-pins. Execute/output/terminal/ACK/rollover replies remain Slice 7b's.
-The advance brief is `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`; its base and
-delivered pins wait for the owner's Slice 4 closure and then QA's final brief gate. QA accepted the
+The advance brief is `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`; its
+delivered results are filled from the QA-passed Slice 4 implementation at 19c10bf; the final dispatch
+hash waits for the owner's landing/preparation commit and QA's final brief gate. QA accepted the
 S5-A1–S5-A3 corrections and corrected its ledger visibly; the rows remain open until Slice 5 closure.
 Author decisions resolving pre-check §6.3–§6.7:
 
@@ -695,7 +702,7 @@ Author decisions resolving pre-check §6.3–§6.7:
   possible timer-code flash changes attributed. No new timer ID for any class or later slice.
 - The brief names prepared-runtime boot/refusal lines and the real-router/state wiring gate. Simulator
   gains one shared core source-list entry; executable changes, all 36 old streams must remain exact.
-  Findings use maintained S5-A intake aliases until Slice 4's proposals are reconciled; no racing B327.
+  S5-A1–A3 are now B331–B333 with aliases retained; next free B336, subject to register recheck.
   No new bench part; update the existing legacy round-trip suspension after the owning slice passes.
 
 ## 8. Proposed wire bodies
@@ -2000,16 +2007,17 @@ The complete design does not provide:
    32-row `/mrtargets` using the same persistence idiom, seed-derived identity path, USB-only secret
    operations, public list/show, transactional persistence, in-use refusal, accepted measured capacities,
    messaging-peer independence, and `regen` behaviour. No on-air RPC yet.
-   **Advance Author draft 2026-09-06:** pre-check and R-RA-30 are available while Slice 3 runs. §6.3.1 and
-   `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` state the Author decisions;
-   the brief is non-dispatchable until the owner's Slice 3 closure base and delivered anchors/pins are
-   filled and QA gates it. Parts 55b/56 are drafted only. No measured capacity or software completion yet.
+   **DONE — software-complete, independent QA PASS 2026-09-07; Parts 55b/56 METAL-PENDING.**
+   Implementation/evidence in 19c10bf; §6.3.1 records the verified capacities, exact board costs and
+   instrument figures. B321/B327 closed; B328/B329/B330 remain scoped follow-ups. Part 59's exact
+   client warning is implemented and host-gated, not hardware-verified. No on-air RPC in this slice.
 5. **Target authenticated session/dedup state:** full-key discovery/bootstrap, epoch/session derivation,
    bounded seen-table value types, retained source identity and request-fingerprint classification. It may
    establish the table keys, reservation shape and reboot epoch boundary, but it does **not** consume or
    manufacture response transcripts. **R-RA-31 permits bootstrap responses only in this slice**, through
    the existing same-layer or reversed-cross-layer application-DM path. §7.4 and the advance Slice 5
-   brief record the Author decisions; its base/pins await Slice 4 closure and QA's final brief gate.
+   brief record the Author decisions; Slice 4-delivered bindings are filled, with final base pin pending
+   the owner's landing/preparation commit and QA's final brief gate.
    Exact transcript retry, ACK release/debt, `session_full` /
    `session_busy`, shared-credential transcript behaviour, automatic safe rollover, confirmed force
    rollover, and the already-acknowledged protocol response belong to Slice 7b after transcripts exist. Use
@@ -2083,8 +2091,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 1b | ✅ software-complete / QA-passed 2026-09-06, owner closure commit `cc35137`; strict capability-owned pre-tail handlers, `lib/core/node_mac_rx.cpp`; R-RA-27 | native 2615/111354/0; feature probe 9 cells / 114 checks / 38 controls; tools 312; mutation union 99/99 RED; both product compile-out proofs; forced simulator rebuild 40 actions, binary changed, 36/36 byte-identical anchors; Node ABI unchanged; pair RAM ±0, flash gateway +16 / heltec_mobile −8 fully attributed; evidence `2026-09-06-radmin-slice1b.md` | none; legacy static-node `rcmd` round-trip suspended from 1b until Slice 9 |
 | 2 | remote codec/KDF files and carrier-cap authority; **SOFTWARE-COMPLETE / QA-PASSED 2026-09-06**, implementation `f2735f7` / simulator `8688884`; measured bases `9ea4947` / `fd3295d`; Author documentation commit pending | native 2640/115288/0; independent reference 87/87; mutation union 66+5 = 71/71 RED, 0 unusable; 36/36 byte-identical and anchored; simulator executable and both ruled board ELFs byte-identical, zero runtime codec symbols; +1 object per board and per simulator core archive; six probes/ABI/inventory/tools312/census/checkers pass; full landing and evidence pointer in §19 item 2 above | none; existing metal debts and legacy round-trip suspension unchanged |
 | 3 | target identity/ACL storage and USB provisioning owners; **DRAFT brief awaiting QA 2026-09-06**, base `7299eb9`, simulator `8688884`; R-RA-29 and §6.6.1 | predicted zero remote events, 36/36 unchanged; no resident target state/Node change; pair RAM ±0, mobile live flash ±0, gateway flash attributed; real-router plus extracted BLE guard and full mutation union | **Bench Part 55a:** DRAFT target-side physical-USB first owner, local recovery and real-flash limits; not yet run |
-| 4 | mobile keyring/target-book storage and local command owners; **advance DRAFT 2026-09-06**, R-RA-30 / §6.3.1; base and delivered anchors pending Slice 3 closure | predict zero remote events, 36/36 unchanged; ruled pair plus one-off xiao_mobile (not a third ruled board); client book scratch 2056 B, both records/stack/NV to measure; B321 shared-parser flash cost separately attributed | **Bench Part 55b:** controller `/mrtargets` exchange with Part-55a target; **Part 56:** USB seed lifecycle and BLE public list/show only; both DRAFT/not run; Part 59 mobile warning extension |
-| 5 | target session/dedup files; **preliminary brief QA PASS 2026-09-06, no fold-ins**, R-RA-31 / §7.4; non-dispatchable pending Slice 4 closure, base/pin fill-in and final QA gate | predicted bootstrap TX in native fixtures, zero remote events and 36/36 exact in the existing corpus; simulator binary changes; ruled pair; native/gateway Node re-pin only, mobile Node fixed but global HAL wheel growth separately priced; 2064-byte state candidate to measure | none; draft note on the existing legacy round-trip suspension: target receive execution removed in Slice 5 |
+| 4 | **DONE — software-complete, independent QA PASS 2026-09-07**, R-RA-30 / §6.3.1; implementation/evidence 19c10bf | native 2763/118344/0; 296 RED/0 unusable; six probes, tools 329, inventory 204; 36/36 exact, s18 unchanged, simulator identical/zero actions; RAM/flash gateway 195844/531004, heltec_mobile 207740/1367448, one-off xiao_mobile 172572/664636; Node pins unchanged, book +2056 B on clients; B330 tracks ARM flash cost separately | **Bench Parts 55b/56 METAL-PENDING:** physical USB exchange, real storage/reboot/fault/stack and secured BLE boundary; Part 59 exact mobile warning also not run |
+| 5 | target session/dedup files; **preliminary brief QA PASS 2026-09-06, no fold-ins**, R-RA-31 / §7.4; Slice 4 bindings filled 2026-09-07, non-dispatchable pending owner landing/preparation hash and final QA gate | predicted bootstrap TX in native fixtures, zero remote events and 36/36 exact in the existing corpus; simulator binary changes; ruled pair; native/gateway Node re-pin only, mobile Node fixed but global HAL wheel growth separately priced; 2064-byte state candidate to measure | none; draft note on the existing legacy round-trip suspension: target receive execution removed in Slice 5 |
 | 6 | common dispatcher/context/authority-table consumers | zero remote events; all pre-existing local behaviour attributed; ruled pair | none |
 | 7a | target cfg/NV schema and validation | zero remote events, 36/36 unchanged; ruled pair with isolated NV attribution | **Part 57a:** cfg migration/reboot; exact `cfg remote_action_activation_ms=<N>` value persists and invalid bounds refuse |
 | 7b | transcript, scheduler and deferred-action owners | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |

@@ -8,7 +8,9 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 
 - **Local** means the command is accepted through the local textual command dispatcher. That is USB when the build has `MR_CONSOLE=1`, and BLE on the XIAO nRF52840 when BLE is enabled.
 - The `production` build has no USB console because it sets `MR_CONSOLE=0`.
-- BLE refuses `help`, `?`, and any argument-bearing `peers` form, including `peers all`. Other commands reach the shared parser or dispatcher, although their output format is not necessarily identical to USB.
+- BLE refuses the whole `help`/`?` family and any argument-bearing `peers` form, including `peers all`.
+  Target administration (`admin-id`, `acl`) is USB-only. Controller administration (`admin-key`,
+  `admin-target`) permits only public list/show on secured BLE; all other forms are USB-only.
 - The `ui` family is compiled only into OLED builds. In the current build matrix those are ESP32 Heltec V3/V4 builds, where BLE is not implemented, so `ui preset` is available through USB only.
 - **Common** means all current device profiles, subject to having a local transport.
 - **Normal** means a single-layer, non-gateway build.
@@ -55,7 +57,56 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 | `reqpubkey <0xhash\|id> [-t\|-s]` | Local; Common | Air + Session | Requests a peer public key. A bare ID lets the node select a non-ambiguous plane. |
 | `peerkey <64-hex-ed25519-pubkey> ["<name>"]` | Local; Common | Session + Persistent | Pins a peer key in RAM and attempts to mirror it to the persistent peer store. |
 | `peername 0x<hash> "<name>"` | Local; Common | Session + Persistent | Renames a cached peer without replacing its key or confidence. |
-| `regen` | Local; Common | Persistent + Recovery | Replaces this node's cryptographic identity while retaining its configured name and short ID. |
+| `regen` | Local; Common | Persistent + Recovery | Replaces this node's ordinary messaging identity while retaining its configured name and short ID. Preserves the separate administration stores; CLIENT builds append the warning below. |
+
+## Controller administration stores (Slice 4)
+
+Available only on CLIENT builds (the dedicated mobile profiles). These commands provision local trust;
+they do not issue remote requests. `self` is the ordinary messaging identity, not a dedicated seed slot.
+`keyN` means exactly key0 through key9. Public output includes the full 64-hex key and its fingerprint:
+the first eight bytes of BLAKE2b-512 over that public key, rendered as 16 lowercase hex characters.
+
+| Form | Transport | Effect |
+| --- | --- | --- |
+| `admin-key list` | USB / secured BLE | Lists self and occupied dedicated slots, then the end line. |
+| `admin-key show <self\|keyN>` | USB / secured BLE | Shows one public identity; never a seed. |
+| `admin-key generate <keyN>` | USB only | Generates and durably saves a dedicated seed in an empty slot. |
+| `admin-key import <keyN> <64hex-seed>` | USB only | Imports a seed into an empty slot; derives its public identity before saving. |
+| `admin-key export <keyN>` | USB only | Prints the secret seed. Keep it off retained logs; self cannot be exported here. |
+| `admin-key remove <keyN> confirm` | USB only | Removes one dedicated key, not its grants on other nodes. |
+| `admin-key reset confirm` | USB only | Recovers an invalid keyring to valid empty; not a wipe command for a valid store. |
+| `admin-target list [page=0\|page=1\|page=2\|page=3]` | USB / secured BLE | Lists occupied rows in eight physical slots per page; default page 0, explicit footer. |
+| `admin-target show <label=LABEL\|fp=16hex>` | USB / secured BLE | Resolves one stored full target key and shows its public row. |
+| `admin-target add <LABEL> <64hex-public-key> hash=<0x1..8hex> [layer=<id[,id[,id]]>]` | USB only | Adds one of at most 32 targets, independent of the messaging peer book. |
+| `admin-target set <label=LABEL\|fp=16hex> label=<NEWLABEL> hash=<0x1..8hex> layer=<none\|id[,id[,id]]>` | USB only | Replaces all mutable label/routing hints; the full target key stays immutable. |
+| `admin-target remove <label=LABEL\|fp=16hex> confirm` | USB only | Removes the selected public target-book row, not the target's ACL grant. |
+| `admin-target reset confirm` | USB only | Recovers an invalid target book to valid empty; unreadable IO still refuses writes. |
+
+Labels are 1–16 characters from `A–Z`, `a–z`, `0–9`, `_`, `.`, `-`. Selectors must resolve uniquely;
+unknown/ambiguous selectors refuse, with no fallback to the first row or the peer book. Routing hash is
+a delivery hint, not a fingerprint or proof of trust; the routing hash must be nonzero. Layer hints
+contain one to three destination IDs in 1–255, excluding the origin; no hint means same-layer.
+Slots are not evicted and occupied key slots are not
+overwritten; duplicate identities refuse. Failed saves are errors, not a guarantee that old flash bytes
+survived a partial write. An unreadable store refuses every write; only explicit reset recovers invalid state.
+
+Non-public controller forms over BLE return exactly:
+
+```json
+{"err":"admin-client","msg":"console_only"}
+```
+
+After a successful CLIENT `regen`, the existing success/name line is followed on the requesting sink by:
+
+```text
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+```
+
+Reprovision old self grants through physical USB as needed. Dedicated seeds and target-book rows survive
+ordinary regeneration; factory reset erases them. The future busy-debt refusal is `> regen err remote_busy`,
+but Slice 4 has no live request/result producer. Seed import/export intentionally shares a principal;
+copies cannot be separately revoked through that one ACL entry. Hardware persistence/BLE residue remains
+Bench Parts 55b/56 and 59; independent Slice 4 software QA PASS does not claim those ran.
 
 ## Messaging
 
@@ -233,7 +284,8 @@ The current sealed remote-management path still uses the old monotonic replay-co
 a returned stale-counter hint let the issuer report that the command was not run, resynchronize from the returned
 floor, and ask the operator to issue it again. Static/gateway issuers can no longer receive that hint after 1b;
 do not assume retry resynchronization or a printed result. The proposed loss-independent open/operator/owner
-administration protocol is not yet implemented; do not assume its ACL or key-management behavior is available.
+administration execution protocol is not yet implemented. Local v2 target ACL/identity provisioning and
+controller key/target stores exist after Slices 3/4; that does not make the legacy rcmd path a v2 issuer.
 
 ## Bench and fault-injection controls
 

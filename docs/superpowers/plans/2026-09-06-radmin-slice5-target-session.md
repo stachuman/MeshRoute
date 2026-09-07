@@ -1,13 +1,14 @@
 <!-- Author: OpenAI Codex -->
 # Remote-admin v2 Slice 5 — target session, admission and bootstrap · advance brief · 2026-09-06
 
-**Status: PRELIMINARY QUALITY-AGENT PASS 2026-09-06 — no fold-ins. NON-DISPATCHABLE pending Slice 4 closure, §1 fill-in and final QA gate.**
+**Status: PRELIMINARY QUALITY-AGENT PASS 2026-09-06 — no fold-ins. Slice 4 QA PASS; closure facts filled 2026-09-07. NON-DISPATCHABLE pending the owner's landing/preparation commit, Author base pin and final QA gate.**
 `model: opus`. Author documents; QA gates/dispatches; the owner commits. The owner permits advance drafting,
 not overlapping implementations. Slice 4's report, QA verdict and owner closure come first.
 
 QA verified the Author decisions and corrected S5-A1–S5-A3 in its ledger with the old claims visible.
 Those intake rows remain open until Slice 5 closure; this is a preliminary brief verdict, not a software
-PASS. After Slice 4's closure, the Author fills §1, QA runs the final brief gate, and QA dispatches Slice 5
+PASS. Section 1's delivered bindings are now filled; after the owner commits these landings and the
+Author pins that hash, QA runs the final brief gate and QA dispatches Slice 5
 on the main tree under the clean measured-start and input-audit requirements below.
 
 Authority: `docs/superpowers/plans/2026-09-06-radmin-slice5-precheck.md`; R-RA-31, R-RA-22 and the preceding
@@ -15,28 +16,85 @@ remote-admin rulings in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulin
 `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md` §§6.5–7.3, 8–10, 14–15, 19–19.2.
 Pre-check §6.3–6.7 Author decisions are §4 below. This is a feature slice, not a refactor or legacy cleanup.
 
-## 1. Closure checklist — base and delivered pins PENDING
+## 1. Closure bindings — results filled; final dispatch base PENDING
 
-**MeshRoute base: PENDING — the owner's Slice 4 closure commit.** Preparation was inspected at
-`a0ff994af766c8880f160bc2afbb8253b6dbe69e`; that is NOT the dispatch base. Do not use the Slice 3
-implementation/preparation hash or infer that a later documentation commit is equivalent.
+**MeshRoute dispatch base: PENDING — the owner's commit of these Slice 4 landings and filled preparation.**
+Slice 4 implementation/evidence and earlier preparation are committed at
+`19c10bfc4bd3d57ec7257b27996fc4b6f6900ad0` (main, clean before these Author edits).
+That is the source binding below, NOT permission to start with uncommitted landings. The owner commits,
+the Author explicitly pins the resulting hash, and QA verifies the final brief. Do not reuse a0ff994.
 
-**Simulator base: PENDING — verify exact HEAD/status at Slice 4 closure.** This slice authorizes one new
+**Simulator base: `868888419c7cc250d7019860d3403a7721ade1fc`**, clean at this landing inspection,
+repository `/home/staszek/lora-universal-simulator`. This slice authorizes one new
 core source-list entry in that separate repository (§5). Record its absolute path, both repository bases,
 both complete diffs/statuses and the measured build's MESHROUTE_DIR, which must name the measured checkout.
 
-Before QA's final gate, the Author fills these entries from Slice 4's QA-passed closure:
+Bindings below are from Slice 4 evidence `docs/superpowers/evidence/2026-09-06-radmin-slice4.md`, the
+owner-relayed independent QA PASS, source at 19c10bf and retained artifacts inspected read-only by the
+Author. They are not a new Author-run software gate. Reproduce them in the clean pre-edit capture.
 
 | Required binding | Closure entry |
 | --- | --- |
-| Slice 4 evidence, QA verdict, owner closure hash | PENDING |
-| Both repository bases and clean measured-start policy | PENDING |
-| Native cases/assertions, six probes and each arm/control pin, tools count | PENDING |
-| Actual Node/TimerWheel/DeviceHal sizes, ruled pair captures and compiler flags | PENDING |
-| Delivered target-service commit interfaces and client-store/helper changes | PENDING |
-| Exact feature census, CLIENT/ACCEPT profile axes, inventory and help projections | PENDING |
-| Complete mutation source map, existing test names and warning/checker pins | PENDING |
-| Register allocation after Slice 3/4 findings, §4.7 intake disposition | PENDING |
+| Slice 4 evidence, QA verdict, owner closure hash | Evidence above, independent QA PASS with no fold-ins; implementation 19c10bf. Final landing/preparation hash PENDING as above. |
+| Both repository bases and clean measured-start policy | Paths/hashes above; measured MeshRoute /home/staszek/MeshRoute. Simulator cache MESHROUTE_DIR=/home/staszek/lora-universal-simulator/../MeshRoute. No dirty-input exception. |
+| Native and tools | 2763 cases / 118344 assertions / 0 failed; Slice 4 adds 61 / 1442. Tools 329 OK. Six probe bindings below. |
+| Actual ABI and deterministic captures | Node size/alignment: native 222072/8, heltec_mobile 117912/8, gateway 148680/8. TimerWheel kCap=91, 824 bytes on all three ABIs. DeviceHal: native 4400 bytes (actual binary DWARF), both board g_hal symbols 4376 bytes. Captures and flags discipline below. |
+| Delivered target/client seams | firmware_commands.cpp:239–313: DeviceAdminIdStore/DeviceAclStore save only NV; DeviceAdminSeed checks the void draw for nonzero; admin_stores_boot_report_console reads/reports only. AdminIdService (identity header :202), AclService (:226), MgmtKeyService (:200), TargetService (:264): no running Node activation. Slice 5 adds prepare/commit/discard ahead of durable saves, including recovery; preserve Slice 4 client services/scratch/wipe. |
+| Census, axes and projections | Literal seven-file contract and six profile rows below; inventory 204 rows, union 53 names, parser 7 per profile. |
+| Mutation and remaining instruments | Complete configured source/test map is tools/probe_ui_model_mutations.py at 19c10bf, SHA256 a7a9e8fdd1fcfbf64d410aa920b1f41fb9d76444bde82d87a628c410aa64fc5c. Existing test-file/name selectors remain authoritative; derive BOTH Slice 5 selectors under §7, not the old Slice 4 union. Warning/checker pins below. |
+| Finding allocation | B323–B326 prior evidence intake reconciled; B327 closed, B328–B330 open. S5-A1–A3 = B331–B333, still open; HOME-A1/A2 = B334/B335. Next free B336, subject to current register recheck. |
+
+### 1.1 Standing instrument and profile bindings
+
+| Instrument | QA-passed Slice 4 starting pin |
+| --- | --- |
+| Firmware UI | 223 controls RED; retain its per-arm rows from the runner |
+| Console sink | profiles 6; checks 720; structural 50; BLE guard 905; ownership 6; ownership controls 3; controls 99; unusable 0 |
+| Inbox verbs | ACCEPT 146 checks / 30 RED; CLIENT 178 / 33; unusable 0. Independently compiled reduced profiles: neither defines OLED (B328), NOT complete board-define parity. |
+| Custody USB | 27 checks / 10 RED |
+| BLE line | 40 checks / 8 RED |
+| Features | 9 configuration cells / 118 checks / 52 RED (33 ownership controls included); no-controls ends PROBE-ONLY |
+| Node ABI / B278 record probe | 191 checks / 9 RED; 42 measurements / 6 RED, respectively |
+| Warnings | gateway_heltec 173; gateway_heltec_v4 178; heltec_mobile 177; heltec_v3 177; heltec_v4 182; heltec_v4_mobile 182; zero switch warnings |
+| Other standing checks | check_a0_matrix.py and check_data_type_literals.py PASS; both repository whitespace checks PASS |
+
+Generator PROFILES at tools/gen_command_inventory.py:294 is a literal typed product table; preserve
+every existing axis and env mapping. In row order full_oled/full_headless/gateway/gateway_oled/mobile/
+mobile_oled: ACCEPT = 1/1/1/1/0/0; CLIENT = 0/0/0/0/1/1; router/help counts = 44/43/41/42/40/41.
+Parser has seven names per row, disjoint from router; all-profile union is 53. These are device profiles,
+not native/simulator roles. Slice 5 adds no primary verb or BLE policy change.
+
+The complete approved multiset is tools/probe_features/ownership.py at 19c10bf, SHA256
+00ef927efbf756356f78cd3ca5ccd102b0b9eaf52cdffa68769ae442afce5b08. Its seven files contain respectively
+mr_features.h 9 entries, node.h 3, node_mac_rx.cpp 6, firmware_commands.cpp 6, firmware_commands.h 2,
+fw_main.cpp 4, firmware_help.h 2 (32 total). Exact expressions/owners matter, not this count alone.
+Extend that literal contract for the fenced Slice 5 owners; never auto-learn a replacement from edited code.
+
+Slice 4's reproduced union, for provenance only: changed-source devicenv 42, cfgparse 8, sliceDtoken 2,
+radmin4key 28, radmin4targets 31, radmin4verbs 30; historical/dependency radmin3id 23, teamkeyring 68,
+radmin3acl 36, radmin3verbs 28. Total 296/296 RED, zero unusable. Slice 5's union is separately derived.
+
+### 1.2 Resource and simulator starting captures
+
+| Environment | RAM bytes | Flash bytes | Objects | Slice 4 delta RAM / flash |
+| --- | ---: | ---: | ---: | ---: |
+| gateway (ruled ARM) | 195844 | 531004 | 284 | 0 / +32 |
+| heltec_mobile (ruled Xtensa) | 207740 | 1367448 | 328 | +2056 / +12156 |
+| xiao_mobile (Slice 4 one-off only) | 172572 | 664636 | 284 | +2056 / +86992 |
+
+Retained captures: .pio-measure/s4-final2-pair/{gateway,heltec_mobile} and s4-final2-xiao/xiao_mobile;
+compare their base siblings s4-base-pair and s4-base-xiao only under the standing same-path rules.
+Each environment's manifest.json/compiler-state.json records the real CC/CXX/LINK identities, versions,
+templates and wrapper state; do not substitute a guessed optimization flag or a pure-service stack-probe
+command for effective board flags. Slice 5 captures actual expanded flags again BEFORE edits and retains
+the same platform/core configuration, fixed identity and .pio-measure/env/<env> paths. No platformio.ini,
+optimization/toolchain or B330 size-control change is authorized. Its scarce nRF52 client flash is an open
+product cost, not permission for a third standing board or silent scope expansion.
+
+The current BASELINE.md keystone is 32afbf11 / 269517 / 0. Slice 4 reproduced 36/36 anchored streams;
+lus md5 b1b1d92c541cc7f6f63864a2bcc6a355, zero post-edit build actions, with a successful five-action
+recompile control. Slice 5 MUST rebuild both core variants and changes the executable while preserving
+those streams. Do not carry forward Slice 4's no-build/no-binary-movement prediction.
 
 Re-verify all source anchors by symbol against that base. A pending entry is a STOP for dispatch, not an
 instruction to the coder to invent its value. Provide the reviewed brief out of band if needed; no dirty
@@ -47,7 +105,8 @@ no silent repair, repin, cherry-pick, commit or retrospective base measurement.
 Drafting provenance: Slice 4 implementation changes appeared in the shared checkout during this Author
 turn. Author edits are this brief, the maintained register/design/bench and MEMORY/tracker only; no
 production/test/tool or QA-ledger edit, build, regeneration or implementation gate was performed.
-Preparation source facts are anchored to a0ff994, not the evolving uncommitted Slice 4 tree. QA/coder
+Original drafting source facts were anchored to a0ff994, not the evolving uncommitted Slice 4 tree; the
+2026-09-07 fill-in above and refreshed §3 bind the committed implementation at 19c10bf. QA/coder
 retain ownership of their concurrent-input audit; this note does not waive a STOP or certify that audit.
 
 ## 2. Verbatim authority pins
@@ -100,12 +159,12 @@ request/custody consumer. Those belong to 6/7b/8a/8b. No new bench part (design 
 
 ## 3. Verified preparation state and corrections (V1/V2)
 
-| Source at a0ff994; refresh after closure | Consequence |
+| Source verified at Slice 4 implementation 19c10bf | Consequence |
 | --- | --- |
 | `node_mac_rx.cpp:1949`–`:1982`; `node.h:154`–`:163`, `:2944` | ACCEPT and CLIENT feed one legacy slot. ACCEPT changes to v2 admission; the slot/helper/drain become CLIENT-only. Existing CLIENT copy/clamp/output stays unchanged until 8a. |
 | `node_mac_rx.cpp:2314`; the pure radmin_rx_owner decision | Keep role forwarding ahead of the owned arms and both arms ahead of outer encrypted/relay open and the fail-closed tail. A none decision consumes nothing. |
-| `src/fw_main.cpp:1708` legacy drain | Firmware has its own static RemoteInbound scratch and, inside the legacy sealed-response arm, a static pt[241]. Account for each symbol actually allocated in the base; removing the Node slot alone is not the full board-RAM delta. |
-| `src/firmware_commands.cpp:230`–`:307`; firmware_admin_identity.h / firmware_admin_acl.h | Target NV adapters save records but install no running identity/ACL. Session installation is new feature work, never a core→NV read. |
+| `src/fw_main.cpp:1743` legacy drain, `:1749` plaintext scratch | Firmware has its own static RemoteInbound scratch and, inside the legacy sealed-response arm, a static pt[241]. Account for each symbol actually allocated in the base; removing the Node slot alone is not the full board-RAM delta. |
+| `src/firmware_commands.cpp:239`–`:313`; firmware_admin_identity.h / firmware_admin_acl.h | Target NV adapters save records but install no running identity/ACL. Session installation is new feature work, never a core→NV read. |
 | `lib/core/remote_codec.h:266`–`:345`; identity.cpp:47 | Codec/KDF/nonce/checked low-order boundary already exist. The ECDH adapter reads Identity.x_secret; use one explicit wiped transient adapter for the resident pair, not a second ECDH/KDF implementation. |
 | `lib/hal/timer_wheel.h:25`; `lib/hal/device_hal.h:175` | Wheel storage is inside DeviceHal, NOT Node. Raising kCap affects the mobile HAL too. Unchanged mobile sizeof(Node) does not imply unchanged mobile RAM/flash. R-RA-22's global +8-byte wheel price remains binding. |
 | `test/test_timer_wheel.cpp:81`–`:82`; test_radmin_characterization_0e.cpp:330; test_node_join.cpp:5268 | Three executed tests assert the old timer boundary. Update these obligations explicitly; never delete the unrelated mobile-aging proof or pretend the historical 91→92 mirror now prices 92→93. |
@@ -295,12 +354,12 @@ board: R-RA-30's xiao_mobile exception was Slice 4 only; pair and census retain 
 
 ### 4.7 Finding allocation (§6.7)
 
-Do NOT allocate B327: QA's pre-check reserves Slice 4's proposals from that number, and its count is not
-known until its report. Record the next free numeric ID after all Slice 3/4 findings are reconciled at
-closure; bind it in §1 before final gate. Source findings found while drafting are maintained intake rows
-S5-A1… in the register now, with measurements/closure conditions, not unregistered notes. At closure the
-Author assigns their B-numbers in place, retaining intake aliases, then publishes the coder's next-free
-number. The coder proposes findings in evidence only; neither agent races another slice for an ID.
+Allocation landed 2026-09-07: Slice 4 owns B327–B330; S5-A1/S5-A2/S5-A3 are B331/B332/B333 in place,
+with their aliases and history retained. All three remain OPEN until the Slice 5 gate measures their
+closure obligations; QA's pre-check corrections alone do not close them. HOME-A1/A2 are B334/B335.
+Next free B336, rechecked against the maintained register before use. The coder proposes findings in
+evidence only; no register edits or racing another slice for an ID. B328/B329/B330 are follow-ups, not
+additional implementation/tool fences for Slice 5.
 
 ## 5. Exact implementation/instrument fence
 
@@ -398,7 +457,9 @@ record assertions are not permission for another resident copy. Author landings 
    expiry, multiple equal deadlines, cancellation after invalidation, safe time-add overflow and no
    seen deletion on time/ACK. Future completed/acknowledged fixtures are not reported as RF-executed.
 9. Real firmware wiring is the delivered inbox-verbs probe, compiling firmware_commands.cpp with real
-   core/console and product-faithful platform fakes. Drive boot/install, every target mutation and no-op,
+   core/console and platform fakes under its two independently compiled role profiles. Neither arm sets
+   OLED (B328); do not claim full board-define parity or expand its UI linkage in this slice.
+   Drive boot/install, every target mutation and no-op,
    prepare failure before write, NV failure after prepare, success-before-output, slot-local versus root-
    wide invalidation, and ordinary regen preservation. Assert actual Node state/authentication before
    and after, not callback counts alone. Mobile arm retains its complete Slice 4 byte pins. Native pure

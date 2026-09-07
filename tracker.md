@@ -96,13 +96,21 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 -  `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
-**Slice 5 preliminary brief QA PASS, 2026-09-06, no fold-ins:** owner reports Slice 4 running. Pre-check and R-RA-31 are available;
+**Current landing 2026-09-07: Slice 4 software-complete, independent QA PASS; implementation/evidence
+committed in 19c10bf.** Earlier Slice 3/4 preparation-status paragraphs above are historical. Native
+2763/118344/0; mutation union 296 RED/0 unusable; six probes, tools 329, inventory 204; 36/36 anchored
+streams and unchanged s18/simulator. B321/B327 closed; B328/B329 coverage residue and B330 nRF52
+client flash cost remain open for separate follow-ups, not scope added to Slice 5. Parts 55b/56 and
+Part 59's client warning are software-bound but METAL-PENDING. Prior Slice 3 proposals are registered.
+
+**Slice 5 preliminary brief QA PASS, 2026-09-06, no fold-ins; closure fill-in 2026-09-07:** pre-check and R-RA-31 are available;
 `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md` states Author decisions §6.3–§6.7.
-It is NON-DISPATCHABLE until the Slice 4 report, QA PASS, owner closure and exact base/pin binding, then
-QA's final brief gate. Bootstrap replies only; no execute/transcript/controller implementation. The
+Slice 4 bindings are filled from 19c10bf; it is NON-DISPATCHABLE until the owner commits this landing/
+preparation set, the Author pins that hash, and QA gives its final brief gate. Bootstrap replies only;
+no execute/transcript/controller implementation. The
 2064-byte state candidate and global HAL timer cost must be measured; mobile Node stays fixed. S5-A1–A3
 are QA-accepted corrections, landed visibly in its ledger; they remain open until Slice 5 closure and
-await numeric allocation after Slice 4's proposals. No new bench part
+are allocated in place as B331–B333 (aliases retained); next free B336 after HOME-A1/A2 = B334/B335. No new bench part
 or software completion is claimed. Earlier Slice 3/4 preparation-status paragraphs are historical.
 
 ## Bugs - suggested order
@@ -116,9 +124,9 @@ channel sending already exists in source, with no user-reported hardware failure
 track the correction/remaining design work. DRAFT only; no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) **Slice 4 report
-  and QA gate**, then Author landings / owner closure; (3) fill the advance Slice 5 brief's base/anchors/
-  pins and QA-gate it before QA dispatches on the main tree. No dirty-input exception, reused old base or overlapping
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner commits
+  the Slice 4 documentation landings and filled Slice 5 preparation; (3) Author pins the new hash, QA
+  final-gates the brief and dispatches on the main tree. No dirty-input exception, reused old base or overlapping
   implementation. Existing bench debts remain separate; Slice 5 adds no new part.
   Bench Part 58 closes
   B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain

@@ -80,30 +80,29 @@
   inbox-verbs; console-sink owns help/extracted BLE guard, and both extensions are fenced. Full mutation
   union is changed-source devicenv + three new services, plus unchanged teamkeyring/cfgparse/sliceDtoken
   dependencies. Bench Part 55a is drafted, not run; target half only, controller Part 55b later.
-- **Remote-admin Slice 4 advance preparation (2026-09-06):** owner reports Slice 3 still running;
-  the preceding Slice 3 preparation entry is historical, not a new implementation verdict.
-  `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` is DRAFT/non-dispatchable:
-  exact base, delivered helpers/extractor/census and starting pins await the owner's Slice 3 closure.
-  R-RA-30 now settles client public list/show on secured BLE, USB-only secret/book mutations and a
-  one-off xiao_mobile fixed-identity measurement (not a third ruled board). Author contracts pending QA:
-  368-byte ten-seed keyring, one client-only 2056-byte public target-book scratch (32 × 64-byte rows),
-  admin-target family with eight-slot pages; strict CLIENT axis on real mobile profiles and a second
-  complete heltec_mobile real-router probe arm. Destination hints exclude the origin (0 or 1–3 hops).
-  Client regen adds the exact warning in the brief; source-bound debt predicates have no live producer
-  before Slice 8a. Parts 55b/56 and Part 59's mobile extension are draft/not run. B320 is closed after
-  QA corrected its full_* host/profile claim in place. Preliminary QA gate: otherwise PASS pending
-  closure; sole B321 fold-in applied — directly include monocypher.h in the parser and use a function-local
-  crypto_wipe scope guard, no NV/team-keyring include or shared-guard relocation (C1). B321 stays open
-  until implementation QA; any gateway flash cost is separately attributed. Final re-gate waits for §1.
-  No code/tool edit, Slice 3 closure, implementation gate or owner commit is claimed by this preparation.
-- **Remote-admin Slice 5 preliminary brief QA PASS (2026-09-06), no fold-ins:** owner reports Slice 4 running; earlier
+- **Remote-admin Slice 4 software-complete (2026-09-07), independent QA PASS:** implementation/evidence
+  committed in 19c10bf; earlier Slice 3 preparation notes above are historical. Evidence:
+  docs/superpowers/evidence/2026-09-06-radmin-slice4.md. R-RA-30's ten seed slots and 32 × 64-byte target
+  rows are implemented; one 2056-byte CLIENT book, no resident management secret or Node growth.
+  Native 2763/118344/0; mutation union 296 RED/0 unusable; six probes, tools 329, inventory 204;
+  36/36 anchored streams, s18 unchanged, simulator identical with zero post-edit actions.
+  RAM/flash gateway 195844/531004 (+0/+32, B321 wipe); heltec_mobile 207740/1367448
+  (+2056/+12156); one-off xiao_mobile 172572/664636 (+2056/+86992), not a third ruled board.
+  B321/B327 closed; B328 reduced no-OLED router arms, B329 BLE include-coverage residue and B330
+  nRF52 flash headroom remain open. B330 is a separate size-control pre-check, not Slice 5 optimization.
+  Parts 55b/56 and Part 59's exact client regen warning are software-bound/METAL-PENDING, not run.
+  The standalone mobile Home/team-messaging design committed alongside it is Author-owned, DRAFT only;
+  it is not Slice 4 implementation or permission to reorder the remote-admin queue.
+- **Remote-admin Slice 5 preliminary brief QA PASS (2026-09-06), no fold-ins; closure fill-in 2026-09-07:** earlier
   preparation-status entries above are historical, not fresh implementation verdicts. QA pre-check and
   R-RA-31 authorize drafting `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`, still
-  NON-DISPATCHABLE until Slice 4 report/PASS/owner closure, exact base/delivered pins and final brief gate.
+  NON-DISPATCHABLE until the owner commits the filled landing/preparation set, the Author pins that hash,
+  and QA runs the final brief gate. Slice 4 delivered results/source bindings are filled from 19c10bf.
   R-RA-31: target bootstrap TX same-layer/by reversed path only; native/gateway Node re-pin authorized,
   mobile Node fixed. Author §6.3–6.7 decisions: resident pair/live ACL, pre-save prepared activation,
   16 shared seen entries with 128-bit tags and retained routes (2064-byte full state candidate to measure),
-  CLIENT-only old slot/drain, one timer ID91/kCap92, stable intake aliases pending Slice 4 finding IDs.
+  CLIENT-only old slot/drain, one timer ID91/kCap92. S5-A1–A3 are B331–B333; HOME-A1/A2 B334/B335;
+  aliases retained. Prior Slice 3 evidence findings are registered; next free B336, recheck before use.
   TimerWheel belongs to DeviceHal, so mobile Node unchanged does not imply zero mobile RAM/flash delta.
   Seen tombstones survive staging expiry and future ACK; bootstrap consumes no seen row and no epoch.
   Simulator binary changes but old 36 streams must remain exact; no unconditional epoch draws on
