@@ -55,6 +55,15 @@ ADMIN_REFUSAL_CALL = 'write_err(out, cap, "admin", "console_only")'
 #    guard that is ungated (a CLIENT board would carry a dead guard for a family it does not have), widened with the
 #    legacy switch, or gated on the WRONG capability is a refusal — ⛔ not a passed row.
 ADMIN_GATE = "MR_FEAT_RADMIN_ACCEPT"
+
+# ★★★ §RADMIN SLICE 4 — THE THIRD FAMILY, AND IT IS A **DIFFERENT RULE**, NOT A COPY OF THE SECOND. R-RA-30 splits
+#     the CONTROLLER family by SUB-VERB: public `list`/`show` MAY cross secured BLE, every other owned form may not.
+#     ⇒ the same question is asked a third time, with its own unique anchor, its own product gate and a corpus whose
+#     `must_refuse` column is the RULING written out row by row.
+# ⛔ The `admin-client` envelope is UNIQUE and MUST stay distinct from the target family's `admin`: two families with
+#    one envelope would make a target listing escaping its guard indistinguishable from a controller one.
+CLIENT_REFUSAL_CALL = 'write_err(out, cap, "admin-client", "console_only")'
+CLIENT_GATE = "MR_FEAT_RADMIN_CLIENT"
 # The transport seam the guard must PRECEDE. A guard moved below this call would refuse nothing: the seam has
 # already run the router and streamed the answer.
 SEAM_CALL = "exec_console_line("
@@ -175,6 +184,12 @@ def extract_guard(fw_main_text: str, refusal_call: str = REFUSAL_CALL, want_gate
     if refusal_call is REFUSAL_CALL or refusal_call == REFUSAL_CALL:
         if "help" not in cond:
             raise GuardError(f"the extracted condition does not test `help`: {cond!r}")
+    elif refusal_call == CLIENT_REFUSAL_CALL:
+        # ⛔ THE CLIENT GUARD MUST EVALUATE THE **SUB-VERB-AWARE** PREDICATE, ⛔ never the whole-family one and
+        #    ⛔ never a hand-written token test: a whole-family refusal here would DISABLE the public list/show
+        #    R-RA-30 explicitly permits, and a hand-written test would be a second spelling of the rule.
+        if "admin_client_ble_refuses" not in cond:
+            raise GuardError(f"the extracted client condition does not call `admin_client_ble_refuses`: {cond!r}")
     else:
         # ⛔ THE ADMIN GUARD MUST EVALUATE THE FAMILY PREDICATE, ⛔ never a hand-written prefix test. A broad
         #    `strncmp(line, "admin", 5)` would swallow `admin-key` — the CONTROLLER's verb (Slice 4) — and a
@@ -240,6 +255,103 @@ def admin_corpus() -> list:
              ("help", False), ("status", False), ("peers all", False), ("ui preset list", False)]
     return rows
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# §RADMIN slice 4 — THE CONTROLLER FAMILY'S CORPUS. The `must_refuse` column is R-RA-30 WRITTEN OUT ROW BY ROW:
+#   *"`list` and `show` … may be used through USB or secured BLE. Generating, importing, exporting, or removing
+#     secret material is physical USB-serial only in the first implementation."*
+#   ⇒ an owned line whose FIRST sub-verb token is exactly `list` or `show` PASSES; every other owned form — bare,
+#     whitespace-only, unknown, every mutation, both resets and `export` — REFUSES; and a line this family does not
+#     own is not this guard's to touch (the TARGET family has its own, with a different envelope).
+# ⛔ THE COLUMN IS NOT READ OFF THE PREDICATE UNDER TEST. It is typed here from the ruling.
+# ---------------------------------------------------------------------------------------------------------------
+CLIENT_PUBLIC_TAILS = (" list", " show self", " show key0", " show label=alpha", " show fp=" + "ab" * 8,
+                       " list page=0", " list page=3", "  list", "\tlist", " list  ", " list x", " show")
+CLIENT_SECRET_TAILS = ("", " ", "  ", "\t", " bogus", " LIST", " SHOW", " listx", " shown", " lists",
+                       " generate key0", " import key0 " + "ab" * 32, " export key0",
+                       " remove key0 confirm", " reset confirm", " add a " + "cd" * 32 + " hash=0x1",
+                       " set label=a label=b hash=0x1 layer=none", " remove label=a confirm", " reset")
+
+
+def client_corpus() -> list:
+    """-> [(line, must_be_refused)] — R-RA-30's rule, spelled out row by row."""
+    rows = []
+    for fam in ("admin-key", "admin-target"):
+        for tail in CLIENT_PUBLIC_TAILS:
+            rows.append((fam + tail, False))     # the ruled PUBLIC halves cross secured BLE
+        for tail in CLIENT_SECRET_TAILS:
+            rows.append((fam + tail, True))      # ⛔ everything else, malformed subforms and both resets included
+    # ...and the lines that are NOT this family. `admin-id`/`acl` are the TARGET half's and carry a DIFFERENT
+    # envelope; a broad `admin` prefix test would swallow them, which is exactly what a wrong guard would do.
+    rows += [("admin-keys", False), ("admin-keys list", False), ("admin-key2", False),
+             ("admin-targets", False), ("admin-targets list", False), ("admin-targetx", False),
+             ("admin", False), ("admin ", False), ("admin list", False), ("admin-i", False),
+             ("ADMIN-KEY", False), ("ADMIN-KEY list", False), (" admin-key", False), ("xadmin-key", False),
+             ("admin-id", False), ("admin-id show", False), ("acl", False), ("acl list", False),
+             ("help", False), ("status", False), ("peers all", False), ("ui preset list", False), ("", False)]
+    return rows
+
+
+CLIENT_TU = r"""// GENERATED by tools/probe_console_sink/ble_guard.py — not a committed file.
+// It holds the BLE guard's condition EXTRACTED VERBATIM from src/fw_main.cpp, evaluated against the REAL
+// src/firmware_admin_client_verbs.h family predicates. Nothing here is a hand-written copy of production logic.
+#include <cstdio>
+#include <cstring>
+#include "firmware_admin_client_verbs.h"
+
+// >>> EXTRACTED FROM src/fw_main.cpp — the condition of the `if` that answers the `admin-client` envelope <<<
+static bool ble_refuses(const char* line, size_t len) {
+    (void)line; (void)len;
+    return (__GUARD__);
+}
+
+int main() {
+    static const struct { const char* line; int must_refuse; } kRows[] = {
+__ROWS__
+    };
+    int checks = 0, fails = 0;
+    for (const auto& r : kRows) {
+        const size_t len = strlen(r.line);
+        const bool refused = ble_refuses(r.line, len);
+        const bool owned   = mrfw::admin_client_verb_owns(r.line, len);
+        const bool public_ = mrfw::admin_client_ble_public(r.line, len);
+
+        ++checks;
+        if (refused != (r.must_refuse != 0)) {
+            ++fails;
+            printf("  FAIL D1 `%s` BLE refusal is %s, must be %s\n", r.line,
+                   refused ? "yes" : "no", r.must_refuse ? "yes" : "no");
+        }
+        // ★ THE COMPOSITION INVARIANT: an owned line is refused UNLESS it is one of the two ruled public forms.
+        ++checks;
+        if (owned && !public_ && !refused) {
+            ++fails;
+            printf("  FAIL D2 `%s` is an owned SECRET form but is NOT refused by BLE\n", r.line);
+        }
+        // ...and the converse: over-refusing would swallow another verb or disable the ruled public half.
+        ++checks;
+        if (refused && !owned) {
+            ++fails;
+            printf("  FAIL D3 `%s` is refused as admin-client but the router does not own it — too wide\n",
+                   r.line);
+        }
+        ++checks;
+        if (refused && public_) {
+            ++fails;
+            printf("  FAIL D4 `%s` is a RULED PUBLIC form and must NOT be refused (R-RA-30)\n", r.line);
+        }
+        // The guard is a PURE PREDICATE: this TU links no store, no service and no sink, so a guard that tried to
+        // touch one would not compile. That absence is the check; this row pins the empty-line floor.
+        ++checks;
+        if (refused && len == 0) {
+            ++fails;
+            printf("  FAIL D5 the empty line is refused — the guard has no length floor\n");
+        }
+    }
+    printf("CLIENT-GUARD rows=%d checks=%d failed=%d\n", (int)(sizeof kRows / sizeof kRows[0]), checks, fails);
+    return fails == 0 ? 0 : 1;
+}
+"""
 
 ADMIN_TU = r"""// GENERATED by tools/probe_console_sink/ble_guard.py — not a committed file.
 // It holds the BLE guard's condition EXTRACTED VERBATIM from src/fw_main.cpp, evaluated against the REAL
@@ -369,7 +481,12 @@ def build_and_run(fw_main_path: str, cxx: str, flags: list, out_dir: str, tag: s
     """-> (returncode, stdout). Raises GuardError if the guard cannot be extracted."""
     with open(fw_main_path, "r", encoding="utf-8") as fh:
         text = fh.read()
-    if family == "admin":
+    if family == "client":
+        cond = extract_guard(text, CLIENT_REFUSAL_CALL, CLIENT_GATE)
+        rows = "\n".join('        { %s, %d },' % (_c_lit(line), 1 if must else 0)
+                          for line, must in client_corpus())
+        src = CLIENT_TU.replace("__GUARD__", cond).replace("__ROWS__", rows)
+    elif family == "admin":
         cond = extract_guard(text, ADMIN_REFUSAL_CALL, ADMIN_GATE)
         rows = "\n".join('        { %s, %d },' % (_c_lit(line), 1 if must else 0)
                           for line, must in admin_corpus())
@@ -411,7 +528,8 @@ def main(argv):
     src_text = open(a.fw_main, encoding="utf-8").read()
     # BOTH FAMILIES, and a refusal in EITHER stops the gate. A family whose guard cannot be extracted is never a
     # skipped section: it is an instrument refusal with a non-zero exit.
-    for family, anchor, gate in (("help", REFUSAL_CALL, None), ("admin", ADMIN_REFUSAL_CALL, ADMIN_GATE)):
+    for family, anchor, gate in (("help", REFUSAL_CALL, None), ("admin", ADMIN_REFUSAL_CALL, ADMIN_GATE),
+                                 ("client", CLIENT_REFUSAL_CALL, CLIENT_GATE)):
         try:
             cond = extract_guard(src_text, anchor, gate)
             rc, text = build_and_run(a.fw_main, a.cxx, flags, out, family=family)

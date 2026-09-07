@@ -682,3 +682,38 @@ RAM-constrained client; the number is recorded in the evidence and the design ro
 **Source facts:** `platformio.ini:518-541` (the four `MR_PROFILE_MOBILE` envs), `src/device_ble.h:5, :24-25` (BLE
 is nRF52-only), `tools/warning_census.sh` pinned set (no nRF52 mobile env), `tools/probe_board_abi.py:104` (the two
 board targets), `src/firmware_commands.cpp:60-65, :172-178` (the resident-over-stack precedent for a public NV blob).
+
+### R-RA-31 (owner, 2026-09-06) — Slice 5 answers bootstrap on air; the Slice 5 `sizeof(Node)` re-pin is authorized
+
+**Owner:** *"Agree - Slice 5 answers bootstrap on air, ABI re-pin authorized"*
+
+**Agreed proposal (Slice 5 pre-check §6.1):** *"The state is inert unless the accept arm can reply, and the target's
+reply is a plain same-layer by-hash send, not the mobile carrier Slice 8b owns. I recommend yes: decode, classify and
+send the bootstrap response through the existing send path, with execute and transcript replies staying 7b's."*
+**Agreed proposal (Slice 5 pre-check §6.2):** *"Every accept member moves `sizeof(Node)` on native and gateway, which
+the standing rule forbids without authorization. I recommend authorizing it for this slice, with member-by-member
+attribution and the unmoved mobile pin as the control."*
+
+**Settled for Slice 5 (the on-air bootstrap):** the ACCEPT entry point decodes a received `REMOTE_CMD` through the
+Slice 2 codec, classifies it (§10 cases 1-5 as verdicts, silent authentication failure otherwise), reserves the
+partitioned ingress/seen state, and for a valid `BOOTSTRAP` request SENDS the bootstrap response
+(`[ctl(slot)][request_id][admin_epoch][tag]` under the base key, design §7.2/§8.6) on air through the existing
+application-DM path with mandatory `SOURCE_HASH` (R-RA-13; `send_by_hash`/`do_send`, `Plane::GLOBAL`, type
+`DATA_TYPE_REMOTE_RESP`), TWO-shaped from day one: same-layer by hash to the request's `SOURCE_HASH`, or cross-layer
+on the REVERSED received layer path (the §GapB `send_xl_ack` precedent, `lib/core/node_mac_rx.cpp:2591`,
+`lib/core/node.h:1681`). Execute, output/terminal, ACK, rollover and `already_acknowledged` replies remain Slice 7b's;
+the mobile-delegated request carrier and its custody consumer remain Slice 8b's. The bootstrap reply is the ONLY
+remote-admin frame a target airs after Slice 5, it changes no epoch and dispatches nothing. The 36-scenario corpus
+airs no `0xA0`, so "zero remote events, 36/36 unchanged" (§19.1 row 5) still holds and is predicted, not assumed.
+
+**Settled for Slice 5 (the ABI re-pin):** the accept-only session members (`#if MR_FEAT_RADMIN_ACCEPT`: the seen pool,
+the partitioned ingress replacing the legacy `_remote_inbound` on accept builds, the open-staging rows, the ten
+epochs, the resident administration pair and the live ACL image) move `sizeof(Node)` on native and `gateway`; the
+`node.h` native `static_assert` + ledger and `tools/probe_board_abi.py`'s native/gateway rows are re-pinned in the
+slice, with a member-by-member attribution of the delta on each ABI (the padding-placement rule, `-Wreorder`-clean),
+and `heltec_mobile`'s pin (117912 / 8) UNMOVED as the control — the legacy slot stays there, now `#if
+MR_FEAT_RADMIN_CLIENT`. `TimerWheel::kCap` 91 → 92 (R-RA-22) is part of the same attribution. No other ABI pin moves.
+
+**Source facts:** `lib/core/node_mac_rx.cpp:1915-1983` (the 1b seam and its four deferred-to-Slice-5 notes),
+`lib/core/node.h:154-163, :2944, :3997`, `tools/probe_board_abi.py:257/:278/:302`, `lib/core/frame_codec.h:1335-1341`
+(the received cross-layer path), `lib/core/remote_codec.h:266-345`, R-RA-22 (the managed profile + one timer).

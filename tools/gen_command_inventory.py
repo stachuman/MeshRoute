@@ -97,6 +97,14 @@ class Surface:
     transports: str      # the transport set the arms of this surface are reachable on
     parent: str = ""     # for kind == "sub": the top-level verb this surface belongs to
     reached_from: tuple = ()   # ((file, func, symbol), …) — call sites proving the wiring claim
+    # ★★ §RADMIN slice 4 / R-RA-30 — PER-SUB-VERB TRANSPORTS, as LITERAL ((sub-verb, transports), …) pairs.
+    #    Until Slice 4 every surface's arms shared one transport set, which was true of every surface there was.
+    #    R-RA-30 splits ONE family: `admin-key`/`admin-target` `list` and `show` MAY cross secured BLE, and every
+    #    other form of the same family may not. ⇒ the table records the split PER ROW rather than losing it.
+    #    ⛔ IT IS A LITERAL OVERRIDE, ⛔ never derived from a macro, a name shape or the guard's own source: the
+    #    guard is measured by `tools/probe_console_sink/ble_guard.py`, which EXECUTES it; this column is the
+    #    AUTHORITY TABLE's independent statement of the same ruling, and the two disagreeing is the point.
+    sub_transports: tuple = ()
 
 
 # ★ THE PINNED SURFACE TABLE. Its two coverage refusals (a)/(b) above are what keep it honest: an entry that no
@@ -176,6 +184,28 @@ SURFACES = (
     Surface("src/firmware_admin_verbs.h", "acl_verb", "sub", "serial", parent="acl",
             reached_from=(("src/firmware_commands.cpp", "handle_acl", "acl_verb"),
                           ("src/firmware_commands.cpp", "admin_router_arm", "handle_acl"))),
+    # ---- surface 1d: the remote-admin v2 CONTROLLER-STORE family (§RADMIN slice 4) --------------------------
+    # ★★ A TOP-LEVEL SURFACE OF ITS OWN for surface 1c's exact reason — `transports` is recorded PER SURFACE and
+    #    `dispatch`'s is `serial,ble`, so the two BARE family names written inline there would be published as
+    #    BLE-reachable. R-RA-30 refuses a BARE `admin-key`/`admin-target` over BLE (only `list`/`show` cross), so
+    #    the family rows are `serial` and the two public SUB-VERBS carry the split on their own rows below.
+    Surface("src/firmware_commands.cpp", "admin_client_router_arm", "top", "serial",
+            reached_from=(("src/firmware_commands.cpp", "dispatch", "admin_client_router_arm"),)),
+    # ---- surface 2c: the two CONTROLLER families' SUB-VERB grammars, in the pure header ---------------------
+    # ⓘ UNGATED sites, exactly like `preset_verb`'s and `acl_verb`'s: the header carries no capability macro
+    #   ([[B255]] idiom), and its REACHABILITY is the CLIENT-gated `admin_client_router_arm` above.
+    # ★★★ AND THIS IS WHERE R-RA-30 IS RECORDED: `list` and `show` are `serial,ble`, EVERY other arm is `serial`.
+    #     The BLE hop is PROVEN by `reached_from`, hop by hop, exactly as the `serial` one is.
+    Surface("src/firmware_admin_client_verbs.h", "admin_key_verb", "sub", "serial", parent="admin-key",
+            sub_transports=(("list", "serial,ble"), ("show", "serial,ble")),
+            reached_from=(("src/firmware_commands.cpp", "handle_admin_key", "admin_key_verb"),
+                          ("src/firmware_commands.cpp", "admin_client_router_arm", "handle_admin_key"),
+                          ("src/fw_main.cpp", "ble_dispatch_line", "exec_console_line"))),
+    Surface("src/firmware_admin_client_verbs.h", "admin_target_verb", "sub", "serial", parent="admin-target",
+            sub_transports=(("list", "serial,ble"), ("show", "serial,ble")),
+            reached_from=(("src/firmware_commands.cpp", "handle_admin_target", "admin_target_verb"),
+                          ("src/firmware_commands.cpp", "admin_client_router_arm", "handle_admin_target"),
+                          ("src/fw_main.cpp", "ble_dispatch_line", "exec_console_line"))),
     # ---- surface 3: the caller-only arms around the execution seam -----------------------------------------
     # ⓘ Slice 0c renamed what these arms surround: they used to sit around `dispatch()` directly, and now they sit
     #   around `mrfw::exec_console_line`. What they ARE is unchanged — the per-transport envelope arms (a malformed
@@ -208,6 +238,14 @@ NON_COMMAND = {
         "the BLE refusal's family predicate (R-RA-29) — it re-asks the SAME two family tokens `admin_router_arm` "
         "already owns, so emitting it again would duplicate one semantic arm; it is a TRANSPORT guard, not a "
         "second dispatcher",
+    ("src/firmware_admin_client_verbs.h", "admin_client_verb_owns"):
+        "the CONTROLLER family's boundary predicate (R-RA-30) — it re-asks the SAME two family tokens "
+        "`admin_client_router_arm` already owns, so emitting it again would duplicate one semantic arm; it is "
+        "the input to a TRANSPORT guard, not a second dispatcher",
+    ("src/firmware_admin_client_verbs.h", "admin_client_ble_public"):
+        "R-RA-30's SUB-VERB half of the same transport guard: `list`/`show` here are the two sub-verbs "
+        "`admin_key_verb`/`admin_target_verb` already publish, recorded there with their `serial,ble` transport "
+        "set. Emitting them again would invent the commands `admin-key list` twice over",
     ("src/firmware_admin_verbs.h", "acl_parse_role"):
         "the ROLE ARGUMENT's two values (`operator`/`owner`) for `acl add`/`acl set` — argument values, not "
         "commands; publishing them as arms would invent the grammars `acl operator` and `acl owner`",
@@ -221,6 +259,7 @@ SCAN_FILES = (
     "src/fw_main.cpp",
     "src/firmware_ui_preset_verbs.h",
     "src/firmware_admin_verbs.h",
+    "src/firmware_admin_client_verbs.h",
     "lib/console/console_parse.cpp",
 )
 
@@ -242,20 +281,30 @@ SCAN_FILES = (
 #   ⓘ `eval_gate`'s unknown-axis REFUSAL is preserved and is the reason this column had to be added at all: the
 #     first ACCEPT-gated dispatch arm cannot be projected until the table explicitly knows the axis, and defaulting
 #     it to zero would have silently DROPPED two commands from the expected help list.
+# ★★★ THE SIXTH AXIS, ADDED 2026-09-06 BY §RADMIN SLICE 4 ([[B319]]'s twin), AND ITS VALUES ARE **LITERAL RULED
+#     PRODUCT FACTS** — ⛔ NEVER COMPUTED, ALIASED, INVERTED OR INFERRED INSIDE THIS TOOL. R-RA-8's other half rules
+#     CLIENT = the four mobile products, so: full_oled 0 · full_headless 0 · gateway 0 · gateway_oled 0 · mobile 1 ·
+#     mobile_oled 1.
+#   ⛔ IT IS NOT `NOT MR_FEAT_RADMIN_ACCEPT`, even though the two are complementary on every ROW of this table: they
+#      are complementary because `lib/core/mr_features.h` carries an `#error` making a BOARD exactly one of the two
+#      (R-RA-17) — and the HOST (native, lus) is deliberately BOTH. A tool that derived one column from the other
+#      would stop measuring the day a third product role exists, and would already be describing the host wrongly.
+#   ⛔ AND IT IS NOT `MR_FEAT_MOBILE`: the two FULL static profiles set MR_FEAT_MOBILE=1 and CLIENT=0, so that
+#      inference is simply false — the exact shape [[B319]] was raised against, arrived at from the other side.
 PROFILES = {
-    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED  MR_FEAT_RADMIN_ACCEPT
+    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED  ACCEPT  CLIENT
     "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
-                           MR_FEAT_RADMIN_ACCEPT=1),
+                           MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
     "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
-                           MR_FEAT_RADMIN_ACCEPT=1),
+                           MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
     "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
-                           MR_FEAT_RADMIN_ACCEPT=1),
+                           MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
     "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
-                           MR_FEAT_RADMIN_ACCEPT=1),
+                           MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
     "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=0,
-                           MR_FEAT_RADMIN_ACCEPT=0),
+                           MR_FEAT_RADMIN_ACCEPT=0, MR_FEAT_RADMIN_CLIENT=1),
     "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=1,
-                           MR_FEAT_RADMIN_ACCEPT=0),
+                           MR_FEAT_RADMIN_ACCEPT=0, MR_FEAT_RADMIN_CLIENT=1),
 }
 PROFILE_ENVS = {
     "full_oled":     ("heltec_v3", "heltec_v4"),
@@ -692,7 +741,15 @@ def build_rows(root: str) -> tuple:
             else:
                 parts = chain + [token]
                 verb, sub = parts[0], " ".join(parts[1:]) or "—"
-            row = Row(verb=verb, subverb=sub, func=site.func, transports=s.transports,
+            # ★ §RADMIN slice 4 / R-RA-30: a LITERAL per-sub-verb transport override, applied on the FIRST token
+            #   of the sub-verb cell. ⛔ It never widens a `serial`-only surface by inference — the pair must be
+            #   spelled in the surface's own `sub_transports`.
+            transports = s.transports
+            for (sv, tr) in s.sub_transports:
+                if sub == sv or sub.startswith(sv + " "):
+                    transports = tr
+                    break
+            row = Row(verb=verb, subverb=sub, func=site.func, transports=transports,
                       gate=site.gate, source="%s:%d" % (site.file, site.line),
                       surface="%s::%s" % (s.file, s.func), shapes=site.shapes)
             rows.append(row)

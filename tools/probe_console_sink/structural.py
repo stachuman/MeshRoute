@@ -570,6 +570,82 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
             len(fe_bodies) == 3 and bool(wholesale)   # nRF52 format · ESP32 namespace clear · the host no-op stub
             and 'kSlotAdmid' not in nv[nv.index('inline bool factory_erase()'):]
             .split('mount_or_repair')[0], f'{len(fe_bodies)} arm(s)')
+
+        # ================================================================================================
+        # §RADMIN SLICE 4 — the CONTROLLER half's device boundary. ⛔ NOT A COPY of S30..S39: the CLIENT half
+        # has a DIFFERENT residency ruling (it pays ONE 2056-byte public scratch, deliberately), a DIFFERENT
+        # BLE rule (sub-verb-split, not whole-family) and a DIFFERENT pair of slots.
+        # ================================================================================================
+        cboot = [m.start() for m in re.finditer(r'\badmin_client_stores_boot_report_console\s*\(', fwm)]
+        cin_setup = [m.start() for m in re.finditer(r'\badmin_client_stores_boot_report_console\s*\(', setup_body)]
+        cgated = re.search(r'#if\s+MR_FEAT_RADMIN_CLIENT[^#]*?\badmin_client_stores_boot_report_console\s*\('
+                           r'\s*\)\s*;[^#]*?#endif', fwm, re.S)
+        add('S40', 'the CONTROLLER boot report is called EXACTLY ONCE, from setup(), under MR_FEAT_RADMIN_CLIENT',
+            len(cboot) == 1 and len(cin_setup) == 1 and bool(cgated),
+            f'calls={len(cboot)} in_setup={len(cin_setup)} gated={bool(cgated)}')
+        add('S41', '... and it runs AFTER the filesystem mount/self-heal, never before it',
+            mount >= 0 and len(cin_setup) == 1 and cin_setup[0] > mount, f'mount@{mount} call@{cin_setup[:1]}')
+
+        cboot_body = _body(cmds, 'void admin_client_stores_boot_report_console()')
+        add('S42', 'the CONTROLLER boot report body performs NO durable write and NO entropy draw',
+            not re.search(r'\bsave_(mgmt_keys|targets|admin_id|acl|id|team_keys|ui_presets|peers|faults)\s*\(',
+                          cboot_body)
+            and not re.search(r'\bmrrng\s*::', cboot_body)
+            and not re.search(r'\b(generate|import|export_seed|remove|recover|add|set)\s*\(', cboot_body), '')
+
+        # ---- RESIDENCY: EXACTLY ONE public book, and ⛔ NO resident keyring, service or identity ------------
+        # ★★ THIS IS THE ONE PLACE SLICE 4 DELIBERATELY DIFFERS FROM SLICE 3, so the check is a COUNT and not an
+        #    absence: design §6.2 rules ONE resident `TargetBlob` (public IO/candidate scratch, `s_peers`' stack
+        #    argument), and ⛔ NOTHING ELSE resident — emphatically ⛔ NOT the keyring, which holds SECRETS.
+        book = re.findall(r'(?m)^static\s+mrnv::TargetBlob\s+\w+\s*;', cmds)
+        add('S43', 'EXACTLY ONE resident controller buffer exists, and it is the PUBLIC `mrnv::TargetBlob` book',
+            len(book) == 1, f'{len(book)} resident TargetBlob(s): {book[:2]}')
+        cresident = re.findall(r'\bstatic\s+(?:mrnv::)?(?:MgmtKeyBlob|MgmtKeyRow)\b', cmds)
+        cresident += re.findall(r'(?m)^\s*static\s+(?:mrfw::)?(?:MgmtKeyService|TargetService)\b', cmds)
+        cresident += re.findall(r'(?m)^(?:mrfw::)?(?:MgmtKeyService|TargetService)\s+\w+\s*[;=(]', cmds)
+        add('S44', '⛔ NO resident management keyring, service or seed exists — the SECRETS stay stack transients',
+            not cresident, f'{len(cresident)} occurrence(s): {cresident[:3]}')
+        cli_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_CLIENT(.*?)#endif', cmds, re.S)
+        add('S45', 'the CLIENT bindings touch NO Node state and no legacy single-admin symbol',
+            len(cli_blocks) >= 1
+            and all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b', b)
+                    for b in cli_blocks), f'{len(cli_blocks)} CLIENT block(s)')
+
+        # ---- the typed wrappers address the CORRECT slots (design §6.4's no-crossing rule, as source) --------
+        mk_body = _body(nv, 'inline MgmtKeyRead load_mgmt_keys(MgmtKeyBlob& out)')
+        tg_body = _body(nv, 'inline TargetRead load_targets(TargetBlob& out)')
+        save_mk = _line_of(nv, 'inline bool save_mgmt_keys(')
+        save_tg = _line_of(nv, 'inline bool save_targets(')
+        add('S46', 'load/save_mgmt_keys address kSlotMgmtKeys and NOTHING else; load/save_targets address '
+                   'kSlotTargets — ⛔ and NEITHER touches kSlotAdmid (design §6.4: the two seeds never cross)',
+            ('kSlotMgmtKeys' in mk_body and 'kSlotTargets' not in mk_body and 'kSlotAdmid' not in mk_body
+             and 'kSlotMgmtKeys' in save_mk and 'kSlotTargets' not in save_mk and 'kSlotAdmid' not in save_mk
+             and 'kSlotTargets' in tg_body and 'kSlotMgmtKeys' not in tg_body and 'kSlotPeers' not in tg_body
+             and 'kSlotTargets' in save_tg and 'kSlotMgmtKeys' not in save_tg), '')
+
+        add('S47', 'mount_or_repair()\'s probe list still excludes BOTH controller records ([[B317]])',
+            n_kf == 6 and 'mrmkeys' not in kf and 'mrtargets' not in kf, f'{n_kf} entries')
+        add('S48', 'do_regen()\'s write set is STILL exactly {/mrid} — the CLIENT arms add no store write, so the '
+                   '`keys and targets preserved` warning is a proven claim',
+            'save_id' in regen
+            and not re.search(r'\bsave_(mgmt_keys|targets)\s*\(', regen)
+            and 'kSlotMgmtKeys' not in regen and 'kSlotTargets' not in regen
+            and 'load_mgmt_keys' not in regen and 'load_targets' not in regen, '')
+        add('S49', 'handle_leave()\'s write set is STILL exactly {/mrcfg} — it touches neither controller store',
+            not re.search(r'\bsave_(mgmt_keys|targets)\s*\(', leave)
+            and 'kSlotMgmtKeys' not in leave and 'kSlotTargets' not in leave, '')
+
+        # ---- R-RA-30's guard is DISTINCT from R-RA-29's, in envelope and in gate ------------------------------
+        # ⛔ ONE envelope for two families would make a TARGET listing escaping its guard indistinguishable from a
+        #    CONTROLLER one on the wire. The guard's BEHAVIOUR is executed by ble_guard.py; this pins its IDENTITY.
+        ble_body = _body(fwm, 'static size_t ble_dispatch_line(') or _body(fwm, 'size_t ble_dispatch_line(')
+        n_client_env = ble_body.count('"admin-client"')
+        n_admin_env = ble_body.count('"admin"')
+        add('S50', 'the CLIENT BLE refusal carries its OWN `admin-client` envelope, exactly once, beside — and '
+                   'distinct from — the target family\'s `admin`',
+            n_client_env == 1 and n_admin_env == 1
+            and 'admin_client_ble_refuses' in ble_body
+            and 'admin_verb_owns' in ble_body, f'client={n_client_env} admin={n_admin_env}')
     return out
 
 def _line_of(txt, needle):

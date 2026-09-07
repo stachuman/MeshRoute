@@ -45,7 +45,7 @@
 #include <Arduino.h>            // Print + F()
 #include <cstddef>              // size_t
 #include <cstring>              // strncmp — the router's token compare
-#include "mr_features.h"        // MR_FEAT_MOBILE/REMOTE_MGMT/OLED/RADMIN_ACCEPT — the gated names
+#include "mr_features.h"        // MR_FEAT_MOBILE/REMOTE_MGMT/OLED/RADMIN_ACCEPT/RADMIN_CLIENT — the gated names
 #include "protocol_constants.h" // MR_N_LAYERS
 
 namespace mrfw {
@@ -68,6 +68,15 @@ inline void render_index(Print& out) {
     out.println(F("acl"));
     out.println(F("admin-id"));
 #endif   // MR_FEAT_RADMIN_ACCEPT
+    // §RADMIN slice 4 — the two CONTROLLER-STORE families, CLIENT builds only (R-RA-8's other half). BYTEWISE
+    // ASCENDING like every other line and CONTIGUOUS with the ACCEPT pair above: "acl" < "admin-id" <
+    // "admin-key" < "admin-target" < "cfg". ⓘ The two gates are mutually exclusive on every BOARD, but the HOST
+    // sets both to 1, so the ordering has to hold with all four names present — and it does.
+    // ⛔ NAMES ONLY — the grammar lands in the manual, which the pointer at the foot of this index already names.
+#if MR_FEAT_RADMIN_CLIENT
+    out.println(F("admin-key"));
+    out.println(F("admin-target"));
+#endif   // MR_FEAT_RADMIN_CLIENT
     out.println(F("cfg"));
     out.println(F("clear_inbox"));
     out.println(F("crashtest"));

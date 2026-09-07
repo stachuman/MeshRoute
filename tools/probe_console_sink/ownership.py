@@ -74,6 +74,12 @@ class OwnershipError(RuntimeError):
 #    profiles, where the dispatch arm, the help names and the BLE guard are all compiled out.
 #      full_headless 41 -> 43 · full_oled 42 -> 44 · gateway 39 -> 41 · gateway_oled 40 -> 42
 #      mobile        38 -> 38 · mobile_oled 39 -> 39      (⛔ UNCHANGED — that asymmetry IS the product gate)
+#    · §RADMIN SLICE 4 adds `admin-key` + `admin-target` under `MR_FEAT_RADMIN_CLIENT` — R-RA-8's OTHER half, so
+#      the movement is EXACTLY THE MIRROR IMAGE of the two lines above:
+#      mobile        38 -> 40 · mobile_oled 39 -> 41
+#      full_headless 43 -> 43 · full_oled 44 -> 44 · gateway 41 -> 41 · gateway_oled 42 -> 42
+#          (⛔ UNCHANGED — and that asymmetry IS the product gate, measured rather than assumed: a build cannot be
+#           both endpoints, and `lib/core/mr_features.h`'s R-RA-17 `#error` is what makes it so.)
 #    The parser stays SEVEN on every profile (`console_parse.cpp` carries no `#if` and this slice adds no parser
 #    command), and the intersection stays EMPTY: the two new forms are router-owned only.
 #    ⓘ Derived by running `--show` on this tree AFTER the inventory was regenerated, ⛔ never quoted from a brief.
@@ -83,8 +89,8 @@ PINS = {
     "full_oled": (44, 7),
     "gateway": (41, 7),
     "gateway_oled": (42, 7),
-    "mobile": (38, 7),
-    "mobile_oled": (39, 7),
+    "mobile": (40, 7),
+    "mobile_oled": (41, 7),
 }
 
 

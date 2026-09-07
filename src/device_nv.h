@@ -478,6 +478,137 @@ static_assert(alignof(AclBlob) == 4, "device_nv.h: /mracl blob alignment moved �
 static_assert(offsetof(AclBlob, rec) == 8, "device_nv.h: /mracl rows offset moved — bump kAclVersion");
 static_assert(sizeof(AclBlob) % alignof(AclBlob) == 0,
               "device_nv.h: /mracl carries IMPLICIT tail padding — the header no longer closes the record");
+// ---- REMOTE-ADMIN v2 CONTROLLER STORES: the management keyring (`/mrmkeys`) and the target book (`/mrtargets`) ----
+// Authority: design `docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md` §§6.2-6.4,
+// ruling R-RA-30 (the controller/BLE split) and the Slice 4 brief §4.1.
+//
+// ★★★ TWO RECORDS AND ⛔ NOT ONE, for the reason `/mradmid` and `/mracl` are two: `/mrmkeys` holds up to TEN
+//     32-byte MASTER SEEDS this controller may manage OTHER nodes with (secrets nothing else derives), while
+//     `/mrtargets` holds the PUBLIC administration keys of the nodes it manages. Different secrecy, different
+//     lifetimes, different recovery. ⛔ A reset of the book must never touch a seed, and a removed key must never
+//     silently drop a target row.
+// ⛔⛔ AND THEY ARE THE **CONTROLLER'S**, ⛔ NEVER THE TARGET'S: `/mrmkeys` is ⛔ NOT a second `/mradmid` and its
+//     ten slots are ⛔ NOT the ACL's ten (design §6.2: *"exactly ten dedicated management slots, INDEPENDENT of the
+//     target's ten ACL slots"*). The two tens are separate constants on purpose — `kMgmtKeySlots` here is bound to
+//     the `key0…key9` GRAMMAR, and binding it to `kAclSlots` (which is the codec's session-slot count) would make a
+//     future codec change silently resize an operator's keyring.
+// ⛔ A NEW NV RECORD IS NOT A WIRE CHANGE. No frame moves; nothing re-anchors.
+//
+// ⚠⚠ WHAT THESE RECORDS DO **NOT** PROMISE — identical to `/mradmid`'s, restated because a console line must never
+//    claim it: ⛔ NO transaction and NO atomicity, within a record or across the pair (`write_slot` on nRF52 is
+//    `remove()` THEN `open/write`, :846 below), so a save that REPORTS FAILURE publishes no success and ⛔ never
+//    says "nothing was written"; ⛔ NOT in `mount_or_repair()`'s nRF52 probe list (`kFiles[]`), deliberately, for
+//    the reason `/mrjoin`, `/mrteams`, `/mrui`, `/mradmid` and `/mracl` are not — that function recovers by
+//    `InternalFS.format()`, so listing an OPTIONAL store there would make ITS corruption destroy identity AND
+//    config. ⚠ The converse residual limit is REAL and is NOT fixed here: a reformat triggered by one of the SIX
+//    probed files wipes both of these records too ([[B317]], still OPEN).
+// ⛔ NO SESSION, NO RPC, NO CODEC CONSUMER and ⛔ no `Node` member: Slice 4 lands the CONTROLLER STORES and their
+//    local USB/BLE console surface only. It emits ZERO remote events, which is why the 36-scenario corpus is inert
+//    by construction.
+
+// ★ ONE 32-BYTE MASTER SEED PER OCCUPIED SLOT, ⛔ NEVER A STORED PUBLIC/PRIVATE PAIR — `/mradmid`'s rule and its
+//   reason: `meshroute::identity_from_seed` derives the whole 196-byte expanded Identity, so a stored pair could
+//   disagree with itself. Design §6.2, verbatim: *"Each occupied local slot persists only one 32-byte master seed."*
+// ⓘ `reserved[4]` is a NAMED member and ⛔ never implicit tail padding (`AclRow::reserved[3]`'s rule): the
+//   whole-record byte compare that decides whether a write happens at all must be deterministic.
+struct MgmtKeyRow {
+    uint8_t seed[32];      // ⚠⚠ THE SECRET. ⛔ Printed by EXACTLY ONE verb (`admin-key export`, USB-only), never
+                           //    logged, never left resident, wiped on every service exit.
+    uint8_t reserved[4];
+};
+// ★★ TEN, AND THE TEN IS THE **GRAMMAR'S** (`key0`…`key9`), ⛔ NOT `kAclSlots`. Design §6.2 makes the controller's
+//    slot count independent of the target's ACL, so this constant is free-standing BY RULING. ⛔ Do not "unify"
+//    them: they answer different questions and a codec change must not resize a keyring.
+constexpr uint8_t kMgmtKeySlots = 10;
+struct MgmtKeyBlob {
+    uint32_t   magic;      // kMgmtKeyMagic
+    uint16_t   version;    // kMgmtKeyVersion — EQUALITY (see mgmt_key_blob_state)
+    // ⓘ Occupied rows, 0..kMgmtKeySlots. ★ It is the POPULATION, ⛔ not an index and ⛔ not a high-water mark:
+    //   holes keep their slot numbers (`key3` stays `key3` after `key2` is removed), exactly as the ACL's do.
+    uint16_t   count;
+    MgmtKeyRow rec[kMgmtKeySlots];
+};
+constexpr uint32_t kMgmtKeyMagic   = 0x4D524D4Bu;   // 'MRMK' — its OWN magic, ⛔ never kMagic ('MRC1'), kIdMagic
+                                                    // ('MRID'), kPeersMagic ('MRPR'), kJoinMagic ('MRJ1'),
+                                                    // kTeamKeyMagic ('MRK1'), kUiPresetMagic ('MRU1'),
+                                                    // kAdminIdMagic ('MRA1') or kAclMagic ('MRL1')
+constexpr uint16_t kMgmtKeyVersion = 1;             // v1: the first /mrmkeys layout. A bump REJECTS the old record
+                                                    // outright (equality policy) -> the controller has NO
+                                                    // management keys, which is safe and visible, never wrong ones.
+// ★ PER-ABI, ⛔ NOT native-only — `AdminIdBlob`'s reason: `sizeof` IS the migration policy (load_mgmt_keys' exact
+//   size check) and test/ can only measure the HOST ABI, so pin it where it compiles on ARM and Xtensa too.
+//   32 + 4 = 36 with alignof 1 and ⛔ NO padding; blob = 8-byte header + 10 x 36 = 368, alignof 4, 368 % 4 == 0.
+static_assert(sizeof(MgmtKeyRow) == 36, "device_nv.h: the /mrmkeys row layout moved — bump kMgmtKeyVersion");
+static_assert(alignof(MgmtKeyRow) == 1, "device_nv.h: /mrmkeys row alignment moved — the 36-byte claim is ABI-dependent");
+static_assert(offsetof(MgmtKeyRow, seed) == 0, "device_nv.h: /mrmkeys seed offset moved — bump kMgmtKeyVersion");
+static_assert(offsetof(MgmtKeyRow, reserved) == 32, "device_nv.h: /mrmkeys reserved offset moved — bump kMgmtKeyVersion");
+static_assert(sizeof(MgmtKeyBlob) == 8 + 10 * 36, "device_nv.h: the /mrmkeys blob layout moved — bump kMgmtKeyVersion");
+static_assert(alignof(MgmtKeyBlob) == 4, "device_nv.h: /mrmkeys blob alignment moved — the 368-byte claim is ABI-dependent");
+static_assert(offsetof(MgmtKeyBlob, rec) == 8, "device_nv.h: /mrmkeys rows offset moved — bump kMgmtKeyVersion");
+static_assert(sizeof(MgmtKeyBlob) % alignof(MgmtKeyBlob) == 0,
+              "device_nv.h: /mrmkeys carries IMPLICIT tail padding — the header no longer closes the record");
+
+// ★★★ THE TARGET-BOOK ROW. `admin_pub` is the MANAGED NODE's 32-byte Ed25519 ADMINISTRATION public key — PUBLIC
+//     material, printed in full on USB *and* over secured BLE (R-RA-30 permits public list/show there).
+// ⛔⛔ `key_hash32` IS A **ROUTING HINT AND NOTHING ELSE** — `lib/core/identity.h:40` says of that field in as many
+//     words "NOT a security anchor". It is REPLACEABLE metadata; `admin_pub` is the IMMUTABLE trust identity. Two
+//     rows may legitimately carry the same hash and remain two different principals, and ⛔ the hash is NEVER
+//     derived from `admin_pub` as a substitute for the operator's routing hint.
+// ⓘ `hops[4]` stores up to THREE destination layer ids plus a zero tail — ⛔ NOT four destinations. The carrier
+//   (`lib/core/command.h:43`, `lib/console/console_parse.cpp:304`) PREPENDS our own layer, so the maximum stored
+//   path is three; the fourth byte exists because four is the carrier's array width, and it is ALWAYS zero here.
+//   ⛔ Four-byte storage is not a four-destination admission rule.
+// ⓘ `flags` bit 0 = OCCUPIED; every other bit is RESERVED ZERO. An EMPTY row is ALL 64 bytes zero.
+struct TargetRow {
+    uint8_t  admin_pub[32];   // @0  the IMMUTABLE trust identity
+    uint32_t key_hash32;      // @32 the REPLACEABLE routing hint (⛔ never a trust anchor)
+    uint8_t  hops[4];         // @36 destination layer ids, 0..3 used, unused tail ZERO
+    uint8_t  hop_count;       // @40 0 = same layer; 1..3 = the used prefix of `hops`
+    uint8_t  label_len;       // @41 1..16 on an occupied row
+    char     label[16];       // @42 [A-Za-z0-9_.-], case-sensitive, unused tail ZERO
+    uint8_t  flags;           // @58 bit 0 occupied; all other bits reserved zero
+    uint8_t  reserved[5];     // @59 NAMED, ⛔ never implicit tail padding
+};
+// ★★ THIRTY-TWO, AND IT IS ⛔ NOT `/mrpeers`' capacity and ⛔ NOT `kAclSlots`: the address book evicts and this one
+//    must not (design §6.3: an ACL-full condition refuses loudly; a management target is never evicted).
+constexpr uint8_t kTargetSlots = 32;
+struct TargetBlob {
+    uint32_t  magic;       // kTargetMagic
+    uint16_t  version;     // kTargetVersion — EQUALITY (see target_blob_state)
+    uint16_t  count;       // the POPULATION, ⛔ not an index and ⛔ not a high-water mark
+    TargetRow rec[kTargetSlots];
+};
+constexpr uint32_t kTargetMagic   = 0x4D525442u;   // 'MRTB' — its OWN magic, ⛔ never kMgmtKeyMagic ('MRMK') and
+                                                   // never any of the six older ones
+constexpr uint16_t kTargetVersion = 1;             // v1: the first /mrtargets layout. A bump REJECTS the old record
+                                                   // outright -> the controller has NO targets, which is safe and
+                                                   // loudly visible at boot, never a wrong routing/trust pairing.
+// ★ PER-ABI. 32 + 4 + 4 + 1 + 1 + 16 + 1 + 5 = 64 with alignof 4 (the `uint32_t`) and ⛔ NO padding — which is what
+//   `reserved[5]` buys; blob = 8-byte header + 32 x 64 = 2056, alignof 4, 2056 % 4 == 0 so no implicit tail either.
+static_assert(sizeof(TargetRow) == 64, "device_nv.h: the /mrtargets row layout moved — bump kTargetVersion");
+static_assert(alignof(TargetRow) == 4, "device_nv.h: /mrtargets row alignment moved — the 64-byte claim is ABI-dependent");
+static_assert(offsetof(TargetRow, admin_pub) == 0, "device_nv.h: /mrtargets admin_pub offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, key_hash32) == 32, "device_nv.h: /mrtargets key_hash32 offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, hops) == 36, "device_nv.h: /mrtargets hops offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, hop_count) == 40, "device_nv.h: /mrtargets hop_count offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, label_len) == 41, "device_nv.h: /mrtargets label_len offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, label) == 42, "device_nv.h: /mrtargets label offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, flags) == 58, "device_nv.h: /mrtargets flags offset moved — bump kTargetVersion");
+static_assert(offsetof(TargetRow, reserved) == 59, "device_nv.h: /mrtargets reserved offset moved — bump kTargetVersion");
+static_assert(sizeof(TargetRow) % alignof(TargetRow) == 0,
+              "device_nv.h: /mrtargets ROW carries IMPLICIT tail padding — `reserved[5]` no longer closes it");
+static_assert(sizeof(TargetBlob) == 8 + 32 * 64, "device_nv.h: the /mrtargets blob layout moved — bump kTargetVersion");
+static_assert(alignof(TargetBlob) == 4, "device_nv.h: /mrtargets blob alignment moved — the 2056-byte claim is ABI-dependent");
+static_assert(offsetof(TargetBlob, rec) == 8, "device_nv.h: /mrtargets rows offset moved — bump kTargetVersion");
+static_assert(sizeof(TargetBlob) % alignof(TargetBlob) == 0,
+              "device_nv.h: /mrtargets carries IMPLICIT tail padding — the header no longer closes the record");
+// ★ THE OCCUPANCY FLAG, NAMED ONCE. ⛔ A verb never compares against a bare 1, and the record never stores another
+//   bit: `mrfw::target_content_valid` refuses any other value, so an unknown flag is a CORRUPT record rather than a
+//   silently-ignored row. (The `kAclRole*` domain ruling, one record over.)
+constexpr uint8_t kTargetFlagOccupied = 0x01;
+// ★ THE MAXIMUM STORED PATH LENGTH, NAMED ONCE — see the `hops[4]` note above for why it is THREE and not four.
+constexpr uint8_t kTargetHopMax = 3;
+
 // ★ THE ROLE DOMAIN, NAMED ONCE. ⛔ A verb never compares against a bare 1 or 2, and the record never stores a
 //   third value: `acl_content_valid` refuses anything outside this set, so an unknown role is a CORRUPT record
 //   rather than a silently-ignored row. (The `UiPresetSlot::enabled` "exactly 0 or 1" ruling, one record over.)
@@ -538,6 +669,19 @@ inline constexpr Slot kSlotUi    { "/mrui",    "mr",      "ui"    };
 //    it is HW diagnostics, and neither a secret nor an authority list is that.
 inline constexpr Slot kSlotAdmid { "/mradmid", "mr",      "admid" };
 inline constexpr Slot kSlotAcl   { "/mracl",   "mr",      "acl"   };
+// §RADMIN slice 4 — the two remote-admin CONTROLLER stores. ★★ `"mr"` IS THE FACTORY-RESET RULING, EXPRESSED AS
+// DATA, exactly as it is for `/mrjoin`, `/mrteams`, `/mrui`, `/mradmid` and `/mracl` above: the ESP32
+// `factory_erase()` clears the whole `"mr"` namespace in one `clear()` and the nRF52 arm's `InternalFS.format()`
+// takes every file, so *"a factory reset erases the management keyring and the target book"* is delivered by the
+// namespace choice alone, with ⛔ not one line of new code. `/mrfault` is the deliberate exception ABOVE, and a
+// keyring of MASTER SEEDS is emphatically not one — a factory-reset controller must keep none of them.
+// ⛔⛔ AND THEY ARE DELIBERATELY **NOT** IN `mount_or_repair()`'s nRF52 PROBE LIST (`kFiles[]`), for the reason
+//    every optional store above is not: that function recovers by `InternalFS.format()`, so listing one there would
+//    make ITS corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as
+//    `MgmtKeyRead` / `TargetRead`. ⚠ The converse — a reformat triggered by one of the SIX probed files wipes these
+//    two as well — is [[B317]] and is NOT closed here.
+inline constexpr Slot kSlotMgmtKeys { "/mrmkeys",   "mr", "mkeys"   };
+inline constexpr Slot kSlotTargets  { "/mrtargets", "mr", "targets" };
 
 // ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
 // This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
@@ -899,6 +1043,78 @@ inline void acl_blob_init(AclBlob& b) {
     //   above already zeroed `count`, so ⛔ no mutation can redden this line. It is kept for symmetry with
     //   `peers_blob_init` and `team_key_blob_init`, which spell the same triple for the same reason.
     b.count   = 0;
+}
+
+// ---- /mrmkeys + /mrtargets: THE SAME FOUR-STATE READ, for the two remote-admin CONTROLLER stores (§RADMIN 4) ----
+// ★★★ THE FOUR ARMS ARE OWED HERE FOR `/mradmid`'s REASONS, and each has a DIFFERENT operator remedy:
+//       · ABSENT  — an ordinary un-provisioned controller. `admin-key generate key0` then `admin-target add …` is
+//                   the first-use ceremony. ⛔ Never an error.
+//       · INVALID — the bytes are there and they are wrong. For `/mrmkeys` that means MANAGEMENT SEEDS ARE GONE
+//                   (⛔ nothing re-derives them and no target will accept the replacement key without a physical
+//                   re-pin), for `/mrtargets` that the operator's trust/routing pairings are unreadable. The remedy
+//                   is the CONFIRM-GATED `reset confirm` and nothing else.
+//       · IO_FAILED — the STORE would not answer, so ⛔ NOTHING IS KNOWN. It permits ⛔ NO write at all, ⛔ not even
+//                   the reset verb: a blind re-init here would destroy up to ten master seeds because a mount
+//                   failed transiently.
+// ⓘ U1, CONSIDERED AND ANSWERED IN PLACE exactly as `AdminIdRead`/`AclRead` answer it: SEVEN enums now carry the
+//   same four arms and they are SIBLINGS rather than one reuse — each documents its arms in ITS OWN record's terms
+//   and feeds a different verb vocabulary (`MgmtKeyErr` / `TargetErr`). ★ A shared classifier under a
+//   record-neutral name is the right end state and is ⛔ NOT taken here: it would be a refactor of six shipped
+//   records folded into a feature slice (C1). What IS shared are the primitives — `SlotIo`, `kSlotAbsent`,
+//   `slot_size_ok`, `blob_valid_exact`.
+enum class MgmtKeyRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an un-provisioned controller, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch ORDER is `admin_id_blob_state`'s and for its measured reasons: a backend that would not open returns
+// `kSlotAbsent`, so testing `absent` first would launder a dead store into "this controller has no keys"; and an
+// OVER-LENGTH record is `invalid` and ⛔ never `ok`, because nRF52 reads `len` bytes out of a longer file and a
+// valid PREFIX would otherwise pass every check.
+// ⛔ IT JUDGES THE **STORAGE**, ⛔ NOT THE SEEDS. Whether a stored seed is the all-zero one a dead RNG mints, and
+//    whether `count` agrees with the population, are `mrfw::mgmt_key_content_valid`'s questions one layer up.
+inline MgmtKeyRead mgmt_key_blob_state(const MgmtKeyBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return MgmtKeyRead::io_failed;
+    if (io.oversize)       return MgmtKeyRead::invalid;
+    if (n == kSlotAbsent)  return MgmtKeyRead::absent;
+    // EQUALITY on the version, like every record but /mrcfg: there is no migration arm for a keyring of SECRETS and
+    // there must not be one — a rejected record leaves the controller with NO management keys, which is safe and
+    // visible, whereas a half-understood migration would derive a DIFFERENT identity from misread seed bytes.
+    return blob_valid_exact(b, n, kMgmtKeyMagic, kMgmtKeyVersion) ? MgmtKeyRead::ok : MgmtKeyRead::invalid;
+}
+// Stamp an EMPTY, VALID ten-slot keyring. ONE path (U2). ★ `MgmtKeyBlob{}` zeroes every row INCLUDING `reserved`,
+// which is what makes an empty row's canonical form ("all 36 bytes zero") reachable by construction rather than by
+// a write-site memset — and what makes the whole-record byte compare a sound "nothing changed".
+// ⛔⛔ IT MINTS NOTHING: every seed is left ALL-ZERO, which `mrfw::mgmt_key_content_valid` calls an EMPTY row. The
+//    ONE authority that fills a seed is the checked entropy path in `src/firmware_admin_keyring.h`, which refuses a
+//    dead draw (C2). ⇒ this function alone can never publish a usable management key.
+inline void mgmt_key_blob_init(MgmtKeyBlob& b) {
+    b = MgmtKeyBlob{};
+    b.magic   = kMgmtKeyMagic;
+    b.version = kMgmtKeyVersion;
+}
+
+enum class TargetRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an un-provisioned controller, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch order and the equality policy are `mgmt_key_blob_state`'s, for its reasons. ⛔ IT JUDGES THE
+// **STORAGE**: the flag domain, label grammar/uniqueness, path canonicality, duplicate keys and count-versus-holes
+// are `mrfw::target_content_valid`'s, one layer up.
+inline TargetRead target_blob_state(const TargetBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return TargetRead::io_failed;
+    if (io.oversize)       return TargetRead::invalid;
+    if (n == kSlotAbsent)  return TargetRead::absent;
+    return blob_valid_exact(b, n, kTargetMagic, kTargetVersion) ? TargetRead::ok : TargetRead::invalid;
+}
+// Stamp an EMPTY, VALID 32-slot book. ONE path (U2), for `acl_blob_init`'s reasons.
+inline void target_blob_init(TargetBlob& b) {
+    b = TargetBlob{};
+    b.magic   = kTargetMagic;
+    b.version = kTargetVersion;
 }
 
 // ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
@@ -1325,4 +1541,23 @@ inline AclRead load_acl(AclBlob& out) {
     return acl_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
 }
 inline bool save_acl(const AclBlob& b) { return write_slot(kSlotAcl, &b, sizeof b); }
+// §RADMIN slice 4 — the controller keyring. ★ The SIXTH such pair, for `AdminIdRead`'s reasons. ⛔ `kSlotMgmtKeys`,
+// ⛔ never `kSlotAdmid`: `/mradmid` is the seed a TARGET is administered BY, `/mrmkeys` holds the seeds this
+// CONTROLLER administers OTHERS with. Design §6.4: *"The controller private seed never enters the target, and the
+// target administration seed never enters the controller."* Crossing these two slots would do exactly that.
+inline MgmtKeyRead load_mgmt_keys(MgmtKeyBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotMgmtKeys, &out, sizeof out, &io);
+    return mgmt_key_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+inline bool save_mgmt_keys(const MgmtKeyBlob& b) { return write_slot(kSlotMgmtKeys, &b, sizeof b); }
+// §RADMIN slice 4 — the controller target book. ★ The SEVENTH such pair. ⛔ `kSlotTargets`, ⛔ never
+// `kSlotMgmtKeys` and ⛔ never `kSlotPeers`: the book is separately readable, separately writable and separately
+// recoverable from the keyring, and it is NOT the `/mrpeers` address book (which EVICTS; this one refuses `full`).
+inline TargetRead load_targets(TargetBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotTargets, &out, sizeof out, &io);
+    return target_blob_state(out, n, io);     // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+inline bool save_targets(const TargetBlob& b) { return write_slot(kSlotTargets, &b, sizeof b); }
 }  // namespace mrnv

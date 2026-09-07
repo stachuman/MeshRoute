@@ -53,7 +53,47 @@
 // through the REAL `mrnv::load_admin_id` / `load_acl` wrappers, and can render the stored seed's hex to prove it
 // appears NOWHERE in any console line.
 #include "firmware_admin_verbs.h"
+// §RADMIN slice 4 — the two CONTROLLER stores' PURE services, so the CLIENT arm can read back what the REAL
+// router wrote through the REAL `mrnv::load_mgmt_keys` / `load_targets` wrappers. ⛔ UNGATED, like the header
+// above: both are capability-free ([[B255]]) and compile on either arm.
+#include "firmware_admin_client_verbs.h"
 #include <cctype>                // isxdigit (the "8 UPPERCASE hex digits" row, pinned without the format string)
+#include "monocypher.h"          // crypto_wipe — WRAPPED below, so [[B321]]'s scratch wipe is OBSERVED, not grepped
+
+// ================================================================================================================
+// ★★★ [[B321]] — THE TEST-ONLY `crypto_wipe` INTERPOSER, AND WHY IT HAS TO EXIST.
+//
+//     `mrfw::parse_hex32`'s 32-byte staging buffer is a STACK FRAME of a function that has already returned by the
+//     time any caller could look at it, so "the scratch was wiped" is UNOBSERVABLE from `test/`: reading that
+//     storage afterwards is undefined behaviour and any "it was zero" assertion would be measuring luck. ⇒ the
+//     observation is moved to the ONE place where the frame is still ALIVE — inside the call itself.
+//
+//     `-Wl,--wrap=crypto_wipe` makes the LINKER route every call to `__wrap_crypto_wipe`; `__real_crypto_wipe` is
+//     the genuine monocypher symbol. This wrapper therefore watches the REAL production call: it copies the bytes
+//     BEFORE the wipe, performs the REAL wipe, and re-reads the SAME live storage afterwards.
+// ⛔ IT IS NOT A REPLACEMENT DECODER AND NOT A PRODUCTION CALLBACK: production is unmodified and unaware, the real
+//    wipe still happens, and the wrapper is inert (a straight forward) unless a case arms it.
+// ⛔ AND IT IS THE PROBE'S, NOT THE SUITE'S: `test/test_firmware_config_parse.cpp` deliberately claims only that
+//    the GRAMMAR and the OUTPUT did not move. This file owns the wipe.
+// ================================================================================================================
+extern "C" void __real_crypto_wipe(void* p, size_t n);
+struct MrWipeRec { const void* p = nullptr; size_t n = 0; unsigned char before[32] = {}; bool after_zero = false; };
+static MrWipeRec g_wipes[32];
+static int       g_nwipes     = 0;
+static bool      g_wipe_watch = false;
+extern "C" void __wrap_crypto_wipe(void* p, size_t n) {
+    if (!g_wipe_watch || g_nwipes >= 32) { __real_crypto_wipe(p, n); return; }
+    MrWipeRec& w = g_wipes[g_nwipes++];
+    w.p = p;
+    w.n = n;
+    const size_t k = n < sizeof w.before ? n : sizeof w.before;
+    std::memcpy(w.before, p, k);                       // ⓘ the frame is ALIVE — this is fully-defined behaviour
+    __real_crypto_wipe(p, n);
+    w.after_zero = true;
+    for (size_t i = 0; i < k; ++i) if (static_cast<const unsigned char*>(p)[i] != 0) w.after_zero = false;
+}
+static void wipe_watch_begin() { g_nwipes = 0; g_wipe_watch = true; }
+static void wipe_watch_end()   { g_wipe_watch = false; }
 
 #include <cstdio>
 #include <cstring>
@@ -484,7 +524,21 @@ int main() {
     static const char kName[]   = "probe-node";                       // a realistic operator label (10 B)
     const uint16_t    kNameLen  = uint16_t(sizeof kName - 1);
     static const char kMaxName[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"; // EXACTLY sizeof(IdBlob::name) = 32
-    char want[192];
+    char want[320];
+
+// ★★★ §RADMIN slice 4 — ON A CLIENT BUILD `do_regen` APPENDS EXACTLY ONE MORE RULED LINE after the success line,
+//     on the SAME sink. The expectation below therefore GROWS by that line on the CLIENT arm and is UNCHANGED on
+//     the ACCEPT arm — which is what makes *"ACCEPT `regen` output remains byte-identical"* a MEASURED claim
+//     rather than an assertion, and what makes the CLIENT warning a byte-pinned one on the real router.
+// ⓘ It ends "\n" and NOT "\r\n": the warning goes through the pure emitter's `IAdminLines::line` (one `write`
+//   of composed bytes), whereas the success line goes through `Print::println`, which appends CR LF. That
+//   asymmetry is production's and is pinned here rather than smoothed over.
+#if MR_FEAT_RADMIN_CLIENT
+#  define MR_REGEN_NOTE "> regen note old self ACL grants do not follow the new key; " \
+                        "dedicated keys and targets preserved\n"
+#else
+#  define MR_REGEN_NOTE ""
+#endif
 
     // ---------------------------------------------------------------------------------------------------------
     // R1..R8 — THE SAVE FAILURE, THROUGH THE BLE-SHAPED SINK. It runs FIRST on purpose: `crypto_ready()` is still
@@ -541,7 +595,7 @@ int main() {
     ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
     const bool own_ok_ble = route_ble("regen");
     mrcon.service();
-    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n",
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n" MR_REGEN_NOTE,
                   (unsigned long)exp.key_hash32, kName);
     CHK(own_ok_ble, "R11 dispatch() owns `regen` on the success path too");
     CHK(std::strcmp(g_ble, want) == 0,
@@ -600,7 +654,7 @@ int main() {
     ble_reset(); Serial.reset();
     route_ble("regen");
     mrcon.service();
-    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX\r\n", (unsigned long)exp.key_hash32);
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX\r\n" MR_REGEN_NOTE, (unsigned long)exp.key_hash32);
     CHK(std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
         "R25 a record with NO name emits no `name=` segment, and still nothing on USB [%s]", g_ble);
 
@@ -609,7 +663,7 @@ int main() {
     ble_reset(); Serial.reset();
     route_ble("regen");
     mrcon.service();
-    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n",
+    std::snprintf(want, sizeof want, "> regen ok  key_hash32= 0x%08lX  name=\"%s\"\r\n" MR_REGEN_NOTE,
                   (unsigned long)exp.key_hash32, kMaxName);
     CHK(std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
         "R26 a MAXIMUM-length (32 B) name is emitted in full, and still nothing on USB [%s]", g_ble);
@@ -739,11 +793,29 @@ int main() {
                 && mrprobe_nv().writes == 1,
             "X7  `peerkey` on the TEXT arm reaches handle_peerkey (ack + exactly one /mrpeers write) [%s]",
             Serial.out);
+        // ⚠⚠ §RADMIN slice 4 — A **DIFFERENT KEY** ON THIS ARM, and the change is a FIX rather than a convenience.
+        //    Until slice 4 the probe's NV fake held 512-byte payloads, so a 1160-byte `/mrpeers` record was
+        //    SILENTLY DROPPED by `MrProbeNvSlot::put` while the write was still counted. Every `peerkey` therefore
+        //    re-read an ABSENT store, `peer_rec_put` answered `inserted`, and X8's `writes == 1` passed WITHOUT
+        //    ever exercising production's wear guard. With the medium enlarged for `/mrtargets` the record now
+        //    really persists, and re-pasting the SAME key is exactly the `unchanged` case that must cost ZERO
+        //    writes (`firmware_commands.cpp`'s wear guard). ⇒ the row keeps its meaning — "the JSON arm reaches
+        //    handle_peerkey and makes its one write" — by pinning a genuinely NEW peer, and the coalescing itself
+        //    is asserted immediately below as X8b. Registered as a probe finding, not silently absorbed.
+        const char* kPk2 = "peerkey aabb33445566778899001122334455667788990011223344556677889900aabb";
         mrprobe_nv().writes = 0;
-        ex = run_json(kPk);
+        ex = run_json(kPk2);
         CHK(ex.state == St::buffered && std::strstr(x_reply, "\"ev\":\"peerkey_set\"")
                 && mrprobe_nv().writes == 1 && Serial.n_out == 0,
             "X8  ...and on the JSON arm identically, into the reply buffer [%s]", x_reply);
+        // ★ THE WEAR GUARD, now that the medium is honest enough to show it: re-pasting an IDENTICAL key is
+        //   `unchanged` and must write NOTHING. This is production behaviour the old fake made unobservable.
+        mrprobe_nv().writes = 0;
+        ex = run_json(kPk2);
+        CHK(ex.state == St::buffered && std::strstr(x_reply, "\"ev\":\"peerkey_set\"")
+                && mrprobe_nv().writes == 0,
+            "X8b re-pasting the SAME key is `unchanged` and costs ZERO flash writes (writes=%d)",
+            mrprobe_nv().writes);
         ex = run_text("peername 0x44332211 \"bob\"");
         CHK(ex.state == St::streamed && std::strstr(Serial.out, "\"ev\":\"peer_name_set\""),
             "X9  `peername` on the TEXT arm reaches handle_peername [%s]", Serial.out);
@@ -843,6 +915,75 @@ int main() {
     }
 
 
+    // ================================================================================================
+    // [[B321]] — THE SHARED HEX DECODER'S SECRET SCRATCH IS WIPED, OBSERVED ON THE REAL CALL.
+    // ⓘ ON BOTH ARMS: `mrfw::parse_hex32` is the ONE path a 64-hex TEAM KEY or a `/mrmkeys` MASTER SEED takes into
+    //   the firmware, and it is capability-free — so the property is measured on the product profile that imports
+    //   seeds AND on the one that does not.
+    // ================================================================================================
+    {
+        static const char kSecretHex[] =
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+        uint8_t decoded[32] = {};
+        wipe_watch_begin();
+        const bool ok_hex = mrfw::parse_hex32(kSecretHex, decoded);
+        wipe_watch_end();
+        CHK(ok_hex, "Z1  the shipped decoder still ACCEPTS a well-formed 64-hex token (the grammar did not move)");
+        // ★ EXACTLY ONE 32-byte wipe, and its CONTENT was the decoded secret — i.e. the buffer wiped is the
+        //   SCRATCH that held the key material, not some unrelated 32 bytes.
+        int n32 = 0, matched = 0, zeroed = 0;
+        for (int i = 0; i < g_nwipes; ++i) {
+            if (g_wipes[i].n != 32) continue;
+            ++n32;
+            if (std::memcmp(g_wipes[i].before, decoded, 32) == 0) ++matched;
+            if (g_wipes[i].after_zero) ++zeroed;
+        }
+        CHK(n32 == 1, "Z2  the decode performs EXACTLY ONE 32-byte crypto_wipe (saw %d)", n32);
+        CHK(matched == 1,
+            "Z3  ...over the SCRATCH that held the decoded key material (content matched %d)", matched);
+        CHK(zeroed == 1, "Z4  ...and the storage READ BACK ALL-ZERO while the frame was still alive (%d)", zeroed);
+
+        // ⛔ A REFUSAL AFTER ALLOCATION WIPES TOO — the path a hand-written per-return list forgets first.
+        static const char kBadHex[] =
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8fZZ";
+        uint8_t junk[32] = {};
+        wipe_watch_begin();
+        const bool ok_bad = mrfw::parse_hex32(kBadHex, junk);
+        wipe_watch_end();
+        int bad32 = 0, bad_zero = 0;
+        for (int i = 0; i < g_nwipes; ++i)
+            if (g_wipes[i].n == 32) { ++bad32; if (g_wipes[i].after_zero) ++bad_zero; }
+        CHK(!ok_bad, "Z5  a malformed token is still REFUSED (the output-on-failure did not move)");
+        CHK(bad32 == 1 && bad_zero == 1,
+            "Z6  ...and its scratch is wiped ON THE REFUSAL PATH too (%d wipe(s), %d zeroed)", bad32, bad_zero);
+
+        // ⛔ A NULL INPUT ALLOCATES NO SCRATCH, so there is nothing to wipe and nothing is wiped.
+        wipe_watch_begin();
+        const bool ok_null = mrfw::parse_hex32(nullptr, junk);
+        wipe_watch_end();
+        int null32 = 0;
+        for (int i = 0; i < g_nwipes; ++i) if (g_wipes[i].n == 32) ++null32;
+        CHK(!ok_null && null32 == 0,
+            "Z7  a NULL input allocates no scratch and performs NO wipe (%d)", null32);
+
+        // ⓘ THE CONTROL OF THE OBSERVATION: the interposer must actually be in the link, or Z2..Z6 would read 0
+        //   wipes and "0 == 1" would be the only thing failing. This row proves the wrapper SEES the real call.
+        uint8_t live[32];
+        std::memset(live, 0xC7, sizeof live);
+        wipe_watch_begin();
+        crypto_wipe(live, sizeof live);
+        wipe_watch_end();
+        CHK(g_nwipes == 1 && g_wipes[0].p == live && g_wipes[0].n == 32
+            && g_wipes[0].before[0] == 0xC7 && g_wipes[0].after_zero,
+            "Z8  the interposer is LINKED and observes the REAL crypto_wipe (n=%d)", g_nwipes);
+    }
+
+    // ★★ §RADMIN slice 4: THE BLOCK BELOW IS **ACCEPT-ARM ONLY**, and the gate is the PRODUCT's own macro rather
+    //    than a probe switch: on the CLIENT arm `src/firmware_commands.cpp` compiles no target-store binding at
+    //    all, so `acl`/`admin-id` are not router verbs there and every row below would be measuring a surface the
+    //    product does not have. The CLIENT arm's own rows follow, and the ⛔ ABSENCE of this family on that arm is
+    //    asserted there rather than left implicit.
+#if MR_FEAT_RADMIN_ACCEPT
     // ================================================================================================
     // §RADMIN SLICE 3 — THE TWO TARGET STORES, THROUGH THE REAL ROUTER AND THE REAL NV WRAPPERS.
     //
@@ -1111,6 +1252,334 @@ int main() {
         }
         reset_nv(false);
     }
+#endif   // MR_FEAT_RADMIN_ACCEPT
+
+    // ================================================================================================
+    // §RADMIN SLICE 4 — THE TWO CONTROLLER STORES, THROUGH THE REAL ROUTER AND THE REAL NV WRAPPERS.
+    //
+    // ⛔⛔ WHY THESE ROWS EXIST, stated as the defect they close — the ACCEPT block's argument, on the other
+    //     product role: `test/test_firmware_admin_{keyring,targets,client_verbs}.cpp` pin every service rule and
+    //     every emitted byte, and every one of those gates stays GREEN if the `dispatch()` arm is deleted, if the
+    //     Print adapter writes to `mrcon` instead of the supplied sink, if a store binding is pointed at the
+    //     WRONG SLOT (`/mradmid` instead of `/mrmkeys` — design §6.4's crossing), if the entropy binding returns
+    //     an unconditional `true`, or if the resident scratch is never reloaded. None of that is reachable from a
+    //     host build of `test/`.
+    //
+    // ⛔ THIS IS A **CLIENT** HOST PROFILE (`-DARDUINO -DBOARD_HELTEC_V3 -DMR_PROFILE_MOBILE` ⇒
+    //    `MR_FEAT_RADMIN_CLIENT=1`). It is ⛔ NOT execution of mobile hardware, ⛔ NOT a real BLE transport and
+    //    ⛔ NOT a flash test: the NV medium is a fake, so no wear, no power cut and no real filesystem is
+    //    exercised. Bench Part 56 owns those.
+    // ⛔ AND IT IS NOT BLE ADMISSION EVIDENCE EITHER: a `LineSink`-shaped sink is a SINK, not a transport. R-RA-30's
+    //    guard lives in `ble_dispatch_line` and is measured by `tools/probe_console_sink/ble_guard.py`.
+    // ================================================================================================
+#if MR_FEAT_RADMIN_CLIENT
+    {
+        CaptureSink s;                                    // this arm's OWN sink — the ACCEPT block's is gated out
+        static const char kName[]  = "probe-node";        // the same realistic operator label the R rows use
+        const uint16_t    kNameLen = uint16_t(sizeof kName - 1);
+        auto& nv  = mrprobe_nv();
+        auto& rng = mrprobe_rng();
+        auto reset_nv = [&](bool writable) {
+            nv = MrProbeNv{};
+            nv.ns_present = writable;
+            nv.rw_ok      = writable;
+            rng = MrProbeRng{};
+        };
+        const char* kPubB = "2222222222222222222222222222222222222222222222222222222222222222";
+        const char* kSeedC = "3333333333333333333333333333333333333333333333333333333333333333";
+        // ★★ THIS NODE'S OWN messaging identity, installed from a seed the probe's deterministic RNG stream can
+        //    never produce. ⛔ WITHOUT IT the first `generate` would be a LEGITIMATE `duplicate`: the R rows leave
+        //    `g_identity` derived from the SAME reset stream the draw replays, so self and the fresh key would be
+        //    one principal — the service refusing correctly, and the row measuring the fixture instead.
+        {
+            uint8_t self_seed[32];
+            for (size_t i = 0; i < sizeof self_seed; ++i) self_seed[i] = uint8_t(0xB0 ^ (i * 3));
+            meshroute::identity_from_seed(g_identity, self_seed);
+            g_node.set_identity(7, g_identity.key_hash32);
+        }
+
+        // ---- Q1: the two families REACH the router, and the TARGET half does NOT exist on this build --------
+        {
+            reset_nv(true);
+            s.reset(); CHK(mrfw::dispatch("admin-key list", 14, s), "Q1  `admin-key list` is OWNED by the real dispatch()");
+            s.reset(); CHK(mrfw::dispatch("admin-target list", 17, s), "Q1b `admin-target list` is OWNED by the real dispatch()");
+            // ⛔ THE MIRROR OF R30c: on a CLIENT build the TARGET family is not a verb at all, so it must fall
+            //    through to the caller's unsupported-verb answer with ZERO bytes emitted here.
+            s.reset(); CHK(!mrfw::dispatch("acl list", 8, s) && s.n == 0,
+                           "Q1c `acl list` (the TARGET family) is NOT owned on a CLIENT build — 0 bytes");
+            s.reset(); CHK(!mrfw::dispatch("admin-id show", 13, s) && s.n == 0,
+                           "Q1d `admin-id show` is NOT owned on a CLIENT build — 0 bytes");
+            s.reset(); CHK(!mrfw::dispatch("admin-keys", 10, s) && s.n == 0,
+                           "Q1e `admin-keys` is NOT owned — the token boundary holds in the real router");
+            s.reset(); CHK(!mrfw::dispatch("admin-targetx", 13, s) && s.n == 0,
+                           "Q1f `admin-targetx` is NOT owned — the token boundary holds in the real router");
+        }
+
+        // ---- Q2: `admin-key show self` answers from the LIVE identity and reads NOTHING -----------------------
+        {
+            reset_nv(true);
+            nv.reads = 0; rng.draws = 0;
+            s.reset();
+            mrfw::dispatch("admin-key show self", 19, s);
+            char want_self[160];
+            char fp[mrfw::kAdminFpHex + 1], pub[mrfw::kAdminKeyHex + 1];
+            mrfw::admin_fp_hex(g_identity.ed_pub, fp);
+            mrfw::admin_key_hex(g_identity.ed_pub, pub);
+            std::snprintf(want_self, sizeof want_self, "> admin-key self fp=%s pub=%s\n", fp, pub);
+            CHK(std::strcmp(s.buf, want_self) == 0,
+                "Q2  `show self` prints THIS node's live identity, byte for byte [%s]", s.buf);
+            CHK(nv.reads == 0 && rng.draws == 0,
+                "Q2b ...and it reads NO record and draws NO entropy (reads=%d draws=%d)", nv.reads, rng.draws);
+        }
+
+        // ---- Q3: `generate` writes the KEYRING SLOT and nothing else -------------------------------------
+        {
+            reset_nv(true);
+            nv.writes = 0; rng.draws = 0;
+            s.reset();
+            mrfw::dispatch("admin-key generate key0", 23, s);
+            CHK(std::strncmp(s.buf, "> admin-key generated key0 fp=", 30) == 0,
+                "Q3  `generate key0` succeeds through the REAL binding [%s]", s.buf);
+            // ⓘ EIGHT draws, not one: `mrrng::fill` fills 32 bytes from a 32-bit source. The figure is the
+            //   PLATFORM's arithmetic and is pinned rather than rounded — a binding that drew twice would show 16.
+            CHK(nv.writes == 1 && rng.draws == 8,
+                "Q3b ...at EXACTLY one write and one full 32-byte draw (writes=%d draws=%u)",
+                nv.writes, unsigned(rng.draws));
+            // ⛔ THE SLOT BINDING, MEASURED: the bytes must be under `mkeys`, ⛔ never under `admid` or `targets`.
+            CHK(nv.find("mr", "mkeys") != nullptr,
+                "Q3c ...and the record landed on the `/mrmkeys` backend key");
+            CHK(nv.find("mr", "admid") == nullptr && nv.find("mr", "targets") == nullptr,
+                "Q3d ...⛔ and NOT on /mradmid (design §6.4's crossing) nor on /mrtargets");
+            // …and the SEED is the probe's deterministic draw, so "it wrote what it drew" is measurable.
+            mrnv::MgmtKeyBlob got{};
+            CHK(mrnv::load_mgmt_keys(got) == mrnv::MgmtKeyRead::ok && got.count == 1
+                && mrfw::mgmt_key_row_occupied(got.rec[0]),
+                "Q3e ...the record re-loads through the typed wrapper as a valid one-key ring");
+        }
+
+        // ---- Q4: an ALL-ZERO platform draw refuses, having ASKED, and mints nothing --------------------------
+        {
+            reset_nv(true);
+            rng.force_zero = true;
+            nv.writes = 0; rng.draws = 0;
+            s.reset();
+            mrfw::dispatch("admin-key generate key1", 23, s);
+            CHK(std::strcmp(s.buf, "> admin-key err entropy_failed\n") == 0,
+                "Q4  a DEAD (all-zero) platform draw answers `entropy_failed` [%s]", s.buf);
+            CHK(rng.draws == 8, "Q4b ...having ASKED the platform for a FULL 32-byte draw (draws=%u)",
+                unsigned(rng.draws));
+            CHK(nv.writes == 0, "Q4c ...and having written NOTHING (writes=%d)", nv.writes);
+            rng.force_zero = false;
+        }
+
+        // ---- Q5: a refused medium answers nv_save_failed after exactly one attempt ---------------------------
+        {
+            reset_nv(true);
+            nv.fail_write = true; nv.writes = 0;
+            s.reset();
+            mrfw::dispatch("admin-key generate key0", 23, s);
+            CHK(std::strcmp(s.buf, "> admin-key err nv_save_failed\n") == 0,
+                "Q5  a refused medium answers `nv_save_failed` [%s]", s.buf);
+            CHK(nv.writes == 1, "Q5b ...after EXACTLY one attempt (writes=%d)", nv.writes);
+        }
+
+        // ---- Q6: `export` prints the SEED, and it is the one the probe supplied ------------------------------
+        {
+            reset_nv(true);
+            char cmd[128];
+            std::snprintf(cmd, sizeof cmd, "admin-key import key2 %s", kSeedC);
+            s.reset();
+            mrfw::dispatch(cmd, std::strlen(cmd), s);
+            CHK(std::strncmp(s.buf, "> admin-key imported key2 fp=", 29) == 0,
+                "Q6  `import key2 <hex>` succeeds through the REAL binding [%s]", s.buf);
+            nv.writes = 0;
+            s.reset();
+            mrfw::dispatch("admin-key export key2", 21, s);
+            char want_exp[160];
+            std::snprintf(want_exp, sizeof want_exp, "> admin-key exported key2 seed=%s\n", kSeedC);
+            CHK(std::strcmp(s.buf, want_exp) == 0,
+                "Q6b `export key2` returns EXACTLY the imported seed [%s]", s.buf);
+            CHK(nv.writes == 0, "Q6c ...and writes nothing (writes=%d)", nv.writes);
+        }
+
+        // ---- Q7: EVERY ordinary refusal costs zero stores, zero draws and reaches NO foreign handler ---------
+        {
+            reset_nv(true);
+            const char* refusals[] = { "admin-key", "admin-key bogus", "admin-key show key9",
+                                       "admin-key remove key0", "admin-key reset",
+                                       "admin-target", "admin-target bogus", "admin-target show label=nope",
+                                       "admin-target remove label=nope confirm", "admin-target reset" };
+            for (const char* line : refusals) {
+                nv.writes = 0; rng.draws = 0;
+                s.reset(); Serial.reset(); ble_reset();
+                const bool owned = mrfw::dispatch(line, std::strlen(line), s);
+                mrcon.service();
+                CHK(owned && s.n > 0 && std::strstr(s.buf, " err ") != nullptr,
+                    "Q7  `%s` is OWNED and answers a typed refusal [%s]", line, s.buf);
+                CHK(nv.writes == 0 && rng.draws == 0,
+                    "Q7b `%s` costs ZERO writes and ZERO draws (writes=%d draws=%d)", line, nv.writes, rng.draws);
+                CHK(Serial.n_out == 0 && g_ble_n == 0,
+                    "Q7c `%s` reaches NO foreign handler and no global sink (%u/%u B)", line,
+                    unsigned(Serial.n_out), unsigned(g_ble_n));
+            }
+        }
+
+        // ---- Q8: the TARGET BOOK, end to end, over the ONE resident scratch ----------------------------------
+        {
+            reset_nv(true);
+            char cmd[200];
+            std::snprintf(cmd, sizeof cmd, "admin-target add alpha %s hash=0xDEADBEEF layer=1,2,3", kPubB);
+            nv.writes = 0;
+            s.reset();
+            mrfw::dispatch(cmd, std::strlen(cmd), s);
+            CHK(std::strncmp(s.buf, "> admin-target added slot=0 fp=", 30) == 0,
+                "Q8  `admin-target add` succeeds through the REAL binding [%s]", s.buf);
+            CHK(nv.writes == 1, "Q8b ...at EXACTLY one write (writes=%d)", nv.writes);
+            CHK(nv.find("mr", "targets") != nullptr && nv.find("mr", "mkeys") == nullptr,
+                "Q8c ...and the record landed on `/mrtargets`, ⛔ not on the keyring's key");
+            // The resident scratch is IO storage, not a cache: two identical listings must agree exactly.
+            s.reset();
+            mrfw::dispatch("admin-target list", 17, s);
+            // ⛔ A BOUNDED COPY, not `snprintf("%s")`: the sink's buffer is 4096 B and a format-truncation
+            //    warning is gate-blocking here (`-Werror`). The size is the page bound plus headroom.
+            char first[2048] = {};
+            const size_t first_n = s.n < sizeof first - 1 ? s.n : sizeof first - 1;
+            std::memcpy(first, s.buf, first_n);
+            s.reset();
+            mrfw::dispatch("admin-target list", 17, s);
+            CHK(std::strcmp(first, s.buf) == 0,
+                "Q8d two identical listings over the ONE resident scratch agree byte for byte");
+            CHK(std::strstr(s.buf, "hash=0xDEADBEEF layer=1,2,3") != nullptr
+                && std::strstr(s.buf, "> admin-target end page=0 count=1\n") != nullptr,
+                "Q8e ...and the row carries the stored hint and path verbatim [%s]", s.buf);
+            nv.writes = 0;
+            s.reset();
+            mrfw::dispatch("admin-target remove label=alpha confirm", 39, s);
+            CHK(std::strcmp(s.buf, "> admin-target removed slot=0\n") == 0,
+                "Q8f `remove label=… confirm` succeeds [%s]", s.buf);
+            CHK(nv.writes == 1, "Q8g ...at EXACTLY one write (writes=%d)", nv.writes);
+        }
+
+        // ---- Q9: the READ-ONLY BOOT report — two lines, zero writes, zero draws, no key byte -----------------
+        {
+            reset_nv(true);
+            nv.writes = 0; rng.draws = 0;
+            Serial.reset(); ble_reset();
+            mrfw::admin_client_stores_boot_report_console();
+            mrcon.service();
+            CHK(std::strcmp(Serial.out, "> admin-key boot state=absent count=0\n"
+                                        "> admin-target boot state=absent count=0\n") == 0,
+                "Q9  the CLIENT boot report prints EXACTLY the two ruled lines on `mrcon` [%s]", Serial.out);
+            CHK(nv.writes == 0 && rng.draws == 0,
+                "Q9b ...writing nothing and drawing nothing (writes=%d draws=%d)", nv.writes, rng.draws);
+            CHK(!std::strstr(Serial.out, "pub=") && !std::strstr(Serial.out, "seed=")
+                && !std::strstr(Serial.out, "fp="),
+                "Q9c ...and carrying NO key, seed or fingerprint byte");
+            CHK(g_ble_n == 0, "Q9d ...and nothing reached the BLE sink (%u B)", unsigned(g_ble_n));
+        }
+
+        // ---- Q10: a DEAD BACKEND makes BOTH records `io_failed`, and even the resets refuse ------------------
+        {
+            reset_nv(true);
+            nv.ns_present = false;                       // a read-only begin() fails …
+            mrprobe_nvs().backend_dead = true;           // … and NOT because the namespace was never written
+            nv.writes = 0;
+            s.reset(); mrfw::dispatch("admin-key list", 14, s);
+            CHK(std::strcmp(s.buf, "> admin-key err store_io_failed\n") == 0,
+                "Q10 a DEAD backend is `store_io_failed`, ⛔ never the fresh-device `absent` [%s]", s.buf);
+            s.reset(); mrfw::dispatch("admin-target list", 17, s);
+            CHK(std::strcmp(s.buf, "> admin-target err store_io_failed\n") == 0,
+                "Q10b ...on the book too [%s]", s.buf);
+            s.reset(); mrfw::dispatch("admin-key reset confirm", 23, s);
+            CHK(std::strcmp(s.buf, "> admin-key err store_io_failed\n") == 0,
+                "Q10c ⛔ EVEN THE CONFIRM-GATED RECOVERY refuses — nothing is known, so nothing may be written");
+            s.reset(); mrfw::dispatch("admin-target reset confirm", 26, s);
+            CHK(std::strcmp(s.buf, "> admin-target err store_io_failed\n") == 0,
+                "Q10d ...and on the book too");
+            Serial.reset();
+            mrfw::admin_client_stores_boot_report_console();
+            mrcon.service();
+            CHK(std::strcmp(Serial.out, "> admin-key boot state=io_failed count=0\n"
+                                        "> admin-target boot state=io_failed count=0\n") == 0,
+                "Q10e the boot report NAMES the state and still writes nothing [%s]", Serial.out);
+            CHK(nv.writes == 0, "Q10f ...and not one write was attempted anywhere (writes=%d)", nv.writes);
+            mrprobe_nvs().backend_dead = false;
+        }
+
+        // ---- Q11: EVERY response lands on the SUPPLIED sink — `mrcon` and BLE get zero bytes -----------------
+        {
+            reset_nv(true);
+            mrcon.service(); Serial.reset(); ble_reset();
+            s.reset();
+            mrfw::dispatch("admin-key list", 14, s);
+            mrcon.service();
+            CHK(s.n > 0 && Serial.n_out == 0 && g_ble_n == 0,
+                "Q11 the whole response lands on the SUPPLIED sink; `mrcon` 0 B [%u], BLE 0 B [%u]",
+                unsigned(Serial.n_out), unsigned(g_ble_n));
+        }
+
+        // ---- Q12: ★★ `regen` PRESERVES BOTH CONTROLLER STORES, byte for byte, on success AND on failure ------
+        //      This is what makes the ruled warning's `dedicated keys and targets preserved` a PROVEN claim
+        //      rather than a comforting sentence: the two records are snapshotted before and compared after.
+        {
+            reset_nv(true);
+            char cmd[200];
+            std::snprintf(cmd, sizeof cmd, "admin-key import key0 %s", kSeedC);
+            s.reset(); mrfw::dispatch(cmd, std::strlen(cmd), s);
+            std::snprintf(cmd, sizeof cmd, "admin-target add alpha %s hash=0x1", kPubB);
+            s.reset(); mrfw::dispatch(cmd, std::strlen(cmd), s);
+            mrnv::MgmtKeyBlob keys_before{};
+            mrnv::TargetBlob  book_before{};
+            CHK(mrnv::load_mgmt_keys(keys_before) == mrnv::MgmtKeyRead::ok
+                && mrnv::load_targets(book_before) == mrnv::TargetRead::ok,
+                "Q12 both controller records are provisioned before the rotation");
+
+            // ⛔ NOT `seed_id()` HERE: that fixture calls `nv.reset()`, which would wipe the two records this
+            //    very case is about — the medium would then agree with itself for the wrong reason.
+            {
+                mrnv::IdBlob idb{};
+                idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+                idb.name_len = kNameLen;
+                for (uint16_t i = 0; i < kNameLen; ++i) idb.name[i] = kName[i];
+                for (size_t i = 0; i < sizeof idb.seed; ++i) idb.seed[i] = uint8_t(0x40 + i);
+                (void)mrnv::save_id(idb);
+            }
+            nv.writes = 0;
+            ble_reset(); Serial.reset();
+            route_ble("regen");
+            mrcon.service();
+            CHK(std::strstr(g_ble, "> regen ok") == g_ble,
+                "Q12b `regen` still succeeds on a CLIENT build [%s]", g_ble);
+            CHK(std::strstr(g_ble, "> regen note old self ACL grants do not follow the new key; "
+                                   "dedicated keys and targets preserved\n") != nullptr,
+                "Q12c ...and the ruled WARNING follows the success line on the SAME sink [%s]", g_ble);
+            CHK(Serial.n_out == 0,
+                "Q12d ...with NOT ONE byte on the global console (%u B)", unsigned(Serial.n_out));
+            CHK(nv.writes == 1,
+                "Q12e ...and EXACTLY ONE record was written — /mrid (writes=%d)", nv.writes);
+            mrnv::MgmtKeyBlob keys_after{};
+            mrnv::TargetBlob  book_after{};
+            CHK(mrnv::load_mgmt_keys(keys_after) == mrnv::MgmtKeyRead::ok
+                && std::memcmp(&keys_before, &keys_after, sizeof keys_after) == 0,
+                "Q12f ★ the KEYRING is byte-identical across the rotation");
+            CHK(mrnv::load_targets(book_after) == mrnv::TargetRead::ok
+                && std::memcmp(&book_before, &book_after, sizeof book_after) == 0,
+                "Q12g ★ the TARGET BOOK is byte-identical across the rotation");
+
+            // …and on the FAILURE path neither the success line nor the warning is printed.
+            nv.fail_write = true;
+            ble_reset(); Serial.reset();
+            route_ble("regen");
+            mrcon.service();
+            CHK(std::strcmp(g_ble, "> regen err nv_save_failed\r\n") == 0,
+                "Q12h a REFUSED /mrid save prints the error and ⛔ NO warning [%s]", g_ble);
+            CHK(!std::strstr(g_ble, "regen note"),
+                "Q12i ...the CLIENT warning is ABSENT on the failure path");
+            nv.fail_write = false;
+        }
+        reset_nv(false);
+    }
+#endif   // MR_FEAT_RADMIN_CLIENT
 
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");

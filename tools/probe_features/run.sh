@@ -86,16 +86,24 @@ WARN=(-Wall -Wextra -Werror)
 #     `firmware_commands.{cpp,h}`, `fw_main.cpp`, `firmware_help.h`). O4a-c became O4a-g ⇒ +4 checks, and ⛔ NOTHING
 #     ELSE MOVED: S1..S2 still 2, E1..E13 still 13, the 9 cells still 81, O1/O2/O3/O5/O6a-c/O7a-b/O8..O13 unchanged.
 #     18 + 4 = 22. Every previously-pinned check is still executed and still green — this is a GROWTH, not a re-base.
-# PIN_CONTROLS = 44: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
-#     X1..X4 the controls-of-the-controls · W-* the 19 ownership violations · Y0..Y5 the ownership
+# PIN_CONTROLS = 52: A1..A4 refusals · B1..B6 executable matrix mutations · C1..C5 guard removal/scope ·
+#     X1..X4 the controls-of-the-controls · W-* the 27 ownership violations · Y0..Y5 the ownership
 #     controls-of-controls (a green baseline, a benign edit, multi-match, vacuous, unreadable, tree integrity).
-#     4 + 6 + 5 + 4 + 19 + 6 = 44. ✓  (was 19 before slice 1b and 38 before §RADMIN slice 3 — every prior control
+#     4 + 6 + 5 + 4 + 27 + 6 = 52. ✓
+#     ⚠ RE-DERIVED 2026-09-06 BY §RADMIN SLICE 4, 44 -> 52. Every prior control is PRESERVED; the +8 are one per
+#     NEW CONTROLLER owner boundary, in the SAME five shapes the slice-3 six take: the controller router arm's
+#     gate DELETED, the R-RA-30 BLE split's gate DELETED, the controller boot call's gate legacy-WIDENED, the two
+#     controller help names INVERTED onto ACCEPT, ★ `do_regen`'s CLIENT ADMISSION inverted onto ACCEPT, a
+#     DUPLICATE guard in the controller boot-wrapper header, and BOTH new pure headers acquiring a capability
+#     macro (the keyring's and the verb header's — the latter matters because the BLE guard's extractor compiles
+#     that file UNGATED).
+#     (historical:)  PIN_CONTROLS = 44 = 4 + 6 + 5 + 4 + 19 + 6.  ✓  (was 19 before slice 1b and 38 before §RADMIN slice 3 — every prior control
 #     is PRESERVED; the +6 are one per NEW owner boundary: the router arm's gate DELETED, the BLE refusal's gate
 #     DELETED, the boot call's gate legacy-WIDENED, the help names INVERTED onto the CLIENT capability, a
 #     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)
 PIN_CELLS=9
 PIN_CHECKS=118
-PIN_CONTROLS=44
+PIN_CONTROLS=52
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED

@@ -761,6 +761,12 @@ lower, so a `heltec_v3` rerun is still owed.
     That issuer still sends, but its CLIENT-disabled receive path no longer stages replies. The prior `[x]`
     result is historical, not evidence that this round trip remains supported. Local USB/companion `cfg` and
     the supplied-sink expectation below remain active. No new metal check is owed by 1b.
+  - **DRAFT Slice 5 extension (2026-09-06), effective only on its QA-passed implementation:** target-side
+    legacy `rcmd` execution is removed from the ACCEPT receive path in Slice 5; only v2 bootstrap replies
+    can be emitted by the new owner. CLIENT legacy response staging/printing remains until Slice 8a;
+    remaining legacy definitions/issuers and NV cleanup stay Slice 9/10 work. This extends the existing
+    suspension, adds no bench part, and is not evidence that Slice 5 has run or passed. Part 57c remains
+    the later complete controller/carrier observation.
   - Pass: `sf_list=6,7` (whatever the real list) is inside the `radio :` row of the response itself. ⛔ Fail if the SF
     list appears on the USB console while missing from a captured/remote response — that was the
     `print_sf_list(bitmap)` global-sink bypass.

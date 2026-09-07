@@ -32,16 +32,25 @@
 
 // ---- the probe-local NV medium ---------------------------------------------------------------------------------
 // A small fixed table of (namespace, key) -> bytes. Fixed-size and no-heap, like everything else in these probes.
+// ★★ §RADMIN slice 4 — THE PAYLOAD CAPACITY IS A **FACT ABOUT THE MEDIUM**, and it moved 512 -> 2304 for one
+//    measured reason: `/mrtargets` is a 2056-byte whole-blob record, and a 512-byte slot would have made every
+//    write of it a SHORT write — i.e. the fake would have manufactured a failure production never sees, and the
+//    controller rows would have measured the fake instead of the router. ⛔ NO POLICY MOVED: `fail_write`,
+//    `retain_on_fail` and `drop_on_ok` are untouched, the byte counts are untouched, and a record LARGER than the
+//    slot is still an honest short write.
+//    2304 = 2056 rounded up past the largest record any arm stores (/mrpeers is 1160, /mrui 372, /mrmkeys 368).
+// ★ SIX SLOTS, not four: an arm now touches /mrid, /mrcfg, /mrpeers, /mrmkeys, /mrtargets and (on the ACCEPT arm)
+//   /mradmid + /mracl. A table that ran out would report a write failure production never sees.
 struct MrProbeNvSlot {
-    char          ns[16]   = {};
-    char          key[16]  = {};
-    unsigned char data[512] = {};
-    size_t        len      = 0;
-    bool          used     = false;
+    char          ns[16]    = {};
+    char          key[16]   = {};
+    unsigned char data[2304] = {};
+    size_t        len       = 0;
+    bool          used      = false;
 };
 
 struct MrProbeNv {
-    MrProbeNvSlot slot[4];
+    MrProbeNvSlot slot[8];
     // --- the medium's honest, controllable facts ---
     bool ns_present = false;   // a READ-ONLY begin() succeeds: this namespace has been written before
     bool rw_ok      = false;   // a READ-WRITE begin() succeeds: the medium accepts writes at all

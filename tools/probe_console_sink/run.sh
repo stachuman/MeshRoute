@@ -96,7 +96,20 @@ PROFILES=(
 #                                            the SAME rows — a gated name changes the LIST, not the row count —
 #                                            which is why one per-profile constant is enough. (§0a was 166/160: the
 #                                            per-topic rows scaled with topic availability.)
-#     PIN_STRUCTURAL = 39                    structural.py's S1..S39. ⚠ RE-PINNED 2026-09-06 BY §RADMIN
+#     PIN_STRUCTURAL = 50                    structural.py's S1..S50. ⚠ RE-PINNED 2026-09-06 BY §RADMIN
+#         SLICE 4, 39 -> 50, FULLY ATTRIBUTED: eleven NEW device-boundary rows for the two CONTROLLER
+#         stores — S40 the CLIENT boot report is called exactly once from setup() under
+#         MR_FEAT_RADMIN_CLIENT · S41 and it runs AFTER the mount/self-heal · S42 that path writes
+#         nothing and draws nothing · S43 ★ EXACTLY ONE resident controller buffer exists and it is the
+#         PUBLIC book (a COUNT, not an absence — design §6.2 rules one) · S44 ★★ ⛔ NO resident keyring,
+#         service or seed (the SECRETS stay stack transients) · S45 the CLIENT bindings touch no Node
+#         state · S46 ★★ the typed wrappers address kSlotMgmtKeys / kSlotTargets and NEITHER touches
+#         kSlotAdmid (design §6.4's no-crossing rule, as source) · S47 neither record joins
+#         mount_or_repair()'s probe list ([[B317]]) · S48 do_regen()'s write set is STILL {/mrid}, which
+#         is what makes the `keys and targets preserved` warning a proven claim · S49 handle_leave()'s is
+#         still {/mrcfg} · S50 the CLIENT BLE refusal carries its OWN `admin-client` envelope, distinct
+#         from the target family's. ⛔ NOT ONE of S1..S39 moved; each new row has a sabotage control.
+#         (historical:)  PIN_STRUCTURAL = 39 — structural.py's S1..S39. RE-PINNED 2026-09-06 BY §RADMIN
 #         SLICE 3, 29 -> 39, FULLY ATTRIBUTED: ten NEW device-boundary rows for the two target stores —
 #         S30 the boot report is called exactly once from setup() under MR_FEAT_RADMIN_ACCEPT · S31 and it
 #         runs AFTER the filesystem mount/self-heal · S32 the boot path writes nothing and draws nothing ·
@@ -115,7 +128,15 @@ PROFILES=(
 #                                            S26 no borrowed body and no static state, S27 the send handle is still
 #                                            HEX (the probes' Arduino fake ignores a radix, so nothing EXECUTED can
 #                                            see this), S28/S29 the [[B298]] comment census in the .cpp and the .h.
-#     PIN_BLE_GUARD  = 480                   ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 212 -> 480, and the
+#     PIN_BLE_GUARD  = 905                   ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 4, 480 -> 905, DERIVED:
+#           help   : 53 corpus lines x 4 assertions (B1..B4) = 212   (UNCHANGED)
+#           admin  : 67 corpus lines x 4 assertions (A1..A4) = 268   (UNCHANGED)
+#           client : 85 corpus lines x 5 assertions (D1..D5) = 425   (NEW — R-RA-30's SUB-VERB split needs a
+#                    FIFTH assertion the whole-family families do not: D4, "a RULED PUBLIC form must NOT be
+#                    refused". A family that only ever refuses cannot express that, which is exactly why the
+#                    extraction is generalized per family rather than copied.)
+#           212 + 268 + 425 = 905. ✓  85 = 2 families x (12 public + 20 secret tails) + 21 foreign lines.
+#         (historical:)  PIN_BLE_GUARD = 480 — RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 212 -> 480, and the
 #         extractor is GENERALIZED rather than copied: it now answers the same question once per FAMILY.
 #           help  : 53 corpus lines x 4 assertions (B1..B4) = 212   (UNCHANGED — every prior row still runs)
 #           admin : 67 corpus lines x 4 assertions (A1..A4) = 268   (R-RA-29)
@@ -129,7 +150,16 @@ PROFILES=(
 #                                            their derived counts. This is the authority for the seam's one order.
 #     PIN_OWN_CTL    = 3                     ownership.py --selftest: a synthetic collision REFUSED, a deleted
 #                                            router form REFUSED, an emptied parser surface REFUSED.
-#     PIN_CONTROLS   = 78 = 8 sink + 22 source + 23 help + 5 BLE + 20 radmin3 (negctl's own CONTROLS-TOTAL);
+#     PIN_CONTROLS   = 99 = 8 sink + 22 source + 23 help + 5 BLE + 20 radmin3 + 21 radmin4 (negctl's own
+#         CONTROLS-TOTAL). ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 4, 78 -> 99, DERIVED: the 21 new ones are
+#         5 EXECUTED guard controls (D-C1 the guard refuses nothing · D-C2 ★ it refuses the RULED PUBLIC
+#         list/show too — the TOO-WIDE direction a whole-family guard cannot even express · D-C3 only half the
+#         family is guarded · D-C4 the sub-verb test becomes a prefix · D-C5 a broad `admin` prefix swallows the
+#         TARGET half) + 6 EXTRACTION-refusal controls (D-C6..D-C11: deleted · duplicated · commented out ·
+#         ★ the envelope COLLIDES with the target family's · moved below the seam · gated on the wrong
+#         capability) + 10 structural sabotages (S-C40 · S-C40b · S-C42 · S-C43 · S-C44 · S-C45 · S-C46 ·
+#         S-C47 · S-C48 · S-C50). 5 + 6 + 10 = 21, and 78 + 21 = 99. ✓
+#         (historical:)  PIN_CONTROLS = 78 = 8 sink + 22 source + 23 help + 5 BLE + 20 radmin3;
 #                      §0b/[[B279]] added ONE source control (X12 -> S21) and §RADMIN-0c added TEN (X13..X22 ->
 #                      S22..S29).                the 23 help = 13 rendered-index mutations + 2 structural + 3 router
 #                                            + 5 oracle.
@@ -146,11 +176,11 @@ PROFILES=(
 PIN_PROFILES=6
 CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
-PIN_STRUCTURAL=39
-PIN_BLE_GUARD=480
+PIN_STRUCTURAL=50
+PIN_BLE_GUARD=905
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
-PIN_CONTROLS=78
+PIN_CONTROLS=99
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE
@@ -364,8 +394,12 @@ struct_total=$(python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "
 ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \([0-9]*\).*/\1/p' "$OUT/neg.txt")
 # §RADMIN slice 3: TWO families now, so the total is their SUM. ⛔ `sed -n …p` prints one line per family and
 #   a bare assignment would have kept only the LAST — i.e. silently dropped the help family's 212 rows.
+# §RADMIN slice 4: THREE families. ⚠ THE SUM IS ALSO A COVERAGE PIN: a family whose extraction REFUSED prints no
+#   count line at all, so the total FALLS and `pin_cmp` reddens — which is the whole reason this is a sum and not
+#   a per-family "did it fail" test.
 ble_checks=$( { sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt";
                 sed -n 's/.*ADMIN-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt";
+                sed -n 's/.*CLIENT-GUARD rows=[0-9]* checks=\([0-9]*\) failed=[0-9]*.*/\1/p' "$OUT/bleguard.txt";
               } | awk '{t+=$1} END {print t+0}')
 green=$(grep -c 'STAYED GREEN\|INSTRUMENT FAILURE\|CONTROL NOT APPLIED' "$OUT/neg.txt" || true)
 own_total=$(sed -n 's/.*ownership: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p' "$OUT/ownership.txt")

@@ -25,6 +25,9 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 
 ## Backlog — priority order
+
+- 2026-09-06-standalone-mobile-home-and-team-messaging-design.md - redesign of main screen
+
 - GPS: 2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md - to be reviewed
 
 - 2026-08-07-mobile-home-attachment-reliability-design.md — core S0–S5 mostly landed. Resume with B151 late-home/
@@ -93,12 +96,30 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 -  `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
+**Slice 5 preliminary brief QA PASS, 2026-09-06, no fold-ins:** owner reports Slice 4 running. Pre-check and R-RA-31 are available;
+`docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md` states Author decisions §6.3–§6.7.
+It is NON-DISPATCHABLE until the Slice 4 report, QA PASS, owner closure and exact base/pin binding, then
+QA's final brief gate. Bootstrap replies only; no execute/transcript/controller implementation. The
+2064-byte state candidate and global HAL timer cost must be measured; mobile Node stays fixed. S5-A1–A3
+are QA-accepted corrections, landed visibly in its ledger; they remain open until Slice 5 closure and
+await numeric allocation after Slice 4's proposals. No new bench part
+or software completion is claimed. Earlier Slice 3/4 preparation-status paragraphs are historical.
+
 ## Bugs - suggested order
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner reports
-  **Slice 3 running**: QA gates the coder's report, then Author landings / owner closure; (3) resolve the
-  advance Slice 4 draft's closure anchors/base and QA-gate it before dispatch. No dirty-input exception,
-  reused Slice 2 base or overlapping implementation. Parts 55a/55b/56 remain draft until gated transcripts.
+**Separate design discussion, not a queue reprioritization (2026-09-06):**
+`docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` captures dynamic
+no-team/in-team Home, visible device name, standalone setup, ordinary team messaging and proposed
+Home previews/boot splash. Owner now requires multiline messages, superseding the single-row 17-byte
+preset premise; bounded capacity and catalog migration await source-derived QA preparation. Ordinary
+channel sending already exists in source, with no user-reported hardware failure. HOME-A1/HOME-A2
+track the correction/remaining design work. DRAFT only; no implementation dispatch or remote-admin
+sequence change.
+
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) **Slice 4 report
+  and QA gate**, then Author landings / owner closure; (3) fill the advance Slice 5 brief's base/anchors/
+  pins and QA-gate it before QA dispatches on the main tree. No dirty-input exception, reused old base or overlapping
+  implementation. Existing bench debts remain separate; Slice 5 adds no new part.
   Bench Part 58 closes
   B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
   separately tracked and do not block Part 54.

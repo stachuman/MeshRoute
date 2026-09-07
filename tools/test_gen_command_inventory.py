@@ -719,9 +719,15 @@ class TestPrimaryProjection(unittest.TestCase):
         # global addition. `mobile_oled` projects 46 = its 39 router-owned forms + the 7 parser-owned ones, and
         # ⛔ neither target-store family is among them (pinned by name in TestRadminAcceptAxis below).
         mob = G.primary_names(rows, G.PROFILES["mobile_oled"])
-        self.assertEqual(46, len(mob))
+        # ⚠ 46 -> 48 (2026-09-06, §RADMIN slice 4): the CLIENT-only `admin-key` and `admin-target` families. The
+        #   full-build figure above is UNCHANGED at 51 because the CLIENT axis is 0 on every ACCEPT profile — the
+        #   mirror image of the slice-3 movement, and exactly the asymmetry that makes these two numbers a GATE
+        #   test rather than a global-addition test.
+        self.assertEqual(48, len(mob))
         self.assertNotIn("acl", mob)
         self.assertNotIn("admin-id", mob)
+        self.assertIn("admin-key", mob)
+        self.assertIn("admin-target", mob)
 
 
 # ================================================================================================================
@@ -805,6 +811,108 @@ class TestRadminAcceptAxis(unittest.TestCase):
                     self.assertIn(verb, names, f"{name}: an ACCEPT build must advertise `{verb}`")
                 else:
                     self.assertNotIn(verb, names, f"{name}: a CLIENT build must NOT advertise `{verb}`")
+
+
+# ================================================================================================================
+# [[B319]]'s TWIN — the SIXTH profile axis, `MR_FEAT_RADMIN_CLIENT` (§RADMIN slice 4), and R-RA-30's per-row
+# transport split.
+#
+# ★★★ WHY IT IS A SECOND CLASS AND NOT A PARAMETER OF THE FIRST. The two axes are COMPLEMENTARY on every row of
+#     the product table and INDEPENDENT as columns, and the difference is exactly what must be measured: they are
+#     complementary because `lib/core/mr_features.h`'s R-RA-17 `#error` makes a BOARD exactly one endpoint — while
+#     the HOST is deliberately BOTH. A test that derived one from the other would already be describing the host
+#     wrongly, and would stop measuring the day a third product role exists.
+# ================================================================================================================
+class TestRadminClientAxis(unittest.TestCase):
+
+    RULED = {"full_oled": 0, "full_headless": 0, "gateway": 0, "gateway_oled": 0, "mobile": 1, "mobile_oled": 1}
+
+    def test_every_profile_declares_the_axis_with_its_ruled_literal_value(self):
+        self.assertEqual(sorted(self.RULED), sorted(G.PROFILES))
+        for name, want in self.RULED.items():
+            self.assertIn("MR_FEAT_RADMIN_CLIENT", G.PROFILES[name],
+                          f"{name}: the axis must be DECLARED, or eval_gate refuses the first gated arm")
+            self.assertEqual(want, G.PROFILES[name]["MR_FEAT_RADMIN_CLIENT"], f"{name}: wrong ruled value")
+
+    def test_the_axis_is_evaluated_and_separates_the_profiles(self):
+        for name, want in self.RULED.items():
+            self.assertEqual(bool(want), G.eval_gate("MR_FEAT_RADMIN_CLIENT", G.PROFILES[name]))
+
+    def test_a_profile_missing_the_axis_still_REFUSES(self):
+        """The refusal `eval_gate` has always made is PRESERVED — adding a SIXTH column must not weaken it."""
+        stripped = {k: v for k, v in G.PROFILES["mobile"].items() if k != "MR_FEAT_RADMIN_CLIENT"}
+        with self.assertRaises(G.GeneratorError):
+            G.eval_gate("MR_FEAT_RADMIN_CLIENT", stripped)
+
+    def test_the_two_radmin_axes_are_read_INDEPENDENTLY(self):
+        """A SYNTHETIC evaluator fixture: all FOUR combinations are evaluated, including the two the product table
+        never carries. ⛔ NEITHER {1,1} nor {0,0} is a legal BOARD (R-RA-17's `#error`) — {1,1} IS the host, and
+        {0,0} is nothing. The point is that the GENERATOR reads two columns, so it cannot alias them."""
+        base = dict(G.PROFILES["gateway"])
+        for accept in (0, 1):
+            for client in (0, 1):
+                m = dict(base, MR_FEAT_RADMIN_ACCEPT=accept, MR_FEAT_RADMIN_CLIENT=client)
+                self.assertEqual(bool(accept), G.eval_gate("MR_FEAT_RADMIN_ACCEPT", m))
+                self.assertEqual(bool(client), G.eval_gate("MR_FEAT_RADMIN_CLIENT", m))
+
+    def test_the_axis_is_NOT_the_inverse_of_ACCEPT_inside_the_tool(self):
+        """A literal typed column, ⛔ never computed — [[B319]]'s point, restated for its twin."""
+        with open(os.path.join(REPO_ROOT, "tools", "gen_command_inventory.py"), encoding="utf-8") as fh:
+            text = fh.read()
+        table = text[text.index("PROFILES = {"):text.index("PROFILE_ENVS")]
+        for name, want in self.RULED.items():
+            self.assertIn("MR_FEAT_RADMIN_CLIENT=%d" % want, table)
+        for forbidden in ("MR_FEAT_RADMIN_CLIENT=MR_FEAT", "MR_FEAT_RADMIN_CLIENT = MR_FEAT",
+                          "not MR_FEAT_RADMIN_ACCEPT", "1 - MR_FEAT_RADMIN_ACCEPT"):
+            self.assertNotIn(forbidden, table)
+
+    def test_the_axis_is_NOT_derived_from_MR_FEAT_MOBILE(self):
+        """The two FULL static profiles set MR_FEAT_MOBILE=1 AND CLIENT=0 — so that inference is simply false."""
+        for name in ("full_oled", "full_headless"):
+            self.assertEqual(1, G.PROFILES[name]["MR_FEAT_MOBILE"])
+            self.assertEqual(0, G.PROFILES[name]["MR_FEAT_RADMIN_CLIENT"])
+
+    def test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles(self):
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        gated = [r for r in rows if r.gate == "MR_FEAT_RADMIN_CLIENT"]
+        self.assertEqual({"admin-key", "admin-target"}, {r.verb for r in gated},
+                         "the CLIENT-gated top-level rows are exactly the two controller-store families")
+        self.assertTrue(all(r.transports == "serial" for r in gated),
+                        "R-RA-30: a BARE family name is console-only — only list/show cross secured BLE")
+        for name, want in self.RULED.items():
+            names = set(G.primary_names(rows, G.PROFILES[name]))
+            for verb in ("admin-key", "admin-target"):
+                if want:
+                    self.assertIn(verb, names, f"{name}: a CLIENT build must advertise `{verb}`")
+                else:
+                    self.assertNotIn(verb, names, f"{name}: an ACCEPT build must NOT advertise `{verb}`")
+
+    def test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show(self):
+        """The ruling's split is in the AUTHORITY TABLE, per row — not inferred from a name shape."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        fam = [r for r in rows if r.verb in ("admin-key", "admin-target") and r.subverb != "—"]
+        self.assertTrue(fam, "the controller sub-verb rows must exist at all")
+        for r in fam:
+            first = r.subverb.split(" ")[0]
+            want = "serial,ble" if first in ("list", "show") else "serial"
+            self.assertEqual(want, r.transports,
+                             f"R-RA-30: `{r.verb} {r.subverb}` must be {want}, not {r.transports}")
+        public = {(r.verb, r.subverb) for r in fam if r.transports == "serial,ble"}
+        self.assertEqual({("admin-key", "list"), ("admin-key", "show"), ("admin-key", "show self"),
+                          ("admin-target", "list"), ("admin-target", "show")}, public)
+        # ⛔ AND THE SECRET HALF IS NAMED, so a widened override cannot pass unnoticed.
+        for secret in (("admin-key", "generate"), ("admin-key", "import"), ("admin-key", "export"),
+                       ("admin-key", "remove"), ("admin-key", "reset"), ("admin-target", "add"),
+                       ("admin-target", "set"), ("admin-target", "remove"), ("admin-target", "reset")):
+            self.assertNotIn(secret, public, f"{secret} must be USB-only (design §6.2)")
+
+    def test_the_override_never_widens_a_surface_it_was_not_spelled_on(self):
+        """A LITERAL table, ⛔ not a rule about the word `list`: the target family's `acl list` stays serial."""
+        rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+        acl_list = [r for r in rows if r.verb == "acl" and r.subverb == "list"]
+        self.assertEqual(1, len(acl_list))
+        self.assertEqual("serial", acl_list[0].transports,
+                         "R-RA-29 refuses the WHOLE target family over BLE — `acl list` included")
 
 
 if __name__ == "__main__":

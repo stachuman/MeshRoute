@@ -48,6 +48,20 @@ import gen_command_inventory as GEN  # noqa: E402
 #     profiles   — len(gen_command_inventory.PROFILES); the six real board macro sets.
 #     checks     — the summed `N total` the probe binary prints per profile: 120 on EVERY profile (52 §B95 sink rows
 #                  + 68 §0g help rows), so 120*6 = 720. §0a's 972 is retired with the per-topic rows that scaled it.
+#     ⚠⚠ THREE MORE PINS RE-DERIVED 2026-09-06 BY §RADMIN SLICE 4, each fully attributed and each a GROWTH with
+#        ⛔ not one existing row removed:
+#          structural 39 -> 50  (+11: S40..S50, the two CONTROLLER stores' DEVICE BOUNDARY — the boot report's
+#                      single gated call and its ordering after the mount, its zero writes and zero draws, the
+#                      residency ruling as a COUNT (exactly ONE public book) plus its complement (⛔ no resident
+#                      keyring), no Node link, the typed wrappers' no-crossing slot binding, [[B317]]'s probe
+#                      list, the two write-set pins that make `regen`'s `preserved` warning a proven claim, and
+#                      the CLIENT guard's OWN `admin-client` envelope)
+#          ble_guard  480 -> 905 (+425: the extractor answers the same question a THIRD time, for R-RA-30's
+#                      SUB-VERB split. 85 corpus lines x 5 assertions — the fifth, D4, is the one a whole-family
+#                      guard cannot express: a RULED PUBLIC form must NOT be refused.)
+#          controls   78 -> 99  (+21: 5 executed-row sabotages of the client guard — including the TOO-WIDE
+#                      direction — 6 extraction REFUSALS, and 10 structural sabotages, one per new row bar S41/S49
+#                      which S-C40b and S-C48 already redden)
 #     ⚠⚠ THREE PINS RE-DERIVED 2026-09-06 BY §RADMIN SLICE 3, each fully attributed and each a GROWTH with ⛔ not
 #        one prior row dropped:
 #          structural 29 -> 39  (+10: S30..S39, the two target stores' DEVICE BOUNDARY — the boot report's single
@@ -81,11 +95,11 @@ import gen_command_inventory as GEN  # noqa: E402
 #                  X13..X22, the controls that redden S22..S29.)
 PIN_PROFILES = 6
 PIN_CHECKS = 720
-PIN_STRUCTURAL = 39
-PIN_BLE_GUARD = 480
+PIN_STRUCTURAL = 50
+PIN_BLE_GUARD = 905
 PIN_OWNERSHIP = 6
 PIN_OWN_CTL = 3
-PIN_CONTROLS = 78
+PIN_CONTROLS = 99
 
 UNUSABLE = ("STAYED GREEN", "INSTRUMENT FAILURE", "CONTROL NOT APPLIED", "PROBE BUILD FAILED")
 
@@ -190,23 +204,25 @@ class TestProbeRunner(unittest.TestCase):
         self.assertIn("BLE help-refusal (EXECUTED", self.full.stdout)
         rows_by_family, checks_by_family, failed_by_family = {}, {}, {}
         for fam, r, c, f in re.findall(
-                r"(?m)^\s*(BLE|ADMIN)-GUARD rows=(\d+) checks=(\d+) failed=(\d+)", self.full.stdout):
+                r"(?m)^\s*(BLE|ADMIN|CLIENT)-GUARD rows=(\d+) checks=(\d+) failed=(\d+)", self.full.stdout):
             rows_by_family[fam] = int(r)
             checks_by_family[fam] = int(c)
             failed_by_family[fam] = int(f)
-        self.assertEqual({"BLE", "ADMIN"}, set(checks_by_family),
-                         "both executed guard families must report their own denominators — a missing family is "
-                         "a silently unmeasured owner ruling")
+        self.assertEqual({"BLE", "ADMIN", "CLIENT"}, set(checks_by_family),
+                         "all THREE executed guard families must report their own denominators — a missing family "
+                         "is a silently unmeasured owner ruling (R-RA-29 target, R-RA-30 controller)")
         for fam, failed in failed_by_family.items():
             self.assertEqual(0, failed, "%s-GUARD reported %d failed executed check(s)" % (fam, failed))
         for fam, rows in rows_by_family.items():
             self.assertGreaterEqual(rows, 40, "%s: an almost-empty corpus would prove nothing" % fam)
         self.assertEqual(PIN_BLE_GUARD, sum(checks_by_family.values()),
-                         "the pin is the SUM over every executed family (help + admin), not one family's count; "
+                         "the pin is the SUM over every executed family (help + admin + client), not one "
+                         "family's count; "
                          "derived: %s" % checks_by_family)
         # ...and each family must state WHICH condition text it measured.
         self.assertIn("extracted help guard: ", self.full.stdout)
         self.assertIn("extracted admin guard: ", self.full.stdout)
+        self.assertIn("extracted client guard: ", self.full.stdout)
 
     def test_the_runner_enforces_its_own_pins(self):
         """[[B294]]: running the gate DIRECTLY must refuse a shrunken measurement instead of printing PASS.

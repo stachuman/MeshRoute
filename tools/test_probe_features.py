@@ -295,7 +295,13 @@ class TheGateRuns(unittest.TestCase):
         #   W-S3-DUP-DECL (a duplicate guard inside an allowed file) · W-S3-GATE-PURE (a PURE service header
         #   acquiring a capability macro, the [[B255]] idiom's own violation).
         #   13 prior W-* + 6 new + Y0..Y5 = 25. ⛔ Every prior control is preserved and still rejected.
-        self.assertIn("ownership controls: 25 verified / 0 unusable", out)
+        # ⚠ RE-DERIVED 2026-09-06 BY §RADMIN SLICE 4, 25 -> 33, and the +8 is one control per NEW CONTROLLER
+        #   owner boundary (the router arm's gate deleted, the R-RA-30 BLE split's gate deleted, the boot call's
+        #   gate legacy-widened, the two controller help names inverted onto ACCEPT, ★ do_regen's CLIENT admission
+        #   inverted onto ACCEPT, a duplicate guard in the boot-wrapper header, and BOTH new pure headers
+        #   acquiring a capability macro).
+        #   13 prior W-* + 6 slice-3 + 8 slice-4 + Y0..Y5 = 33. ⛔ Every prior control is preserved and rejected.
+        self.assertIn("ownership controls: 33 verified / 0 unusable", out)
         self.assertLess(out.index("control classification (declared up-front"),
                         out.index("== class W/Y —"), "class W/Y must be declared before it runs")
 

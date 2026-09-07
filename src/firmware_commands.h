@@ -231,6 +231,17 @@ inline void preset_boot_restore_console() {}
 void admin_stores_boot_report_console();
 #endif   // MR_FEAT_RADMIN_ACCEPT
 
+// ★★ §RADMIN slice 4 — the two CONTROLLER STORES' console surface is `MR_FEAT_RADMIN_CLIENT`-gated (R-RA-8's other
+// half: client = the four mobile products). ⛔ THE PURE UNITS STAY UNGATED (`src/firmware_admin_keyring.h`,
+// `firmware_admin_targets.h`, `firmware_admin_client_verbs.h`, and the two records in `device_nv.h`) — the
+// [[B255]] idiom, exactly as for the ACCEPT half above. Only the INSTANTIATION and the console surfacing are
+// compiled out, and there is ⛔ NO `#else` STUB for the same reason the ACCEPT arm has none.
+#if MR_FEAT_RADMIN_CLIENT
+// setup(): validate `/mrmkeys` and `/mrtargets` through their four-state reads and print the two ruled boot lines.
+// ⛔ ZERO writes, ⛔ zero entropy draws, ⛔ no auto-generation, ⛔ no key, seed or fingerprint byte.
+void admin_client_stores_boot_report_console();
+#endif   // MR_FEAT_RADMIN_CLIENT
+
 struct ExecResult {
     bool                         ok        = false;                                  // false => the line did not parse
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;

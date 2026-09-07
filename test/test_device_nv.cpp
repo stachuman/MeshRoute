@@ -844,3 +844,74 @@ TEST_CASE("device_nv: with NO SlotIo the arms ask the backend NOTHING extra — 
     CHECK_FALSE(slot_size_ok(kSlotAbsent, sizeof(Blob)));
     CHECK_FALSE(slot_size_ok(0, sizeof(PeerBlob)));
 }
+
+// ================================================================================================================
+// §RADMIN slice 4 — the two remote-admin CONTROLLER records (`/mrmkeys`, `/mrtargets`)
+// ⓘ ADDITIVE. ⛔ Not one Slice 3 case above is edited: the two new records get their own case here, in the same
+//   shape and for the same reasons — the SLOT strings are the factory-reset ruling expressed as data, and `sizeof`
+//   IS the migration policy (`load_mgmt_keys` / `load_targets` exact-size checks).
+// ================================================================================================================
+
+TEST_CASE("device_nv: §RADMIN-4 — the CONTROLLER slots are their own, and `mr` is the factory-reset ruling") {
+    CHECK(std::strcmp(kSlotMgmtKeys.path, "/mrmkeys")   == 0);
+    CHECK(std::strcmp(kSlotTargets.path,  "/mrtargets") == 0);
+    CHECK(std::strcmp(kSlotMgmtKeys.key,  "mkeys")      == 0);
+    CHECK(std::strcmp(kSlotTargets.key,   "targets")    == 0);
+    // ★ `"mr"` ⇒ ESP32 `factory_erase()`'s single `clear()` and nRF52's whole-FS format take BOTH records, with
+    //   ⛔ not one line of new code. A controller that has been factory-reset must keep NO master seed.
+    CHECK(std::strcmp(kSlotMgmtKeys.ns, "mr") == 0);
+    CHECK(std::strcmp(kSlotTargets.ns,  "mr") == 0);
+    CHECK(std::strcmp(kSlotMgmtKeys.ns, kSlotFault.ns) != 0);   // ⛔ NOT the fault-history preservation domain
+    CHECK(std::strcmp(kSlotTargets.ns,  kSlotFault.ns) != 0);
+    // ⛔ AND THEY ARE THEIR OWN SLOTS. `/mrmkeys` is ⛔ NOT `/mradmid`: design §6.4 forbids the controller's
+    //    private seed and the target's administration seed from crossing, and one shared slot WOULD be that
+    //    crossing. `/mrtargets` is ⛔ NOT `/mrpeers`: the address book evicts, this one refuses `full`.
+    for (const char* other : { kSlotCfg.path, kSlotId.path, kSlotPeers.path, kSlotFault.path, kSlotJoin.path,
+                               kSlotTeams.path, kSlotUi.path, kSlotAdmid.path, kSlotAcl.path }) {
+        CHECK(std::strcmp(kSlotMgmtKeys.path, other) != 0);
+        CHECK(std::strcmp(kSlotTargets.path, other) != 0);
+    }
+    CHECK(std::strcmp(kSlotMgmtKeys.path, kSlotTargets.path) != 0);
+    CHECK(std::strcmp(kSlotMgmtKeys.key,  kSlotTargets.key)  != 0);
+    // ⛔ AND THEIR BACKEND KEYS ARE DISTINCT FROM EVERY OTHER RECORD'S in the same namespace — on ESP32 the key,
+    //    not the path, is what addresses the blob.
+    for (const char* other : { kSlotCfg.key, kSlotId.key, kSlotPeers.key, kSlotJoin.key, kSlotTeams.key,
+                               kSlotUi.key, kSlotAdmid.key, kSlotAcl.key }) {
+        CHECK(std::strcmp(kSlotMgmtKeys.key, other) != 0);
+        CHECK(std::strcmp(kSlotTargets.key, other) != 0);
+    }
+}
+
+TEST_CASE("device_nv: §RADMIN-4 — the CONTROLLER records' ABI and the four-valued stub contract") {
+    // `sizeof` IS the migration policy, so a silent layout change must be visible on EVERY ABI. (The per-ABI
+    // static_asserts in device_nv.h carry it to ARM/Xtensa; this is the host half.)
+    CHECK(sizeof(MgmtKeyRow)  == 36);
+    CHECK(sizeof(MgmtKeyBlob) == 368);
+    CHECK(sizeof(TargetRow)   == 64);
+    CHECK(sizeof(TargetBlob)  == 2056);
+    CHECK(alignof(MgmtKeyRow)  == 1);
+    CHECK(alignof(MgmtKeyBlob) == 4);
+    CHECK(alignof(TargetRow)   == 4);
+    CHECK(alignof(TargetBlob)  == 4);
+    CHECK(offsetof(MgmtKeyBlob, rec) == 8);
+    CHECK(offsetof(TargetBlob, rec)  == 8);
+    // ⛔ EVERY magic is its OWN — a collision would make one store readable as another.
+    for (uint32_t other : { kMagic, kIdMagic, kPeersMagic, kJoinMagic, kTeamKeyMagic, kUiPresetMagic,
+                            kAdminIdMagic, kAclMagic }) {
+        CHECK(kMgmtKeyMagic != other);
+        CHECK(kTargetMagic  != other);
+    }
+    CHECK(kMgmtKeyMagic != kTargetMagic);
+
+    // ★ THE STUB CONTRACT, exactly as the Slice 3 pair takes it: on a device-less build there IS no record, and
+    //   `absent` is the honest answer — ⛔ never a bool that hides which of the four facts held.
+    MgmtKeyBlob mk{}; mgmt_key_blob_init(mk);
+    CHECK(load_mgmt_keys(mk) == MgmtKeyRead::absent);
+    CHECK_FALSE(save_mgmt_keys(mk));
+    TargetBlob tb{}; target_blob_init(tb);
+    CHECK(load_targets(tb) == TargetRead::absent);
+    CHECK_FALSE(save_targets(tb));
+    // …and a failed load leaves the caller's buffer alone to inspect and re-classify.
+    CHECK(mk.magic == kMgmtKeyMagic);
+    CHECK(tb.magic == kTargetMagic);
+}

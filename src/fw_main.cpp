@@ -60,6 +60,18 @@ using mrfw::handle_del_msg;           // §3.5 durable single-record delete
                                     //   capability macro, so it adds no feature site,
                                     //   and on a CLIENT build every inline in it is
                                     //   unreferenced and nothing is emitted.
+#include "firmware_admin_client_verbs.h"   // §RADMIN slice 4: mrfw::admin_client_ble_refuses — R-RA-30's
+                                          //   SUB-VERB-AWARE predicate, the ONE the BLE split below evaluates
+                                          //   and the same file the CLIENT router arm's grammar lives in.
+                                          //   ⓘ UNGATED for the sibling header's reason ([[B255]]): it holds no
+                                          //   capability macro, so on an ACCEPT build every inline in it is
+                                          //   unreferenced and nothing is emitted.
+                                          // ⚠⚠ ITS ABSENCE WAS A REAL BOARD-ONLY BUILD FAILURE, found by the
+                                          //   heltec_mobile leg of the ruled pair: `gateway` compiles the guard
+                                          //   OUT (CLIENT=0), the native suite compiles no `src/*.cpp` at all,
+                                          //   and every host probe that reads this file EXTRACTS the condition
+                                          //   rather than compiling the TU — so the two-board gate was the ONLY
+                                          //   instrument that could see it. Exactly the [[B169]] shape.
 // ⛔ V1 CORRECTION (§RADMIN-0c, 2026-09-05) — FOUR `using` DECLARATIONS ARE GONE FROM HERE, AND THE OLD LIST IS
 // KEPT VISIBLE SO THE REASON IS READABLE. This block used to import `mrfw::handle_peerkey`, `mrfw::handle_peername`,
 // `mrfw::dispatch` and `mrfw::print_reqpubkey_hint`, each annotated *"call sites (service_console +
@@ -600,6 +612,23 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (mrfw::admin_verb_owns(line, len))
         return write_err(out, cap, "admin", "console_only");
 #endif   // MR_FEAT_RADMIN_ACCEPT
+    // ★★★ §RADMIN slice 4 / R-RA-30 — THE CONTROLLER FAMILY'S **SUBVERB-AWARE** SPLIT, and it is a DIFFERENT rule
+    //     and a DIFFERENT envelope from the whole-family refusal three lines up. The owner ruled the design's
+    //     split: public `list`/`show` of `admin-key` / `admin-target` MAY cross secured BLE (they expose public
+    //     keys and fingerprints only); ⛔ EVERY other owned form — bare, whitespace-only, unknown, every mutation,
+    //     both resets and `export` — is refused HERE, BEFORE the seam, so ⛔ no secret operation ever reaches the
+    //     service, the NV layer or the draw provider.
+    // ⛔ THE DECISION IS THE PURE PREDICATE'S, ⛔ never a hand-written token test in this file: `fw_main.cpp` is
+    //    host-uncompilable, so a rule written here would have no automated cover.
+    //    `tools/probe_console_sink/ble_guard.py` EXTRACTS this condition and RUNS it over the whole family corpus.
+    // ⚠ AN ALLOWED `list`/`show` TOKEN STILL UNDERGOES FULL COMMAND PARSING below — it cannot smuggle a second
+    //   operation, and a malformed one is answered by the ROUTER with its own public `bad_args`.
+    // ⛔ A SECURED-BLE TRANSPORT POLICY IS NOT PHYSICAL PRESENCE: a bond is not a cable, and that is exactly why
+    //    the SECRET half stays USB-only.
+#if MR_FEAT_RADMIN_CLIENT
+    if (mrfw::admin_client_ble_refuses(line, len))
+        return write_err(out, cap, "admin-client", "console_only");
+#endif   // MR_FEAT_RADMIN_CLIENT
     // ★★ §RADMIN-0c: ONE call into the transport-neutral seam (firmware_commands.cpp). It owns the
     // router-versus-parser fork, the peer-book/Node execution and the JSON rendering; this file keeps only what is
     // transport glue — the direct companion handlers above, the sinks, and BLE's own refusal envelopes below (U3).
@@ -864,6 +893,13 @@ void setup() {
 #if MR_FEAT_RADMIN_ACCEPT
     mrfw::admin_stores_boot_report_console();
 #endif   // MR_FEAT_RADMIN_ACCEPT
+    // §RADMIN slice 4 — the two CONTROLLER STORES' READ-ONLY boot report, on CLIENT builds. ⛔ It validates and
+    // reports: no key is installed, no seed is drawn, nothing is auto-generated and no key, seed or fingerprint
+    // byte is printed. The 2056-byte public scratch it fills is `firmware_commands.cpp`'s single resident buffer,
+    // and `setup()` returns before `loop()` creates `g_mesh_task`, so the console can never contend for it.
+#if MR_FEAT_RADMIN_CLIENT
+    mrfw::admin_client_stores_boot_report_console();
+#endif   // MR_FEAT_RADMIN_CLIENT
 #if MR_N_LAYERS < 2
     // §UI-16 K1/K2 ([[B240]]) — THE TEAM CONTENT KEY IS RESTORED BY THE `/mrteams` KEYRING, AND BY NOTHING ELSE.
     // ⛔⛔ WITHDRAWN CALL, KEPT VISIBLE (QG blocker 1, 2026-08-22): this block used to begin with

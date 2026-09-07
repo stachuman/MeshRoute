@@ -37,6 +37,12 @@
 #include "firmware_admin_verbs.h"   // mrfw::admin_id_verb / acl_verb / admin_boot_report / admin_id_owns / acl_owns
                                     //   + AdminIdService / AclService — PURE; this file binds the stores, the
                                     //   checked draw, a Print sink and the two dispatch arms, and ⛔ decides nothing
+// §RADMIN slice 4 — the CONTROLLER half, UNGATED for the same [[B255]] reason: the header carries no capability
+// macro, so an ACCEPT board compiles it and instantiates nothing.
+#include "firmware_admin_client_verbs.h"   // mrfw::admin_key_verb / admin_target_verb / admin_client_boot_report
+                                           //   + admin_client_ble_refuses / client_regen_* — PURE; this file binds
+                                           //   the two stores, the checked draw, the future-caller predicates, a
+                                           //   Print sink and the two dispatch arms, and ⛔ decides nothing
 #if MR_FEAT_OLED   // ★ [[B255]] the include (see the gated binding block below; the header itself stays ungated)
 #include "firmware_ui_preset_verbs.h"  // §UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON
                                        //   records — PURE; this file only binds the store, the gate and a Print
@@ -307,6 +313,128 @@ void admin_stores_boot_report_console() {
     mrfw::admin_boot_report(id, acl, lines);
 }
 #endif   // MR_FEAT_RADMIN_ACCEPT
+
+// ---- §RADMIN slice 4: the two CONTROLLER STORES' DEVICE BINDINGS (CLIENT builds only) --------------------------
+// ★★★ EVERYTHING BELOW IS GLUE AND ⛔ NOTHING BELOW IS A DECISION — the ACCEPT block's rule, one product role over.
+//     The adapters forward to `mrnv`, to `mrrng` and to a `Print`; the entry points construct STACK services, call
+//     the pure verb and return. Every rule — the four storage states, the write policy, the duplicate/in-use
+//     refusals, the grammar, the fingerprint, the pagination and every emitted byte — lives in the pure headers,
+//     where the native suite drives it and `--target=radmin4{key,targets,verbs}` can attack it.
+// ★★ R-RA-8's other half: CLIENT = the four mobile products. On an ACCEPT board this block is ABSENT, so an
+//    `admin-key …` or `admin-target …` line falls through `dispatch()`'s `return false` to the caller's
+//    UNSUPPORTED-VERB answer — `> parse error` on USB and `{"err":"parse","msg":"unknown_cmd"}` over BLE.
+//    ⛔ LOUD, NEVER SILENT, and ⛔ no callable stub is left behind.
+#if MR_FEAT_RADMIN_CLIENT
+namespace {
+// ⛔ THE TYPED WRAPPERS, ⛔ never `read_slot`/`write_slot` directly.
+struct DeviceMgmtKeyStore : mrfw::IMgmtKeyStore {
+    mrnv::MgmtKeyRead load(mrnv::MgmtKeyBlob& out) override { return mrnv::load_mgmt_keys(out); }
+    bool save(const mrnv::MgmtKeyBlob& b) override          { return mrnv::save_mgmt_keys(b); }
+};
+struct DeviceTargetStore : mrfw::ITargetStore {
+    mrnv::TargetRead load(mrnv::TargetBlob& out) override { return mrnv::load_targets(out); }
+    bool save(const mrnv::TargetBlob& b) override         { return mrnv::save_targets(b); }
+};
+// ★★★ THE CHECKED DRAW, AND THE RETURN VALUE IS THE **ACTUAL** CHECK — ⛔ NEVER AN UNCONDITIONAL `true`. Same
+//     binding shape and same reason as the ACCEPT half's `DeviceAdminSeed`: `mrrng::fill` is `void` and writes
+//     ZEROS on the HOST, so a binding that answered `true` regardless would mint the world-known all-zero master
+//     key on every dead-RNG controller and REPORT SUCCESS. ⚠⚠ The `true` means ONLY "32 bytes arrived and they are
+//     not all zero" — ⛔ NOT a device-RNG health guarantee. [[B312]] stays OPEN. ⛔ No clock or counter fallback.
+struct DeviceMgmtKeySeed : mrfw::IAdminSeedSource {
+    bool fill(uint8_t out[32]) override {
+        mrrng::fill(out, 32);
+        return !mrfw::admin_buf_all_zero(out, 32);
+    }
+};
+// ★★ THE FUTURE-CALLER PREDICATES, BOUND TO **NO REFERENCES** — and that is a fact about Slice 4, not a stub with
+//    a shrug: Slice 8a is the FIRST producer of a session or a pending request, so today nothing can be in use.
+//    ⛔ It is a SEAM rather than a runtime flag or an overridable macro, so the day 8a lands there is exactly one
+//    place to bind and the service rules do not move.
+struct DeviceMgmtKeyUse : mrfw::IMgmtKeyUse {
+    bool slot_in_use(uint8_t) const override { return false; }
+    bool any_in_use() const override         { return false; }
+};
+struct DeviceTargetUse : mrfw::ITargetUse {
+    bool slot_in_use(uint8_t) const override { return false; }
+    bool any_in_use() const override         { return false; }
+};
+// ★★ THE REGEN ADMISSION, BOUND TO **NO DEBT**, for the same reason: there is no source-bound request, assembly,
+//    retained result or response ACK in this slice to be outstanding.
+struct DeviceClientRemoteDebt : mrfw::IClientRemoteDebt {
+    bool busy() const override { return false; }
+};
+// The `AdminPrintLines` shape (U3): the sink the caller was HANDED, ⛔ never `mrcon` and ⛔ never a global.
+// ⓘ The body carries its own trailing marker so `tools/probe_inbox_verbs`' [[B279]]-shaped control can target THIS
+//   adapter and not the byte-identical ACCEPT one above it.
+struct AdminClientPrintLines : mrfw::IAdminLines {
+    explicit AdminClientPrintLines(Print& o) : _o(o) {}
+    void line(const char* s, size_t n) override { _o.write(reinterpret_cast<const uint8_t*>(s), n); }   // §RADMIN-4 sink
+    Print& _o;
+};
+}  // namespace
+
+// ★★★★ THE ONE RESIDENT COST OF SLICE 4, AND IT IS THE OWNER-RULED NO-STACK PLACEMENT (design §6.2, brief §4.1):
+//      2056 bytes of `.bss` for the PUBLIC target book, used as IO/CANDIDATE SCRATCH and ⛔ NEVER as a live
+//      authority cache — every service entry point RELOADS and RECLASSIFIES into it, and a failing mutation
+//      restores the row it touched before returning.
+//      ⛔ THE STACK ALTERNATIVE WAS REFUSED for `s_peers`' measured reason, twelve hundred lines up:
+//      `admin_client_stores_boot_report_console()` runs from `setup()`, i.e. on the nRF52 Arduino loop task's
+//      FIXED 4 KB stack (LOOP_STACK_SZ = 256*4, not overridable), where this tree has already HARDFAULTED once
+//      (`stackhw` down to 72 B). 2056 B is HALF that stack.
+//      ★ SHARING IT BETWEEN THE BOOT REPORT AND THE CONSOLE IS SAFE FOR `s_peers`' EXACT REASON, and it is the
+//      same proof: `setup()` returns before `loop()` lazily creates `g_mesh_task`, and everything after that is
+//      single-threaded cooperative on that one task ⇒ the two users CANNOT overlap.
+//      ⛔ THE KEYRING IS **NOT** HERE: `/mrmkeys` holds SECRETS, so its 368-byte record stays a guarded stack
+//      transient inside the service and is wiped on every exit. A resident copy of ten master seeds is exactly
+//      what design §6.2's "wipes transient expanded secret material" forbids.
+static mrnv::TargetBlob s_targets;
+
+// `admin-key list|show|generate|import|export|remove|reset` — through the ONE dispatch.
+static void handle_admin_key(const char* args, size_t len, Print& out) {
+    DeviceMgmtKeyStore store;
+    DeviceMgmtKeySeed  seed;
+    DeviceMgmtKeyUse   use;
+    // ⛔ `g_identity.ed_pub` is READ, never written: `self` is the node's own messaging identity and this family
+    //    must not rotate it (`regen` owns that, and warns about it).
+    mrfw::MgmtKeyService svc(store, seed, use, g_identity.ed_pub);
+    AdminClientPrintLines lines(out);
+    mrfw::admin_key_verb(svc, args, len, lines);
+}
+// `admin-target list|show|add|set|remove|reset` — through the ONE dispatch, over the ONE resident scratch.
+static void handle_admin_target(const char* args, size_t len, Print& out) {
+    DeviceTargetStore store;
+    DeviceTargetUse   use;
+    mrfw::TargetService svc(store, use);
+    AdminClientPrintLines lines(out);
+    mrfw::admin_target_verb(svc, s_targets, args, len, lines);
+}
+// ★★★ THE FAMILY'S TOP-LEVEL RECOGNITION, IN A FUNCTION OF ITS OWN — and for the ACCEPT half's MEASUREMENT
+//     reason, not for tidiness: `tools/gen_command_inventory.py` records `transports` PER SURFACE and
+//     `dispatch()`'s surface is `serial,ble`. Written inline there, the two BARE family names would be published
+//     as BLE-reachable, which R-RA-30 refuses — only the `list`/`show` SUB-VERBS cross secured BLE, and the
+//     inventory records that per row.
+// ★ THE LITERALS ARE HERE, INSIDE THE CLIENT GATE, so the inventory records the family's product gate.
+//   `mrfw::admin_primary_is` is the SAME boundary predicate `mrfw::admin_client_verb_owns` — the BLE guard's
+//   condition — evaluates, so the router and the guard cannot drift.
+static bool admin_client_router_arm(const char* line, size_t len, Print& out) {
+    if (mrfw::admin_primary_is(line, len, "admin-key"))    { handle_admin_key(line + 9, len - 9, out); return true; }
+    if (mrfw::admin_primary_is(line, len, "admin-target")) { handle_admin_target(line + 12, len - 12, out); return true; }
+    return false;
+}
+// setup(): the READ-ONLY boot report. ⛔ ZERO writes, ⛔ zero draws, ⛔ no auto-generation, ⛔ no key, seed or
+// fingerprint byte. Same shape and same reason as `admin_stores_boot_report_console()` above.
+void admin_client_stores_boot_report_console() {
+    DeviceMgmtKeyStore key_store;
+    DeviceMgmtKeySeed  seed;
+    DeviceMgmtKeyUse   key_use;
+    DeviceTargetStore  tgt_store;
+    DeviceTargetUse    tgt_use;
+    mrfw::MgmtKeyService keys(key_store, seed, key_use, g_identity.ed_pub);
+    mrfw::TargetService  targets(tgt_store, tgt_use);
+    AdminClientPrintLines lines(mrcon);
+    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);
+}
+#endif   // MR_FEAT_RADMIN_CLIENT
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + mirror it to /mrpeers + the ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
@@ -773,6 +901,22 @@ void print_identity(const mrnv::IdBlob& idb, Print& out) {
 // global console. ⛔ The operation ORDER below is untouched and load-bearing: identity + crypto identity are
 // installed only AFTER a successful `save_id`, so a refused write leaves the running node exactly as it was.
 static void do_regen(Print& out) {
+#if MR_FEAT_RADMIN_CLIENT
+    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION, EVALUATED BEFORE ANY DRAW, WRITE OR IDENTITY CHANGE.
+    //     `regen` rotates the node's MESSAGING identity, which is the `self` key every managed target's ACL was
+    //     granted against, so doing it while a source-bound request/assembly/retained result/response ACK is
+    //     outstanding would strand work that can never be answered under the new key.
+    // ⛔ THE PRODUCTION BINDING ANSWERS "NO DEBT" because Slice 4 has NO PRODUCER (Slice 8a is the first). The
+    //    predicate is bound now so the rule lands in ONE place rather than beside a future request handler.
+    {
+        DeviceClientRemoteDebt debt;
+        if (!mrfw::client_regen_admitted(debt)) {
+            AdminClientPrintLines lines(out);
+            mrfw::client_regen_emit_busy(lines);
+            return;                                              // ⛔ zero draws, zero writes, no identity change
+        }
+    }
+#endif   // MR_FEAT_RADMIN_CLIENT
     mrnv::IdBlob idb{};
     mrnv::load_id(idb);                                          // preserve the existing name (if any)
     mrrng::fill(idb.seed, sizeof idb.seed);
@@ -783,6 +927,15 @@ static void do_regen(Print& out) {
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: re-install the E2E crypto identity
     out.print(F("> regen ok"));
     print_identity(idb, out);
+#if MR_FEAT_RADMIN_CLIENT
+    // ★ THE ONE CLIENT WARNING, AFTER the complete success line and on the SAME sink — ⛔ never on a refusal and
+    //   ⛔ never on a save failure (both returned above). ⓘ `preserved` is a claim this slice PROVES: the path
+    //   above writes `/mrid` and nothing else, and neither controller store is loaded, drawn from or rewritten.
+    {
+        AdminClientPrintLines lines(out);
+        mrfw::client_regen_emit_note(lines);
+    }
+#endif   // MR_FEAT_RADMIN_CLIENT
 }
 
 // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
@@ -1311,6 +1464,17 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
 #if MR_FEAT_RADMIN_ACCEPT
     if (admin_router_arm(line, len, out)) return true;
 #endif   // MR_FEAT_RADMIN_ACCEPT
+    // §RADMIN slice 4 — the two CONTROLLER-STORE families, CLIENT builds only (R-RA-8's other half). ⓘ ONE arm
+    // each for the whole namespace; the sub-verb parse and the refusal for an unknown one are the pure unit's.
+    // ⛔ Neither shadows anything: no other verb in this router begins `admin-key` or `admin-target`, and the two
+    // ACCEPT literals above (`admin-id`, `acl`) are refused by `admin_primary_is`' EXACT token boundary — on the
+    // HOST, where BOTH gates are 1, `admin-id` reaches the ACCEPT arm and cannot fall into this one.
+    // ★★★ THE RECOGNITION IS THE **PURE PREDICATE** `mrfw::admin_primary_is`, ⛔ NOT A HAND-WRITTEN `strncmp` pair
+    //     — the same expression `ble_dispatch_line`'s R-RA-30 refusal reaches through
+    //     `mrfw::admin_client_verb_owns`, so the router and the guard cannot drift apart.
+#if MR_FEAT_RADMIN_CLIENT
+    if (admin_client_router_arm(line, len, out)) return true;
+#endif   // MR_FEAT_RADMIN_CLIENT
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "nameof", 6)) { handle_nameof(line + 6, len - 6, out); return true; }   // §1.3 peer name by hash

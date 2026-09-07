@@ -808,3 +808,53 @@ TEST_CASE("cfgparse: arg_tail_empty sees a leftover token, and is not fooled by 
         CHECK(mrfw::arg_tail_empty(p) == c.tail_ok);
     }
 }
+
+// ================================================================================================================
+// §RADMIN slice 4 / [[B321]] — `parse_hex32`'s SECRET SCRATCH now carries a function-local `crypto_wipe` guard.
+// ⓘ ADDITIVE. ⛔ Not one existing `parse_hex32` case above is edited, and the two cases below exist to pin the ONE
+//   property the fix must not have changed: THE GRAMMAR AND THE OUTPUT ARE IDENTICAL. A destructor was added; a
+//   decision was not.
+// ⛔⛔ AND THE WIPE ITSELF IS **NOT** OBSERVED HERE, deliberately and said plainly: the buffer is a STACK frame of a
+//    function that has already returned, so reading it would be undefined behaviour and any "it was zero"
+//    assertion would be measuring luck. The EXECUTED observation lives in `tools/probe_inbox_verbs`, which
+//    interposes a test-only `crypto_wipe` wrapper and inspects the bytes WHILE THE FRAME IS STILL ALIVE, with a
+//    control that deletes the guard and must redden. This file claims only what it can prove.
+// ================================================================================================================
+
+TEST_CASE("parse_hex32 — [[B321]]: the scratch guard changed NO accept/refuse decision and NO output byte") {
+    // A regression corpus over every shape the existing cases exercise, re-asserted as ONE table so a grammar
+    // change made "while adding the wipe" cannot pass unnoticed.
+    struct Row { const char* in; bool ok; };
+    const Row rows[] = {
+        { "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", true  },
+        { "77076D0A7318A57D3C16C17251B26645DF4C2F87EBC0992AB177FBA51DB92C2A", true  },
+        { "77076d0A7318a57D3c16C17251b26645Df4c2F87eBc0992Ab177fBa51dB92c2A", true  },
+        { "0000000000000000000000000000000000000000000000000000000000000000", true  },
+        { "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", true  },
+        { "", false },
+        { "77076d0a", false },
+        { "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2",  false },
+        { "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2aa", false },
+        { "0x77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2", false },
+        { "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2g",  false },
+        { "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a ", false },
+    };
+    for (const Row& r : rows) {
+        CAPTURE(r.in);
+        uint8_t out[32];
+        std::memset(out, 0x5A, sizeof out);
+        CHECK(mrfw::parse_hex32(r.in, out) == r.ok);
+        // ⛔ A REFUSAL COMMITS NOTHING: `out` is written only after the whole token validated, so a refused token
+        //    still leaves the caller's buffer exactly as it was.
+        if (!r.ok) for (uint8_t b : out) CHECK(b == 0x5A);
+    }
+    CHECK_FALSE(mrfw::parse_hex32(nullptr, nullptr));   // ⛔ a null input allocates NO scratch at all
+}
+
+TEST_CASE("parse_hex32 — [[B321]]: the decoded bytes are still exactly the token's, on every ABI") {
+    uint8_t out[32];
+    CHECK(mrfw::parse_hex32("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", out));
+    for (int i = 0; i < 32; ++i) CHECK(out[i] == static_cast<uint8_t>(i));
+    CHECK(mrfw::parse_hex32("FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00", out));
+    for (int i = 0; i < 32; ++i) CHECK(out[i] == static_cast<uint8_t>(i % 2 ? 0x00 : 0xFF));
+}

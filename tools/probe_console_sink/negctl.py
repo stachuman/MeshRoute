@@ -961,9 +961,167 @@ for p, t in ORIG.items():
 # + 3 router (H-C13..H-C15) + 5 oracle (H-C14a..H-C18a) = len(HELP_CTL) + 10.
 # §RADMIN slice 3: + the ADMIN BLE family (3 executed-row + 6 extraction-refusal) and the 11 device-boundary
 # structural sabotages, one per new claim (S30 twice: duplicated call AND lost gate).
+
+# ================================================================================================================
+# §RADMIN SLICE 4 — the CONTROLLER guard's and the CONTROLLER boundary's own sabotage controls.
+# ⛔ NOT A COPY of the Slice 3 set: R-RA-30's rule is a SUB-VERB SPLIT, so it has two failure directions the
+#    whole-family rule does not — a MUTATION escaping (too narrow) and the ruled PUBLIC listing being disabled
+#    (too wide). Both are controlled below, and D4 is the row that can see the second.
+# ================================================================================================================
+CLIENT_GUARD_SRC = ('#if MR_FEAT_RADMIN_CLIENT\n'
+                    '    if (mrfw::admin_client_ble_refuses(line, len))\n'
+                    '        return write_err(out, cap, "admin-client", "console_only");\n'
+                    '#endif   // MR_FEAT_RADMIN_CLIENT\n')
+
+CLIENT_EXEC_CTL = [
+    ('D-C1 ★★★ MUTATION ESCAPE: the guard refuses nothing at all — `admin-key export key0` crosses BLE',
+     '    if (mrfw::admin_client_ble_refuses(line, len))',
+     '    if (false && mrfw::admin_client_ble_refuses(line, len))',
+     'D1/D2 — every owned SECRET form reaches the seam'),
+    ('D-C2 ★★ PUBLIC LISTING BLOCKED: the guard refuses the WHOLE family, disabling R-RA-30\'s ruled list/show',
+     '    if (mrfw::admin_client_ble_refuses(line, len))',
+     '    if (mrfw::admin_client_verb_owns(line, len))',
+     'D1/D4 — the two ruled public forms are refused'),
+    ('D-C3 PARTIAL FAMILY: only `admin-key` is guarded, so the whole `admin-target` half leaks',
+     '    if (mrfw::admin_client_ble_refuses(line, len))',
+     '    if (mrfw::admin_client_ble_refuses(line, len) && mrfw::admin_primary_is(line, len, "admin-key"))',
+     'D1/D2 — every `admin-target …` mutation reaches the seam'),
+    ('D-C4 SUB-VERB PREFIX: `list`/`show` become prefixes, so `listen`/`shownothing` sail through',
+     '    if (mrfw::admin_client_ble_refuses(line, len))',
+     '    if (mrfw::admin_client_ble_refuses(line, len) && !(len > 10 && (strstr(line, " list") '
+     '|| strstr(line, " show"))))',
+     'D1/D2 — an owned mutation whose text contains `list`/`show` escapes'),
+    ('D-C5 BROAD PREFIX: a bare `admin` test swallows `admin-id`/`acl`, the TARGET half\'s own verbs',
+     '    if (mrfw::admin_client_ble_refuses(line, len))',
+     '    if (len >= 5 && !strncmp(line, "admin", 5))',
+     'D1/D3 — `admin-id show` is refused under the CONTROLLER envelope'),
+]
+for idx, (label, find, repl, expect) in enumerate(CLIENT_EXEC_CTL):
+    print(label)
+    dest, err = mutate(FWMAIN, find, repl, os.path.basename(FWMAIN), subdir=f'dctl{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    try:
+        rc, text = ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'dctl{idx}', family='client')
+    except ble_guard.GuardError as exc:
+        print(f'   -> the guard could not be EXTRACTED from the mutant, which is fail-loud RED: {exc}')
+        continue
+    if rc == 2:
+        print(f'   !! INSTRUMENT FAILURE, not a control result: {text.splitlines()[:1]}')
+        rc_all = 1
+        continue
+    fails = [l.strip() for l in text.splitlines() if l.strip().startswith('FAIL')]
+    if not fails:
+        print(f'   !! STAYED GREEN -- this control proves NOTHING  [expected: {expect}]')
+        rc_all = 1
+    else:
+        print(f'   -> {len(fails)} executed check(s) fail: ' + '; '.join(f[5:74] for f in fails[:2]))
+
+CLIENT_EXTRACT_CTL = [
+    ('D-C6 the client refusal is DELETED outright', CLIENT_GUARD_SRC, ''),
+    ('D-C7 the client refusal is DUPLICATED (two executable anchors — which one is the guard?)',
+     CLIENT_GUARD_SRC, CLIENT_GUARD_SRC + CLIENT_GUARD_SRC),
+    ('D-C8 the client refusal is COMMENTED OUT (a guard that reads as present but never runs)',
+     '        return write_err(out, cap, "admin-client", "console_only");',
+     '        // return write_err(out, cap, "admin-client", "console_only");\n        return 0;'),
+    ('D-C9 ★★ THE ENVELOPE COLLIDES with the TARGET family\'s (`admin` for both — a leak becomes unattributable)',
+     'return write_err(out, cap, "admin-client", "console_only");',
+     'return write_err(out, cap, "admin", "console_only");'),
+    ('D-C10 the guard is MOVED BELOW the transport seam, where it can refuse nothing', CLIENT_GUARD_SRC, ''),
+    ('D-C11 the guard is gated on the WRONG capability (MR_FEAT_RADMIN_ACCEPT — the R-RA-8 inversion)',
+     '#if MR_FEAT_RADMIN_CLIENT\n    if (mrfw::admin_client_ble_refuses(line, len))',
+     '#if MR_FEAT_RADMIN_ACCEPT\n    if (mrfw::admin_client_ble_refuses(line, len))'),
+]
+for idx, (label, find, repl) in enumerate(CLIENT_EXTRACT_CTL):
+    print(label)
+    if label.startswith('D-C10'):
+        dest, err = mutate_steps(FWMAIN, [
+            (CLIENT_GUARD_SRC, ''),
+            ('    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',
+             '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }\n' + CLIENT_GUARD_SRC),
+        ], os.path.basename(FWMAIN))
+    else:
+        dest, err = mutate(FWMAIN, find, repl, os.path.basename(FWMAIN), subdir=f'dxctl{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    try:
+        ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'dxctl{idx}', family='client')
+    except ble_guard.GuardError as exc:
+        print(f'   -> extraction REFUSES: {str(exc)[:110]}')
+        continue
+    print('   !! STAYED GREEN -- the extractor accepted a guard it must have refused')
+    rc_all = 1
+
+# ---- (c) the CONTROLLER device-boundary rows S40..S50 --------------------------------------------------------
+S4_CTL = [
+    ('S-C40 the CLIENT boot report call is DUPLICATED in setup()',
+     FWMAIN, '    mrfw::admin_client_stores_boot_report_console();',
+     '    mrfw::admin_client_stores_boot_report_console();\n'
+     '    mrfw::admin_client_stores_boot_report_console();', 'S40'),
+    ('S-C40b the CLIENT boot call loses its gate (an ACCEPT board would run a controller boot path)',
+     FWMAIN, '#if MR_FEAT_RADMIN_CLIENT\n    mrfw::admin_client_stores_boot_report_console();\n'
+     '#endif   // MR_FEAT_RADMIN_CLIENT',
+     '    mrfw::admin_client_stores_boot_report_console();', 'S40'),
+    ('S-C42 the CLIENT boot report starts DRAWING entropy (an auto-generate on a fresh controller)',
+     CMDS, '    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);',
+     '    uint8_t z[32]; mrrng::fill(z, 32);\n'
+     '    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);', 'S42'),
+    ('S-C43 ★★ A SECOND resident book is introduced (the one-scratch residency ruling reversed)',
+     CMDS, 'static mrnv::TargetBlob s_targets;',
+     'static mrnv::TargetBlob s_targets;\nstatic mrnv::TargetBlob s_targets_scratch2;', 'S43'),
+    ('S-C44 ★★★ THE KEYRING BECOMES RESIDENT — ten master SEEDS move into .bss (design §6.2 reversed)',
+     CMDS, 'static mrnv::TargetBlob s_targets;',
+     'static mrnv::TargetBlob s_targets;\nstatic mrnv::MgmtKeyBlob s_keys;', 'S44'),
+    ('S-C45 the CLIENT bindings reach into Node state',
+     CMDS, '    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);',
+     '    (void)g_node.node_id();\n    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);', 'S45'),
+    ('S-C46 ★★★ THE TWO SEEDS CROSS: load_mgmt_keys is re-pointed at the TARGET-side /mradmid slot',
+     NVH, '    const int n = read_slot(kSlotMgmtKeys, &out, sizeof out, &io);',
+     '    const int n = read_slot(kSlotAdmid, &out, sizeof out, &io);', 'S46'),
+    ('S-C47 /mrtargets is added to mount_or_repair()\'s probe list — its corruption would reformat the FS',
+     NVH, 'static const char* const kFiles[] = { "/mrcfg",',
+     'static const char* const kFiles[] = { "/mrtargets", "/mrcfg",', 'S47'),
+    ('S-C48 ★★ do_regen starts rewriting the keyring — the `preserved` warning becomes a FALSE claim',
+     CMDS, '    meshroute::identity_from_seed(g_identity, idb.seed);',
+     '    { mrnv::MgmtKeyBlob mk{}; mrnv::mgmt_key_blob_init(mk); (void)mrnv::save_mgmt_keys(mk); }\n'
+     '    meshroute::identity_from_seed(g_identity, idb.seed);', 'S48'),
+    ('S-C50 ★★ the CLIENT BLE refusal reuses the TARGET family\'s `admin` envelope',
+     FWMAIN, 'return write_err(out, cap, "admin-client", "console_only");',
+     'return write_err(out, cap, "admin", "console_only");', 'S50'),
+]
+for idx, (label, target, find, repl, row) in enumerate(S4_CTL):
+    print(label)
+    dest, err = mutate(target, find, repl, os.path.basename(target), subdir=f'sctl4{idx}')
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    args = {CMDS: [dest, CMDSH, FWMAIN, HELP, NVH, CFGCPP],
+            CMDSH: [CMDS, dest, FWMAIN, HELP, NVH, CFGCPP],
+            FWMAIN: [CMDS, CMDSH, dest, HELP, NVH, CFGCPP],
+            HELP: [CMDS, CMDSH, FWMAIN, dest, NVH, CFGCPP],
+            NVH: [CMDS, CMDSH, FWMAIN, HELP, dest, CFGCPP],
+            CFGCPP: [CMDS, CMDSH, FWMAIN, HELP, NVH, dest]}[target]
+    try:
+        rows = {cid: ok for cid, _d, ok, _x in structural.check(*args)}
+    except Exception as exc:                                   # noqa: BLE001 — an instrument crash is never a RED
+        print(f'   -> the structural reader REFUSED the mutant, which is fail-loud RED: {str(exc)[:100]}')
+        continue
+    broke = [cid for cid, ok in rows.items() if not ok]
+    if row not in broke:
+        print(f'   !! STAYED GREEN -- this control proves NOTHING  [required: {row}]')
+        rc_all = 1
+    else:
+        print(f'   -> structural {"+".join(broke)} now FAIL (required: {row})')
+
 n_radmin3 = len(ADMIN_EXEC_CTL) + len(ADMIN_EXTRACT_CTL) + len(S3_CTL)
+n_radmin4 = len(CLIENT_EXEC_CTL) + len(CLIENT_EXTRACT_CTL) + len(S4_CTL)
 print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
       f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE + '
-      f'{n_radmin3} radmin3 controls run '
-      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3})')
+      f'{n_radmin3} radmin3 + {n_radmin4} radmin4 controls run '
+      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3 + n_radmin4})')
 sys.exit(rc_all)

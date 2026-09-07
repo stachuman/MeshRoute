@@ -1,5 +1,16 @@
 # MeshRoute durable decisions
 
+- **Standalone mobile Home redesign (owner discussion, 2026-09-06):**
+  `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated
+  DRAFT, not dispatch authority or a change to the remote-admin queue. Agreed direction: visible own
+  name; no-team join/create entry points; in-team communication/attention Home. Ordinary team-channel
+  presets already exist in source; the owner clarified there is no contrary device-experience report.
+  Owner rejects the old 17-byte/single-row preset limit: messages must use multiple lines/pages, with
+  bounded capacity derived from transport/storage and explicit catalog migration, not shortened wording.
+  Boot-only logo splash and non-interrupting received-team Home preview are proposals; preview is not
+  read/ACK/delivery evidence. Name editor, gestures, exact capacity and preview policy await review.
+  HOME-A1/HOME-A2 are maintained intake aliases; no code, tests, tools, bench or commit changed for this draft.
+
 - **Remote administration v2 controller boundary (owner-ruled; design QA-passed 2026-09-04):** the locally
   attached MeshRoute node—not its companion—is the authenticated RPC endpoint. It seals/opens with its
   default `/mrid` identity or one explicitly selected seed-derived dedicated identity from ten persistent
@@ -85,6 +96,21 @@
   crypto_wipe scope guard, no NV/team-keyring include or shared-guard relocation (C1). B321 stays open
   until implementation QA; any gateway flash cost is separately attributed. Final re-gate waits for §1.
   No code/tool edit, Slice 3 closure, implementation gate or owner commit is claimed by this preparation.
+- **Remote-admin Slice 5 preliminary brief QA PASS (2026-09-06), no fold-ins:** owner reports Slice 4 running; earlier
+  preparation-status entries above are historical, not fresh implementation verdicts. QA pre-check and
+  R-RA-31 authorize drafting `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`, still
+  NON-DISPATCHABLE until Slice 4 report/PASS/owner closure, exact base/delivered pins and final brief gate.
+  R-RA-31: target bootstrap TX same-layer/by reversed path only; native/gateway Node re-pin authorized,
+  mobile Node fixed. Author §6.3–6.7 decisions: resident pair/live ACL, pre-save prepared activation,
+  16 shared seen entries with 128-bit tags and retained routes (2064-byte full state candidate to measure),
+  CLIENT-only old slot/drain, one timer ID91/kCap92, stable intake aliases pending Slice 4 finding IDs.
+  TimerWheel belongs to DeviceHal, so mobile Node unchanged does not imply zero mobile RAM/flash delta.
+  Seen tombstones survive staging expiry and future ACK; bootstrap consumes no seen row and no epoch.
+  Simulator binary changes but old 36 streams must remain exact; no unconditional epoch draws on
+  unprovisioned sim nodes. No new bench part; only a draft legacy suspension note. No code/tool edit,
+  software PASS or commit claimed. QA accepted S5-A1–A3 and corrected its ledger with old claims visible;
+  maintained rows stay open until Slice 5 closure evidence. After §1 fill-in and final QA gate, QA dispatches
+  Slice 5 on the main tree under the brief's clean measured-start requirements.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

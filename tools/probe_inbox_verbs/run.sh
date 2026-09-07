@@ -49,6 +49,42 @@ set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 ROOT=$(cd ../.. && pwd)          # ★ absolute — a relative path in a cwd-resetting shell silently measured nothing
 HERE=$(pwd)                      #   once already ([[B82]]). Never make these relative.
+
+# ================================================================================================================
+# ★★★ §RADMIN SLICE 4 — TWO INDEPENDENTLY COMPILED PRODUCT ARMS, AND THE DRIVER IS A RE-EXEC RATHER THAN A LOOP.
+#
+#     R-RA-8 splits the product roles: a board is an ACCEPT target OR a CLIENT controller, never both, and
+#     `src/firmware_commands.cpp` compiles a DIFFERENT set of bindings on each. One arm therefore cannot measure
+#     the other: on a CLIENT build `acl`/`admin-id` are not router verbs at all, and on an ACCEPT build
+#     `admin-key`/`admin-target` are not.
+# ⛔ A `-D` OVERRIDE OF ONE TU AGAINST THE OTHER ARM'S SUPPORT OBJECTS WAS REFUSED: `mr_features.h` derives the
+#    whole capability set from `MR_PROFILE_MOBILE`, so a half-flipped build would link two disagreeing worlds.
+#    ⇒ EACH ARM COMPILES EVERY OBJECT — production TU, lib/core, lib/console, lib/hal, monocypher and the probe —
+#    under ITS OWN defines, into ITS OWN `$OUT`, and the re-exec is what guarantees no state is shared.
+#
+# ★ THE ARM DEFINES ARE `platformio.ini`'s OWN DELTA, not a guessed list: `[env:heltec_mobile]` is literally
+#   `extends = env:heltec_v3` plus `-DMR_PROFILE_MOBILE` (platformio.ini:524-528), and this probe's arm-1 define
+#   set has been the heltec_v3 one since §CUSTODY-D. ⇒ arm 2 = arm 1 + that one flag, which is EXACTLY the
+#   difference between the two real envs.
+# ⚠⚠ ONE MEASURED LIMIT, STATED RATHER THAN GLOSSED: neither arm sets `-DMR_FEAT_OLED=1`, although both real envs
+#    do. That is arm 1's pre-existing shape and it is NOT widened here, because it is not free: with OLED on,
+#    `firmware_commands.cpp` references `mrfw::ui_emergency_active()`, which lives in `src/firmware_ui.cpp` — a TU
+#    this probe does not compile and could not without the whole U8g2/board_ui canvas. MEASURED, not assumed:
+#    the link fails with exactly that undefined symbol. The OLED axis of the console surface is covered instead by
+#    `tools/probe_console_sink`, whose six-profile matrix includes `mobile_oled`.
+# ================================================================================================================
+if [ -z "${MR_PROBE_ARM:-}" ]; then
+  arm_rc=0
+  for _arm in accept client; do
+    echo "================================================================================================"
+    echo "== ARM: $_arm  (independently compiled; own defines, own objects, own outputs)"
+    echo "================================================================================================"
+    MR_PROBE_ARM="$_arm" bash "$HERE/run.sh" "$@" || arm_rc=1
+  done
+  echo
+  if [ "$arm_rc" -eq 0 ]; then echo "BOTH ARMS PASS"; else echo "AN ARM FAILED — see above"; fi
+  exit $arm_rc
+fi
 CXX=${CXX:-g++}
 CC=${CC:-gcc}
 OUT=$(mktemp -d)
@@ -65,6 +101,12 @@ FW_NVH="$ROOT/src/device_nv.h"              # §RADMIN slice 3: the typed wrappe
 FAKE_RNG="$HERE/fakes/esp_random.h"         # the probe-local deterministic entropy stream
 
 DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
+# ★ ARM 2 = ARM 1 + `platformio.ini`'s own `[env:heltec_v3]` -> `[env:heltec_mobile]` delta (see the header note).
+[ "$MR_PROBE_ARM" = client ] && DEFS+=(-DMR_PROFILE_MOBILE)
+# ★★ [[B321]]'s OBSERVATION SEAM, at LINK time: every `crypto_wipe` call is routed to the probe's `__wrap_` symbol,
+#    which copies the bytes, performs the REAL wipe and re-reads the SAME LIVE storage. ⛔ Production is unmodified
+#    and unaware; the wrapper is a straight forward unless a case arms it.
+LDWRAP=(-Wl,--wrap=crypto_wipe)
 INCS=(-I"$HERE/fakes" -I"$ROOT/tools/probe_board_ui/fakes" -I"$ROOT/tools/probe_device_radio/fakes"
       -I"$ROOT/variants/heltec_common" -I"$ROOT/src" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console"
       -I"$ROOT/lib/monocypher/src")
@@ -160,7 +202,19 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #                     backend), so its cover moved here with controls C27..C29.
 #    4+2+8+1+6+9+1+2+1+3+3+1+7 = 48 named rows; two of them (R34's five spellings) share one id, so the executed
 #    count rises by 46: 91 + 46 = 137. ✓
-PIN_CHECKS=137
+# ★★ §RADMIN SLICE 4 — THE PINS ARE **PER ARM**, because the two arms measure two different products.
+#   ACCEPT 137 -> 146 = +8 [[B321]] rows (Z1..Z8: the EXECUTED `crypto_wipe` observation through the link-time
+#   interposer, on success, on a post-allocation refusal, on the null input, plus the control that the interposer
+#   is linked at all) +1 X8b (the `/mrpeers` wear guard, newly OBSERVABLE — see the X8 note in probe_main.cpp).
+#   CLIENT 178 = 146 − 46 (the ACCEPT-only §RADMIN slice 3 rows, which are not a surface on a mobile product)
+#   + 78 (the Q rows: the two families' router ownership and the TARGET half's absence, `show self` at zero reads,
+#   the checked draw, the dead-draw and refused-medium arms, export, the ten counted ordinary refusals, the book
+#   end to end over the ONE resident scratch, the read-only boot report, the io_failed arm including both
+#   confirm-gated recoveries, the supplied-sink rule, and ★ the byte-identical preservation of BOTH controller
+#   records across `regen` with its ruled warning).
+PIN_CHECKS_ACCEPT=146
+PIN_CHECKS_CLIENT=178
+PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
 #   reading its record · C25 the Print adapter re-chooses `mrcon` ([[B279]]'s shape) · C26 the read-only boot
@@ -169,7 +223,13 @@ PIN_CHECKS=137
 #   stops asking for SlotIo (a dead store reads as a fresh device) · C28 `save_acl` writes the WRONG slot (an ACL
 #   update lands on the administration root) · C29 `load_admin_id` reads the wrong slot. The native suite is blind
 #   to all three because the host arm has NO NV backend; here they run against the REAL ESP32 sequence.
-PIN_CONTROLS=30
+# ★★ PER ARM as well: the slice-3 controls (C22..C29) mutate bindings a CLIENT build does not compile, and the
+#   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
+#   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
+#   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
+PIN_CONTROLS_ACCEPT=30
+PIN_CONTROLS_CLIENT=33
+PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -230,7 +290,7 @@ build_variant() {
   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
-    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT"/sup_*.o -o "$bin" 2>>"$OUT/build.log"
+    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
 }
 
 rc=0
@@ -299,6 +359,16 @@ ctl() {
     nvh)     rm -rf "$OUT/srcshadow"; cp -r "$ROOT/src" "$OUT/srcshadow"
              sed "$script" "$FW_NVH" > "$OUT/srcshadow/device_nv.h"
              cmp -s "$FW_NVH" "$OUT/srcshadow/device_nv.h" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; }
+             shadowdir="$OUT/srcshadow"
+             router="$OUT/srcshadow/$(basename "$FW_CMDS")"
+             handler="$OUT/srcshadow/$(basename "$FW_INBOX")" ;;
+    # ★★ §RADMIN slice 4 / [[B321]] — `src/firmware_config_parse.h`, and it needs the SAME whole-`src/` shadow the
+    #    `nvh` kind needs, for the identical C++ reason: a quoted include resolves against the INCLUDING file's own
+    #    directory first, so a lone shadow header would be picked up by `probe_main.cpp` while the production TUs
+    #    kept resolving to the real one — two definitions of `mrfw::parse_hex32` in one link.
+    cfgp)    rm -rf "$OUT/srcshadow"; cp -r "$ROOT/src" "$OUT/srcshadow"
+             sed "$script" "$ROOT/src/firmware_config_parse.h" > "$OUT/srcshadow/firmware_config_parse.h"
+             cmp -s "$ROOT/src/firmware_config_parse.h" "$OUT/srcshadow/firmware_config_parse.h" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; }
              shadowdir="$OUT/srcshadow"
              router="$OUT/srcshadow/$(basename "$FW_CMDS")"
              handler="$OUT/srcshadow/$(basename "$FW_INBOX")" ;;
@@ -375,6 +445,10 @@ if [ "${1:-}" != "--no-neg" ]; then
       's/inline const char\* inbox_clear_result(bool cleared) { return cleared ? "cleared" : "io_error"; }/inline const char* inbox_clear_result(bool) { return "cleared"; }/'
 
   # ================================ §RADMIN slice 3 — the target stores' wiring controls ========================
+  # ⛔ ACCEPT ARM ONLY: on a CLIENT build the target-store bindings are not compiled at all, so each mutation below
+  #    would change a block the product does not have — the probe would stay GREEN and the control would score as
+  #    `passes`, i.e. UNUSABLE. A control that cannot bite on an arm does not belong to that arm.
+  if [ "$MR_PROBE_ARM" = accept ]; then
   # ★ EACH IS THE TEMPTING WRONG EDIT, applied to a COPY of the REAL source, and each must turn the probe RED on
   #   the rows it is aimed at. A mutant that fails to build, dies, or passes is UNUSABLE — never a scored control.
 
@@ -422,6 +496,50 @@ if [ "${1:-}" != "--no-neg" ]; then
 
   ctl 'C26 the READ-ONLY boot report starts WRITING (an auto-seed on a fresh device)' router \
       's|    mrfw::admin_boot_report(id, acl, lines);|    mrfw::admin_boot_report(id, acl, lines);\n    (void)mrnv::save_acl(mrnv::AclBlob{});|'
+  fi
+
+  # ================================ §RADMIN slice 4 — the CONTROLLER stores' wiring controls ====================
+  # ⛔ CLIENT ARM ONLY, for the mirror reason. ★ Each is the tempting WRONG EDIT on the controller half, and the
+  #   two starred ones are the shapes design §6.4 and R-RA-30 exist to forbid.
+  if [ "$MR_PROBE_ARM" = client ]; then
+  ctl 'C30 the §RADMIN controller DISPATCH ARM is deleted (both families unreachable)' router \
+      '/if (admin_client_router_arm(line, len, out)) return true;/d'
+
+  # ⓘ RANGE-ADDRESSED to the CONTROLLER struct: `sed` is line-oriented, so a `\n` in the FIND text matches nothing
+  #   (a vacuous control, which is an instrument failure, not a result). The address also keeps the mutation off
+  #   the byte-identical ACCEPT binding twenty lines up, so the reddening is attributable to ONE product role.
+  ctl 'C31 ★ the controller seed binding STOPS DRAWING from the platform (answers true, fills nothing)' router \
+      '/struct DeviceMgmtKeySeed/,/^};/ s|        mrrng::fill(out, 32);|        (void)out;|'
+
+  ctl 'C32 the keyring store binding stops reading the record it was bound to (every list reads a fresh device)' router \
+      's|    mrnv::MgmtKeyRead load(mrnv::MgmtKeyBlob\& out) override { return mrnv::load_mgmt_keys(out); }|    mrnv::MgmtKeyRead load(mrnv::MgmtKeyBlob\& out) override { (void)out; return mrnv::MgmtKeyRead::absent; }|'
+
+  ctl 'C33 the controller Print adapter writes to `mrcon` instead of the SUPPLIED sink ([[B279]] shape)' router \
+      's|    void line(const char\* s, size_t n) override { _o.write(reinterpret_cast<const uint8_t\*>(s), n); }   // §RADMIN-4 sink|    void line(const char* s, size_t n) override { mrcon.write(reinterpret_cast<const uint8_t*>(s), n); }|'
+
+  ctl 'C34 the READ-ONLY controller boot report starts WRITING (an auto-generate on a fresh controller)' router \
+      's|    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);|    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);\n    (void)mrnv::save_targets(mrnv::TargetBlob{});|'
+
+  ctl 'C35 ★★ do_regen REWRITES the keyring — the ruled `keys and targets preserved` warning becomes a LIE' router \
+      's|    out.print(F("> regen ok"));|    { mrnv::MgmtKeyBlob mk{}; mrnv::mgmt_key_blob_init(mk); (void)mrnv::save_mgmt_keys(mk); }\n    out.print(F("> regen ok"));|'
+
+  ctl 'C36 the CLIENT regen WARNING is emitted on the FAILURE path too (a rotation that did not happen is warned about)' router \
+      's|    if (!mrnv::save_id(idb)) { out.println(F("> regen err nv_save_failed")); return; }|    if (!mrnv::save_id(idb)) { out.println(F("> regen err nv_save_failed")); { AdminClientPrintLines l2(out); mrfw::client_regen_emit_note(l2); } return; }|'
+
+  # ⓘ ONE LINE, for C31's reason. Dropping the `&io` argument alone is the whole defect: `io` then stays
+  #   default-constructed, `backend_failed` is never set, and a store that would not answer reads as ABSENT.
+  ctl 'C37 ★ `load_mgmt_keys` stops asking the primitive for SlotIo — a DEAD store reads as a fresh device' nvh \
+      's|    const int n = read_slot(kSlotMgmtKeys, \&out, sizeof out, \&io);|    const int n = read_slot(kSlotMgmtKeys, \&out, sizeof out, nullptr);|'
+
+  ctl 'C38 ★★ `save_targets` WRITES THE WRONG SLOT — a book update lands on the management keyring' nvh \
+      's|inline bool save_targets(const TargetBlob\& b) { return write_slot(kSlotTargets, \&b, sizeof b); }|inline bool save_targets(const TargetBlob\& b) { return write_slot(kSlotMgmtKeys, \&b, sizeof b); }|'
+
+  ctl 'C39 ★★★ `load_mgmt_keys` READS THE TARGET-SIDE `/mradmid` SLOT — design §6.4'"'"'s two seeds CROSS' nvh \
+      's|    const int n = read_slot(kSlotMgmtKeys, \&out, sizeof out, \&io);|    const int n = read_slot(kSlotAdmid, \&out, sizeof out, \&io);|'
+
+  ctl 'C40 ★★ [[B321]]: the shared decoder'"'"'s SECRET-SCRATCH guard is DELETED — the key material is left on the stack' cfgp \
+      's|    } hex_scratch_wipe{buf};|    };|'
+  fi
 
 
   # ---- C6: THE CLEAR IS NEVER PERFORMED but the ack still claims it. The mirror image of C5: an ack that reports

@@ -101,19 +101,32 @@ APPROVED_SITES = {
         "#if MR_FEAT_RADMIN_CLIENT",                          # the client-owned dispatch arm
     ],
     # ---- §RADMIN slice 3: the target-store console surface, ACCEPT-only (R-RA-8) ------------------------------
+    # ---- §RADMIN slice 3: the target-store console surface, ACCEPT-only (R-RA-8) ------------------------------
+    # ---- §RADMIN slice 4: the controller-store console surface, CLIENT-only (R-RA-8's other half) -------------
+    # ★★ THE TWO ROLES ARE INTERLEAVED PER FILE AND THE MULTISET IS EXACT: swapping a CLIENT gate for an ACCEPT
+    #    one (or the reverse) changes NO count but changes the multiset, and the check below compares the SORTED
+    #    LIST rather than a length. That is the whole reason this census exists rather than a `grep -c`.
     CMDS_CPP: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # the store/draw/sink bindings, the three entry points and the router arm
         "#if MR_FEAT_RADMIN_ACCEPT",   # the ONE dispatch forwarding arm
+        "#if MR_FEAT_RADMIN_CLIENT",   # the store/draw/use/sink bindings, the resident book, the entry points
+        "#if MR_FEAT_RADMIN_CLIENT",   # do_regen()'s ADMISSION predicate, before any draw/write/identity change
+        "#if MR_FEAT_RADMIN_CLIENT",   # do_regen()'s WARNING, after the complete success line
+        "#if MR_FEAT_RADMIN_CLIENT",   # the ONE dispatch forwarding arm
     ],
     CMDS_H: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # the boot wrapper's declaration. ⛔ NO `#else` stub: the call site is gated
+        "#if MR_FEAT_RADMIN_CLIENT",   # the controller boot wrapper's declaration. ⛔ NO `#else` stub either
     ],
     FW_MAIN: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # R-RA-29's BLE refusal, BEFORE the transport-neutral seam
         "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s READ-ONLY boot report call, beside the legacy admin_load
+        "#if MR_FEAT_RADMIN_CLIENT",   # R-RA-30's SUB-VERB-AWARE BLE refusal, also before the seam
+        "#if MR_FEAT_RADMIN_CLIENT",   # setup()'s READ-ONLY controller boot report call
     ],
     HELP_H: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # the two sorted primary names in the bare index
+        "#if MR_FEAT_RADMIN_CLIENT",   # the two sorted CONTROLLER primary names, contiguous with them
     ],
 }
 APPROVED_FILES = sorted(APPROVED_SITES)
@@ -526,6 +539,45 @@ CONTROLS = [
                        "own violation, which would stop the native suite exercising the service arms at all",
      "src/firmware_admin_acl.h", "namespace mrfw {",
      "#if MR_FEAT_RADMIN_ACCEPT\n#endif\nnamespace mrfw {", ("O1",)),
+    # ---- §RADMIN slice 4: one control PER NEW CONTROLLER OWNER BOUNDARY, in the same five shapes ---------------
+    ("W-S4-DROP-DISPATCH", "§RADMIN slice 4: the CLIENT gate around the controller ROUTER FORWARDING arm is "
+                           "deleted, so an ACCEPT board would route `admin-key`/`admin-target` into controller "
+                           "stores it was ruled not to have",
+     CMDS_CPP, "#if MR_FEAT_RADMIN_CLIENT\n    if (admin_client_router_arm(line, len, out)) return true;\n#endif",
+     "    if (admin_client_router_arm(line, len, out)) return true;", ("O4d",)),
+    ("W-S4-DROP-BLE", "§RADMIN slice 4: the CLIENT gate around the R-RA-30 BLE SPLIT is deleted, so an ACCEPT "
+                      "board acquires a controller-family guard it was ruled not to carry",
+     FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    if (mrfw::admin_client_ble_refuses(line, len))",
+     "    if (mrfw::admin_client_ble_refuses(line, len))", ("O4g",)),
+    ("W-S4-WIDEN-BOOT", "§RADMIN slice 4: the controller boot-call gate is legacy-widened with "
+                        "`|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)",
+     FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    mrfw::admin_client_stores_boot_report_console();",
+     "#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_client_stores_boot_report_console();",
+     ("O4g", "O5")),
+    ("W-S4-INVERT-HELP", "§RADMIN slice 4: the help index's two CONTROLLER names are compiled under the ACCEPT "
+                         "capability — the R-RA-8 inversion, which would advertise a controller surface on a "
+                         "GATEWAY build",
+     HELP_H, "#if MR_FEAT_RADMIN_CLIENT\n    out.println(F(\"admin-key\"));",
+     "#if MR_FEAT_RADMIN_ACCEPT\n    out.println(F(\"admin-key\"));", ("O4f",)),
+    ("W-S4-INVERT-REGEN", "★★ §RADMIN slice 4: `do_regen`'s CLIENT ADMISSION is compiled under the ACCEPT "
+                          "capability — the controller check would run on the managed half and never on the "
+                          "controller, which is the exact inversion R-RA-8 exists to forbid",
+     CMDS_CPP, "#if MR_FEAT_RADMIN_CLIENT\n    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION",
+     "#if MR_FEAT_RADMIN_ACCEPT\n    // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION", ("O4d",)),
+    ("W-S4-DUP-DECL", "§RADMIN slice 4: a DUPLICATE capability guard appears in the controller boot wrapper's "
+                      "header — a second, unreviewed gating site inside an allowed file",
+     CMDS_H, "void admin_client_stores_boot_report_console();",
+     "void admin_client_stores_boot_report_console();\n#endif\n#if MR_FEAT_RADMIN_CLIENT", ("O4e",)),
+    ("W-S4-GATE-PURE", "§RADMIN slice 4: a PURE CONTROLLER SERVICE HEADER acquires a capability macro — the "
+                       "[[B255]] idiom's own violation, which would stop the native suite exercising the "
+                       "keyring's arms at all",
+     "src/firmware_admin_keyring.h", "namespace mrfw {",
+     "#if MR_FEAT_RADMIN_CLIENT\n#endif\nnamespace mrfw {", ("O1",)),
+    ("W-S4-GATE-PURE-VERBS", "§RADMIN slice 4: the CONTROLLER VERB header acquires a capability macro — the same "
+                             "violation on the file that owns R-RA-30's split predicate, which the BLE guard's "
+                             "extractor compiles UNGATED",
+     "src/firmware_admin_client_verbs.h", "namespace mrfw {",
+     "#if MR_FEAT_RADMIN_CLIENT\n#endif\nnamespace mrfw {", ("O1",)),
 ]
 
 # The controls of the controls: an edit that is NOT a violation must leave the checker GREEN; a find that does not

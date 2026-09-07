@@ -16,6 +16,11 @@
                                   // this include is required, not defensive.
 #include "protocol_constants.h"   // §3-A.2: flood_hop_max (the hop_cap domain ceiling) — pure constexpr, no Arduino
 #include "rf_capabilities.h"      // per-board frequency/output envelope; defaults retain the historic SX1262 domain
+#include "monocypher.h"           // ★ [[B321]] crypto_wipe ONLY — the function-local scratch guard in parse_hex32.
+                                  // ⛔ DELIBERATELY THE CRYPTO HEADER AND NOTHING ELSE: `mrfw::SecretWipeGuard` lives in
+                                  // `firmware_team_keyring.h`, which pulls `device_nv.h` behind it — including that here
+                                  // would put the NV layer inside a PURE PARSER and invert this file's layering. The
+                                  // guard below is therefore local to the one function that needs it (QA fold-in).
 
 namespace mrfw {
 
@@ -222,8 +227,20 @@ inline PhyTailKeys classify_phy_tail(const char* tail, char* scratch, size_t scr
 // The all-zero rejection lives one level down, in team_channel_key_derive — that is a crypto-domain rule
 // (a dead RNG / a degenerate scalar), not a syntax one, and it must also cover the non-console callers.
 inline bool parse_hex32(const char* s, uint8_t out[32]) {
-    if (!s) return false;
+    if (!s) return false;                                       // ⛔ a null input allocates NO scratch to wipe
     uint8_t buf[32];
+    // ★★ [[B321]] — THE SCRATCH IS SECRET AND IS WIPED ON EVERY EXIT AFTER ALLOCATION. This decoder is the ONE path
+    //    a 64-hex TEAM KEY or a `/mrmkeys` MASTER SEED takes into the firmware, and until this guard existed its
+    //    32-byte staging buffer was simply left on the stack — on success AND on every malformed-input return.
+    // ⛔ A SCOPE GUARD, ⛔ never a per-return `crypto_wipe` list: a hand-written wipe before each `return` is exactly
+    //    the shape that gets one path added later and missed (`SecretWipeGuard`'s own reason, one header over).
+    // ⛔ `crypto_wipe`, ⛔ never `memset`: a plain store loop over a buffer nothing reads afterwards is precisely
+    //    what a compiler is entitled to elide.
+    // ⓘ The GRAMMAR and the OUTPUT-ON-FAILURE are UNCHANGED by this guard — it adds a destructor, nothing else.
+    struct HexScratchWipe {
+        uint8_t* p;
+        ~HexScratchWipe() { crypto_wipe(p, 32); }
+    } hex_scratch_wipe{buf};
     for (int i = 0; i < 32; ++i) {
         uint8_t byte = 0;
         for (int half = 0; half < 2; ++half) {

@@ -659,6 +659,45 @@ invalidates the others' cached epoch, and they bootstrap again. Safe rollover ca
 unacknowledged result; force rollover can, but only through the explicit confirmed recovery contract above.
 Key sharing does not recreate a continuous per-command counter or prevent later independent requests.
 
+### 7.4 Slice 5 Author preparation — pre-transcript state and bootstrap (2026-09-06)
+
+**Preliminary brief QA PASS 2026-09-06, no fold-ins; not a software completion or measured ABI result.** R-RA-31 permits target
+bootstrap responses on air in Slice 5 (same-layer by hash and reversed cross-layer path) and authorizes
+only native/gateway Node re-pins. Execute/output/terminal/ACK/rollover replies remain Slice 7b's.
+The advance brief is `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`; its base and
+delivered pins wait for the owner's Slice 4 closure and then QA's final brief gate. QA accepted the
+S5-A1–S5-A3 corrections and corrected its ledger visibly; the rows remain open until Slice 5 closure.
+Author decisions resolving pre-check §6.3–§6.7:
+
+- One ACCEPT-only state block holds the administration pair, live ACL, ten epochs, seen entries,
+  partitioned ingress and open/bootstrap staging. Core reads no NV. Firmware uses prepared, fallible
+  pre-save installation plans and non-failing post-durable commit; failed preparation/save preserves
+  the old live authority/session state. Unchanged ACL slots stay intact; root rotation invalidates all
+  old sessions, ordinary messaging regen does not. No unconditional epoch draw for an unprovisioned
+  simulator Node; no epoch-zero readiness or claim that a nonzero void-HAL draw proves RNG health (B312).
+- The 48-byte seen record contains the exact 16-byte authenticated tag. Its eight-byte retained route
+  makes each complete entry 56 bytes; N=16 entries TOTAL shared across slots, not 16 per slot. A single
+  slot can occupy at most 16; concurrent slots reduce available capacity and the future rollover cadence
+  is not a guaranteed 16 executes per credential. Seen fingerprints survive staging expiry and future
+  ACK release; only epoch-invalidating changes can clear those current-key replay tombstones.
+- The explicit candidate is 2064 bytes: pair 64, ACL 340, readiness/status 4, epochs 80, seen 896,
+  ingress headers 80, ingress bodies 472 and open/bootstrap staging 128. All sizes/offsets and actual
+  Node/board placement must be measured. Four open/bootstrap rows split three open plus one bootstrap,
+  with one-open-per-source and no borrowing authenticated or bootstrap reservation. The two authenticated
+  pairs retain owner/control reservation. Bootstrap consumes no seen execute record and rotates no epoch.
+- The legacy Node slot/helper and firmware drain become CLIENT-only. Target legacy command execution
+  ends here; client legacy response printing stays until 8a. Native has both capabilities and retains
+  that slot; gateway loses it. Account separately for any firmware drain scratch present in the base.
+- One shared timer, ID 91, wheel kCap 92. Staging uses the named existing cross-layer transport horizon
+  as its pre-dispatch holding ceiling; this is not a seen/session timeout or execution deadline. Exact-
+  edge expiry cancels/re-arms the bounded earliest deadline. The wheel is in DeviceHal, not Node: mobile
+  Node stays pinned while HAL RAM pays the global wheel increase (0e prices +8), with board padding and
+  possible timer-code flash changes attributed. No new timer ID for any class or later slice.
+- The brief names prepared-runtime boot/refusal lines and the real-router/state wiring gate. Simulator
+  gains one shared core source-list entry; executable changes, all 36 old streams must remain exact.
+  Findings use maintained S5-A intake aliases until Slice 4's proposals are reconciled; no racing B327.
+  No new bench part; update the existing legacy round-trip suspension after the owning slice passes.
+
 ## 8. Proposed wire bodies
 
 All multi-byte integers below use little-endian byte order. Exact codec constants belong in one shared
@@ -1968,7 +2007,10 @@ The complete design does not provide:
 5. **Target authenticated session/dedup state:** full-key discovery/bootstrap, epoch/session derivation,
    bounded seen-table value types, retained source identity and request-fingerprint classification. It may
    establish the table keys, reservation shape and reboot epoch boundary, but it does **not** consume or
-   manufacture response transcripts. Exact transcript retry, ACK release/debt, `session_full` /
+   manufacture response transcripts. **R-RA-31 permits bootstrap responses only in this slice**, through
+   the existing same-layer or reversed-cross-layer application-DM path. §7.4 and the advance Slice 5
+   brief record the Author decisions; its base/pins await Slice 4 closure and QA's final brief gate.
+   Exact transcript retry, ACK release/debt, `session_full` /
    `session_busy`, shared-credential transcript behaviour, automatic safe rollover, confirmed force
    rollover, and the already-acknowledged protocol response belong to Slice 7b after transcripts exist. Use
    the measured resource partition and explicit shared-scan/timer decision and report the measured table
@@ -2042,7 +2084,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 2 | remote codec/KDF files and carrier-cap authority; **SOFTWARE-COMPLETE / QA-PASSED 2026-09-06**, implementation `f2735f7` / simulator `8688884`; measured bases `9ea4947` / `fd3295d`; Author documentation commit pending | native 2640/115288/0; independent reference 87/87; mutation union 66+5 = 71/71 RED, 0 unusable; 36/36 byte-identical and anchored; simulator executable and both ruled board ELFs byte-identical, zero runtime codec symbols; +1 object per board and per simulator core archive; six probes/ABI/inventory/tools312/census/checkers pass; full landing and evidence pointer in §19 item 2 above | none; existing metal debts and legacy round-trip suspension unchanged |
 | 3 | target identity/ACL storage and USB provisioning owners; **DRAFT brief awaiting QA 2026-09-06**, base `7299eb9`, simulator `8688884`; R-RA-29 and §6.6.1 | predicted zero remote events, 36/36 unchanged; no resident target state/Node change; pair RAM ±0, mobile live flash ±0, gateway flash attributed; real-router plus extracted BLE guard and full mutation union | **Bench Part 55a:** DRAFT target-side physical-USB first owner, local recovery and real-flash limits; not yet run |
 | 4 | mobile keyring/target-book storage and local command owners; **advance DRAFT 2026-09-06**, R-RA-30 / §6.3.1; base and delivered anchors pending Slice 3 closure | predict zero remote events, 36/36 unchanged; ruled pair plus one-off xiao_mobile (not a third ruled board); client book scratch 2056 B, both records/stack/NV to measure; B321 shared-parser flash cost separately attributed | **Bench Part 55b:** controller `/mrtargets` exchange with Part-55a target; **Part 56:** USB seed lifecycle and BLE public list/show only; both DRAFT/not run; Part 59 mobile warning extension |
-| 5 | target session/dedup files | zero remote events, 36/36 unchanged; ruled pair | none |
+| 5 | target session/dedup files; **preliminary brief QA PASS 2026-09-06, no fold-ins**, R-RA-31 / §7.4; non-dispatchable pending Slice 4 closure, base/pin fill-in and final QA gate | predicted bootstrap TX in native fixtures, zero remote events and 36/36 exact in the existing corpus; simulator binary changes; ruled pair; native/gateway Node re-pin only, mobile Node fixed but global HAL wheel growth separately priced; 2064-byte state candidate to measure | none; draft note on the existing legacy round-trip suspension: target receive execution removed in Slice 5 |
 | 6 | common dispatcher/context/authority-table consumers | zero remote events; all pre-existing local behaviour attributed; ruled pair | none |
 | 7a | target cfg/NV schema and validation | zero remote events, 36/36 unchanged; ruled pair with isolated NV attribution | **Part 57a:** cfg migration/reboot; exact `cfg remote_action_activation_ms=<N>` value persists and invalid bounds refuse |
 | 7b | transcript, scheduler and deferred-action owners | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |

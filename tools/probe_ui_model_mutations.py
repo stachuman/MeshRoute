@@ -223,6 +223,20 @@ TARGET_SRC = {
     "radmin3id":    "src/firmware_admin_identity.h",
     "radmin3acl":   "src/firmware_admin_acl.h",
     "radmin3verbs": "src/firmware_admin_verbs.h",
+    # ★★ §RADMIN slice 4 — the CONTROLLER half. Three files, three batteries, for the ACCEPT half's reason: each
+    #    is a PURE header the native suite drives end to end, and `src/firmware_commands.cpp` / `src/fw_main.cpp`
+    #    are compiled by neither the native suite nor the simulator (§B115), so a decision left in either would be
+    #    unattackable here. Their wiring is covered by `tools/probe_inbox_verbs` + `tools/probe_console_sink`.
+    #  · radmin4key     — the checked draw, the derived-identity duplicate rule (self AND every other slot), the
+    #                     occupied-slot refusal, the four read states, the in-use predicates and the write counts.
+    #  · radmin4targets — the trust/routing split (an IMMUTABLE key, a REPLACEABLE hash), the content policy clause
+    #                     by clause, the no-eviction/no-compaction rules, the ambiguous-selector refusal and the
+    #                     restore-on-failure contract of the single resident scratch.
+    #  · radmin4verbs   — R-RA-30's BLE split predicate, the grammar's token boundaries, the confirm gates, the
+    #                     bounded numeric/layer/label parsers, the four fixed pages and every emitted byte.
+    "radmin4key":     "src/firmware_admin_keyring.h",
+    "radmin4targets": "src/firmware_admin_targets.h",
+    "radmin4verbs":   "src/firmware_admin_client_verbs.h",
     "uiinvite":    "src/firmware_ui_invite.h",      # §UI-16 N4 — the two authorities, the handled set, the row
     "uinearby":    "src/firmware_ui_nearby.h",      # §UI-16 N2 — the own-team filter, the order, the rows, the lexemes
     "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
@@ -638,7 +652,29 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2702, 116902    # ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 3** (the two target-side
+PIN_CASES, PIN_ASSERTS = 2763, 118344    # ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 4** (the CONTROLLER stores:
+                                         # `/mrmkeys` + `/mrtargets`, their pure services, the two verb families,
+                                         # R-RA-30's BLE split and [[B321]]'s parser-scratch wipe).
+                                         # 2702 -> 2763 = **+61 test cases**, DERIVED PER FILE, not rounded:
+                                         #   test/test_firmware_admin_keyring.cpp       21 TEST_CASEs
+                                         #   test/test_firmware_admin_targets.cpp       15 TEST_CASEs
+                                         #   test/test_firmware_admin_client_verbs.cpp  21 TEST_CASEs
+                                         #   test/test_device_nv.cpp                     2 ADDITIVE TEST_CASEs
+                                         #   test/test_firmware_config_parse.cpp         2 ADDITIVE TEST_CASEs
+                                         #   21 + 15 + 21 + 2 + 2 = 61. ✓  (`grep -c '^TEST_CASE'` on the five.)
+                                         # Assertions 116902 -> 118344 = +1442.
+                                         # ⓘ The last +2 cases and +32 assertions are the SECOND ROUND: four
+                                         #   entries of the new batteries SURVIVED and named real coverage gaps
+                                         #   (K24 export over an unreadable store · T13 the label selector by
+                                         #   prefix · V09 a hash without its `0x` · V30 `show self` with a
+                                         #   trailing token) and two more named arms only a DIRECT call can reach
+                                         #   (V18 the ambiguous-selector lexeme · V26 the emitter's fail-closed
+                                         #   bound). Every one was closed by a TEST, ⛔ never by deleting a
+                                         #   mutation.
+                                         # ⛔ NOT ONE PRE-EXISTING CASE WAS REMOVED OR RENAMED: the base tree was
+                                         #   measured at 2702/116902/0 before the first edit and the delta is
+                                         #   wholly additive.
+                                         # PIN_CASES, PIN_ASSERTS = 2702, 116902 — ★★ RE-SYNCED 2026-09-06 by **§RADMIN SLICE 3** (the two target-side
                                          # stores: `/mradmid` + `/mracl`, their pure services and the USB verb
                                          # family). 2640 -> 2702 = **+62 test cases**, and the sum is DERIVED per
                                          # file, not rounded:
@@ -4985,6 +5021,38 @@ MUTS_DEVICENV = [
  ("N54 ★★ /mradmid moves OUT of the factory-reset namespace — a factory reset would keep the root",
   'inline constexpr Slot kSlotAdmid { "/mradmid", "mr",      "admid" };',
   'inline constexpr Slot kSlotAdmid { "/mradmid", "mradmid", "admid" };'),
+
+ # ---- §RADMIN slice 4: the two CONTROLLER records (ADDITIVE — ⛔ not one entry above is edited) ---------------
+ # ⓘ The SLOT strings and the four-state classifiers, which `--target=radmin4{key,targets}` cannot reach: those
+ #   batteries attack the SERVICES, and the services see the store only through their seams.
+ ('N-S4-1 §RADMIN-4: `/mrmkeys` and `/mrtargets` share ONE backend key — an update to one lands on the other',
+  'inline constexpr Slot kSlotTargets  { "/mrtargets", "mr", "targets" };',
+  'inline constexpr Slot kSlotTargets  { "/mrtargets", "mr", "mkeys" };'),
+ ('N-S4-2 §RADMIN-4: the CONTROLLER keyring lands in the fault namespace — a factory reset would spare the seeds',
+  'inline constexpr Slot kSlotMgmtKeys { "/mrmkeys",   "mr", "mkeys"   };',
+  'inline constexpr Slot kSlotMgmtKeys { "/mrmkeys",   "mrfault", "mkeys"   };'),
+ ('N-S4-3 §RADMIN-4: `/mrmkeys` reuses the ACL magic — one record becomes readable as another',
+  'constexpr uint32_t kMgmtKeyMagic   = 0x4D524D4Bu;',
+  'constexpr uint32_t kMgmtKeyMagic   = 0x4D524C31u;'),
+ ('N-S4-4 §RADMIN-4: `/mrtargets` accepts ANY version — a v2 record is adopted under a v1 layout guess',
+  '    return blob_valid_exact(b, n, kTargetMagic, kTargetVersion) ? TargetRead::ok : TargetRead::invalid;',
+  '    return b.magic == kTargetMagic ? TargetRead::ok : TargetRead::invalid;'),
+ ("N-S4-5 §RADMIN-4: a dead backend reads as a FRESH controller — the keyring's io_failed arm is gone",
+  '    if (io.backend_failed) return MgmtKeyRead::io_failed;\n    if (io.oversize)       return MgmtKeyRead::invalid;\n    if (n == kSlotAbsent)  return MgmtKeyRead::absent;',
+  '    if (n == kSlotAbsent)  return MgmtKeyRead::absent;\n    if (io.backend_failed) return MgmtKeyRead::io_failed;\n    if (io.oversize)       return MgmtKeyRead::invalid;'),
+ ('N-S4-6 §RADMIN-4: an OVER-LENGTH target book passes on its valid prefix',
+  '    if (io.oversize)       return TargetRead::invalid;\n    if (n == kSlotAbsent)  return TargetRead::absent;',
+  '    if (n == kSlotAbsent)  return TargetRead::absent;'),
+ ('N-S4-7 §RADMIN-4: `mgmt_key_blob_init` stops stamping the magic — every fresh keyring reads as invalid',
+  '    b.magic   = kMgmtKeyMagic;\n    b.version = kMgmtKeyVersion;\n}',
+  '    b.version = kMgmtKeyVersion;\n}'),
+ # ⛔ N-S4-8/9/10 WITHDRAWN (§RADMIN slice 4, measured): "load_targets reads the keyring slot", "save_mgmt_keys
+ #   writes the target slot" and "the wrappers stop asking for SlotIo" all live INSIDE the platform `#if`. The host
+ #   build takes the NO-BACKEND arm, where `read_slot` always answers `kSlotAbsent` and `write_slot` always answers
+ #   false REGARDLESS OF THE SLOT — so each of the three is unobservable from `test/` BY CONSTRUCTION, and each
+ #   survived when run. ★ Their EXECUTED cover is `tools/probe_inbox_verbs` C37/C38/C39 (CLIENT arm), which drives
+ #   the REAL ESP32 read/write sequence against the byte-counted fake medium; all three are verified RED there.
+ #   This is the SAME resolution slice 3 reached for the identical three on `/mradmid` + `/mracl` (its C27..C29).
 ]
 
 # ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================
@@ -5832,6 +5900,16 @@ MUTS_CFGPARSE = [
  ("P08 the tail check stops at the first space, so ` extra` reads as empty",
   "    while (*p == ' ') ++p;\n    return *p == '\\0';",
   "    return *p == '\\0' || *p == ' ';"),
+
+ # ---- §RADMIN slice 4 / [[B321]]: the shared hex decoder's SECRET-SCRATCH guard --------------------------------
+ # ⛔ NO ENTRY HERE, AND THE ABSENCE IS THE MEASUREMENT. Three were written and all three SURVIVED, for one reason:
+ #   `parse_hex32`'s scratch is a STACK FRAME of a function that has already returned, so deleting its wipe,
+ #   pointing it at another buffer or moving it above the null gate changes NOTHING any `test/` case can observe —
+ #   reading that storage afterwards is undefined behaviour. A permanently-red battery entry would have taught the
+ #   next reader that a survivor is normal here.
+ # ★ THE EXECUTED COVER IS `tools/probe_inbox_verbs` Z1..Z8, which routes the REAL `crypto_wipe` through a
+ #   link-time `--wrap` interposer and inspects the bytes WHILE THE FRAME IS STILL ALIVE, with control C40
+ #   (the guard deleted) verified RED on both arms. The GRAMMAR-and-output half stays here, in the entries above.
 ]
 
 # ===== §UI-15 slice 5 — src/firmware_ui_prov.h =====================================================================
@@ -10320,6 +10398,303 @@ MUTS_RADMIN2CODEC = [
 ]
 
 
+
+# ================================================================================================================
+# §RADMIN slice 4 — `--target=radmin4key`: `src/firmware_admin_keyring.h`, the CONTROLLER management keyring
+# ⓘ Every entry attacks a rule the design or a ruling STATES. ⛔ No entry mutates a comment, a name or a redundant
+#   belt the file itself marks as unreachable — those would be unusable mutants, not controls.
+# ================================================================================================================
+
+MUTS_RADMIN4KEY = [
+ ('K01 ★★★ THE DEAD-RNG REFUSAL IS DELETED: an all-zero draw mints the world-known key and reports SUCCESS',
+  '            if (admin_buf_all_zero(row.seed, sizeof row.seed))  return fail_(MgmtKeyErr::entropy_failed);',
+  '            (void)0;'),
+ ("K02 the PROVIDER'S ANSWER is ignored — a refused/partial draw is minted from anyway",
+  '            if (!_seed.fill(row.seed))                          return fail_(MgmtKeyErr::entropy_failed);',
+  '            (void)_seed.fill(row.seed);'),
+ ('K03 ★★ `import` accepts the ALL-ZERO seed (the degenerate, world-known root)',
+  '            if (admin_buf_all_zero(row.seed, sizeof row.seed)) return fail_(MgmtKeyErr::bad_material);',
+  '            (void)0;'),
+ ("K04 ★★★ THE SELF-COLLAPSE: a management key equal to this node's messaging identity is accepted",
+  '        if (!memcmp(cand_pub, _self_pub, sizeof cand_pub)) return fail_(MgmtKeyErr::duplicate);',
+  '        (void)_self_pub;'),
+ ('K05 ★★ the cross-slot duplicate check is dropped — one principal may hold two slots',
+  '            if (!memcmp(other, cand_pub, sizeof other)) return fail_(MgmtKeyErr::duplicate);',
+  '            (void)other;'),
+ ('K06 ★★ `generate`/`import` OVERWRITE an occupied slot instead of refusing (a silent key replacement)',
+  '        if (mgmt_key_row_occupied(b.rec[slot])) return fail_(MgmtKeyErr::occupied);',
+  '        (void)slot;'),
+ ('K07 a FAILED SAVE is reported as success (the key is not there, the console says it is)',
+  '        if (!_store.save(b))            return fail_(MgmtKeyErr::nv_save_failed);\n        MgmtKeyResult r;\n        r.ok = true;\n        r.slot = slot;\n        memcpy(r.ed_pub, cand_pub, sizeof r.ed_pub);',
+  '        (void)_store.save(b);\n        MgmtKeyResult r;\n        r.ok = true;\n        r.slot = slot;\n        memcpy(r.ed_pub, cand_pub, sizeof r.ed_pub);'),
+ ('K08 the mint writes over an INVALID keyring (an implicit repair only `reset confirm` may do)',
+  '        if (s == MgmtKeyState::invalid)   return fail_(MgmtKeyErr::store_invalid);\n        if (s == MgmtKeyState::absent)    mrnv::mgmt_key_blob_init(b);   // seed in RAM — ONE write, below',
+  '        if (s == MgmtKeyState::absent)    mrnv::mgmt_key_blob_init(b);'),
+ ('K09 the mint writes over an UNREADABLE store — a transient mount failure destroys ten master seeds',
+  '        if (s == MgmtKeyState::io_failed) return fail_(MgmtKeyErr::store_io_failed);\n        if (s == MgmtKeyState::invalid)   return fail_(MgmtKeyErr::store_invalid);\n        if (s == MgmtKeyState::absent)    mrnv::mgmt_key_blob_init(b);   // seed in RAM — ONE write, below',
+  '        if (s == MgmtKeyState::invalid)   return fail_(MgmtKeyErr::store_invalid);\n        if (s == MgmtKeyState::absent)    mrnv::mgmt_key_blob_init(b);   // seed in RAM — ONE write, below'),
+ ('K10 ★★ `count` is no longer the population — a high-water mark is stored instead',
+  '        b.count = static_cast<uint16_t>(pop + 1);',
+  '        b.count = static_cast<uint16_t>(slot + 1);'),
+ ('K11 the CONTENT policy stops requiring `count` to equal the population',
+  '    return b.count == occupied;',
+  '    (void)occupied;\n    return true;'),
+ ('K12 `reserved` leaves the content policy — a non-canonical record rewrites flash for ever',
+  '        if (!admin_buf_all_zero(r.reserved, sizeof r.reserved)) return false;',
+  '        (void)r.reserved;'),
+ ('K13 ★★ two slots holding the SAME seed become legal stored state',
+  '            if (mgmt_key_row_occupied(b.rec[j]) && !memcmp(b.rec[j].seed, r.seed, sizeof r.seed)) return false;',
+  '            (void)j;'),
+ ('K14 `io_failed` is folded into `invalid` — a transient mount failure becomes a recoverable corruption',
+  '        case mrnv::MgmtKeyRead::io_failed: return MgmtKeyState::io_failed;',
+  '        case mrnv::MgmtKeyRead::io_failed: return MgmtKeyState::invalid;'),
+ ('K15 a STORAGE-ok record with broken content is called `ok` — the composition is dropped',
+  '    return mgmt_key_content_valid(b) ? MgmtKeyState::ok : MgmtKeyState::invalid;',
+  '    (void)b;\n    return MgmtKeyState::ok;'),
+ ('K16 ★★ `remove` deletes a key a live caller authenticates with',
+  '        if (_use.slot_in_use(slot))      return fail_(MgmtKeyErr::in_use);   // ⛔ BEFORE any load (zero reads too)',
+  '        (void)slot;'),
+ ('K17 `remove` leaves the count untouched — the record becomes self-inconsistent',
+  '        b.count = static_cast<uint16_t>(pop - 1);',
+  '        b.count = static_cast<uint16_t>(pop);'),
+ ('K18 `remove` frees a slot that holds no key and reports success',
+  '        if (!mgmt_key_row_occupied(b.rec[slot])) return fail_(MgmtKeyErr::not_found);\n        const uint16_t pop = population_(b);',
+  '        const uint16_t pop = population_(b);'),
+ ('K19 ★★ `reset` becomes a BULK DELETE: it wipes a healthy keyring instead of only a corrupt one',
+  '        if (s != MgmtKeyState::invalid)   return fail_(MgmtKeyErr::not_invalid);',
+  '        (void)0;'),
+ ('K20 `reset` writes over an UNREADABLE store',
+  '        if (s == MgmtKeyState::io_failed) return fail_(MgmtKeyErr::store_io_failed);\n        if (s != MgmtKeyState::invalid)   return fail_(MgmtKeyErr::not_invalid);',
+  '        if (s != MgmtKeyState::invalid)   return fail_(MgmtKeyErr::not_invalid);'),
+ ('K21 `reset` runs while some key is in use — a FUTURE-CALLER refusal is dropped',
+  '        if (_use.any_in_use()) return fail_(MgmtKeyErr::in_use);',
+  '        (void)0;'),
+ ("K22 ★★ `show keyN` derives a key from an EMPTY slot (the all-zero seed's identity, printed as a real key)",
+  '        if (!mgmt_key_row_occupied(b.rec[slot])) return fail_(MgmtKeyErr::not_found);\n        MgmtKeyResult r;\n        r.ok = true;\n        r.slot = slot;\n        pub_of_(b.rec[slot].seed, r.ed_pub);',
+  '        MgmtKeyResult r;\n        r.ok = true;\n        r.slot = slot;\n        pub_of_(b.rec[slot].seed, r.ed_pub);'),
+ ('K23 ★★★ `export` hands out the seed of an EMPTY slot',
+  '        if (!mgmt_key_row_occupied(b.rec[slot])) { out.err = MgmtKeyErr::not_found; return out; }',
+  '        (void)slot;'),
+ ('K24 `export` answers over an UNREADABLE or CORRUPT store',
+  '        if (s != MgmtKeyState::ok) { out.err = state_err_(s); return out; }\n        if (!mgmt_key_row_occupied(b.rec[slot])) { out.err = MgmtKeyErr::not_found; return out; }\n        out.ok = true;\n        out.slot = slot;',
+  '        if (!mgmt_key_row_occupied(b.rec[slot])) { out.err = MgmtKeyErr::not_found; return out; }\n        out.ok = true;\n        out.slot = slot;'),
+ ("K25 `list` reports an EMPTY keyring where the record is unreadable — 'unreadable' becomes 'no keys'",
+  '        if (s != MgmtKeyState::ok) { out.err = state_err_(s); return out; }\n        out.ok = true;',
+  '        out.ok = true;'),
+ ('K26 the slot range gate is dropped — `show`/`export`/`remove` index past the ten rows',
+  '        if (slot >= mrnv::kMgmtKeySlots) return fail_(MgmtKeyErr::bad_args);\n        mrnv::MgmtKeyBlob b{};\n        SecretWipeGuard<mrnv::MgmtKeyBlob> g{b};\n        const MgmtKeyState s = classify_(b);\n        if (s != MgmtKeyState::ok) return fail_(state_err_(s));\n        if (!mgmt_key_row_occupied(b.rec[slot])) return fail_(MgmtKeyErr::not_found);',
+  '        mrnv::MgmtKeyBlob b{};\n        SecretWipeGuard<mrnv::MgmtKeyBlob> g{b};\n        const MgmtKeyState s = classify_(b);\n        if (s != MgmtKeyState::ok) return fail_(state_err_(s));\n        if (slot >= mrnv::kMgmtKeySlots || !mgmt_key_row_occupied(b.rec[slot])) return fail_(MgmtKeyErr::not_found);'),
+ ("K27 ★★ `show self` stops reporting THIS node's identity (it answers all-zero)",
+  '        memcpy(r.ed_pub, _self_pub, sizeof r.ed_pub);',
+  '        (void)_self_pub;'),
+ ('K28 the occupancy rule inverts: an all-zero seed counts as an OCCUPIED row',
+  'inline bool mgmt_key_row_occupied(const mrnv::MgmtKeyRow& r) { return !admin_buf_all_zero(r.seed, sizeof r.seed); }',
+  'inline bool mgmt_key_row_occupied(const mrnv::MgmtKeyRow& r) { (void)r; return true; }'),
+]
+
+# ================================================================================================================
+# §RADMIN slice 4 — `--target=radmin4targets`: `src/firmware_admin_targets.h`, the CONTROLLER target book
+# ================================================================================================================
+
+MUTS_RADMIN4TARGETS = [
+ ("T01 ★★ an 'emptied' row that kept bytes is called EMPTY — a removed target's key survives the wipe",
+  '            if (!admin_buf_all_zero(reinterpret_cast<const uint8_t*>(&r), sizeof r)) return false;',
+  '            (void)r;'),
+ ('T02 the occupancy FLAG domain opens: any bit pattern with bit 0 set is a legal row',
+  '        if (r.flags != mrnv::kTargetFlagOccupied)                    return false;',
+  '        (void)r.flags;'),
+ ('T03 an ALL-ZERO administration key becomes a legal trust identity',
+  '        if (admin_buf_all_zero(r.admin_pub, sizeof r.admin_pub))     return false;',
+  '        (void)r.admin_pub;'),
+ ("T04 a ZERO routing hash ('unset') becomes a legal hint",
+  '        if (r.key_hash32 == 0)                                       return false;   // 0 = "unset" everywhere here',
+  '        (void)r.key_hash32;'),
+ ("T05 the LABEL GRAMMAR is dropped — spaces and control bytes reach the operator's console line",
+  '        if (!target_label_valid(r.label, r.label_len))               return false;',
+  '        (void)r.label_len;'),
+ ('T06 the label TAIL may keep stale bytes — the byte-identical write guard fires for ever',
+  '        if (!target_label_tail_zero(r))                              return false;',
+  '        (void)0;'),
+ ('T07 the stored PATH is no longer validated — a zero hop or a stale tail is adopted',
+  '        if (!target_path_valid(r))                                   return false;',
+  '        (void)0;'),
+ ('T08 ★★ two rows may carry the SAME administration key — one principal, two trust entries',
+  '            if (!memcmp(o.admin_pub, r.admin_pub, sizeof r.admin_pub)) return false;   // one principal, two rows',
+  '            (void)o;'),
+ ('T09 duplicate LABELS become legal stored state — the `label=` selector can no longer resolve',
+  '            if (o.label_len == r.label_len && !memcmp(o.label, r.label, r.label_len)) return false;',
+  '            (void)o.label_len;'),
+ ('T10 `count` stops being the population',
+  '    return b.count == occupied;',
+  '    (void)occupied;\n    return true;'),
+ ('T11 ★★ A FOURTH DESTINATION becomes storable — the carrier prepends our layer and the path overflows',
+  '    if (r.hop_count > mrnv::kTargetHopMax) return false;',
+  '    if (r.hop_count > 4) return false;'),
+ ('T12 ★★★ AN AMBIGUOUS SELECTOR TAKES THE FIRST MATCH instead of refusing',
+  '    if (n > 1) return TargetPick::many;',
+  '    (void)n;'),
+ ('T13 the `label=` selector becomes a PREFIX match',
+  '        if (!target_row_occupied(r) || r.label_len != len) continue;',
+  '        if (!target_row_occupied(r) || r.label_len < len) continue;'),
+ ('T14 the fingerprint selector compares only the first two characters',
+  '        if (!memcmp(have, fp_lower, kAdminFpHex)) m |= (static_cast<uint32_t>(1) << i);',
+  '        if (!memcmp(have, fp_lower, 2)) m |= (static_cast<uint32_t>(1) << i);'),
+ ('T15 ★★ a FULL book EVICTS row 0 instead of refusing loudly',
+  '        if (slot < 0) return fail_(TargetErr::full);          // ⛔ evicts NOTHING, refuses LOUDLY',
+  '        if (slot < 0) slot = 0;'),
+ ('T16 `add` appends past the holes — a removed slot 3 is never reused and slot numbers drift',
+  '        for (uint8_t i = 0; i < mrnv::kTargetSlots; ++i) if (!target_row_occupied(book.rec[i])) { slot = i; break; }',
+  '        for (uint8_t i = mrnv::kTargetSlots; i-- > 0;) if (!target_row_occupied(book.rec[i])) { slot = i; break; }'),
+ ('T17 ★★ a DUPLICATE administration key is accepted by `add`',
+  '            if (!memcmp(r.admin_pub, spec.admin_pub, sizeof r.admin_pub)) return fail_(TargetErr::duplicate);',
+  '            (void)r.admin_pub;'),
+ ("T18 ★★★ `set` RE-KEYS THE ROW: the operator's trust silently moves to a different principal",
+  '        memcpy(keyed.admin_pub, before.admin_pub, sizeof keyed.admin_pub);   // ⛔ THE KEY IS IMMUTABLE',
+  '        (void)before;'),
+ ('T19 `set` allows a label that already belongs to ANOTHER row',
+  '            if (r.label_len == spec.label_len && !memcmp(r.label, spec.label, spec.label_len))\n                return fail_(TargetErr::duplicate);\n        }\n        const mrnv::TargetRow before = book.rec[slot];',
+  '            (void)r.label_len;\n        }\n        const mrnv::TargetRow before = book.rec[slot];'),
+ ('T20 ★★ an UNCHANGED `set` writes flash anyway and reports `updated`',
+  '        if ((book.count == before_count) && !memcmp(&book.rec[slot], &before, sizeof before))\n            return fail_(TargetErr::unchanged);',
+  '        (void)before_count;'),
+ # ⛔ T21 WITHDRAWN (§RADMIN slice 4, measured): "the composed-candidate validation is dropped" is an EQUIVALENT
+ #   MUTANT. Every mutation in `TargetService` starts from a book that already passed `target_content_valid` and
+ #   changes it in exactly one permitted way, so ⛔ NO REACHABLE PATH reaches that line with an invalid candidate —
+ #   precisely what `firmware_admin_acl.h`'s `commit_` says of its own belt. The line is KEPT in production (it is
+ #   the belt a future caller needs) and is now marked as unreddenable in the source, which is the honest form.
+ ('T22 ★★ a FAILED SAVE leaves the failed candidate in the resident scratch for the next caller',
+  '        if (!_store.save(book)) {\n            book.rec[slot] = before;\n            book.count = before_count;\n            return fail_(TargetErr::nv_save_failed);\n        }',
+  '        if (!_store.save(book)) return fail_(TargetErr::nv_save_failed);'),
+ ('T23 a FAILED SAVE is reported as success',
+  '        if (!_store.save(book)) {\n            book.rec[slot] = before;\n            book.count = before_count;\n            return fail_(TargetErr::nv_save_failed);\n        }\n        TargetResult r;',
+  '        (void)_store.save(book);\n        TargetResult r;'),
+ ('T24 `remove` leaves the count untouched',
+  '        book.count = static_cast<uint16_t>(before_count - 1);',
+  '        book.count = before_count;'),
+ ('T25 `remove` frees a row that holds no target and reports success',
+  '        if (!target_row_occupied(book.rec[slot])) return fail_(TargetErr::not_found);\n\n        const mrnv::TargetRow before = book.rec[slot];',
+  '        const mrnv::TargetRow before = book.rec[slot];'),
+ ('T26 ★★ `reset` becomes a BULK DELETE of a healthy book',
+  '        if (s != TargetState::invalid)   { mrnv::target_blob_init(book); return fail_(TargetErr::not_invalid); }',
+  '        (void)0;'),
+ ('T27 `reset` writes over an UNREADABLE store',
+  '        if (s == TargetState::io_failed) { mrnv::target_blob_init(book); return fail_(TargetErr::store_io_failed); }',
+  '        (void)0;'),
+ ("T28 `read` leaves a PARTIAL record in the caller's buffer on a non-ok answer",
+  '        if (s != TargetState::ok) mrnv::target_blob_init(book);',
+  '        (void)s;'),
+ ('T29 the boot report leaves the scratch populated — an IO buffer becomes a live cache',
+  '        mrnv::target_blob_init(book);   // ⛔ the scratch is INVALIDATED before it can be mistaken for a live cache',
+  '        (void)0;'),
+ ('T30 ★★ an UNREADABLE store no longer refuses ordinary writes',
+  '        if (s == TargetState::io_failed) return fail_(TargetErr::store_io_failed);\n        if (s == TargetState::invalid)   return fail_(TargetErr::store_invalid);\n\n        for (uint8_t i = 0; i < mrnv::kTargetSlots; ++i) {\n            const mrnv::TargetRow& r = book.rec[i];',
+  '        (void)s;\n        for (uint8_t i = 0; i < mrnv::kTargetSlots; ++i) {\n            const mrnv::TargetRow& r = book.rec[i];'),
+ ('T31 the SPEC is no longer validated before a candidate is composed',
+  '        if (!spec_valid_(spec)) return fail_(TargetErr::bad_args);',
+  '        (void)spec;'),
+ ('T32 `set` runs on a row a live caller is bound to — a FUTURE-CALLER refusal is dropped',
+  '        if (!target_row_occupied(book.rec[slot])) return fail_(TargetErr::not_found);\n\n        // The label must stay unique among the OTHER occupied rows.',
+  '        // The label must stay unique among the OTHER occupied rows.'),
+]
+
+# ================================================================================================================
+# §RADMIN slice 4 — `--target=radmin4verbs`: `src/firmware_admin_client_verbs.h`, the grammar, the output and
+# R-RA-30's BLE split predicate
+# ================================================================================================================
+
+MUTS_RADMIN4VERBS = [
+ ('V01 ★★★ THE BLE SPLIT COLLAPSES: every owned CONTROLLER form crosses secured BLE, secrets included',
+  '    return admin_client_verb_owns(line, len) && !admin_client_ble_public(line, len);',
+  '    (void)len;\n    (void)line;\n    return false;'),
+ ('V02 ★★★ THE BLE GUARD OVER-REFUSES: the ruled PUBLIC list/show are blocked too',
+  'inline bool admin_client_ble_refuses(const char* line, size_t len) {\n    return admin_client_verb_owns(line, len) && !admin_client_ble_public(line, len);',
+  'inline bool admin_client_ble_refuses(const char* line, size_t len) {\n    return admin_client_verb_owns(line, len);'),
+ ("V03 ★★ the BLE guard's PUBLIC test becomes a PREFIX test — `listen`, `showoff` and friends pass",
+  '    return admin_word_is(tok, tlen, "list") || admin_word_is(tok, tlen, "show");',
+  '    return (tlen >= 4 && !memcmp(tok, "list", 4)) || (tlen >= 4 && !memcmp(tok, "show", 4));'),
+ ('V04 ★★ the BARE family form is admitted over BLE (no sub-verb at all)',
+  '    if (!admin_next_token(line, len, i, tok, tlen)) return false;           // bare form — refused',
+  '    if (!admin_next_token(line, len, i, tok, tlen)) return true;'),
+ ("V05 ★★ the family predicate becomes a broad `admin` prefix — it swallows the TARGET half's verbs",
+  '    return admin_primary_is(line, len, "admin-key") || admin_primary_is(line, len, "admin-target");',
+  '    return len >= 5 && !memcmp(line, "admin", 5);'),
+ ('V06 the key-slot grammar accepts TWO digits — `key10` addresses past the ten rows',
+  '    if (tlen != 4 || memcmp(tok, "key", 3)) return false;',
+  '    if (tlen < 4 || memcmp(tok, "key", 3)) return false;'),
+ ("V07 the routing hash accepts ZERO ('unset' becomes a storable hint)",
+  '    if (acc == 0) return false;                 // hash 0 = "unset" everywhere in this codebase',
+  '    (void)0;'),
+ ("V08 the routing hash accepts MORE than eight digits (a silent truncation of the operator's value)",
+  '    if (digits < 1 || digits > 8) return false;',
+  '    if (digits < 1) return false;'),
+ ('V09 the `0x` prefix stops being required — the id-versus-hash ambiguity returns',
+  "    if (n < 3 || v[0] != '0' || (v[1] != 'x' && v[1] != 'X')) return false;",
+  '    if (n < 1) return false;'),
+ ('V10 ★★ a FOURTH layer id is accepted',
+  '        if (hop_count >= mrnv::kTargetHopMax) return false;      // ⛔ a fourth destination REFUSES',
+  '        if (hop_count >= 4) return false;'),
+ ('V11 layer id ZERO (the reserved value) is accepted',
+  '        if (digits == 0 || acc == 0) return false;               // empty element, or the reserved 0',
+  '        if (digits == 0) return false;'),
+ ('V12 a TRAILING COMMA is accepted — `layer=1,` stores one hop and swallows the typo',
+  '        if (i == n) return false;                                // ⛔ trailing comma',
+  '        if (i == n) break;'),
+ ('V13 the fingerprint selector accepts UPPERCASE — one handle acquires two spellings',
+  "        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;",
+  "        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;"),
+ ('V14 ★★ the PAGE bound opens past the four ruled pages',
+  '            if (!admin_client_kv(tok, tlen, "page", v, vn) || vn != 1 || v[0] < \'0\' ||\n                v[0] >= static_cast<char>(\'0\' + kTargetPages) || !admin_tail_empty(args, n, i)) {',
+  '            if (!admin_client_kv(tok, tlen, "page", v, vn) || vn != 1 || v[0] < \'0\' ||\n                v[0] > \'9\' || !admin_tail_empty(args, n, i)) {'),
+ ('V15 ★★ the listing WINDOW widens past its page — a `page=0` request dumps sixteen rows',
+  '        for (uint8_t k = lo; k < lo + kTargetPageRows; ++k)',
+  '        for (uint8_t k = lo; k < lo + 2 * kTargetPageRows; ++k)'),
+ ('V16 ★★★ `admin-key remove` NO LONGER REQUIRES ITS CONFIRMATION',
+  '        if (!parse_confirm_token(args + i, n - i)) { mgmt_key_emit_err(out, MgmtKeyErr::needs_confirm); return; }\n        const MgmtKeyResult r = svc.remove(slot);',
+  '        const MgmtKeyResult r = svc.remove(slot);'),
+ ('V17 ★★★ `admin-target reset` NO LONGER REQUIRES ITS CONFIRMATION',
+  '        if (!parse_confirm_token(args + i, n - i)) { target_emit_err(out, TargetErr::needs_confirm); return; }\n        const TargetResult r = svc.recover(book);',
+  '        const TargetResult r = svc.recover(book);'),
+ ('V18 an AMBIGUOUS selector is reported as `not_found` — the operator is told the row does not exist',
+  '        case TargetSel::many: target_emit_err(out, TargetErr::ambiguous); return;',
+  '        case TargetSel::many: target_emit_err(out, TargetErr::not_found); return;'),
+ ('V19 ★★ `admin-key list` prints `self` even when the keyring is UNREADABLE — a refusal looks like one entry',
+  '        const MgmtKeyList l = svc.list();\n        if (!l.ok) { mgmt_key_emit_err(out, l.err); return; }\n        const MgmtKeyResult me = svc.show_self();',
+  '        const MgmtKeyList l = svc.list();\n        const MgmtKeyResult me = svc.show_self();'),
+ ('V20 the EXPORT line stops naming the seed field — an operator pastes the wrong token back',
+  '        admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-key exported key%u seed=%s\\n",',
+  '        admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-key exported key%u key=%s\\n",'),
+ ('V21 the LIST FOOTER drops the page index — one page becomes indistinguishable from the whole book',
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-target end page=%u count=%u\\n",\n                                       (unsigned)page, (unsigned)count));',
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-target end count=%u\\n",\n                                       (unsigned)count));\n    (void)page;'),
+ ("V22 ★★ the BOOT line drops `state=` — 'unreadable' becomes indistinguishable from 'empty'",
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-key boot state=%s count=%u\\n",\n                                       mgmt_key_state_name(r.state), (unsigned)r.count));',
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> admin-key boot count=%u\\n",\n                                       (unsigned)r.count));'),
+ ('V23 the CLIENT regen admission inverts — a controller with outstanding work rotates its identity anyway',
+  'inline bool client_regen_admitted(const IClientRemoteDebt& d) { return !d.busy(); }',
+  'inline bool client_regen_admitted(const IClientRemoteDebt& d) { (void)d; return true; }'),
+ ('V24 the regen WARNING no longer names the ACL consequence',
+  '        "> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n"));',
+  '        "> regen note identity rotated\\n"));'),
+ ('V25 the regen BUSY refusal changes its ruled lexeme',
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> regen err remote_busy\\n"));',
+  '    admin_client_emit(out, b, snprintf(b, sizeof b, "> regen err busy\\n"));'),
+ ('V26 the line-length gate is dropped — a truncated line reaches the operator as if it were whole',
+  '    if (n <= 0 || static_cast<size_t>(n) >= kAdminClientLineMax) return;   // ⛔ unreachable by construction',
+  '    if (n <= 0) return;'),
+ ('V27 ★★ `admin-target show` stops refusing a TRAILING TOKEN — a second operation rides the selector',
+  '        if (!admin_next_token(args, n, i, tok, tlen) || !admin_tail_empty(args, n, i)) {\n            target_emit_err(out, TargetErr::bad_args); return;\n        }\n        const TargetState s = svc.read(book);',
+  '        if (!admin_next_token(args, n, i, tok, tlen)) {\n            target_emit_err(out, TargetErr::bad_args); return;\n        }\n        const TargetState s = svc.read(book);'),
+ ('V28 the `unchanged` verdict is renamed to a success word — a zero-write no-op reports a write',
+  '        case TargetErr::unchanged:       return "unchanged";',
+  '        case TargetErr::unchanged:       return "updated";'),
+ ('V29 ★★ `admin-target set` stops requiring all three mutable fields (layer= becomes optional)',
+  '        if (!admin_next_token(args, n, i, tok, tlen) || !admin_client_kv(tok, tlen, "layer", v, vn) ||\n            !admin_client_layers(v, vn, spec.hops, spec.hop_count) || !admin_tail_empty(args, n, i)) {\n            target_emit_err(out, TargetErr::bad_args); return;\n        }',
+  '        if (admin_next_token(args, n, i, tok, tlen) &&\n            (!admin_client_kv(tok, tlen, "layer", v, vn) ||\n             !admin_client_layers(v, vn, spec.hops, spec.hop_count))) {\n            target_emit_err(out, TargetErr::bad_args); return;\n        }'),
+ ('V30 `admin-key show self` accepts a trailing token',
+  '            if (!admin_tail_empty(args, n, i)) { mgmt_key_emit_err(out, MgmtKeyErr::bad_args); return; }\n            mgmt_key_emit_row(out, "self", svc.show_self().ed_pub);   // ⛔ ZERO store reads — see the service note',
+  '            mgmt_key_emit_row(out, "self", svc.show_self().ed_pub);'),
+]
+
 MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,
@@ -10354,6 +10729,8 @@ MUTS_BY_TARGET = {"a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "radmin3id": MUTS_RADMIN3ID, "radmin3acl": MUTS_RADMIN3ACL,
                   "radmin3verbs": MUTS_RADMIN3VERBS,
+                  "radmin4key": MUTS_RADMIN4KEY, "radmin4targets": MUTS_RADMIN4TARGETS,
+                  "radmin4verbs": MUTS_RADMIN4VERBS,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
                   "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,
                   "uisend": MUTS_UISEND, "teamkeyring": MUTS_TEAMKEYRING,
