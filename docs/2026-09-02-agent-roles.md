@@ -1,6 +1,18 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Agent roles and handoff protocol (owner-ruled 2026-09-02)
 
+> **⛔⛔ ROLE CHANGE — OWNER-RULED 2026-09-07 (the table below is the 2026-09-02 division, KEPT VISIBLE as history):**
+> *"We change roles - from now on YOU are doing Quality Gates and you are preparing spec - the other agent will code."*
+> ⇒ From Slice 6 on: **the Quality Agent (Claude) AUTHORS the design specs, the pre-checks and the dispatch briefs,
+> gates every slice report independently, dispatches, and LANDS the documentation on PASS** (register rows, bench
+> parts, design/manual/tracker status lines, MEMORY.md). **The coder is Codex**: it VALIDATES the brief against the
+> source at the pinned base before editing (every `file:line` is a claim to re-check; disagreements are a STOP-1
+> preflight report to the Quality Agent, never a silent repair), then implements and reports evidence. **The owner**
+> rules (`OWNER RULING REQUESTED`), commits both repositories and bench-verifies on metal. The `model: opus` line of
+> step 4 and "What a brief must contain" is retired; the coder is named in the brief's status line. Everything
+> else in the cycle — clean-start pins, prediction-first figures, two board envs, the report shape, same-agent
+> fix rounds — is unchanged.
+
 Three parties work on MeshRoute. Each owns a distinct step; none takes over another's step.
 
 | Party | Owns | Never does |
