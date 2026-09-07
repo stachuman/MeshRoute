@@ -269,7 +269,7 @@ coverage by implication. Their authority is `docs/superpowers/evidence/2026-09-0
 These are maintained findings, not coder dispatch authorization. Slice 3's evidence reserves B323–B326
 (B322 was the superseded alias of B325); Slice 4 owns B327–B330. Those proposals are now registered below
 with their individual dispositions. S5-A1–A3 become B331–B333; HOME-A1/A2 become B334/B335, aliases retained.
-The next free coder-proposed finding is B352 (B336–B351 landed 2026-09-07: Slice 5's B336–B342 and Slice 6's B343–B351; open follow-ups B337, B342, B350, B351); re-check the maintained register before allocating it.
+The next free coder-proposed finding is B353 (B336–B352 landed 2026-09-07; B352 = the Slice 7a brief's own finding; open follow-ups B337, B342, B350, B351, B352); re-check the maintained register before allocating it.
 Author does not edit QA's pre-check. All source observations below are at `a0ff994` (2026-09-06).
 
 **QA review 2026-09-06:** preliminary Slice 5 brief PASS, no fold-ins. QA accepted S5-A1–S5-A3 and
@@ -298,6 +298,7 @@ Numeric allocation is complete; the Slice 5 implementation/measurement closure o
 | B349 (S6-C1) | **CLOSED IN SLICE 6** | The coder's first pin edit put inline comments after `PIN_STRUCTURAL=62` / `PIN_CONTROLS=114` in `tools/probe_console_sink/run.sh`; the Slice 5-derived wrapper `tools/test_probe_console_sink.py:112` recognizes bare integer assignments only and refused to import. Fixed by moving the comments; the wrapper's strictness is correct and was not weakened. |
 | B350 (S6-C2) | **OPEN / INSTRUMENT WORDING (pre-existing)** | `tools/probe_firmware_ui/run.sh:1662` prints a bare `PASS` in `--no-neg` (probe-only) mode with `controls: 0 verified`, unlike the other five probes which end `PROBE-ONLY — NOT A GATE`. Never used as gate evidence. **CLOSE BY:** print the PROBE-ONLY line in that mode (the B303 shape for inbox is the sibling). |
 | B351 (S6-C3) | **OPEN / COMMENT DRIFT (pre-existing, `src/device_ble.h`)** | The hoisted capacity block (`:115-120` at the Slice 6 tree) still calls the 32-byte target-label term a TRANSITIONAL pin and the target-book record "deferred", while Slice 4 landed `/mrtargets` (`src/device_nv.h` `TargetRow::label[16]`, labels 1..16 bytes). Value unchanged (the wider mirror is conservative). **CLOSE BY:** bind the term to the landed `mrnv` label width by `static_assert` and correct the comment — a one-line code edit for the next slice that touches the header. |
+| B352 (S7a-Q1) | **OPEN / FIXED BY SLICE 7a (test-fixture drift) — closes at its QA PASS** | QA, preparing Slice 7a: `test/test_radmin_characterization_0e.cpp` 0e-D `compute_budget(attempt = rts_max_retries)` (`:272-290`, `:576`) prices ONE CTS-wait window (attempt 2 = 665 ms); run with `MR_RADMIN0E_TABLE=1` it prints budget **6506** / default **13012** — the interpretation R-RA-23 WITHDREW (the sum of attempts 0/1/2 = 167+333+665 = 1165 ⇒ **7006 / 14012**). The fixture asserts relationships, not the number, so it stayed green. **CLOSE BY (Slice 7a brief §3/§5):** the production `remote_scheduled_reply_path_budget_ms` sums the three attempt windows and is KAT-bound to 7006/14012 at SF8/125k/CR5/slop 0; the 0e fixture is updated to the ruled sum with the withdrawn figure kept visible. |
 
 ## Standalone mobile Home design intake — 2026-09-06
 
