@@ -293,3 +293,28 @@ checker + selftest; census at pins; a0 / literals; both `git diff --check`; the 
 Close B352; land bench Part 57a with the exact lines from the evidence; design §19.1 row 7a measured; the manual's
 `cfg` key list; register the coder's proposals from B353; record the owner's veto (or not) on §4.7. Then the 7b
 brief — the transcript, scheduler and deferred-action owner, which consumes this value.
+
+
+## 10a. QA gate — 7a-0 (the pure wait-window refactor) — PASS 2026-09-07 (independent re-run at `d51d62b` + the coder's five-file package)
+
+**Verdict: PASS for the refactor commit.** Fence exact: `lib/core/node_mac.cpp` (the two arming expressions call the
+helpers with identical operands; the M-broadcast arm and every comment untouched), NEW `lib/core/mac_wait_windows.h`
+(the two pure functions only), NEW `test/test_mac_wait_windows.cpp` (4 cases: the 0e windows 167/333/665 and 311,
+the backoff cap with two turnarounds, every ACK term, unsigned-overflow parity), `tools/probe_ui_model_mutations.py`
+(`macwait` battery, 10 entries; PIN re-synced 2843/121859), the evidence. QA figures (`scratchpad/s7a0gate/`):
+
+| instrument | QA figure |
+| --- | --- |
+| native | **2843 / 121859 / 0** |
+| simulator | `lus` **`10b649123db83486adfdedd5c5a6ca2c`** (moved from `db6582a1…`: `node_mac.cpp` recompiled, both variants) |
+| corpus | **36/36, anchors 36/36**, s18 `32afbf11` / 269517 / 0 — the refactor armed the same delays |
+| ABI probes | Node 224136/8 · 117912/8 · 150504/8 unmoved; B278 42/6 |
+| six probes | console-sink 62/114 · inbox 362/39 + 360/42 · fw-ui 223 · custody 27/10 · BLE line 40/8 · features 120/59 + 40 — all at the Slice 6 pins |
+| tools sweep · inventory · authority checker | 342 OK · 203 rows byte-identical · PASS + 6/6 |
+| warning census | 173 / 178 / 177 / 177 / 182 / 182, `-Wswitch` 0 |
+| boards | gateway **197180 / 550220 / 285** (RAM 0, flash +16 = `start_ack_timeout` +12 + 4 alignment, per the coder's symbol attribution) · heltec_mobile **207748 / 1371256 / 329** (RAM 0, flash −4) |
+| batteries (6) | `macwait` 10, `b159mac` 2, `b161mac` 1, `b20mac` 11, `grantadmit` 1 all RED / 0 unusable; `sliceBmac` 3 RED / 1 unusable (M04 = B342, pre-existing) |
+
+Coder proposal **B359** (the optional `tools/radmin_0e_abi_pins.json` overlay still pins `TimerWheel` at 824, the
+pre-Slice-5 size; the default ABI probe does not read it) is registered as a small follow-up. The owner commits
+7a-0; the coder records that hash as the 7a base and implements the feature under §5's second fence.

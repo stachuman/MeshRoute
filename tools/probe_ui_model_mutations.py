@@ -110,6 +110,7 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    "macwait": "lib/core/mac_wait_windows.h",  # Slice 7a-0: the MAC's shared wait-window arithmetic
     "consoleline": "lib/console/console_line.h",  # Slice 6: one byte validator and its named bounds
     "cmdauthority": "src/firmware_command_authority.h",  # Slice 6: pure lookup/admission metadata
     "model":  "src/firmware_ui_model.h",        # §UI-7D slice B — the pure screen/state model
@@ -677,9 +678,10 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
+# Slice 7a-0: 2839/121831 + 4 cases / 28 assertions = 2843/121859 (test_mac_wait_windows.cpp).
 # Slice 6: 2825/119784 + 14 cases / 2047 assertions = 2839/121831, executed native binary.
 # Six consoleline cases + eight command-authority/context cases; no pre-existing case changed.
-PIN_CASES, PIN_ASSERTS = 2839, 121831
+PIN_CASES, PIN_ASSERTS = 2843, 121859
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -11004,7 +11006,21 @@ MUTS_CMDAUTHORITY = [
  ("A16 first matching row wins before the most-specific policy", 'if (!bare && !sub) continue;', 'if (!bare && !sub) continue;\n        return &row;'),
 ]
 
-MUTS_BY_TARGET = {"consoleline": MUTS_CONSOLELINE, "cmdauthority": MUTS_CMDAUTHORITY,
+MUTS_MACWAIT = [
+ ("W01 CTS backoff caps one attempt early", 'attempt < 2 ? attempt : 2', 'attempt < 1 ? attempt : 1'),
+ ("W02 CTS backoff exceeds the existing x4 cap", 'attempt < 2 ? attempt : 2', 'attempt < 3 ? attempt : 3'),
+ ("W03 CTS exponential backoff becomes a linear increment", '(base_air_ms << shift)', '(base_air_ms + shift)'),
+ ("W04 CTS loses its one-millisecond margin", '+ 2u * slop_ms + 1u;', '+ 2u * slop_ms + 0u;'),
+ ("W05 CTS pays only one of the two turnarounds", '2u * slop_ms', '1u * slop_ms'),
+ ("W06 ACK loses DATA airtime", 'return data_air_ms + ack_air_ms', 'return (data_air_ms ^ data_air_ms) + ack_air_ms'),
+ ("W07 ACK loses routing ACK airtime", 'data_air_ms + ack_air_ms +', 'data_air_ms + (ack_air_ms ^ ack_air_ms) +'),
+ ("W08 ACK loses the DATA-SF turnaround", '+ slop_data_ms +', '+ (slop_data_ms ^ slop_data_ms) +'),
+ ("W09 ACK loses the routing-SF turnaround", '+ slop_routing_ms + 2u;', '+ (slop_routing_ms ^ slop_routing_ms) + 2u;'),
+ ("W10 ACK loses its two-millisecond margin", '+ slop_routing_ms + 2u;', '+ slop_routing_ms + 0u;'),
+]
+
+MUTS_BY_TARGET = {"macwait": MUTS_MACWAIT,
+                  "consoleline": MUTS_CONSOLELINE, "cmdauthority": MUTS_CMDAUTHORITY,
                   "a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,
                   "sliceAstore": MUTS_SLICEASTORE, "sliceAjson": MUTS_SLICEAJSON,

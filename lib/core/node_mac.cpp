@@ -12,6 +12,7 @@
 
 #include "frame_codec.h"
 #include "airtime.h"
+#include "mac_wait_windows.h"
 
 #include <span>
 
@@ -2455,14 +2456,14 @@ void Node::start_rts_timeout() {
                         + airtime_routing_ms(static_cast<uint16_t>(terminal_cts_wire_len(crypted_flight)));
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_active->_pending_tx ? _active->_pending_tx->retries_left : 0));
-    const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4
+    // x2 backoff, cap x4
     // §CTS-wait metal slop (2026-07-05): base covers ON-AIR time only; the CTS round-trip ALSO crosses TWO radio
     // turnarounds (sender TX->RX + gateway RX->TX) — the real-metal margin airtime_ms can't see. rx_window_slop_ms is
     // ZERO on the sim (HAL default) => delay UNCHANGED on native/sim (s18 byte-identical); ~53ms/turnaround on metal.
     // Was the ONLY handshake-wait omitting it -> a 62.5kHz gateway CTS landed ~204ms past the ~135ms window -> the
     // awaiting_cts was cleared -> the arriving CTS ignored (node_mac_rx.cpp:337) -> endless RTS<->CTS. Mirrors start_ack_timeout.
     const uint32_t slop  = _hal.rx_window_slop_ms(_cfg.routing_sf);
-    const uint32_t delay = (base << shift) + 2u * slop + 1u;
+    const uint32_t delay = cts_wait_delay_ms(base, attempt, slop);
     (void)_hal.after(delay, kRtsTimeoutTimerId);
     if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + delay;   // for reserve_yield's extend-only push
 }
@@ -2482,11 +2483,13 @@ void Node::start_ack_timeout() {
     // gateway's ACK) it OVER-waits, which fails safe. Fixing it needs a peer-CR channel the CTS does not have:
     // pack_cts is FULL (frame_codec.cpp:341-353 — the low nibble is (sf-5)<<1 | already_received, and
     // tx_id/rx_id/payload_len are whole bytes), so it would cost a wire growth or a wire_version bump. NOT DONE.
-    const uint32_t base = airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len)
-                        + airtime_routing_ms(3)
-                        + _hal.rx_window_slop_ms(sf) + _hal.rx_window_slop_ms(_cfg.routing_sf);
-    (void)_hal.after(base + 2, kAckTimeoutTimerId);
-    if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + base + 2;   // for reserve_yield's extend-only push
+    const uint32_t data_air = airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len);
+    const uint32_t ack_air = airtime_routing_ms(3);
+    const uint32_t slop_data = _hal.rx_window_slop_ms(sf);
+    const uint32_t slop_routing = _hal.rx_window_slop_ms(_cfg.routing_sf);
+    const uint32_t delay = ack_wait_delay_ms(data_air, ack_air, slop_data, slop_routing);
+    (void)_hal.after(delay, kAckTimeoutTimerId);
+    if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + delay;   // for reserve_yield's extend-only push
 }
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
     // M6: payload_len can be the RTS wire byte (node_mac_rx.cpp:302, r.payload_len) — clamp it like nav_duration_rts

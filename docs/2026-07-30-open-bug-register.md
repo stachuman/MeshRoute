@@ -269,7 +269,7 @@ coverage by implication. Their authority is `docs/superpowers/evidence/2026-09-0
 These are maintained findings, not coder dispatch authorization. Slice 3's evidence reserves B323–B326
 (B322 was the superseded alias of B325); Slice 4 owns B327–B330. Those proposals are now registered below
 with their individual dispositions. S5-A1–A3 become B331–B333; HOME-A1/A2 become B334/B335, aliases retained.
-The next free coder-proposed finding is B359 (B336–B358 landed 2026-09-07; B352–B358 = the Slice 7a brief + its preflight; open follow-ups B337, B342, B350, B351, B352, B354); re-check the maintained register before allocating it.
+The next free coder-proposed finding is B360 (B336–B359 landed 2026-09-07; open follow-ups B337, B342, B350, B351, B352, B354, B359); re-check the maintained register before allocating it.
 Author does not edit QA's pre-check. All source observations below are at `a0ff994` (2026-09-06).
 
 **QA review 2026-09-06:** preliminary Slice 5 brief PASS, no fold-ins. QA accepted S5-A1–S5-A3 and
@@ -305,6 +305,7 @@ Numeric allocation is complete; the Slice 5 implementation/measurement closure o
 | B356 (S7a-P4) | **FOLDED INTO THE SLICE 7a BRIEF (rev 2) 2026-09-07** | Coder preflight: `tools/probe_inbox_verbs` compiles `firmware_commands.cpp` (not `fw_main.cpp`) and fakes the `g_ble_*` globals at `probe_main.cpp:241-242`; the new `g_remote_action_activation_ms` extern would fail to link. **Resolution:** the fake enters the fence. |
 | B357 (S7a-P5) | **FOLDED INTO THE SLICE 7a BRIEF (rev 2) 2026-09-07** | Coder preflight: the union omitted the `lib/console` batteries `sliceDack` and `b134ack`, and the inventory prediction did not distinguish the two commits. **Resolution:** both added; 203 after 7a-0, 204 after 7a. |
 | B358 (S7a-P6) | **FOLDED INTO THE SLICE 7a BRIEF (rev 2) 2026-09-07** | Coder preflight: §4.7's rationale ("an operator may already run every disruptive command it bounds") overstated operator privilege (`regen`/`factory_reset`/`ota`/`crashtest` are owner-class) and the proposal's closing rule was paraphrased. **Resolution:** rationale rewritten (the setting bounds WHEN an accepted action fires, never WHETHER; floor derived, ceiling fixed), rule quoted verbatim; classification unchanged (operator, owner veto requested). |
+| B359 (S7a0-C1) | **OPEN / TOOLS FOLLOW-UP (small, pre-existing since Slice 5)** | Coder 7a-0 report §6.4: the OPTIONAL extra-pins manifest `tools/radmin_0e_abi_pins.json` (`:196` native, `:303` heltec, `:410` gateway) still pins `sizeof(meshroute::TimerWheel)` = 824; `python3 tools/probe_board_abi.py --extra-pins tools/radmin_0e_abi_pins.json` fails at native with `= 832, pinned 824 (delta +8)` (kCap 91→92 in Slice 5). The default ABI probe does not read the overlay, so every gate stayed green. **CLOSE BY:** re-pin the live-wheel overlay on all three ABIs (measured), distinguished from the deliberately historical 91-slot 0e candidate. Not folded into 7a-0 (out of its fence). |
 
 ## Standalone mobile Home design intake — 2026-09-06
 
