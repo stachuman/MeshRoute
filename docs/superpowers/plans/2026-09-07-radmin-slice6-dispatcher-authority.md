@@ -2,7 +2,8 @@
 # Remote-admin v2 Slice 6 — the common dispatcher's validator, context, result and authority table · brief · 2026-09-07
 
 **Status: REVISION 2 (2026-09-07) — the coder's preflight STOP report (`docs/superpowers/evidence/2026-09-07-radmin-slice6.md`,
-B343/B344/B345) is FOLDED IN (§0.1). DISPATCHABLE at the owner's preparation commit of this brief + that report (§1).**
+B343/B344/B345) is FOLDED IN (§0.1). Preparation committed at `d1a2906`; DISPATCHABLE at its pin-only successor
+commit (§1: the one that contains this file's hash-pin lines), simulator `06746a9` clean.**
 Roles (owner, 2026-09-07): the Quality Agent (Claude) AUTHORS briefs, gates independently and lands documentation;
 **the coder is Codex** (`docs/2026-09-02-agent-roles.md`, revised the same day); the owner rules and commits. The coder
 validates this brief against the source at the pinned base BEFORE editing (every `file:line` below is a claim to
@@ -37,9 +38,12 @@ of the evidence file, and the implementation sections are appended to the same f
 
 ## 1. Closure bindings — the Slice 5 QA PASS pins (measured by QA 2026-09-07, brief §10 of the Slice 5 brief)
 
-**MeshRoute dispatch base: the owner's PREPARATION COMMIT on `main` that lands this brief (revision 2), the coder's
-preflight report and the register/roles updates on top of `d226189` ("slice 5") — QA pins its hash here after the
-commit: `MESHROUTE_BASE = <pending the preparation commit>`.** Measured checkout `/home/staszek/MeshRoute`.
+**MeshRoute PREPARATION commit: `d1a2906` ("slice 6 spec", main) — this brief (revision 2), the coder's preflight
+report, the register and the roles document on top of `d226189` ("slice 5"). MeshRoute DISPATCH BASE: the
+pin-only SUCCESSOR of `d1a2906` — the commit that contains this paragraph, whose diff against `d1a2906` is exactly
+this brief's hash-pin lines and nothing else. The coder's preflight records that successor's `git rev-parse HEAD`
+as the measured base, verifies `git diff --stat d1a2906..HEAD` names only this file, and requires an empty status.**
+Measured checkout `/home/staszek/MeshRoute`.
 **Simulator base: `06746a97de5764415d6fcef10b97bca90569b9c7` ("Slice 5"), CLEAN** — the stale "uncommitted line"
 note of revision 1 is withdrawn. The coder's clean-start check (`git status --short` EMPTY in BOTH repositories, both
 `HEAD`s recorded and equal to the pins) is a STOP-1 on any mismatch; ⛔ no "measure around", no self-repin.
@@ -273,7 +277,8 @@ bool command_authority_admits(const CommandPolicy& row, const CommandContext& ct
 
 ### 4.7 Numbering
 
-Proposed findings start at **B343**; the coder proposes in the evidence and ⛔ never edits the register.
+Proposed findings start at **B346** (B343–B345 are this brief's own preflight findings, already registered); the
+coder proposes in the evidence and ⛔ never edits the register.
 
 ## 5. Exact implementation/instrument fence
 
@@ -304,8 +309,9 @@ Proposed findings start at **B343**; the coder proposes in the evidence and ⛔ 
   is not compiled natively (§B115) — its cover is the inbox-verbs probe's executed rows and the console-sink controls.
 - `tools/test_probe_console_sink.py` / `tools/test_probe_features.py`: pins are DERIVED since Slice 5 — expected
   untouched; `tools/probe_features/ownership.py`: expected untouched (no new capability site).
-- Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice6.md`, both repository statuses/diffs (the simulator
-  diff must be EMPTY), proposed findings from B343.
+- Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice6.md` (the preflight report stays at its head; the
+  implementation sections are appended), both repository statuses/diffs (the simulator diff must be EMPTY),
+  proposed findings from B346.
 - ⛔ OUT OF FENCE: `lib/core/*`, `src/firmware_ui*`, `src/device_ble.h`, `src/firmware_help.h`, any handler, the
   register/bench/manual/design/rulings/QA ledgers/BASELINE, the simulator.
 
@@ -345,7 +351,8 @@ flag, no default argument on the seam, no second validator, no per-transport cap
    dispatcher), so the BLE head is proven STRUCTURALLY plus the function natively plus ONE bench line (§9); the
    BLE-guard (905) and ownership (6/3) pins predicted unchanged; the `bad_line` envelopes' exact bytes on every profile.
 5. **Generator + checker:** `--write` then bare + `--check`; the checker green on the tree and its `--selftest` RED
-   on all five sabotages; the tools sweep `OK` with the new tests counted and derived.
+   on all SIX sabotages (§4.4: missing row, duplicate row, unclassified row, table/header disagreement, orphan,
+   surface mark dropped); the tools sweep `OK` with the new tests counted and derived.
 
 ## 7. Mutation union and the full gate
 
