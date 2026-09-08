@@ -15,11 +15,9 @@
 //    state module for the RPC:
 //      * ⛔ NO EXECUTION. A verdict is what Slice 7b acts on; nothing here dispatches a command, runs a
 //        whitelist or knows a dispatcher. There is no `CommandContext` (Slice 6) and no controller state (8a).
-//      * ⛔ NO REPLY BUT THE BOOTSTRAP ONE (R-RA-31). No output, terminal, ACK, rollover or protocol-error
-//        response is produced. `already_acknowledged` and `session_full` are VERDICTS here and have no wire
-//        producer yet — Slice 7b owns those.
-//      * ⛔ NO TRANSCRIPT, CHUNK OR DEFERRED-ACTION STORAGE. R-RA-22's four transcripts / eight chunks / two
-//        deferred actions (1 824 candidate bytes) are 7b's and are ABSENT from the block below.
+//      * Slice 7b-1 adds bounded transcripts, OUTPUT/TERMINAL sealing, retry replay and ACK release.
+//        MISSING: open replies, rollover and protocol-error producers (7b-2), deferred actions (7b-3).
+//        The main-loop firmware executor owns dispatch; this module owns bytes and lifecycle only.
 //      * ⛔ NO NV, NO `src/` INCLUDE, NO HEAP, NO TIMER CALL AND NO HAL CALL. Time arrives as an explicit
 //        `now_ms`; entropy arrives as an already-drawn, already-checked epoch. `Node` owns the timer and the
 //        transmitter; `src/` owns the durable records and the prepare/commit ordering.
@@ -48,7 +46,7 @@
 namespace MESHROUTE_NS {
 
 // =====================================================================================================
-// Capacities. R-RA-22's managed static/gateway profile, minus everything Slice 7b owns.
+// Capacities. R-RA-22's managed static/gateway profile through 7b-1; deferred actions remain 7b-3.
 // =====================================================================================================
 // The ACL image mirrors the codec's session-slot handles EXACTLY; `firmware_admin_acl.h` already binds the
 // durable record's row count to the same authority, so there are not two independent tens.
@@ -126,11 +124,11 @@ enum class SeenState : uint8_t {
     free         = 0,   // ★ ABSENCE IS THIS FLAG. ⛔ NEVER `request_id == 0` or `source_hash == 0`: the codec
                         //   permits numeric zero with presence true (R-RA-5 draws a legitimate all-zero id).
     admitted     = 1,
-    executing    = 2,   // reserved for Slice 7b's executor; no producer here
-    completed    = 3,   // reserved for Slice 7b's executor; no producer here
-    acknowledged = 4,   // reserved for Slice 7b's ACK consumer; no producer here
+    executing    = 2,   // transcript reserved; the main-loop executor owns the one dispatch
+    completed    = 3,   // immutable transcript and terminal retained until ACK/epoch invalidation
+    acknowledged = 4,   // transcript released; same-epoch replay tombstone retained
 };
-inline constexpr uint8_t kRadminNoTranscript = 0xFF;   // no transcript is allocated in this slice, ever
+inline constexpr uint8_t kRadminNoTranscript = 0xFF;
 
 struct SeenRequestRecord {
     uint64_t request_id;       // @0
@@ -139,9 +137,9 @@ struct SeenRequestRecord {
     uint32_t source_hash;      // @20 — the AEAD-bound controller SOURCE_HASH
     uint8_t  request_tag[16];  // @24 — ★ THE EXACT 128-BIT AUTHENTICATED TAG, as received
     uint8_t  controller_slot;  // @40
-    uint8_t  result_code;      // @41 — 7b's terminal result; unused (0) here
+    uint8_t  result_code;      // @41 — retained terminal result
     uint8_t  state;            // @42 — SeenState
-    uint8_t  transcript_slot;  // @43 — kRadminNoTranscript in this slice
+    uint8_t  transcript_slot;  // @43 — pool index, or kRadminNoTranscript
     uint8_t  reserved[4];      // @44 — canonical zero
 };
 
@@ -155,7 +153,7 @@ struct SeenEntry {
 // One authenticated ingress reservation. `body_slot` pairs it 1:1 with an `IngressBodySlot`.
 enum class IngressState : uint8_t {
     free     = 0,
-    reserved = 1,   // the body is stashed and the row is holding resources until it expires (no executor yet)
+    reserved = 1,   // body owned until execution completes or the pre-execution deadline expires
 };
 
 struct IngressOperationHeader {
@@ -203,10 +201,37 @@ enum class AdminReadiness : uint8_t {
     entropy_failed = 2,   // ⛔ a cold-boot draw refused: acceptance stays OFF and NOTHING durable was touched
 };
 
+// R-RA-22 / R-RA-34: pool storage, not admission caps. The 206 is bound to the live same-layer
+// remote_body_cap minus kRemoteOverheadAuthResponse by native tests (the cap is not constexpr).
+inline constexpr uint8_t kRadminTranscriptSlots = 4;
+inline constexpr uint8_t kRadminChunkSlots = 8;
+inline constexpr uint16_t kRadminChunkBytes = 206;
+inline constexpr uint16_t kRadminNoChunk = UINT16_MAX;
+enum class TranscriptState : uint8_t { free, capturing, ready };
+struct TranscriptHeader {
+    uint64_t request_id;
+    uint32_t bytes_total;          // retained bytes, not attempted writes after truncation
+    uint16_t first_chunk;
+    uint8_t frames;                // OUTPUT chunks + mandatory TERMINAL
+    uint8_t next_seq_to_send;
+    uint8_t controller_slot;
+    uint8_t seen_index;
+    uint8_t terminal;
+    uint8_t state;
+    uint16_t chunk_bytes;          // computed once at reservation for the actual return carrier
+    uint8_t truncated;
+    uint8_t order;                // 0..3 allocation order; no uptime-wrap-dependent scheduling
+};
+struct TranscriptChunk {
+    uint8_t bytes[kRadminChunkBytes];
+    uint16_t len = kRadminNoChunk; // free marker; an owned empty chunk has len == 0
+    uint16_t next = kRadminNoChunk;
+};
+
 // =====================================================================================================
 // THE ONE ACCEPT-ONLY STATE BLOCK. §4.2's frozen order — pair, ACL, status, epochs, seen, headers, bodies,
-// staging — at offsets 0 / 64 / 404 / 408 / 488 / 1384 / 1464 / 1936, total 2 064 bytes.
-// ⛔ NO hidden resident counter, vtable, key cache or transcript allocation lives here, and the derived
+// staging — original offsets preserved. 7b-1 appends the 1776-byte pool and two named counters.
+// ⛔ NO hidden resident counter, vtable or key cache lives here, and the derived
 //    base/session keys are per-call WIPED TRANSIENTS — never members.
 // =====================================================================================================
 struct RemoteSessionState {
@@ -225,7 +250,34 @@ struct RemoteSessionState {
     IngressOperationHeader ingress[kRadminIngressSlots];  // @1384 — 80
     IngressBodySlot        body[kRadminIngressSlots];     // @1464 — 472
     OpenStagingSlot        staging[kRadminStagingSlots];  // @1936 — 128
+    TranscriptHeader      transcripts[kRadminTranscriptSlots];
+    TranscriptChunk       chunks[kRadminChunkSlots];
+    uint16_t              transcript_exhaustion;
+    uint16_t              response_enqueue_failure;
 };
+
+// Borrowed only during the main-loop service call; never retained by firmware or a Print adapter.
+struct RadminIngressView {
+    uint8_t seen_index = kRadminNoSlot;
+    uint8_t slot = kRadminNoSlot;
+    uint8_t role = kRadminRoleEmpty;
+    uint64_t request_id = 0;
+    std::span<const uint8_t> body{};
+    ReplyRoute route{};
+    RemoteCarrier reply_carrier{};
+};
+enum class RadminSend : uint8_t { none, queued, parked, refused };
+
+[[nodiscard]] RemoteCarrier remote_reply_carrier(const ReplyRoute& route);
+[[nodiscard]] bool remote_next_admitted(const RemoteSessionState& s, RadminIngressView& out);
+[[nodiscard]] bool remote_transcript_reserve(RemoteSessionState& s, uint8_t seen_index, uint16_t chunk_bytes);
+void remote_transcript_append(RemoteSessionState& s, uint8_t seen_index, const uint8_t* p, size_t n);
+void remote_transcript_complete(RemoteSessionState& s, uint8_t seen_index, RemoteTerminal result);
+// Returns the oldest transcript with a pending frame, as a SEEN index. No reservation or side effect.
+[[nodiscard]] uint8_t remote_transcript_next(const RemoteSessionState& s);
+[[nodiscard]] RemoteStatus remote_transcript_encode(const RemoteSessionState& s, uint8_t seen_index,
+                                                    std::span<uint8_t> out, size_t& written);
+void remote_transcript_sent(RemoteSessionState& s, uint8_t seen_index);
 
 // =====================================================================================================
 // §10 as VERDICTS. Slice 5 classifies; Slice 7b acts. Cases 1-5 are the design's; the rest are storage
@@ -236,7 +288,7 @@ enum class RemoteAdmitVerdict : uint8_t {
     admit = 0,              // 1: id absent, capacity available -> seen row + ingress reserved ATOMICALLY
     replay_transcript,      // 2: id present, tag IDENTICAL, unacknowledged -> 7b resends; ⛔ never re-executes
     reject_id_reuse,        // 3: id present, tag DIFFERS -> ⛔ neither plaintext is ever dispatched
-    already_acknowledged,   // 4: id present, already acknowledged (⚠ SYNTHETIC-ONLY until 7b's ACK producer)
+    already_acknowledged,   // 4: id present, ACK tombstone retained; the wire error producer belongs to 7b-2
     session_full,           // 5: the shared 16-row pool is full (⚠ REAL and reachable; no wire answer yet)
     // ---- R-RA-31: the ONE thing this slice answers on air --------------------------------------------
     bootstrap_answered,     // authenticated read-only bootstrap: response ENCODED. ⛔ No seen row, ⛔ no epoch change.
@@ -258,6 +310,10 @@ enum class RemoteAdmitVerdict : uint8_t {
     silent_bad_key,         // conversion or ECDH refused (every low-order point lands here), or epoch 0
     silent_auth_failed,     // the tag did not verify
     silent_reply_unbuildable,   // authenticated bootstrap whose response cannot be encoded for the return leg
+    ack_released,              // authenticated ACK consumed without any ingress reservation
+    ack_premature,
+    ack_duplicate,
+    ack_unknown,
 };
 
 // True iff the verdict is one the target must stay SILENT about (§7.2). Used by the caller to decide that
@@ -348,8 +404,8 @@ inline constexpr uint32_t radmin_staging_lifetime_ms = protocol::e2e_ack_deadlin
 [[nodiscard]] uint64_t remote_session_earliest_deadline(const RemoteSessionState& s);
 
 // Release every row whose deadline has ELAPSED (`now >= expires_at`). Returns how many were released.
-// ⛔⛔ IT NEVER TOUCHES A SEEN ROW. Ingress/open expiry releases SCRATCH only; the current-epoch seen
-//    fingerprint is the tombstone design §10 case 4 needs and only an epoch-invalidating change may clear it.
+// B369 supersedes Slice 5's unconditional seen retention: expire a matching admitted/no-transcript row
+// with its ingress. Executing/completed/acknowledged rows NEVER expire; their replay safety is epoch-bound.
 uint8_t remote_session_expire(RemoteSessionState& s, uint64_t now_ms);
 
 // Release ONE staging row explicitly. R-RA-31's bootstrap holds its reserved row across exactly one enqueue

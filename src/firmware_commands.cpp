@@ -8,6 +8,7 @@
 #include "firmware_commands.h"
 #include "firmware_command_authority.h"
 #include "firmware_remote_activation.h"
+#include "firmware_remote_executor.h"
 #include "fw_context.h"        // g_node + the shared state
 #include "device_nv.h"         // mrnv::PeerBlob / load_peers / save_peers
 #include <cstdio>              // snprintf
@@ -246,6 +247,35 @@ void handle_ui(const char* args, size_t len, Print& out) {
 //   scratch is AUTOMATIC and bounded — the stack demand is measured in the slice evidence, ⛔ not assumed.
 #if MR_FEAT_RADMIN_ACCEPT
 namespace {
+const CommandContext* s_active_command_context = nullptr;
+constexpr CommandContext kLocalCommandContext{CommandTransport::usb, CommandAuthority::local, true, 0, 0};
+struct RemoteTarget final : IRadminTarget {
+    bool next_admitted(meshroute::RadminIngressView& v) override { return g_node.radmin_next_admitted(v); }
+    bool reserve_transcript(uint8_t s, uint16_t n) override { return g_node.radmin_reserve_transcript(s, n); }
+    void transcript_append(uint8_t s, const uint8_t* p, size_t n) override { g_node.radmin_transcript_append(s, p, n); }
+    void transcript_complete(uint8_t s, meshroute::RemoteTerminal r) override { g_node.radmin_transcript_complete(s, r); }
+    bool tx_queue_full() override { return g_node.tx_queue_full(); }
+    meshroute::RadminSend send_next_frame() override { return g_node.radmin_send_frame(); }
+};
+struct TranscriptPrint final : Print {
+    explicit TranscriptPrint(IRadminTranscriptSink& s) : sink(s) {}
+    size_t write(uint8_t b) override { sink.append(&b, 1); return 1; }
+    size_t write(const uint8_t* p, size_t n) override { sink.append(p, n); return n; }
+    IRadminTranscriptSink& sink;
+};
+struct RemoteExec final : IRadminExec {
+    RadminExecResult run(const char* p, size_t n, const CommandContext& ctx, IRadminTranscriptSink& sink) override {
+        // Handlers' C-string parsers need a terminator beyond the validated byte span.
+        // This wiped, bounded copy is per-call, not another resident command buffer.
+        if (n > meshroute::console::remote_command_max_bytes) return {DispatchOutcome::refused, RefuseReason::bad_line};
+        char line[meshroute::console::remote_command_max_bytes + 1] = {};
+        if (n) memcpy(line, p, n);
+        TranscriptPrint out(sink);
+        const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, ctx);
+        crypto_wipe(line, sizeof(line));
+        return {r.outcome, r.refuse};
+    }
+};
 // ⛔ THE TYPED WRAPPERS, ⛔ never `read_slot`/`write_slot` directly: `mrnv::load_admin_id` is the ONE place the
 //    slot, the four-state classification and the exact-size policy are spelled.
 struct DeviceAdminIdStore : mrfw::IAdminIdStore {
@@ -368,6 +398,26 @@ void admin_stores_boot_report_console() {
     mrcon.print(F(" slots="));
     mrcon.println(boot.slots);
 }
+const CommandContext& active_command_context() {
+    return s_active_command_context ? *s_active_command_context : kLocalCommandContext;
+}
+const CommandContext* CommandContextScope::exchange(const CommandContext* p) {
+    const CommandContext* previous = s_active_command_context;
+    s_active_command_context = p;
+    return previous;
+}
+void remote_executor_service_once() {
+    RemoteTarget target;
+    RemoteExec exec;
+    radmin_service_once(target, exec);
+}
+#else
+// No mutable context state (and no executor) on CLIENT: local behaviour and board RAM stay unchanged.
+const CommandContext& active_command_context() {
+    static constexpr CommandContext local{CommandTransport::usb, CommandAuthority::local, true, 0, 0};
+    return local;
+}
+const CommandContext* CommandContextScope::exchange(const CommandContext*) { return nullptr; }
 #endif   // MR_FEAT_RADMIN_ACCEPT
 
 // ---- §RADMIN slice 4: the two CONTROLLER STORES' DEVICE BINDINGS (CLIENT builds only) --------------------------
@@ -1577,6 +1627,7 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
 // the opening brace on the definition line (`_function_spans`), and this function is now a named hop in the wiring
 // chain that proves `dispatch`'s and `parse_command`'s transport claims. Wrapping it makes the generator refuse.
 LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& stream, char* reply, size_t reply_cap, const CommandContext& ctx) {
+    const CommandContextScope scope(ctx);
     LineExec r{};
     r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);
     if (r.line_err != meshroute::console::LineErr::ok) {
@@ -1598,7 +1649,7 @@ LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& 
     // Local output/transport policy is unchanged; only a remote context consults this metadata.
     if (ctx.authority != CommandAuthority::local) {
         const CommandPolicy* policy = command_policy_lookup(line, len);
-        if (!policy || !command_authority_admits(*policy, ctx, line, len)) {
+        if (!policy || !command_authority_admits(*policy, ctx, line, len) || radmin_disruptive_refused(policy, ctx)) {
             r.outcome = DispatchOutcome::refused;
             r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;
             return r;

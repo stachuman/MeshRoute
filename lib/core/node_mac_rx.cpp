@@ -9,6 +9,7 @@
 // The TX/send path is in node_mac.cpp; the duty/anti-spam metric helpers are in
 // node_budget.cpp. Behaviour mirrors dv_dual_sf.lua. Part of the Node class (node.h).
 #include "node.h"
+#include "monocypher.h"  // wipe the per-frame sealed-body scratch on every return
 
 #include "frame_codec.h"
 #include "airtime.h"
@@ -2022,18 +2023,6 @@ void Node::radmin_build_carriers(const PostAck& pa, const data_unicast_inner& ui
     // The REPLY leg. Same-layer answers by hash; a cross-layer request is answered on the REVERSED path at the
     // SAME depth with `cur = 1` (`enqueue_cross_layer`'s own origination shape), and it always carries DST_HASH
     // and SOURCE_HASH (node_mac.cpp stamps both unconditionally on that path).
-    in.reply_carrier = RemoteCarrier{};
-    in.reply_carrier.outer_data_type     = DATA_TYPE_REMOTE_RESP;
-    in.reply_carrier.enclosed_type       = 0;
-    in.reply_carrier.wrapper             = false;
-    in.reply_carrier.cross_layer         = ui.has_cross_layer && ui.n_layers >= 2;
-    in.reply_carrier.path_depth          = in.reply_carrier.cross_layer ? ui.n_layers : 0;
-    in.reply_carrier.path_cursor         = in.reply_carrier.cross_layer ? 1 : 0;
-    in.reply_carrier.addr_len            = 0;
-    in.reply_carrier.dst_hash_on_wire    = true;
-    in.reply_carrier.source_hash_on_wire = true;
-    in.reply_carrier.outer_crypted       = false;     // ⛔ CryptIntent::off — a v2 body is already sealed inside
-
     // The captured RETURN metadata. Same-layer zeroes the path bytes, the count and the cursor; cross-layer
     // retains EVERY validated received field. `origin` is diagnostic and is ⛔ never a reply identity.
     in.route = ReplyRoute{};
@@ -2046,58 +2035,56 @@ void Node::radmin_build_carriers(const PostAck& pa, const data_unicast_inner& ui
         for (uint8_t i = 0; i < ui.n_layers && i < protocol::gw_env_max_hops; ++i)
             in.route.layer_ids[i] = ui.layer_ids[i];
     }
+    in.reply_carrier = remote_reply_carrier(in.route);
 }
 
-// ★ THE ONLY TRANSMITTER SLICE 5 OWNS (R-RA-31). One bootstrap response, two-shaped, then the reserved staging
-//   row is released on the CHECKED outcome — success or failure alike.
-void Node::radmin_send_reply(RemoteRxResult& res)
+// ONE return-route transmitter, shared by bootstrap and transcript frames. Admission is the
+// transport's own fact, never inferred from a counter. Bootstrap trace bytes stay unchanged.
+Node::SendDispatch Node::radmin_send_response(uint32_t source_hash, const ReplyRoute& route,
+                                            const uint8_t* body, uint8_t len,
+                                            [[maybe_unused]] uint8_t slot, bool bootstrap)
 {
-    if (!res.has_reply) return;
+    SendDispatch dsp{};
+    dsp.admit = SendDispatch::Admit::refused;
     // ⛔ THE REPLY DST IS THE CAPTURED, AUTHENTICATED CONTROLLER SOURCE. A zero value is an explicit SEND
     //    FAILURE — ⛔ never a fallback to `pa.origin`, which is an 8-bit local id that aliases across leaves.
-    if (res.source_hash == 0) {
-        MR_EMIT("radmin_reply_no_dst", EF_I("slot", res.controller_slot));
-        remote_session_staging_release(_radmin_session, res.staging_index);
-        return;
+    if (source_hash == 0) {
+        MR_EMIT("radmin_reply_no_dst", EF_I("slot", slot));
+        return dsp;
     }
-    if (res.route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {
+    if (route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer)) {
         // §6.6 — reverse the captured COMPLETE path ONCE, then validate it. `send_xl_ack`'s PRINCIPLE is reused
         // (a cross-layer answer is a NORMAL send on the reversed path); ⛔ its ACK payload and its type are not.
-        const uint8_t n = res.route.n_layers;
-        if (n < 2 || n > protocol::gw_env_max_hops || res.route.cur >= n) {
-            MR_EMIT("radmin_reply_bad_path", EF_I("n_layers", n), EF_I("cur", res.route.cur));
-            remote_session_staging_release(_radmin_session, res.staging_index);
-            return;
+        const uint8_t n = route.n_layers;
+        if (n < 2 || n > protocol::gw_env_max_hops || route.cur >= n) {
+            MR_EMIT("radmin_reply_bad_path", EF_I("n_layers", n), EF_I("cur", route.cur));
+            return dsp;
         }
         uint8_t rev[protocol::gw_env_max_hops] = {};
-        for (uint8_t i = 0; i < n; ++i) rev[i] = res.route.layer_ids[n - 1 - i];
+        for (uint8_t i = 0; i < n; ++i) rev[i] = route.layer_ids[n - 1 - i];
         // The DESTINATION-side end of the received path must be OUR active layer, and the far ORIGIN end must be
         // a real layer. ⛔ Neither is assumed: a path that does not terminate here cannot be reversed into a
         // return leg, and substituting a same-layer reply for it would answer the wrong node.
         if (rev[0] != active_layer_id() || rev[n - 1] == 0) {
             MR_EMIT("radmin_reply_bad_path", EF_I("rev0", rev[0]), EF_I("mine", active_layer_id()));
-            remote_session_staging_release(_radmin_session, res.staging_index);
-            return;
+            return dsp;
         }
         // ⛔ Only the REVERSED DESTINATION HOPS are handed over: `originate_layer_path` prepends our own layer
         //    as path[0] itself, so passing `rev` whole would duplicate it.
-        // ⚠⚠ `[[maybe_unused]]` IS LOAD-BEARING AND IS [[B169]]'s SHAPE, ⛔ not decoration — and it was MEASURED,
-        //    not foreseen: `rc`'s only reader is the `MR_EMIT` below, which is DEVICE-STRIPPED, so on every
-        //    ACCEPT board the definition becomes `-Wunused-variable`. Native and all 36 corpus streams stay
-        //    green; the warning census is the ONLY instrument that sees it, and it did — the four ACCEPT envs
-        //    read 174/179/178/183 against pins 173/178/177/182 while the two CLIENT envs (which do not compile
-        //    this function at all) stayed exactly at 177 and 182. Same remedy as `node_mac.cpp`'s
-        //    `generic_lifecycle` and `node.cpp`'s `dsp`.
-        // ⛔ THE RESULT IS STILL CHECKED, not discarded: `rc` is what the emit reports as `queued`, which is the
-        //    §6.6 "check its CmdCode" obligation. Deleting the variable would delete that report.
+        // Slice 5's rc was trace-only and needed [[maybe_unused]] on device (B169 idiom).
+        // 7b-1 consumes it for admission too; it is no longer a device-stripped-only reader.
         uint16_t out_ctr = 0;
-        [[maybe_unused]] const CmdCode rc = originate_layer_path(res.source_hash, rev + 1, static_cast<uint8_t>(n - 1),
-                                                res.reply, res.reply_len, /*flags=*/0, out_ctr,
+        const CmdCode rc = originate_layer_path(source_hash, rev + 1, static_cast<uint8_t>(n - 1),
+                                                body, len, /*flags=*/0, out_ctr,
                                                 /*type=*/DATA_TYPE_REMOTE_RESP, /*override_source_hash=*/0);
-        MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "cross_layer"),
-                EF_I("slot", res.controller_slot),
-                EF_I("to_hash", static_cast<int64_t>(res.source_hash)),
+        dsp.admit = rc == CmdCode::queued ? SendDispatch::Admit::queued : SendDispatch::Admit::refused;
+        dsp.ctr = out_ctr;
+        if (bootstrap) {
+            MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "cross_layer"),
+                EF_I("slot", slot),
+                EF_I("to_hash", static_cast<int64_t>(source_hash)),
                 EF_I("queued", rc == CmdCode::queued ? 1 : 0), EF_I("ctr", out_ctr));
+        }
     } else {
         // §6.5 — explicit GLOBAL plane, explicit REMOTE_RESP type, `CryptIntent::off`, ZERO optional ACK flags,
         // no delegated override and no INTRO attach. ⛔ THE ADMISSION FACT IS `SendDispatch`, ⛔ not the return
@@ -2105,19 +2092,53 @@ void Node::radmin_send_reply(RemoteRxResult& res)
         // and a loud refusal alike ([[B333]]). ⛔ `send_by_hash` has NO `app_dm` parameter — that belongs to
         // `do_send`/`enqueue_data`, which this path reaches with `app_dm = true` and therefore stamps our OWN
         // `SOURCE_HASH` (the target's routing identity) and obeys DST_HASH admission.
-        SendDispatch dsp{};
-        (void)send_by_hash(res.source_hash, res.reply, res.reply_len, /*flags=*/0, CryptIntent::off,
+        (void)send_by_hash(source_hash, body, len, /*flags=*/0, CryptIntent::off,
                            /*reply_to_hash=*/0, /*mobile_ctr=*/0, Plane::GLOBAL,
                            /*type=*/DATA_TYPE_REMOTE_RESP, /*suppress_intro=*/true, &dsp);
-        MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "same_layer"),
-                EF_I("slot", res.controller_slot),
-                EF_I("to_hash", static_cast<int64_t>(res.source_hash)),
+        if (bootstrap) {
+            MR_EMIT("radmin_bootstrap_tx", EF_S("leg", "same_layer"),
+                EF_I("slot", slot),
+                EF_I("to_hash", static_cast<int64_t>(source_hash)),
                 EF_I("admit", static_cast<int64_t>(dsp.admit)), EF_I("ctr", dsp.ctr));
+        }
     }
+    return dsp;
+}
+
+void Node::radmin_send_reply(RemoteRxResult& res)
+{
+    if (!res.has_reply) return;
+    (void)radmin_send_response(res.source_hash, res.route, res.reply, res.reply_len,
+                               res.controller_slot, /*bootstrap=*/true);
     // ⛔ RELEASED ON THE CHECKED OUTCOME, whatever it was. A PARKED copy is transport-owned and is not aired TX
     //    yet; this slice adds ⛔ no application retry scheduler for it (design §7.2: a lost bootstrap response is
     //    recovered by the controller REPEATING the read-only request, which is exactly what makes it safe).
     remote_session_staging_release(_radmin_session, res.staging_index);
+}
+
+RadminSend Node::radmin_send_frame()
+{
+    if (tx_queue_full()) return RadminSend::none;
+    const uint8_t si = remote_transcript_next(_radmin_session);
+    if (si == kRadminNoSlot) return RadminSend::none;
+    uint8_t body[kRadminBodyBytes] = {};
+    size_t len = 0;
+    const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);
+    SendDispatch dsp{};
+    if (encoded == RemoteStatus::ok && len <= sizeof(body)) {
+        const auto& e = _radmin_session.seen[si];
+        dsp = radmin_send_response(e.record.source_hash, e.route, body, static_cast<uint8_t>(len),
+                                  e.record.controller_slot, /*bootstrap=*/false);
+    }
+    crypto_wipe(body, sizeof(body));
+    if (dsp.admit == SendDispatch::Admit::queued || dsp.admit == SendDispatch::Admit::parked) {
+        remote_transcript_sent(_radmin_session, si);
+        return dsp.admit == SendDispatch::Admit::queued ? RadminSend::queued : RadminSend::parked;
+    }
+    if (_radmin_session.response_enqueue_failure != UINT16_MAX)
+        ++_radmin_session.response_enqueue_failure;
+    MR_EMIT("radmin_response_enqueue_failure", EF_I("count", _radmin_session.response_enqueue_failure));
+    return RadminSend::refused;
 }
 
 // §4.5 — the ONE shared earliest-deadline scan. `park_reflood_arm` / `e2e_ack_deadline_arm_timer` idiom (U1):

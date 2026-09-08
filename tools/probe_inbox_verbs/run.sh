@@ -107,7 +107,7 @@ DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
 #    which copies the bytes, performs the REAL wipe and re-reads the SAME LIVE storage. ⛔ Production is unmodified
 #    and unaware; the wrapper is a straight forward unless a case arms it.
 LDWRAP=(-Wl,--wrap=crypto_wipe -Wl,--wrap=_ZN9meshroute4Node10on_commandERKNS_7CommandE)
-INCS=(-I"$HERE/fakes" -I"$ROOT/tools/probe_board_ui/fakes" -I"$ROOT/tools/probe_device_radio/fakes"
+INCS=(-I"$HERE/fakes" -I"$HERE" -I"$ROOT/tools/probe_board_ui/fakes" -I"$ROOT/tools/probe_device_radio/fakes"
       -I"$ROOT/variants/heltec_common" -I"$ROOT/src" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console"
       -I"$ROOT/lib/monocypher/src")
 STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
@@ -232,8 +232,11 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # Slice 6: +182 on EACH arm, with all old rows retained: Y1..Y3=18, Y4..Y5=12,
 # Y6=54, Y7=36 (18 refusals per format), Y8=54, Y9=6, Y10..Y11=2.
 # Slice 7a/B360: eight shared A7-1..A7-8 typed config-store checks, no prior row removed.
-PIN_CHECKS_ACCEPT=370
-PIN_CHECKS_CLIENT=368
+# 7b-1: old ACCEPT 370 / CLIENT 368; +2 Y7 refusals per arm (factory_reset is
+# disruptive even at owner), +8 shared R7-I rows. ACCEPT additionally +17 remote
+# view rows and +374 real-radio checks (eight commands, actual jitter/CTS/DATA/ACK).
+PIN_CHECKS_ACCEPT=771
+PIN_CHECKS_CLIENT=378
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -247,8 +250,8 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
-PIN_CONTROLS_ACCEPT=41  # Slice 7a: +2 shared floor controls, all prior controls retained.
-PIN_CONTROLS_CLIENT=44
+PIN_CONTROLS_ACCEPT=50  # 7b-1: old 41 + B372 medium control + eight ACCEPT wiring controls.
+PIN_CONTROLS_CLIENT=45  # old 44 + B372; all previous controls retained.
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -259,7 +262,12 @@ md5_sources() {
   cat "$FW_CMDS" "$FW_INBOX" "$FW_ACK" "$HERE/probe_main.cpp" \
       "$ROOT/tools/probe_board_ui/fakes/Arduino.h" "$ROOT/tools/probe_device_radio/fakes/RadioLib.h" \
       "$ROOT/src/firmware_config_parse.h" "$ROOT/lib/core/inbox.h" \
-      "$FW_CMDS_H" "$LINE_SINK" "$FAKE_PREFS" "$FAKE_RNG" | md5sum | cut -d' ' -f1
+      "$FW_CMDS_H" "$LINE_SINK" "$FAKE_PREFS" "$FAKE_RNG" \
+      "$HERE/remote_exec_rows.h" "$HERE/fakes/helpers/radiolib/CustomSX1262.h" \
+      "$ROOT/src/firmware_remote_executor.h" "$ROOT/src/firmware_command_context.h" \
+      "$ROOT/src/firmware_admin_verbs.h" "$ROOT/lib/core/remote_session.h" \
+      "$ROOT/lib/core/remote_session.cpp" "$ROOT/lib/core/node.h" "$ROOT/lib/core/node.cpp" \
+      "$ROOT/lib/core/node_mac_rx.cpp" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -303,13 +311,13 @@ build_support() {
 #   probe's own `fakes/Preferences.h` (C12/C13). The dir is placed FIRST on the include path, ahead of both
 #   `$HERE/fakes` and `$ROOT/src`, so the copy wins for every consumer in the build.
 build_variant() {
-  local router=$1 handler=$2 shadowdir=$3 bin=$4
+  local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
   local pre=()
   [ -n "$shadowdir" ] && pre=(-I"$shadowdir")
   : > "$OUT/build.log"
   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
-    && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
+    && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$probe" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
     && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
 }
 
@@ -320,6 +328,19 @@ if ! build_variant "$FW_CMDS" "$FW_INBOX" "" "$OUT/probe"; then
   sed 's/^/    /' "$OUT/build.log" | head -25
   exit 1
 fi
+# Link-level absence, not a synthetically disabled runtime role. Both arms link the
+# same source list under their own real profile; the executor must exist only on ACCEPT.
+nm -C "$OUT/probe" > "$OUT/symbols.txt"
+if [ "$MR_PROBE_ARM" = client ]; then
+  if grep -Eq 'mrfw::(remote_executor_service_once|radmin_service_once|\(anonymous namespace\)::Remote(Target|Exec))' "$OUT/symbols.txt"; then
+    echo 'FAIL — CLIENT contains executor symbols'; exit 1
+  fi
+else
+  if ! grep -q 'mrfw::remote_executor_service_once()' "$OUT/symbols.txt"; then
+    echo 'FAIL — ACCEPT executor binding missing'; exit 1
+  fi
+fi
+echo "executor symbol ownership: $MR_PROBE_ARM PASS"
 # ⛔ TEE'd, not just run: the summary line at the bottom reports how many checks actually EXECUTED, and a count
 #    taken from a file the probe never wrote would report 0 on a perfectly good run — an instrument reporting
 #    "measured nothing" about itself is the one number a reader must be able to trust ([[B227]]/[[B237]]).
@@ -355,7 +376,7 @@ classify_control() {   # classify_control <exit-code> <fail-line-count> -> red |
 #   so a stale header from a previous control can never join a later build) and hands that dir to build_variant.
 ctl() {
   local label=$1 which=$2 script=$3
-  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir=""
+  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir="" probe="$HERE/probe_main.cpp"
   shadow_hdr() {   # shadow_hdr <real-header> <basename> -> writes $OUT/shadow/<basename>, sets shadowdir
     rm -rf "$OUT/shadow"; mkdir -p "$OUT/shadow"
     sed "$script" "$1" > "$OUT/shadow/$2"; shadowdir="$OUT/shadow"
@@ -366,6 +387,8 @@ ctl() {
              cmp -s "$FW_CMDS" "$router"  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     handler) sed "$script" "$FW_INBOX" > "$OUT/mutant_inbox.cpp"; handler="$OUT/mutant_inbox.cpp"
              cmp -s "$FW_INBOX" "$handler" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    probe)   sed "$script" "$HERE/probe_main.cpp" > "$OUT/mutant_probe.cpp"; probe="$OUT/mutant_probe.cpp"
+             cmp -s "$HERE/probe_main.cpp" "$probe" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     ack)     shadow_hdr "$FW_ACK"    console_json.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     sink)    shadow_hdr "$LINE_SINK" dispatch_sink.h && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     prefs)   shadow_hdr "$FAKE_PREFS" Preferences.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
@@ -393,7 +416,7 @@ ctl() {
              router="$OUT/srcshadow/$(basename "$FW_CMDS")"
              handler="$OUT/srcshadow/$(basename "$FW_INBOX")" ;;
   esac
-  if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin"; then
+  if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin" "$probe"; then
     n_bad=$((n_bad+1))
     printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
@@ -693,6 +716,26 @@ if [ "${1:-}" != "--no-neg" ]; then
 fi
 
 if [ "${1:-}" != "--no-neg" ]; then
+  ctl 'R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail)' probe \
+    's|rec\[n_rec\].len = len;|rec[n_rec].len = len < 8 ? len : 8;|'
+  if [ "$MR_PROBE_ARM" = accept ]; then
+    ctl 'R7-C2 private DM filter bypassed' handler \
+      's|&& !meshroute::inbox_record_is_internal(e.type))|\&\& false)|'
+    ctl 'R7-C3 blanket DM-kind filter wrongly hides both diagnostics' handler \
+      's|&& !meshroute::inbox_record_is_internal(e.type))|\&\& true)|'
+    ctl 'R7-C4 remote mark_read changes shared DM cursor' handler \
+      '/if (remote_inbox_refuses(kind, "mark_read", out)) return;/d'
+    ctl 'R7-C5 remote del_msg deletes private DM' handler \
+      '/if (remote_inbox_refuses(kind, "del_msg", out)) return;/d'
+    ctl 'R7-C6 seam stops publishing authenticated context' router \
+      '/CommandContextScope scope(ctx);/d'
+    ctl 'R7-C7 transcript Print adapter leaks to local console' router \
+      's|size_t write(const uint8_t\* p, size_t n) override { sink.append(p, n); return n; }|size_t write(const uint8_t* p, size_t n) override { mrcon.write(p, n); return n; }|'
+    ctl 'R7-C8 firmware binding never services executor' router \
+      '/    radmin_service_once(target, exec);/d'
+    ctl 'R7-C9 authenticated actor slot lost before real ACL handler' router \
+      's|const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, ctx);|CommandContext no_actor = ctx; no_actor.acl_slot = 0xFF; const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, no_actor);|'
+  fi
   ctl 'A7-C1 config loader floor lowered, same-size v24 loads' nvh \
     's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/24, /\*v_max=\*/kVersion|'
   ctl 'A7-C2 config loader floor raised, current v25 refuses' nvh \

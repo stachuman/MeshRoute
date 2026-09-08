@@ -773,3 +773,10 @@ each with its own commit and attribution. (2) The 7b-1 transcript pool (R-RA-22'
 MUST come from `probe_board_abi.py`'s compile-and-read measurement on each target (the R-RA-31 shape) — 1776 B is the
 pool alone, the counters and alignment are measured on top; `heltec_mobile`'s `Node` size AND its board RAM stay
 unchanged (the control). Brief: `docs/superpowers/plans/2026-09-08-radmin-slice7b1-executor-transcript.md` §4.9.
+
+
+**QA correction to R-RA-32's source-facts line (2026-09-08, Slice 7b-1 B371):** the sentence *"the inbox record kinds in
+`lib/core/inbox.h` (DM vs channel vs custody)"* is wrong — `InboxKind` has only `dm` and `channel` (`inbox.h:26`);
+E2E-ack receipts and custody-failure reports are stored as DM-kind records whose `type` is INTERNAL
+(`inbox_record_is_internal(type)`, `inbox.h:111`). The ruled remote view therefore excludes the PRIVATE APPLICATION
+messages (`kind == dm && !internal`) and keeps every diagnostic record. The ruling itself is unchanged.

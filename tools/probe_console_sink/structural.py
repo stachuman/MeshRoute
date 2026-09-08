@@ -121,7 +121,7 @@ def _body(txt, signature):
     return txt[i:j]
 
 def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=None, config_cpp_path=None,
-          json_cpp_path=None):
+          json_cpp_path=None, inbox_cpp_path=None, context_h_path=None):
     """-> list of (id, description, ok, detail).
 
     ★ §RADMIN slice 3 added the last two paths. They are OPTIONAL only so an older caller still runs; the runner
@@ -546,9 +546,15 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         for b in acc_blocks:
             node_calls += re.findall(r'\bg_node\s*\.\s*(\w+)', b)
         allowed_node = {'admin_draw_epoch', 'admin_session_commit', 'admin_session_entropy_failed'}
-        add('S51', 'the ACCEPT bindings reach Node ONLY through the three ruled session entry points '
-                   '(admin_draw_epoch / admin_session_commit / admin_session_entropy_failed)',
-            bool(node_calls) and set(node_calls) <= allowed_node,
+        # 7b-1 supersedes the former three-only claim for ONE new adapter, not for
+        # the stores: its six executor links stay confined to RemoteTarget.
+        executor_binding = _body(cmds, 'struct RemoteTarget final') if 'struct RemoteTarget final' in cmds else ''
+        executor_calls = re.findall(r'\bg_node\s*\.\s*(\w+)', executor_binding)
+        store_calls = re.findall(r'\bg_node\s*\.\s*(\w+)', ''.join(acc_blocks).replace(executor_binding, ''))
+        executor_allowed = {'radmin_next_admitted', 'radmin_reserve_transcript', 'radmin_transcript_append',
+                            'radmin_transcript_complete', 'tx_queue_full', 'radmin_send_frame'}
+        add('S51', 'store bindings keep the three session links; RemoteTarget alone owns the six executor links',
+            bool(store_calls) and set(store_calls) <= allowed_node and set(executor_calls) == executor_allowed,
             f'{len(node_calls)} call(s): {sorted(set(node_calls))}')
         # ★★ §RADMIN SLICE 5: THE SEAM IS ACTUALLY BOUND. Design §6.5's live activation exists only if the two
         #    entry points HAND the services an `AdminLiveInstall` — dropping the argument leaves both services at
@@ -691,7 +697,7 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         and 'if (r.line_err != meshroute::console::LineErr::ok) return r;' in panel, '')
     add('S55', 'only non-local authority consults the table and admission is not inverted',
         bool(policy_body) and policy_body.count('command_policy_lookup(') == seam.count('command_policy_lookup(') == 1
-        and 'if (!policy || !command_authority_admits(*policy, ctx, line, len))' in policy_body, '')
+        and 'if (!policy || !command_authority_admits(*policy, ctx, line, len) || radmin_disruptive_refused(policy, ctx))' in policy_body, '')
     add('S56', 'remote refusals return typed results without writing a transport envelope',
         bool(policy_body) and not re.search(r'\b(?:stream|reply)\b', policy_body)
         and 'return r;' in policy_body and 'RefuseReason::unclassified' in policy_body
@@ -790,6 +796,42 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         seed = _body(config, 'static void seed_blob_from_live(mrnv::Blob& b) {')
         add('S76', 'the canonical config seed preserves the raw activation value',
             'b.remote_action_activation_ms = g_remote_action_activation_ms;' in seed)
+    # 7b-1: source-only ownership for the main loop; the inbox probe separately
+    # executes the real scope/filter/actor and transcript sink. Missing inputs omit
+    # these rows, never score them green; the runner requires the expanded count.
+    if inbox_cpp_path is not None and context_h_path is not None:
+        inbox = _neutral(Path(inbox_cpp_path).read_text())
+        context = _neutral(Path(context_h_path).read_text())
+        scope_calls = re.findall(r'\bCommandContextScope\s+\w+\s*\(', cmds + fwm + inbox)
+        add('S77', 'the sole scope publication is in the shared seam before validation and every return',
+            len(scope_calls) == 1 and 'CommandContextScope scope(ctx);' in seam
+            and seam.index('CommandContextScope scope(ctx);') < seam.index(validation)
+            and seam.index('CommandContextScope scope(ctx);') < seam.index('return'))
+        add('S78', 'scope installation and restoration use a private exchange, with copying forbidden',
+            'previous_(exchange(&ctx))' in context and '(void)exchange(previous_);' in context
+            and re.search(r'private:\s*static const CommandContext\* exchange\(', context)
+            and 'CommandContextScope(const CommandContextScope&) = delete;' in context)
+        loop = _body(fwm, 'static void mesh_service_once(')
+        call = 'mrfw::remote_executor_service_once();'
+        add('S79', 'the one executor service call belongs to the main loop after RX and before sleep',
+            fwm.count(call) == 1 and call in loop and 'g_node.on_recv(' in loop and 'const bool may_sleep' in loop
+            and loop.index('g_node.on_recv(') < loop.index(call) < loop.index('const bool may_sleep'))
+        add('S80', 'the main-loop executor call is ACCEPT-only',
+            re.search(r'#if MR_FEAT_RADMIN_ACCEPT\s+mrfw::remote_executor_service_once\(\);\s*#endif', loop))
+        pull = _body(inbox, 'static bool inbox_pull_cb(')
+        add('S81', 'remote pull uses the active context and hides private DMs, not DM-stored diagnostics',
+            re.search(r'if \(active_command_context\(\).transport == CommandTransport::remote && e.kind == '
+                      r'meshroute::InboxKind::dm\s*&& !meshroute::inbox_record_is_internal\(e.type\)\)\s*return true;', pull))
+        mark = _body(inbox, 'void handle_mark_read(')
+        delete = _body(inbox, 'void handle_del_msg(')
+        refusal = _body(inbox, 'static bool remote_inbox_refuses(')
+        add('S82', 'both DM mutators return before their effects under the active remote context',
+            'kind != meshroute::InboxKind::dm || active_command_context().transport != CommandTransport::remote' in refusal
+            and '"remote_no_dm"' in refusal
+            and 'if (remote_inbox_refuses(kind, "mark_read", out)) return;' in mark
+            and mark.index('remote_inbox_refuses') < mark.index('g_node.inbox().mark_read')
+            and 'if (remote_inbox_refuses(kind, "del_msg", out)) return;' in delete
+            and delete.index('remote_inbox_refuses') < delete.index('g_node.inbox()'))
     return out
 
 def _line_of(txt, needle):
@@ -799,9 +841,10 @@ def _line_of(txt, needle):
 
 
 def main(argv):
-    if len(argv) not in (5, 7):
+    if len(argv) not in (5, 7, 10):
         sys.exit('usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp> '
-                 '<firmware_help.h> [<device_nv.h> <firmware_config.cpp>]')
+                 '<firmware_help.h> [<device_nv.h> <firmware_config.cpp> '
+                 '[<console_json.cpp> <firmware_inbox.cpp> <firmware_command_context.h>]]')
     rows = check(*argv[1:])
     bad = 0
     for cid, desc, ok, detail in rows:

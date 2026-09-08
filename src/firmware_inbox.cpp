@@ -5,6 +5,7 @@
 // Shared state (g_node, g_hal, the s_inbox_jb NDJSON scratch) comes from fw_context.h; the JSON writers from
 // console_json.h. Behaviour-preserving: only relocated.
 #include "firmware_inbox.h"
+#include "firmware_command_context.h"
 #include "fw_context.h"       // g_node, g_hal, s_inbox_jb (shared NDJSON scratch)
 #include "console_json.h"     // meshroute::console::write_inbox_dm/channel/end/marked/err
 #include "firmware_config_parse.h"   // mrfw::parse_seq_arg — the §B136 strict destructive-target parser (pure, native-tested)
@@ -18,6 +19,9 @@ namespace { struct PullCtx { Print& out; uint32_t count; }; }
 // pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
 static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
     PullCtx* c = static_cast<PullCtx*>(vctx);
+    if (active_command_context().transport == CommandTransport::remote && e.kind == meshroute::InboxKind::dm
+        && !meshroute::inbox_record_is_internal(e.type))
+        return true;  // B371 / R-RA-32: hide private application DMs, retain diagnostics in the same store
     const size_t n = (e.kind == meshroute::InboxKind::dm)
         ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
@@ -58,12 +62,21 @@ static bool parse_inbox_kind(const char*& args, meshroute::InboxKind& kind, cons
     return false;
 }
 
+static bool remote_inbox_refuses(meshroute::InboxKind kind, const char* verb, Print& out) {
+    if (kind != meshroute::InboxKind::dm || active_command_context().transport != CommandTransport::remote) return false;
+    char eb[64];
+    const size_t n = meshroute::console::write_err(eb, sizeof eb, verb, "remote_no_dm");
+    if (n) out.write(eb, n);
+    return true;
+}
+
 void handle_mark_read(const char* args, Print& out) {
     meshroute::InboxKind kind; const char* kstr;
     if (!parse_inbox_kind(args, kind, kstr)) {
         char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
         if (n) out.write(eb, n); return;                  // fail loud on a bad kind
     }
+    if (remote_inbox_refuses(kind, "mark_read", out)) return;
     const uint32_t seq = strtoul(args, nullptr, 10);
     // ⛔ THE VERDICT IS RELAYED ([[B134]] QG round 7). This used to call `mark_read` and ack unconditionally, so a
     //    cursor the store could not persist was reported to the companion as marked — and because the durable
@@ -87,6 +100,7 @@ void handle_del_msg(const char* args, Print& out) {
         if (n) out.write(eb, n);
         return;                                           // fail loud on a bad kind
     }
+    if (remote_inbox_refuses(kind, "del_msg", out)) return;
     // ★ §B136 (QA 2026-08-07): a DESTRUCTIVE target is parsed STRICTLY — exactly one unsigned decimal token, no
     // sign, no trailing junk, no second token, no overflow. The bare `strtoul(args, nullptr, 10)` this replaces
     // deleted seq 1 for `del_msg dm 1oops`, `del_msg dm 1 extra` and `del_msg dm +1` alike. Fail LOUD (C2): a typo

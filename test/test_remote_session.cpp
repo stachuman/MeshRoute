@@ -87,6 +87,20 @@ struct Target {
     Identity           root = make_identity(1);
     std::vector<Identity> ctrl;
 
+    // B369: old capacity fixtures expired never-executed bodies and retained their fingerprints.
+    // That claim is withdrawn. Complete and ACK real transcripts instead, retaining executed tombstones.
+    void complete_and_ack(const RemoteRxResult& r, uint32_t src) {
+        CHECK(r.verdict == RemoteAdmitVerdict::admit);
+        if (r.verdict != RemoteAdmitVerdict::admit) return;
+        const bool reserved = remote_transcript_reserve(st, r.seen_index, kRadminChunkBytes);
+        CHECK(reserved); if (!reserved) return;
+        remote_transcript_complete(st, r.seen_index, RemoteTerminal::completed);
+        const auto& row = st.seen[r.seen_index].record;
+        const auto ack = request(row.controller_slot, static_cast<uint8_t>(RemoteCmdOpcode::response_ack),
+                                 row.request_id, {}, src, same_layer_cmd());
+        CHECK(deliver(ack, src).verdict == RemoteAdmitVerdict::ack_released);
+    }
+
     // n occupied slots, all OWNER unless `operators` says otherwise.
     void provision(uint8_t n, bool owner = true) {
         remote_session_clear(st);
@@ -178,7 +192,7 @@ struct Target {
 // =============================================================================================================
 // §4.2 — the layout, N, and the resource arithmetic
 // =============================================================================================================
-TEST_CASE("§radmin-5/L1 the state block is 2064 bytes and every field sits where the design put it") {
+TEST_CASE("§radmin-5/L1 the original 2064-byte prefix and appended 7b-1 pool have pinned offsets") {
     CHECK(sizeof(AdminAclRow) == 34);
     CHECK(sizeof(ReplyRoute) == 8);
     CHECK(sizeof(SeenRequestRecord) == 48);
@@ -186,10 +200,11 @@ TEST_CASE("§radmin-5/L1 the state block is 2064 bytes and every field sits wher
     CHECK(sizeof(IngressOperationHeader) == 40);
     CHECK(sizeof(IngressBodySlot) == 236);
     CHECK(sizeof(OpenStagingSlot) == 32);
-    CHECK(sizeof(RemoteSessionState) == 2064);
+    CHECK(sizeof(RemoteSessionState) == 3848);
     CHECK(alignof(RemoteSessionState) == 8);
     // ★ THE ARITHMETIC CLOSES WITH NO REMAINDER — that is what makes the Node re-pin attributable.
-    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u == sizeof(RemoteSessionState));
+    // Previously the eight prefix terms alone were the whole 2064-byte state.
+    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 4u + 4u == sizeof(RemoteSessionState));
     CHECK(offsetof(RemoteSessionState, acl)     == 64);
     CHECK(offsetof(RemoteSessionState, epoch)   == 408);
     CHECK(offsetof(RemoteSessionState, seen)    == 488);
@@ -211,7 +226,8 @@ TEST_CASE("§radmin-5/L2 N is 16 TOTAL seen entries SHARED across the ten slots 
     CHECK(kRadminOpenSlots == 3);
     CHECK(kRadminBootstrapSlot == 3);
     CHECK(kRadminAclSlots == kRemoteSlotSessionMax + 1);
-    // ⛔ Slice 7b's rows are ABSENT: 4 transcripts + 8 chunks + 2 deferred actions would have added 1 824 bytes.
+    // Historical claim "Slice 7b's rows are ABSENT" is superseded: 7b-1's pool is present,
+    // but the deferred-action rows still belong to 7b-3, not this slice.
     CHECK(sizeof(RemoteSessionState) < 2064u + 1824u);
 }
 
@@ -283,9 +299,8 @@ TEST_CASE("§radmin-5/I4 a root change invalidates every session; an ACL change 
         const auto r = t.deliver(req, 0xAAAA0000u + s, now);
         CHECK(r.verdict == RemoteAdmitVerdict::admit);
         CHECK(r.ingress_index != kRadminNoSlot);
-        // ★ Free the SCRATCH between requests so the next one finds a pair. The seen rows deliberately stay —
-        //   that is the property this case then measures the invalidation against.
-        (void)remote_session_expire(t.st, now + radmin_staging_lifetime_ms);
+        // Old fixture freed SCRATCH by expiry while keeping unexecuted seen rows (withdrawn, B369).
+        t.complete_and_ack(r, 0xAAAA0000u + s);
     }
     CHECK(remote_session_seen_used(t.st) == 3);
     const uint64_t e0 = t.st.epoch[0], e2 = t.st.epoch[2];
@@ -450,14 +465,9 @@ TEST_CASE("§radmin-5/C5 case 5 SESSION FULL: sixteen ids fill the SHARED pool a
         const auto req = t.request(slot, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute),
                                    0x500 + i, body, 0x2000u + i, same_layer_cmd());
         const auto r = t.deliver(req, 0x2000u + i);
-        // The ingress is only two deep, so most of these admit the seen row and then refuse the ingress. The
-        // property under test is the POOL, so both outcomes are accepted — but a seen row must have been taken
-        // only when the pair was available.
-        CHECK((r.verdict == RemoteAdmitVerdict::admit || r.verdict == RemoteAdmitVerdict::ingress_full));
-        if (r.verdict == RemoteAdmitVerdict::admit) {
-            // free the ingress so the next one can take a pair too; ⛔ the SEEN row deliberately stays
-            remote_session_expire(t.st, 1000 + radmin_staging_lifetime_ms);
-        }
+        // Old fixture allowed ingress_full then expired never-executed rows (withdrawn, B369).
+        // Every one now really admits, completes and ACKs; all sixteen tombstones must remain.
+        t.complete_and_ack(r, 0x2000u + i);
     }
     CHECK(remote_session_seen_used(t.st) == kRadminSeenSlots);
     const auto req = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 0xFEED, body, 0x3333, same_layer_cmd());
@@ -481,7 +491,8 @@ TEST_CASE("§radmin-5/P1 partition STARVATION, both directions: neither class ca
         const auto q2 = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 2, body, 0x1, same_layer_cmd());
         CHECK(t.deliver(q2, 0x1).verdict == RemoteAdmitVerdict::ingress_full);   // ⛔ it does NOT take the control row
         // …and the control class is still free.
-        const auto ack = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::response_ack), 3,
+        // ACK no longer holds ingress; SAFE_ROLLOVER preserves this partition proof (7b-2 producer pending).
+        const auto ack = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover), 3,
                                    std::span<const uint8_t>{}, 0x1, same_layer_cmd());
         const auto ar = t.deliver(ack, 0x1);
         CHECK(ar.verdict == RemoteAdmitVerdict::control_admitted);
@@ -531,11 +542,11 @@ TEST_CASE("§radmin-5/P3 seen exhaustion cannot consume the CONTROL reservation"
     for (int i = 0; i < 16; ++i) {
         const auto q = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 0x800 + i, body,
                                  0x4000u + i, same_layer_cmd());
-        (void)t.deliver(q, 0x4000u + i);
-        remote_session_expire(t.st, 1000 + radmin_staging_lifetime_ms);
+        // B369 supersedes the old expire-and-retain unexecuted fixture.
+        t.complete_and_ack(t.deliver(q, 0x4000u + i), 0x4000u + i);
     }
     CHECK(remote_session_seen_used(t.st) == kRadminSeenSlots);
-    const auto ack = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::response_ack), 0xABC,
+    const auto ack = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover), 0xABC,
                                std::span<const uint8_t>{}, 0x5555, same_layer_cmd());
     const auto r = t.deliver(ack, 0x5555);
     CHECK(r.verdict == RemoteAdmitVerdict::control_admitted);   // ★ the full pool did NOT starve it
@@ -815,12 +826,12 @@ TEST_CASE("§radmin-5/E2 expiry is at now >= expires_at: just below holds, exact
     CHECK(remote_session_ingress_used(t.st) == 1);
     CHECK(remote_session_expire(t.st, due) == 1);                // EXACTLY at: released
     CHECK(remote_session_ingress_used(t.st) == 0);
-    // ★★ AND THE SEEN ROW IS STILL THERE, WITH ITS ROUTE. Expiry releases SCRATCH — ⛔ never the fingerprint.
-    CHECK(remote_session_seen_used(t.st) == 1);
-    CHECK(remote_session_seen_find(t.st, 0, 1) == r.seen_index);
-    CHECK(t.st.seen[r.seen_index].record.state == static_cast<uint8_t>(SeenState::admitted));
-    // ⇒ the identical retry still classifies as a REPLAY, which is exactly what the tombstone is for.
-    CHECK(t.deliver(req, 0x71, due + 1).verdict == RemoteAdmitVerdict::replay_transcript);
+    // Old claim "expiry releases scratch, never the fingerprint; identical retry is a replay"
+    // is withdrawn for NEVER EXECUTED rows (B369). Executed tombstones remain protected.
+    CHECK(remote_session_seen_used(t.st) == 0);
+    CHECK(remote_session_seen_find(t.st, 0, 1) == kRadminNoSlot);
+    CHECK(t.st.seen[r.seen_index].record.state == static_cast<uint8_t>(SeenState::free));
+    CHECK(t.deliver(req, 0x71, due + 1).verdict == RemoteAdmitVerdict::admit);
 }
 
 TEST_CASE("§radmin-5/E3 many rows, one scan: equal deadlines all go, and the next arm is the true remaining minimum") {
@@ -830,7 +841,7 @@ TEST_CASE("§radmin-5/E3 many rows, one scan: equal deadlines all go, and the ne
     // Two ingress rows at t=1000 and two staging rows at t=2000.
     const auto q1 = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 1, body, 0x81, same_layer_cmd());
     CHECK(t.deliver(q1, 0x81, 1000).verdict == RemoteAdmitVerdict::admit);
-    const auto q2 = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::response_ack), 2,
+    const auto q2 = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover), 2,
                               std::span<const uint8_t>{}, 0x81, same_layer_cmd());
     CHECK(t.deliver(q2, 0x81, 1000).verdict == RemoteAdmitVerdict::control_admitted);
     for (uint8_t i = 0; i < 2; ++i) {
@@ -880,7 +891,7 @@ TEST_CASE("§radmin-5/E4 an INVALIDATION releases rows, and the scan re-arms aga
     CHECK(remote_session_earliest_deadline(t.st) == 3000 + radmin_staging_lifetime_ms);
 }
 
-TEST_CASE("§radmin-5/E5 a released body is WIPED, and the route survives with the seen row") {
+TEST_CASE("§radmin-5/E5 an expired never-executed body AND route are wiped; retry re-admits fresh") {
     Target t;
     t.provision(1);
     const uint8_t body[6] = { 'S','E','C','R','E','T' };
@@ -903,13 +914,14 @@ TEST_CASE("§radmin-5/E5 a released body is WIPED, and the route survives with t
     for (size_t i = 0; i < kRadminBodyBytes; ++i) if (t.st.body[r.ingress_index].bytes[i] != 0) any = true;
     CHECK_FALSE(any);
     CHECK(t.st.body[r.ingress_index].len == 0);
-    // …★ AND THE RETURN METADATA IS NOT: a retry must still find the FIRST-admitted route.
-    CHECK(t.st.seen[r.seen_index].route.n_layers == 3);
-    CHECK(t.st.seen[r.seen_index].route.layer_ids[0] == 0x11);
+    // Old claim "return metadata survives; retry finds the first route" is superseded for
+    // NEVER EXECUTED work (B369). Both the body and its now-unowned route are wiped.
+    CHECK(t.st.seen[r.seen_index].route.n_layers == 0);
+    CHECK(t.st.seen[r.seen_index].route.layer_ids[0] == 0);
     const auto retry = t.deliver(req, 0xA1, 1000 + radmin_staging_lifetime_ms + 1, &xreq, nullptr, nullptr);
-    CHECK(retry.verdict == RemoteAdmitVerdict::replay_transcript);
-    CHECK(retry.route.n_layers == 3);                  // ⛔ the FIRST route, not this delivery's (which had none)
-    CHECK(retry.route.layer_ids[1] == 0x22);
+    CHECK(retry.verdict == RemoteAdmitVerdict::admit);
+    CHECK(retry.route.n_layers == 0);
+    CHECK(retry.route.layer_ids[1] == 0);
 }
 
 TEST_CASE("§radmin-5/E6 the same-layer route zeroes its path bytes; only cross-layer retains them") {

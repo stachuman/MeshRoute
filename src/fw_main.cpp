@@ -54,6 +54,7 @@ using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
 #include "firmware_commands.h"   // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
 #include "firmware_remote_activation.h"
+#include "firmware_remote_executor.h"
 #include "firmware_admin_verbs.h"   // §RADMIN slice 3: mrfw::admin_verb_owns — the ONE
                                     //   predicate the BLE refusal below and the router
                                     //   arm in firmware_commands.cpp BOTH evaluate.
@@ -1754,6 +1755,9 @@ static void mesh_service_once() {
     mr_ui_tick((uint32_t)now);   // §featuresplit slice 4: periodic board-display refresh (no-op unless MR_FEAT_OLED; throttled inside)
     // (was Serial.flush() — dropped Part 3: the Adafruit USB task drains the FIFO; a loop-body flush only risks a stall)
 
+#if MR_FEAT_RADMIN_ACCEPT
+    mrfw::remote_executor_service_once();  // one main-loop unit, after RX/timers and before the sleep gate
+#endif
     // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a
     // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
     // ⛔⛔ CLIENT-ONLY SINCE §remote-admin v2 SLICE 5, and the WHOLE block is gated rather than only its execute

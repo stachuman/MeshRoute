@@ -66,12 +66,24 @@ static_assert(offsetof(OpenStagingSlot, request_id) == 0 && offsetof(OpenStaging
               && offsetof(OpenStagingSlot, kind) == 28 && offsetof(OpenStagingSlot, controller_slot) == 29
               && offsetof(OpenStagingSlot, reserved) == 30, "OpenStagingSlot offsets");
 
-// ★★★ THE BLOCK ITSELF — 2 064 bytes, and every one of them attributed:
+// ★★★ THE ORIGINAL PREFIX — 2 064 bytes, and every one of them attributed:
 //       pair 64 + ACL 340 + status 4 + epochs 80 + seen 896 + headers 80 + bodies 472 + staging 128.
-//     ⛔ There is NO tail padding (2 064 % 8 == 0), so `sizeof` is exactly the sum and the Node re-pin
-//        arithmetic closes without an unexplained remainder.
-static_assert(sizeof(RemoteSessionState) == 2064 && alignof(RemoteSessionState) == 8,
-              "RemoteSessionState: the 2064-byte / 8-aligned ACCEPT block moved — re-derive the Node re-pin");
+//     Slice 5 had no tail padding (2 064 % 8 == 0). 7b-1 appends 1776 bytes of pool,
+//     4 bytes of counters and 4 bytes of tail alignment; every original offset stays unchanged.
+static_assert(sizeof(TranscriptHeader) == 24 && alignof(TranscriptHeader) == 8, "TranscriptHeader layout");
+static_assert(offsetof(TranscriptHeader, request_id) == 0 && offsetof(TranscriptHeader, bytes_total) == 8
+              && offsetof(TranscriptHeader, first_chunk) == 12 && offsetof(TranscriptHeader, frames) == 14
+              && offsetof(TranscriptHeader, next_seq_to_send) == 15 && offsetof(TranscriptHeader, controller_slot) == 16
+              && offsetof(TranscriptHeader, seen_index) == 17 && offsetof(TranscriptHeader, terminal) == 18
+              && offsetof(TranscriptHeader, state) == 19 && offsetof(TranscriptHeader, chunk_bytes) == 20
+              && offsetof(TranscriptHeader, truncated) == 22 && offsetof(TranscriptHeader, order) == 23,
+              "TranscriptHeader offsets");
+static_assert(sizeof(TranscriptChunk) == 210 && alignof(TranscriptChunk) == 2
+              && offsetof(TranscriptChunk, len) == 206 && offsetof(TranscriptChunk, next) == 208,
+              "TranscriptChunk layout");
+// Original 2064 + pool 1776 + counters 4 + alignment 4. Node pins are measured separately.
+static_assert(sizeof(RemoteSessionState) == 3848 && alignof(RemoteSessionState) == 8,
+              "RemoteSessionState: re-derive the ACCEPT block and measure the Node re-pin");
 static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, admin_ed_pub) == 32
               && offsetof(RemoteSessionState, acl) == 64
@@ -83,7 +95,11 @@ static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, seen) == 488
               && offsetof(RemoteSessionState, ingress) == 1384
               && offsetof(RemoteSessionState, body) == 1464
-              && offsetof(RemoteSessionState, staging) == 1936, "RemoteSessionState offsets");
+              && offsetof(RemoteSessionState, staging) == 1936
+              && offsetof(RemoteSessionState, transcripts) == 2064
+              && offsetof(RemoteSessionState, chunks) == 2160
+              && offsetof(RemoteSessionState, transcript_exhaustion) == 3840
+              && offsetof(RemoteSessionState, response_enqueue_failure) == 3842, "RemoteSessionState offsets");
 static_assert(sizeof(RemoteSessionState::acl) == 340 && sizeof(RemoteSessionState::epoch) == 80
               && sizeof(RemoteSessionState::seen) == 896 && sizeof(RemoteSessionState::ingress) == 80
               && sizeof(RemoteSessionState::body) == 472 && sizeof(RemoteSessionState::staging) == 128,
@@ -197,13 +213,58 @@ void staging_release(RemoteSessionState& s, uint8_t i) {
     s.staging[i].controller_slot = kRadminNoSlot;
 }
 
-// ★★ INVALIDATE ONE SLOT — and this is the ONLY thing that may clear a seen row. Time never does it, an ACK
-//    never does it, and a full pool never does it (design §10: "session records are not silently evicted
+// The free list has an implicit head (lowest free index), not another resident pool/counter.
+// Eight bounded entries make rebuilding its links cheap and remove a separate mutable head invariant.
+uint16_t chunk_free_list(RemoteSessionState& s) {
+    uint16_t head = kRadminNoChunk;
+    for (uint16_t i = kRadminChunkSlots; i > 0; ) {
+        --i;
+        if (s.chunks[i].len == kRadminNoChunk) { s.chunks[i].next = head; head = i; }
+    }
+    return head;
+}
+
+uint8_t transcript_index(const RemoteSessionState& s, uint8_t si) {
+    if (si >= kRadminSeenSlots) return kRadminNoTranscript;
+    const auto& r = s.seen[si].record;
+    const uint8_t ti = r.transcript_slot;
+    if (ti >= kRadminTranscriptSlots) return kRadminNoTranscript;
+    const auto& h = s.transcripts[ti];
+    if (h.state == static_cast<uint8_t>(TranscriptState::free) || h.seen_index != si
+        || h.controller_slot != r.controller_slot || h.request_id != r.request_id)
+        return kRadminNoTranscript;
+    return ti;
+}
+
+void transcript_release(RemoteSessionState& s, uint8_t si) {
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript) return;
+    const auto& h = s.transcripts[ti];
+    uint16_t ci = h.first_chunk;
+    for (uint8_t n = 0; ci < kRadminChunkSlots && n < kRadminChunkSlots; ++n) {
+        const uint16_t next = s.chunks[ci].next;
+        crypto_wipe(&s.chunks[ci], sizeof s.chunks[ci]);
+        s.chunks[ci] = TranscriptChunk{};
+        ci = next;
+    }
+    const uint8_t order = h.order;
+    crypto_wipe(&s.transcripts[ti], sizeof s.transcripts[ti]);
+    s.transcripts[ti] = TranscriptHeader{};
+    s.seen[si].record.transcript_slot = kRadminNoTranscript;
+    for (auto& other : s.transcripts)
+        if (other.state != static_cast<uint8_t>(TranscriptState::free) && other.order > order) --other.order;
+    (void)chunk_free_list(s);
+}
+
+// ★★ INVALIDATE ONE SLOT — the ONLY thing that may clear an EXECUTED seen row. B369 separately permits
+//    expiry of never-executed admissions. An ACK and a full pool never clear replay tombstones (design §10:
+//    "session records are not silently evicted
 //    while their session key remains valid"). It runs AFTER durability, on the affected slot alone.
 void invalidate_slot(RemoteSessionState& s, uint8_t slot) {
     for (uint8_t i = 0; i < kRadminSeenSlots; ++i)
         if (s.seen[i].record.state != static_cast<uint8_t>(SeenState::free)
             && s.seen[i].record.controller_slot == slot) {
+            transcript_release(s, i);
             crypto_wipe(&s.seen[i], sizeof s.seen[i]);                // the retained TAG is secret-adjacent
             s.seen[i] = SeenEntry{};
             s.seen[i].record.transcript_slot = kRadminNoTranscript;
@@ -217,6 +278,7 @@ void invalidate_slot(RemoteSessionState& s, uint8_t slot) {
 }
 
 void invalidate_everything(RemoteSessionState& s) {
+    for (uint8_t i = 0; i < kRadminSeenSlots; ++i) transcript_release(s, i);
     crypto_wipe(s.seen, sizeof s.seen);
     for (uint8_t i = 0; i < kRadminSeenSlots; ++i) {
         s.seen[i] = SeenEntry{};
@@ -322,16 +384,224 @@ uint8_t remote_session_expire(RemoteSessionState& s, uint64_t now_ms) {
     // ★ `now >= expires_at` — the boundary EXPIRES. Just below it does not.
     for (uint8_t i = 0; i < kRadminIngressSlots; ++i)
         if (s.ingress[i].state != static_cast<uint8_t>(IngressState::free)
-            && now_ms >= s.ingress[i].expires_at_ms) { ingress_release(s, i); ++released; }
+            && now_ms >= s.ingress[i].expires_at_ms) {
+            const auto& h = s.ingress[i];
+            if (h.seen_index < kRadminSeenSlots) {
+                auto& r = s.seen[h.seen_index].record;
+                // B369: no execution/no transcript means no result or nonce-space commitment to retain.
+                // Match the row's identity before releasing it; never clear another operation's tombstone.
+                if (r.state == static_cast<uint8_t>(SeenState::admitted)
+                    && r.transcript_slot == kRadminNoTranscript && r.request_id == h.request_id
+                    && r.controller_slot == (h.ctl & 0x0F)) {
+                    crypto_wipe(&s.seen[h.seen_index], sizeof s.seen[h.seen_index]);
+                    s.seen[h.seen_index] = SeenEntry{};
+                    s.seen[h.seen_index].record.transcript_slot = kRadminNoTranscript;
+                }
+            }
+            ingress_release(s, i);
+            ++released;
+        }
     for (uint8_t i = 0; i < kRadminStagingSlots; ++i)
         if (s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::free)
             && now_ms >= s.staging[i].expires_at_ms) { staging_release(s, i); ++released; }
-    // ⛔⛔ AND NOTHING ABOVE TOUCHED A SEEN ROW. Expiry releases SCRATCH. The same-epoch fingerprint is the
-    //    tombstone §10 case 4 answers from, and only an epoch-invalidating change may clear it.
+    // Executed fingerprints and transcripts are NOT time-evicted. Only the B369 admission exception above
+    // supersedes Slice 5's former unconditional seen retention.
     return released;
 }
 
 void remote_session_staging_release(RemoteSessionState& s, uint8_t index) { staging_release(s, index); }
+
+// One conversion for the retained reply route, shared by reservation and response sealing. Source-address
+// metadata stays in the seen row; the hash bytes are always reserved regardless of physical packing.
+RemoteCarrier remote_reply_carrier(const ReplyRoute& route) {
+    RemoteCarrier c{};
+    if (route.carrier != static_cast<uint8_t>(RadminCarrierKind::same_layer)
+        && route.carrier != static_cast<uint8_t>(RadminCarrierKind::cross_layer)) return c;
+    c.outer_data_type = DATA_TYPE_REMOTE_RESP;
+    c.dst_hash_on_wire = true;
+    c.cross_layer = route.carrier == static_cast<uint8_t>(RadminCarrierKind::cross_layer);
+    if (c.cross_layer) { c.path_depth = route.n_layers; c.path_cursor = 1; }
+    return c;
+}
+
+bool remote_next_admitted(const RemoteSessionState& s, RadminIngressView& out) {
+    out = RadminIngressView{};
+    if (!remote_session_accepting(s)) return false;
+    uint8_t best = kRadminNoSlot;
+    for (uint8_t i = 0; i < kRadminIngressSlots; ++i) {
+        const auto& h = s.ingress[i];
+        if (h.state != static_cast<uint8_t>(IngressState::reserved) || h.seen_index >= kRadminSeenSlots
+            || h.body_slot >= kRadminIngressSlots) continue;
+        const auto& r = s.seen[h.seen_index].record;
+        if (r.state != static_cast<uint8_t>(SeenState::admitted) || r.transcript_slot != kRadminNoTranscript
+            || r.controller_slot >= kRadminAclSlots || r.request_id != h.request_id
+            || r.controller_slot != (h.ctl & 0x0F) || r.admin_epoch != s.epoch[r.controller_slot]
+            || !row_occupied(s.acl[r.controller_slot]) || s.body[h.body_slot].len != h.body_len
+            || h.body_len > kRadminBodyBytes) continue;
+        if (best == kRadminNoSlot || h.expires_at_ms < s.ingress[best].expires_at_ms) best = i;
+    }
+    if (best == kRadminNoSlot) return false;
+    const auto& h = s.ingress[best];
+    const auto& e = s.seen[h.seen_index];
+    out.seen_index = h.seen_index;
+    out.slot = e.record.controller_slot;
+    out.role = s.acl[out.slot].role;
+    out.request_id = e.record.request_id;
+    out.body = std::span<const uint8_t>(s.body[h.body_slot].bytes, h.body_len);
+    out.route = e.route;
+    out.reply_carrier = remote_reply_carrier(e.route);
+    return true;
+}
+
+bool remote_transcript_reserve(RemoteSessionState& s, uint8_t si, uint16_t chunk_bytes) {
+    if (si >= kRadminSeenSlots || chunk_bytes == 0 || chunk_bytes > kRadminChunkBytes) return false;
+    auto& r = s.seen[si].record;
+    if (r.state != static_cast<uint8_t>(SeenState::admitted) || r.transcript_slot != kRadminNoTranscript)
+        return false;
+    size_t cap = 0;
+    if (remote_body_cap(remote_reply_carrier(s.seen[si].route), cap) != RemoteStatus::ok
+        || cap < kRemoteOverheadAuthResponse || chunk_bytes != cap - kRemoteOverheadAuthResponse) return false;
+    uint8_t ti = kRadminNoTranscript, used = 0;
+    for (uint8_t i = 0; i < kRadminTranscriptSlots; ++i) {
+        if (s.transcripts[i].state == static_cast<uint8_t>(TranscriptState::free)) {
+            if (ti == kRadminNoTranscript) ti = i;
+        } else ++used;
+    }
+    const uint16_t ci = chunk_free_list(s);
+    if (ti == kRadminNoTranscript || ci == kRadminNoChunk) {
+        if (s.transcript_exhaustion != UINT16_MAX) ++s.transcript_exhaustion;
+        return false;
+    }
+    // Atomic header+chunk reservation precedes the first possible dispatch.
+    auto& h = s.transcripts[ti];
+    h = TranscriptHeader{};
+    h.request_id = r.request_id;
+    h.first_chunk = ci;
+    h.controller_slot = r.controller_slot;
+    h.seen_index = si;
+    h.chunk_bytes = chunk_bytes;
+    h.order = used;
+    h.state = static_cast<uint8_t>(TranscriptState::capturing);
+    s.chunks[ci].len = 0;
+    s.chunks[ci].next = kRadminNoChunk;
+    r.transcript_slot = ti;
+    r.state = static_cast<uint8_t>(SeenState::executing);
+    return true;
+}
+
+void remote_transcript_append(RemoteSessionState& s, uint8_t si, const uint8_t* p, size_t n) {
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript) return;
+    auto& h = s.transcripts[ti];
+    if (h.state != static_cast<uint8_t>(TranscriptState::capturing) || h.truncated || n == 0) return;
+    if (!p) { h.truncated = 1; return; }
+    uint16_t ci = h.first_chunk;
+    uint8_t owned = 1;
+    while (ci < kRadminChunkSlots && s.chunks[ci].next < kRadminChunkSlots && owned < kRadminChunkSlots) {
+        ci = s.chunks[ci].next;
+        ++owned;
+    }
+    while (n && ci < kRadminChunkSlots) {
+        auto& c = s.chunks[ci];
+        if (c.len == h.chunk_bytes) {
+            const uint16_t next = owned < kRadminChunkSlots ? chunk_free_list(s) : kRadminNoChunk;
+            if (next == kRadminNoChunk) { h.truncated = 1; return; }
+            c.next = next;
+            ci = next;
+            s.chunks[ci].len = 0;
+            s.chunks[ci].next = kRadminNoChunk;
+            ++owned;
+            continue;
+        }
+        if (c.len > h.chunk_bytes) { h.truncated = 1; return; }
+        const size_t room = h.chunk_bytes - c.len;
+        const size_t take = n < room ? n : room;
+        std::memcpy(c.bytes + c.len, p, take);
+        c.len = static_cast<uint16_t>(c.len + take);
+        h.bytes_total += static_cast<uint32_t>(take);
+        p += take;
+        n -= take;
+    }
+}
+
+void remote_transcript_complete(RemoteSessionState& s, uint8_t si, RemoteTerminal result) {
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript) return;
+    auto& h = s.transcripts[ti];
+    if (h.state != static_cast<uint8_t>(TranscriptState::capturing)) return;
+    uint8_t output_frames = 0;
+    for (uint16_t ci = h.first_chunk; ci < kRadminChunkSlots && output_frames < kRadminChunkSlots;
+         ci = s.chunks[ci].next) {
+        if (s.chunks[ci].len == 0) break; // a silent command's reserved chunk is not an OUTPUT
+        ++output_frames;
+    }
+    if (result == RemoteTerminal::completed && h.truncated) result = RemoteTerminal::output_truncated;
+    h.terminal = static_cast<uint8_t>(result);
+    h.frames = static_cast<uint8_t>(output_frames + 1);
+    h.next_seq_to_send = 0;
+    h.state = static_cast<uint8_t>(TranscriptState::ready);
+    s.seen[si].record.result_code = h.terminal;
+    s.seen[si].record.state = static_cast<uint8_t>(SeenState::completed);
+    for (uint8_t i = 0; i < kRadminIngressSlots; ++i)
+        if (s.ingress[i].state != static_cast<uint8_t>(IngressState::free) && s.ingress[i].seen_index == si)
+            ingress_release(s, i);
+}
+
+uint8_t remote_transcript_next(const RemoteSessionState& s) {
+    uint8_t best = kRadminNoTranscript;
+    for (uint8_t i = 0; i < kRadminTranscriptSlots; ++i) {
+        const auto& h = s.transcripts[i];
+        if (h.state != static_cast<uint8_t>(TranscriptState::ready) || h.next_seq_to_send >= h.frames) continue;
+        if (best == kRadminNoTranscript || h.order < s.transcripts[best].order) best = i;
+    }
+    return best == kRadminNoTranscript ? kRadminNoSlot : s.transcripts[best].seen_index;
+}
+
+RemoteStatus remote_transcript_encode(const RemoteSessionState& s, uint8_t si,
+                                      std::span<uint8_t> out, size_t& written) {
+    written = 0;
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript) return RemoteStatus::bad_pairing;
+    const auto& h = s.transcripts[ti];
+    const auto& e = s.seen[si];
+    const uint8_t slot = e.record.controller_slot;
+    if (h.state != static_cast<uint8_t>(TranscriptState::ready) || h.next_seq_to_send >= h.frames
+        || slot >= kRadminAclSlots || !row_occupied(s.acl[slot]) || s.epoch[slot] == 0
+        || s.epoch[slot] != e.record.admin_epoch) return RemoteStatus::bad_pairing;
+    const bool terminal = h.next_seq_to_send == h.frames - 1;
+    std::span<const uint8_t> plain(&h.terminal, 1);
+    if (!terminal) {
+        uint16_t ci = h.first_chunk;
+        for (uint8_t seq = 0; seq < h.next_seq_to_send && ci < kRadminChunkSlots; ++seq) ci = s.chunks[ci].next;
+        if (ci >= kRadminChunkSlots || s.chunks[ci].len > h.chunk_bytes) return RemoteStatus::bad_pairing;
+        plain = std::span<const uint8_t>(s.chunks[ci].bytes, s.chunks[ci].len);
+    }
+    uint8_t base[32] = {}, session[32] = {};
+    RemoteStatus st = derive_base(s, s.acl[slot].ed_pub, base);
+    if (st == RemoteStatus::ok) st = remote_kdf_session(session, base, s.epoch[slot]);
+    crypto_wipe(base, sizeof base);
+    if (st == RemoteStatus::ok) {
+        RemoteMessage m{};
+        m.outer_type = DATA_TYPE_REMOTE_RESP;
+        m.opcode = static_cast<uint8_t>(terminal ? RemoteRespOpcode::terminal : RemoteRespOpcode::output);
+        m.slot = slot;
+        m.request_id = h.request_id;
+        m.response_seq = h.next_seq_to_send;
+        const RemoteKeys keys{{}, std::span<const uint8_t>(session, sizeof session)};
+        st = remote_body_encode(out, written, m, plain, keys, RemoteSource{true, e.record.source_hash},
+                                remote_reply_carrier(e.route));
+    }
+    crypto_wipe(session, sizeof session);
+    return st;
+}
+
+void remote_transcript_sent(RemoteSessionState& s, uint8_t si) {
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript) return;
+    auto& h = s.transcripts[ti];
+    if (h.state == static_cast<uint8_t>(TranscriptState::ready) && h.next_seq_to_send < h.frames)
+        ++h.next_seq_to_send;
+}
 
 // =========================================================================================================
 // Read-only introspection
@@ -387,6 +657,10 @@ bool remote_admit_is_silent(RemoteAdmitVerdict v) {
         case RemoteAdmitVerdict::open_staging_full:
         case RemoteAdmitVerdict::bootstrap_staging_busy:
         case RemoteAdmitVerdict::open_peer_bound:
+        case RemoteAdmitVerdict::ack_released:
+        case RemoteAdmitVerdict::ack_premature:
+        case RemoteAdmitVerdict::ack_duplicate:
+        case RemoteAdmitVerdict::ack_unknown:
             break;
     }
     return false;
@@ -406,6 +680,10 @@ const char* remote_admit_name(RemoteAdmitVerdict v) {
         case RemoteAdmitVerdict::open_staging_full:       return "open_staging_full";
         case RemoteAdmitVerdict::bootstrap_staging_busy:  return "bootstrap_staging_busy";
         case RemoteAdmitVerdict::open_peer_bound:         return "open_peer_bound";
+        case RemoteAdmitVerdict::ack_released:            return "ack_released";
+        case RemoteAdmitVerdict::ack_premature:           return "ack_premature";
+        case RemoteAdmitVerdict::ack_duplicate:           return "ack_duplicate";
+        case RemoteAdmitVerdict::ack_unknown:             return "ack_unknown";
         case RemoteAdmitVerdict::silent_not_ready:        return "silent_not_ready";
         case RemoteAdmitVerdict::silent_no_source:        return "silent_no_source";
         case RemoteAdmitVerdict::silent_bad_carrier:      return "silent_bad_carrier";
@@ -438,7 +716,7 @@ void commit_admit(RemoteSessionState& s, const RemoteRxInput& in, const RemoteDe
     e.record.controller_slot = slot;
     e.record.result_code     = 0;
     e.record.state           = static_cast<uint8_t>(SeenState::admitted);
-    e.record.transcript_slot = kRadminNoTranscript;   // ⛔ Slice 7b allocates transcripts; this slice never does
+    e.record.transcript_slot = kRadminNoTranscript;   // reserved by the main-loop executor, never on RX
     e.route                  = in.route;              // ★ the FIRST-admitted route, retained past ingress expiry
 
     IngressOperationHeader& h = s.ingress[ii];
@@ -659,6 +937,25 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
     // ---- AUTHENTICATED. Only now may a lookup decision affect state. ------------------------------------
     out.controller_slot = slot;
     out.request_id      = d.msg.request_id;
+    // 7b-1: authenticated ACK is a synchronous release, NEVER an ingress reservation. In particular an
+    // OWNER waiting in CONTROL for transcript space cannot block the ACK that frees that space.
+    if (L.domain == RemoteDomainId::cmd_response_ack) {
+        crypto_wipe(pt, sizeof pt);
+        const uint8_t si = remote_session_seen_find(s, slot, d.msg.request_id);
+        out.seen_index = si;
+        if (si == kRadminNoSlot) { out.verdict = RemoteAdmitVerdict::ack_unknown; return; }
+        auto& r = s.seen[si].record;
+        if (r.state == static_cast<uint8_t>(SeenState::completed)) {
+            transcript_release(s, si);
+            r.state = static_cast<uint8_t>(SeenState::acknowledged);
+            out.verdict = RemoteAdmitVerdict::ack_released;
+        } else if (r.state == static_cast<uint8_t>(SeenState::acknowledged)) {
+            out.verdict = RemoteAdmitVerdict::ack_duplicate;
+        } else {
+            out.verdict = RemoteAdmitVerdict::ack_premature;
+        }
+        return;
+    }
     // ★ THE FINGERPRINT IS THE RECEIVED TAG ITSELF — the last 16 bytes of the authenticated body, exactly as
     //   `remote_body_decode` verified them. ⛔ Not an R-RA-29 display fingerprint, ⛔ not a hash of the
     //   plaintext and ⛔ not a routing hash.
@@ -712,11 +1009,15 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
             out.verdict = RemoteAdmitVerdict::reject_id_reuse;
             return;
         }
-        // Case 4 (⚠ SYNTHETIC-ONLY until Slice 7b's ACK producer exists) / case 2.
+        // Case 4 (7b-1's authenticated ACK now produces the tombstone) / case 2.
         out.verdict = (e.record.state == static_cast<uint8_t>(SeenState::acknowledged))
                         ? RemoteAdmitVerdict::already_acknowledged
                         : RemoteAdmitVerdict::replay_transcript;
-        // ⛔ AND NOTHING IS DISPATCHED, RESEALED OR OVERWRITTEN on either arm.
+        // Only a completed transcript can replay. An admitted/no-transcript or capturing request is
+        // still waiting/executing: no replay bytes and no second dispatch are produced for it.
+        const uint8_t ti = transcript_index(s, si_hit);
+        if (e.record.state == static_cast<uint8_t>(SeenState::completed) && ti != kRadminNoTranscript)
+            s.transcripts[ti].next_seq_to_send = 0;
         return;
     }
 

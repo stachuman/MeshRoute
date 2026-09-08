@@ -193,13 +193,13 @@ CHECKS_PER_PROFILE=120
 PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
 # Slice 6: S53..S62 add ten controlled entry/context/policy bindings.
 # Slice 7a: S63..S76, 14 additive wiring rows.
-PIN_STRUCTURAL=76
+PIN_STRUCTURAL=82  # 7b-1: +6 scope, main-loop ownership, semantic inbox and mutator rows.
 PIN_BLE_GUARD=905
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
 # Slice 6: S6-C1..S6-C13; all prior 101 controls retained.
 # Slice 7a: 22 additive activation structural controls.
-PIN_CONTROLS=136
+PIN_CONTROLS=146   # 7b-1: +10 controlled source regressions; all earlier controls retained.
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE
@@ -357,7 +357,8 @@ done
 echo
 echo "== structural checks (brief tests 7, 8 and invariant 9) =="
 python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" "$ROOT/src/fw_main.cpp" "$HELP" \
-   "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" || rc=1
+   "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" "$ROOT/lib/console/console_json.cpp" \
+   "$ROOT/src/firmware_inbox.cpp" "$ROOT/src/firmware_command_context.h" || rc=1
 
 # ---- EXECUTED BLE help-refusal check (§0a owner ruling 2026-09-04: "help should not be transferred by BLE") -------
 # The guard's condition is EXTRACTED from the real src/fw_main.cpp and compiled beside the real src/firmware_help.h,
@@ -409,7 +410,9 @@ for row in "${PROFILES[@]}"; do
   chk_total=$((chk_total + ${n:-0}))
 done
 struct_total=$(python3 "$HERE/structural.py" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
-   "$ROOT/src/fw_main.cpp" "$HELP" "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
+   "$ROOT/src/fw_main.cpp" "$HELP" "$ROOT/src/device_nv.h" "$ROOT/src/firmware_config.cpp" \
+   "$ROOT/lib/console/console_json.cpp" "$ROOT/src/firmware_inbox.cpp" "$ROOT/src/firmware_command_context.h" \
+   | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
 ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \([0-9]*\).*/\1/p' "$OUT/neg.txt")
 # §RADMIN slice 3: TWO families now, so the total is their SUM. ⛔ `sed -n …p` prints one line per family and
 #   a bare assignment would have kept only the LAST — i.e. silently dropped the help family's 212 rows.

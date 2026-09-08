@@ -1,5 +1,17 @@
 # MeshRoute durable decisions
 
+- **Remote-admin Slice 7b-1 resume contract (2026-09-08, brief revision 6; implementation/full QA gate pending):**
+  the completed transcript is immutable. A send failure keeps its bytes, terminal, frame count and cursor; the next
+  eligible main-loop pass retries that pending frame. An authenticated exact request retry restarts the retained
+  completed transcript at sequence zero, without dispatching again. No suspension latch, new timer or replacement
+  terminal. `internal_error` covers execution/staging failure before a truthful normal result existed, decided only
+  at completion. ACCEPT state has three saturating u16 counters: transcript exhaustion, enqueue failure, seal failure;
+  seal refusal never attempts enqueue or increments the enqueue-failure counter. R-RA-34 requires measured final native/gateway
+  growth and unchanged mobile Node/RAM. B375 is folded into the brief; B374's counter and labelled synthetic REAL
+  Node-path proof remain coder work. Preserve the partial tracked/untracked tree and named QA inputs at `d467787`;
+  QA builds/mutations await the coder's frozen handoff, with complete source snapshots and no overlap with edits.
+  Brief: `docs/superpowers/plans/2026-09-08-radmin-slice7b1-executor-transcript.md` §§0.5/4/6.6.
+
 - **Standalone mobile Home redesign (owner discussion, updated 2026-09-07):**
   `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated
   DRAFT, not dispatch authority or a change to the remote-admin queue. Agreed direction: visible own

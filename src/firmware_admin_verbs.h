@@ -35,6 +35,7 @@
 //   · ⛔ NO CONTROLLER SIDE. `admin-key show self`, the target book and the OTHER node's USB output are Slice 4's
 //     (bench Part 55b). This is the TARGET half of the exchange and claims nothing about the other end.
 #pragma once
+#include "firmware_command_context.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>                    // snprintf — the one composition primitive, always length-checked
@@ -306,6 +307,8 @@ inline bool acl_parse_slot(const char* tok, size_t tlen, uint8_t& out) {
 }
 
 inline void acl_verb(AclService& acl, AdminIdService& id, const char* args, size_t n, IAdminLines& out) {
+    const uint8_t actor_slot = active_command_context().acl_slot;
+    const AclActor actor{actor_slot != 0xFF, actor_slot}; // B370: authenticated slot, never inferred from the command
     size_t i = 0;
     const char* tok = nullptr;
     size_t tlen = 0;
@@ -369,9 +372,9 @@ inline void acl_verb(AclService& acl, AdminIdService& id, const char* args, size
             acl_emit_err(out, AclErr::bad_args); return;
         }
         if (!admin_tail_empty(args, n, i)) { acl_emit_err(out, AclErr::bad_args); return; }
-        // ⛔ THE LOCAL USB CALLER SUPPLIES **NO** ACTING SLOT — it has none. The default `AclActor{}` is that fact,
-        //    spelled out; Slice 6's authenticated caller sets it and reuses this exact rule.
-        const AclResult r = acl.set(slot, role);
+        // Local USB still supplies no actor. 7b-1 (not Slice 6, as this formerly said) supplies
+        // the authenticated remote slot, reusing the service's self-slot protection unchanged.
+        const AclResult r = acl.set(slot, role, actor);
         if (!r.ok) { acl_emit_err(out, r.err); return; }
         char b[kAdminLineMax];
         admin_emit(out, b, snprintf(b, sizeof b, "> acl %s slot=%u role=%s\n",
@@ -387,7 +390,7 @@ inline void acl_verb(AclService& acl, AdminIdService& id, const char* args, size
             acl_emit_err(out, AclErr::bad_args); return;
         }
         if (!parse_confirm_token(args + i, n - i)) { acl_emit_err(out, AclErr::bad_args); return; }
-        const AclResult r = acl.remove(slot);
+        const AclResult r = acl.remove(slot, actor);
         if (!r.ok) { acl_emit_err(out, r.err); return; }
         char b[kAdminLineMax];
         admin_emit(out, b, snprintf(b, sizeof b, "> acl removed slot=%u\n", (unsigned)r.slot));

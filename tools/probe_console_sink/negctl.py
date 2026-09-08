@@ -56,11 +56,13 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 NVH = os.path.join(ROOT, 'src', 'device_nv.h')
 CFGCPP = os.path.join(ROOT, 'src', 'firmware_config.cpp')
 JSONCPP = os.path.join(ROOT, 'lib', 'console', 'console_json.cpp')
+INBOXCPP = os.path.join(ROOT, 'src', 'firmware_inbox.cpp')
+CONTEXT = os.path.join(ROOT, 'src', 'firmware_command_context.h')
 PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')      # the REPO's probe, never a scratch copy
 
 # §RADMIN slice 3 added NVH + CFGCPP: `mutate()` copies from this map, and the tail asserts every one of them
 # is byte-identical afterwards — so the two new control targets are protected by the same guard as the five.
-ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP, JSONCPP)}
+ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP, JSONCPP, INBOXCPP, CONTEXT)}
 for p, t in ORIG.items():
     print(f'baseline {os.path.relpath(p, ROOT)} md5 = {hashlib.md5(t.encode()).hexdigest()[:8]}  ({len(t)} bytes)')
 print()
@@ -333,8 +335,8 @@ SRC_CTL += [
      '    r.line_err = meshroute::console::validate_command_line(line, len, meshroute::console::local_command_max_bytes);',
      '    r.line_err = meshroute::console::LineErr::ok;', ('S54',)),
     ('S6-C3 admission inverted', CMDS,
-     'if (!policy || !command_authority_admits(*policy, ctx, line, len))',
-     'if (!policy || command_authority_admits(*policy, ctx, line, len))', ('S55',)),
+     '!command_authority_admits(*policy, ctx, line, len)',
+     'command_authority_admits(*policy, ctx, line, len)', ('S55',)),
     ('S6-C4 local commands consult the table', CMDS,
      '    if (ctx.authority != CommandAuthority::local) {',
      '    if (ctx.authority == CommandAuthority::local) {', ('S55',)),
@@ -1225,6 +1227,40 @@ for index, (label, target, steps, required) in enumerate(
         print(f'   !! STAYED GREEN -- {required} did not flip'); rc_all = 1
     else:
         print(f'   -> structural {required} now FAIL')
+S7B_CTL = [
+    ('T1 seam scope missing', CMDS, [('CommandContextScope scope(ctx);', '')], 'S77'),
+    ('T2 second scope publisher outside seam', FWMAIN,
+     [('static void mesh_service_once() {', 'static void mesh_service_once() { mrfw::CommandContextScope extra(ctx);')], 'S77'),
+    ('T3 scope never installs context', CONTEXT, [('previous_(exchange(&ctx))', 'previous_(nullptr)')], 'S78'),
+    ('T4 scope fails to restore previous context', CONTEXT, [('(void)exchange(previous_);', '(void)previous_;')], 'S78'),
+    ('T5 main-loop service call missing', FWMAIN, [('mrfw::remote_executor_service_once();', '')], 'S79'),
+    ('T6 executor precedes RX', FWMAIN,
+     [('mrfw::remote_executor_service_once();', ''),
+      ('static void mesh_service_once() {', 'static void mesh_service_once() { mrfw::remote_executor_service_once();')], 'S79'),
+    ('T7 executor loses ACCEPT guard', FWMAIN,
+     [('#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::remote_executor_service_once();', '#if 1\n    mrfw::remote_executor_service_once();')], 'S80'),
+    ('T8 private filter hides diagnostics too', INBOXCPP,
+     [('&& !meshroute::inbox_record_is_internal(e.type)', '&& true')], 'S81'),
+    ('T9 remote mark guard removed', INBOXCPP,
+     [('if (remote_inbox_refuses(kind, "mark_read", out)) return;', '')], 'S82'),
+    ('T10 remote delete guard removed', INBOXCPP,
+     [('if (remote_inbox_refuses(kind, "del_msg", out)) return;', '')], 'S82'),
+]
+for index, (label, target, steps, required) in enumerate(S7B_CTL):
+    print(label)
+    dest, err = mutate_steps(target, steps, 's7b_' + str(index) + '_' + os.path.basename(target))
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}'); rc_all = 1; continue
+    paths = [CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP, JSONCPP, INBOXCPP, CONTEXT]
+    paths[paths.index(target)] = dest
+    try:
+        rows = {cid: ok for cid, _d, ok, _x in structural.check(*paths)}
+    except Exception as exc:
+        print(f'   !! INSTRUMENT FAILURE, not RED: {exc}'); rc_all = 1; continue
+    if rows.get(required, True):
+        print(f'   !! STAYED GREEN -- {required} did not flip'); rc_all = 1
+    else:
+        print(f'   -> structural {required} now FAIL')
 for path, original in ORIG.items():
     assert open(path).read() == original, f'FATAL: {path} changed'
 n_s7a = len(S7A_CTL) + len(S7A_STEPS)
@@ -1234,5 +1270,6 @@ print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
       f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE + '
       f'{n_radmin3} radmin3 + {n_radmin4} radmin4 controls run '
       f'+ {n_s7a} activation controls '
-      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3 + n_radmin4 + n_s7a})')
+      f'+ {len(S7B_CTL)} executor ownership controls '
+      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3 + n_radmin4 + n_s7a + len(S7B_CTL)})')
 sys.exit(rc_all)

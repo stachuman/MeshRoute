@@ -2452,7 +2452,8 @@ TEST_CASE("§B278-S3/20 the bounded translation action is 56 B of value types an
     //    object costing `Node` nothing. Slice 5 adds a `Node` member of its own (2 064 B, ACCEPT-only) and this
     //    number moves with it — 222072 -> 224136 — but the four lines above, which are what S3 actually pins,
     //    do not move at all. ⛔ Do NOT read this line as "S3 grew": the derivation is in node.h's ledger.
-    CHECK(sizeof(Node) == 224136);
+    // 7b-1 measured native pool/counters/alignment delta +1784 (R-RA-34); the S3 offsets stay pinned above.
+    CHECK(sizeof(Node) == 225920);
     // and the four dispositions really are four distinct values (a collapsed enum would make three of the
     // product decisions above indistinguishable).
     CHECK(Node::test_custody_disposition_no_live_rows() == 0);

@@ -122,6 +122,30 @@ void Node::admin_session_entropy_failed() {
     remote_session_mark_entropy_failed(_radmin_session);
     _hal.cancel(kRadminExpiryTimerId);
 }
+
+bool Node::radmin_next_admitted(RadminIngressView& out) {
+    // The main loop drains timers before service; restate the deadline here for other real callers too.
+    if (remote_session_expire(_radmin_session, _hal.now())) radmin_expiry_arm();
+    return remote_next_admitted(_radmin_session, out);
+}
+
+bool Node::radmin_reserve_transcript(uint8_t seen_index, uint16_t chunk_bytes) {
+    const uint16_t before = _radmin_session.transcript_exhaustion;
+    const bool ok = remote_transcript_reserve(_radmin_session, seen_index, chunk_bytes);
+    if (_radmin_session.transcript_exhaustion != before) {
+        MR_EMIT("radmin_transcript_exhaustion", EF_I("count", _radmin_session.transcript_exhaustion));
+    }
+    return ok;
+}
+
+void Node::radmin_transcript_append(uint8_t seen_index, const uint8_t* p, size_t n) {
+    remote_transcript_append(_radmin_session, seen_index, p, n);
+}
+
+void Node::radmin_transcript_complete(uint8_t seen_index, RemoteTerminal result) {
+    remote_transcript_complete(_radmin_session, seen_index, result);
+    radmin_expiry_arm();
+}
 #endif   // MR_FEAT_RADMIN_ACCEPT
 
 #if MR_FEAT_TEAM

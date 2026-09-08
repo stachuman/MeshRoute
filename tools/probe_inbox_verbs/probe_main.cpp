@@ -138,7 +138,8 @@ struct CaptureSink : public Print {
 //   is pinned by test_segmented_inbox_store.cpp + the §CUSTODY-D native cases. Installed into the REAL
 //   `g_node.inbox()`, so `handle_clear_inbox`'s `g_node.inbox().clear()` is the real `Inbox::clear()` over it.
 struct ProbeStore : public meshroute::InboxStore {
-    struct Rec { uint32_t seq; uint8_t body[8]; uint16_t len; };
+    // B372: the former body[8] silently truncated even the 32-byte serialized header.
+    struct Rec { uint32_t seq; uint8_t body[meshroute::inbox_record_max_bytes]; uint16_t len; };
     Rec      rec[16] = {};
     uint16_t n_rec = 0;
     uint32_t persisted_next = 0, cursor = 0, epoch = 1;
@@ -147,8 +148,8 @@ struct ProbeStore : public meshroute::InboxStore {
 
     bool begin() override { return true; }
     bool append(uint32_t seq, const uint8_t* r, uint16_t len) override {
-        if (n_rec >= 16) return false;
-        rec[n_rec].seq = seq; rec[n_rec].len = (len > 8) ? 8 : len;
+        if (n_rec >= 16 || len > meshroute::inbox_record_max_bytes) return false;
+        rec[n_rec].seq = seq; rec[n_rec].len = len;
         for (uint16_t i = 0; i < rec[n_rec].len; ++i) rec[n_rec].body[i] = r[i];
         ++n_rec; return true;
     }
@@ -370,6 +371,7 @@ static bool route_ble(const char* line) {
 // two fakes is how two probes end up measuring two different devices). ⛔ The default gate defines nothing, so the
 // 71 checks below compile and run EXACTLY as before; `run.sh`'s md5 tripwire covers this file either way.
 #ifndef MR0C_NO_MAIN
+#include "remote_exec_rows.h"
 int main() {
     printf("== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==\n");
 
@@ -1877,7 +1879,9 @@ int main() {
             // Admission is not completion: status x and the absent-role ACL arm can be unmatched after admission.
             const bool admitted[3][9] = {{true,false,false,false,false,false,false,false,false},
                                          {true,true,true,false,false,false,false,false,false},
-                                         {true,true,true,true,true,false,false,false,false}};
+                                         {true,true,true,false,true,false,false,false,false}};
+            // 7b-1 supersedes Slice 6's owner admission of factory_reset: no disruptive handler runs
+            // under a remote context until 7b-3 can schedule it truthfully.
             for (unsigned a = 0; a < 3; ++a) {
                 const CommandContext remote{CommandTransport::remote, static_cast<CommandAuthority>(a + 1), false, 42, remote_command_max_bytes};
                 for (unsigned i = 0; i < 9; ++i) {
@@ -1931,6 +1935,10 @@ int main() {
         CHK(!mrnv::load(loaded), "A7-8 actual loader rejects v26");
         medium.reset();
     }
+    radmin7_inbox_rows();
+#if MR_FEAT_RADMIN_ACCEPT
+    radmin7_air_rows();
+#endif
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");
     return g_fail == 0 ? 0 : 1;
