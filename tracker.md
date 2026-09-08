@@ -182,3 +182,9 @@ sequence change.
   QA-passed, uncommitted at report: native 2839/121831/0, `lus` unchanged, corpus 36/36, inventory 203 rows, union
   114/0, boards RAM ±0. Register B336–B351 landed; next free B352; open follow-ups B337/B342/B350/B351; bench
   residue Part 63. NEXT: owner commits Slice 6; Slice 7a/7b pre-check + brief.
+
+- **Remote-admin Slice 7a — software QA PASS (2026-09-08):** 7a-0 refactor committed `89071fb`; the feature
+  (NV v25 activation delay, budget authority, resolver, cfg key, read-outs, boot line) QA-passed, uncommitted at
+  report; eleven preflight/implementation findings folded in and closed (B352–B358, B360–B363); B354 fixed a
+  pre-existing unreachable `cfg set gw_announce_interval`; B364 (invite-test over-read) open; Part 57a landed;
+  owner veto on the new row's operator class still open. NEXT: owner commits 7a; 7b brief.

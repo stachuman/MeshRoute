@@ -13,6 +13,7 @@
 # Every path arrives by argv (never hardcoded), and nothing is ever written: the file objects are opened read-only.
 import re
 import sys
+from pathlib import Path
 
 import ble_guard   # §0a: the BLE guard's condition is EXTRACTED, never re-typed here
 
@@ -119,7 +120,8 @@ def _body(txt, signature):
         j += 1
     return txt[i:j]
 
-def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=None, config_cpp_path=None):
+def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=None, config_cpp_path=None,
+          json_cpp_path=None):
     """-> list of (id, description, ok, detail).
 
     ★ §RADMIN slice 3 added the last two paths. They are OPTIONAL only so an older caller still runs; the runner
@@ -717,6 +719,77 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         'DispatchOutcome' in hdr and 'RefuseReason' in hdr and 'line_err' in hdr
         and seam.count('DispatchOutcome::completed') == 2 and seam.count('DispatchOutcome::refused') == 2
         and 'DispatchOutcome::scheduled' not in seam and 'DispatchOutcome::internal_failure' not in seam, '')
+    # Slice 7a: these firmware paths are structural coverage, NOT executed handler/boot claims.
+    if config_cpp_path is not None:
+        def body_or_empty(text, signature):
+            return _body(text, signature) if signature in text else ''
+        config = _neutral(Path(config_cpp_path).read_text())
+        arm = _body(config, 'else if (!strcmp(key, "remote_action_activation_ms"))')
+        resolve = 'remote_activation_resolve(value, remote_activation_live_inputs())'
+        add('S63', 'activation cfg arm uses the strict parser and live pure resolver',
+            'const bool parsed = parse_seq_arg(val, value);' in arm and resolve in arm)
+        impossible = body_or_empty(arm, 'if (activation.state == ActivationState::impossible_phy)')
+        add('S64', 'impossible activation refuses with the named live bounds',
+            'return;' in impossible and '> cfg err impossible_activation (floor ' in impossible
+            and 'activation.floor_ms' in impossible and 'activation.default_ms' in impossible
+            and 'remote_action_activation_max_ms' in impossible)
+        bad = body_or_empty(arm, 'if (!parsed || activation.state == ActivationState::below_floor || activation.state == ActivationState::above_ceiling)')
+        add('S65', 'both out-of-range states and malformed numbers refuse without clamping',
+            'return;' in bad and '> cfg err bad_value (remote_action_activation_ms ' in bad
+            and 'activation.floor_ms' in bad and 'remote_action_activation_max_ms' in bad)
+        handler = _body(config, 'void handle_cfg_set(')
+        add('S66', 'accepted raw value goes to NV and live state before the existing checked save/notification',
+            'b.remote_action_activation_ms = value;' in arm and 'g_remote_action_activation_ms = value;' in arm
+            and 'live = true;' in arm and bool(bad) and arm.index('b.remote_action_activation_ms') > arm.index(bad)
+            and 'if (persist && !mrnv::save(b))' in handler
+            and handler.index('mrnv::save(b)') < handler.index('if (persist) mr_ui_on_config_saved();'))
+        inputs = _body(cmds, 'meshroute::ActivationBudgetInputs remote_activation_live_inputs()')
+        add('S67', 'one input binding uses active PHY, the real SF accessor, both slops and derived terminal',
+            'const auto& cfg = g_node.config();' in inputs and 'const uint8_t data_sf = g_node.max_data_sf();' in inputs
+            and 'return {cfg.routing_sf, data_sf, g_node.active_bw_hz(), g_node.active_cr(),' in inputs
+            and 'g_hal.rx_window_slop_ms(cfg.routing_sf), g_hal.rx_window_slop_ms(data_sf)' in inputs
+            and 'meshroute::remote_scheduled_terminal_inner_len, false' in inputs)
+        dump = _body(cmds, 'static void dump_cfg(Print& out)')
+        live = 'remote_activation_resolve(g_remote_action_activation_ms, remote_activation_live_inputs())'
+        add('S68', 'text activation readout carries effective, state, raw, floor, default and ceiling',
+            live in dump and all(x in dump for x in (
+                '  radmin: activation_ms=', 'activation.effective_ms', 'activation_state_name(activation.state)',
+                'out.print(g_remote_action_activation_ms)', 'activation.floor_ms', 'activation.default_ms',
+                'out.println(meshroute::remote_action_activation_max_ms)')))
+        extras = _body(cmds, 'meshroute::console::CfgExtras make_cfg_extras()')
+        add('S69', 'JSON extras read the same live resolution', live in extras
+            and 'x.remote_action_activation_ms = activation.effective_ms;' in extras
+            and 'x.remote_action_activation_state = activation_state_name(activation.state);' in extras)
+        json_path = Path(json_cpp_path) if json_cpp_path else Path(__file__).resolve().parents[2] / 'lib/console/console_json.cpp'
+        json = _body(_neutral(json_path.read_text()), 'size_t write_cfg(')
+        add('S70', 'JSON writer emits both activation keys from the extras fields',
+            'j.lit(",\\"remote_action_activation_ms\\":"); j.u32(x.remote_action_activation_ms);' in json
+            and 'j.lit(",\\"remote_action_activation_state\\":");' in json
+            and 'j.str(x.remote_action_activation_state, std::strlen(x.remote_action_activation_state));' in json)
+        add('S71', 'boot restores the raw activation value, including zero',
+            fwm.count('g_remote_action_activation_ms = nv.remote_action_activation_ms;') == 1)
+        success_sig = 'else { g_node.restore_channel_ctr(nv.channel_ctr);'
+        success = _body(fwm, success_sig) if success_sig in fwm else ''
+        boot_call = 'mrfw::remote_activation_resolve(g_remote_action_activation_ms, mrfw::remote_activation_live_inputs())'
+        add('S72', 'activation boot report exists exactly once, inside successful initialization',
+            fwm.count(boot_call) == 1 and boot_call in success
+            and re.search(r'if \(!g_node\.on_init\(cfg\)\)[^{}]*;\s*else \{ g_node\.restore_channel_ctr', fwm) is not None
+            and 'g_hal.configure(' in fwm and fwm.index('g_hal.configure(') < fwm.index(success_sig))
+        add('S73', 'activation boot report has the exact envelope and ACCEPT-only guard',
+            re.search(r'#if MR_FEAT_RADMIN_ACCEPT\s+const auto activation = .*?remote_activation_live_inputs\(\)\);\s*'
+                      r'mrcon.print\(F\("> remote-activation state="\)\); mrcon.print\(mrfw::activation_state_name\(activation.state\)\);\s*'
+                      r'mrcon.print\(F\(" ms="\)\); mrcon.println\(activation.effective_ms\);\s*#endif', success, re.S) is not None)
+        add('S74', 'cfg key buffer is derived and refuses a truncated token instead of reinterpreting its suffix',
+            'constexpr size_t kCfgKeyMaxBytes = sizeof("remote_action_activation_ms");' in handler
+            and 'char key[kCfgKeyMaxBytes]' in handler
+            and 'if (args[k] && args[k] != \' \') { out.println(F("> cfg err bad_args")); return; }' in handler)
+        gateway_interval = body_or_empty(handler, 'else if (!strcmp(key, "gw_announce_interval"))')
+        add('S75', 'the newly reachable gateway announce interval keeps its live and persisted assignment',
+            'lc.gw_announce_min_interval_ms = (uint32_t)atol(val);' in gateway_interval
+            and 'b.gw_announce_min_interval_ms = lc.gw_announce_min_interval_ms;' in gateway_interval)
+        seed = _body(config, 'static void seed_blob_from_live(mrnv::Blob& b) {')
+        add('S76', 'the canonical config seed preserves the raw activation value',
+            'b.remote_action_activation_ms = g_remote_action_activation_ms;' in seed)
     return out
 
 def _line_of(txt, needle):

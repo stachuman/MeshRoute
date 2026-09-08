@@ -61,36 +61,36 @@ TEST_CASE("device_nv: slot_size_ok accepts EXACTLY the wanted length; a short, l
     CHECK_FALSE(slot_size_ok(-1, static_cast<size_t>(-1)));   // the widened-negative trap, stated as a test
 }
 
-TEST_CASE("device_nv: /mrcfg (Blob) takes the RANGE policy — v2..kVersion load, v1 and kVersion+1 are rejected") {
+TEST_CASE("device_nv: /mrcfg (Blob) takes the RANGE policy — v25 only at this layout, older padding and future versions reject") {
     const int full = full_read(sizeof(Blob));
     {   // the current layout
         Blob b = stamped<Blob>(kMagic, kVersion);
-        CHECK(blob_valid_range(b, full, kMagic, 2, kVersion));
+        CHECK(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));
     }
-    {   // ★ the low end of the range is 2, not 1 — an explicit, deliberate floor
-        Blob b = stamped<Blob>(kMagic, 2);
-        CHECK(blob_valid_range(b, full, kMagic, 2, kVersion));
+    {   // B353: old v2..kVersion policy superseded; v24 is the SAME size but has padding here.
+        Blob b = stamped<Blob>(kMagic, 24);
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));
     }
     {   Blob b = stamped<Blob>(kMagic, 1);
-        CHECK_FALSE(blob_valid_range(b, full, kMagic, 2, kVersion));       // below the floor
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // below the floor
     }
     {   Blob b = stamped<Blob>(kMagic, 0);
-        CHECK_FALSE(blob_valid_range(b, full, kMagic, 2, kVersion));       // erased flash / unstamped blob
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // erased flash / unstamped blob
     }
     {   Blob b = stamped<Blob>(kMagic, static_cast<uint16_t>(kVersion + 1));
-        CHECK_FALSE(blob_valid_range(b, full, kMagic, 2, kVersion));       // a FUTURE layout is refused, not guessed at
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // a FUTURE layout is refused, not guessed at
     }
     {   Blob b = stamped<Blob>(kMagic ^ 1u, kVersion);
-        CHECK_FALSE(blob_valid_range(b, full, kMagic, 2, kVersion));       // wrong magic (not our record)
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // wrong magic (not our record)
     }
     {   Blob b = stamped<Blob>(0, 0);
-        CHECK_FALSE(blob_valid_range(b, full, kMagic, 2, kVersion));       // erased flash reads as zeroes
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // erased flash reads as zeroes
     }
     {   // a size mismatch rejects regardless of a perfectly good magic+version — the pre-v8/pre-v22 path
         Blob b = stamped<Blob>(kMagic, kVersion);
-        CHECK_FALSE(blob_valid_range(b, full - 1, kMagic, 2, kVersion));
-        CHECK_FALSE(blob_valid_range(b, full + 1, kMagic, 2, kVersion));
-        CHECK_FALSE(blob_valid_range(b, -1, kMagic, 2, kVersion));
+        CHECK_FALSE(blob_valid_range(b, full - 1, kMagic, kVersionMinLoad, kVersion));
+        CHECK_FALSE(blob_valid_range(b, full + 1, kMagic, kVersionMinLoad, kVersion));
+        CHECK_FALSE(blob_valid_range(b, -1, kMagic, kVersionMinLoad, kVersion));
     }
 }
 
@@ -389,10 +389,11 @@ TEST_CASE("device_nv/AB1: peer_put_name covers EVERY PeerPut enumerator (the enu
     CHECK(put(b, k, 0, "x") == PeerPut::refused_conf);          // the record layer's own refusal is refused_conf
 }
 
-TEST_CASE("device_nv: the RANGE-vs-EXACT asymmetry is REAL — the same version offset loads /mrcfg and rejects /mrid+/mrpeers") {
+TEST_CASE("device_nv: synthetic RANGE-vs-EXACT predicate distinction — not the v25 load policy") {
     // One record accepting an older version while the other two reject it is a deliberate design decision,
     // not an accident of six hand-copied lines. Pin the difference so a future 'unification' has to argue.
-    Blob    cfg = stamped<Blob>(kMagic, 2);                                   // < kVersion (23 today)
+    // B353 supersedes the original production claim: this is now an explicitly synthetic range example.
+    Blob    cfg = stamped<Blob>(kMagic, 2);
     IdBlob  idb = stamped<IdBlob>(kIdMagic, static_cast<uint16_t>(kIdVersion - 1));
     PeerBlob pb = stamped<PeerBlob>(kPeersMagic, static_cast<uint16_t>(kPeersVersion - 1));
     CHECK(blob_valid_range(cfg, full_read(sizeof cfg), kMagic, 2, kVersion));       // ranged: an old config UPGRADES
@@ -514,7 +515,11 @@ TEST_CASE("device_nv: the record sizes the version policy guards are what the st
     CHECK(kMaxPeerRecs == 16);                                // == protocol::cap_peer_keys (the RAM table's cap)
     CHECK(kPeersVersion == 2);                                // §AB1: v2 = confidence + name persisted; v1 rejected outright
     CHECK(kIdVersion == 1);
-    CHECK(kVersion == 24);                                    // §UI-16 K2 added the team-key ACTIVE BINDING at v24 (v23 dropped loc_in_dm)
+    CHECK(kVersion == 25);                                    // v25 activation delay; v24 introduced the team-key binding
+    CHECK(kVersionMinLoad == 25);                             // B353: same-size old padding MUST NOT load
+    CHECK(sizeof(Blob) == 280);
+    CHECK(alignof(Blob) == 8);
+    CHECK(offsetof(Blob, remote_action_activation_ms) == 276);
     CHECK(kMagic == 0x4D524331u);                             // 'MRC1'
     CHECK(kIdMagic == 0x4D524944u);                           // 'MRID'
     CHECK(kPeersMagic == 0x4D525052u);                        // 'MRPR'

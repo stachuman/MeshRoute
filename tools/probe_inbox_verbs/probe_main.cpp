@@ -240,6 +240,7 @@ int8_t   g_tx_power = 0;
 double   g_freq_mhz = 869.525;
 uint8_t  g_ble_mode = 0, g_ble_period_min = 15;
 uint32_t g_ble_pin = 123456;
+uint32_t g_remote_action_activation_ms = 0;
 int32_t  g_lat_e7 = 0, g_lon_e7 = 0;
 mrfault::FaultRecord g_last_reset{};
 
@@ -1911,6 +1912,25 @@ int main() {
             "Y11 panel success proves the real Node command counter discriminates");
     }
 
+    // B360: execute the REAL typed /mrcfg wrappers over the existing byte-backed medium, in BOTH arms.
+    {
+        auto& medium = mrprobe_nv();
+        medium.reset(); medium.ns_present = true; medium.rw_ok = true;
+        mrnv::Blob record{}; record.magic = mrnv::kMagic; record.version = 24;
+        record.remote_action_activation_ms = 20000;
+        CHK(sizeof record == 280, "A7-1 config record keeps its size across the padding append");
+        CHK(mrnv::save(record), "A7-2 actual wrapper stores the same-size v24 fixture");
+        mrnv::Blob loaded{};
+        CHK(!mrnv::load(loaded), "A7-3 actual loader rejects v24 padding");
+        record.version = 25;
+        CHK(mrnv::save(record), "A7-4 actual wrapper stores v25");
+        CHK(mrnv::load(loaded), "A7-5 actual loader accepts v25");
+        CHK(loaded.remote_action_activation_ms == 20000, "A7-6 activation raw field survives typed reload");
+        record.version = 26;
+        CHK(mrnv::save(record), "A7-7 actual wrapper stores the future-version fixture");
+        CHK(!mrnv::load(loaded), "A7-8 actual loader rejects v26");
+        medium.reset();
+    }
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");
     return g_fail == 0 ? 0 : 1;

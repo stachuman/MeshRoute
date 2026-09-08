@@ -7,6 +7,7 @@
 #include "firmware_config.h"
 #include "fw_context.h"              // g_radio, g_iradio, g_hal, g_node, g_identity, g_freq_mhz, g_tx_power, g_radio_ok, g_lat_e7/lon_e7, g_ble_*
 #include "firmware_config_parse.h"   // mrfw::parse_sf_list
+#include "firmware_remote_activation.h"
 // ⛔ CORRECTED IN PLACE 2026-08-13 (§UI-14): this line was a §UI-13 COMPILE-COVERAGE ANCHOR — *"an include with no
 // call yet … the service is HEADLESS … `ICfgStore`/`ICfgLive` have no device binding"* — and that is now FALSE. The
 // bindings are IN THIS FILE ([[B193]], see `device_cfg_store` / `device_cfg_live` below), so the include is load-
@@ -248,9 +249,12 @@ static bool role_refused(meshroute::RoleSetRefusal r, const __FlashStringHelper*
 // MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
 // Extra protocol knobs (nav/nav_ignore/hop_cap/leaf_id/gateway) apply live but are NOT persisted yet (reboot reverts).
 void handle_cfg_set(const char* args, Print& out) {
-    char key[20]; size_t k = 0;
+    constexpr size_t kCfgKeyMaxBytes = sizeof("remote_action_activation_ms");
+    char key[kCfgKeyMaxBytes]; size_t k = 0;
     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
     key[k] = '\0';
+    // A longer token must not turn its suffix into the new key's numeric value.
+    if (args[k] && args[k] != ' ') { out.println(F("> cfg err bad_args")); return; }
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
     if (!*val) { out.println(F("> cfg err bad_args")); return; }
 
@@ -505,6 +509,25 @@ void handle_cfg_set(const char* args, Print& out) {
         if (v < 0 || v > 999999) { out.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
         b.ble_pin = (uint32_t)v; live = false;
     }
+    else if (!strcmp(key, "remote_action_activation_ms")) {
+        uint32_t value = 0;
+        const bool parsed = parse_seq_arg(val, value); // existing strict decimal-u32 parser (including zero)
+        const auto activation = remote_activation_resolve(value, remote_activation_live_inputs());
+        if (activation.state == ActivationState::impossible_phy) {
+            out.print(F("> cfg err impossible_activation (floor ")); out.print(activation.floor_ms);
+            out.print(F(" default ")); out.print(activation.default_ms);
+            out.print(F(" exceed ")); out.print(meshroute::remote_action_activation_max_ms);
+            out.println(F(" ms at this PHY)")); return;
+        }
+        if (!parsed || activation.state == ActivationState::below_floor || activation.state == ActivationState::above_ceiling) {
+            out.print(F("> cfg err bad_value (remote_action_activation_ms ")); out.print(activation.floor_ms);
+            out.print(F("..")); out.print(meshroute::remote_action_activation_max_ms);
+            out.println(F(" ms or 0=default)")); return;
+        }
+        b.remote_action_activation_ms = value;
+        g_remote_action_activation_ms = value;
+        live = true;
+    }
     // --- v8 DUAL-LAYER GATEWAY: PERSISTED raw per-layer fields, reboot-to-apply (on_init validates + derives the
     //     window split). Invalid input is REJECTED (fail loud), never silently clamped/defaulted. layer 0 = the
     //     legacy node_id/routing_sf/sf_list/beacon_ms keys; these are the layer-1 + shared-schedule extras. ---
@@ -687,6 +710,7 @@ void handle_gateway(const char* args, Print& out) {
     // so adopting it here would make exactly the persisted-byte change this comment refuses. The stamp stays inline below.
     mrnv::Blob b{};
     if (!mrnv::load(b)) {
+        // Deliberate subset: remote_action_activation_ms stays zero (= derived default), not a copied live promise.
         const NodeConfig& nc = g_node.config();
         b.freq_mhz = g_freq_mhz; b.bw_hz = nc.radio_bw_hz; b.cr = nc.radio_cr; b.duty = nc.duty_cycle;
         b.tx_power = g_tx_power;  b.lbt = nc.lbt_enabled ? 1 : 0; b.beacon_ms = nc.beacon_period_ms;
@@ -768,6 +792,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.team_key_active  = (nc.team_id != 0 && g_node.team_channel_key_present()) ? 1 : 0;
     b.team_key_team_id = b.team_key_active ? nc.team_id : 0;
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
+    b.remote_action_activation_ms = g_remote_action_activation_ms;
     b.e2e_dm     = nc.e2e_dm ? 1 : 0;   // §loc-per-send: `b.loc_in_dm` GONE with the NV field (kVersion 23) — location is per-send (`send -l`)
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
     b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;

@@ -4330,3 +4330,30 @@ companion arm, and no host instrument compiles `fw_main.cpp` (its proof is struc
 2. Send `status\r\n` from the same client: today's behaviour (the intake strips `\r`), i.e. the status JSON — the
    validator sees no CR because the intake never forwards one. Record that the line was accepted.
 3. Over USB, the same NUL-bearing line (a terminal that can send `0x00`) answers `> err bad_line embedded_nul`.
+
+
+## Part 57a — the persisted remote-action activation delay (Slice 7a)
+
+**Software QA PASS 2026-09-08 — METAL-PENDING / NOT RUN.** Evidence `docs/superpowers/evidence/2026-09-07-radmin-slice7a.md`
+§11. No host instrument compiles `src/firmware_config.cpp` or `fw_main.cpp`, so the handler's wiring, the boot line
+and the v25 reprovision are this part's residue. Lines are source-derived expectations; `<f>`/`<d>` are the LIVE
+floor/default the node prints (7006 / 14012 at SF8 / 125 kHz / CR5 with zero slop; metal slop makes them larger).
+
+1. On an ACCEPT node (static or gateway) freshly flashed with v25 firmware over a v24 record: boot must reprovision
+   (the documented reprovision-on-reflash) and print `> remote-activation state=default_derived ms=<d>` AFTER the
+   `config` line; `cfg` shows `  radmin: activation_ms=<d> state=default_derived cfg=0 floor=<f> default=<d> ceiling=299999`.
+2. `cfg set remote_action_activation_ms 20000` (choose a value above the printed floor) →
+   `> cfg remote_action_activation_ms=20000 ok (live + saved)`; reboot; the boot line reads
+   `> remote-activation state=configured ms=20000` and `cfg` shows `activation_ms=20000 state=configured cfg=20000`.
+3. `cfg set remote_action_activation_ms <f-1>` (the printed floor minus one) →
+   `> cfg err bad_value (remote_action_activation_ms <f>..299999 ms or 0=default)`; `… 300000` → the same refusal;
+   `cfg` afterwards still shows the previous value (nothing written).
+4. `cfg set remote_action_activation_ms 0` → `> cfg remote_action_activation_ms=0 ok (live + saved)`; `cfg` shows
+   `state=default_derived cfg=0`.
+5. Retune to a PHY whose default cannot fit (e.g. `cfg set sf_list 10`, `cfg set bw 7.8`, `cfg set cr 8`, reboot):
+   the boot line reads `> remote-activation state=impossible_phy ms=0` and any
+   `cfg set remote_action_activation_ms <N>` answers `> cfg err impossible_activation (floor <f> default <d> exceed 299999 ms at this PHY)`.
+   Restore the PHY afterwards.
+6. B354 regression: `cfg set gw_announce_interval 7200000` → `> cfg gw_announce_interval=7200000 ok (live + saved)`
+   (before Slice 7a it answered `> cfg err unknown_key gw_announce_interva`).
+7. A CLIENT (mobile) node prints NO `> remote-activation` boot line; its `cfg` still carries the `radmin:` line.

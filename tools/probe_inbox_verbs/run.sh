@@ -231,8 +231,9 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 #   records across `regen` with its ruled warning).
 # Slice 6: +182 on EACH arm, with all old rows retained: Y1..Y3=18, Y4..Y5=12,
 # Y6=54, Y7=36 (18 refusals per format), Y8=54, Y9=6, Y10..Y11=2.
-PIN_CHECKS_ACCEPT=362
-PIN_CHECKS_CLIENT=360
+# Slice 7a/B360: eight shared A7-1..A7-8 typed config-store checks, no prior row removed.
+PIN_CHECKS_ACCEPT=370
+PIN_CHECKS_CLIENT=368
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -246,8 +247,8 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
-PIN_CONTROLS_ACCEPT=39  # Slice 6: +9 S6-C1..S6-C9, exact-one-match executed seam controls.
-PIN_CONTROLS_CLIENT=42
+PIN_CONTROLS_ACCEPT=41  # Slice 7a: +2 shared floor controls, all prior controls retained.
+PIN_CONTROLS_CLIENT=44
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -689,6 +690,13 @@ if [ "${1:-}" != "--no-neg" ]; then
   s6_ctl 'S6-C9 remote byte-validation refusal emits a local envelope' \
     'if (ctx.authority != CommandAuthority::local) return r;' \
     's|if (ctx.authority != CommandAuthority::local) return r;|(void)ctx;|'
+fi
+
+if [ "${1:-}" != "--no-neg" ]; then
+  ctl 'A7-C1 config loader floor lowered, same-size v24 loads' nvh \
+    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/24, /\*v_max=\*/kVersion|'
+  ctl 'A7-C2 config loader floor raised, current v25 refuses' nvh \
+    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/26, /\*v_max=\*/kVersion|'
 fi
 
 MD5_AFTER=$(md5_sources)

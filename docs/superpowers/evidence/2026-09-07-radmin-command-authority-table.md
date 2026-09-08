@@ -61,6 +61,7 @@ reboot/prep-restart alias cells retain their own provenance but have the same cl
 | `cfg set` | `freq` | operator | yes | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |
 | `cfg set` | `gateway_only` | operator | yes | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |
 | `cfg set` | `gw_announce_interval` | operator | no | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |
+| `cfg set` | `remote_action_activation_ms` | operator | no | [Slice 7a §4.7](../plans/2026-09-07-radmin-slice7a-activation-config.md#47-classification-of-the-new-row) |
 | `cfg set` | `gw_announce_pct` | operator | no | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |
 | `cfg set` | `gw_herd_slack` | operator | no | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |
 | `cfg set` | `hop_cap` | operator | no | [§B](../plans/2026-09-06-radmin-authority-classification-proposal.md#b-configuration-cfg-cfg-set-key) |

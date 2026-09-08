@@ -146,6 +146,7 @@ APPROVED_SITES = {
     FW_MAIN: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # R-RA-29's BLE refusal, BEFORE the transport-neutral seam
         "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s boot report + §radmin-5's LIVE INSTALL, beside the legacy admin_load
+        "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-7a: the post-init `> remote-activation` boot line (B363)
         "#if MR_FEAT_RADMIN_CLIENT",   # R-RA-30's SUB-VERB-AWARE BLE refusal, also before the seam
         "#if MR_FEAT_RADMIN_CLIENT",   # setup()'s READ-ONLY controller boot report call
         "#if MR_FEAT_RADMIN_CLIENT",   # §radmin-5: the WHOLE legacy rcmd drain block, statics included

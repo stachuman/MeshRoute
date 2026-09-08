@@ -7,6 +7,7 @@
 // device_fault.h (its ISR vectors + the MRFAULT_HW/MRFAULT_ESP32 macros are single-TU). Behaviour-preserving.
 #include "firmware_commands.h"
 #include "firmware_command_authority.h"
+#include "firmware_remote_activation.h"
 #include "fw_context.h"        // g_node + the shared state
 #include "device_nv.h"         // mrnv::PeerBlob / load_peers / save_peers
 #include <cstdio>              // snprintf
@@ -66,6 +67,15 @@ namespace mrfw {
 // linker string merging. These arrays have external read-only linkage through firmware_commands.h.
 const char kBuildStamp[]  = __DATE__ " " __TIME__;
 const char kGitRevision[] = GIT_REV;
+
+meshroute::ActivationBudgetInputs remote_activation_live_inputs() {
+    const auto& cfg = g_node.config();
+    const uint8_t data_sf = g_node.max_data_sf();
+    return {cfg.routing_sf, data_sf, g_node.active_bw_hz(), g_node.active_cr(),
+            meshroute::protocol::preamble_sym,
+            g_hal.rx_window_slop_ms(cfg.routing_sf), g_hal.rx_window_slop_ms(data_sf),
+            meshroute::remote_scheduled_terminal_inner_len, false};
+}
 
 // ---- the /mrpeers address book: the I/O half (§AB1, spec 2026-07-29 §2.4) --------------------------------------
 // ★ ONE 1160-B SCRATCH RECORD, STATIC, SHARED BY BOTH USERS BELOW — and `static` here is a HARD requirement, not
@@ -761,6 +771,13 @@ static void dump_cfg(Print& out) {
     out.print(F("  ble   : ble_mode=")); out.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     out.print(F(" ble_period="));       out.print(g_ble_period_min);
     out.print(F(" ble_pin="));          out.println(g_ble_pin);
+    const auto activation = remote_activation_resolve(g_remote_action_activation_ms, remote_activation_live_inputs());
+    out.print(F("  radmin: activation_ms=")); out.print(activation.effective_ms);
+    out.print(F(" state=")); out.print(activation_state_name(activation.state));
+    out.print(F(" cfg=")); out.print(g_remote_action_activation_ms);
+    out.print(F(" floor=")); out.print(activation.floor_ms);
+    out.print(F(" default=")); out.print(activation.default_ms);
+    out.print(F(" ceiling=")); out.println(meshroute::remote_action_activation_max_ms);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
     // §loc-per-send (2026-07-31): `loc_dm=` is GONE from this dump — the toggle it reported no longer exists. Location is
     // a PER-SEND `-l` flag on `send`, so there is no persistent state to show; lat/lon below are still the node's fix.
@@ -1736,6 +1753,9 @@ meshroute::console::CfgExtras make_cfg_extras() {
     x.ble_mode   = g_ble_mode == 0 ? "off" : g_ble_mode == 1 ? "on" : "periodic";
     x.ble_period = g_ble_period_min;
     x.ble_pin    = g_ble_pin;
+    const auto activation = remote_activation_resolve(g_remote_action_activation_ms, remote_activation_live_inputs());
+    x.remote_action_activation_ms = activation.effective_ms;
+    x.remote_action_activation_state = activation_state_name(activation.state);
     x.lat_e7     = g_lat_e7;
     x.lon_e7     = g_lon_e7;
     x.team_ch_key = g_node.team_channel_key_present();   // §team-ch-key (T-K1b): the JSON twin of dump_cfg's `team_ch_key=` line — BOOLEAN lock state only, never the pair

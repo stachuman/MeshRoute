@@ -34,9 +34,17 @@ wait-window formulas one named home so the budget cannot fork them; **7a**, the 
 | **B356** — the inbox probe compiles `firmware_commands.cpp`, which will reference the new global | `tools/probe_inbox_verbs/probe_main.cpp:241-242` defines the `g_ble_*` fakes for exactly this reason | §5: the probe's fake definition of `g_remote_action_activation_ms` enters the fence |
 | **B357** — the union omitted `sliceDack` and `b134ack`; the inventory prediction was undated | both are `lib/console` batteries in the map | §7: added; **203 after 7a-0, 204 after 7a** |
 | **B358** — §4.7's rationale overstated operator privilege and paraphrased the proposal's rule | `regen`, `factory_reset`, `ota`, `crashtest` are OWNER-class disruptive rows | §4.7 rewritten; the rule quoted verbatim |
+| **B360** (feature preflight, after 7a-0 = `89071fb`) — native cannot EXECUTE a successful typed `/mrcfg` load | `src/device_nv.h:1406` the host arm's `read_slot` returns −1 unconditionally, so `mrnv::load` (`:1418-1420`) can accept NOTHING on native; `test_device_nv.cpp:64` drives the pure predicate with a supplied byte count only | §6 item 4: native keeps the pure-predicate cases (v24 rejected / v25 accepted / v26 rejected at 280 B); the EXECUTED typed load/reject runs in `tools/probe_inbox_verbs` over its byte-backed NV fake through the real `mrnv::save`/`mrnv::load` (§5: the probe enters the fence with re-derived per-arm pins) |
 
-The six are registered (B353–B358; B354 as a pre-existing defect fixed in-slice; the coder's proposals start at
-**B359**). The preflight report stays at the head of the evidence file; the implementation sections are appended.
+| **B361** (feature preflight) — §4.6 placed the activation boot line beside the admin-session boot line, which runs BEFORE the node is initialized | `src/fw_main.cpp:898` `admin_stores_boot_report_console()` < `:979` `g_hal.configure(cfg)` < `:987` `g_node.on_init(cfg)`; `Node::_cfg` is installed at `lib/core/node.cpp:518`, so `g_node.config()` / `max_data_sf()` / `active_bw_hz()` read CONSTRUCTOR defaults at :898 | §4.6: the activation line is emitted immediately AFTER a SUCCESSFUL `g_node.on_init(cfg)` (`:987`), as its own line; on a refused init no activation line is printed (the node is not operational); the admin-session sequence is untouched |
+
+| **B362** (implementation) — the exact cfg-JSON golden is outside the fence but necessarily changes | `test/test_console_json.cpp:341-364` pins the ENTIRE pre-7a `cfg` object by exact comparison; the authorized emitter adds `"remote_action_activation_ms":0,"remote_action_activation_state":"impossible_phy"` (the pure extras' unprovided-resolution default — fail-closed: an unresolved extras object reports unusable; the firmware supplies the live resolution) ⇒ 2855 cases / 1 failed, exactly that line; the 512-byte fixture buffer still fits (496 B) | §5: `test/test_console_json.cpp` enters the fence for the golden UPDATE only — the exact comparison is preserved (⛔ no substring comparison, no deletion), the two keys added at their emitted positions, the pre-7a object kept visible in a comment, the buffer NOT widened |
+
+| **B363** (implementation) — the ruled ACCEPT-only boot line is a NEW capability-naming site in `fw_main.cpp` | `src/fw_main.cpp:994` `#if MR_FEAT_RADMIN_ACCEPT` after the successful `on_init` (B361's placement); `tools/probe_features/ownership.py:146-152` pins `fw_main.cpp` at FIVE approved sites, so the contract correctly REFUSES the sixth; the file was outside §5 | §5: `ownership.py` enters the fence for that ONE census entry (fw_main 5 → 6 sites, "the post-init `> remote-activation` boot line"); the nine-file census, the 120/59 pins and the 40 ownership controls stay unchanged; ⛔ the guard is not removed, widened, moved or re-spelled to dodge the instrument |
+| **B364** (found by the coder, NOT this slice's) — a pre-existing invite-test over-read | `test/test_firmware_ui_invite.cpp:406` declares TWO `InviteMember`s; `:419` calls `rows(empty_open, live, 200)` — the test hands the production reader a lying count and reads past the array (exposed by doctest's XML reporter, reproduced on the base commit) | registered OPEN as a pre-existing test defect; ⛔ left untouched by 7a (out of fence, unrelated) |
+
+The eleven are registered (B353–B358, B360–B364; B354 and B364 as pre-existing defects; the coder's proposals
+start at **B365**). The preflight reports stay at the head of the evidence file; the implementation sections are appended.
 
 ## 1. Closure bindings — the Slice 6 QA PASS pins (QA's independent gate, brief §10 of Slice 6)
 
@@ -57,7 +65,7 @@ by the simulator) with the same prediction. ⛔ Any stream delta is a STOP.
 | Tools sweep · inventory · authority checker | 342 OK · **203 rows** · PASS + 6/6 selftests |
 | Warning census | 173 / 178 / 177 / 177 / 182 / 182, `-Wswitch` 0 |
 | Boards | gateway 197180 / 550204 / 285 · heltec_mobile 207748 / 1371260 / 329 |
-| Register | next free **B359** (B352 = this brief's own finding, §3; B353–B358 = the preflight fold-ins, §0.1) |
+| Register | next free **B365** (B352 = this brief's own finding, §3; B353–B358 + B360–B364 = the preflight/implementation fold-ins, §0.1; B359 = the 7a-0 report's overlay drift) |
 
 ## 2. Verbatim authority pins
 
@@ -208,7 +216,10 @@ exceed 299999 ms at this PHY)`. ⛔ Nothing else in the handler moves.
 Text `cfg` dump gains one line: `  radmin: activation_ms=<effective> state=<name> cfg=<persisted> floor=<f> default=<d> ceiling=299999`.
 JSON `cfg` gains `remote_action_activation_ms` (effective, 0 when unusable) and `remote_action_activation_state`
 (the name) in `CfgExtras` + `write_cfg`. The boot report gains ONE line `> remote-activation state=<name> ms=<effective>`
-printed beside the admin-session boot line (ACCEPT builds only; a CLIENT never schedules).
+**emitted immediately after a SUCCESSFUL `g_node.on_init(cfg)` (`src/fw_main.cpp:987`) — B361: only then do
+`g_node.config()`, `max_data_sf()` and the HAL slop describe the RESTORED PHY; at the admin-session boot line (`:898`)
+they still hold constructor defaults.** On a refused init no activation line is printed (the node is not
+operational). ACCEPT builds only (a CLIENT never schedules); the admin-session boot sequence is untouched.
 
 ### 4.7 Classification of the new row
 
@@ -223,7 +234,8 @@ at the gate** — if the owner reads it as security policy (owner class), the ro
 
 ### 4.8 Numbering
 
-B352 is this brief's (the 0e drift); B353–B358 are the preflight fold-ins. The coder's proposals start at **B359**.
+B352 is this brief's (the 0e drift); B353–B358 and B360–B364 are the preflight/implementation findings; B359 the
+7a-0 report's. The coder's proposals start at **B365**.
 
 ## 5. Exact implementation/instrument fence
 
@@ -241,8 +253,14 @@ row) + the regenerated inventory; `tools/probe_console_sink/{structural.py,negct
 pure resolver, refuses on the three non-usable states, persists through the seven-site rule; the dump/JSON twins exist;
 the restore reads the field; controls for each); `tools/probe_ui_model_mutations.py` (`remoteactivation` +
 `fwactivation` batteries, PIN); `lib/core/node.h` (**B355: the ONE declaration move of `max_data_sf()` to public**);
-`tools/probe_inbox_verbs/probe_main.cpp` (**B356: the fake definition of `g_remote_action_activation_ms` beside the
-`g_ble_*` fakes**); `tools/test_gen_command_inventory.py` (**B354: the key-buffer bound test**); evidence
+`tools/probe_inbox_verbs/{probe_main.cpp,run.sh}` (**B356: the fake definition of `g_remote_action_activation_ms`
+beside the `g_ble_*` fakes; B360: the EXECUTED typed-load rows over the probe's byte-backed NV fake through the real
+`mrnv::save`/`mrnv::load` — a stored 280-byte v24 record is REJECTED, a v25 one LOADS with the field read back, a v26
+one is rejected; controls: the version floor lowered to 24 (the v24 record loads → RED), the floor raised to 26
+(v25 rejected → RED); per-arm pins re-derived and attributed**); `tools/test_gen_command_inventory.py` (**B354: the key-buffer bound test**); `test/test_console_json.cpp` (**B362: the
+exact cfg-JSON golden gains the two emitted keys; comparison stays exact; old object kept visible**);
+`tools/probe_features/ownership.py` (**B363: ONE approved-site entry for `fw_main.cpp`'s post-init ACCEPT boot line;
+no other census change; pins 9 files / 120 / 59 / 40 unchanged**); evidence
 `docs/superpowers/evidence/2026-09-07-radmin-slice7a.md` (the preflight stays at its head).
 ⛔ OUT OF FENCE: `lib/core/node.h` beyond that one declaration (no member, no `NodeConfig` field), any scheduler/deferred-action code (7b), the
 seam/dispatcher, the simulator, `simulation/BASELINE.md`, the register/bench/design/rulings (QA lands).
@@ -260,7 +278,9 @@ seam/dispatcher, the simulator, `simulation/BASELINE.md`, the register/bench/des
    `radmin*`/activation events in every stream.
 4. Boards: RAM predicted **+4 on both** (the new global only — B353: the record did not grow, so `mrnv::save`'s
    `static Blob cur` is unchanged) — attribute by symbol; flash + attributed; Node ABI unmoved; census at pins.
-   Native: a v24-versioned record of the SAME 280 bytes is REJECTED by `load()` and a v25 one accepted (B353).
+   Native (B360-corrected): the host NV arm can load nothing (`device_nv.h:1406`), so native asserts the PURE
+   predicate — `blob_valid_range` at 280 bytes rejects v24 and v26 and accepts v25, and `kVersionMinLoad == 25` with
+   its derivation; the EXECUTED typed load/reject through the real `mrnv::load` runs in the inbox-verbs probe (§5).
 5. Bench Part 57a (QA lands the text): `cfg set gw_announce_interval 7200000` → accepted (B354: it answered
    `unknown_key gw_announce_interva` before); `cfg set remote_action_activation_ms 20000` → `ok (live + saved)`; reboot;
    `cfg` shows `activation_ms=20000 state=configured`; `cfg set … 6000` (below the live floor) refuses with the live
@@ -318,3 +338,34 @@ the backoff cap with two turnarounds, every ACK term, unsigned-overflow parity),
 Coder proposal **B359** (the optional `tools/radmin_0e_abi_pins.json` overlay still pins `TimerWheel` at 824, the
 pre-Slice-5 size; the default ABI probe does not read it) is registered as a small follow-up. The owner commits
 7a-0; the coder records that hash as the 7a base and implements the feature under §5's second fence.
+
+
+## 10b. QA gate — 7a (the feature) — PASS 2026-09-08 (independent re-run on the coder's final tree at `89071fb`)
+
+**Verdict: PASS.** B352–B358 and B360–B363 folded in and verified; B364 (pre-existing invite-test over-read) left
+open and untouched. Every figure below is QA's own measurement (`scratchpad/s7agate/`), each reproducing the
+coder's §11.5:
+
+| instrument | QA figure |
+| --- | --- |
+| native | **2855 / 121999 / 0** (+12 cases: `test_remote_activation.cpp` 7, `test_firmware_remote_activation.cpp` 5) |
+| simulator | `lus` **`9f5a4b9872c4fe407c319f767b9236b6`** (moved: `node.h` + `console_json.cpp` recompiled); corpus **36/36**, anchors 36/36, s18 `32afbf11` / 269517 / 0; zero activation events |
+| ABI probes | Node 224136/8 · 117912/8 · 150504/8 unmoved; B278 42/6 |
+| console sink | `structural=76 controls=136` (S63–S76 + 22 controls), `checks=720 ble_guard=905 ownership=6/3`, 0 unusable |
+| inbox verbs | ACCEPT **370 / 41** · CLIENT **368 / 44** — the executed v24-reject / v25-load / v26-reject rows through the real `mrnv::load` (B360) |
+| firmware UI · custody · BLE line · features | 223 · 27/10 · 40/8 · 9/120/59 + ownership 40 (census nine files; `fw_main.cpp` six sites, B363) |
+| tools sweep · inventory · authority checker | **343 OK** · **204 rows** byte-identical · PASS + 6/6 selftests |
+| warning census | 173 / 178 / 177 / 177 / 182 / 182 at pins, `-Wswitch` 0 (RAM +8 on every OLED env, consistent with the pair) |
+| boards (`.pio-measure/qa-s7a-final`) | gateway **197188 / 555292 / 285** (RAM +8 = the 4-byte global + 4 alignment; flash +5072) · heltec_mobile **207756 / 1372732 / 329** (RAM +8; flash +1476) — the brief's +4 prediction was short by the alignment word; the coder's symbol attribution stands |
+| mutation union, 15 targets | **204 RED / 1 unusable** (`sliceBmac` M04 = B342, pre-existing) |
+| 0e fixture | now prints CTS-wait SUM 167+333+665 = 1165 ⇒ **7006 / 14012** (B352 closed) |
+
+**QA reading of the shipped shape:** the NV field at offset 276 with the record pinned at 280 and the explicit
+`kVersionMinLoad = 25`; the budget authority sums the three CTS-wait attempts through the 7a-0 helpers and refuses
+invalid PHY as impossible; the resolver never clamps; the key buffer is derived from the longest key and a token
+longer than it now answers `bad_args` instead of being truncated (a ruled local delta of the same fail-loud class as
+the B354 fix); the boot line sits after the successful `on_init` under the ACCEPT guard; the impossible PHY found
+by search is SF10 / 7.8 kHz / CR8 (floor 155904, default 311808 > 299999). **Owner veto on §4.7 (operator) still
+open** — no change unless the owner objects.
+
+**Residue:** bench Part 57a (landed by QA with the coder's source-derived lines). Next: the 7b brief.

@@ -110,6 +110,8 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    "remoteactivation": "lib/core/remote_activation.h",  # Slice 7a: timing-budget authority
+    "fwactivation": "src/firmware_remote_activation.h",  # Slice 7a: live effective-value policy
     "macwait": "lib/core/mac_wait_windows.h",  # Slice 7a-0: the MAC's shared wait-window arithmetic
     "consoleline": "lib/console/console_line.h",  # Slice 6: one byte validator and its named bounds
     "cmdauthority": "src/firmware_command_authority.h",  # Slice 6: pure lookup/admission metadata
@@ -681,7 +683,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Slice 7a-0: 2839/121831 + 4 cases / 28 assertions = 2843/121859 (test_mac_wait_windows.cpp).
 # Slice 6: 2825/119784 + 14 cases / 2047 assertions = 2839/121831, executed native binary.
 # Six consoleline cases + eight command-authority/context cases; no pre-existing case changed.
-PIN_CASES, PIN_ASSERTS = 2843, 121859
+# Slice 7a: 12 new cases; exact assertion attribution is recorded in the slice evidence.
+PIN_CASES, PIN_ASSERTS = 2855, 121999
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -11019,7 +11022,45 @@ MUTS_MACWAIT = [
  ("W10 ACK loses its two-millisecond margin", '+ slop_routing_ms + 2u;', '+ slop_routing_ms + 0u;'),
 ]
 
-MUTS_BY_TARGET = {"macwait": MUTS_MACWAIT,
+MUTS_REMOTEACTIVATION = [
+ ("A01 drop attempt zero", 'uint16_t attempt = 0;', 'uint16_t attempt = 1;'),
+ ("A02 drop attempt one", 'cts_wait += cts_wait_delay_ms', 'if (attempt != 1) cts_wait += cts_wait_delay_ms'),
+ ("A03 only final CTS attempt", 'uint16_t attempt = 0;', 'uint16_t attempt = protocol::rts_max_retries;'),
+ ("A04 one CTS turnaround disappears", 'static_cast<uint8_t>(attempt), in.slop_routing_ms);', 'static_cast<uint8_t>(attempt), 0);'),
+ ("A05 ACK data slop disappears", 'ack_wait_delay_ms(ack_data_air, ack_air, in.slop_data_ms, in.slop_routing_ms)', 'ack_wait_delay_ms(ack_data_air, ack_air, 0, in.slop_routing_ms)'),
+ ("A06 ACK routing slop disappears", 'ack_wait_delay_ms(ack_data_air, ack_air, in.slop_data_ms, in.slop_routing_ms)', 'ack_wait_delay_ms(ack_data_air, ack_air, in.slop_data_ms, 0)'),
+ ("A07 reference budget hardcoded", 'return remote_activation_detail::bounded_ms(total);', 'return 7006;'),
+ ("A08 on-air RTS dropped", 'const uint64_t total = uint64_t{rts_air} + cts_air', 'const uint64_t total = uint64_t{0} + cts_air'),
+ ("A09 on-air CTS dropped", 'uint64_t{rts_air} + cts_air + data_air', 'uint64_t{rts_air} + 0 + data_air'),
+ ("A10 terminal airtime dropped", '+ data_air(static_cast<uint16_t>(terminal_len)) + ack_air', '+ 0 + ack_air'),
+ ("A11 on-air ACK dropped", 'static_cast<uint16_t>(terminal_len)) + ack_air', 'static_cast<uint16_t>(terminal_len)) + 0'),
+ ("A12 CTS to DATA gap dropped", '+ protocol::cts_to_data_gap_ms', '+ 0'),
+ ("A13 busy retries dropped", '+ uint64_t{protocol::rts_max_retries} * protocol::rts_busy_retry_ms', '+ 0'),
+ ("A14 requeue uses forbidden capped backoff", '+ protocol::cascade_requeue_base_ms;', '+ protocol::cascade_requeue_backoff_cap_ms;'),
+ ("A15 default stops doubling", 'uint64_t{2} * remote_scheduled_reply_path_budget_ms(in)', 'uint64_t{1} * remote_scheduled_reply_path_budget_ms(in)'),
+ ("A16 ceiling includes the outer deadline", 'protocol::e2e_ack_deadline_xl_ms - 1;', 'protocol::e2e_ack_deadline_xl_ms;'),
+ ("A17 saturation becomes wrapping", 'n > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(n)', 'static_cast<uint32_t>(n)'),
+ ("A18 DATA chooses the routing SF", 'airtime_ms(in.data_sf,', 'airtime_ms(in.routing_sf,'),
+ ("A19 empty data-SF set silently defaulted", '|| in.data_sf < 5 || in.data_sf > 12', '|| false || in.data_sf > 12'),
+ ("A20 terminal omits the reserved destination hash", '2 * sizeof(uint32_t) + 2 * sizeof(uint8_t)', '1 * sizeof(uint32_t) + 2 * sizeof(uint8_t)'),
+ ("A21 full path loses a hop", '+ protocol::gw_env_max_hops\n', '+ (protocol::gw_env_max_hops - 1)\n'),
+ ("A22 saturated ACK helper guard omitted", 'if (uint64_t{ack_data_air} + ack_air + in.slop_data_ms + in.slop_routing_ms + 2u > UINT32_MAX)', 'if (false)'),
+]
+MUTS_FWACTIVATION = [
+ ("F01 impossible default admitted", 'if (def > meshroute::remote_action_activation_max_ms)', 'if (false)'),
+ ("F02 zero no longer selects default", 'if (persisted_ms == 0)', 'if (false)'),
+ ("F03 inclusive floor rejected", 'if (persisted_ms < floor)', 'if (persisted_ms <= floor)'),
+ ("F04 inclusive ceiling rejected", 'if (persisted_ms > meshroute::remote_action_activation_max_ms)', 'if (persisted_ms >= meshroute::remote_action_activation_max_ms)'),
+ ("F05 below-floor clamp", 'return {0, floor, def, ActivationState::below_floor};', 'return {floor, floor, def, ActivationState::below_floor};'),
+ ("F06 above-ceiling clamp", 'return {0, floor, def, ActivationState::above_ceiling};', 'return {meshroute::remote_action_activation_max_ms, floor, def, ActivationState::above_ceiling};'),
+ ("F07 configured value silently defaulted", 'return {persisted_ms, floor, def, ActivationState::configured};', 'return {def, floor, def, ActivationState::configured};'),
+ ("F08 unusable state publishes a default", 'return {0, floor, def, ActivationState::impossible_phy};', 'return {def, floor, def, ActivationState::impossible_phy};'),
+ ("F09 default state called configured", 'ActivationState::default_derived};', 'ActivationState::configured};'),
+ ("F10 unusable state name lies", 'case ActivationState::below_floor: return "below_floor";', 'case ActivationState::below_floor: return "configured";'),
+]
+
+MUTS_BY_TARGET = {"remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
+                  "macwait": MUTS_MACWAIT,
                   "consoleline": MUTS_CONSOLELINE, "cmdauthority": MUTS_CMDAUTHORITY,
                   "a0rx": MUTS_A0RX, "a0codec": MUTS_A0CODEC,
                   "sliceAcodec": MUTS_SLICEACODEC, "sliceAinbox": MUTS_SLICEAINBOX,

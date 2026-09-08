@@ -53,6 +53,7 @@ using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call
 using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
 #include "firmware_commands.h"   // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
+#include "firmware_remote_activation.h"
 #include "firmware_admin_verbs.h"   // §RADMIN slice 3: mrfw::admin_verb_owns — the ONE
                                     //   predicate the BLE refusal below and the router
                                     //   arm in firmware_commands.cpp BOTH evaluate.
@@ -256,6 +257,7 @@ int8_t   g_tx_power = meshroute::default_output_dbm;   // requested conducted ou
 uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic — all extern in fw_context.h
 uint8_t  g_ble_period_min = 15;     // periodic-mode advertising period (minutes)
 uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
+uint32_t g_remote_action_activation_ms = 0; // raw NV value; zero derives the default from live PHY
 // Node location (deployment metadata, persisted in the /mrid record alongside name). Degrees × 1e7;
 // (0,0) = unset. A FIXED node is set once (`cfg set lat`/`lon` or the app); a mobile node is fed by its phone.
 int32_t  g_lat_e7 = 0;             // all extern in fw_context.h
@@ -831,6 +833,7 @@ void setup() {
         cfg.intro_attach      = nv.intro_attach != 0;            // §S2: first-contact INTRO auto-attach (a valid v21 NV was seeded from the ON default)
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
+        g_remote_action_activation_ms = nv.remote_action_activation_ms; // restore zero too, never latch an effective value
         // §loc-per-send (v23): the v9 `loc_in_dm` restore is GONE with the field — location is a per-send `-l` flag now.
         cfg.e2e_dm            = (nv.e2e_dm != 0);                                                   // v10 E2E encrypt toggle (§4b)
         if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
@@ -987,7 +990,14 @@ void setup() {
     if (!g_node.on_init(cfg)) mrcon.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
     else { g_node.restore_channel_ctr(nv.channel_ctr);          // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
            g_node.restore_peer_ctr_floor(nv.channel_ctr);       // D7: seed the per-peer FLOOR from the same leased high-water so DM ctrs also resume above the pre-reboot value (no re-mint -> no silent companion dedup)
-           g_ctr_lease = nv.channel_ctr; }                      // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
+           g_ctr_lease = nv.channel_ctr;                        // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
+#if MR_FEAT_RADMIN_ACCEPT
+           // B361: only successful initialization installs the restored, active-layer PHY.
+           const auto activation = mrfw::remote_activation_resolve(g_remote_action_activation_ms, mrfw::remote_activation_live_inputs());
+           mrcon.print(F("> remote-activation state=")); mrcon.print(mrfw::activation_state_name(activation.state));
+           mrcon.print(F(" ms=")); mrcon.println(activation.effective_ms);
+#endif   // MR_FEAT_RADMIN_ACCEPT
+    }
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the VOLATILE RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
     // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).

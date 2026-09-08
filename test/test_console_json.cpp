@@ -356,11 +356,14 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     x.ble_mode = "on"; x.ble_period = 15; x.ble_pin = 123456;
     x.lat_e7 = 522297000; x.lon_e7 = -41000000;   // 52.2297, -4.1 (signed → i64)
     n = write_cfg(b, sizeof b, cc, x);
+    // B362: pre-7a exact object, superseded only by the two activation fields below:
+    // {"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"team_hop_cap":8,"leaf_id":0,"gateway":false,"mobile":false,"mobile_autoregister":true,"team_id":"00000000","team_channel_crypt":true,"team_ch_key":false,"ble_mode":"on","ble_period":15,"ble_pin":123456,"lat_e7":522297000,"lon_e7":-41000000}\n
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"team_hop_cap\":8,\"leaf_id\":0,"   // §team-parity T3: team_hop_cap defaults to protocol::team_hop_cap = 8, distinct from dv_hop_cap's 16 -> the golden pins WHICH field each key reads
       "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"team_channel_crypt\":true,\"team_ch_key\":false,"   // §team-ch-key T-K1b: the CONTENT-key lock state, ALWAYS present (cfg is the explicit dump) — default extras = no key. §chan-crypt CL2a: team_channel_crypt sits beside it and is likewise ALWAYS present; NodeConfig defaults it to true (T-K2 §2.5 default-ON)
       "\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
+      "\"remote_action_activation_ms\":0,\"remote_action_activation_state\":\"impossible_phy\","
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
     // §S1: cfg team_id round-trips as a hex string; mobile_autoregister always present.
     cc.is_mobile = true; cc.mobile_autoregister = true; cc.team_id = 0xcccc0001u;

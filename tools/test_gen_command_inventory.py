@@ -522,6 +522,21 @@ class TestRealTree(unittest.TestCase):
             self.assertEqual(fh.read(), text,
                              "regenerate with `python3 tools/gen_command_inventory.py --write`")
 
+    def test_cfg_key_buffer_fits_every_inventory_key(self):
+        with open(os.path.join(REPO_ROOT, "src", "firmware_config.cpp"), encoding="utf-8") as fh:
+            source = fh.read()
+        code = G._blank_comments_and_literals(source)
+        bound = [m.group(1) for m in re.finditer(r'constexpr size_t kCfgKeyMaxBytes = sizeof\("([^"]+)"\);', source)
+                 if code[m.start():m.start() + 9] == "constexpr"]
+        self.assertEqual(len(bound), 1)
+        self.assertIn("char key[kCfgKeyMaxBytes]", code)
+        capacity = len(bound[0].encode("ascii")) + 1
+        keys = {r.subverb.split()[0] for r in self.rows if r.verb == "cfg set" and r.subverb != "—"}
+        self.assertTrue(keys)
+        self.assertIn("remote_action_activation_ms", keys)
+        self.assertIn("gw_announce_interval", keys)
+        self.assertGreater(capacity, max(map(len, keys)))
+
     # Slice 0e's test_every_authority_cell_is_empty is now the opposite obligation.
     def test_every_row_carries_exactly_one_authority(self):
         self.assertTrue(self.rows)
@@ -983,7 +998,7 @@ class TestSlice6Normalization(unittest.TestCase):
 
     def test_real_normalization_and_discriminator_bindings(self):
         rows = G.build_rows(REPO_ROOT)[0]
-        self.assertEqual(203, len(rows))
+        self.assertEqual(204, len(rows))  # Slice 7a: one cfg key added to Slice 6's 203 normalized rows.
         refusals = [r for r in rows if "— refused" in r.subverb]
         self.assertEqual({("peers", "<args> — refused console_only"), ("joinprofile", "— refused gateway_build")},
                          {(r.verb, r.subverb) for r in refusals})

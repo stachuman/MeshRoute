@@ -281,7 +281,8 @@ Budget compute_budget(uint8_t attempt) {
     b.ack_air      = air(3);                    // the ACK is 3 B on the routing SF (start_ack_timeout)
     b.cts_gap      = P::cts_to_data_gap_ms;                             // :133 = 5
     b.busy_retries = static_cast<uint32_t>(P::rts_max_retries) * P::rts_busy_retry_ms;   // :135 x :134 = 2 x 30
-    b.cts_wait     = cts_wait_ms(crypted, attempt);
+    // B352/R-RA-23: withdrawn single-attempt budget 6506 / default 13012. Sum every attempt, not just attempt 2.
+    for (uint16_t a = 0; a <= attempt; ++a) b.cts_wait += cts_wait_ms(crypted, static_cast<uint8_t>(a));
     b.ack_wait     = ack_wait_ms(inner);
     b.requeue      = P::cascade_requeue_base_ms;                        // :273 = 5000, ONE requeue at the FIRST price
     b.total = b.rts_air + b.cts_air + b.terminal_air + b.ack_air
@@ -579,6 +580,10 @@ TEST_CASE("radmin 0e-D: the first-hop budget, term by term from the named produc
     const uint32_t ceiling_ms = P::e2e_ack_deadline_xl_ms - 1u;
 
     CHECK(ceiling_ms == 299999);
+    CHECK(floor_ms == 7006);
+    CHECK(default_ms == 14012);
+    CHECK(floor_ms != 6506);
+    CHECK(default_ms != 13012);
     CHECK(P::e2e_ack_deadline_xl_ms == 300000);
 
     // Every term is strictly positive — a silently-zero term would make the budget quietly smaller.
@@ -622,7 +627,7 @@ TEST_CASE("radmin 0e-D: the first-hop budget, term by term from the named produc
         std::printf("[radmin-0e]   ACK airtime (3 B)                      %6u ms\n", b.ack_air);
         std::printf("[radmin-0e]   cts_to_data_gap_ms                     %6u ms\n", b.cts_gap);
         std::printf("[radmin-0e]   rts_max_retries * rts_busy_retry_ms    %6u ms\n", b.busy_retries);
-        std::printf("[radmin-0e]   start_rts_timeout CTS-wait (attempt 2) %6u ms\n", b.cts_wait);
+        std::printf("[radmin-0e]   start_rts_timeout CTS-wait SUM 0/1/2   %6u ms\n", b.cts_wait);
         std::printf("[radmin-0e]     attempt 0 / 1 / 2                    %6u / %u / %u ms\n",
                     cts_wait_ms(false, 0), cts_wait_ms(false, 1), cts_wait_ms(false, 2));
         std::printf("[radmin-0e]   start_ack_timeout ACK-wait             %6u ms\n", b.ack_wait);

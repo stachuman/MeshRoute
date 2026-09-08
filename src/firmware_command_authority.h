@@ -63,6 +63,7 @@ inline constexpr CommandPolicy kCommandPolicy[] = {
     {"cfg set", "freq", CommandClass::operator_, true},
     {"cfg set", "gateway_only", CommandClass::operator_, true},
     {"cfg set", "gw_announce_interval", CommandClass::operator_, false},
+    {"cfg set", "remote_action_activation_ms", CommandClass::operator_, false},
     {"cfg set", "gw_announce_pct", CommandClass::operator_, false},
     {"cfg set", "gw_herd_slack", CommandClass::operator_, false},
     {"cfg set", "hop_cap", CommandClass::operator_, false},

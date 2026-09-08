@@ -55,11 +55,12 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 # rather than taken on argv so the runner's command line is unchanged; a mutant COPY is substituted per control.
 NVH = os.path.join(ROOT, 'src', 'device_nv.h')
 CFGCPP = os.path.join(ROOT, 'src', 'firmware_config.cpp')
+JSONCPP = os.path.join(ROOT, 'lib', 'console', 'console_json.cpp')
 PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')      # the REPO's probe, never a scratch copy
 
 # §RADMIN slice 3 added NVH + CFGCPP: `mutate()` copies from this map, and the tail asserts every one of them
 # is byte-identical afterwards — so the two new control targets are protected by the same guard as the five.
-ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP)}
+ORIG = {p: open(p).read() for p in (SINK, CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP, JSONCPP)}
 for p, t in ORIG.items():
     print(f'baseline {os.path.relpath(p, ROOT)} md5 = {hashlib.md5(t.encode()).hexdigest()[:8]}  ({len(t)} bytes)')
 print()
@@ -1174,10 +1175,64 @@ for idx, (label, target, find, repl, row) in enumerate(S4_CTL):
     else:
         print(f'   -> structural {"+".join(broke)} now FAIL (required: {row})')
 
+# Slice 7a: exact-anchor structural controls. A crashed reader is UNUSABLE, never policy RED.
+S7A_CTL = [
+    ('A1 strict numeric parser bypassed', CFGCPP, 'const bool parsed = parse_seq_arg(val, value);', 'const bool parsed = true;', 'S63'),
+    ('A2 resolver ignores the requested value', CFGCPP, 'remote_activation_resolve(value, remote_activation_live_inputs())', 'remote_activation_resolve(0, remote_activation_live_inputs())', 'S63'),
+    ('A3 impossible PHY falls through', CFGCPP, 'out.println(F(" ms at this PHY)")); return;', 'out.println(F(" ms at this PHY)"));', 'S64'),
+    ('A4 lower-bound refusal bypassed', CFGCPP, 'activation.state == ActivationState::below_floor ||', 'false ||', 'S65'),
+    ('A5 upper-bound refusal bypassed', CFGCPP, 'activation.state == ActivationState::above_ceiling)', 'false)', 'S65'),
+    ('A6 bounds clamp instead of refusing', CFGCPP, 'out.println(F(" ms or 0=default)")); return;', 'out.println(F(" ms or 0=default)")); value = activation.floor_ms;', 'S65'),
+    ('A7 raw NV assignment lost', CFGCPP, 'b.remote_action_activation_ms = value;', 'b.remote_action_activation_ms = 0;', 'S66'),
+    ('A8 checked save bypassed', CFGCPP, 'if (persist && !mrnv::save(b))', 'if (false)', 'S66'),
+    ('A9 data turnaround omitted by binding', CMDS, 'g_hal.rx_window_slop_ms(cfg.routing_sf), g_hal.rx_window_slop_ms(data_sf)', 'g_hal.rx_window_slop_ms(cfg.routing_sf), 0', 'S67'),
+    ('A10 text raw value substituted', CMDS, 'out.print(g_remote_action_activation_ms);', 'out.print(0);', 'S68'),
+    ('A11 JSON binding loses resolved value', CMDS, 'x.remote_action_activation_ms = activation.effective_ms;', 'x.remote_action_activation_ms = 0;', 'S69'),
+    ('A12 JSON writer substitutes value', JSONCPP, 'j.u32(x.remote_action_activation_ms);', 'j.u32(0);', 'S70'),
+    ('A13 JSON state key renamed', JSONCPP, 'j.lit(",\\"remote_action_activation_state\\":");', 'j.lit(",\\"activation_state\\":");', 'S70'),
+    ('A14 restore discards persisted value', FWMAIN, 'g_remote_action_activation_ms = nv.remote_action_activation_ms;', 'g_remote_action_activation_ms = 0;', 'S71'),
+    ('A15 boot envelope drifts', FWMAIN, 'F("> remote-activation state=")', 'F("> activation state=")', 'S73'),
+    ('A16 cfg buffer shrinks again', CFGCPP, 'char key[kCfgKeyMaxBytes]', 'char key[20]', 'S74'),
+    ('A17 overlong token becomes a valid key plus value', CFGCPP, 'if (args[k] && args[k] != \' \')', 'if (false)', 'S74'),
+    ('A18 gateway interval stops persisting', CFGCPP, 'b.gw_announce_min_interval_ms = lc.gw_announce_min_interval_ms;', 'b.gw_announce_min_interval_ms = 0;', 'S75'),
+    ('A19 canonical seed loses raw value', CFGCPP, 'b.remote_action_activation_ms = g_remote_action_activation_ms;', 'b.remote_action_activation_ms = 0;', 'S76'),
+]
+boot_at = ORIG[FWMAIN].index('const auto activation = mrfw::remote_activation_resolve(')
+boot_start = ORIG[FWMAIN].rfind('#if MR_FEAT_RADMIN_ACCEPT', 0, boot_at)
+boot_end = ORIG[FWMAIN].index('\n', ORIG[FWMAIN].index('#endif', boot_at)) + 1
+boot_block = ORIG[FWMAIN][boot_start:boot_end]
+S7A_STEPS = [
+    ('A20 boot report precedes initialization', FWMAIN,
+     [(boot_block, ''), ('    if (!g_node.on_init(cfg))', boot_block + '    if (!g_node.on_init(cfg))')], 'S72'),
+    ('A21 boot report also runs on refused initialization', FWMAIN,
+     [(boot_block, ''), ('    // Install the inbox stores', boot_block + '    // Install the inbox stores')], 'S72'),
+    ('A22 boot report loses ACCEPT guard', FWMAIN,
+     [(boot_block, boot_block.replace('#if MR_FEAT_RADMIN_ACCEPT', '#if 1'))], 'S73'),
+]
+for index, (label, target, steps, required) in enumerate(
+        [(label, target, [(find, repl)], row) for label, target, find, repl, row in S7A_CTL] + S7A_STEPS):
+    print(label)
+    dest, err = mutate_steps(target, steps, 's7a_' + str(index) + '_' + os.path.basename(target))
+    if dest is None:
+        print(f'   !! CONTROL NOT APPLIED: {err}'); rc_all = 1; continue
+    paths = [CMDS, CMDSH, FWMAIN, HELP, NVH, CFGCPP, JSONCPP]
+    paths[paths.index(target)] = dest
+    try:
+        rows = {cid: ok for cid, _d, ok, _x in structural.check(*paths)}
+    except Exception as exc:
+        print(f'   !! INSTRUMENT FAILURE, not RED: {exc}'); rc_all = 1; continue
+    if rows.get(required, True):
+        print(f'   !! STAYED GREEN -- {required} did not flip'); rc_all = 1
+    else:
+        print(f'   -> structural {required} now FAIL')
+for path, original in ORIG.items():
+    assert open(path).read() == original, f'FATAL: {path} changed'
+n_s7a = len(S7A_CTL) + len(S7A_STEPS)
 n_radmin3 = len(ADMIN_EXEC_CTL) + len(ADMIN_EXTRACT_CTL) + len(S3_CTL)
 n_radmin4 = len(CLIENT_EXEC_CTL) + len(CLIENT_EXTRACT_CTL) + len(S4_CTL)
 print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
       f'{len(SRC_CTL) + len(B214_CTL)} source + {len(HELP_CTL) + 2 + 3 + 5} help + {len(BLE_CTL) + 2} BLE + '
       f'{n_radmin3} radmin3 + {n_radmin4} radmin4 controls run '
-      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3 + n_radmin4})')
+      f'+ {n_s7a} activation controls '
+      f'(CONTROLS-TOTAL {len(SINK_CTL) + len(SRC_CTL) + len(B214_CTL) + len(HELP_CTL) + 10 + len(BLE_CTL) + 2 + n_radmin3 + n_radmin4 + n_s7a})')
 sys.exit(rc_all)

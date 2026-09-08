@@ -130,9 +130,14 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     //     installs only on an EXACT match of both. Re-arming it takes an explicit operator act (§UI-16 K5).
     uint32_t team_key_team_id;           // v24: the team the active key belongs to (0 = no active binding)
     uint8_t  team_key_active;            // v24: 1 = a /mrteams record for team_key_team_id is ACTIVE
+    uint32_t remote_action_activation_ms; // v25: R-RA-16 — 0 = use the derived default at read time
 };
+// B353: v25 consumes v24 tail padding. Size stays 280, so only this explicit floor rejects old bytes.
+constexpr uint16_t kVersionMinLoad = 25;
+static_assert(sizeof(Blob) == 280 && alignof(Blob) == 8, "v25 config record ABI");
+static_assert(offsetof(Blob, remote_action_activation_ms) == 276, "v25 field consumes tail padding");
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 24;            // v24: §UI-16 K2 — the team-key ACTIVE BINDING (team_key_team_id + team_key_active), so a retained /mrteams key is never reactivated by mere knowledge of the public team id. ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v23 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. ⛔ THIS IS AN **NV** VERSION, ⛔ NOT `wire_version`: no frame moves, no scenario re-anchors, and a new NV record (`/mrteams`) is not a wire change either. v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 25;            // v25: R-RA-16 activation delay. REPROVISION-ON-REFLASH: the field consumed padding — the version floor, not the size, is the guard. v24: §UI-16 K2 — the team-key ACTIVE BINDING (team_key_team_id + team_key_active), so a retained /mrteams key is never reactivated by mere knowledge of the public team id. ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v23 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. ⛔ THIS IS AN **NV** VERSION, ⛔ NOT `wire_version`: no frame moves, no scenario re-anchors, and a new NV record (`/mrteams`) is not a wire change either. v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the
@@ -690,8 +695,8 @@ inline constexpr Slot kSlotTargets  { "/mrtargets", "mr", "targets" };
 // runnable at all, which is why NV1 came before the peer-address-book slice that needs one.
 //
 // ★ THE TWO VERSION POLICIES DIFFER, AND BOTH ARE PRESERVED EXACTLY — the six copies hid that they did:
-//   /mrcfg   (Blob)     accepts a RANGE, `version >= 2 && <= kVersion`: an older-but-parsable config loads
-//                       and is re-stamped in place by nv_load_stamped (src/firmware_config.cpp).
+//   /mrcfg   (Blob)     accepts a RANGE, kVersionMinLoad..kVersion. Before v25 the floor was 2;
+//                       B353 supersedes that policy: same-size v24 padding is NOT a v25 activation value.
 //   /mrid    (IdBlob)   \ EQUALITY only — a mismatch rejects the record outright, so the node re-mints its
 //   /mrpeers (PeerBlob) / identity or comes up with an EMPTY address book (kVersion's REPROVISION-ON-REFLASH note).
 // The policy is now a NAMED call at the one wrapper instead of a hand-copied comparison, so changing one
@@ -1417,7 +1422,7 @@ inline bool mount_or_repair() { return false; }       // no FS -> never reports 
 namespace mrnv {
 inline bool load(Blob& out) {
     const int n = read_slot(kSlotCfg, &out, sizeof out);
-    return blob_valid_range(out, n, kMagic, /*v_min=*/2, /*v_max=*/kVersion);   // RANGE — see the policy note above
+    return blob_valid_range(out, n, kMagic, /*v_min=*/kVersionMinLoad, /*v_max=*/kVersion);   // RANGE — explicit padding guard
 }
 inline bool save(const Blob& b) {
     // ★★ H3 CHANGE-DETECTION, AND IT IS DELIBERATELY ASYMMETRIC: only /mrcfg coalesces. A `cfg set` (console

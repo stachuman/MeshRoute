@@ -223,6 +223,8 @@ struct CfgExtras {
     const char* ble_mode = "off";
     uint16_t ble_period = 0;    // periodic advertising period (minutes)
     uint32_t ble_pin   = 0;
+    uint32_t remote_action_activation_ms = 0;
+    const char* remote_action_activation_state = "impossible_phy"; // no supplied resolution, never claim usable
     int32_t  lat_e7    = 0;     // node location, degrees × 1e7 (0 = unset)
     int32_t  lon_e7    = 0;
     bool     team_ch_key = false;  // §team-ch-key (T-K1b): team_channel_key_present() — the JSON twin of dump_cfg's `team_ch_key=0|1`. ALWAYS emitted (cfg is the explicit dump — same rule as team_id, which prints "00000000" rather than omitting).

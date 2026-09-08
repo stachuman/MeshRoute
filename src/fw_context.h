@@ -99,6 +99,7 @@ extern int8_t   g_tx_power;
 extern uint8_t  g_ble_mode;
 extern uint8_t  g_ble_period_min;
 extern uint32_t g_ble_pin;
+extern uint32_t g_remote_action_activation_ms;
 extern int32_t  g_lat_e7;
 extern int32_t  g_lon_e7;
 extern uint8_t  g_persist_id, g_persist_epoch, g_persist_join;   // last DAD lease state written to NV (change-detect)
