@@ -2124,12 +2124,18 @@ RadminSend Node::radmin_send_frame()
     uint8_t body[kRadminBodyBytes] = {};
     size_t len = 0;
     const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);
-    SendDispatch dsp{};
-    if (encoded == RemoteStatus::ok && len <= sizeof(body)) {
-        const auto& e = _radmin_session.seen[si];
-        dsp = radmin_send_response(e.record.source_hash, e.route, body, static_cast<uint8_t>(len),
-                                  e.record.controller_slot, /*bootstrap=*/false);
+    if (encoded != RemoteStatus::ok || len > sizeof(body)) {
+        crypto_wipe(body, sizeof(body));
+        // B374: completion freezes the result; a later seal refusal must never substitute
+        // another plaintext in its nonce space. Leave this pending sequence for the next pass.
+        if (_radmin_session.response_seal_failure != UINT16_MAX)
+            ++_radmin_session.response_seal_failure;
+        MR_EMIT("radmin_response_seal_failure", EF_I("count", _radmin_session.response_seal_failure));
+        return RadminSend::refused; // no transport attempt, hence no enqueue-failure accounting
     }
+    const auto& e = _radmin_session.seen[si];
+    const SendDispatch dsp = radmin_send_response(e.record.source_hash, e.route, body, static_cast<uint8_t>(len),
+                                                  e.record.controller_slot, /*bootstrap=*/false);
     crypto_wipe(body, sizeof(body));
     if (dsp.admit == SendDispatch::Admit::queued || dsp.admit == SendDispatch::Admit::parked) {
         remote_transcript_sent(_radmin_session, si);

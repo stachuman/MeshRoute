@@ -230,7 +230,7 @@ struct TranscriptChunk {
 
 // =====================================================================================================
 // THE ONE ACCEPT-ONLY STATE BLOCK. §4.2's frozen order — pair, ACL, status, epochs, seen, headers, bodies,
-// staging — original offsets preserved. 7b-1 appends the 1776-byte pool and two named counters.
+// staging — original offsets preserved. 7b-1 appends the 1776-byte pool and three named counters.
 // ⛔ NO hidden resident counter, vtable or key cache lives here, and the derived
 //    base/session keys are per-call WIPED TRANSIENTS — never members.
 // =====================================================================================================
@@ -254,6 +254,7 @@ struct RemoteSessionState {
     TranscriptChunk       chunks[kRadminChunkSlots];
     uint16_t              transcript_exhaustion;
     uint16_t              response_enqueue_failure;
+    uint16_t              response_seal_failure;
 };
 
 // Borrowed only during the main-loop service call; never retained by firmware or a Print adapter.

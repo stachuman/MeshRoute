@@ -280,7 +280,7 @@ FIXTURE_SOURCE = (
 #      `tools/measure_board.py pair`, not this probe.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (225920, 8, True),   # R-RA-34: measured 224136 + pool 1776 + counters 4 + pad 4
+        "meshroute::Node":         (225920, 8, True),   # R-RA-34 rev 6: measured 224136 + pool 1776 + counters 6 + pad 2
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -325,7 +325,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         # ⓘ `Node` differs from xtensa's by far more than the ABI: `gateway` is MR_PROFILE_GATEWAY
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
-        "meshroute::Node":         (152288, 8, True),   # R-RA-34: measured 150504 + pool 1776 + counters 4 + pad 4
+        "meshroute::Node":         (152288, 8, True),   # R-RA-34 rev 6: measured 150504 + pool 1776 + counters 6 + pad 2
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),

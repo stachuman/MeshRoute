@@ -204,13 +204,16 @@ TEST_CASE("§radmin-5/L1 the original 2064-byte prefix and appended 7b-1 pool ha
     CHECK(alignof(RemoteSessionState) == 8);
     // ★ THE ARITHMETIC CLOSES WITH NO REMAINDER — that is what makes the Node re-pin attributable.
     // Previously the eight prefix terms alone were the whole 2064-byte state.
-    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 4u + 4u == sizeof(RemoteSessionState));
+    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 6u + 2u == sizeof(RemoteSessionState));
     CHECK(offsetof(RemoteSessionState, acl)     == 64);
     CHECK(offsetof(RemoteSessionState, epoch)   == 408);
     CHECK(offsetof(RemoteSessionState, seen)    == 488);
     CHECK(offsetof(RemoteSessionState, ingress) == 1384);
     CHECK(offsetof(RemoteSessionState, body)    == 1464);
     CHECK(offsetof(RemoteSessionState, staging) == 1936);
+    CHECK(offsetof(RemoteSessionState, transcript_exhaustion) == 3840);
+    CHECK(offsetof(RemoteSessionState, response_enqueue_failure) == 3842);
+    CHECK(offsetof(RemoteSessionState, response_seal_failure) == 3844);
 }
 
 TEST_CASE("§radmin-5/L2 N is 16 TOTAL seen entries SHARED across the ten slots — not 16 per slot") {
@@ -908,6 +911,17 @@ TEST_CASE("§radmin-5/E5 an expired never-executed body AND route are wiped; ret
     CHECK(t.st.seen[r.seen_index].route.layer_ids[2] == 0x33);
     CHECK(t.st.seen[r.seen_index].route.origin == 9);
     CHECK(std::memcmp(t.st.body[r.ingress_index].bytes, body, 6) == 0);
+    // B369 changes expiry, not a LIVE retry's route ownership. The earlier rewrite lost this
+    // independent obligation; retain it before expiry, with different return metadata on the retry.
+    ReplyRoute later_route = route;
+    later_route.origin = 8;
+    later_route.layer_ids[1] = 0x44;
+    const auto live_retry = t.deliver(req, 0xA1, 1001, &xreq, nullptr, &later_route);
+    CHECK(live_retry.verdict == RemoteAdmitVerdict::replay_transcript);
+    CHECK(live_retry.seen_index == r.seen_index);
+    CHECK(std::memcmp(&live_retry.route, &route, sizeof route) == 0);
+    CHECK(std::memcmp(&t.st.seen[r.seen_index].route, &route, sizeof route) == 0);
+    CHECK(std::memcmp(&t.st.ingress[r.ingress_index].route, &route, sizeof route) == 0);
     (void)remote_session_expire(t.st, 1000 + radmin_staging_lifetime_ms);
     // ⛔ THE PLAINTEXT IS GONE…
     bool any = false;

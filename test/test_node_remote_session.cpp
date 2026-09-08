@@ -151,6 +151,18 @@ struct TargetNode : mrfw::IRadminTarget {
     bool tx_queue_full() override { return node.tx_queue_full(); }
     RadminSend send_next_frame() override { return node.radmin_send_frame(); }
 
+    // B375 SYNTHETIC fault only: a real epoch installation wipes pending work. Keep the
+    // mismatch scoped and restore the exact old epoch before any recovery/replay flight.
+    struct EpochMismatch {
+        uint64_t& field;
+        const uint64_t saved;
+        EpochMismatch(TargetNode& t, uint8_t slot)
+            : field(const_cast<RemoteSessionState&>(t.node.admin_session_state()).epoch[slot]), saved(field) {
+            field ^= 1;
+        }
+        ~EpochMismatch() { field = saved; }
+    };
+
     void controller_session_key(uint8_t slot, uint8_t (&session)[32]) {
         uint8_t base[32] = {};
         CHECK(controller_base_key(ctrl[slot], admin.ed_pub, base));
@@ -406,6 +418,19 @@ void radmin7_node_cross_layer(uint8_t depth) {
     CHECK(s.response_enqueue_failure == 1); CHECK(s.transcripts[ti].next_seq_to_send == 0);
     CHECK(t.hal.count("xl_send_no_gateway") == 1);
     CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty());
+    CHECK(s.response_seal_failure == 0);
+    CHECK(t.hal.field("radmin_response_enqueue_failure", "count") == 1);
+    // SYNTHETIC counter seeding only; the no-gateway refusal itself is the real sender.
+    auto& writable = const_cast<RemoteSessionState&>(s);
+    writable.response_enqueue_failure = UINT16_MAX - 1;
+    for (unsigned attempt = 0; attempt < 2; ++attempt) {
+        mrfw::radmin_service_once(t, exec);
+        CHECK(s.response_enqueue_failure == UINT16_MAX);
+        CHECK(s.response_seal_failure == 0);
+        CHECK(s.transcripts[ti].next_seq_to_send == 0);
+        CHECK(t.hal.field("radmin_response_enqueue_failure", "count") == UINT16_MAX);
+    }
+    writable.response_enqueue_failure = 1; // restore fixture counter, not transcript state
     schedule_record schedule[2] = {{0, 7, false, 250, 0, 50}, {1, 7, false, 250, 250, 50}};
     beacon_entry entry{}; entry.dest = entry.next = 9; entry.score_bucket = 14; entry.hops = 1;
     beacon_in b{}; b.src = 9; b.key_hash32 = 0x9595; b.self_gateway = true;
@@ -520,10 +545,106 @@ void radmin7_node_pressure(bool operator_waiter) {
     const uint8_t seq = s.transcripts[ti].next_seq_to_send;
     const auto aired = t.hal.tx_frames.size();
     const auto failures = s.response_enqueue_failure;
+    const auto seal_failures = s.response_seal_failure;
     mrfw::radmin_service_once(t, exec);
     CHECK(s.transcripts[ti].next_seq_to_send == seq);
     CHECK(s.response_enqueue_failure == failures); // no attempted send to misclassify as refusal
+    CHECK(s.response_seal_failure == seal_failures);
+    CHECK(t.node.radmin_send_frame() == RadminSend::none); // real sender has its own full-queue guard
+    CHECK(s.response_enqueue_failure == failures);
+    CHECK(s.response_seal_failure == seal_failures);
     CHECK(t.hal.tx_frames.size() == aired); CHECK(exec.calls == 5);
+}
+
+void radmin7_node_seal_failure() {
+    struct SealExec final : mrfw::IRadminExec {
+        unsigned calls = 0;
+        const std::string output = std::string(415, 'S');
+        mrfw::RadminExecResult run(const char*, size_t, const mrfw::CommandContext&,
+                                  mrfw::IRadminTranscriptSink& sink) override {
+            ++calls;
+            sink.append(reinterpret_cast<const uint8_t*>(output.data()), output.size());
+            return {mrfw::DispatchOutcome::completed, mrfw::RefuseReason::none};
+        }
+    } exec;
+    TargetNode t; t.provision(2); t.learn_peer(7, t.ctrl[1]);
+    RemoteCarrier cmd{}; cmd.outer_data_type = DATA_TYPE_REMOTE_CMD; cmd.dst_hash_on_wire = true;
+    const auto request = t.auth_execute_request(1, 99, cmd);
+    t.flight(7, 0xF1, t.ctrl[1].key_hash32, request, 10000);
+    mrfw::radmin_service_once(t, exec);
+    CHECK(exec.calls == 1);
+    const auto& s = t.node.admin_session_state();
+    const auto si = remote_session_seen_find(s, 1, 99);
+    CHECK(si < kRadminSeenSlots); if (si >= kRadminSeenSlots) return;
+    const auto ti = s.seen[si].record.transcript_slot;
+    CHECK(ti < kRadminTranscriptSlots); if (ti >= kRadminTranscriptSlots) return;
+    CHECK(s.transcripts[ti].frames == 4);
+    uint8_t session[32]; t.controller_session_key(1, session);
+    RemoteCarrier response = cmd; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+    const auto send_one = [&](uint8_t seq) {
+        const auto tx_before = t.hal.tx_frames.size();
+        CHECK(s.transcripts[ti].next_seq_to_send == seq);
+        mrfw::radmin_service_once(t, exec);
+        CHECK(s.transcripts[ti].next_seq_to_send == seq + 1);
+        t.pump_tx(7);
+        CHECK(t.hal.tx_frames.size() > tx_before);
+        const auto frame = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+        CHECK_FALSE(frame.empty());
+        RemoteDecoded d{}; std::array<uint8_t, kRadminBodyBytes> plain{};
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, frame, RemoteKeys{{}, session},
+                                 {true, t.ctrl[1].key_hash32}, response, plain) == RemoteStatus::ok);
+        CHECK(d.msg.response_seq == seq); CHECK(d.msg.request_id == 99); CHECK(d.msg.slot == 1);
+        if (seq == 3) CHECK(d.terminal == RemoteTerminal::completed);
+        else CHECK(d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::output));
+        CHECK(exec.calls == 1);
+        return frame;
+    };
+    std::vector<std::vector<uint8_t>> original{send_one(0)};
+    CHECK(s.transcripts[ti].next_seq_to_send == 1); // reset-to-zero must not pass the failure test
+    {
+        TargetNode::EpochMismatch fault(t, 1);
+        auto& writable = const_cast<RemoteSessionState&>(s);
+        const auto failed_attempt = [&](uint16_t expected_count) {
+            std::array<uint8_t, sizeof(RemoteSessionState)> expected{};
+            memcpy(expected.data(), &s, expected.size());
+            memcpy(expected.data() + offsetof(RemoteSessionState, response_seal_failure),
+                   &expected_count, sizeof expected_count);
+            const auto queued = t.node.test_tx_queue_n();
+            const auto aired = t.hal.tx_frames.size();
+            const auto emits = t.hal.ev.size();
+            const auto fields = t.hal.ev_fields.size();
+            mrfw::radmin_service_once(t, exec); // REAL sender/encoder, synthetic epoch guard refusal
+            CHECK(memcmp(expected.data(), &s, expected.size()) == 0);
+            CHECK(s.transcripts[ti].next_seq_to_send == 1);
+            CHECK(s.response_seal_failure == expected_count);
+            CHECK(s.response_enqueue_failure == 0);
+            CHECK(t.node.test_tx_queue_n() == queued);
+            CHECK(t.hal.tx_frames.size() == aired);
+            CHECK(t.hal.ev.size() == emits + 1); // no send_by_hash/transport event
+            CHECK(t.hal.ev_fields.size() == fields + 1); // scalar count only; no result bytes
+            CHECK(t.hal.ev.back() == "radmin_response_seal_failure");
+            CHECK(t.hal.field("radmin_response_seal_failure", "count") == expected_count);
+            CHECK(exec.calls == 1);
+        };
+        failed_attempt(1);
+        writable.response_seal_failure = UINT16_MAX - 1; // labelled synthetic saturation boundary
+        failed_attempt(UINT16_MAX);
+        failed_attempt(UINT16_MAX);
+    } // restore the exact epoch BEFORE recovery; normal invalidation was never invoked
+    for (uint8_t seq = 1; seq < 4; ++seq) original.push_back(send_one(seq));
+    CHECK(s.response_seal_failure == UINT16_MAX); CHECK(s.response_enqueue_failure == 0);
+    CHECK(remote_transcript_next(s) == kRadminNoSlot);
+    const auto before_idle = t.hal.ev.size();
+    mrfw::radmin_service_once(t, exec);
+    CHECK(t.hal.ev.size() == before_idle); CHECK(exec.calls == 1);
+    CHECK(s.response_seal_failure == UINT16_MAX); CHECK(s.response_enqueue_failure == 0);
+    // Above resumed seq1 on the next eligible pass without a request. THIS is the separate
+    // authenticated exact request retry, which restarts at zero and replays all original bodies.
+    t.flight(7, 0xF2, t.ctrl[1].key_hash32, request, 20000);
+    CHECK(s.transcripts[ti].next_seq_to_send == 0);
+    for (uint8_t seq = 0; seq < 4; ++seq) CHECK(send_one(seq) == original[seq]);
+    CHECK(exec.calls == 1);
+    crypto_wipe(session, sizeof session);
 }
 
 // =============================================================================================================

@@ -6,6 +6,11 @@ round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. S
 independently through §19; none is authorized until its own brief passes. Slices 0d and 0f have landed; Slice 0e
 has completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
+**Implementation update 2026-09-08:** the preceding status is the original design checkpoint. Slice 7b-1 is
+software-complete with independent QA PASS; final changes remain uncommitted. R-RA-34 splits 7b into 7b-1/7b-2/7b-3,
+as reflected in §19/§19.1 below. Session control/open responses and deferred actions remain separate pending slices.
+Current measurements and limits: [Slice 7b-1 independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md).
+
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
 `2026-07-26-remote-admin-challenge-response-design.md`; that document remains a historical decision record,
@@ -1157,10 +1162,15 @@ For an authenticated `EXECUTE`:
    change nothing. Only explicitly confirmed `FORCE_ROLLOVER` may abandon those outcomes. After either
    successful rotation, the controller may seal the not-executed command under the new session.
 
-Session records are not silently evicted while their session key remains valid. This prevents a captured old
+Executed session records are not silently evicted while their session key remains valid. This prevents a captured old
 request from becoming executable again merely because a small ring wrapped. Per-slot rollover invalidates
 every old request for that slot cryptographically and is occasional bounded maintenance, not a
 command-to-command token chain.
+
+The Slice 7b-1 B369 exception is an admission that **never executed**: when its 300-second ingress body expires,
+its still-admitted seen row is released too, and an exact retry may admit it afresh. No at-most-once obligation
+exists for that unexecuted command. Executed and acknowledged rows retain their protection. An authenticated
+`RESPONSE_ACK` consumes no ingress reservation, so it can release transcript capacity while owner work waits.
 
 When several controller nodes share a credential, they share that slot's table and epoch. Rollover by one
 invalidates the other controllers' cached epoch, so they bootstrap again. Safe rollover first proves there
@@ -1184,6 +1194,13 @@ The remote sink is another bounded `Print` implementation following the existing
 same bytes the selected command handler writes locally and divides them according to the selected return
 carrier's packer-derived RPC-body cap minus the authenticated/open response overhead in §8.11. Chunk
 boundaries have no semantic meaning; the controller node concatenates plaintext in `response_seq` order.
+
+A completed authenticated transcript is immutable, including its terminal and frame count. A send-time seal or
+enqueue failure preserves its bytes and cursor; the next eligible main-loop pass retries the pending frame.
+An authenticated exact request retry instead restarts that completed transcript at sequence zero, without
+dispatching again. Neither failure creates a suspension latch, timer or replacement terminal. `internal_error`
+is selected only at completion for execution or response-staging failure before a truthful normal result exists;
+it cannot replace a frozen result in the deterministic response-nonce space (B374/B375).
 
 For an authenticated response, the controller node:
 
@@ -1610,8 +1627,10 @@ The target implementation needs:
 - bounded staging for an open multi-frame response;
 - a fixed authenticated/open/bootstrap partition so unauthenticated work cannot consume every
   owner-recovery admission;
-- observable counters for inbound refusal, open rate-limit refusal, transcript exhaustion, and response
-  enqueue failure;
+- observable counters for inbound refusal, open rate-limit refusal, transcript exhaustion, response enqueue
+  failure and response seal failure; Slice 7b-1 implements the last three as separately attributable saturating
+  u16 counters in ACCEPT state. A seal refusal does not attempt enqueue or increment the enqueue-failure counter;
+  full-queue pacing is not a failed send attempt. Their `status` exposure belongs to Slice 7b-2;
 - no execution unless space for its mandatory terminal result and required deferred-action state has first
   been reserved;
 - paced draining into the existing TX queue, with every enqueue result checked.
@@ -2033,17 +2052,22 @@ The complete design does not provide:
    serial/BLE behaviour remains unchanged except where that classification/validation was separately ruled.
    This slice cannot start until the complete generated authority table has received its separate owner
    classification; missing or duplicate rows refuse the brief.
-7. **Target transcript and activation contract — two separately attributable commits:**
+7. **Target transcript and activation contract — separately attributable slices (7b split by R-RA-34):**
    - **7a, activation configuration:** add only the persisted target
      `cfg.remote_action_activation_ms`, its source-derived default/floor/ceiling validation, schema migration,
      refusal of an impossible interval, and boundary controls. This is the R-RA-16 NV change; it changes no
      action timing yet.
-   - **7b, transcript and action behaviour:** multi-DM sink, authenticated/open terminal responses,
-     exhaustive enqueue handling, measured open/bootstrap partition and rate limit, authenticated-resource
-     reservation, ingress/backpressure, exact transcript retry, ACK release/debt, `session_full` /
-     `session_busy`, shared-credential transcript behaviour, automatic safe rollover on `session_full`,
-     confirmed force rollover, `PROTOCOL_ERROR{already_acknowledged}`, local-only OTA-mode reporting, and the
-     configured activation plus 300-second outer disruptive-action deadline with mutation controls.
+   - **7b-1, authenticated executor/transcript — software-complete, independent QA PASS 2026-09-08:** bounded
+     multi-DM sink, mandatory result reservation, main-loop dispatch once under the authenticated ACL context,
+     paced OUTPUT/TERMINAL, immutable exact replay, ACK release with executed-fingerprint retention,
+     three disjoint saturating transcript/send counters, and the R-RA-32 private-application-DM view.
+   - **7b-2, session control and open responses — pending:** safe/confirmed-force rollover, `session_full` /
+     `session_busy`, `PROTOCOL_ERROR{already_acknowledged}`, shared-credential behavior, measured open/bootstrap
+     partition and rate limit, open staging/response release, and §15 status-counter exposure. Controller-side
+     automatic rollover and ACK debt remain with the controller slices.
+   - **7b-3, deferred actions — pending:** `scheduled` terminal, the two ruled `DeferredActionRecord` rows,
+     activation through the 7a resolver with ACK-earlier and the 300-second outer deadline, local-only OTA-mode
+     reporting, and mutation controls. Each 7b sub-slice has its own brief, gate and owner commit.
 8. **Mobile-delegated controller — three bounded slices:**
    - **8a, controller state and crypto (host-visible, no carrier):** pending/session/result state, explicit
      credential selection, `/mrtargets` resolution, discovery cache, request sealing, response opening,
@@ -2095,7 +2119,9 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 5 | ✅ software-complete / QA-passed 2026-09-07, owner commit `d226189`; target session/dedup files `lib/core/remote_session.{h,cpp}` + `src/firmware_admin_runtime.h`; R-RA-31; B341 (live activation across a reboot) fixed in-slice | native 2825/119784/0; corpus 36/36 byte-identical, keystone unmoved; `lus` changed (Node layout); Node re-pin native 224136 / gateway 150504, mobile 117912 unmoved; gateway RAM +1336 attributed to five symbols, mobile +8 (`g_hal`); union 516 RED / 1 unusable (B342, pre-existing) | none |
 | 6 | ✅ software-complete / QA-passed 2026-09-07 (uncommitted at report); the shared validator `lib/console/console_line.h`, `CommandContext`/outcome, the ruled authority table `src/firmware_command_authority.h` + `docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md` + `tools/check_command_authority.py`; B343–B348 folded in before implementation | zero remote events; `lus` byte-identical with 0 build actions; corpus 36/36; local behaviour byte-identical except the ruled `bad_line` refusals; inventory 203 rows; ruled pair RAM ±0, flash +5536 / +3816 attributed | Part 63 (the BLE embedded-NUL line) |
 | 7a | ✅ software-complete / QA-passed 2026-09-08 (two commits: 7a-0 `89071fb` the MAC wait-window refactor `lib/core/mac_wait_windows.h`; 7a the feature, uncommitted at report): NV v25 `remote_action_activation_ms` (offset 276, record 280, explicit `kVersionMinLoad = 25`), `lib/core/remote_activation.h` (R-RA-20/23 budget, KAT 7006/14012), `src/firmware_remote_activation.h` (five-state resolver, never clamps), the `cfg set` key, text/JSON read-out, post-init boot line; B352–B358, B360–B363 folded in; B354 (unreachable `gw_announce_interval`) fixed | zero remote events; `lus` changed twice with 36/36 byte-identical; inventory 204; ruled pair RAM +8 / +8 (global + alignment), flash +5072 / +1476 attributed; union 204 RED / 1 pre-existing | **Part 57a** (landed) |
-| 7b | transcript, scheduler and deferred-action owners | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |
+| 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, final changes uncommitted; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
+| 7b-2 | **PENDING:** session control/rollover/protocol error, open executor/responses/rate limit, status counters; fresh brief required | zero remote events, 36/36 unchanged; ruled pair and ABI; concrete mutations derived at dispatch | exact residue derived in its brief; controller-dependent round trips join 8b |
+| 7b-3 | **PENDING:** scheduler and deferred-action owners; fresh brief required | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
 | 8c | USB/BLE renderer/router and companion contract gate | corpus cannot prove direct JSON; executed golden wiring gates; ruled pair | **Part 57d:** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |

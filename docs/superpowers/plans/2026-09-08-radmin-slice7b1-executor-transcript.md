@@ -1,7 +1,14 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Remote-admin v2 Slice 7b-1 — the target executor, bounded transcript, authenticated responses, exact-retry replay and ACK release · brief · 2026-09-08
 
-**Status: REVISION 6 (2026-09-08) — B375 folded in (§0.5): explicit next-pass retry versus exact-request replay,
+**Current status: SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08; final changes remain uncommitted.**
+The complete gate and documentation landing are recorded in
+[the independent QA report](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md).
+The revision-6 dispatch/checkpoint text below is historical; its consumed SHA-256 was
+`b68785d099cac9fa85361c4d9c3da62ac8d5b938bfd752d2380391eb93c76b9c`.
+This status/addendum does not change the implementation contract consumed by the coder. See §10 for closure.
+
+**Historical dispatch status: REVISION 6 (2026-09-08) — B375 folded in (§0.5): explicit next-pass retry versus exact-request replay,
 three counters throughout, completion-time versus send-time failure, and an authorized SYNTHETIC fault through the
 REAL Node accounting path. QA/Author text is ready for coder source-validation and resume. Slice 7b-1 remains
 INCOMPLETE; the coder's full implementation gate and independent QA gate are PENDING.**
@@ -462,3 +469,27 @@ STOP. 4. The ABI re-pin without the owner's word; a mobile Node/RAM move — STO
 Close the register rows this slice creates; design §19.1 gains rows 7b-1/7b-2/7b-3; bench Part 57b-1 (the remote
 `status` round trip on metal needs 8a's controller — recorded as DEFERRED to 8b's metal, no part yet); then the
 7b-2 brief.
+
+## 10. Independent QA closure — 2026-09-08
+
+QA independently gated the complete frozen handoff at `146569a33b6451852555ac9ffcfd5079cd843393`, including
+all uncommitted inputs, against original attribution base `d467787f5e02836ad19b79624d97729c81ebacf8`.
+Native **2883/127709/0**, corpus **36/36 byte-identical**, mutation union **675 RED / 1 known unusable B342**,
+tools **343 OK / zero skips**, all six probes with controls and no-controls modes, both ABI probes, inventory,
+authority/selftests, checkers, deterministic board comparisons and the six-environment warning census completed.
+The real Node SYNTHETIC proof passed **142 assertions**; B374/B375's three-counter and two-retry contract holds.
+
+Gateway Node **+1784 B**, RAM **+1792 B**; mobile Node and RAM **unchanged**. Gateway flash **+7520 B** and
+mobile flash **+260 B** are fully attributed in the QA report. The latter corrects the earlier zero-flash/
+`mesh_service_once` prediction; it does not change R-RA-34's mobile Node/RAM constraint. The required inventory
+regeneration moved source-line anchors only: all **204 rows** and semantic content match the base. QA accepts
+that mechanical refresh under the standing inventory gate; the authority table/header and verb set did not change.
+
+B365–B377 are closed in place. B376 restores the unchanged S22 route control (**25/25 RED** session battery);
+B377 restores strict-reader-compatible pin assignments (**343 tools tests OK**). B315/B342/B350/B359/B364 remain
+separate open instrument/fixture limits. The design's split rows, retry/retention/counter wording, maintained
+register and MEMORY now record the landing. No bench part is added: the target `status` round trip remains
+**DEFERRED to 8b's metal gate**. Session control/open responses/status exposure remain 7b-2; deferred actions
+remain 7b-3. The next authoring step is the 7b-2 brief against the owner's ensuing commit; no next-slice
+implementation is dispatched by this closure. Full receipts and exact source bindings are in the independent
+QA report. Coder evidence and production inputs are preserved unchanged; the owner commits.

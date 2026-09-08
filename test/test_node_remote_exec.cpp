@@ -5,6 +5,7 @@
 void radmin7_node_exchange(size_t output_bytes);
 void radmin7_node_pressure(bool operator_waiter);
 void radmin7_node_cross_layer(uint8_t depth);
+void radmin7_node_seal_failure();
 TEST_CASE("§radmin-7/rx real flight executes fake once, sends multi-frame output and byte-identical replay") {
     radmin7_node_exchange(415);
 }
@@ -28,4 +29,7 @@ TEST_CASE("§radmin-7/rx every OUTPUT and TERMINAL airs on reversed depth-three 
 }
 TEST_CASE("§radmin-7/rx every OUTPUT and TERMINAL airs on reversed depth-four path at its own chunk cap") {
     radmin7_node_cross_layer(4);
+}
+TEST_CASE("§radmin-7/rx SYNTHETIC seal refusal through real Node: immutable cursor, accounting and both retries") {
+    radmin7_node_seal_failure();
 }

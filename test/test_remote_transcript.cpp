@@ -244,6 +244,12 @@ TEST_CASE("§radmin-7/transcript encode refusal cannot move cursor or mutate ret
 }
 TEST_CASE("§radmin-7/transcript failed reseal preserves terminal; synthetic replacement would reuse its nonce") {
     Pool p; const uint8_t si = p.admit(1); p.finish(si);
+    std::array<uint8_t, sizeof(RemoteSessionState)> frozen{};
+    memcpy(frozen.data(), &p.state, frozen.size());
+    remote_transcript_complete(p.state, si, RemoteTerminal::internal_error);
+    const uint8_t late[] = {'l', 'a', 't', 'e'};
+    remote_transcript_append(p.state, si, late, sizeof late);
+    CHECK(memcmp(frozen.data(), &p.state, frozen.size()) == 0); // immutable BEFORE first publication too
     std::array<uint8_t, kRadminBodyBytes> original{}, replay{}, replacement{};
     size_t n = 0, rn = 0, changed_n = 0;
     CHECK(remote_transcript_encode(p.state, si, original, n) == RemoteStatus::ok);

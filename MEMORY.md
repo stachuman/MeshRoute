@@ -1,16 +1,21 @@
 # MeshRoute durable decisions
 
-- **Remote-admin Slice 7b-1 resume contract (2026-09-08, brief revision 6; implementation/full QA gate pending):**
+- **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; final changes uncommitted):**
   the completed transcript is immutable. A send failure keeps its bytes, terminal, frame count and cursor; the next
   eligible main-loop pass retries that pending frame. An authenticated exact request retry restarts the retained
   completed transcript at sequence zero, without dispatching again. No suspension latch, new timer or replacement
   terminal. `internal_error` covers execution/staging failure before a truthful normal result existed, decided only
   at completion. ACCEPT state has three saturating u16 counters: transcript exhaustion, enqueue failure, seal failure;
   seal refusal never attempts enqueue or increments the enqueue-failure counter. R-RA-34 requires measured final native/gateway
-  growth and unchanged mobile Node/RAM. B375 is folded into the brief; B374's counter and labelled synthetic REAL
-  Node-path proof remain coder work. Preserve the partial tracked/untracked tree and named QA inputs at `d467787`;
-  QA builds/mutations await the coder's frozen handoff, with complete source snapshots and no overlap with edits.
-  Brief: `docs/superpowers/plans/2026-09-08-radmin-slice7b1-executor-transcript.md` §§0.5/4/6.6.
+  growth and unchanged mobile Node/RAM. B365–B377 are closed in place, including the labelled synthetic REAL
+  Node-path seal/accounting/recovery proof (142 assertions). QA independently measured native 2883/127709/0,
+  corpus 36/36 byte-identical, union 675 RED / 1 known unusable B342, tools 343 OK, all required probes/checkers,
+  both board pairs and the six-environment census. Gateway Node +1784 / RAM +1792 B; mobile Node/RAM unchanged,
+  flash +260 B fully attributed. Original attribution base `d467787`; frozen handoff HEAD `146569a` included all
+  uncommitted inputs. Final code and coder evidence remain unchanged by QA; owner commits. Next is the 7b-2
+  session-control/open-response/status-counter brief; 7b-3 owns deferred actions. The real target `status` round
+  trip remains deferred to 8b's controller/carrier metal gate. B315/B342/B350/B359/B364 are separate open limits.
+  Evidence: `docs/superpowers/evidence/2026-09-08-radmin-slice7b1-qa-gate.md`.
 
 - **Standalone mobile Home redesign (owner discussion, updated 2026-09-07):**
   `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated

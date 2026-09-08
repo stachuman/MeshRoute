@@ -69,7 +69,7 @@ static_assert(offsetof(OpenStagingSlot, request_id) == 0 && offsetof(OpenStaging
 // ★★★ THE ORIGINAL PREFIX — 2 064 bytes, and every one of them attributed:
 //       pair 64 + ACL 340 + status 4 + epochs 80 + seen 896 + headers 80 + bodies 472 + staging 128.
 //     Slice 5 had no tail padding (2 064 % 8 == 0). 7b-1 appends 1776 bytes of pool,
-//     4 bytes of counters and 4 bytes of tail alignment; every original offset stays unchanged.
+//     6 bytes of counters and 2 bytes of tail alignment; every original offset stays unchanged.
 static_assert(sizeof(TranscriptHeader) == 24 && alignof(TranscriptHeader) == 8, "TranscriptHeader layout");
 static_assert(offsetof(TranscriptHeader, request_id) == 0 && offsetof(TranscriptHeader, bytes_total) == 8
               && offsetof(TranscriptHeader, first_chunk) == 12 && offsetof(TranscriptHeader, frames) == 14
@@ -81,7 +81,7 @@ static_assert(offsetof(TranscriptHeader, request_id) == 0 && offsetof(Transcript
 static_assert(sizeof(TranscriptChunk) == 210 && alignof(TranscriptChunk) == 2
               && offsetof(TranscriptChunk, len) == 206 && offsetof(TranscriptChunk, next) == 208,
               "TranscriptChunk layout");
-// Original 2064 + pool 1776 + counters 4 + alignment 4. Node pins are measured separately.
+// Original 2064 + pool 1776 + counters 6 + alignment 2. Node pins are measured separately.
 static_assert(sizeof(RemoteSessionState) == 3848 && alignof(RemoteSessionState) == 8,
               "RemoteSessionState: re-derive the ACCEPT block and measure the Node re-pin");
 static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
@@ -99,7 +99,8 @@ static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, transcripts) == 2064
               && offsetof(RemoteSessionState, chunks) == 2160
               && offsetof(RemoteSessionState, transcript_exhaustion) == 3840
-              && offsetof(RemoteSessionState, response_enqueue_failure) == 3842, "RemoteSessionState offsets");
+              && offsetof(RemoteSessionState, response_enqueue_failure) == 3842
+              && offsetof(RemoteSessionState, response_seal_failure) == 3844, "RemoteSessionState offsets");
 static_assert(sizeof(RemoteSessionState::acl) == 340 && sizeof(RemoteSessionState::epoch) == 80
               && sizeof(RemoteSessionState::seen) == 896 && sizeof(RemoteSessionState::ingress) == 80
               && sizeof(RemoteSessionState::body) == 472 && sizeof(RemoteSessionState::staging) == 128,
@@ -970,8 +971,8 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
 
     if (is_control) {
         // ⛔ CONTROL ADMISSION ALLOCATES NO EXECUTE SEEN ROW — which is precisely why a full seen pool can
-        //    never consume the control reservation. ⓘ There is NO ACK/rollover EFFECT and NO response here:
-        //    the row is retained until it expires. Slice 7b owns both producers.
+        //    never consume the control reservation. ACK already took the synchronous path above.
+        //    No rollover effect/response here: this row expires; Slice 7b-2 owns its consumer.
         const uint8_t ii = ingress_free_index(s, partition);
         if (ii == kRadminNoSlot) { crypto_wipe(pt, sizeof pt); out.verdict = RemoteAdmitVerdict::ingress_full; return; }
         IngressOperationHeader& h = s.ingress[ii];
