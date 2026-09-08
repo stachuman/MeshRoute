@@ -757,3 +757,19 @@ Judgment call (4) is R-RA-32 (`pull_inbox` / `mark_read` = operator; remote view
 verbatim into the design's classification appendix), the generator consumes it, and the Slice 6 checker refuses any
 inventory row the table does not cover. Rows added by later slices are classified at their closure under the same
 policy and appended (the proposal's closing paragraph).
+
+### R-RA-34 (owner, 2026-09-08) — the 7b split and the 7b-1 transcript-pool ABI re-pin
+
+**Owner:** *"The three-way split makes sense. I recommend authorizing the ACCEPT-only allocation. One budget detail:
+1776 bytes is the pool alone; counters and alignment are additional. Native/gateway growth must be measured, with
+Heltec mobile's Node size and RAM unchanged."* Suggested ruling, confirmed: *"Authorize the 7b-1 transcript pool and
+measured native/gateway Node re-pins; mobile remains unchanged."* — *"I DO agree with proposal."*
+
+**Settled:** (1) design §19 item 7b is delivered as THREE separately gateable sub-slices — 7b-1 (executor, transcript,
+authenticated responses, exact-retry replay, `RESPONSE_ACK` release, the R-RA-32 remote inbox view), 7b-2 (session
+control + the open path + counters on `status`), 7b-3 (deferred actions / `scheduled` / the 300 s outer deadline) —
+each with its own commit and attribution. (2) The 7b-1 transcript pool (R-RA-22's 4 `TranscriptHeader` + 8
+`TranscriptChunk`) is ACCEPT-only `Node` state; the native and gateway `sizeof(Node)` re-pins are authorized and
+MUST come from `probe_board_abi.py`'s compile-and-read measurement on each target (the R-RA-31 shape) — 1776 B is the
+pool alone, the counters and alignment are measured on top; `heltec_mobile`'s `Node` size AND its board RAM stay
+unchanged (the control). Brief: `docs/superpowers/plans/2026-09-08-radmin-slice7b1-executor-transcript.md` §4.9.
