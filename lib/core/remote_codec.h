@@ -8,12 +8,9 @@
 // carrier caps), R-RA-4 (frozen control values / labels / independent KATs), R-RA-5 (64-bit random request id),
 // R-RA-13 (`SOURCE_HASH` mandatory on every RPC carrier), R-RA-25 and R-RA-28 (always reserve the DST_HASH bytes).
 //
-// ⛔⛔ THIS SLICE HAS NO CONSUMER, AND THAT IS DELIBERATE. Nothing in `lib/core` or `src/` calls this module: no
-//    RX router stages a body through it, no transmitter builds one, no ACL/session/storage/timer state exists yet.
-//    The codec is proved by `test/test_remote_codec.cpp` against an INDEPENDENT Python reference
-//    (`remote-v2-independent-reference`, transcript in the slice evidence), never by round-tripping itself.
-//    ⇒ zero remote events, 36/36 corpus streams byte-identical, zero board RAM/flash. The first real caller is a
-//    later slice and it is the one that owns airtime, console output, at-most-once execution and RNG integration.
+// Session/bootstrap/transcript paths already consume this codec. Slice 7b-2-0 adds only the R-RA-36
+// ADMISSION_RESULT domain; its live producers arrive separately. Independent reference vectors in
+// `test/test_remote_codec.cpp` pin old and new domains without deriving expectations through this codec.
 //
 // ⛔ WHAT THIS MODULE DELIBERATELY DOES **NOT** DO (so no later reader mistakes a byte codec for policy):
 //      * it does not validate a command string, enforce a command allow-list, or know any dispatcher semantics;
@@ -28,8 +25,7 @@
 //    deletes. This codec never extends, imports or trial-opens it; a legacy body simply fails v2 admission.
 //
 // ⛔ NAMING/OWNERSHIP: this is a SHARED codec, not another capability consumer. It carries no `MR_FEAT_RADMIN_*`
-//    reference, so Slice 1b's three-file capability-ownership census (`tools/probe_features/ownership.py`) is
-//    unchanged by its arrival.
+//    reference, so the capability-ownership census (`tools/probe_features/ownership.py`) is unchanged.
 #pragma once
 #ifndef MESHROUTE_NS
 #define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
@@ -70,7 +66,8 @@ enum class RemoteRespOpcode : uint8_t {
     bootstrap       = 0x2,
     rollover_result = 0x3,
     protocol_error  = 0x4,
-    // 0x5..0xF reserved — reject.
+    admission_result= 0x5,
+    // 0x6..0xF reserved — reject.
 };
 
 // §8.9 TERMINAL result namespace (Author allocation, QA-accepted 2026-09-06). 0x08..0xFF are UNALLOCATED and
@@ -96,6 +93,15 @@ enum class RemoteProtocolError : uint8_t {
     already_acknowledged = 0x00,
 };
 
+// R-RA-36: authenticated CLEAR admission metadata, not a TERMINAL payload.
+enum class RemoteAdmission : uint8_t {
+    session_full       = 0x00,
+    ingress_full       = 0x01,
+    session_busy       = 0x02,
+    executing          = 0x03,
+    preparation_failed= 0x04,
+};
+
 // The TYPED opcode/security domain. One value per (direction, opcode, security class); it is what the decoder
 // publishes beside a result so `0x00` can never be read out of its domain, and it is the nonce/AAD separation
 // the KATs pin pairwise.
@@ -115,6 +121,7 @@ enum class RemoteDomainId : uint8_t {
     resp_rollover_result,
     resp_protocol_error_auth,
     resp_protocol_error_open,   // UNAUTHENTICATED — and NOT the already_acknowledged domain (§8.9)
+    resp_admission_result,      // authenticated session key; fixed clear notice, zero application bytes
 };
 
 // Every refusal this codec can produce. C2: a refusal is always explicit and typed; nothing clamps, truncates,
@@ -150,6 +157,7 @@ inline constexpr size_t kRemoteSeqBytes        = 1;
 inline constexpr size_t kRemoteAbandonedBytes  = 1;
 inline constexpr size_t kRemoteControllerPubBytes = 32;
 inline constexpr size_t kRemoteSourceHashBytes = 4;
+inline constexpr size_t kRemoteAdmissionBytes  = 1 + 1 + 1;      // request_ctl + code + detail
 
 // The largest clear RPC header is the bootstrap request's `[ctl][request_id 8][controller_pub 32]`.
 inline constexpr size_t kRemoteMaxHeaderBytes = kRemoteCtlBytes + kRemoteRequestIdBytes + kRemoteControllerPubBytes;
@@ -164,6 +172,7 @@ inline constexpr size_t kRemoteOverheadAuthResponse      = 26;   // ctl + id8 + 
 inline constexpr size_t kRemoteOverheadOpenResponse      = 10;   // ctl + id8 + seq1
 inline constexpr size_t kRemoteOverheadBootstrapResponse = 33;   // ctl + id8 + epoch8 + tag16
 inline constexpr size_t kRemoteOverheadRolloverResult    = 34;   // ctl + id8 + epoch8 + abandoned1 + tag16
+inline constexpr size_t kRemoteOverheadAdmissionResult   = 28;   // ctl + id8 + request_ctl + code + detail + tag16
 
 // =====================================================================================================
 // The ONE byte-layout/domain decision. `remote_layout` derives it from (outer type, ctl); encode, decode,
@@ -183,6 +192,7 @@ struct RemoteLayout {
     bool           has_admin_epoch    = false;   // a CLEAR epoch field in the header
     bool           has_abandoned_count= false;
     bool           carries_result_code= false;   // TERMINAL (both classes) + AUTHENTICATED protocol error
+    bool           has_admission      = false;   // clear request_ctl/code/detail; also a nonce suffix
     uint8_t        header_bytes       = 0;       // ctl + the clear fields, in wire order
     uint8_t        fixed_overhead     = 0;       // header_bytes + (authenticated ? 16 : 0)
 };
@@ -197,6 +207,9 @@ struct RemoteMessage {
     uint64_t admin_epoch     = 0;   // bootstrap response / rollover result
     uint8_t  abandoned_count = 0;   // rollover result
     std::span<const uint8_t> controller_pub{};   // bootstrap request: EXACTLY 32 bytes; empty otherwise
+    uint8_t  request_ctl     = 0;   // ADMISSION_RESULT: request opcode and matching actual ACL slot
+    RemoteAdmission admission_code = RemoteAdmission::session_full;
+    uint8_t  admission_detail= 0;   // busy: 1..255; all other allocated admission codes: zero
 };
 
 // The two credentials, supplied as caller-owned views. An empty span means ABSENT; a present one must be
@@ -245,6 +258,7 @@ enum class RemoteResultKind : uint8_t {
     none = 0,           // OUTPUT, the requests, and the OPEN protocol error (which has no allocated code domain)
     terminal,           // the §8.9 terminal namespace
     protocol_error,     // the SEPARATE authenticated protocol-error namespace
+    admission,          // R-RA-36 clear metadata in msg; not body/result_detail
 };
 
 struct RemoteDecoded {
@@ -283,7 +297,8 @@ struct RemoteDecoded {
 
 // ---- nonce and AAD (§8.1/§9) ------------------------------------------------------------------------
 // nonce = BLAKE2b-512(label ‖ selected_key32 ‖ outer_type ‖ ctl ‖ request_id LE64 ‖ response_seq ‖
-//                     source_hash LE32 [‖ admin_epoch LE64 iff layout.epoch_in_nonce])[:24]
+//                     source_hash LE32 [‖ admin_epoch LE64 iff layout.epoch_in_nonce]
+//                     [‖ request_ctl ‖ admission_code ‖ admission_detail iff layout.has_admission])[:24]
 [[nodiscard]] RemoteStatus remote_nonce(uint8_t out_nonce24[24], const RemoteLayout& layout,
                                         const RemoteMessage& msg, const uint8_t selected_key32[32],
                                         const RemoteSource& src);
@@ -311,16 +326,12 @@ struct RemoteDecoded {
                                          const RemoteKeys& keys, const RemoteSource& src,
                                          const RemoteCarrier& carrier);
 
-// Decode one complete RPC body. For an AUTHENTICATED domain this IS the open: the tag is verified BEFORE any
-// value is published, and a failure yields `auth_failed` with `out` untouched — no forged plaintext, no
-// decoded header, and NEVER a retry through the open decoder or the legacy codec.
-//
-// ⚠ B313 — the failure-output contract, stated truthfully. `dm_open`'s comment claims the primitive wipes the
-//   caller's plaintext buffer on a bad tag; it does not. `crypto_aead_read` verifies first and only writes
-//   `plain_text` when the tag matched (`lib/monocypher/src/monocypher.c:2919-2924`), so on failure the caller's
-//   buffer is simply LEFT AS IT WAS. This codec's guarantee is therefore: it publishes no decoded result and
-//   writes nothing into `plaintext_out` on failure. It does NOT promise to scrub caller storage; a caller that
-//   needs that must wipe its own buffer.
+// Decode one complete RPC body. Every failure leaves `out` untouched; there is NEVER a retry through an
+// open or legacy decoder. Failed authentication returns auth_failed and leaves plaintext_out untouched
+// (B313: the primitive does not scrub it). After a VALID tag, an old variable-body result may return
+// bad_result_code AFTER writing decrypted bytes into plaintext_out (B383). The caller owns wiping.
+// ADMISSION_RESULT has zero application bytes: every failure in that fixed domain leaves both out and
+// plaintext_out untouched. No whole-codec transactional plaintext guarantee is implied.
 [[nodiscard]] RemoteStatus remote_body_decode(RemoteDecoded& out, uint8_t outer_type,
                                          std::span<const uint8_t> body,
                                          const RemoteKeys& keys, const RemoteSource& src,

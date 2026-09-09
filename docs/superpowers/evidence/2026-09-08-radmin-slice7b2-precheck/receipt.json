@@ -1,0 +1,39 @@
+{
+  "base": "1d4b3ad5a74c2f24121d8fbe28b8d6e4b04f8dfe",
+  "simulator": "06746a97de5764415d6fcef10b97bca90569b9c7",
+  "native": {
+    "cases": 2883,
+    "assertions": 127709,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpus_scenarios": 36,
+  "all_anchor_matches": true,
+  "all_stream_sha256_match_prior_qa": true,
+  "s18": {
+    "anchor_assertion_failures": 0,
+    "anchor_events": 269517,
+    "anchor_match": true,
+    "anchor_md5_prefix": "32afbf11",
+    "assertion_failures": 0,
+    "events": 269517,
+    "exit_status": 0,
+    "name": "s18_meshroute",
+    "output_bytes": 38698103,
+    "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+    "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+    "promoted": true,
+    "scenario_path": "simulation/s18_meshroute.json",
+    "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+  },
+  "lus_sha256": "7ad152073f13a76192ff2185488326910d28a759c5c882b1cfa59b012b95e2b9",
+  "evidence_root": "/tmp/mr-qa-s7b2-precheck-no59tyku",
+  "nonce_proof_checks": 116,
+  "output_census": {
+    "status_bytes": 364,
+    "version_bytes": 113,
+    "scope": "existing ACCEPT real-handler fixture, not maximum board output"
+  },
+  "candidate_state_delta": 4976,
+  "candidate_is_live_RAM_measurement": false
+}

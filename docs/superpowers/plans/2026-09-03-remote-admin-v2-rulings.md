@@ -780,3 +780,76 @@ unchanged (the control). Brief: `docs/superpowers/plans/2026-09-08-radmin-slice7
 E2E-ack receipts and custody-failure reports are stored as DM-kind records whose `type` is INTERNAL
 (`inbox_record_is_internal(type)`, `inbox.h:111`). The ruled remote view therefore excludes the PRIVATE APPLICATION
 messages (`kind == dm && !internal`) and keeps every diagnostic record. The ruling itself is unchanged.
+
+### R-RA-35 (owner, 2026-09-09) — B378 independent open storage and a target-wide five-minute budget
+
+**Owner, confirmed directly to QA/Author:**
+
+> B378: storage approved. The limit is three open requests total per target per five minutes, shared across all requesters—not three per requester.
+
+The coder receipt (`docs/superpowers/evidence/2026-09-08-radmin-slice7b2.md` §6) also preserves the original
+wording: *"b378 - agree with storage and agree with 5 minutes limit. To be clear - this is global limit -
+independent of who is requesting. b379 agree with proposal"*. Approval consumes 7b-2 brief revision 2,
+SHA-256 `1802c25a99e0d470b299a769a072b56e1bd6f12d8df7e230962255de82fa387a`.
+
+**Settled storage:** preserve R-RA-22's three open staging headers, separate bootstrap header, both
+authenticated ingress partitions and the complete authenticated transcript pool. Add three independently
+owned ACCEPT-only 1648-byte captures, paired with the three open headers, plus the two proposed saturating
+u16 counters (`inbound_refusal`, `open_rate_refusal`). The measured candidate complete state grows
+**3848/8 → 8824/8, +4976 B** on native/ARM/Xtensa. These are candidate type sizes, not linked RAM.
+Native/gateway Node re-pins and final linked RAM growth must be independently measured and attributed;
+mobile Node and RAM remain unchanged. This allocation belongs to the behavior slice, not codec preparation.
+No additional resident reply/key cache, adapter, buffer or timer is included.
+
+**Settled rate:** at most **three open admissions total per target in any 300000 ms window**, shared across
+all requesters. Each admitted row occupies one of those three budget positions until its original admission
+deadline. Completion wipes output but retains peer/deadline cooldown until that deadline; changing source,
+request ID or route creates no extra quota. At most one row is retained per peer; that constraint does not
+grant any peer three requests. Admissions exactly 300000 ms apart may reuse the expired position: the
+counting interval is `(now - 300000 ms, now]`. Retain the existing earliest-deadline scan, with no private
+timer or window reset on completion/retry. Authenticated traffic and bootstrap consume no open quota.
+
+This settles the proposed rate policy explicitly; the old staging TTL alone never implied it. B378 remains
+open until the behavior implementation and independent gates prove the approved storage, global budget,
+expiry, linked attribution and mobile invariance.
+
+### R-RA-36 (owner, 2026-09-09) — B379 admission-response domain and separate codec preparation
+
+**Owner, confirmed directly to QA/Author:**
+
+> B379: the proposed admission-response format and separate codec preparation are approved.
+
+Approval consumes the same revision-2 brief and coder receipt named in R-RA-35.
+
+**Settled wire contract:** allocate REMOTE_RESP opcode **`0x5 ADMISSION_RESULT`**, actual ACL slot **0..9**
+only. The exact 28-byte body is `[ctl 1][request_id LE64 8][request_ctl 1][admission_code 1][detail 1][tag 16]`.
+It is authenticated with **K_session**, intentionally clear, fixed length, and has no ciphertext, response
+sequence, epoch or open/sentinel form. `request_ctl` contains AUTH_EXECUTE, SAFE_ROLLOVER or FORCE_ROLLOVER
+and the same ACL slot as the response. The result namespace is:
+
+| Code | Meaning | Allowed request | Detail |
+| --- | --- | --- | --- |
+| `0x00` | `session_full` | AUTH_EXECUTE | Zero |
+| `0x01` | `ingress_full` | AUTH_EXECUTE / SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+| `0x02` | `session_busy` | SAFE_ROLLOVER | Positive byte count; target consumer enforces its ruled transcript capacity |
+| `0x03` | `executing` | SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+| `0x04` | `preparation_failed` | SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+
+For this new domain only, append **`request_ctl`, `admission_code`, `detail`**, in that order, after
+`source_hash_le32` in the existing nonce preimage. Its no-sequence term is zero. The complete clear header
+and stable logical controller SOURCE_HASH are AAD. All varying notice fields therefore affect both nonce
+and authentication; an identical notice repeats byte-for-byte. Retain the current KDF labels and old-domain
+preimages. The new decoder publishes a typed admission result only after successful authentication and
+semantic validation. Reject reserved codes, unsupported request opcodes, mismatched slots, zero busy count,
+nonzero unused detail, extra/missing bytes and bad authentication.
+
+**Explicit supersession:** non-executed `session_full` and mutable `session_busy` replies use this domain,
+replacing design §8.9's assignment to TERMINAL. Terminal codes `0x06/0x07` stay recognized for the frozen
+codec vectors; no existing OUTPUT/TERMINAL/PROTOCOL_ERROR/bootstrap/rollover bytes change. An acknowledged
+execute retry still uses the existing distinct authenticated `PROTOCOL_ERROR{already_acknowledged}`.
+
+**Attribution and order:** implement, gate and owner-commit **7b-2-0 codec preparation separately**. It has
+no new target producer, controller consumer, session/open behavior or Node allocation. QA then reissues the
+7b-2 behavior brief at the actual committed successor. No global `wire_version` bump or corpus re-anchor is
+part of this allocation: the remote opcode is the subprotocol discriminator (design §8.1). B379 remains open
+through codec/KAT verification and the subsequent real target full/busy/retry proofs; a ruling is not a PASS.

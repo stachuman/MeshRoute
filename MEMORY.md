@@ -1,6 +1,27 @@
 # MeshRoute durable decisions
 
-- **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; final changes uncommitted):**
+- **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, base `1d4b3ad`, uncommitted):**
+  revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
+  opcode 0x5, K_session; matching request ctl/code/detail enter nonce and AAD. Existing 87 literals stay
+  byte-identical; no new producer, session/open behavior, timer or Node state. QA independently measured
+  native 2888/172264/0, corpus 36/36 byte-identical, 712 RED / one known unusable B342, tools 343 OK / zero
+  skips, all required ABI/probes/checkers/boards and the six-environment census. Node/RAM unchanged; gateway
+  flash −64 B attributed, mobile linked sections identical. B382/B383 comments are verified/closed; old
+  valid-tag semantic failure can leave plaintext, while bad tags preserve it and decoded results publish
+  only on success. B384's reference-generator error and B385's discarded QA incremental build are recorded
+  and closed. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md`.
+  **Owner commits this codec preparation separately; QA then reissues behavior brief revision 3 at that
+  actual successor. 7b-2 remains HOLD until then.** R-RA-35 approves three independent 1648-byte ACCEPT open
+  captures plus two counters; +4976 B is candidate state, not linked RAM. Final native/gateway Node/RAM
+  growth must be measured; mobile stays unchanged. Rate: **three open admissions TOTAL per target per
+  300000 ms, shared across all requesters**; preserve original admission deadlines through completion/
+  cooldown. B378 stays open for those gates. B379's codec prerequisite passed, including QA's 134-check
+  shared-pool/sequence-zero nonce proof with labelled synthetic notices; real target full/busy/retry
+  producers remain 7b-2 and ungated. B380/B381 are closed wording fixes. Present-zero source is admissible
+  to the codec; the sender explicitly refuses destination zero and later accounting follows that refusal.
+  Deferred actions remain 7b-3; controller-dependent metal round trips remain 8b. No new bench part.
+
+- **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; owner commit `1d4b3ad`):**
   the completed transcript is immutable. A send failure keeps its bytes, terminal, frame count and cursor; the next
   eligible main-loop pass retries that pending frame. An authenticated exact request retry restarts the retained
   completed transcript at sequence zero, without dispatching again. No suspension latch, new timer or replacement
@@ -12,8 +33,8 @@
   corpus 36/36 byte-identical, union 675 RED / 1 known unusable B342, tools 343 OK, all required probes/checkers,
   both board pairs and the six-environment census. Gateway Node +1784 / RAM +1792 B; mobile Node/RAM unchanged,
   flash +260 B fully attributed. Original attribution base `d467787`; frozen handoff HEAD `146569a` included all
-  uncommitted inputs. Final code and coder evidence remain unchanged by QA; owner commits. Next is the 7b-2
-  session-control/open-response/status-counter brief; 7b-3 owns deferred actions. The real target `status` round
+  uncommitted inputs. Final code and coder evidence remained unchanged by QA; the owner committed the landing.
+  The 7b-2 draft is indexed above; 7b-3 owns deferred actions. The real target `status` round
   trip remains deferred to 8b's controller/carrier metal gate. B315/B342/B350/B359/B364 are separate open limits.
   Evidence: `docs/superpowers/evidence/2026-09-08-radmin-slice7b1-qa-gate.md`.
 

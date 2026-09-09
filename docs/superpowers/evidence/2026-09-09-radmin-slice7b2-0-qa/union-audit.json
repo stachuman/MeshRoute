@@ -1,0 +1,728 @@
+{
+  "targets": [
+    {
+      "target": "a0rx",
+      "entries": 7,
+      "red": 7,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "bfc0a68831b79186ee2f9b62334cfe5589c4d7b498922878932e2a795f51c407"
+    },
+    {
+      "target": "b134ack",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "21b1db7be690a55771a96490f003f769",
+      "log_sha256": "4490ac7625ec07503c4397d34ccaa0151d695fb6bce0a98d6683eda4333ea2f1"
+    },
+    {
+      "target": "b134inbox",
+      "entries": 5,
+      "red": 5,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a8088417e948aef2e5ffbe8cec312b27",
+      "log_sha256": "494c3723fcfb486d21a062a9d0299b6293be970a634b9d1af58a5de39e45c64f"
+    },
+    {
+      "target": "b134ram",
+      "entries": 3,
+      "red": 3,
+      "unusable": 0,
+      "baselines": 3,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "39644fd2d33466f12779c92431a3dc71",
+      "log_sha256": "a41860c237e1b9f14066d34e2e5398d275062f4a12a2a66a8a2a020cc6166b8d"
+    },
+    {
+      "target": "b134store",
+      "entries": 39,
+      "red": 39,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "29884575bbf3b33bf2ca456de63b1d69",
+      "log_sha256": "df83d8f39fecf758705a993ef83c6ebeacb834d037fde9e1dd8bffcd5b45b858"
+    },
+    {
+      "target": "b159mac",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "677c65439817a380f3fc94d9b651341d",
+      "log_sha256": "a991b9efa88d3683dd303511a9ecf7debf4b99ec105e6c6bb2f996cd70da56fe"
+    },
+    {
+      "target": "b159map",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "f1cc7ffeda0ba77db8dda82fc5356c25",
+      "log_sha256": "fae9615cd499bf5f7dc71b9dbac556ad7ed1bf61b987d20c1bedcd14de7ef7b5"
+    },
+    {
+      "target": "b159rx",
+      "entries": 3,
+      "red": 3,
+      "unusable": 0,
+      "baselines": 3,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "6bf79144f328c7b92b94d786b09877e782c87c8859ea0bdfd673c75ad99b33ed"
+    },
+    {
+      "target": "b161hash",
+      "entries": 6,
+      "red": 6,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "ffb88cb2cb558a1158d741e6bc9eb6e4",
+      "log_sha256": "7e30f92d5a2eb41f74326643888422ca5e8b6d8f6af15b53e41492a4a10f4c79"
+    },
+    {
+      "target": "b161mac",
+      "entries": 1,
+      "red": 1,
+      "unusable": 0,
+      "baselines": 1,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "677c65439817a380f3fc94d9b651341d",
+      "log_sha256": "ef30144605b384f27eb47d434cbd8923b3e815da41dbe280a97e92b511aaa72f"
+    },
+    {
+      "target": "b161rx",
+      "entries": 8,
+      "red": 8,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "22284c1afc11e7e43f13019e024f5a573bb0340f1a3818734b2817bcbc5c8379"
+    },
+    {
+      "target": "b20codec",
+      "entries": 5,
+      "red": 5,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "70aff75d2bb570b9320bb471b7142e40",
+      "log_sha256": "7378b282f4a79acf0a19ebf18d6292bbd55ec986cbfc3310d893f4f76b6ace88"
+    },
+    {
+      "target": "b20mac",
+      "entries": 11,
+      "red": 11,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "677c65439817a380f3fc94d9b651341d",
+      "log_sha256": "16a0669353d7a0ebb03f2b4960568d658e6568b4c28b3629e9cfad94d55e99cc"
+    },
+    {
+      "target": "b251hash",
+      "entries": 55,
+      "red": 55,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "ffb88cb2cb558a1158d741e6bc9eb6e4",
+      "log_sha256": "b327facfff76b876dcdf23e3b48dfc330c398cedcd3fbb8b27c61421a60feebc"
+    },
+    {
+      "target": "b251rx",
+      "entries": 19,
+      "red": 19,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "f5513ec7d4ebfd1dd3e71c1aa888ca6825e63549c458a1a0ad4769c72f61117c"
+    },
+    {
+      "target": "cmdauthority",
+      "entries": 16,
+      "red": 16,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "401ed4d149fc410899f51d98fac667c1",
+      "log_sha256": "ffeb34bd257d769ec2a9430b4e74bcce13ce3ff8192f2ff4891aa9ebfba5c09f"
+    },
+    {
+      "target": "consoleline",
+      "entries": 12,
+      "red": 12,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "906e1a837b8ca667d191e55ac5bdd848",
+      "log_sha256": "bb7a6040486ec37508856ea56872b663e95bb41aaca393cb1bdd3cee5fea4ec4"
+    },
+    {
+      "target": "devicenv",
+      "entries": 42,
+      "red": 42,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "eaf395c5d9caea43c256eaf84fbb9e8b",
+      "log_sha256": "a65f29ccb7b0136f579cc9a29eece0ec6daac1c98e94e6bf3dee78f96a9dbb55"
+    },
+    {
+      "target": "grantadmit",
+      "entries": 1,
+      "red": 1,
+      "unusable": 0,
+      "baselines": 1,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "677c65439817a380f3fc94d9b651341d",
+      "log_sha256": "407a5f685301d2b78eead86d14416261f00cad3724dcc2b3de87de92fa4c3313"
+    },
+    {
+      "target": "grantpark",
+      "entries": 3,
+      "red": 3,
+      "unusable": 0,
+      "baselines": 3,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "ffb88cb2cb558a1158d741e6bc9eb6e4",
+      "log_sha256": "345b810b1eafd5a3f08dd60cdf97ea0cbc73d9c1a69c692b13802bb4e2080bf0"
+    },
+    {
+      "target": "radmin2codec",
+      "entries": 103,
+      "red": 103,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "22e3cfc10c678418ece5ce2daea0607b",
+      "log_sha256": "22263eaba3c776bc39780d7c4079caee6ae0219e84e8ab276e8535f495890004"
+    },
+    {
+      "target": "radmin3acl",
+      "entries": 36,
+      "red": 36,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "9e9fc3a9f19be1a654e034b15e4ae9ce",
+      "log_sha256": "d486df7eafbb2a97b6b263a96a4133ec103d4bd2529a276d7b90a9b101f8d823"
+    },
+    {
+      "target": "radmin3id",
+      "entries": 23,
+      "red": 23,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "e919adc3b622885c788e470b854ab742",
+      "log_sha256": "91fc5580f5702c2b4ea8eb8a128fc14e95c86e9c4430cead344f73354ef62b66"
+    },
+    {
+      "target": "radmin3verbs",
+      "entries": 28,
+      "red": 28,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a2720a19ea9fa8ee0608069dfc2b1780",
+      "log_sha256": "cd73fa7f95f4601ee55151c4d0018cea8848a319a4838779d1c0c11c685b7ff8"
+    },
+    {
+      "target": "radmin5runtime",
+      "entries": 16,
+      "red": 16,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2fc7c0e9d04c5235dc9e60bf05f2a66f",
+      "log_sha256": "25b78f171c3cf63db6a190e5e56a7d993f3767760ea390e40a154fe5b099b2cd"
+    },
+    {
+      "target": "radmin5rx",
+      "entries": 14,
+      "red": 14,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "09774021d25d8ad226f5345e64affc125ed78a4eaf9b18ecc8e36c5a2b38f518"
+    },
+    {
+      "target": "radmin5session",
+      "entries": 25,
+      "red": 25,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "56aa83a751f3ec36d8cbdc616d98911c",
+      "log_sha256": "e9562addde0f5d7b29f8aa6c25daf6ba22ff251a004942617d29c151b2f55f85"
+    },
+    {
+      "target": "radmin7exec",
+      "entries": 11,
+      "red": 11,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "bc7b2b09749989229b1aaca9861ca4f4",
+      "log_sha256": "f000efbbda3dfab18510ec5ca4e778f2f7b572eeebdbfd0c8442c9eda9f508f2"
+    },
+    {
+      "target": "radmin7rx",
+      "entries": 13,
+      "red": 13,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "95efd0cf66c2cbf8944725d13c54a8517b2accaf30b472844228f78ad9747f81"
+    },
+    {
+      "target": "radmin7transcript",
+      "entries": 20,
+      "red": 20,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "56aa83a751f3ec36d8cbdc616d98911c",
+      "log_sha256": "a958af23f66385cda01ea57badccc82e6612851f04b844edf4e7cc4c773f8f70"
+    },
+    {
+      "target": "sliceAinbox",
+      "entries": 1,
+      "red": 1,
+      "unusable": 0,
+      "baselines": 1,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a8088417e948aef2e5ffbe8cec312b27",
+      "log_sha256": "d97ef15aead672cdee6c1ac0e7357376a3245b6aad971063573dd593b9a92af9"
+    },
+    {
+      "target": "sliceAjson",
+      "entries": 1,
+      "red": 1,
+      "unusable": 0,
+      "baselines": 1,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "45df30d5066440b1dc098b65e23e4fd8",
+      "log_sha256": "8186e93e9090bdac4437f05e20bb872a611b38c9537b3d8b8d441f3a5c499f5b"
+    },
+    {
+      "target": "sliceBmac",
+      "entries": 4,
+      "red": 3,
+      "unusable": 1,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "677c65439817a380f3fc94d9b651341d",
+      "log_sha256": "cf2b8e1fdfaccb9a69bc67c281c992313349e7064093b17c1e30d33dcc663e88"
+    },
+    {
+      "target": "sliceBnode",
+      "entries": 8,
+      "red": 8,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "f1cc7ffeda0ba77db8dda82fc5356c25",
+      "log_sha256": "f98dabf2f38659ea1e54881cc9f975ac482b3d6bc499ee9aa0e4e73e43e310ac"
+    },
+    {
+      "target": "sliceBrx",
+      "entries": 16,
+      "red": 16,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "beeb0b495366f66dfb5637e08ea4e51bc51eae04e90ea1795da1085c5581cc95"
+    },
+    {
+      "target": "sliceCinbox",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "6e60f13c2aec55cbffc5b48d24cc9d8d",
+      "log_sha256": "2e9a057baf188e4f57a0f0bd310ddc34ed6d9c736d4803a9a9a459d47602a00f"
+    },
+    {
+      "target": "sliceCpull",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a8088417e948aef2e5ffbe8cec312b27",
+      "log_sha256": "20b19a89ecefc1d6ff397e064319ed83fec6abf947aa4ae965e5a5bb69e70f58"
+    },
+    {
+      "target": "sliceDack",
+      "entries": 1,
+      "red": 1,
+      "unusable": 0,
+      "baselines": 1,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "21b1db7be690a55771a96490f003f769",
+      "log_sha256": "e3b877922f22f0085c0f48b22e6587896432967a0d075ab846ad2a01997ac970"
+    },
+    {
+      "target": "sliceDclear",
+      "entries": 5,
+      "red": 5,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a8088417e948aef2e5ffbe8cec312b27",
+      "log_sha256": "63ff38caec7ba86e606fa9d50dd51131c0f021567e0887ab4c81e5f3a83ea160"
+    },
+    {
+      "target": "sliceDstore",
+      "entries": 3,
+      "red": 3,
+      "unusable": 0,
+      "baselines": 3,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "29884575bbf3b33bf2ca456de63b1d69",
+      "log_sha256": "9193251e23430c997e216381d293cff9f702d36dc21c82faf670b7c311d0a921"
+    },
+    {
+      "target": "sliceDtoken",
+      "entries": 2,
+      "red": 2,
+      "unusable": 0,
+      "baselines": 2,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "668d664775bed49047d60e9bceb1d702",
+      "log_sha256": "b81e4abe09e32659bbd1067c6260b3308f706e1723dfb3e8e2ba3348ffc5ce99"
+    },
+    {
+      "target": "sliceEnode",
+      "entries": 3,
+      "red": 3,
+      "unusable": 0,
+      "baselines": 3,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "f1cc7ffeda0ba77db8dda82fc5356c25",
+      "log_sha256": "8044cdad8b02b48614ff70c4485b18c56801a3f51470fb6cf58bff73fe9b8e40"
+    },
+    {
+      "target": "sliceGinbox",
+      "entries": 4,
+      "red": 4,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "a8088417e948aef2e5ffbe8cec312b27",
+      "log_sha256": "14624748ff3d551b01fbec39a7eab84f7c843c87567a67a96674413ee1d7f56e"
+    },
+    {
+      "target": "sliceGjson",
+      "entries": 16,
+      "red": 16,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "45df30d5066440b1dc098b65e23e4fd8",
+      "log_sha256": "b4252a4fec136db1d22d8b3035b18e97c217cd5062e4b6af29e5e59c6be77fcd"
+    },
+    {
+      "target": "sliceGrx",
+      "entries": 42,
+      "red": 42,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "2e7f9edaa9d48e072f3e061ac411f322",
+      "log_sha256": "ebc7d4c7f04506d5b4926ecc9a5dfc7db898c11f0aac0391eeaa03b5a8d19041"
+    },
+    {
+      "target": "teamgrant",
+      "entries": 4,
+      "red": 4,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "f1cc7ffeda0ba77db8dda82fc5356c25",
+      "log_sha256": "82b82bc606b82449859fad70b4705acc203a1b157f466e510d4f77ea0e62844e"
+    },
+    {
+      "target": "teamkeyring",
+      "entries": 68,
+      "red": 68,
+      "unusable": 0,
+      "baselines": 4,
+      "baseline": [
+        2888,
+        172264,
+        0
+      ],
+      "restored_md5": "d5ec2e56c194d51c8d5c9f679232e380",
+      "log_sha256": "0fb9892f00b498298e6bb07d270ef565a69a2f8786cc859566677a72fc01915c"
+    }
+  ],
+  "total_entries": 713,
+  "total_red": 712,
+  "total_unusable": 1,
+  "total_worker_baselines": 156,
+  "unusable_lines": [
+    "  [w3]   FAIL M04 \u2605\u2605 THE HELPER CALL IN `do_data_tx`'s PACK-FAILED PATH IS DELETED \u2014 the SEVENTH site this sweep found reverts to destroying an admitted carrier in total silence, grant included ([[B268]] blocker-1) \u2014 the suite still PASSES; nothing measures this",
+    "  FAIL M04 \u2605\u2605 THE HELPER CALL IN `do_data_tx`'s PACK-FAILED PATH IS DELETED \u2014 the SEVENTH site this sweep found reverts to destroying an admitted carrier in total silence, grant included ([[B268]] blocker-1) \u2014 the suite still PASSES; nothing measures this"
+  ],
+  "restored_sources_sha256": {
+    "lib/console/console_json.cpp": "6eee176e19eb3ff10102a6537fa173653f9a18cda040816bc649c63e8a139109",
+    "lib/console/console_json.h": "1dfbd0e8c8536f251b709076a33ef054684efad002d152bc5e83dcc6af8f8f53",
+    "lib/console/console_line.h": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9",
+    "lib/core/fixed_inbox_store.h": "de7f838adceec69890ee1909c09238faa7cb3a18495e9be1439367fe683e7732",
+    "lib/core/frame_codec.cpp": "2c1a6be34634da3e48d387d794b02cbc946f4e268a27075b9d9658b1a0558111",
+    "lib/core/frame_codec.h": "d9476c95127cbd58cb9fd3eb98dce94f67b07f0c952081ae5ea5892b42036a66",
+    "lib/core/inbox.cpp": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b",
+    "lib/core/inbox.h": "f8ddc798652ffc4fea6f92ddb75e500e791d450d5d19015a78ed1a58096dd19a",
+    "lib/core/mac_wait_windows.h": "872cf244672dc6c02969a038f4374e4a44fdf05057c016f86d02ff3b3ffc41be",
+    "lib/core/node.cpp": "f40cbd1b557b5337181db17c94b6cb25646c9002921097ec2fa0ac58b77249d6",
+    "lib/core/node_beacon.cpp": "cf169322375bb4f86c14f25cfddd05123962cfe4ca79933558220ed42683c0f8",
+    "lib/core/node_cascade.cpp": "45757a06760d641fff6a80f4483a457ded9fe04010b4c1d6c4e74bb92ee79423",
+    "lib/core/node_channel.cpp": "22e97f392b71818ad838238eb3c0936b8b796d18f6a8a2c215f3748d8df7972e",
+    "lib/core/node_hashlocate.cpp": "ff7e36fbd2dbe7941354cae69fe79000aacf0295fb9e78092612185d30f1168d",
+    "lib/core/node_mac.cpp": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8",
+    "lib/core/node_mac_rx.cpp": "71b216f1a7f0e8063a0e7541340a64953d8096c29f9d3935332ad282fb089f1d",
+    "lib/core/protocol_constants.h": "46082d205df7728fd80381089d8151bdd4c8e6ebd83784628e6823d6b3305299",
+    "lib/core/remote_activation.h": "4510313092503927c29e983a9f7ecaee157993ac3b29e1026bb8a2f661ae361b",
+    "lib/core/remote_codec.cpp": "a972c2fceef24ac38cbc442c92d5926b4783648f04567bc7f0d4ba5c031c8820",
+    "lib/core/remote_session.cpp": "8db598428c9b4541f44a7f9d7b12abfac2e2ec9e6e78052cf1db57ade3d205e8",
+    "lib/core/segmented_inbox_store.h": "6a2ce6a7821dd6a4bafbb8c154694d2582a67cc7b541e95e8a1d7d60e2473a79",
+    "lib/core/team_seen_ring.h": "df992a27820cc45e25e0f42b437972161f5f460291a7047a009bbd89ebe40753",
+    "lib/hal/device_hal.cpp": "4f4228f9a8626d7e05f0d6f7983306a59aa571aebbaa9c9e47f2780e9c9cab40",
+    "src/device_inbox_fs_esp32.h": "8a7cd3fe169f8ad46d34d303d7f6ca9b937ac5ac8d3a922d88a99f3970a7b637",
+    "src/device_inbox_fs_nrf52.h": "51c2a3a3775c0a695e502ffd74db5a9080ad9b9f4352427a748525aba65eaebf",
+    "src/device_inbox_seam.h": "e2ba2b44b25fcb4bca273f132800e4088f3dcfbf214f7c22c24aff7dde46080a",
+    "src/device_nv.h": "1f383a2decd6391c38303273314e9e6750e3d1e60f2d852e0a22283b3606923d",
+    "src/firmware_admin_acl.h": "7fd78fdbd5e588da342ad61182e930bc3c0ed7a4d432dea9a80a3712b2077bfd",
+    "src/firmware_admin_client_verbs.h": "d3017806bd301422436dc32cbb440f39eb7a16784d44b6b2a70c678fbc1d36b0",
+    "src/firmware_admin_identity.h": "99d176fa7c0bb50b4c72985fb82bc22f6ac5a60e627a8691ffc4f1cc9f81dd32",
+    "src/firmware_admin_keyring.h": "af5a85c9da2bb1487ab2af88390f033a5eee69f4bb8ed18336835b91202e489e",
+    "src/firmware_admin_runtime.h": "9c2a2044af6586ab5b0519e9ab6d79929ec7328b9dc865106db76149d4c9dfc6",
+    "src/firmware_admin_targets.h": "6ed21c300c17be1fba2eeb7ef347095c24384535024b734a7ebec7bdffc61bbc",
+    "src/firmware_admin_verbs.h": "79212818546c5f6b91384b9450ffe474b5a9ca04e952d6eeafb3717ea59f0e52",
+    "src/firmware_command_authority.h": "fb33dcad48b36d87d8f09a31346d030a867ec708d6f49b0524922a5a6901d3ac",
+    "src/firmware_config_parse.h": "6df46b2e5b5eba98f259f621cd8c55b8e09feb73ec285989279acf37f66b886b",
+    "src/firmware_config_service.h": "c61448a35e461d016c936103560ca0eedc1da550ed0cbe88f1b1f938c241748d",
+    "src/firmware_join_profiles.h": "ce882f7e7e8602aedfb9458a9c9192c658b7a017b2823990fb692b5135095367",
+    "src/firmware_provisioning_service.h": "61e33768704c010378766fb8107e82e39d6ba6a222cdaedb96c0bb05305d5311",
+    "src/firmware_remote_activation.h": "ca2e597ff0e5e62bb6ef23afc7cb3a8d4ce75881306742372132eef3d9e01514",
+    "src/firmware_remote_executor.h": "dc2b417c3c41af7198c66e612d0c848d547ff277ae9d83b6f0507fcb319a2d38",
+    "src/firmware_team_keyring.h": "a427c1e36e76239d5a5dfae122cdeffc038722d1f2e23b82275f4e9bb14a43c5",
+    "src/firmware_ui_chrome.h": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+    "src/firmware_ui_geo.h": "e50f3ec67e94e7ab3dc3171231e46c9142114e6cf95860d68fccb2677b867487",
+    "src/firmware_ui_icons.h": "c8209e179057d15c6373617a66df22f19edb4ad6ef8b8ff9c57371fb2b3083d8",
+    "src/firmware_ui_invite.h": "fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f",
+    "src/firmware_ui_join.h": "61d27ebc9798fd27d241f300c16d283e07562474e97dc2e028fe92ac25bd0f0d",
+    "src/firmware_ui_model.h": "98b1992aec2a380b9594e769aa81ee7abb24196e723dec19fc6fc9597c08d2b5",
+    "src/firmware_ui_nearby.h": "54df947131e1772e043b9def1a2ed95515ae7e200ff6e8c0c3735bbea3dcbbb9",
+    "src/firmware_ui_nearby_row.h": "fbb194bb52080becc5d00bbeb153df17b57818cd2d7ddaa8dfd1f8767147aebb",
+    "src/firmware_ui_preset_verbs.h": "2c003d4d29ed592cfd19d576a582a7edea68406f0dcd78f863beef2f1ac329dd",
+    "src/firmware_ui_presets.h": "7f0c2bbacf4e203229a2f15dfadecdf49f0973698d18fd99fd90bf19907827a3",
+    "src/firmware_ui_prov.h": "c1788f10457cc13321a3a5512ff5327550e68c56e852dfb318e510f07d5df953",
+    "src/firmware_ui_send.h": "0a12ffc21cef8c7d55abf06add55bcac1bf6da2f436da0fe3652d418eb0ce44d",
+    "src/firmware_ui_status.h": "b6e42c8e5d595c41f1f34fdf684176729b69e65f895582b6ef10c3f8648f710b",
+    "src/firmware_ui_team.h": "aefa86f4785f30aa6551308f3f666da4d04eee20426e33eddd4591edb165fbc3"
+  }
+}

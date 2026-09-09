@@ -1,0 +1,27 @@
+-- target b159mac: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/node_mac.cpp (2 entries)
+-- selection: IN FULL (all 2 entries)
+-- workers: 2
+-- scratch root: /tmp/mr_mutation_run-h0h1j1dv   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b159mac: /tmp/mr_mutation_run-h0h1j1dv/w0/lib/core/node_mac.cpp (1 of 2 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b159mac: /tmp/mr_mutation_run-h0h1j1dv/w1/lib/core/node_mac.cpp (1 of 2 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w0]   ok   B06 the RTS HAL handoff on the DUTY-deferred path stops testing the deadline (the blocker-1 defect verbatim) -> RED (3 assertion(s) failed, match count 1)
+  [w0] source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+  [w1]   ok   B07 the RTS HAL handoff on the immediate/LBT-deferred path stops testing the deadline -> RED (4 assertion(s) failed, match count 1)
+  [w1] source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target b159mac: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/node_mac.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 2 tree(s) agree)
+  ok   B06 the RTS HAL handoff on the DUTY-deferred path stops testing the deadline (the blocker-1 defect verbatim) -> RED (3 assertion(s) failed, match count 1)
+  ok   B07 the RTS HAL handoff on the immediate/LBT-deferred path stops testing the deadline -> RED (4 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-h0h1j1dv/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 9.2s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-h0h1j1dv/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 9.3s = 10.0s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable

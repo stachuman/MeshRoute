@@ -1,0 +1,78 @@
+{
+  "native": {
+    "sizes": {
+      "mr_abi_align__MrAbiDivergenceFixture": 8,
+      "mr_abi_align__meshroute_CandidateOpenCapture": 2,
+      "mr_abi_align__meshroute_CandidateOpenState": 2,
+      "mr_abi_align__meshroute_CandidateRemoteSessionState": 8,
+      "mr_abi_align__meshroute_Node": 8,
+      "mr_abi_align__meshroute_OpenStagingSlot": 8,
+      "mr_abi_align__meshroute_RemoteSessionState": 8,
+      "mr_abi_included__MrAbiDivergenceFixture": 1,
+      "mr_abi_included__meshroute_CandidateOpenCapture": 1,
+      "mr_abi_included__meshroute_CandidateOpenState": 1,
+      "mr_abi_included__meshroute_CandidateRemoteSessionState": 1,
+      "mr_abi_included__meshroute_Node": 1,
+      "mr_abi_included__meshroute_OpenStagingSlot": 1,
+      "mr_abi_included__meshroute_RemoteSessionState": 1,
+      "mr_abi_size__MrAbiDivergenceFixture": 24,
+      "mr_abi_size__meshroute_CandidateOpenCapture": 1658,
+      "mr_abi_size__meshroute_CandidateOpenState": 4978,
+      "mr_abi_size__meshroute_CandidateRemoteSessionState": 8824,
+      "mr_abi_size__meshroute_Node": 225920,
+      "mr_abi_size__meshroute_OpenStagingSlot": 32,
+      "mr_abi_size__meshroute_RemoteSessionState": 3848
+    },
+    "extra_byte_control_size": 8832,
+    "cxx": "/usr/lib/ccache/g++"
+  },
+  "gateway": {
+    "sizes": {
+      "mr_abi_align__MrAbiDivergenceFixture": 4,
+      "mr_abi_align__meshroute_CandidateOpenCapture": 2,
+      "mr_abi_align__meshroute_CandidateOpenState": 2,
+      "mr_abi_align__meshroute_CandidateRemoteSessionState": 8,
+      "mr_abi_align__meshroute_Node": 8,
+      "mr_abi_align__meshroute_OpenStagingSlot": 8,
+      "mr_abi_align__meshroute_RemoteSessionState": 8,
+      "mr_abi_included__MrAbiDivergenceFixture": 1,
+      "mr_abi_included__meshroute_CandidateOpenCapture": 1,
+      "mr_abi_included__meshroute_CandidateOpenState": 1,
+      "mr_abi_included__meshroute_CandidateRemoteSessionState": 1,
+      "mr_abi_included__meshroute_Node": 1,
+      "mr_abi_included__meshroute_OpenStagingSlot": 1,
+      "mr_abi_included__meshroute_RemoteSessionState": 1,
+      "mr_abi_size__MrAbiDivergenceFixture": 16,
+      "mr_abi_size__meshroute_CandidateOpenCapture": 1658,
+      "mr_abi_size__meshroute_CandidateOpenState": 4978,
+      "mr_abi_size__meshroute_CandidateRemoteSessionState": 8824,
+      "mr_abi_size__meshroute_Node": 152288,
+      "mr_abi_size__meshroute_OpenStagingSlot": 32,
+      "mr_abi_size__meshroute_RemoteSessionState": 3848
+    },
+    "extra_byte_control_size": 8832,
+    "cxx": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++"
+  },
+  "heltec_mobile": {
+    "sizes": {
+      "mr_abi_align__MrAbiDivergenceFixture": 4,
+      "mr_abi_align__meshroute_CandidateOpenCapture": 2,
+      "mr_abi_align__meshroute_CandidateOpenState": 2,
+      "mr_abi_align__meshroute_CandidateRemoteSessionState": 8,
+      "mr_abi_align__meshroute_Node": 8,
+      "mr_abi_align__meshroute_OpenStagingSlot": 8,
+      "mr_abi_align__meshroute_RemoteSessionState": 8,
+      "mr_abi_included__MrAbiDivergenceFixture": 1,
+      "mr_abi_included__meshroute_Node": 1,
+      "mr_abi_size__MrAbiDivergenceFixture": 16,
+      "mr_abi_size__meshroute_CandidateOpenCapture": 1658,
+      "mr_abi_size__meshroute_CandidateOpenState": 4978,
+      "mr_abi_size__meshroute_CandidateRemoteSessionState": 8824,
+      "mr_abi_size__meshroute_Node": 117912,
+      "mr_abi_size__meshroute_OpenStagingSlot": 32,
+      "mr_abi_size__meshroute_RemoteSessionState": 3848
+    },
+    "extra_byte_control_size": 8832,
+    "cxx": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++"
+  }
+}

@@ -1,0 +1,425 @@
+QA SELECTORS 1 47 47 patterns 713
+START radmin2codec 103
+END radmin2codec {'rc': 0, 'seconds': 132.58}
+  worker 0: 26/26 entries, 26 RED / 0 worthless, wall 131.1s, rc 0, source restored: md5 22e3cfc10c678418ece5ce2daea0607b (MATCHES)   /tmp/mr_mutation_run-e08ydcwn/w0
+  worker 1: 26/26 entries, 26 RED / 0 worthless, wall 123.2s, rc 0, source restored: md5 22e3cfc10c678418ece5ce2daea0607b (MATCHES)   /tmp/mr_mutation_run-e08ydcwn/w1
+  worker 2: 26/26 entries, 26 RED / 0 worthless, wall 122.8s, rc 0, source restored: md5 22e3cfc10c678418ece5ce2daea0607b (MATCHES)   /tmp/mr_mutation_run-e08ydcwn/w2
+  worker 3: 25/25 entries, 25 RED / 0 worthless, wall 122.4s, rc 0, source restored: md5 22e3cfc10c678418ece5ce2daea0607b (MATCHES)   /tmp/mr_mutation_run-e08ydcwn/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 131.1s = 132.0s total, 103 entries over 4 worker(s)
+mutations: 103 RED / 0 unusable
+START a0rx 7
+END a0rx {'rc': 0, 'seconds': 14.38}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.9s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-cf9bzvub/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 12.5s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-cf9bzvub/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 12.6s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-cf9bzvub/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 9.0s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-cf9bzvub/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 13.0s = 13.8s total, 7 entries over 4 worker(s)
+mutations: 7 RED / 0 unusable
+START b134ack 2
+END b134ack {'rc': 0, 'seconds': 9.75}
+  ok   A01 ★★★ the ack's result mapping becomes UNCONDITIONAL SUCCESS — the exact shape the verb had before QG round 7: a cursor the store refused to persist is reported to the companion as marked -> RED (2 assertion(s) failed, match count 1)
+  ok   A02 ★★ the mapping is INVERTED — a persisted cursor reports io_error, so a working node looks broken and the companion retries for ever -> RED (4 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.9s, rc 0, source restored: md5 21b1db7be690a55771a96490f003f769 (MATCHES)   /tmp/mr_mutation_run-ouf2_4vv/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 21b1db7be690a55771a96490f003f769 (MATCHES)   /tmp/mr_mutation_run-ouf2_4vv/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.4s + battery 9.0s = 9.4s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START b134inbox 5
+END b134inbox {'rc': 0, 'seconds': 14.22}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.7s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-y6k_pi4y/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.9s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-y6k_pi4y/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-y6k_pi4y/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-y6k_pi4y/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 12.8s = 13.6s total, 5 entries over 4 worker(s)
+mutations: 5 RED / 0 unusable
+START b134ram 3
+END b134ram {'rc': 0, 'seconds': 12.09}
+  ok   R03 ★★ wipe() also re-rolls the storage epoch — it announces a wipe to the companion that the imminent reboot makes moot, forcing a full re-pull for nothing -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 10.8s, rc 0, source restored: md5 39644fd2d33466f12779c92431a3dc71 (MATCHES)   /tmp/mr_mutation_run-zfjzaspv/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 10.1s, rc 0, source restored: md5 39644fd2d33466f12779c92431a3dc71 (MATCHES)   /tmp/mr_mutation_run-zfjzaspv/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 10.6s, rc 0, source restored: md5 39644fd2d33466f12779c92431a3dc71 (MATCHES)   /tmp/mr_mutation_run-zfjzaspv/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 10.9s = 11.5s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+START b134store 39
+END b134store {'rc': 0, 'seconds': 48.76}
+  worker 0: 10/10 entries, 10 RED / 0 worthless, wall 46.9s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-k9yx9xff/w0
+  worker 1: 10/10 entries, 10 RED / 0 worthless, wall 44.7s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-k9yx9xff/w1
+  worker 2: 10/10 entries, 10 RED / 0 worthless, wall 46.6s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-k9yx9xff/w2
+  worker 3: 9/9 entries, 9 RED / 0 worthless, wall 41.2s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-k9yx9xff/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.9s + battery 47.0s = 47.8s total, 39 entries over 4 worker(s)
+mutations: 39 RED / 0 unusable
+START b159mac 2
+END b159mac {'rc': 0, 'seconds': 10.39}
+  ok   B06 the RTS HAL handoff on the DUTY-deferred path stops testing the deadline (the blocker-1 defect verbatim) -> RED (3 assertion(s) failed, match count 1)
+  ok   B07 the RTS HAL handoff on the immediate/LBT-deferred path stops testing the deadline -> RED (4 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-h0h1j1dv/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 9.2s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-h0h1j1dv/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 9.3s = 10.0s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START b159map 2
+END b159map {'rc': 0, 'seconds': 9.55}
+  ok   B16 the expiry is mapped to a NON-TERMINAL outcome — the flight re-enters retry instead of ending -> RED (2 assertion(s) failed, match count 1)
+  ok   B17 the wrong-flight guard is dropped — a SUPERSEDED flight's expiry fails the LIVE flight -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-1keonnhw/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-1keonnhw/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.4s + battery 8.8s = 9.2s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START b159rx 3
+END b159rx {'rc': 0, 'seconds': 9.93}
+  ok   B11 capacity pressure REFUSES the new key instead of rolling the oldest -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-jq4ui4dr/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-jq4ui4dr/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-jq4ui4dr/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 8.8s = 9.5s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+START b161hash 6
+END b161hash {'rc': 0, 'seconds': 14.12}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.3s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-e01zgky6/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 12.6s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-e01zgky6/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.9s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-e01zgky6/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-e01zgky6/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 12.7s = 13.5s total, 6 entries over 4 worker(s)
+mutations: 6 RED / 0 unusable
+START b161mac 1
+END b161mac {'rc': 0, 'seconds': 8.82}
+-- MERGED REPORT — target b161mac: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/node_mac.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   M01 B161 flight_identity trusts PendingTx.origin instead of the origin exposed by the DATA inner -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-4uth1a33/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.4s = 8.6s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable
+START b161rx 8
+END b161rx {'rc': 0, 'seconds': 14.64}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.7s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-8t1ok8sa/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 13.1s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-8t1ok8sa/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 12.7s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-8t1ok8sa/w2
+  worker 3: 2/2 entries, 2 RED / 0 worthless, wall 12.4s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-8t1ok8sa/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 13.2s = 14.0s total, 8 entries over 4 worker(s)
+mutations: 8 RED / 0 unusable
+START b20codec 5
+END b20codec {'rc': 0, 'seconds': 15.08}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 13.6s, rc 0, source restored: md5 70aff75d2bb570b9320bb471b7142e40 (MATCHES)   /tmp/mr_mutation_run-sov53nlf/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 9.3s, rc 0, source restored: md5 70aff75d2bb570b9320bb471b7142e40 (MATCHES)   /tmp/mr_mutation_run-sov53nlf/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 10.0s, rc 0, source restored: md5 70aff75d2bb570b9320bb471b7142e40 (MATCHES)   /tmp/mr_mutation_run-sov53nlf/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 9.9s, rc 0, source restored: md5 70aff75d2bb570b9320bb471b7142e40 (MATCHES)   /tmp/mr_mutation_run-sov53nlf/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 13.7s = 14.5s total, 5 entries over 4 worker(s)
+mutations: 5 RED / 0 unusable
+START b20mac 11
+END b20mac {'rc': 0, 'seconds': 17.84}
+  worker 0: 3/3 entries, 3 RED / 0 worthless, wall 16.0s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-r9l8uuzb/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 15.9s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-r9l8uuzb/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 16.3s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-r9l8uuzb/w2
+  worker 3: 2/2 entries, 2 RED / 0 worthless, wall 12.6s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-r9l8uuzb/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 16.4s = 17.2s total, 11 entries over 4 worker(s)
+mutations: 11 RED / 0 unusable
+START b251hash 55
+END b251hash {'rc': 0, 'seconds': 60.16}
+  worker 0: 14/14 entries, 14 RED / 0 worthless, wall 58.7s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-ah5k4qas/w0
+  worker 1: 14/14 entries, 14 RED / 0 worthless, wall 57.8s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-ah5k4qas/w1
+  worker 2: 14/14 entries, 14 RED / 0 worthless, wall 58.2s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-ah5k4qas/w2
+  worker 3: 13/13 entries, 13 RED / 0 worthless, wall 54.8s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-ah5k4qas/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 58.7s = 59.5s total, 55 entries over 4 worker(s)
+mutations: 55 RED / 0 unusable
+START b251rx 19
+END b251rx {'rc': 0, 'seconds': 25.87}
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 23.8s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-56df0obl/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 24.4s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-56df0obl/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 23.5s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-56df0obl/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 20.5s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-56df0obl/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 24.5s = 25.2s total, 19 entries over 4 worker(s)
+mutations: 19 RED / 0 unusable
+START cmdauthority 16
+END cmdauthority {'rc': 0, 'seconds': 21.51}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 401ed4d149fc410899f51d98fac667c1 (MATCHES)   /tmp/mr_mutation_run-eqpvmlnq/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 20.0s, rc 0, source restored: md5 401ed4d149fc410899f51d98fac667c1 (MATCHES)   /tmp/mr_mutation_run-eqpvmlnq/w1
+  worker 2: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 401ed4d149fc410899f51d98fac667c1 (MATCHES)   /tmp/mr_mutation_run-eqpvmlnq/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 401ed4d149fc410899f51d98fac667c1 (MATCHES)   /tmp/mr_mutation_run-eqpvmlnq/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 20.1s = 20.9s total, 16 entries over 4 worker(s)
+mutations: 16 RED / 0 unusable
+START consoleline 12
+END consoleline {'rc': 0, 'seconds': 17.65}
+  worker 0: 3/3 entries, 3 RED / 0 worthless, wall 15.9s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-nyw116wi/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 16.0s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-nyw116wi/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 15.8s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-nyw116wi/w2
+  worker 3: 3/3 entries, 3 RED / 0 worthless, wall 16.1s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-nyw116wi/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 16.2s = 17.0s total, 12 entries over 4 worker(s)
+mutations: 12 RED / 0 unusable
+START devicenv 42
+END devicenv {'rc': 0, 'seconds': 50.25}
+  worker 0: 11/11 entries, 11 RED / 0 worthless, wall 48.4s, rc 0, source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)   /tmp/mr_mutation_run-r_y30g5k/w0
+  worker 1: 11/11 entries, 11 RED / 0 worthless, wall 48.7s, rc 0, source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)   /tmp/mr_mutation_run-r_y30g5k/w1
+  worker 2: 10/10 entries, 10 RED / 0 worthless, wall 44.6s, rc 0, source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)   /tmp/mr_mutation_run-r_y30g5k/w2
+  worker 3: 10/10 entries, 10 RED / 0 worthless, wall 44.9s, rc 0, source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)   /tmp/mr_mutation_run-r_y30g5k/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 48.8s = 49.6s total, 42 entries over 4 worker(s)
+mutations: 42 RED / 0 unusable
+START grantadmit 1
+END grantadmit {'rc': 0, 'seconds': 8.9}
+-- MERGED REPORT — target grantadmit: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/node_mac.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   A01 ★★★ the enqueue reports ADMITTED whether or not it stored the item — the `if`'s own answer discarded again, one layer below every word that depends on it -> RED (15 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.4s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-nnzyt50p/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.5s = 8.7s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable
+START grantpark 3
+END grantpark {'rc': 0, 'seconds': 9.86}
+  ok   K03 ★★★ `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing — the sibling defect, attacked separately so neither park can pass on the other's assertion -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-0e2wkt27/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-0e2wkt27/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-0e2wkt27/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 8.8s = 9.4s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+START radmin3acl 36
+END radmin3acl {'rc': 0, 'seconds': 38.94}
+  worker 0: 9/9 entries, 9 RED / 0 worthless, wall 37.0s, rc 0, source restored: md5 9e9fc3a9f19be1a654e034b15e4ae9ce (MATCHES)   /tmp/mr_mutation_run-71_8qmlt/w0
+  worker 1: 9/9 entries, 9 RED / 0 worthless, wall 37.1s, rc 0, source restored: md5 9e9fc3a9f19be1a654e034b15e4ae9ce (MATCHES)   /tmp/mr_mutation_run-71_8qmlt/w1
+  worker 2: 9/9 entries, 9 RED / 0 worthless, wall 37.4s, rc 0, source restored: md5 9e9fc3a9f19be1a654e034b15e4ae9ce (MATCHES)   /tmp/mr_mutation_run-71_8qmlt/w2
+  worker 3: 9/9 entries, 9 RED / 0 worthless, wall 37.1s, rc 0, source restored: md5 9e9fc3a9f19be1a654e034b15e4ae9ce (MATCHES)   /tmp/mr_mutation_run-71_8qmlt/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 37.5s = 38.3s total, 36 entries over 4 worker(s)
+mutations: 36 RED / 0 unusable
+START radmin3id 23
+END radmin3id {'rc': 0, 'seconds': 28.43}
+  worker 0: 6/6 entries, 6 RED / 0 worthless, wall 26.9s, rc 0, source restored: md5 e919adc3b622885c788e470b854ab742 (MATCHES)   /tmp/mr_mutation_run-1vaz1_ke/w0
+  worker 1: 6/6 entries, 6 RED / 0 worthless, wall 26.4s, rc 0, source restored: md5 e919adc3b622885c788e470b854ab742 (MATCHES)   /tmp/mr_mutation_run-1vaz1_ke/w1
+  worker 2: 6/6 entries, 6 RED / 0 worthless, wall 26.6s, rc 0, source restored: md5 e919adc3b622885c788e470b854ab742 (MATCHES)   /tmp/mr_mutation_run-1vaz1_ke/w2
+  worker 3: 5/5 entries, 5 RED / 0 worthless, wall 23.1s, rc 0, source restored: md5 e919adc3b622885c788e470b854ab742 (MATCHES)   /tmp/mr_mutation_run-1vaz1_ke/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 27.0s = 27.8s total, 23 entries over 4 worker(s)
+mutations: 23 RED / 0 unusable
+START radmin3verbs 28
+END radmin3verbs {'rc': 0, 'seconds': 31.7}
+  worker 0: 7/7 entries, 7 RED / 0 worthless, wall 30.0s, rc 0, source restored: md5 a2720a19ea9fa8ee0608069dfc2b1780 (MATCHES)   /tmp/mr_mutation_run-wpabz4m8/w0
+  worker 1: 7/7 entries, 7 RED / 0 worthless, wall 29.9s, rc 0, source restored: md5 a2720a19ea9fa8ee0608069dfc2b1780 (MATCHES)   /tmp/mr_mutation_run-wpabz4m8/w1
+  worker 2: 7/7 entries, 7 RED / 0 worthless, wall 29.8s, rc 0, source restored: md5 a2720a19ea9fa8ee0608069dfc2b1780 (MATCHES)   /tmp/mr_mutation_run-wpabz4m8/w2
+  worker 3: 7/7 entries, 7 RED / 0 worthless, wall 30.1s, rc 0, source restored: md5 a2720a19ea9fa8ee0608069dfc2b1780 (MATCHES)   /tmp/mr_mutation_run-wpabz4m8/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 30.2s = 31.0s total, 28 entries over 4 worker(s)
+mutations: 28 RED / 0 unusable
+START radmin5runtime 16
+END radmin5runtime {'rc': 0, 'seconds': 21.54}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 19.5s, rc 0, source restored: md5 2fc7c0e9d04c5235dc9e60bf05f2a66f (MATCHES)   /tmp/mr_mutation_run-gmas4hb5/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 19.1s, rc 0, source restored: md5 2fc7c0e9d04c5235dc9e60bf05f2a66f (MATCHES)   /tmp/mr_mutation_run-gmas4hb5/w1
+  worker 2: 4/4 entries, 4 RED / 0 worthless, wall 19.0s, rc 0, source restored: md5 2fc7c0e9d04c5235dc9e60bf05f2a66f (MATCHES)   /tmp/mr_mutation_run-gmas4hb5/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 2fc7c0e9d04c5235dc9e60bf05f2a66f (MATCHES)   /tmp/mr_mutation_run-gmas4hb5/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 19.7s = 20.5s total, 16 entries over 4 worker(s)
+mutations: 16 RED / 0 unusable
+START radmin5rx 14
+END radmin5rx {'rc': 0, 'seconds': 21.34}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ld4fdxpk/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 19.9s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ld4fdxpk/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 16.2s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ld4fdxpk/w2
+  worker 3: 3/3 entries, 3 RED / 0 worthless, wall 16.2s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ld4fdxpk/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 19.9s = 20.7s total, 14 entries over 4 worker(s)
+mutations: 14 RED / 0 unusable
+START radmin5session 25
+END radmin5session {'rc': 0, 'seconds': 33.39}
+  worker 0: 7/7 entries, 7 RED / 0 worthless, wall 31.5s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-7vtqy4f4/w0
+  worker 1: 6/6 entries, 6 RED / 0 worthless, wall 27.0s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-7vtqy4f4/w1
+  worker 2: 6/6 entries, 6 RED / 0 worthless, wall 27.6s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-7vtqy4f4/w2
+  worker 3: 6/6 entries, 6 RED / 0 worthless, wall 27.7s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-7vtqy4f4/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 31.6s = 32.4s total, 25 entries over 4 worker(s)
+mutations: 25 RED / 0 unusable
+START radmin7exec 11
+END radmin7exec {'rc': 0, 'seconds': 17.49}
+  worker 0: 3/3 entries, 3 RED / 0 worthless, wall 15.9s, rc 0, source restored: md5 bc7b2b09749989229b1aaca9861ca4f4 (MATCHES)   /tmp/mr_mutation_run-8u81l8i5/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 16.0s, rc 0, source restored: md5 bc7b2b09749989229b1aaca9861ca4f4 (MATCHES)   /tmp/mr_mutation_run-8u81l8i5/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 15.7s, rc 0, source restored: md5 bc7b2b09749989229b1aaca9861ca4f4 (MATCHES)   /tmp/mr_mutation_run-8u81l8i5/w2
+  worker 3: 2/2 entries, 2 RED / 0 worthless, wall 12.3s, rc 0, source restored: md5 bc7b2b09749989229b1aaca9861ca4f4 (MATCHES)   /tmp/mr_mutation_run-8u81l8i5/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 16.1s = 16.9s total, 11 entries over 4 worker(s)
+mutations: 11 RED / 0 unusable
+START radmin7rx 13
+END radmin7rx {'rc': 0, 'seconds': 21.65}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 20.2s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-yp_wd6w0/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 16.2s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-yp_wd6w0/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 16.4s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-yp_wd6w0/w2
+  worker 3: 3/3 entries, 3 RED / 0 worthless, wall 16.1s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-yp_wd6w0/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 20.2s = 21.0s total, 13 entries over 4 worker(s)
+mutations: 13 RED / 0 unusable
+START radmin7transcript 20
+END radmin7transcript {'rc': 0, 'seconds': 25.78}
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 24.1s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-5v_kttx8/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 23.9s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-5v_kttx8/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 24.0s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-5v_kttx8/w2
+  worker 3: 5/5 entries, 5 RED / 0 worthless, wall 24.3s, rc 0, source restored: md5 56aa83a751f3ec36d8cbdc616d98911c (MATCHES)   /tmp/mr_mutation_run-5v_kttx8/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 24.3s = 25.2s total, 20 entries over 4 worker(s)
+mutations: 20 RED / 0 unusable
+START sliceAinbox 1
+END sliceAinbox {'rc': 0, 'seconds': 8.91}
+-- MERGED REPORT — target sliceAinbox: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/inbox.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   S05 ★★★ record_ack STAMPS THE OLD ORDINAL 3 — a durable receipt is written with the value that now means SEALED_RELAY, so every stored ack becomes an application record -> RED (30 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.4s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-042pperu/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.5s = 8.7s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable
+START sliceAjson 1
+END sliceAjson {'rc': 0, 'seconds': 8.76}
+-- MERGED REPORT — target sliceAjson: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/console/console_json.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   S08 ★★★ THE [[B265]] NUMERIC LITERAL COMES BACK — the companion encoder compares the DM type against 3 again, which after the transition is SEALED_RELAY and not the receipt -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-f1lhpkis/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.3s = 8.6s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable
+START sliceBmac 4
+END sliceBmac {'rc': 1, 'seconds': 10.29}
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-x6krzi05/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-x6krzi05/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-x6krzi05/w2
+  worker 3: 1/1 entries, 0 RED / 1 worthless, wall 8.8s, rc 1, source restored: md5 677c65439817a380f3fc94d9b651341d (MATCHES)   /tmp/mr_mutation_run-x6krzi05/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 8.9s = 9.7s total, 4 entries over 4 worker(s)
+mutations: 3 RED / 1 unusable
+START sliceBnode 8
+END sliceBnode {'rc': 0, 'seconds': 14.16}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.7s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-pkeczl9i/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 12.4s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-pkeczl9i/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 12.5s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-pkeczl9i/w2
+  worker 3: 2/2 entries, 2 RED / 0 worthless, wall 12.3s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-pkeczl9i/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 12.7s = 13.5s total, 8 entries over 4 worker(s)
+mutations: 8 RED / 0 unusable
+START sliceBrx 16
+END sliceBrx {'rc': 0, 'seconds': 21.54}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 19.9s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-2m4yr1kq/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 19.3s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-2m4yr1kq/w1
+  worker 2: 4/4 entries, 4 RED / 0 worthless, wall 19.1s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-2m4yr1kq/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 20.1s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-2m4yr1kq/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 20.1s = 20.9s total, 16 entries over 4 worker(s)
+mutations: 16 RED / 0 unusable
+START sliceCinbox 2
+END sliceCinbox {'rc': 0, 'seconds': 9.88}
+  ok   S06 ★★★★ THE CLASSIFICATION PREDICATE IS DROPPED — every internal outcome record becomes an ordinary message again: rows on the panel, a bigger visible total, and a binary body through the byte sanitizer -> RED (95 assertion(s) failed, match count 1)
+  ok   S07 ★★★★ THE PREDICATE IS WEAKENED TO `persistent_outcome` — an 0x81-class record (and every reserved, retired or future internal value) becomes VISIBLE as ordinary text, while today's E2E ack still hides -> RED (66 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)   /tmp/mr_mutation_run-ditlwi19/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)   /tmp/mr_mutation_run-ditlwi19/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.4s + battery 9.1s = 9.5s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START sliceCpull 2
+END sliceCpull {'rc': 0, 'seconds': 9.4}
+  ok   S08 ★★★★ `Inbox::pull()` FILTERS INTERNAL RECORDS — the diagnostic stream loses every E2E receipt, so an offline-delivered message can never be confirmed and the DM cursor never advances past it -> RED (99 assertion(s) failed, match count 1)
+  ok   S09 ★★★ `Inbox::erase` PROTECTS AN INTERNAL RECORD — `del_msg dm <seq>` on a receipt answers not_found, so a record the diagnostic stream still shows can never be deleted -> RED (3 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-4yaatyhz/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-4yaatyhz/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.4s + battery 8.7s = 9.1s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START sliceDack 1
+END sliceDack {'rc': 0, 'seconds': 8.75}
+-- MERGED REPORT — target sliceDack: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/console/console_json.h
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   D12 ★★★★ A FAILED CLEAR STILL PRINTS `cleared` — the operator is told an inbox was destroyed that is still on the medium, which is the one direction a data-retention report must never fail in -> RED (4 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 21b1db7be690a55771a96490f003f769 (MATCHES)   /tmp/mr_mutation_run-s11yqe02/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.3s = 8.5s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable
+START sliceDclear 5
+END sliceDclear {'rc': 0, 'seconds': 13.99}
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 12.5s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-ahspn5pm/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-ahspn5pm/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 9.0s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-ahspn5pm/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-ahspn5pm/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 12.6s = 13.4s total, 5 entries over 4 worker(s)
+mutations: 5 RED / 0 unusable
+START sliceDstore 3
+END sliceDstore {'rc': 0, 'seconds': 9.79}
+  ok   D08 ★★★★ THE TARGET-EPOCH ARM IS DROPPED — a confirmed clear announces itself with the legacy per-store rule, so an empty store's epoch never moves and the two stores can disagree -> RED (6 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 8.7s = 9.3s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+START sliceDtoken 2
+END sliceDtoken {'rc': 0, 'seconds': 9.56}
+  ok   D10 ★★★★ THE CONFIRM TOKEN IS MATCHED AS A PREFIX — `clear_inbox confirm extra` and `clear_inbox confirmation` both DESTROY the inbox -> RED (43 assertion(s) failed, match count 1)
+  ok   D11 ★★★★ THE CONFIRM GATE IS DROPPED ENTIRELY — a bare `clear_inbox` (or any tail at all) clears the inbox with no confirmation -> RED (94 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)   /tmp/mr_mutation_run-pr1jzj0p/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)   /tmp/mr_mutation_run-pr1jzj0p/w1
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.4s + battery 8.8s = 9.2s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable
+START sliceEnode 3
+END sliceEnode {'rc': 0, 'seconds': 10.54}
+  ok   E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone -> RED (6 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.0s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-lxtw36hq/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-lxtw36hq/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-lxtw36hq/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 9.1s = 9.7s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+START sliceGinbox 4
+END sliceGinbox {'rc': 0, 'seconds': 10.68}
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-c28vmcj5/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-c28vmcj5/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 9.2s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-c28vmcj5/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-c28vmcj5/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 9.2s = 10.0s total, 4 entries over 4 worker(s)
+mutations: 4 RED / 0 unusable
+START sliceGjson 16
+END sliceGjson {'rc': 0, 'seconds': 22.19}
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 20.4s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-g5lgyo6d/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 20.7s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-g5lgyo6d/w1
+  worker 2: 4/4 entries, 4 RED / 0 worthless, wall 20.6s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-g5lgyo6d/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 19.6s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-g5lgyo6d/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 20.8s = 21.6s total, 16 entries over 4 worker(s)
+mutations: 16 RED / 0 unusable
+START sliceGrx 42
+END sliceGrx {'rc': 0, 'seconds': 52.04}
+  worker 0: 11/11 entries, 11 RED / 0 worthless, wall 50.5s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ou38ep3w/w0
+  worker 1: 11/11 entries, 11 RED / 0 worthless, wall 48.4s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ou38ep3w/w1
+  worker 2: 10/10 entries, 10 RED / 0 worthless, wall 43.6s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ou38ep3w/w2
+  worker 3: 10/10 entries, 10 RED / 0 worthless, wall 43.7s, rc 0, source restored: md5 2e7f9edaa9d48e072f3e061ac411f322 (MATCHES)   /tmp/mr_mutation_run-ou38ep3w/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 50.6s = 51.4s total, 42 entries over 4 worker(s)
+mutations: 42 RED / 0 unusable
+START teamgrant 4
+END teamgrant {'rc': 0, 'seconds': 10.71}
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-cg7ni5s5/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-cg7ni5s5/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-cg7ni5s5/w2
+  worker 3: 1/1 entries, 1 RED / 0 worthless, wall 9.1s, rc 0, source restored: md5 f1cc7ffeda0ba77db8dda82fc5356c25 (MATCHES)   /tmp/mr_mutation_run-cg7ni5s5/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 9.2s = 10.0s total, 4 entries over 4 worker(s)
+mutations: 4 RED / 0 unusable
+START teamkeyring 68
+END teamkeyring {'rc': 0, 'seconds': 74.69}
+  worker 0: 17/17 entries, 17 RED / 0 worthless, wall 72.8s, rc 0, source restored: md5 d5ec2e56c194d51c8d5c9f679232e380 (MATCHES)   /tmp/mr_mutation_run-09fdytlb/w0
+  worker 1: 17/17 entries, 17 RED / 0 worthless, wall 72.2s, rc 0, source restored: md5 d5ec2e56c194d51c8d5c9f679232e380 (MATCHES)   /tmp/mr_mutation_run-09fdytlb/w1
+  worker 2: 17/17 entries, 17 RED / 0 worthless, wall 72.3s, rc 0, source restored: md5 d5ec2e56c194d51c8d5c9f679232e380 (MATCHES)   /tmp/mr_mutation_run-09fdytlb/w2
+  worker 3: 17/17 entries, 17 RED / 0 worthless, wall 73.2s, rc 0, source restored: md5 d5ec2e56c194d51c8d5c9f679232e380 (MATCHES)   /tmp/mr_mutation_run-09fdytlb/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.8s + battery 73.3s = 74.1s total, 68 entries over 4 worker(s)
+mutations: 68 RED / 0 unusable
+QA UNION COMPLETE; inspect every outcome, including known B342

@@ -1,0 +1,19 @@
+-- target sliceAjson: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/console/console_json.cpp (1 entries)
+-- selection: IN FULL (all 1 entries)
+-- workers: 1   [SERIAL REFERENCE PATH]
+-- scratch root: /tmp/mr_mutation_run-f1lhpkis   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceAjson: /tmp/mr_mutation_run-f1lhpkis/w0/lib/console/console_json.cpp (1 of 1 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w0]   ok   S08 ★★★ THE [[B265]] NUMERIC LITERAL COMES BACK — the companion encoder compares the DM type against 3 again, which after the transition is SEALED_RELAY and not the receipt -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceAjson: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/console/console_json.cpp
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   S08 ★★★ THE [[B265]] NUMERIC LITERAL COMES BACK — the companion encoder compares the DM type against 3 again, which after the transition is SEALED_RELAY and not the receipt -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 45df30d5066440b1dc098b65e23e4fd8 (MATCHES)   /tmp/mr_mutation_run-f1lhpkis/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.2s + battery 8.3s = 8.6s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable

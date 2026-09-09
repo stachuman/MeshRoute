@@ -1,0 +1,52 @@
+== §0f BLE inbound-line probe (the REAL src/device_ble.h intake + the real pack_unicast_inner) ==
+   header under test : /tmp/mr-qa-s7b20-gate-qfpdn1ul/gate/src/device_ble.h
+   md5(header)       : 8524efed8ed18cf7ffb6fc84195c42cb
+== §0f BLE inbound-line probe (the REAL src/device_ble.h intake) ==
+   compiled header FNV-1a-64 = 0x82d150f10c1bb25a   inspected: /tmp/mr-qa-s7b20-gate-qfpdn1ul/gate/src/device_ble.h
+   derived: send=265  send_layer=274 (body cap 226, path 11, XL inner overhead 15)  remote=261  =>  storage=275
+  ok   A1  the COMPILED header and the INSPECTED header are the same text (FNV-1a-64 pin)
+  ok   A2  the header source was read
+  ok   A3  `g_line`'s extent is the DERIVED constant, not a numeric literal
+  ok   A4  the storage is derived as `kProductLineMaxBytes + 1` (the grammar maximum plus its NUL)
+  ok   A5  the `send` body term is BOUND to `protocol::dm_max_body_bytes` (239 is never copied)
+  ok   A6  the `send_layer` body cap mirrors pack_unicast_inner's arithmetic (226 is never copied)
+  ok   A7  the hop-path and layer-id terms are BOUND to `protocol::gw_env_max_hops`
+  ok   A8  the fixed grammar terms are spelled `sizeof("literal") - 1`, so adding/removing one moves the buffer
+  ok   A9  admission reads the extent off `g_line` itself — there is exactly ONE capacity expression
+  ok   A10 the loud overflow refusal literal is unchanged
+  ok   A11 no literal-extent `g_line[...]` declaration survives anywhere in the header
+  ok   B1  the real pack_unicast_inner ACCEPTS a body of exactly `kSendLayerBodyCapBytes` and fills inner[] to the hard cap
+  ok   B2  ...and REFUSES cap+1 (the mirror is the packer's real edge, not an estimate)
+  ok   B3  one layer shallower the packer takes exactly ONE more body byte — so the DEEPEST path, which costs 4 line bytes to buy 1, is the longest line
+  ok   C1  the real mrble::begin() started the transport and installed the dispatch seam
+  ok   C2  the canonical maximal `send_layer` spelling is exactly the derived maximum, i.e. storage-minus-NUL
+  ok   C3  the canonical maximal by-hash `send` spelling is exactly the derived `send` maximum
+  ok   C4  the plaintext queue-positive is the same line minus `-e -l` (the two options that refuse semantically)
+  ok   C5  the 274-byte `send_layer` transport-positive dispatches ONCE, byte-identically, under 1-byte BLE writes
+  ok   C6  the 274-byte `send_layer` transport-positive dispatches ONCE, byte-identically, under 20-byte BLE writes
+  ok   C7  the 274-byte `send_layer` transport-positive dispatches ONCE, byte-identically, under 244-byte BLE writes
+  ok   C8  ...and the three chunkings produce the SAME bytes (an ATT boundary changes nothing)
+  ok   C9  one single write carrying the whole line + newline dispatches identically
+  ok   C10 an uneven final chunk dispatches identically
+  ok   C11 a chunk boundary immediately BEFORE the newline holds the line, then dispatches it whole
+  ok   C12 the plaintext `send_layer` queue-positive dispatches byte-identically
+  ok   C13 the maximal by-hash `send` line (full 239-B DM body + five flags) dispatches byte-identically
+  ok   C14 CRLF and LF produce the SAME line bytes, with the CR absent
+  ok   C15 an empty LF line dispatches nothing and answers nothing
+  ok   C16 an empty CRLF line dispatches nothing and answers nothing
+  ok   C17 a one-byte line dispatches once
+  ok   C18 a non-empty dispatch reply is written to BLE unchanged, in one write
+  ok   C19 a zero-length dispatch reply writes nothing
+  ok   C20  a 275-byte line (one past the derived edge) dispatches NOTHING and answers exactly one `line_too_long`, under 1-byte writes
+  ok   C21  a 275-byte line (one past the derived edge) dispatches NOTHING and answers exactly one `line_too_long`, under 20-byte writes
+  ok   C22  a 275-byte line (one past the derived edge) dispatches NOTHING and answers exactly one `line_too_long`, under 244-byte writes
+  ok   C23 the byte BELOW the edge is admitted whole — the boundary is exactly storage-minus-NUL
+  ok   C24 a line far past the edge still refuses EXACTLY ONCE (the excess is consumed, never re-entered)
+  ok   C25 an over-long line is never split into a second command — the following line is the only dispatch
+  ok   C26 after a refusal the intake resets: the next valid maximal line dispatches normally
+
+probe: 40 checks against the REAL device_ble.h intake, 0 failed
+
+tree unchanged: the real sources' md5 is identical before and after (d5dafb9c3194ca4c8e93ce1632240e97)
+probe: 40 checks against the REAL device_ble.h intake, 0 failed (pin 40)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)

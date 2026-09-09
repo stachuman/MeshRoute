@@ -6,10 +6,13 @@ round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. S
 independently through §19; none is authorized until its own brief passes. Slices 0d and 0f have landed; Slice 0e
 has completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
-**Implementation update 2026-09-08:** the preceding status is the original design checkpoint. Slice 7b-1 is
-software-complete with independent QA PASS; final changes remain uncommitted. R-RA-34 splits 7b into 7b-1/7b-2/7b-3,
-as reflected in §19/§19.1 below. Session control/open responses and deferred actions remain separate pending slices.
-Current measurements and limits: [Slice 7b-1 independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md).
+**Implementation update 2026-09-09:** the preceding status is the original design checkpoint. Slice 7b-1 is
+software-complete with independent QA PASS, owner-committed at `1d4b3ad`. R-RA-34 splits 7b into 7b-1/7b-2/7b-3.
+R-RA-35 approves independent open storage and three open admissions total per target per five minutes;
+R-RA-36's separate 7b-2-0 admission codec is now software-complete / independent QA PASS, uncommitted.
+Its new wire domain has no live producer yet. The open-storage/rate and session/open/deferred requirements
+remain pending. Owner commits codec preparation separately, then QA reissues 7b-2 at the actual successor.
+Current measurements and limits: [codec independent QA](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md).
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -742,12 +745,14 @@ The outer DATA type already distinguishes request from response. The opcode nibb
 | `REMOTE_RESP` | `0x2` | `BOOTSTRAP` |
 | `REMOTE_RESP` | `0x3` | `ROLLOVER_RESULT` |
 | `REMOTE_RESP` | `0x4` | `PROTOCOL_ERROR` |
+| `REMOTE_RESP` | `0x5` | `ADMISSION_RESULT` — R-RA-36, codec QA-passed; producer pending |
 
 All other opcode nibbles remain reserved and reject. Values are append-only after the codec/KAT slice.
 
 Slots 0..9 select established authenticated ACL sessions. Nibbles A..E are reserved and reject. Sentinel F
 is valid only with `OPEN_EXECUTE`, an open response, or a bootstrap request before the target ACL row is
-known. A bootstrap response carries the actual matched slot 0..9. Open and bootstrap are opcodes, not fake
+known. Bootstrap and ADMISSION_RESULT responses carry an actual slot 0..9; ADMISSION_RESULT has no open form.
+Open and bootstrap are opcodes, not fake
 ACL slots. The decoder chooses one body layout from outer direction, opcode, slot class, and exact length;
 an invalid authenticated request never falls back to the open decoder.
 
@@ -760,7 +765,9 @@ key under which that message is sealed or tagged: `base_key32` for a bootstrap r
 or rollover-result response, and `session_key32` for established-session traffic. The nonce input order is
 `label || selected_key32 || outer_type_u8 || ctl_u8 || request_id_le64 || response_seq_u8 ||
 source_hash_le32`, followed by `admin_epoch_le64` only for the **bootstrap response** and
-`ROLLOVER_RESULT` domains. A bootstrap request cannot include an epoch the controller does not yet know;
+`ROLLOVER_RESULT` domains. For **ADMISSION_RESULT only**, append `request_ctl_u8 || admission_code_u8 ||
+detail_u8` after the source term instead; its no-sequence nonce term is zero (R-RA-36). All other domain
+preimages remain unchanged. A bootstrap request cannot include an epoch the controller does not yet know;
 the BLAKE2b-512 result is truncated to 32 bytes for keys and 24 bytes for the XChaCha nonce. AEAD associated
 data is `outer_type_u8 ||` the exact clear RPC-header bytes in wire order `|| source_hash_le32`; ciphertext
 and tag are not repeated in AAD. The independent-reference KATs must pin every domain, both directions and
@@ -924,10 +931,10 @@ terminal meaning or accepted as success. The assigned meanings remain:
 - `refused` — the authority/transport is not allowed to run this command;
 - `output_truncated` — the handler returned, but the bounded transcript could not retain all output;
 - `internal_error` — execution or response staging failed before a truthful normal result existed;
-- `session_full` — no authenticated execution occurred; explicitly roll over the bounded session and retry
-  is safe; and
-- `session_busy` — safe rollover refused because one or more completed transcripts remain unacknowledged;
-  the bounded detail carries their count and no epoch/state changed.
+- `session_full` and `session_busy` — retained codec meanings for the frozen `0x06/0x07` vectors only.
+  **R-RA-36 supersedes their production assignment to TERMINAL:** no-execution capacity refusal and a changing
+  safe-rollover busy count use ADMISSION_RESULT below. Old transcript bytes/nonces and decoder recognition
+  remain unchanged; new target producers must not emit these state-dependent refusals in TERMINAL.
 
 Optional short detail bytes may follow, but ordinary handler output must not be duplicated into a special
 terminal encoding. The `scheduled` result is the exception that must carry its bounded activation delay.
@@ -957,6 +964,38 @@ envelope or authentication-tag bytes; it does not broaden the separate clear/ope
 255 output frames followed by the required terminal frame. Even under the smallest accepted carrier cap,
 that is already far beyond the response transcript firmware should retain in RAM. A two-byte sequence would
 cost one byte in every response DM without increasing a usable target limit.
+
+### 8.9a Admission result (R-RA-36, codec preparation 7b-2-0)
+
+An ADMISSION_RESULT is a fixed, intentionally clear, session-key-authenticated response. It reports
+non-executed admission/control outcomes; it is not an executed transcript, has no response sequence, and
+creates no RESPONSE_ACK debt. The exact body is:
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | `ctl`: opcode `0x5`, actual ACL slot 0..9 |
+| 1 | 8 | `request_id`, little-endian |
+| 9 | 1 | `request_ctl`: AUTH_EXECUTE / SAFE_ROLLOVER / FORCE_ROLLOVER, same slot |
+| 10 | 1 | `admission_code` |
+| 11 | 1 | `detail` |
+| 12 | 16 | K_session authentication tag; empty plaintext, no ciphertext |
+
+| Admission code | Allowed request | Detail |
+| --- | --- | --- |
+| `0x00 session_full` | AUTH_EXECUTE | Zero |
+| `0x01 ingress_full` | AUTH_EXECUTE / SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+| `0x02 session_busy` | SAFE_ROLLOVER | Positive byte count |
+| `0x03 executing` | SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+| `0x04 preparation_failed` | SAFE_ROLLOVER / FORCE_ROLLOVER | Zero |
+
+Header length is 12, total length exactly 28, application capacity zero. No sentinel/open form, epoch,
+controller public key or variable detail follows. The new-domain nonce binds all three clear notice bytes
+as specified in §8.1; AAD is direction + complete clear header + stable logical controller SOURCE_HASH.
+An identical notice is byte-identical; a changed code/count/request domain changes its nonce. The codec
+retains a distinct typed admission result, rejects illegal pairings/codes/detail/length and publishes nothing
+on failed authentication or semantic validation. The wire busy count is 1..255; the target consumer enforces
+the ruled live transcript capacity (currently four), without coupling the pure codec to session storage.
+The separate codec slice adds no producer; 7b-2 owns real target lifecycles and 8a owns controller handling.
 
 ### 8.10 Authenticated response acknowledgement and local delivery
 
@@ -1009,6 +1048,7 @@ a structural grep alone is not a wiring gate.
 | Authenticated ACK/safe-rollover/force-rollover request | 25 | 0 |
 | Authenticated bootstrap response | 33 | 0 |
 | Authenticated rollover result | 34 | 0 |
+| Authenticated-clear admission result (R-RA-36) | 28 | 0 |
 
 `carrier_rpc_body_cap` is obtained from one codec authority,
 `remote_body_cap(RemoteCarrier carrier)`, which derives its result from `data_inner_cap()` /
@@ -1089,8 +1129,10 @@ For authenticated traffic, a 24-byte XChaCha nonce is derived, not transmitted, 
 sealing/tag key (`base_key32` or `session_key32` as defined in §8.1) plus a domain containing the complete `ctl` byte, message direction, `request_id`,
 `response_seq` (zero for requests), and the stable logical controller `SOURCE_HASH` captured from the
 request carrier. Only the bootstrap **response** and rollover-result response domains additionally include
-the clear `admin_epoch`; the bootstrap request does not. Thus the response to a replayed request after epoch
-rotation uses a different nonce. The
+the clear `admin_epoch`; the bootstrap request does not. ADMISSION_RESULT instead additionally includes
+its clear `request_ctl`, `admission_code` and `detail`, with no sequence field and a zero sequence nonce term.
+Thus a changed admission outcome/count changes the nonce even under the same session key and request ID;
+an epoch-bearing response to a replayed request after rotation also changes its nonce. The
 complete clear RPC header and stable logical source are authenticated as AEAD associated data. Full target
 administration and controller-credential identities are already bound through key derivation. Mutable
 next-hop, retry, and relay headers are not AEAD inputs.
@@ -1635,6 +1677,16 @@ The target implementation needs:
   been reserved;
 - paced draining into the existing TX queue, with every enqueue result checked.
 
+**Target open allocation/rate, R-RA-35:** three independently owned 1648-byte ACCEPT captures pair with the
+three open staging rows; bootstrap and authenticated pools remain separate. The limit is **three open
+admissions total per target in any 300000 ms window, shared across all requesters**, not three per peer.
+Each admission occupies one budget position until its original deadline; completed output is wiped while
+peer/deadline cooldown remains. At most one row is retained per peer. Source/ID/route changes cannot create
+extra budget; authenticated traffic and bootstrap consume none. Use the existing earliest-deadline scan;
+no completion/retry window reset or new timer. The measured candidate +4976 B is not linked RAM: final
+native/gateway growth must be measured and attributed, with mobile Node/RAM unchanged. This is a pending
+7b-2 implementation requirement, not an allocation in the codec-only 7b-2-0 slice.
+
 The controller implementation also needs:
 
 - a bounded pending-request table binding local transport, target-administration full key, stable local
@@ -2119,8 +2171,9 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 5 | ✅ software-complete / QA-passed 2026-09-07, owner commit `d226189`; target session/dedup files `lib/core/remote_session.{h,cpp}` + `src/firmware_admin_runtime.h`; R-RA-31; B341 (live activation across a reboot) fixed in-slice | native 2825/119784/0; corpus 36/36 byte-identical, keystone unmoved; `lus` changed (Node layout); Node re-pin native 224136 / gateway 150504, mobile 117912 unmoved; gateway RAM +1336 attributed to five symbols, mobile +8 (`g_hal`); union 516 RED / 1 unusable (B342, pre-existing) | none |
 | 6 | ✅ software-complete / QA-passed 2026-09-07 (uncommitted at report); the shared validator `lib/console/console_line.h`, `CommandContext`/outcome, the ruled authority table `src/firmware_command_authority.h` + `docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md` + `tools/check_command_authority.py`; B343–B348 folded in before implementation | zero remote events; `lus` byte-identical with 0 build actions; corpus 36/36; local behaviour byte-identical except the ruled `bad_line` refusals; inventory 203 rows; ruled pair RAM ±0, flash +5536 / +3816 attributed | Part 63 (the BLE embedded-NUL line) |
 | 7a | ✅ software-complete / QA-passed 2026-09-08 (two commits: 7a-0 `89071fb` the MAC wait-window refactor `lib/core/mac_wait_windows.h`; 7a the feature, uncommitted at report): NV v25 `remote_action_activation_ms` (offset 276, record 280, explicit `kVersionMinLoad = 25`), `lib/core/remote_activation.h` (R-RA-20/23 budget, KAT 7006/14012), `src/firmware_remote_activation.h` (five-state resolver, never clamps), the `cfg set` key, text/JSON read-out, post-init boot line; B352–B358, B360–B363 folded in; B354 (unreachable `gw_announce_interval`) fixed | zero remote events; `lus` changed twice with 36/36 byte-identical; inventory 204; ruled pair RAM +8 / +8 (global + alignment), flash +5072 / +1476 attributed; union 204 RED / 1 pre-existing | **Part 57a** (landed) |
-| 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, final changes uncommitted; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
-| 7b-2 | **PENDING:** session control/rollover/protocol error, open executor/responses/rate limit, status counters; fresh brief required | zero remote events, 36/36 unchanged; ruled pair and ABI; concrete mutations derived at dispatch | exact residue derived in its brief; controller-dependent round trips join 8b |
+| 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, owner-committed at `1d4b3ad`; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
+| 7b-2-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, revision 2, base `1d4b3ad`, uncommitted; R-RA-36 ADMISSION_RESULT codec, no new live producer; B382/B383 closed, B384/B385 corrected/recorded; [QA evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md) | native 2888/172264/0; old literals 87/87, new arrays/controls verified; corpus 36/36 byte-identical; 712 RED / known unusable B342; tools 343 OK / zero skips; all ABI/probes/checkers/census; Node/RAM unchanged, gateway flash −64 B attributed, mobile linked sections identical | none; owner commit pending, no new metal-only behavior |
+| 7b-2 | **DRAFT revision 3 / R-RA-35/R-RA-36 recorded 2026-09-09**; behavior HOLD for separate owner commit of QA-passed 7b-2-0 and reissued successor brief; [brief](../plans/2026-09-08-radmin-slice7b2-session-open-status.md). B378/B379 remain implementation/gate obligations | approved candidate +4976 B ACCEPT state requires linked attribution/mobile invariance; rate is three open admissions total per target per five minutes, shared across all requesters | controller-dependent open/control round trips join 8b; no new bench part yet |
 | 7b-3 | **PENDING:** scheduler and deferred-action owners; fresh brief required | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |

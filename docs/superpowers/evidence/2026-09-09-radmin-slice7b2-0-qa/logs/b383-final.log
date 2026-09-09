@@ -1,0 +1,3 @@
+opcode 1: valid tag / invalid result -> bad_result_code; plaintext 08 d1; decoded sentinel retained
+opcode 4: valid tag / invalid result -> bad_result_code; plaintext 01 d1; decoded sentinel retained
+PASS: 24 checks; bad-tag controls preserve the plaintext buffer

@@ -1,0 +1,24 @@
+{
+  "gateway": {
+    "counts": [
+      18631,
+      18631
+    ],
+    "added": {},
+    "removed": {},
+    "reorder_messages": {
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:173:8: warning: 'CustomLFS_QSPIFlash::_qspi_initialized' will be initialized after [-Wreorder]": 1,
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:103:8: warning:   'bool CustomLFS_QSPIFlash::_quad_mode_enabled' [-Wreorder]": 1,
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.cpp:262:1: warning:   when initialized here [-Wreorder]": 1
+    }
+  },
+  "heltec_mobile": {
+    "counts": [
+      177,
+      177
+    ],
+    "added": {},
+    "removed": {},
+    "reorder_messages": {}
+  }
+}

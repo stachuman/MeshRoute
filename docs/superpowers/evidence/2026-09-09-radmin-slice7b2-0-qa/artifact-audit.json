@@ -1,0 +1,459 @@
+{
+  "artifacts": {
+    "gateway-base": {
+      "elf_sha256": "c7540dfd2571d1c9a03ff27caad915197e518be89cfb189a69eecf2deb203b9b",
+      "manifest_sha256": "c926a7ad240c0eed7c100eb94f9abf86631a755d487c3b942a5ac08cfbc0f407"
+    },
+    "gateway-final": {
+      "elf_sha256": "6898849c74046ccd4a400fe1c03e350fcf500cefa6f7798d86273946bf1dec7e",
+      "manifest_sha256": "5dd920b08303ee34efafa42a9cb9d6f34b11756067e08a131ff0de56fbcb1cc4"
+    },
+    "heltec_mobile-base": {
+      "elf_sha256": "65e58bdc0ddec3910dac6856a53fc3159a9a4a7ee4866c041787d9e667c7802c",
+      "manifest_sha256": "8c4d348d851c6bdfa9b611004c499380372f4ee29ff4d17aebe8de3bcd49bc73"
+    },
+    "heltec_mobile-final": {
+      "elf_sha256": "47049d5abaa22310021c3009ff8d53df908995196b2a6cf36f64c906c646e29c",
+      "manifest_sha256": "3f19c1f4a5fd827f92378bed350efb783c88f01b45a1412d9fd01532e31dc292"
+    }
+  },
+  "boards": {
+    "gateway": {
+      "measurements": {
+        "base": {
+          "flash_bytes": 562812,
+          "loadable_sections": {
+            ".ARM.exidx": 8,
+            ".data": 976,
+            ".text": 561828
+          },
+          "object_count": 285,
+          "ram_bytes": 198980,
+          "symbol_count": 6485,
+          "symbol_size_total": 738783,
+          "symbols_sha256": "f241a659a9074766ce82bb6980b037bc47aaa062e6608349a75952491691f9f4"
+        },
+        "final": {
+          "flash_bytes": 562748,
+          "loadable_sections": {
+            ".ARM.exidx": 8,
+            ".data": 976,
+            ".text": 561764
+          },
+          "object_count": 285,
+          "ram_bytes": 198980,
+          "symbol_count": 6488,
+          "symbol_size_total": 738717,
+          "symbols_sha256": "f50349c5d7bf91fa7a4e4a5aa42c38f6215e54838d5b6fd9ec2e6eb37dc81278"
+        }
+      },
+      "changed_sections": [
+        {
+          "name": ".text",
+          "allocated": true,
+          "before": 561828,
+          "after": 561764,
+          "addr_before": 159744,
+          "addr_after": 159744,
+          "bytes_equal": false
+        },
+        {
+          "name": ".ARM.exidx",
+          "allocated": true,
+          "before": 8,
+          "after": 8,
+          "addr_before": 721572,
+          "addr_after": 721508,
+          "bytes_equal": false
+        },
+        {
+          "name": ".data",
+          "allocated": true,
+          "before": 976,
+          "after": 976,
+          "addr_before": 536895488,
+          "addr_after": 536895488,
+          "bytes_equal": false
+        },
+        {
+          "name": ".symtab",
+          "allocated": false,
+          "before": 103760,
+          "after": 103808,
+          "addr_before": 0,
+          "addr_after": 0,
+          "bytes_equal": false
+        },
+        {
+          "name": ".strtab",
+          "allocated": false,
+          "before": 81112,
+          "after": 81239,
+          "addr_before": 0,
+          "addr_after": 0,
+          "bytes_equal": false
+        }
+      ],
+      "text_symbol_size_changes": [
+        {
+          "name": "_ZN9meshroute12_GLOBAL__N_112write_headerESt4spanIhLj4294967295EERjRKNS_12RemoteLayoutERKNS_13RemoteMessageE.constprop.0",
+          "before": 402,
+          "after": 460,
+          "delta": 58
+        },
+        {
+          "name": "_ZN9meshroute12_GLOBAL__N_116admission_statusERKNS_13RemoteMessageEh",
+          "before": 0,
+          "after": 94,
+          "delta": 94
+        },
+        {
+          "name": "_ZN9meshroute12remote_nonceEPhRKNS_12RemoteLayoutERKNS_13RemoteMessageEPKhRKNS_12RemoteSourceE.part.0",
+          "before": 368,
+          "after": 448,
+          "delta": 80
+        },
+        {
+          "name": "_ZN9meshroute13remote_layoutEhhRNS_12RemoteLayoutE",
+          "before": 518,
+          "after": 612,
+          "delta": 94
+        },
+        {
+          "name": "_ZN9meshroute13remote_layoutEhhRNS_12RemoteLayoutE.part.0",
+          "before": 0,
+          "after": 584,
+          "delta": 584
+        },
+        {
+          "name": "_ZN9meshroute18remote_body_decodeERNS_13RemoteDecodedEhSt4spanIKhLj4294967295EERKNS_10RemoteKeysERKNS_12RemoteSourceERKNS_13RemoteCarrierES2_IhLj4294967295EE",
+          "before": 1630,
+          "after": 1174,
+          "delta": -456
+        },
+        {
+          "name": "_ZN9meshroute18remote_body_encodeESt4spanIhLj4294967295EERjRKNS_13RemoteMessageES0_IKhLj4294967295EERKNS_10RemoteKeysERKNS_12RemoteSourceERKNS_13RemoteCarrierE",
+          "before": 1048,
+          "after": 528,
+          "delta": -520
+        }
+      ],
+      "text_covered_bytes": [
+        528877,
+        528811
+      ],
+      "text_uncovered_bytes": [
+        32951,
+        32953
+      ],
+      "data_pointer_attribution": [
+        {
+          "offset": 16,
+          "before": "0xa45a8",
+          "after": "0xa4568",
+          "identical_c_string_hex": "5f757362645f7164656600"
+        },
+        {
+          "offset": 120,
+          "before": "0xaa66c",
+          "after": "0xaa62c",
+          "same_symbol_offset": [
+            [
+              "_ZTVN9meshroute12ArduinoClockE",
+              8,
+              0
+            ]
+          ]
+        },
+        {
+          "offset": 688,
+          "before": "0xa3b4d",
+          "after": "0xa3b0d",
+          "same_symbol_offset": [
+            [
+              "__ascii_wctomb",
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "offset": 692,
+          "before": "0xa31ab",
+          "after": "0xa316b",
+          "same_symbol_offset": [
+            [
+              "__ascii_mbtowc",
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "offset": 700,
+          "before": "0xafdc0",
+          "after": "0xafd80",
+          "same_symbol_offset": [
+            [
+              "_ctype_",
+              0,
+              0
+            ]
+          ]
+        },
+        {
+          "offset": 704,
+          "before": "0xafd6c",
+          "after": "0xafd2c",
+          "identical_c_string_hex": "2e00"
+        },
+        {
+          "offset": 708,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 712,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 716,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 720,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 724,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 728,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 732,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 736,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 740,
+          "before": "0xafd6b",
+          "after": "0xafd2b",
+          "identical_c_string_hex": "00"
+        },
+        {
+          "offset": 956,
+          "before": "0x9331d",
+          "after": "0x932dd",
+          "same_symbol_offset": [
+            [
+              "_GLOBAL__sub_I__Z25usb_softdevice_pre_enablev",
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "offset": 960,
+          "before": "0x95a09",
+          "after": "0x959c9",
+          "same_symbol_offset": [
+            [
+              "_GLOBAL__sub_I__pwm_config",
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "offset": 964,
+          "before": "0x99dbd",
+          "after": "0x99d7d",
+          "same_symbol_offset": [
+            [
+              "_GLOBAL__sub_I_HwPWM0",
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "offset": 968,
+          "before": "0x99ec1",
+          "after": "0x99e81",
+          "same_symbol_offset": [
+            [
+              "_GLOBAL__sub_I_nRFCrypto",
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "unwind_semantics": [
+        {
+          "target": 160336,
+          "personality": 1
+        },
+        {
+          "target": 160336,
+          "personality": 1
+        }
+      ],
+      "disassembly_logs": [
+        "logs/base-gateway-disassembly.log",
+        "logs/final-gateway-disassembly.log"
+      ]
+    },
+    "heltec_mobile": {
+      "measurements": {
+        "base": {
+          "flash_bytes": 1372992,
+          "loadable_sections": {
+            ".dram0.data": 25260,
+            ".flash.appdesc": 256,
+            ".flash.rodata": 216740,
+            ".flash.text": 1052122,
+            ".iram0.text": 77843,
+            ".iram0.vectors": 1027,
+            ".rtc.force_fast": 8,
+            ".rtc.text": 256
+          },
+          "object_count": 329,
+          "ram_bytes": 207756,
+          "symbol_count": 13185,
+          "symbol_size_total": 1472166,
+          "symbols_sha256": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+        },
+        "final": {
+          "flash_bytes": 1372992,
+          "loadable_sections": {
+            ".dram0.data": 25260,
+            ".flash.appdesc": 256,
+            ".flash.rodata": 216740,
+            ".flash.text": 1052122,
+            ".iram0.text": 77843,
+            ".iram0.vectors": 1027,
+            ".rtc.force_fast": 8,
+            ".rtc.text": 256
+          },
+          "object_count": 329,
+          "ram_bytes": 207756,
+          "symbol_count": 13185,
+          "symbol_size_total": 1472166,
+          "symbols_sha256": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+        }
+      },
+      "changed_sections": [
+        {
+          "name": ".debug_info",
+          "allocated": false,
+          "before": 10139703,
+          "after": 10139703,
+          "addr_before": 0,
+          "addr_after": 0,
+          "bytes_equal": false
+        },
+        {
+          "name": ".debug_loc",
+          "allocated": false,
+          "before": 1915360,
+          "after": 1915349,
+          "addr_before": 0,
+          "addr_after": 0,
+          "bytes_equal": false
+        }
+      ],
+      "image_attribution": {
+        "base": {
+          "elf_digest_offset": 176,
+          "checksum_offset": 1373599,
+          "segments": [
+            [
+              1007747104,
+              216996
+            ],
+            [
+              1070167296,
+              25260
+            ],
+            [
+              1077362688,
+              19864
+            ],
+            [
+              1107296288,
+              1052124
+            ],
+            [
+              1077382552,
+              59008
+            ],
+            [
+              1611653120,
+              264
+            ]
+          ],
+          "size": 1373632,
+          "sha256": "df6588c9c7f7dc9ba39f33dd7855c9c360e08a3b6e510cc7af43ccd3fa0ac352"
+        },
+        "final": {
+          "elf_digest_offset": 176,
+          "checksum_offset": 1373599,
+          "segments": [
+            [
+              1007747104,
+              216996
+            ],
+            [
+              1070167296,
+              25260
+            ],
+            [
+              1077362688,
+              19864
+            ],
+            [
+              1107296288,
+              1052124
+            ],
+            [
+              1077382552,
+              59008
+            ],
+            [
+              1611653120,
+              264
+            ]
+          ],
+          "size": 1373632,
+          "sha256": "24e407a2b8e29f949a88b11cf7b8e4dfa7e3085d023c5567086d2d73abc2abc9"
+        },
+        "different_byte_count": 63,
+        "only_elf_digest_checksum_and_trailer": true,
+        "all_allocated_elf_sections_and_symbols_equal": true
+      }
+    }
+  },
+  "pristine_files_verified": 28
+}

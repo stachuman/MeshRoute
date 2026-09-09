@@ -67,18 +67,20 @@ bool key_present(std::span<const uint8_t> k) { return k.size() == kRemoteKeyByte
 // what the §8.11 table is static_asserted against. A field added to a layout without touching the table
 // therefore fails to compile instead of silently keeping an old number.
 // ---------------------------------------------------------------------------------------------------------
-constexpr uint8_t header_bytes_of(bool controller_pub, bool admin_epoch, bool abandoned, bool response_seq) {
+constexpr uint8_t header_bytes_of(bool controller_pub, bool admin_epoch, bool abandoned, bool response_seq,
+                                  bool admission = false) {
     return static_cast<uint8_t>(kRemoteCtlBytes + kRemoteRequestIdBytes
                                 + (controller_pub ? kRemoteControllerPubBytes : size_t{0})
                                 + (admin_epoch    ? kRemoteEpochBytes         : size_t{0})
                                 + (abandoned      ? kRemoteAbandonedBytes     : size_t{0})
-                                + (response_seq   ? kRemoteSeqBytes           : size_t{0}));
+                                + (response_seq   ? kRemoteSeqBytes           : size_t{0})
+                                + (admission      ? kRemoteAdmissionBytes     : size_t{0}));
 }
 constexpr uint8_t fixed_overhead_of(bool authenticated, uint8_t header_bytes) {
     return static_cast<uint8_t>(header_bytes + (authenticated ? kRemoteTagBytes : size_t{0}));
 }
 
-// §8.11's eight rows, bound to the arithmetic above.
+// §8.11's rows, bound to the arithmetic above.
 static_assert(fixed_overhead_of(true,  header_bytes_of(false, false, false, false)) == kRemoteOverheadAuthExecute,
               "§8.2 authenticated execute request = ctl 1 + request_id 8 + tag 16");
 static_assert(fixed_overhead_of(false, header_bytes_of(false, false, false, false)) == kRemoteOverheadOpenExecute,
@@ -95,12 +97,17 @@ static_assert(fixed_overhead_of(true,  header_bytes_of(false, true,  false, fals
               "§8.6 bootstrap response = ctl 1 + request_id 8 + admin_epoch 8 + tag 16");
 static_assert(fixed_overhead_of(true,  header_bytes_of(false, true,  true,  false)) == kRemoteOverheadRolloverResult,
               "§8.6 rollover result = ctl 1 + request_id 8 + admin_epoch 8 + abandoned_count 1 + tag 16");
+static_assert(fixed_overhead_of(true, header_bytes_of(false, false, false, false, true))
+                  == kRemoteOverheadAdmissionResult,
+              "R-RA-36 admission result = ctl 1 + request_id 8 + notice 3 + tag 16");
+static_assert(header_bytes_of(false, false, false, false, true) <= kRemoteMaxHeaderBytes,
+              "admission header fits the existing header and AAD scratch");
 
 // The nibble split itself.
 static_assert(kRemoteSlotSessionMax == 0x09, "§8.1: slots 0..9 select established ACL sessions");
 static_assert(kRemoteSlotSentinel   == 0x0F, "§8.1: F is the sentinel, not a tenth session slot");
 static_assert(static_cast<uint8_t>(RemoteCmdOpcode::force_rollover)  <= 0x0F, "opcodes are a nibble");
-static_assert(static_cast<uint8_t>(RemoteRespOpcode::protocol_error) <= 0x0F, "opcodes are a nibble");
+static_assert(static_cast<uint8_t>(RemoteRespOpcode::admission_result) <= 0x0F, "opcodes are a nibble");
 static_assert(kRemoteTerminalMax == static_cast<uint8_t>(RemoteTerminal::session_busy),
               "§8.9: 0x00..0x07 is the whole allocated terminal namespace; 0x08..0xFF reject");
 static_assert(kRemoteMaxAadBytes == 1 + kRemoteMaxHeaderBytes + kRemoteSourceHashBytes,
@@ -112,6 +119,34 @@ constexpr size_t kSessionMsgBytes = kLabelSessionLen + kRemoteKeyBytes + kRemote
 constexpr size_t kNonceMsgBytes   = kLabelNonceLen + kRemoteKeyBytes + 1 /*outer*/ + 1 /*ctl*/
                                     + kRemoteRequestIdBytes + kRemoteSeqBytes + kRemoteSourceHashBytes
                                     + kRemoteEpochBytes;
+static_assert(kRemoteAdmissionBytes <= kRemoteEpochBytes,
+              "the admission nonce suffix fits the existing epoch-sized scratch");
+
+// One semantic authority, called before encoding and after authenticated decoding. Helpers can still
+// compose nonce/AAD for an invalid clear tuple, so a valid tag is distinguished from semantic admission.
+RemoteStatus admission_status(const RemoteMessage& msg, uint8_t slot) {
+    if ((msg.request_ctl & 0x0F) != slot) return RemoteStatus::bad_pairing;
+    const uint8_t request_opcode = msg.request_ctl >> 4;
+    const bool execute = request_opcode == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute);
+    const bool safe = request_opcode == static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover);
+    const bool force = request_opcode == static_cast<uint8_t>(RemoteCmdOpcode::force_rollover);
+    bool allowed = false;
+    switch (msg.admission_code) {
+        case RemoteAdmission::session_full:        allowed = execute; break;
+        case RemoteAdmission::ingress_full:        allowed = execute || safe || force; break;
+        case RemoteAdmission::session_busy:        allowed = safe; break;
+        case RemoteAdmission::executing:
+        case RemoteAdmission::preparation_failed:  allowed = safe || force; break;
+        default: return RemoteStatus::bad_result_code;
+    }
+    if (!allowed) return RemoteStatus::bad_pairing;
+    if (msg.admission_code == RemoteAdmission::session_busy) {
+        if (msg.admission_detail == 0) return RemoteStatus::bad_argument;
+    } else {
+        if (msg.admission_detail != 0) return RemoteStatus::bad_argument;
+    }
+    return RemoteStatus::ok;
+}
 
 }  // namespace
 
@@ -205,13 +240,19 @@ RemoteStatus remote_layout(uint8_t outer_type, uint8_t ctl, RemoteLayout& out) {
                 L.authenticated = true; L.uses_base_key = true;
                 L.epoch_in_nonce = true; L.has_admin_epoch = true; L.has_abandoned_count = true;
                 break;
+            case static_cast<uint8_t>(RemoteRespOpcode::admission_result):
+                if (!slot_session) return RemoteStatus::bad_pairing;
+                L.domain = RemoteDomainId::resp_admission_result;
+                L.authenticated = true;
+                L.has_admission = true;
+                break;
             default:
-                return RemoteStatus::bad_opcode;                          // RESP 0x5..0xF reserved
+                return RemoteStatus::bad_opcode;                          // RESP 0x6..0xF reserved
         }
     }
 
     L.header_bytes   = header_bytes_of(L.has_controller_pub, L.has_admin_epoch,
-                                       L.has_abandoned_count, L.has_response_seq);
+                                       L.has_abandoned_count, L.has_response_seq, L.has_admission);
     L.fixed_overhead = fixed_overhead_of(L.authenticated, L.header_bytes);
     out = L;
     return RemoteStatus::ok;
@@ -295,6 +336,11 @@ RemoteStatus remote_nonce(uint8_t out_nonce24[24], const RemoteLayout& layout, c
     //    bootstrap REQUEST cannot include an epoch the controller does not yet know (§8.1), so the field is
     //    absent from its preimage rather than present-and-zero.
     if (layout.epoch_in_nonce) put_u64_le(w, msg.admin_epoch);
+    if (layout.has_admission) {
+        w.u8(msg.request_ctl);
+        w.u8(static_cast<uint8_t>(msg.admission_code));
+        w.u8(msg.admission_detail);
+    }
     const size_t used = w.size();
     if (!w.ok()) { crypto_wipe(m, sizeof m); return RemoteStatus::bad_argument; }
 
@@ -308,7 +354,7 @@ RemoteStatus remote_nonce(uint8_t out_nonce24[24], const RemoteLayout& layout, c
 
 namespace {
 // The exact clear RPC header in wire order: ctl, request_id, [controller_pub], [admin_epoch],
-// [abandoned_count], [response_seq]. No layout mixes the optional fields, so this ONE order reproduces
+// [abandoned_count], [response_seq], [request_ctl, admission_code, admission_detail]. This ONE order reproduces
 // every §8.2-§8.8 body header exactly, and encode/decode/AAD all read it from here.
 RemoteStatus write_header(std::span<uint8_t> out, size_t& out_len,
                           const RemoteLayout& layout, const RemoteMessage& msg) {
@@ -323,6 +369,11 @@ RemoteStatus write_header(std::span<uint8_t> out, size_t& out_len,
     if (layout.has_admin_epoch)     put_u64_le(w, msg.admin_epoch);
     if (layout.has_abandoned_count) w.u8(msg.abandoned_count);
     if (layout.has_response_seq)    w.u8(msg.response_seq);
+    if (layout.has_admission) {
+        w.u8(msg.request_ctl);
+        w.u8(static_cast<uint8_t>(msg.admission_code));
+        w.u8(msg.admission_detail);
+    }
     if (!w.ok() || w.size() != layout.header_bytes) return RemoteStatus::bad_buffer;
     out_len = w.size();
     return RemoteStatus::ok;
@@ -441,6 +492,10 @@ RemoteStatus remote_body_encode(std::span<uint8_t> out, size_t& out_len, const R
     RemoteStatus st = remote_layout(msg.outer_type, remote_ctl(msg.opcode, msg.slot), L);
     if (st != RemoteStatus::ok) return st;
     if (!L.variable_body && !body.empty()) return RemoteStatus::bad_argument;   // a fixed layout has no payload
+    if (L.has_admission) {
+        st = admission_status(msg, L.slot);
+        if (st != RemoteStatus::ok) return st;
+    }
 
     // ---- ADMISSION, before anything is written. It is the SAME authority for a fixed body: nothing is small
     //      enough to bypass the carrier's cap by assumption.
@@ -529,6 +584,11 @@ RemoteStatus remote_body_decode(RemoteDecoded& out, uint8_t outer_type, std::spa
         if (L.has_admin_epoch)      d.msg.admin_epoch     = get_u64_le(r);
         if (L.has_abandoned_count)  d.msg.abandoned_count = r.u8();
         if (L.has_response_seq)     d.msg.response_seq    = r.u8();
+        if (L.has_admission) {
+            d.msg.request_ctl = r.u8();
+            d.msg.admission_code = static_cast<RemoteAdmission>(r.u8());
+            d.msg.admission_detail = r.u8();
+        }
         if (!r.ok()) return RemoteStatus::bad_length;
     }
 
@@ -565,6 +625,11 @@ RemoteStatus remote_body_decode(RemoteDecoded& out, uint8_t outer_type, std::spa
         d.authenticated = false;
     }
     d.body = payload;
+    if (L.has_admission) {
+        st = admission_status(d.msg, L.slot);
+        if (st != RemoteStatus::ok) return st;
+        d.result_kind = RemoteResultKind::admission;
+    }
 
     // ---- the TYPED result domains (§8.9). The byte alone is never the answer: 0x00 is `completed` under
     //      TERMINAL and `already_acknowledged` under the AUTHENTICATED protocol error, and the opcode domain

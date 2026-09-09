@@ -1,0 +1,11 @@
+{
+  "valid": 25,
+  "valid_tag_semantically_invalid": 1718,
+  "b384_control_mislabeled_valid": 2,
+  "examples": [
+    "538796a5b4c3d2e1f00300002c9d76ae9d64c63079d43b74c87dcb62",
+    "538796a5b4c3d2e1f0030100a873d7807a89ae9a9d987c689c9a7deb"
+  ],
+  "positive_hash": "c050f8d7b7046f05e922dc9321cf62ea98b3c5bc23dbe8e7124cb06455c8f3f1",
+  "new_negative_hash": "e3ff4e3bc0d2441a46d193bb7325e90746bdd3ff4239cd3b2b25d3dd5836dd8e"
+}

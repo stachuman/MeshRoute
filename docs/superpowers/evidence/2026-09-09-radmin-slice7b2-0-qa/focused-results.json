@@ -1,0 +1,58 @@
+[
+  {
+    "source": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b383.cpp",
+    "source_sha256": "155ac8f5c5fbb87cd2d040eaa3e5d83bb4c304f224a29de7f1f87967b459966c",
+    "cwd": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure",
+    "compile_command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE",
+      "-Ilib/core",
+      "-Ilib/monocypher",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b383.cpp",
+      "-Wl,--start-group",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib295/libhal.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib5e0/libconsole.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib6cf/libcore.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/libee7/libmonocypher.a",
+      "-Wl,--end-group",
+      "-o",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b383"
+    ],
+    "compile_exit": 0,
+    "compile_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "run_command": [
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b383"
+    ],
+    "run_exit": 0,
+    "run_log_sha256": "e0f6712a6c1008ee8b48a86049cd2222236811d8549f37bab9c13a6e3d70296d"
+  },
+  {
+    "source": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec.cpp",
+    "source_sha256": "f9b0c29f3da9c681c7d6c8eb5e602fcd39ddf789186c396799d34eae67fba47a",
+    "cwd": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure",
+    "compile_command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE",
+      "-Ilib/core",
+      "-Ilib/monocypher",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec.cpp",
+      "-Wl,--start-group",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib295/libhal.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib5e0/libconsole.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib6cf/libcore.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/libee7/libmonocypher.a",
+      "-Wl,--end-group",
+      "-o",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec"
+    ],
+    "compile_exit": 0,
+    "compile_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "run_command": [
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec"
+    ],
+    "run_exit": 0,
+    "run_log_sha256": "d4ab8eec2ce4bcac8e14425d60e2e45dade67369bb0e82a75d05196a1f48d014"
+  }
+]

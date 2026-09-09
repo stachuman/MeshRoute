@@ -1,0 +1,50 @@
+[
+  {
+    "case": "\u00a7radmin-2/admission \u2014 authenticated invalid tuples refuse without publishing any logical field",
+    "base": 0,
+    "final": 41232,
+    "delta": 41232
+  },
+  {
+    "case": "\u00a7radmin-2/admission \u2014 changed notices separate nonces and old domains ignore new metadata",
+    "base": 0,
+    "final": 529,
+    "delta": 529
+  },
+  {
+    "case": "\u00a7radmin-2/admission \u2014 fixed zero application capacity shares the real carrier and packing authorities",
+    "base": 0,
+    "final": 131,
+    "delta": 131
+  },
+  {
+    "case": "\u00a7radmin-2/admission \u2014 independent complete wire, nonce, AAD, tags and typed metadata",
+    "base": 0,
+    "final": 953,
+    "delta": 953
+  },
+  {
+    "case": "\u00a7radmin-2/admission \u2014 malformed, authentication and buffer boundaries keep caller output intact",
+    "base": 0,
+    "final": 1598,
+    "delta": 1598
+  },
+  {
+    "case": "\u00a7radmin-2/layout \u2014 exhaustive (direction x 256 ctl) domain table",
+    "base": 1519,
+    "final": 1569,
+    "delta": 50
+  },
+  {
+    "case": "\u00a7radmin-2/layout \u2014 the frozen \u00a78.11 overheads and the header field sets",
+    "base": 62,
+    "final": 65,
+    "delta": 3
+  },
+  {
+    "case": "\u00a7radmin-2/length \u2014 a fixed layout accepts neither a short prefix nor a trailing byte",
+    "base": 418,
+    "final": 477,
+    "delta": 59
+  }
+]

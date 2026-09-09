@@ -1,0 +1,35 @@
+-- target sliceDstore: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/segmented_inbox_store.h (3 entries)
+-- selection: IN FULL (all 3 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-8q2301mz   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceDstore: /tmp/mr_mutation_run-8q2301mz/w0/lib/core/segmented_inbox_store.h (1 of 3 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target sliceDstore: /tmp/mr_mutation_run-8q2301mz/w2/lib/core/segmented_inbox_store.h (1 of 3 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target sliceDstore: /tmp/mr_mutation_run-8q2301mz/w1/lib/core/segmented_inbox_store.h (1 of 3 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2888 / 172264 / 0   (DERIVED from this tree)
+  [w2]   ok   D08 ★★★★ THE TARGET-EPOCH ARM IS DROPPED — a confirmed clear announces itself with the legacy per-store rule, so an empty store's epoch never moves and the two stores can disagree -> RED (6 assertion(s) failed, match count 1)
+  [w2] source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)
+  [w2] shard 2: 1 RED / 0 unusable   (of 1 entries)
+  [w0]   ok   D06 ★★★★ THE SHARED TARGET IS APPLIED ONLY TO A STORE THAT HELD HISTORY — clearing a full channel store beside an empty DM store leaves the ONE published epoch unmoved and the companion never re-syncs -> RED (6 assertion(s) failed, match count 1)
+  [w0] source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+  [w1]   ok   D07 ★★★ THE EPOCH IS DOUBLE-BUMPED — the shared target is applied AND the legacy transition bump still fires, so one clear moves a populated store twice and an empty one once -> RED (11 assertion(s) failed, match count 1)
+  [w1] source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceDstore: /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations/lib/core/segmented_inbox_store.h
+  ok   clean baseline 2888 / 172264 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   D06 ★★★★ THE SHARED TARGET IS APPLIED ONLY TO A STORE THAT HELD HISTORY — clearing a full channel store beside an empty DM store leaves the ONE published epoch unmoved and the companion never re-syncs -> RED (6 assertion(s) failed, match count 1)
+  ok   D07 ★★★ THE EPOCH IS DOUBLE-BUMPED — the shared target is applied AND the legacy transition bump still fires, so one clear moves a populated store twice and an empty one once -> RED (11 assertion(s) failed, match count 1)
+  ok   D08 ★★★★ THE TARGET-EPOCH ARM IS DROPPED — a confirmed clear announces itself with the legacy per-store rule, so an empty store's epoch never moves and the two stores can disagree -> RED (6 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.5s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.6s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.3s, rc 0, source restored: md5 29884575bbf3b33bf2ca456de63b1d69 (MATCHES)   /tmp/mr_mutation_run-8q2301mz/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b20-gate-qfpdn1ul/mutations
+timing: copy 0.6s + battery 8.7s = 9.3s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
