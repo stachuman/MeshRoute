@@ -1,0 +1,61 @@
+-- target radmin7rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp (13 entries)
+-- selection: IN FULL (all 13 entries)
+-- workers: 4
+-- scratch root: /tmp/mr_mutation_run-9x0oks42   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin7rx: /tmp/mr_mutation_run-9x0oks42/w0/lib/core/node_mac_rx.cpp (4 of 13 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin7rx: /tmp/mr_mutation_run-9x0oks42/w1/lib/core/node_mac_rx.cpp (3 of 13 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w3] -- target radmin7rx: /tmp/mr_mutation_run-9x0oks42/w3/lib/core/node_mac_rx.cpp (3 of 13 entries in this shard)
+  [w3] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin7rx: /tmp/mr_mutation_run-9x0oks42/w2/lib/core/node_mac_rx.cpp (3 of 13 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w1]   ok   R02 seal refusal handed to transport -> RED (47 assertion(s) failed, match count 1)
+  [w0]   ok   R01 real sender ignores full queue -> RED (4 assertion(s) failed, match count 1)
+  [w2]   ok   R03 seal counter missing -> RED (11 assertion(s) failed, match count 1)
+  [w3]   ok   R04 seal failure charged to enqueue counter -> RED (16 assertion(s) failed, match count 1)
+  [w1]   ok   R06 seal failure advances cursor -> RED (20 assertion(s) failed, match count 1)
+  [w0]   ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  [w2]   ok   R07 seal failure resets nonzero cursor -> RED (36 assertion(s) failed, match count 1)
+  [w3]   ok   R08 seal failure changes frozen terminal -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   R10 enqueue refusal advances cursor -> RED (18 assertion(s) failed, match count 1)
+  [w1] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w1] shard 1: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  [w2]   ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  [w2] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w2] shard 2: 3 RED / 0 unusable   (of 3 entries)
+  [w3]   ok   R12 enqueue refusal charged to seal counter -> RED (27 assertion(s) failed, match count 1)
+  [w3] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w3] shard 3: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   R13 queued frame cursor stays -> RED (209 assertion(s) failed, match count 1)
+  [w0] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin7rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+  ok   R01 real sender ignores full queue -> RED (4 assertion(s) failed, match count 1)
+  ok   R02 seal refusal handed to transport -> RED (47 assertion(s) failed, match count 1)
+  ok   R03 seal counter missing -> RED (11 assertion(s) failed, match count 1)
+  ok   R04 seal failure charged to enqueue counter -> RED (16 assertion(s) failed, match count 1)
+  ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  ok   R06 seal failure advances cursor -> RED (20 assertion(s) failed, match count 1)
+  ok   R07 seal failure resets nonzero cursor -> RED (36 assertion(s) failed, match count 1)
+  ok   R08 seal failure changes frozen terminal -> RED (3 assertion(s) failed, match count 1)
+  ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  ok   R10 enqueue refusal advances cursor -> RED (18 assertion(s) failed, match count 1)
+  ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  ok   R12 enqueue refusal charged to seal counter -> RED (27 assertion(s) failed, match count 1)
+  ok   R13 queued frame cursor stays -> RED (209 assertion(s) failed, match count 1)
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 20.5s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-9x0oks42/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 16.7s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-9x0oks42/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 17.1s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-9x0oks42/w2
+  worker 3: 3/3 entries, 3 RED / 0 worthless, wall 17.2s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-9x0oks42/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations
+timing: copy 0.9s + battery 20.6s = 21.4s total, 13 entries over 4 worker(s)
+mutations: 13 RED / 0 unusable

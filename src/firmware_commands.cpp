@@ -256,6 +256,13 @@ struct RemoteTarget final : IRadminTarget {
     void transcript_complete(uint8_t s, meshroute::RemoteTerminal r) override { g_node.radmin_transcript_complete(s, r); }
     bool tx_queue_full() override { return g_node.tx_queue_full(); }
     meshroute::RadminSend send_next_frame() override { return g_node.radmin_send_frame(); }
+    void expire() override { g_node.radmin_service_expire(); }
+    bool service_control() override { return g_node.radmin_service_control(); }
+    bool next_open(meshroute::RadminOpenView& v) override { return g_node.radmin_next_open(v); }
+    bool reserve_open(uint8_t i, uint16_t cap) override { return g_node.radmin_reserve_open(i, cap); }
+    void open_append(uint8_t i, const uint8_t* p, size_t n) override { g_node.radmin_open_append(i, p, n); }
+    void open_complete(uint8_t i, meshroute::RemoteTerminal r) override { g_node.radmin_open_complete(i, r); }
+    meshroute::RadminSend send_open_frame() override { return g_node.radmin_send_open_frame(); }
 };
 struct TranscriptPrint final : Print {
     explicit TranscriptPrint(IRadminTranscriptSink& s) : sink(s) {}
@@ -968,6 +975,14 @@ static void dump_status(Print& out) {
     const int braw = analogRead(PIN_VBAT);
     out.print(F(" batt_raw="));           out.print(braw);
     out.print(F(" batt_mv="));            out.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
+#endif
+#if MR_FEAT_RADMIN_ACCEPT
+    const auto radmin = g_node.radmin_counters(); // scalar snapshot only; never expose the secret-bearing state view
+    out.print(F(" radmin_inbound_refusal=")); out.print(radmin.inbound_refusal);
+    out.print(F(" radmin_open_rate_refusal=")); out.print(radmin.open_rate_refusal);
+    out.print(F(" radmin_transcript_exhaustion=")); out.print(radmin.transcript_exhaustion);
+    out.print(F(" radmin_response_enqueue_failure=")); out.print(radmin.response_enqueue_failure);
+    out.print(F(" radmin_response_seal_failure=")); out.print(radmin.response_seal_failure);
 #endif
     out.println();
 }

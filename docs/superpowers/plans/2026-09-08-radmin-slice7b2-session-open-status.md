@@ -1,29 +1,34 @@
 <!-- QA/Author: OpenAI Codex, replacing Claude; production coder: separate Codex session -->
 # Remote-admin v2 Slice 7b-2 — session control, open execution and status counters — brief — 2026-09-08
 
-**Status: DRAFT revision 3 — OWNER-RULED R-RA-35/R-RA-36 on 2026-09-09; BEHAVIOR IMPLEMENTATION HOLD for the
-separate 7b-2-0 codec prerequisite.** Revision-1 source-validation is complete and B380/B381 were folded into
-revision 2. The owner approved revision 2's storage, target-wide rate limit and admission-response format.
-The [separate codec brief](2026-09-09-radmin-slice7b2-0-admission-codec.md) now owns that preparation. After its
-independent gate and owner commit, QA reissues this behavior brief at the actual successor base for coder
-source-validation before implementation. B378/B379 are still open implementation/gate obligations.
+**Status: revision 4 SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09, uncommitted at
+`564f460a3b755a104f146da70457e5c8c68e99b9`.** B388's exact three-line comment return is independently
+verified; fresh focused reproduction 15 checks PASS, all executable/instrument inputs unchanged.
+B378/B379/B388 are closed; B387 remains closed. The prior independent full gate remains attributable:
+native 2909/174485/0, corpus 36/36 byte-identical, 772 RED /known unusable B342, tools 343/zero skips,
+all ABI/probes/checkers/boards/census; gateway RAM +4976 B /flash +7840 B, mobile unchanged.
+[QA gate and scoped closure §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).
+No full-gate rerun for this comment return and no new owner ruling or contract revision. Consumed revision-4
+SHA-256 remains `0920bb419cf5f33fbedb8fabfa2c9dc9b91c81744727fd69cb21b16253a7200e`, retained with QA
+artifacts. The reissue/pre-check narrative below is historical; the implementation contract is unchanged.
+Next: owner commit, then a separate 7b-3 brief against that actual hash and coder source-validation.
 
-**Codec checkpoint, 2026-09-09:** 7b-2-0 now has [independent QA PASS](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md),
-uncommitted. This revision-3 brief has not been rebased or reissued: its base/input observations below are
-historical. Owner commit and QA's successor brief remain required before coder source-validation/resume.
+**Base and preserved inputs:** MeshRoute **`564f460a3b755a104f146da70457e5c8c68e99b9`**, clean at the start of
+this reissue; simulator **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean, no simulator edits. Despite the
+commit subject “7b-2”, source and the [independent codec gate](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md)
+confirm that it lands **7b-2-0 codec preparation and QA documentation**, with no new target producer/open state.
+The previous `1d4b3ad` behavior-brief base and its then-dirty preparation inputs are now historical and committed.
 
-**Base:** MeshRoute **`1d4b3ad5a74c2f24121d8fbe28b8d6e4b04f8dfe`**, initially clean; simulator
-**`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean, no simulator edits. This is the owner's committed 7b-1
-landing. Do not use its historical `d467787` attribution base as this slice's base. Permitted preparation inputs
-are this brief, [the independent pre-check](2026-09-08-radmin-slice7b2-precheck.md), that pre-check's evidence
-directory, register §0/new findings, MEMORY's dispatch line, and the design
-(`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`). Revision 2 permitted only its
-§19.1 status row; revision 3 additionally includes the ruled R-RA-35/R-RA-36 design fold-ins, the rulings
-ledger, and the separate 7b-2-0 codec brief/pre-check. These are expected documentation inputs. The coder's
-[source-validation report](../evidence/2026-09-08-radmin-slice7b2.md) is now also an expected input and is
-preserved unchanged. The checkout currently contains these tracked/untracked documentation changes; “initially
-clean” describes the starting observation. Preserve all work. No reset, clean, commit, production repair by
-QA, or HEAD-only snapshot of an eventual dirty implementation.
+The permitted uncommitted preparation inputs for this revision are this brief; the [author pre-check](2026-09-08-radmin-slice7b2-precheck.md)
+§8 and its new `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-reissue/` companion directory; the maintained
+register's dispatch/B386 and commit-status updates; MEMORY's dispatch line; the design's implementation header
+and §19.1 status rows; and the codec brief/independent QA report's owner-commit closure notes. Those are
+QA documentation/evidence inputs, not production changes. The existing coder
+[source-validation report](../evidence/2026-09-08-radmin-slice7b2.md), including its §6 owner receipt, is committed
+and preserved unchanged by QA. Coder appends a new revision-4 preflight to it, identifying this base and this
+brief's actual SHA-256; old preflight figures are history. Inventory/hash all actual tracked and untracked
+inputs before implementation. Preserve all work: no reset, clean, commit, production repair by QA, or HEAD-only
+snapshot of an eventual dirty implementation. Builds/mutations must not overlap coder edits in a shared tree.
 
 **Revision provenance:** the coder consumed revision 1, SHA-256
 `a15d984a20a1b62db1f0a5fc7828edfeeb5d4746d25d01b7210d9120a06eea12`. Revision 2 names the omitted design
@@ -33,8 +38,13 @@ lifecycle proofs (B381). QA independently checked the source and reran existing 
 Revision 3 records the owner's approval of revision 2 (SHA-256
 `1802c25a99e0d470b299a769a072b56e1bd6f12d8df7e230962255de82fa387a`), explicitly states the shared target-wide
 budget, and changes the remaining HOLD from owner decisions to the separately gated codec prerequisite.
+Revision 4 supersedes revision 3 (SHA-256 `fdbf7b38d55ed7b67897851544b9acd322fa30a2ecb7b43cff4f267839bf8acd`):
+QA verified the actual codec landing, names its existing API, rechecks the baseline and retains its full gate
+floor. B386 corrects the excessive whole-header immutability wording: existing shared scheduling-order
+compaction is permitted, while other slots' response contents, identity, replay cursor and relative order stay
+protected (§3.2). This is a source-backed clarification, not a new wire/storage/owner ruling.
 
-This draft covers the target half only. **7b-3 retains deferred actions, `scheduled`, ACK-earlier activation,
+This brief covers the target half only. **7b-3 retains deferred actions, `scheduled`, ACK-earlier activation,
 the 300-second disruptive-action deadline and OTA reporting.** Slices 8a–8c retain the product controller,
 automatic safe-rollover decisions, force-confirmation UI, request retry/ACK debt, BLE/USB delivery and custody
 consumption. The existing target readiness gate remains; enabling open diagnostics on an unprovisioned target
@@ -81,36 +91,53 @@ Design §11:
 > An authenticated exact request retry instead restarts that completed transcript at sequence zero, without
 > dispatching again.
 
-**QA source ledger:** pre-check §3. Key current seams are `remote_session.cpp:972` (unconsumed control), `:858`
+**QA source ledger:** current reissue pre-check §8.3; §3 is the original `1d4b3ad` observation. Key current
+seams are `remote_session.cpp:972` (unconsumed control), `:858`
 (metadata-only open staging), `:1028` (unanswered full verdict), `:1014` (acknowledged retry),
 `node_mac_rx.cpp:2108/2119` (bootstrap versus transcript sending), `node.cpp:100/113` (draw/install),
 `firmware_remote_executor.h:49` (authenticated executor only), `firmware_command_authority.h:277` (exact open
 authority), and `firmware_commands.cpp:911/1629` (status and real seam). Relocate every anchor before editing.
 
-Fresh pre-check: native **2883/127709/0, zero skips**; simulator rebuilt, both variants; **36/36 anchors**, all
-stream SHA-256s equal the preceding independent QA corpus. These are starting observations, not final pins
-to copy. The final gate is the complete §8 chain, independently rerun after the frozen handoff.
+QA matched **390/390 committed implementation/gate inputs** to its independently measured codec checkout,
+and all five frozen codec/test/instrument/reference hashes. Fresh executions of the source-matched QA native
+and simulator binaries give **2888/172264/0, zero skips**, **36/36 anchors and actual stream byte identity**
+against QA's codec-final corpus. Reference strict comparison is **89/89** (the original **87/87** plus two new
+arrays), with four comparator controls RED; the labelled synthetic B379/session proof is **134/134**.
+Fresh host/ARM/Xtensa candidate compilation reproduces **+4976 B**, and the B386 real-session reproduction
+passes **43 checks**. Artifact reuse and exact commands are disclosed in pre-check §8; no fresh native/simulator
+build, board pair, mutation union or full implementation gate is implied by this authoring checkpoint.
+The final gate remains the complete §8 chain, independently rerun after the frozen handoff.
 
-## 2. Owner decisions recorded; separate codec prerequisite required
+## 2. Owner decisions and the committed codec prerequisite
 
 The owner approved both revision-2 proposals on 2026-09-09. The exact confirmations and contracts are now
 R-RA-35/R-RA-36 in the rulings ledger; the coder receipt §6 remains unchanged. The allocation and wire policy
 are settled, while implementation and independent verification remain pending. Do not re-request access or
-approval for these decisions. The separate 7b-2-0 codec brief is the next source-validation input.
+approval for these decisions. The separate 7b-2-0 codec preparation is complete at the pinned base; this
+revision-4 behavior brief is the next source-validation input.
 
-### 2.1 B379 — nonce-safe authenticated admission notices and a separate codec preparation
+### 2.1 B379 — consume the committed nonce-safe admission codec
 
-**Verified problem:** terminal nonce derivation (`remote_codec.cpp:277`) excludes result/detail. The existing
-codec/session proof passes **116 checks**: a `session_full` slot can later execute the identical request under
+**Verified original problem, still forbidden for new producers:** terminal nonce derivation
+(`remote_codec.cpp:318`) excludes result/detail. The original 116-check codec/session proof established: a `session_full` slot can later execute the identical request under
 the same epoch when another slot releases the shared pool; a safe-rollover retry can see busy count 2 then 1.
 Their planned terminal plaintexts differ under the same nonce. There is no such negative-result producer in
 7b-1; its completed transcript rule remains correct. A controller policy to choose a fresh ID does not prevent
 replay of a captured old request.
 
-**Approved R-RA-36:** move non-executed, state-dependent admission/control refusals to a new fixed,
-**authenticated but intentionally clear** `ADMISSION_RESULT` response domain. Its fields are non-command
-status metadata; command/output confidentiality is unchanged. Allocate currently reserved **REMOTE_RESP opcode
-`0x5`**, actual ACL slot 0–9 only. Exact body:
+**Approved R-RA-36, codec now implemented:** new non-executed, state-dependent admission/control refusals
+must use the existing fixed, **authenticated but intentionally clear** `ADMISSION_RESULT` response domain.
+Its fields are non-command status metadata; command/output confidentiality is unchanged. **REMOTE_RESP opcode
+`0x5`** is allocated, actual ACL slot 0–9 only. Consume the existing codec; do not allocate/reimplement it.
+
+Use `RemoteRespOpcode::admission_result`, `RemoteDomainId::resp_admission_result`, `RemoteAdmission`, and
+`RemoteResultKind::admission`. Compose ctl through `remote_ctl`; fill `RemoteMessage.request_ctl`,
+`admission_code` and `admission_detail`, with empty application plaintext. Reuse `remote_body_encode` /
+`remote_body_decode`, `RemoteKeys`, and the common carrier/cap path. The named fixed overhead is
+`kRemoteOverheadAdmissionResult == 28`. Decoding publishes the typed fields in `RemoteDecoded.msg` only on
+success. Code `0x00` is `session_full` in this admission domain, `completed` in TERMINAL and
+`already_acknowledged` in authenticated PROTOCOL_ERROR; never interpret a bare result byte across domains.
+The committed exact body is:
 
 ```text
 offset  bytes  field
@@ -131,9 +158,10 @@ total   28
 | `0x03 executing` | SAFE_ROLLOVER or FORCE_ROLLOVER | An operation is executing; no rotation; detail zero |
 | `0x04 preparation_failed` | SAFE_ROLLOVER or FORCE_ROLLOVER | No fresh usable epoch/prepared result could be committed; detail zero |
 
-Use `K_session`. For this **new domain only**, extend the existing nonce preimage with the three exact clear
-bytes `request_ctl`, `admission_code`, `detail`, after its existing source-hash term. Bind the entire clear
-header and stable controller `SOURCE_HASH` through the existing AAD path. There is no response sequence in
+Use `K_session`. For this **admission domain only**, the committed nonce implementation already appends the
+three exact clear bytes `request_ctl`, `admission_code`, `admission_detail` after its source-hash term.
+The committed AAD path binds the entire clear header and stable controller `SOURCE_HASH`. Do not add a
+second nonce/AAD builder or modify these preimages in the behavior slice. There is no response sequence in
 this fixed domain (the existing no-sequence nonce term is zero). Thus every varying notice byte changes the
 nonce as well as the AAD. Repetition of the same notice is byte-identical. The request-domain byte separates
 execute/safe/force requests sharing an ID. Decoder retains a typed notice domain/code/detail; it rejects
@@ -147,22 +175,20 @@ implementation produces `session_full/session_busy` only in the new domain. Desi
 non-executed outcomes to TERMINAL is explicitly superseded by R-RA-36. `already_acknowledged` stays the
 existing distinct authenticated PROTOCOL_ERROR, exactly one result byte, no mutable details.
 
-**Attribution:** implement and gate this codec-only change first as **7b-2-0**, with its own brief/base/report
-and owner commit. No target producer, Node allocation or open behavior joins that commit. Native and independent
-wire vectors must attack all added header/nonce/AAD fields and prove every old vector unchanged. The wire is
-free to change on the owner's unshipped hardware (M3); do not squeeze these outcomes into spare seq values,
-bits or a small evictable cache to dodge the correct shape. Do not silently bump `wire_version`; if one is
-needed, it receives the separate owner ruling and attribution required by C4.
-
-After the separately gated codec preparation is owner-committed, QA reissues this **behavior** brief against
-that actual base and source symbols. Until then, §2.1 defines the ruled wire contract; it does not claim
-the new codec APIs already exist or authorize the behavior implementation.
+**Attribution completed:** **7b-2-0** passed its separate full native/reference/mutation/corpus/board gate and
+is owner-committed at `564f460`. It adds no target producer, Node allocation or open behavior. All old wire
+vectors remain identical. QA's **134-check** real-session/codec reproduction independently confirms new-domain
+separation from an actual completed seq0 transcript and changing busy 2→1 nonces/wire, using **labelled
+synthetic notices**; it is not the missing real target producer proof. B379 stays open until §8's real
+full/busy/retry lifecycles pass. No codec production change, new wire allocation or `wire_version` bump is
+in this behavior slice. M3/C4 remain in force; no spare-sequence or evictable-cache substitute is authorized.
 
 ### 2.2 B378 — independent open capture capacity, rate policy and measured ABI re-pins
 
 The current four staging rows are metadata only. They retain neither the decoded command nor its output.
 R-RA-22 forbids using the four authenticated headers/eight chunks or either authenticated body for open work.
-The existing real-handler fixture's `status` is **364 bytes**, already larger than one open response frame.
+The prior real-handler fixture's `status` sample was **364 bytes**, already larger than one open response
+frame. That is a historical fixture sample, not a maximum or a post-counter output-size pin.
 
 **Approved R-RA-35 allocation:** preserve **3 open + 1 bootstrap** staging headers and every authenticated capacity.
 Append ACCEPT-only `OpenCapture[3]`, paired by index with `staging[0..2]`; bootstrap has no capture buffer.
@@ -195,7 +221,7 @@ At the exact deadline, the expired position can be reused; the counted admission
 not only three simultaneous requests. The final ABI pins must still come from actual measurements;
 the approved storage proposal is not a precomputed linked RAM result.
 
-## 3. Session-control behavior (after the codec prerequisite)
+## 3. Session-control behavior
 
 ### 3.1 Admission, identity and priority
 
@@ -214,8 +240,13 @@ invalidation already removes stale ingress; do not invent a post-invalidation re
 
 1. Use one current-state snapshot. Refuse rotation if **any operation is executing**; the guard is target-wide.
    For SAFE, additionally count **this slot's** completed, unacknowledged transcripts and return `session_busy`
-   if nonzero. FORCE may abandon them; the exact count goes into its successful result. Other slots' records,
-   epochs, transcripts and ingress survive byte-for-byte.
+   if nonzero. FORCE may abandon them; the exact count goes into its successful result. Other slots' epochs,
+   seen records (including first route/source), ingress, owned transcript output bytes, terminal, frame count
+   and replay/send cursor survive byte-for-byte. **B386:** existing `transcript_release` compacts the shared
+   `TranscriptHeader::order` ranks of later retained headers; only that scheduling-rank adjustment is allowed
+   in another slot's header. It must preserve relative send order and encoded pending bytes. The existing free
+   chunk-list rebuild is also shared bookkeeping, not permission to alter another transcript's owned chunks.
+   Do not promise a byte-identical whole session/header or redesign the shared pool to satisfy such a promise.
 2. Prepare exactly one epoch draw through the existing `Node::admin_draw_epoch` boundary. Reject zero/failure
    **and equality with the current epoch**; no retry loop, clock/counter fallback or automatic force. A rejected
    draw preserves the old key/work and returns a preparation-failure notice if encoding/transport permit.
@@ -332,8 +363,10 @@ Retain a single return-carrier conversion and the existing real Print/seam adapt
 1. Expire eligible pre-execution/open work using one current-time snapshot; consume a pending control first
    when TX is eligible, then return. Full TX preserves pending control and performs no epoch draw.
 2. Otherwise preserve 7b-1's authenticated send/dispatch precedence. One attempted authenticated frame or one
-   authenticated dispatch consumes the call. If an auth reservation cannot proceed because its own pool is
-   exhausted, it need not block independently owned open work.
+   authenticated dispatch consumes the call. Preserve the existing distinction: full TX defers sending and
+   control rotation, but does not by itself block an eligible authenticated dispatch into its reserved capture.
+   Do not introduce a blanket full-TX return that changes that 7b-1 behavior. If an auth reservation cannot
+   proceed because its own pool is exhausted, it need not block independently owned open work.
 3. With no eligible auth/control unit, send at most one pending open frame, or dispatch one admitted open
    request. Deterministic oldest open admission first; bounded tie-breaking by index. No loop drains an entire
    transcript into the HAL in one service call.
@@ -385,7 +418,7 @@ them into a few selected-field checks. Update touched comments that claim zero s
 
 ## 7. Production/test fence and implementation evidence
 
-After rulings and the codec prerequisite, the expected behavior diff is localized; **predict the actual
+At this committed codec base, the expected behavior diff is localized; **predict the actual
 `git diff --stat` paths before editing**. No file move or unrelated cleanup joins this feature.
 
 - Core: `lib/core/remote_session.{h,cpp}`, `lib/core/node.{h,cpp}`, `lib/core/node_mac_rx.cpp`. Extend current
@@ -403,7 +436,8 @@ After rulings and the codec prerequisite, the expected behavior diff is localize
   B377's plain pin assignments and strict reader. Regenerate the inventory through its tool; source anchors may
   move, but the **204-row verb/authority surface** should not.
 - Coder evidence: `docs/superpowers/evidence/2026-09-08-radmin-slice7b2.md`, with actual base + brief SHA-256,
-  preflight, predictions, all final sources/untracked inputs, failures, pin arithmetic and frozen handoff.
+  revision-4 preflight, predictions, all final sources/untracked inputs, failures, pin arithmetic and frozen
+  handoff. Append to the committed historical report; preserve its earlier preflights and §6 owner receipt.
 
 OUT OF FENCE: production codec changes mixed into the behavior commit, simulator edits/anchors, wire-version
 change, HAL entropy-provider redesign/B312 closure, new allocation beyond the ruled candidate, private-DM/ACL
@@ -420,10 +454,11 @@ by the inbox-verbs probe's executed rows, preserving B367's boundary.
 
 | Obligation | Required discriminating proof |
 | --- | --- |
-| Safe rollover | Authenticated real flight, zero unacked → exact base-key result/new epoch; old-session request fails, fresh-session succeeds; no NV write; other slots unchanged; zero/current-epoch draw refusal. |
+| Safe rollover | Authenticated real flight, zero unacked → exact base-key result/new epoch; old-session request fails, fresh-session succeeds; no NV write; other-slot invariants per §3.2; zero/current-epoch draw refusal. |
 | Busy and force | Safe count is the live same-slot count, no work destroyed; ACK changes that count; same-ID retry uses nonce-safe notice; force reports exact abandoned count and wipes only its slot. Force has no local confirmation inference at target. |
+| Cross-slot release | Force releases an earlier same-slot transcript with two later other-slot survivors: only permitted shared ranks compact; all other surviving header fields, owned chunks, seen/route/epoch/ingress and pending wire bytes match. Relative send order stays unchanged; include a nonzero cursor. B386's author proof is the existing install boundary, not a real control producer gate. |
 | Executing guard | Use real reserve/capturing state with a **labelled paused-executor synthetic fixture**; do not claim a synchronous real firmware handler was naturally interleaved by the radio loop. Both safe/force preserve executing state. |
-| Control admission/expiry | Full seen pool does not consume CONTROL; owner/operator partition rules; duplicate control cannot replace a pending route/deadline; full TX causes zero draws; exact expiry/re-arm; ACK can free capacity despite occupied CONTROL. |
+| Control admission/expiry | Full seen pool does not consume CONTROL; owner/operator partition rules; duplicate control cannot replace a pending route/deadline; full TX causes zero draws/sends while eligible authenticated capture dispatch retains 7b-1 behavior; exact expiry/re-arm; ACK can free capacity despite occupied CONTROL. |
 | Negative notices | B379's full→other-slot-rotation→same-key execution reproduction is now safe; busy 2→1 changes nonce; changed request ctl/code/detail/source/slot fails authentication when tampered; no seen/transcript allocation for notices. |
 | Acknowledged retry | Exact one-byte authenticated protocol error, correct typed domain, byte-identical repeats, no dispatch/new transcript; changed tag/source cannot redirect it. |
 | Open ownership | Mutate original RX/scratch after staging, then dispatch; raw-line buffer/capture overwrite cannot corrupt the command; exact `status`/`routes` only; no auth key needed by the open encoder. |
@@ -448,22 +483,33 @@ Run the full standing chain, then QA independently repeats it on the complete fr
 1. `pio test -e native`, **then run `./.pio/build/native/program`**. Derive base/final cases and assertions from
    executed output; use filtered per-file XML only for arithmetic, not a whole-suite claim over B364.
 2. Build simulator normal/gateway variants; record actual compiler/link actions and the executable hash.
-   Run all **36** scenarios against the current `simulation/BASELINE.md` anchors, validate manifests and compare
-   final streams to a fresh matching base. No remote corpus traffic does not replace native/probe wiring proof.
+   **B385:** a snapshot overlay preserving old source mtimes can leave baseline objects silently reused;
+   use a fresh final build directory or prove actual recompilation of every affected normal/gateway object.
+   Source hashes alone do not prove executable provenance. Run all **36** scenarios against current
+   `simulation/BASELINE.md` anchors, validate both manifests and compare actual final stream bytes to a fresh
+   matching base. If canonical `--compare` refuses a changed `lus_sha256`, retain that refusal and independently
+   compare the validated actual streams without rewriting manifests. No remote corpus traffic does not replace
+   native/probe wiring proof.
 3. Both ABI probes with all controls; all six probes (console-sink, inbox-verbs, firmware-UI, custody-USB,
    BLE-line, features) in default controlled and `--no-neg` modes. No-controls runs are not a gate. Configure
    `MR_LUS_SRC` explicitly for an isolated tree without a sibling simulator; preserve B350's known wording limit.
 4. Full tools unittest discovery; inventory `--write`, bare, `--check`; authority checker and six selftests;
-   A0 matrix, DataType literal check, both repositories' whitespace checks. Provide a measured ELF under the
-   private `.pio-measure/` tree so the tools suite's existing real-ELF test does not silently skip.
+   A0 matrix, DataType literal check, both repositories' whitespace checks. Retain the committed codec reference:
+   run `2026-09-09-radmin-slice7b2-0-reference.py --compare test/test_remote_codec.cpp --selftest` from its evidence
+   path with the independent PyNaCl environment. Preserve all 87 old literals and both admission arrays, four
+   comparator controls and the one-byte corruption refusal; 7b-2 must not change their expected bytes/meanings.
+   Provide a measured ELF under the private `.pio-measure/` tree so the tools suite's existing real-ELF test
+   does not silently skip.
 5. Deterministic base/final **gateway then heltec_mobile**, sequentially, same private build paths and fixed
    identity. Outputs must be under that checkout's `.pio-measure/` (B315). Hash and preserve ELFs/payloads;
    attribute RAM, flash, sections, objects and changed symbols without mutating the measured ELF. The normal
    board gate is this pair only; the warning census's own **six-environment** pinned set is the sole exception.
 6. Derive **two separate mutation selectors**: (a) every configured `TARGET_SRC` touched, and (b) dependency/
    historical acceptance obligations. Their union is mandatory. The **47 batteries named in 7b-1 QA §4** are
-   the explicit historical floor, not a claim that the changed-source set has 47 members. Add the gated codec
-   prerequisite's coverage, new control/open decisions and any newly touched-source batteries. Extend existing
+   the explicit historical floor, not a claim that the changed-source set has 47 members. The committed codec
+   gate's union is the current starting floor: **712 RED + one known unusable B342**, including its extended
+   `radmin2` codec coverage. Do not revert to 7b-1's historical 675 RED. Derive all counts again; add new
+   control/open decisions and any newly touched-source batteries. Extend existing
    `radmin7exec`/`radmin7rx` and add focused control/open batteries where needed; real firmware status/seam is
    tested by real-TU probe controls, not a native battery against an uncompiled TU. Record every selected name,
    reason, pattern count, baseline, RED/unusable count and source-restoration hash. Never gate a shorthand subset.
@@ -489,8 +535,10 @@ Under the approved, measured candidate allocation, predicted Node sizes are nati
 (current **225920/152288 +4976**); mobile **117912 unchanged**. Gateway RAM prediction is **203956**
 (current independently measured **198980 +4976**), subject to final linker alignment/attribution; mobile RAM
 **207756 unchanged**. These are explicitly predictions, not authorized replacement pins or fresh board
-measurements. Gateway flash grows by the implementation; derive it. Mobile flash is predicted unchanged for
-ACCEPT-only additions; attribute any actual codegen movement, as 7b-1 required. Any extra resident auxiliary
+measurements. The committed codec baseline's independently measured flash is gateway **562748 B** and mobile
+**1372992 B**. Gateway flash grows by the behavior implementation; derive and attribute the actual delta.
+Mobile flash is predicted unchanged for ACCEPT-only additions; attribute any actual codegen movement, as
+7b-1 required. Any extra resident auxiliary
 state or capacity change is outside the approved allocation and returns to QA/owner.
 
 The standing relevant 7b-1 STOP text is retained verbatim:

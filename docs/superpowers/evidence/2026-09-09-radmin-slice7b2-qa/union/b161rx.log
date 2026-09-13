@@ -1,0 +1,51 @@
+-- target b161rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp (8 entries)
+-- selection: IN FULL (all 8 entries)
+-- workers: 4
+-- scratch root: /tmp/mr_mutation_run-ck7gvd5u   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b161rx: /tmp/mr_mutation_run-ck7gvd5u/w0/lib/core/node_mac_rx.cpp (2 of 8 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b161rx: /tmp/mr_mutation_run-ck7gvd5u/w1/lib/core/node_mac_rx.cpp (2 of 8 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w3] -- target b161rx: /tmp/mr_mutation_run-ck7gvd5u/w3/lib/core/node_mac_rx.cpp (2 of 8 entries in this shard)
+  [w3] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b161rx: /tmp/mr_mutation_run-ck7gvd5u/w2/lib/core/node_mac_rx.cpp (2 of 8 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w1]   ok   R02 B161 type 8 restores a legacy raw fallback when canonical parsing/shape validation refuses -> RED (1 assertion(s) failed, match count 1)
+  [w3]   ok   R04 B161 destination type 8 passes the whole inner, reintroducing the one-byte body shift -> RED (2 assertion(s) failed, match count 1)
+  [w2]   ok   R03 B161 destination types 1/2 pass the whole inner, reintroducing the one-byte body shift -> RED (15 assertion(s) failed, match count 1)
+  [w0]   ok   R01 B161 types 1/2 restore a legacy raw fallback when canonical parsing/shape validation refuses -> RED (4 assertion(s) failed, match count 1)
+  [w1]   ok   R06 B161 relay snoop passes the whole inner while forwarding still carries the canonical bytes -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w1] shard 1: 2 RED / 0 unusable   (of 2 entries)
+  [w2]   ok   R07 B161 implicit-forward credit collapses the identity back to the counter low nibble -> RED (11 assertion(s) failed, match count 1)
+  [w2] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w2] shard 2: 2 RED / 0 unusable   (of 2 entries)
+  [w3]   ok   R08 B161 terminal CTS collapses the identity back to the counter low byte -> RED (15 assertion(s) failed, match count 1)
+  [w3] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w3] shard 3: 2 RED / 0 unusable   (of 2 entries)
+  [w0]   ok   R05 B161 destination type 13 passes the whole inner, reintroducing the one-byte body shift -> RED (5 assertion(s) failed, match count 1)
+  [w0] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w0] shard 0: 2 RED / 0 unusable   (of 2 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target b161rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+  ok   R01 B161 types 1/2 restore a legacy raw fallback when canonical parsing/shape validation refuses -> RED (4 assertion(s) failed, match count 1)
+  ok   R02 B161 type 8 restores a legacy raw fallback when canonical parsing/shape validation refuses -> RED (1 assertion(s) failed, match count 1)
+  ok   R03 B161 destination types 1/2 pass the whole inner, reintroducing the one-byte body shift -> RED (15 assertion(s) failed, match count 1)
+  ok   R04 B161 destination type 8 passes the whole inner, reintroducing the one-byte body shift -> RED (2 assertion(s) failed, match count 1)
+  ok   R05 B161 destination type 13 passes the whole inner, reintroducing the one-byte body shift -> RED (5 assertion(s) failed, match count 1)
+  ok   R06 B161 relay snoop passes the whole inner while forwarding still carries the canonical bytes -> RED (1 assertion(s) failed, match count 1)
+  ok   R07 B161 implicit-forward credit collapses the identity back to the counter low nibble -> RED (11 assertion(s) failed, match count 1)
+  ok   R08 B161 terminal CTS collapses the identity back to the counter low byte -> RED (15 assertion(s) failed, match count 1)
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 13.1s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-ck7gvd5u/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 12.6s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-ck7gvd5u/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 12.9s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-ck7gvd5u/w2
+  worker 3: 2/2 entries, 2 RED / 0 worthless, wall 12.9s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-ck7gvd5u/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations
+timing: copy 0.8s + battery 13.1s = 14.0s total, 8 entries over 4 worker(s)
+mutations: 8 RED / 0 unusable

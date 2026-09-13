@@ -2108,12 +2108,83 @@ Node::SendDispatch Node::radmin_send_response(uint32_t source_hash, const ReplyR
 void Node::radmin_send_reply(RemoteRxResult& res)
 {
     if (!res.has_reply) return;
-    (void)radmin_send_response(res.source_hash, res.route, res.reply, res.reply_len,
-                               res.controller_slot, /*bootstrap=*/true);
+    const SendDispatch dsp = radmin_send_response(res.source_hash, res.route, res.reply, res.reply_len,
+                               res.controller_slot, res.verdict == RemoteAdmitVerdict::bootstrap_answered);
+    if (dsp.admit != SendDispatch::Admit::queued && dsp.admit != SendDispatch::Admit::parked)
+        remote_counter_increment(_radmin_session, RadminCounter::response_enqueue_failure);
+    crypto_wipe(res.reply, sizeof res.reply);
     // ⛔ RELEASED ON THE CHECKED OUTCOME, whatever it was. A PARKED copy is transport-owned and is not aired TX
     //    yet; this slice adds ⛔ no application retry scheduler for it (design §7.2: a lost bootstrap response is
     //    recovered by the controller REPEATING the read-only request, which is exactly what makes it safe).
     remote_session_staging_release(_radmin_session, res.staging_index);
+}
+
+bool Node::radmin_service_control()
+{
+    // TX pressure is a defer, not preparation: no entropy draw, encoding, mutation or failure counter.
+    if (tx_queue_full()) return false;
+    RadminControlView view{};
+    if (!remote_control_next(_radmin_session, view)) return false;
+    uint8_t completed = 0;
+    const auto decision = remote_control_check(_radmin_session, view, completed);
+    if (decision == RadminControlDecision::stale) return false;
+    const auto counters_before = radmin_counters();
+    uint64_t fresh_epoch = 0;
+    if (decision == RadminControlDecision::ready) {
+        if (!admin_draw_epoch(fresh_epoch)) fresh_epoch = 0;
+    }
+    uint8_t body[kRemoteOverheadRolloverResult] = {};
+    size_t len = 0;
+    RemoteSessionInstall plan{};
+    bool install = false;
+    const RemoteStatus encoded = remote_control_prepare(_radmin_session, view, fresh_epoch, body, len, plan, install);
+    if (encoded != RemoteStatus::ok) {
+        remote_counter_increment(_radmin_session, RadminCounter::response_seal_failure);
+        remote_control_release(_radmin_session, view);
+    } else {
+        // The entire reply exists under the old base/session credentials before the non-failing install.
+        // A lost reply cannot resurrect old work; the controller recovers with read-only bootstrap.
+        if (install) admin_session_commit(plan);
+        else remote_control_release(_radmin_session, view);
+        const SendDispatch dsp = radmin_send_response(view.source_hash, view.route, body, static_cast<uint8_t>(len),
+                                                      view.slot, /*bootstrap=*/false);
+        if (dsp.admit != SendDispatch::Admit::queued && dsp.admit != SendDispatch::Admit::parked)
+            remote_counter_increment(_radmin_session, RadminCounter::response_enqueue_failure);
+    }
+    crypto_wipe(body, sizeof body);
+    crypto_wipe(&plan, sizeof plan);
+    crypto_wipe(&fresh_epoch, sizeof fresh_epoch);
+    radmin_report_counters(counters_before);
+    radmin_expiry_arm();
+    return true;
+}
+
+RadminSend Node::radmin_send_open_frame()
+{
+    if (tx_queue_full()) return RadminSend::none;
+    const uint8_t i = remote_open_next(_radmin_session);
+    if (i == kRadminNoSlot) return RadminSend::none;
+    const auto counters_before = radmin_counters();
+    uint8_t body[kRadminBodyBytes] = {};
+    size_t len = 0;
+    const RemoteStatus encoded = remote_open_encode(_radmin_session, i, body, len);
+    if (encoded != RemoteStatus::ok || len > sizeof body) {
+        crypto_wipe(body, sizeof body);
+        remote_counter_increment(_radmin_session, RadminCounter::response_seal_failure);
+        radmin_report_counters(counters_before);
+        return RadminSend::refused;
+    }
+    const auto& row = _radmin_session.staging[i];
+    const SendDispatch dsp = radmin_send_response(row.peer_source_hash, row.route, body, static_cast<uint8_t>(len),
+                                                  kRadminNoSlot, /*bootstrap=*/false);
+    crypto_wipe(body, sizeof body);
+    if (dsp.admit == SendDispatch::Admit::queued || dsp.admit == SendDispatch::Admit::parked) {
+        remote_open_sent(_radmin_session, i);
+        return dsp.admit == SendDispatch::Admit::queued ? RadminSend::queued : RadminSend::parked;
+    }
+    remote_counter_increment(_radmin_session, RadminCounter::response_enqueue_failure);
+    radmin_report_counters(counters_before);
+    return RadminSend::refused;
 }
 
 RadminSend Node::radmin_send_frame()
@@ -2173,9 +2244,12 @@ void Node::radmin_expiry_fire()
 // THE ACCEPT ENTRY POINT. A v2 remote command addressed to us.
 void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
 {
+    const auto counters_before = radmin_counters();
     // ★★ R-RA-13, DISCHARGED: `SOURCE_HASH` is MANDATORY on every RPC carrier. A frame whose standard unicast
     //    parse failed, or which carries no source hash, is REFUSED — ⛔ never keyed on `pa.origin` instead.
     if (!ui || !ui->has_source_hash) {
+        remote_counter_increment(_radmin_session, RadminCounter::inbound_refusal);
+        radmin_report_counters(counters_before);
         MR_EMIT("radmin_rx_refused", EF_S("verdict", "silent_no_source"), EF_I("origin", pa.origin));
         return;
     }
@@ -2184,6 +2258,7 @@ void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
     in.outer_type = pa.type;
     in.body       = ui->body;
     in.source     = RemoteSource{ /*present=*/true, ui->source_hash };
+    in.reply_permitted = !tx_queue_full();
     radmin_build_carriers(pa, *ui, in);
 
     RemoteRxResult res{};
@@ -2192,10 +2267,11 @@ void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
             EF_I("slot", res.controller_slot),
             EF_I("src_hash", static_cast<int64_t>(res.source_hash)),
             EF_I("seen", res.seen_index), EF_I("ingress", res.ingress_index));
-    radmin_send_reply(res);      // a no-op unless the verdict is `bootstrap_answered`
-    // A reservation may have been taken (or a bootstrap row taken and released), so the shared scan is re-armed
-    // from the CURRENT rows on every path — including the refusals, which changed nothing and therefore re-arm
-    // to exactly what was already armed.
+    radmin_send_reply(res);      // only fully encoded bootstrap/admission/protocol replies reach the sender
+    radmin_report_counters(counters_before);
+    // Recompute the earliest deadline from CURRENT rows after every classified intake, including refusals.
+    // Refusal accounting can change counters; open intake may also expire older staging/capture pairs before
+    // refusing, so the remaining rows can require a different expiry deadline.
     radmin_expiry_arm();
 }
 #endif

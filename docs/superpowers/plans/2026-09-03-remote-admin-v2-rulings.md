@@ -853,3 +853,11 @@ no new target producer, controller consumer, session/open behavior or Node alloc
 7b-2 behavior brief at the actual committed successor. No global `wire_version` bump or corpus re-anchor is
 part of this allocation: the remote opcode is the subprotocol discriminator (design §8.1). B379 remains open
 through codec/KAT verification and the subsequent real target full/busy/retry proofs; a ruling is not a PASS.
+
+
+**QA completion note, 2026-09-09 — R-RA-35/R-RA-36 unchanged:** the separate codec prerequisite is owner-
+committed at `564f460`; the 7b-2 behavior implementation now has independent QA PASS, uncommitted at that
+base. Actual gateway Node/RAM +4976 B, mobile unchanged; global admission/ownership/expiry and real nonce-safe
+full/busy/retry producers pass. B388's comment-only return is independently verified with 1238 other inputs
+preserved and 15 fresh checks; the completed full gate remains attributable. **B378/B379 are CLOSED** by
+these measurements and final QA, not by a new ruling. [Independent gate §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).

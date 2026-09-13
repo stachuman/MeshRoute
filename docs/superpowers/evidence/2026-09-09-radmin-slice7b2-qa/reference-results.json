@@ -1,0 +1,31 @@
+[
+  {
+    "name": "reference",
+    "command": [
+      "/home/staszek/mr-slice2-ref/bin/python",
+      "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-reference.py",
+      "--compare",
+      "test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-qa-s7b2-gate-0phs0ag4/frozen",
+    "rc": 0,
+    "seconds": 0.15614784881472588,
+    "sha256": "67a75567f00ec9871f6559d3b2ea9c9e2ecbd80ca015329ab5b289e3139bf152",
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/reference.log"
+  },
+  {
+    "name": "reference-corrupt",
+    "command": [
+      "/home/staszek/mr-slice2-ref/bin/python",
+      "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-reference.py",
+      "--compare",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/one-byte-corrupt.cpp"
+    ],
+    "cwd": "/tmp/mr-qa-s7b2-gate-0phs0ag4/frozen",
+    "rc": 1,
+    "seconds": 0.07879667356610298,
+    "sha256": "8ebac835e3a68a8c94092cf072ada1428620348724ae91bf591437099c1f917b",
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/reference-corrupt.log"
+  }
+]

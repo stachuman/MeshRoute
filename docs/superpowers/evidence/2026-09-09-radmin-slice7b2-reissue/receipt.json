@@ -1,0 +1,33 @@
+{
+  "head": "564f460a3b755a104f146da70457e5c8c68e99b9",
+  "initially_clean": true,
+  "input_count": 1067,
+  "matched_prior_gate_inputs": 390,
+  "prior_measure": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure",
+  "verified_codec_hashes": {
+    "lib/core/remote_codec.h": "c090f2d577b0aa247cc0952c87f2c004da7464962862f2dc3bd92f3ee0d47cb2",
+    "lib/core/remote_codec.cpp": "a972c2fceef24ac38cbc442c92d5926b4783648f04567bc7f0d4ba5c031c8820",
+    "test/test_remote_codec.cpp": "b5c1837f7e9b436186071cee62a38e4431b43ba46c871543649c742ddc9b112b",
+    "tools/probe_ui_model_mutations.py": "12d4e1d03404d4a3a31957dad5d89f418743c9b1259cf5ab7389a91ad4b7cc26",
+    "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-reference.py": "ca485257119e1fb01ede94d5679ec40ac52bad2dc8ee22faf643b1f709227d96"
+  },
+  "prior_brief_sha256": "fdbf7b38d55ed7b67897851544b9acd322fa30a2ecb7b43cff4f267839bf8acd",
+  "reused_artifacts": {
+    "native": {
+      "path": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/program",
+      "sha256": "eb6025299f43a8e53b4b7644a7008813014354ae55c9903e5fdaf8b76e7e2dd0"
+    },
+    "b379": {
+      "path": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec",
+      "sha256": "f4da76eee6f233b87d57298c4dbe7799236de64f6f169ec4e78c8903ee988571"
+    },
+    "lus": {
+      "path": "/tmp/mr-qa-s7b20-gate-qfpdn1ul/sim-final-fresh/orchestrator/lus",
+      "sha256": "3826d36ee5b07fdaf2eb4836bfcf81240cb4ace18151fce4e66fe693670e186c"
+    }
+  },
+  "simulator_head": "06746a97de5764415d6fcef10b97bca90569b9c7",
+  "simulator_status": "",
+  "b386_checks": 43,
+  "revision4_brief_sha256": "0920bb419cf5f33fbedb8fabfa2c9dc9b91c81744727fd69cb21b16253a7200e"
+}

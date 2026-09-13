@@ -1245,6 +1245,12 @@ S7B_CTL = [
      [('if (remote_inbox_refuses(kind, "mark_read", out)) return;', '')], 'S82'),
     ('T10 remote delete guard removed', INBOXCPP,
      [('if (remote_inbox_refuses(kind, "del_msg", out)) return;', '')], 'S82'),
+    ('T11 status scalar label changes', CMDS,
+     [(' radmin_open_rate_refusal=', ' radmin_wrong_rate_refusal=')], 'S83'),
+    ('T12 status reads secret-bearing state instead of scalar snapshot', CMDS,
+     [('g_node.radmin_counters()', 'g_node.admin_session_state()')], 'S83'),
+    ('T13 status counters lose ACCEPT gate', CMDS,
+     [('#if MR_FEAT_RADMIN_ACCEPT\n    const auto radmin', '#if 1\n    const auto radmin')], 'S83'),
 ]
 for index, (label, target, steps, required) in enumerate(S7B_CTL):
     print(label)

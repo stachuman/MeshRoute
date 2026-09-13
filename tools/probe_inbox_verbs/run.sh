@@ -235,8 +235,8 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # 7b-1: old ACCEPT 370 / CLIENT 368; +2 Y7 refusals per arm (factory_reset is
 # disruptive even at owner), +8 shared R7-I rows. ACCEPT additionally +17 remote
 # view rows and +374 real-radio checks (eight commands, actual jitter/CTS/DATA/ACK).
-PIN_CHECKS_ACCEPT=771
-PIN_CHECKS_CLIENT=378
+PIN_CHECKS_ACCEPT=1363 # 7b-2: 771 + 592 executed open/status/control checks (own real-radio arm)
+PIN_CHECKS_CLIENT=384 # 378 + local status dispatch and five absent target-field checks
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -250,7 +250,7 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
-PIN_CONTROLS_ACCEPT=50  # 7b-1: old 41 + B372 medium control + eight ACCEPT wiring controls.
+PIN_CONTROLS_ACCEPT=60  # 7b-2: 50 + five service/open links and five exact status-value controls.
 PIN_CONTROLS_CLIENT=45  # old 44 + B372; all previous controls retained.
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
@@ -740,6 +740,23 @@ if [ "${1:-}" != "--no-neg" ]; then
     's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/24, /\*v_max=\*/kVersion|'
   ctl 'A7-C2 config loader floor raised, current v25 refuses' nvh \
     's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/26, /\*v_max=\*/kVersion|'
+fi
+
+if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = accept ]; then
+  s6_ctl 'R72-C1 control binding bypassed' 'return g_node.radmin_service_control();' \
+    's|return g_node.radmin_service_control();|return false;|'
+  s6_ctl 'R72-C2 open admission binding bypassed' 'return g_node.radmin_next_open(v);' \
+    's|return g_node.radmin_next_open(v);|(void)v; return false;|'
+  s6_ctl 'R72-C3 open sender binding bypassed' 'return g_node.radmin_send_open_frame();' \
+    's|return g_node.radmin_send_open_frame();|return meshroute::RadminSend::none;|'
+  s6_ctl 'R72-C4 open sink binding bypassed' 'g_node.radmin_open_append(i, p, n);' \
+    's|g_node.radmin_open_append(i, p, n);|(void)i; (void)p; (void)n;|'
+  s6_ctl 'R72-C5 open terminal binding changes outcome' 'g_node.radmin_open_complete(i, r);' \
+    's|g_node.radmin_open_complete(i, r);|(void)r; g_node.radmin_open_complete(i, meshroute::RemoteTerminal::internal_error);|'
+  for counter in inbound_refusal open_rate_refusal transcript_exhaustion response_enqueue_failure response_seal_failure; do
+    s6_ctl "R72-C6 status $counter loses its measured value" "out.print(radmin.$counter);" \
+      "s|out.print(radmin.$counter);|out.print(0);|"
+  done
 fi
 
 MD5_AFTER=$(md5_sources)

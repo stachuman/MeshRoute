@@ -22,6 +22,8 @@ using namespace mrfw;
 using namespace meshroute;
 struct Target : IRadminTarget {
     bool pending = true, room = true, full = false;
+    bool open_pending = false, control_pending = false;
+    RadminSend open_send = RadminSend::none;
     RadminSend send = RadminSend::none;
     uint8_t role = kRadminRoleOwner;
     uint8_t slot = 3;
@@ -53,6 +55,27 @@ struct Target : IRadminTarget {
     }
     bool tx_queue_full() override { order.emplace_back("full"); return full; }
     RadminSend send_next_frame() override { order.emplace_back("send"); return send; }
+    void expire() override { order.emplace_back("expire"); }
+    bool service_control() override { order.emplace_back("control"); return control_pending; }
+    bool next_open(RadminOpenView& v) override {
+        order.emplace_back("open-next"); if (!open_pending) return false;
+        v.index = 2; v.request_id = 29;
+        v.body = {reinterpret_cast<const uint8_t*>(line.data()), line.size()};
+        ReplyRoute route{}; route.carrier = static_cast<uint8_t>(RadminCarrierKind::same_layer);
+        v.reply_carrier = remote_reply_carrier(route); return true;
+    }
+    bool reserve_open(uint8_t i, uint16_t n) override {
+        CHECK(i == 2); CHECK(n == 222); order.emplace_back("open-reserve");
+        if (!open_pending) return false;
+        open_pending = false; line.assign(line.size(), '!'); return true; // overwrite the borrowed input NOW
+    }
+    void open_append(uint8_t i, const uint8_t* p, size_t n) override {
+        CHECK(i == 2); order.emplace_back("open-append"); bytes.append(reinterpret_cast<const char*>(p), n);
+    }
+    void open_complete(uint8_t i, RemoteTerminal r) override {
+        CHECK(i == 2); order.emplace_back("open-complete"); terminal = r;
+    }
+    RadminSend send_open_frame() override { order.emplace_back("open-send"); return open_send; }
 };
 struct Exec : IRadminExec {
     unsigned calls = 0;
@@ -70,7 +93,7 @@ struct Exec : IRadminExec {
 TEST_CASE("§radmin-7/exec ordering reserves before exactly one fake dispatch and completes afterwards") {
     Target t; Exec e;
     radmin_service_once(t, e);
-    CHECK(t.order == std::vector<std::string>{"full", "send", "next", "reserve", "append", "complete"});
+    CHECK(t.order == std::vector<std::string>{"expire", "full", "control", "send", "next", "reserve", "append", "complete"});
     CHECK(e.calls == 1); CHECK(t.cap == 206); CHECK(t.bytes == "hello\n");
     CHECK(t.terminal == RemoteTerminal::completed);
     CHECK(e.got.transport == CommandTransport::remote);
@@ -91,13 +114,13 @@ TEST_CASE("§radmin-7/exec one pending frame consumes the pass on every attempte
     for (const RadminSend result : {RadminSend::queued, RadminSend::parked, RadminSend::refused}) {
         Target t; Exec e; t.send = result;
         radmin_service_once(t, e);
-        CHECK(t.order == std::vector<std::string>{"full", "send"});
+        CHECK(t.order == std::vector<std::string>{"expire", "full", "control", "send"});
         CHECK(e.calls == 0); CHECK(t.pending);
     }
     Target t; Exec e; t.full = true;
     radmin_service_once(t, e);
     CHECK(e.calls == 1);
-    CHECK(t.order.front() == "full"); CHECK(t.order[1] == "next");
+    CHECK(t.order.front() == "expire"); CHECK(t.order[1] == "full"); CHECK(t.order[2] == "next");
 }
 TEST_CASE("§radmin-7/exec disruptive policy refuses before the fake can execute") {
     for (const char* line : {"reboot", "factory_reset confirm", "regen"}) {
@@ -143,4 +166,31 @@ TEST_CASE("§radmin-7/context pure scope restores nested and early-return contex
         local_call(); CHECK(active_command_context().acl_slot == 3);
     }
     CHECK(active_command_context().transport == CommandTransport::usb);
+}
+
+TEST_CASE("§radmin-7b2/exec control priority and independent open dispatch behind authenticated pool pressure") {
+    Target t; Exec exec; t.control_pending = true; t.open_pending = true;
+    radmin_service_once(t, exec);
+    CHECK(t.order == std::vector<std::string>{"expire", "full", "control"}); CHECK(exec.calls == 0);
+    t.control_pending = false; t.room = false; t.order.clear();
+    radmin_service_once(t, exec);
+    CHECK(t.order == std::vector<std::string>{"expire", "full", "control", "send", "next", "reserve",
+                                            "open-send", "open-next", "open-reserve", "open-append", "open-complete"});
+    CHECK(exec.calls == 1); CHECK(t.bytes == "hello\n"); CHECK(t.line == "!!!!!!");
+    CHECK(exec.got.authority == CommandAuthority::remote_open); CHECK(exec.got.transport == CommandTransport::remote);
+    CHECK_FALSE(exec.got.physical_presence); CHECK(exec.got.acl_slot == kRadminNoSlot);
+    CHECK(exec.got.request_id == 29); CHECK(exec.got.line_max_bytes == console::remote_command_max_bytes);
+    radmin_service_once(t, exec); CHECK(exec.calls == 1);
+}
+
+TEST_CASE("§radmin-7b2/exec any attempted open frame consumes the pass and full TX permits owned capture") {
+    for (const auto outcome : {RadminSend::queued, RadminSend::parked, RadminSend::refused}) {
+        Target t; Exec exec; t.pending = false; t.open_pending = true; t.open_send = outcome;
+        radmin_service_once(t, exec);
+        CHECK(exec.calls == 0); CHECK(t.open_pending); CHECK(t.order.back() == "open-send");
+    }
+    Target t; Exec exec; t.full = true; t.control_pending = true; t.open_pending = true;
+    radmin_service_once(t, exec);
+    CHECK(exec.calls == 1); CHECK(t.open_pending); CHECK(exec.got.authority == CommandAuthority::remote_owner);
+    CHECK(t.order == std::vector<std::string>{"expire", "full", "next", "reserve", "append", "complete"});
 }

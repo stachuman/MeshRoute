@@ -6,13 +6,16 @@ round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. S
 independently through §19; none is authorized until its own brief passes. Slices 0d and 0f have landed; Slice 0e
 has completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
-**Implementation update 2026-09-09:** the preceding status is the original design checkpoint. Slice 7b-1 is
-software-complete with independent QA PASS, owner-committed at `1d4b3ad`. R-RA-34 splits 7b into 7b-1/7b-2/7b-3.
-R-RA-35 approves independent open storage and three open admissions total per target per five minutes;
-R-RA-36's separate 7b-2-0 admission codec is now software-complete / independent QA PASS, uncommitted.
-Its new wire domain has no live producer yet. The open-storage/rate and session/open/deferred requirements
-remain pending. Owner commits codec preparation separately, then QA reissues 7b-2 at the actual successor.
-Current measurements and limits: [codec independent QA](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md).
+**Implementation update 2026-09-09:** Slice 7b-1 is software-complete / independent QA PASS, owner commit
+`1d4b3ad`; R-RA-34 splits 7b into 7b-1/7b-2/7b-3. R-RA-35 approves separate open storage and three admissions
+TOTAL per target per five minutes; R-RA-36's separate 7b-2-0 codec is QA-passed and owner-committed at
+`564f460`. **7b-2 revision 4 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS, uncommitted at that base.**
+B388's comment-only return passes independent source/preservation review and a fresh 15-check reproduction;
+B378/B379/B388 close, B387 stays closed. The prior full gate remains attributable without repetition:
+native 2909/174485/0, corpus 36/36 byte-identical, 772 RED /known unusable B342, tools 343/zero skips,
+all required probes/ABI/checkers/census. Gateway RAM +4976 B, flash +7840 B; mobile linked sections unchanged.
+Next is the owner commit, then a separate 7b-3 deferred-action brief at its actual hash. No new owner ruling.
+[7b-2 independent gate and scoped closure](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -1672,7 +1675,9 @@ The target implementation needs:
 - observable counters for inbound refusal, open rate-limit refusal, transcript exhaustion, response enqueue
   failure and response seal failure; Slice 7b-1 implements the last three as separately attributable saturating
   u16 counters in ACCEPT state. A seal refusal does not attempt enqueue or increment the enqueue-failure counter;
-  full-queue pacing is not a failed send attempt. Their `status` exposure belongs to Slice 7b-2;
+  full-queue pacing is not a failed send attempt. The frozen 7b-2 implementation adds the first two counters
+  and exposes all five in ACCEPT text `status`; all saturate and preserve totals across ordinary invalidation.
+  Independent 7b-2 QA and its B388 comment-return closure pass;
 - no execution unless space for its mandatory terminal result and required deferred-action state has first
   been reserved;
 - paced draining into the existing TX queue, with every enqueue result checked.
@@ -1683,9 +1688,10 @@ admissions total per target in any 300000 ms window, shared across all requester
 Each admission occupies one budget position until its original deadline; completed output is wiped while
 peer/deadline cooldown remains. At most one row is retained per peer. Source/ID/route changes cannot create
 extra budget; authenticated traffic and bootstrap consume none. Use the existing earliest-deadline scan;
-no completion/retry window reset or new timer. The measured candidate +4976 B is not linked RAM: final
-native/gateway growth must be measured and attributed, with mobile Node/RAM unchanged. This is a pending
-7b-2 implementation requirement, not an allocation in the codec-only 7b-2-0 slice.
+no completion/retry window reset or new timer. Independent 7b-2 QA now measures actual native/gateway
+Node growth **+4976 B** and linked gateway RAM **+4976 B**, entirely `g_node`; mobile Node/RAM stays
+unchanged. Owned input/output, rolling budget, cooldown and expiry proofs pass. This allocation is in the
+uncommitted behavior implementation, not the codec-only 7b-2-0 commit; independent 7b-2 QA PASS closes B378.
 
 The controller implementation also needs:
 
@@ -1708,8 +1714,10 @@ than eight ACK-requesting delegated sends—RPC and ordinary `-a` traffic combin
 one mobile at once; non-ACK RPC pending-table capacity is independent of that ring.
 
 Independent IDs permit several requests to be in flight, but the target may still dispatch only one at a
-time. If a request was authenticated but cannot be admitted, it receives a terminal refusal when transport
-capacity permits; unauthenticated malformed garbage remains a silent drop to avoid an oracle. A well-formed
+time. State-dependent non-executed refusals use R-RA-36's authenticated-clear ADMISSION_RESULT where
+specified, when transport permits; they never manufacture a completed TERMINAL transcript. Exact already-
+acknowledged execute retries use their fixed authenticated PROTOCOL_ERROR. Unauthenticated malformed
+garbage remains a silent drop to avoid an oracle. A well-formed
 open diagnostic may receive a clear refusal, but it never bypasses the shared bounds or rate limit.
 
 Before production state lands, the controller pending/session/result records and target
@@ -2113,7 +2121,7 @@ The complete design does not provide:
      multi-DM sink, mandatory result reservation, main-loop dispatch once under the authenticated ACL context,
      paced OUTPUT/TERMINAL, immutable exact replay, ACK release with executed-fingerprint retention,
      three disjoint saturating transcript/send counters, and the R-RA-32 private-application-DM view.
-   - **7b-2, session control and open responses — pending:** safe/confirmed-force rollover, `session_full` /
+   - **7b-2, session control and open responses — software-complete / independent QA PASS:** safe/confirmed-force rollover, `session_full` /
      `session_busy`, `PROTOCOL_ERROR{already_acknowledged}`, shared-credential behavior, measured open/bootstrap
      partition and rate limit, open staging/response release, and §15 status-counter exposure. Controller-side
      automatic rollover and ACK debt remain with the controller slices.
@@ -2172,8 +2180,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 6 | ✅ software-complete / QA-passed 2026-09-07 (uncommitted at report); the shared validator `lib/console/console_line.h`, `CommandContext`/outcome, the ruled authority table `src/firmware_command_authority.h` + `docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md` + `tools/check_command_authority.py`; B343–B348 folded in before implementation | zero remote events; `lus` byte-identical with 0 build actions; corpus 36/36; local behaviour byte-identical except the ruled `bad_line` refusals; inventory 203 rows; ruled pair RAM ±0, flash +5536 / +3816 attributed | Part 63 (the BLE embedded-NUL line) |
 | 7a | ✅ software-complete / QA-passed 2026-09-08 (two commits: 7a-0 `89071fb` the MAC wait-window refactor `lib/core/mac_wait_windows.h`; 7a the feature, uncommitted at report): NV v25 `remote_action_activation_ms` (offset 276, record 280, explicit `kVersionMinLoad = 25`), `lib/core/remote_activation.h` (R-RA-20/23 budget, KAT 7006/14012), `src/firmware_remote_activation.h` (five-state resolver, never clamps), the `cfg set` key, text/JSON read-out, post-init boot line; B352–B358, B360–B363 folded in; B354 (unreachable `gw_announce_interval`) fixed | zero remote events; `lus` changed twice with 36/36 byte-identical; inventory 204; ruled pair RAM +8 / +8 (global + alignment), flash +5072 / +1476 attributed; union 204 RED / 1 pre-existing | **Part 57a** (landed) |
 | 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, owner-committed at `1d4b3ad`; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
-| 7b-2-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, revision 2, base `1d4b3ad`, uncommitted; R-RA-36 ADMISSION_RESULT codec, no new live producer; B382/B383 closed, B384/B385 corrected/recorded; [QA evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md) | native 2888/172264/0; old literals 87/87, new arrays/controls verified; corpus 36/36 byte-identical; 712 RED / known unusable B342; tools 343 OK / zero skips; all ABI/probes/checkers/census; Node/RAM unchanged, gateway flash −64 B attributed, mobile linked sections identical | none; owner commit pending, no new metal-only behavior |
-| 7b-2 | **DRAFT revision 3 / R-RA-35/R-RA-36 recorded 2026-09-09**; behavior HOLD for separate owner commit of QA-passed 7b-2-0 and reissued successor brief; [brief](../plans/2026-09-08-radmin-slice7b2-session-open-status.md). B378/B379 remain implementation/gate obligations | approved candidate +4976 B ACCEPT state requires linked attribution/mobile invariance; rate is three open admissions total per target per five minutes, shared across all requesters | controller-dependent open/control round trips join 8b; no new bench part yet |
+| 7b-2-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, revision 2, attribution base `1d4b3ad`, owner commit `564f460`; R-RA-36 ADMISSION_RESULT codec, no new live producer; B382/B383 closed, B384/B385 corrected/recorded; [QA evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md) | native 2888/172264/0; old literals 87/87, new arrays/controls verified; corpus 36/36 byte-identical; 712 RED / known unusable B342; tools 343 OK / zero skips; all ABI/probes/checkers/census; Node/RAM unchanged, gateway flash −64 B attributed, mobile linked sections identical | none; owner-committed, no new metal-only behavior |
+| 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, uncommitted at `564f460`, consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate remains attributable. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
 | 7b-3 | **PENDING:** scheduler and deferred-action owners; fresh brief required | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |

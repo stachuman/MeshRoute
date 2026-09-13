@@ -1,0 +1,75 @@
+-- target radmin7transcript: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/remote_session.cpp (20 entries)
+-- selection: IN FULL (all 20 entries)
+-- workers: 4
+-- scratch root: /tmp/mr_mutation_run-lyj2hhem   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin7transcript: /tmp/mr_mutation_run-lyj2hhem/w0/lib/core/remote_session.cpp (5 of 20 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin7transcript: /tmp/mr_mutation_run-lyj2hhem/w2/lib/core/remote_session.cpp (5 of 20 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin7transcript: /tmp/mr_mutation_run-lyj2hhem/w1/lib/core/remote_session.cpp (5 of 20 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w3] -- target radmin7transcript: /tmp/mr_mutation_run-lyj2hhem/w3/lib/core/remote_session.cpp (5 of 20 entries in this shard)
+  [w3] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w2]   ok   T03 full header pool evicts row zero -> RED (20 assertion(s) failed, match count 1)
+  [w0]   ok   T01 reserve permits a second execution -> RED (8 assertion(s) failed, match count 1)
+  [w1]   ok   T02 carrier chunk authority bypassed -> RED (5 assertion(s) failed, match count 1)
+  [w3]   ok   T04 exhaustion counter never advances -> RED (5 assertion(s) failed, match count 1)
+  [w2]   ok   T07 truncation reported as complete -> RED (4 assertion(s) failed, match count 1)
+  [w0]   ok   T05 captured bytes overwritten at every append -> RED (7 assertion(s) failed, match count 1)
+  [w1]   ok   T06 last chunk is silently lost -> RED (22 assertion(s) failed, match count 1)
+  [w3]   ok   T08 mandatory terminal omitted -> RED (74 assertion(s) failed, match count 1)
+  [w2]   ok   T11 late append rewrites completed transcript -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   T09 silent chunk emitted as output -> RED (26 assertion(s) failed, match count 1)
+  [w1]   ok   T10 frozen completion overwritten -> RED (3 assertion(s) failed, match count 1)
+  [w3]   ok   T12 complete keeps ingress body reserved -> RED (207 assertion(s) failed, match count 1)
+  [w2]   ok   T15 ACK erases executed tombstone -> RED (53 assertion(s) failed, match count 1)
+  [w0]   ok   T13 exact retry does not restart -> RED (41 assertion(s) failed, match count 1)
+  [w1]   ok   T14 ACK competes for reserved ingress -> RED (11 assertion(s) failed, match count 1)
+  [w3]   ok   T16 ACK retains transcript under pressure -> RED (87 assertion(s) failed, match count 1)
+  [w2]   ok   T19 original sequence misnumbered -> RED (90 assertion(s) failed, match count 1)
+  [w2] source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)
+  [w2] shard 2: 5 RED / 0 unusable   (of 5 entries)
+  [w0]   ok   T17 encoder ignores retained epoch mismatch -> RED (44 assertion(s) failed, match count 1)
+  [w0] source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)
+  [w0] shard 0: 5 RED / 0 unusable   (of 5 entries)
+  [w1]   ok   T18 wrong original controller crypto source -> RED (392 assertion(s) failed, match count 1)
+  [w1] source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+  [w3]   ok   T20 slot invalidation leaves chunk plaintext -> RED (13 assertion(s) failed, match count 1)
+  [w3] source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)
+  [w3] shard 3: 5 RED / 0 unusable   (of 5 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin7transcript: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/remote_session.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+  ok   T01 reserve permits a second execution -> RED (8 assertion(s) failed, match count 1)
+  ok   T02 carrier chunk authority bypassed -> RED (5 assertion(s) failed, match count 1)
+  ok   T03 full header pool evicts row zero -> RED (20 assertion(s) failed, match count 1)
+  ok   T04 exhaustion counter never advances -> RED (5 assertion(s) failed, match count 1)
+  ok   T05 captured bytes overwritten at every append -> RED (7 assertion(s) failed, match count 1)
+  ok   T06 last chunk is silently lost -> RED (22 assertion(s) failed, match count 1)
+  ok   T07 truncation reported as complete -> RED (4 assertion(s) failed, match count 1)
+  ok   T08 mandatory terminal omitted -> RED (74 assertion(s) failed, match count 1)
+  ok   T09 silent chunk emitted as output -> RED (26 assertion(s) failed, match count 1)
+  ok   T10 frozen completion overwritten -> RED (3 assertion(s) failed, match count 1)
+  ok   T11 late append rewrites completed transcript -> RED (1 assertion(s) failed, match count 1)
+  ok   T12 complete keeps ingress body reserved -> RED (207 assertion(s) failed, match count 1)
+  ok   T13 exact retry does not restart -> RED (41 assertion(s) failed, match count 1)
+  ok   T14 ACK competes for reserved ingress -> RED (11 assertion(s) failed, match count 1)
+  ok   T15 ACK erases executed tombstone -> RED (53 assertion(s) failed, match count 1)
+  ok   T16 ACK retains transcript under pressure -> RED (87 assertion(s) failed, match count 1)
+  ok   T17 encoder ignores retained epoch mismatch -> RED (44 assertion(s) failed, match count 1)
+  ok   T18 wrong original controller crypto source -> RED (392 assertion(s) failed, match count 1)
+  ok   T19 original sequence misnumbered -> RED (90 assertion(s) failed, match count 1)
+  ok   T20 slot invalidation leaves chunk plaintext -> RED (13 assertion(s) failed, match count 1)
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 24.5s, rc 0, source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)   /tmp/mr_mutation_run-lyj2hhem/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 24.7s, rc 0, source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)   /tmp/mr_mutation_run-lyj2hhem/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 24.4s, rc 0, source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)   /tmp/mr_mutation_run-lyj2hhem/w2
+  worker 3: 5/5 entries, 5 RED / 0 worthless, wall 24.8s, rc 0, source restored: md5 ec5071e06ee86ffe7b90b60e7a03c454 (MATCHES)   /tmp/mr_mutation_run-lyj2hhem/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations
+timing: copy 0.8s + battery 24.9s = 25.8s total, 20 entries over 4 worker(s)
+mutations: 20 RED / 0 unusable

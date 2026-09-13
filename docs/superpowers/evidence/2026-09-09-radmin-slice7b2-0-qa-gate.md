@@ -1,9 +1,11 @@
 <!-- Independent QA/Author: OpenAI Codex; production coder: separate Codex session -->
 # Slice 7b-2-0 — independent QA gate — 2026-09-09
 
-**SOFTWARE PASS — CODEC PREPARATION ONLY / UNCOMMITTED.** This is QA's independently executed gate of the complete frozen working state.
+**SOFTWARE PASS — CODEC PREPARATION ONLY; owner landing `564f460` verified (see §8).**
+This is QA's independently executed gate of the complete frozen working state, recorded before that commit.
 The coder's recommendation is not the evidence for this verdict. Production, tests, mutation instrument,
-reference and coder report were preserved. Nothing was committed; the simulator remains unchanged.
+reference and coder report were preserved. QA made no commit; the simulator remains unchanged.
+Sections 1–7 retain the pre-commit gate history and attribution base.
 
 ## 1. Frozen input and scope
 
@@ -294,3 +296,18 @@ trips remain 8b, and no metal-only behavior or bench part is added by this pure 
 
 B312 entropy-provider qualification, B313 primitive-comment debt, B315 measurement-path limits, B342,
 B350, B359 and B364 remain separate limitations. QA makes no on-air producer, controller or hardware claim.
+
+## 8. Owner-commit receipt and next brief — 2026-09-09
+
+The owner committed the codec preparation and QA landing at
+**`564f460a3b755a104f146da70457e5c8c68e99b9`**, parent `1d4b3ad5a74c2f24121d8fbe28b8d6e4b04f8dfe`.
+QA observed a clean shared checkout and matched every frozen implementation hash in §1 plus all **390**
+implementation/gate input files/symlinks to its own final measured checkout. The simulator is still clean at
+`06746a97de5764415d6fcef10b97bca90569b9c7`. This verifies the committed result against the independently
+gated dirty state; the commit's short subject “7b-2” does not imply new behavior producers or open storage.
+
+QA reissued [7b-2 revision 4](../plans/2026-09-08-radmin-slice7b2-session-open-status.md) at that actual base
+for coder source-validation before coding. Its [author pre-check §8](../plans/2026-09-08-radmin-slice7b2-precheck.md#8-committed-codec-reissue--revision-4--2026-09-09)
+records source identity, fresh execution results, declared artifact reuse and B386's separate brief wording
+correction. These do not replace the future full behavior gate. B378/B379 stay open. No production, coder
+report, ruling, simulator or committed gate artifact was changed by this documentation reissue.

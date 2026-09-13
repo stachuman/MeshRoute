@@ -126,18 +126,22 @@ struct Radmin7RadioFixture {
         CHK(remote_kdf_session(session, base, g_node.admin_session_state().epoch[slot]) == RemoteStatus::ok, "R7-A9 session KDF");
         crypto_wipe(x, sizeof x); crypto_wipe(shared, sizeof shared); crypto_wipe(base, sizeof base);
     }
-    void flight(const char* line, uint8_t slot, bool ack = false) {
+    void flight(const char* line, uint8_t slot, bool ack = false, bool open = false,
+                meshroute::RemoteCmdOpcode control = meshroute::RemoteCmdOpcode::auth_execute,
+                size_t line_len = SIZE_MAX) {
         using namespace meshroute;
         learn(slot); ++ctr; g_probe_millis += 1000;
         RemoteCarrier carrier{}; carrier.outer_data_type = DATA_TYPE_REMOTE_CMD; carrier.dst_hash_on_wire = true;
-        RemoteMessage msg{}; msg.outer_type = DATA_TYPE_REMOTE_CMD; msg.slot = slot; msg.request_id = rid;
-        msg.opcode = static_cast<uint8_t>(ack ? RemoteCmdOpcode::response_ack : RemoteCmdOpcode::auth_execute);
-        uint8_t session[32]; session_key(slot, session);
+        RemoteMessage msg{}; msg.outer_type = DATA_TYPE_REMOTE_CMD; msg.slot = open ? kRemoteSlotSentinel : slot;
+        msg.request_id = rid;
+        msg.opcode = static_cast<uint8_t>(open ? RemoteCmdOpcode::open_execute : ack ? RemoteCmdOpcode::response_ack : control);
+        uint8_t session[32] = {}; if (!open) session_key(slot, session);
         std::array<uint8_t, kRadminBodyBytes> body{}; size_t body_len = 0;
-        const auto plain = ack ? std::span<const uint8_t>{}
-            : std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(line), strlen(line));
-        CHK(remote_body_encode(body, body_len, msg, plain, RemoteKeys{{}, session}, {true, controller[slot].key_hash32}, carrier)
-            == RemoteStatus::ok, "R7-A10 controller encodes authenticated request");
+        const auto plain = ack || (!open && control != RemoteCmdOpcode::auth_execute) ? std::span<const uint8_t>{}
+            : std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(line), line_len == SIZE_MAX ? strlen(line) : line_len);
+        CHK(remote_body_encode(body, body_len, msg, plain, open ? RemoteKeys{} : RemoteKeys{{}, session},
+                               {true, controller[slot].key_hash32}, carrier)
+            == RemoteStatus::ok, "R7-A10 controller encodes request with its real security domain");
         crypto_wipe(session, sizeof session);
         std::array<uint8_t, 280> inner{}, wire{};
         const uint8_t flags = DATA_FLAG_SOURCE_HASH | DATA_FLAG_DST_HASH;
@@ -197,6 +201,62 @@ struct Radmin7RadioFixture {
         g_node.on_recv(wire.data(), an, meta); radio_drain();
         CHK(!g_node.has_pending_tx(), "R7-A30 actual DATA hop ACK finishes the response flight");
     }
+    std::string open_command(const char* line, size_t len, meshroute::RemoteTerminal expected, bool compare_local = false) {
+        using namespace meshroute;
+        // Expire the previous admission's ORIGINAL cooldown; do not bypass the rate limiter between rows.
+        g_probe_millis += radmin_staging_lifetime_ms; ++rid;
+        flight(line, 1, false, true, RemoteCmdOpcode::auth_execute, len);
+        const auto& state = g_node.admin_session_state();
+        CHK(remote_session_staging_used(state) == 1 && remote_session_seen_used(state) == 0,
+            "R72-O1 open radio request owns only independent staging");
+        CaptureSink local;
+        if (compare_local) mrfw::dispatch(line, len, local);
+        const auto inbound = state.inbound_refusal;
+        const unsigned calls = g_command_calls;
+        const int writes = mrprobe_nv().writes;
+        g_routed[0] = 0; Serial.reset(); ble_reset();
+        mrfw::remote_executor_service_once();
+        CHK(remote_open_next(state) < kRadminOpenSlots, "R72-O2 real seam completed the open capture");
+        std::string text; unsigned frames = 0, terminals = 0;
+        for (unsigned pass = 0; pass < 12 && remote_open_next(state) != kRadminNoSlot; ++pass) {
+            const auto before = g_radio.tx_frames.size();
+            mrfw::remote_executor_service_once(); pump_response();
+            for (size_t j = before; j < g_radio.tx_frames.size(); ++j) {
+                const auto& raw = g_radio.tx_frames[j]; const auto data = parse_data(raw);
+                if (!data || data->type != DATA_TYPE_REMOTE_RESP) continue;
+                const auto inner = parse_unicast_inner(data_inner(raw, *data), data->flags);
+                CHK(inner.has_value(), "R72-O3 actual open return carrier parses"); if (!inner) continue;
+                CHK(inner->has_source_hash && inner->source_hash == self.key_hash32,
+                    "R72-O4 actual carrier uses target source identity");
+                RemoteCarrier carrier{}; carrier.outer_data_type = DATA_TYPE_REMOTE_RESP;
+                carrier.dst_hash_on_wire = inner->has_dst_hash;
+                RemoteDecoded d{}; uint8_t plain[kRadminBodyBytes] = {};
+                CHK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, inner->body, {}, {true, controller[1].key_hash32}, carrier, plain)
+                    == RemoteStatus::ok, "R72-O5 actual response decodes WITHOUT a key");
+                CHK(d.msg.slot == kRemoteSlotSentinel && d.msg.request_id == rid && d.msg.response_seq == frames++,
+                    "R72-O6 open sentinel ID sequence");
+                if (d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::output))
+                    text.append(reinterpret_cast<const char*>(d.body.data()), d.body.size());
+                else { ++terminals; CHK(d.terminal == expected, "R72-O7 typed open terminal"); }
+            }
+        }
+        CHK(terminals == 1, "R72-O8 exactly one open terminal");
+        if (compare_local) CHK(text == local.buf, "R72-O9 open %s is byte-identical to local at the execution snapshot", line);
+        if (expected == RemoteTerminal::refused || expected == RemoteTerminal::unknown_command) {
+            CHK(g_command_calls == calls && g_routed[0] == 0 && text.empty(), "R72-O10 open refusal never calls a handler");
+            CHK(state.inbound_refusal == inbound + 1, "R72-O11 one staged refusal, counted once");
+        } else CHK(state.inbound_refusal == inbound, "R72-O12 successful open dispatch is not an inbound refusal");
+        CHK(mrprobe_nv().writes == writes, "R72-O13 open path writes no NV");
+        const OpenCapture zero{};
+        CHK(memcmp(&state.open[0], &zero, sizeof zero) == 0
+            && state.staging[0].kind == static_cast<uint8_t>(OpenStagingKind::open_cooldown),
+            "R72-O14 terminal wipes capture, retains cooldown");
+        mrcon.service(); CHK(Serial.n_out == 0 && g_ble_n == 0, "R72-O15 open transcript cannot leak to USB/BLE");
+        CHK(mrfw::active_command_context().authority == mrfw::CommandAuthority::local,
+            "R72-O16 real command context restored after open service");
+        return text;
+    }
+
     std::string command(const char* line, uint8_t slot, meshroute::RemoteTerminal expected, bool compare_local = false) {
         using namespace meshroute;
         ++rid; flight(line, slot);
@@ -270,5 +330,54 @@ static void radmin7_air_rows() {
     CaptureSink local;
     mrfw::dispatch("acl set 1 operator", 18, local);
     CHK(local.has("last_owner"), "R7-A27 local behavior retains last-owner protection");
+}
+
+static void radmin72_open_rows() {
+    using namespace meshroute;
+    Radmin7RadioFixture f;
+    auto& state = const_cast<RemoteSessionState&>(g_node.admin_session_state());
+    for (const uint16_t seed : {uint16_t(0), uint16_t(11), uint16_t(UINT16_MAX)}) {
+        // Labelled scalar seeding, not a claimed production failure. Native/radio cases drive the causes.
+        state.inbound_refusal = seed;
+        state.open_rate_refusal = seed == 11 ? 22 : seed;
+        state.transcript_exhaustion = seed == 11 ? 33 : seed;
+        state.response_enqueue_failure = seed == 11 ? 44 : seed;
+        state.response_seal_failure = seed == 11 ? 55 : seed;
+        const auto text = f.open_command("status", 6, RemoteTerminal::completed, true);
+        const std::string expected = " radmin_inbound_refusal=" + std::to_string(state.inbound_refusal)
+            + " radmin_open_rate_refusal=" + std::to_string(state.open_rate_refusal)
+            + " radmin_transcript_exhaustion=" + std::to_string(state.transcript_exhaustion)
+            + " radmin_response_enqueue_failure=" + std::to_string(state.response_enqueue_failure)
+            + " radmin_response_seal_failure=" + std::to_string(state.response_seal_failure) + "\r\n";
+        CHK(text.size() >= expected.size() && text.compare(text.size() - expected.size(), expected.size(), expected) == 0,
+            "R72-S1 exact five status suffix fields at seed %u", unsigned(seed));
+        for (const char* name : {"radmin_inbound_refusal=", "radmin_open_rate_refusal=", "radmin_transcript_exhaustion=",
+                                 "radmin_response_enqueue_failure=", "radmin_response_seal_failure="}) {
+            const auto first = text.find(name);
+            CHK(first != std::string::npos && text.find(name, first + 1) == std::string::npos,
+                "R72-S2 each scalar label appears exactly once: %s", name);
+        }
+    }
+    state.inbound_refusal = state.open_rate_refusal = state.transcript_exhaustion = 0;
+    state.response_enqueue_failure = state.response_seal_failure = 0;
+    f.open_command("routes", 6, RemoteTerminal::completed, true);
+    for (const std::string& line : {std::string("status "), std::string("status x"),
+                                  std::string("routes 1"), std::string("reboot"), std::string("acl list"),
+                                  std::string("status\0x", 8), std::string("status\r", 7), std::string("status\n", 7),
+                                  std::string(202, 'x')})
+        f.open_command(line.data(), line.size(), RemoteTerminal::refused);
+    for (const char* line : {" status", "Status", "unknown-command"})
+        f.open_command(line, strlen(line), RemoteTerminal::unknown_command);
+
+    const auto epoch = state.epoch[1]; const auto writes = mrprobe_nv().writes;
+    ++f.rid; f.flight("", 1, false, false, RemoteCmdOpcode::safe_rollover);
+    const auto draws = mrprobe_rng().draws;
+    mrfw::remote_executor_service_once(); f.pump_response();
+    CHK(state.epoch[1] != epoch && mrprobe_rng().draws == draws + 2,
+        "R72-C1 actual firmware service consumes control with one eight-byte draw");
+    CHK(mrprobe_nv().writes == writes && remote_session_ingress_used(state) == 0,
+        "R72-C2 actual firmware control writes no NV and releases its ingress");
+    CHK(mrfw::active_command_context().authority == mrfw::CommandAuthority::local,
+        "R72-C3 control leaves no command context published");
 }
 #endif

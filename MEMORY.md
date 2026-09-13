@@ -1,6 +1,6 @@
 # MeshRoute durable decisions
 
-- **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, base `1d4b3ad`, uncommitted):**
+- **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
   revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
   opcode 0x5, K_session; matching request ctl/code/detail enter nonce and AAD. Existing 87 literals stay
   byte-identical; no new producer, session/open behavior, timer or Node state. QA independently measured
@@ -10,16 +10,22 @@
   valid-tag semantic failure can leave plaintext, while bad tags preserve it and decoded results publish
   only on success. B384's reference-generator error and B385's discarded QA incremental build are recorded
   and closed. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md`.
-  **Owner commits this codec preparation separately; QA then reissues behavior brief revision 3 at that
-  actual successor. 7b-2 remains HOLD until then.** R-RA-35 approves three independent 1648-byte ACCEPT open
-  captures plus two counters; +4976 B is candidate state, not linked RAM. Final native/gateway Node/RAM
-  growth must be measured; mobile stays unchanged. Rate: **three open admissions TOTAL per target per
-  300000 ms, shared across all requesters**; preserve original admission deadlines through completion/
-  cooldown. B378 stays open for those gates. B379's codec prerequisite passed, including QA's 134-check
-  shared-pool/sequence-zero nonce proof with labelled synthetic notices; real target full/busy/retry
-  producers remain 7b-2 and ungated. B380/B381 are closed wording fixes. Present-zero source is admissible
-  to the codec; the sender explicitly refuses destination zero and later accounting follows that refusal.
-  Deferred actions remain 7b-3; controller-dependent metal round trips remain 8b. No new bench part.
+  **7b-2 revision 4 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS (2026-09-09), uncommitted at `564f460`.**
+  Independent full gate: native **2909/174485/0**, corpus **36/36 byte-identical**, union **772 RED / known
+  unusable B342**, tools **343 OK / zero skips**, all ABI/probes/checkers/boards/census. Gateway Node/RAM
+  **+4976 B**, flash **+7840 B**; mobile Node/RAM/linked sections unchanged. **B378/B379/B388 are CLOSED**;
+  B387 stays closed. Scoped B388 return changes exactly three comment lines, preserves the 3345-line source
+  and all 1238 other inputs except the append-only receipt; QA freshly compiles/runs 15 checks PASS.
+  Full gates were not repeated for the comment-only return; executable/instrument inputs are unchanged.
+  Rate: **three open admissions TOTAL per target per 300000 ms, shared across all requesters**, original
+  admission deadline/cooldown and separate storage. Real full/busy/retry producers use nonce-safe admission
+  replies. Five saturating counters survive normal invalidation and appear only in ACCEPT status. Present-zero
+  admission remains separate from checked sender refusal. B388 correctly documents that refusal may update
+  counters and expire an older row before the shared scan re-arms. D5 preserves strict bare pins after B387.
+  B386's real force-producer survivor/order proof passes. No production repair or commit by QA. Evidence:
+  `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §8. **Next: owner commit, then QA/Author's
+  separate 7b-3 deferred-action brief against that hash, coder source-validation before coding.**
+  Controller-dependent open/control round trips and flood/recovery remain 8b's metal gate. No new bench part.
 
 - **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; owner commit `1d4b3ad`):**
   the completed transcript is immutable. A send failure keeps its bytes, terminal, frame count and cursor; the next
@@ -34,7 +40,7 @@
   both board pairs and the six-environment census. Gateway Node +1784 / RAM +1792 B; mobile Node/RAM unchanged,
   flash +260 B fully attributed. Original attribution base `d467787`; frozen handoff HEAD `146569a` included all
   uncommitted inputs. Final code and coder evidence remained unchanged by QA; the owner committed the landing.
-  The 7b-2 draft is indexed above; 7b-3 owns deferred actions. The real target `status` round
+  The 7b-2 gate status is indexed above; 7b-3 owns deferred actions. The real target `status` round
   trip remains deferred to 8b's controller/carrier metal gate. B315/B342/B350/B359/B364 are separate open limits.
   Evidence: `docs/superpowers/evidence/2026-09-08-radmin-slice7b1-qa-gate.md`.
 

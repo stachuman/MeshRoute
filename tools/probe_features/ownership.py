@@ -133,6 +133,7 @@ APPROVED_SITES = {
     #    LIST rather than a length. That is the whole reason this census exists rather than a `grep -c`.
     CMDS_CPP: [
         "#if MR_FEAT_RADMIN_ACCEPT",   # the store/draw/sink bindings, the three entry points and the router arm
+        "#if MR_FEAT_RADMIN_ACCEPT",   # 7b-2: scalar status snapshot and five ordered counters, no CLIENT surface
         "#if MR_FEAT_RADMIN_ACCEPT",   # the ONE dispatch forwarding arm
         "#if MR_FEAT_RADMIN_CLIENT",   # the store/draw/use/sink bindings, the resident book, the entry points
         "#if MR_FEAT_RADMIN_CLIENT",   # do_regen()'s ADMISSION predicate, before any draw/write/identity change

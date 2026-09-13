@@ -1938,6 +1938,13 @@ int main() {
     radmin7_inbox_rows();
 #if MR_FEAT_RADMIN_ACCEPT
     radmin7_air_rows();
+    radmin72_open_rows();
+#else
+    CaptureSink client_status;
+    CHK(mrfw::dispatch("status", 6, client_status), "R72-S3 CLIENT status still dispatches locally");
+    for (const char* name : {"radmin_inbound_refusal=", "radmin_open_rate_refusal=", "radmin_transcript_exhaustion=",
+                             "radmin_response_enqueue_failure=", "radmin_response_seal_failure="})
+        CHK(!client_status.has(name), "R72-S4 CLIENT status has no target field: %s", name);
 #endif
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");

@@ -16,7 +16,8 @@
 //      * ⛔ NO EXECUTION. A verdict is what Slice 7b acts on; nothing here dispatches a command, runs a
 //        whitelist or knows a dispatcher. There is no `CommandContext` (Slice 6) and no controller state (8a).
 //      * Slice 7b-1 adds bounded transcripts, OUTPUT/TERMINAL sealing, retry replay and ACK release.
-//        MISSING: open replies, rollover and protocol-error producers (7b-2), deferred actions (7b-3).
+//        7b-2 adds independent open captures, rollover preparation and admission/protocol replies.
+//        MISSING: deferred actions (7b-3).
 //        The main-loop firmware executor owns dispatch; this module owns bytes and lifecycle only.
 //      * ⛔ NO NV, NO `src/` INCLUDE, NO HEAP, NO TIMER CALL AND NO HAL CALL. Time arrives as an explicit
 //        `now_ms`; entropy arrives as an already-drawn, already-checked epoch. `Node` owns the timer and the
@@ -178,8 +179,9 @@ struct IngressBodySlot {
 
 enum class OpenStagingKind : uint8_t {
     free         = 0,
-    open_execute = 1,   // an UNAUTHENTICATED open request: staged and expired, ⛔ never dispatched here
+    open_execute = 1,   // an UNAUTHENTICATED request, owned until completion or its original deadline
     bootstrap    = 2,   // R-RA-31: authenticated, answered, released on the checked send outcome
+    open_cooldown = 3,  // no content retained; this admission still spends the global rolling quota
 };
 
 struct OpenStagingSlot {
@@ -228,9 +230,25 @@ struct TranscriptChunk {
     uint16_t next = kRadminNoChunk;
 };
 
+// R-RA-35: independent from authenticated transcripts; each admission owns its entire bounded capture.
+inline constexpr uint16_t kRadminOpenBytes = kRadminChunkSlots * kRadminChunkBytes;
+enum class OpenPhase : uint8_t { free, admitted, capturing, ready };
+struct OpenCapture {
+    uint8_t bytes[kRadminOpenBytes];
+    uint16_t len, next_offset, frame_cap;
+    uint8_t phase, truncated, terminal, next_seq;
+};
+
+struct RadminCounters {
+    uint16_t inbound_refusal, open_rate_refusal, transcript_exhaustion;
+    uint16_t response_enqueue_failure, response_seal_failure;
+};
+enum class RadminCounter : uint8_t { inbound_refusal, open_rate_refusal, transcript_exhaustion,
+                                   response_enqueue_failure, response_seal_failure };
+
 // =====================================================================================================
 // THE ONE ACCEPT-ONLY STATE BLOCK. §4.2's frozen order — pair, ACL, status, epochs, seen, headers, bodies,
-// staging — original offsets preserved. 7b-1 appends the 1776-byte pool and three named counters.
+// staging — original offsets preserved. 7b-1 adds its pool/counters; 7b-2 appends open captures/two counters.
 // ⛔ NO hidden resident counter, vtable or key cache lives here, and the derived
 //    base/session keys are per-call WIPED TRANSIENTS — never members.
 // =====================================================================================================
@@ -255,7 +273,12 @@ struct RemoteSessionState {
     uint16_t              transcript_exhaustion;
     uint16_t              response_enqueue_failure;
     uint16_t              response_seal_failure;
+    OpenCapture           open[kRadminOpenSlots];
+    uint16_t              inbound_refusal;
+    uint16_t              open_rate_refusal;
 };
+void remote_counter_increment(RemoteSessionState& s, RadminCounter counter);
+[[nodiscard]] RadminCounters remote_counters(const RemoteSessionState& s);
 
 // Borrowed only during the main-loop service call; never retained by firmware or a Print adapter.
 struct RadminIngressView {
@@ -268,6 +291,21 @@ struct RadminIngressView {
     RemoteCarrier reply_carrier{};
 };
 enum class RadminSend : uint8_t { none, queued, parked, refused };
+
+struct RadminOpenView {
+    uint8_t index = kRadminNoSlot;
+    uint64_t request_id = 0;
+    std::span<const uint8_t> body{};
+    RemoteCarrier reply_carrier{};
+};
+[[nodiscard]] bool remote_open_next_admitted(const RemoteSessionState& s, RadminOpenView& out);
+[[nodiscard]] bool remote_open_reserve(RemoteSessionState& s, uint8_t index, uint16_t frame_cap);
+void remote_open_append(RemoteSessionState& s, uint8_t index, const uint8_t* p, size_t n);
+void remote_open_complete(RemoteSessionState& s, uint8_t index, RemoteTerminal result);
+[[nodiscard]] uint8_t remote_open_next(const RemoteSessionState& s);
+[[nodiscard]] RemoteStatus remote_open_encode(const RemoteSessionState& s, uint8_t index,
+                                              std::span<uint8_t> out, size_t& written);
+void remote_open_sent(RemoteSessionState& s, uint8_t index);
 
 [[nodiscard]] RemoteCarrier remote_reply_carrier(const ReplyRoute& route);
 [[nodiscard]] bool remote_next_admitted(const RemoteSessionState& s, RadminIngressView& out);
@@ -289,8 +327,8 @@ enum class RemoteAdmitVerdict : uint8_t {
     admit = 0,              // 1: id absent, capacity available -> seen row + ingress reserved ATOMICALLY
     replay_transcript,      // 2: id present, tag IDENTICAL, unacknowledged -> 7b resends; ⛔ never re-executes
     reject_id_reuse,        // 3: id present, tag DIFFERS -> ⛔ neither plaintext is ever dispatched
-    already_acknowledged,   // 4: id present, ACK tombstone retained; the wire error producer belongs to 7b-2
-    session_full,           // 5: the shared 16-row pool is full (⚠ REAL and reachable; no wire answer yet)
+    already_acknowledged,   // 4: retained ACK tombstone -> fixed authenticated protocol error, never re-execute
+    session_full,           // 5: shared seen pool full -> nonce-separated fixed admission notice
     // ---- R-RA-31: the ONE thing this slice answers on air --------------------------------------------
     bootstrap_answered,     // authenticated read-only bootstrap: response ENCODED. ⛔ No seen row, ⛔ no epoch change.
     // ---- storage admission that is NOT a §10 classification ------------------------------------------
@@ -301,7 +339,8 @@ enum class RemoteAdmitVerdict : uint8_t {
     open_staging_full,      // the three open rows are taken. ⛔ The bootstrap row is never lent to them.
     bootstrap_staging_busy, // the ONE reserved bootstrap row is held. ⛔ It never borrows an open row either.
     open_peer_bound,        // this source already holds an open row (at most ONE per source; a new id does not evade it)
-    // ---- SILENT refusals: no response, no oracle, no reservation, no state change ---------------------
+    open_rate_refused,      // cooldown occupies the peer or the last globally available admission
+    // ---- SILENT refusals: no response/oracle/reservation; only the named saturating counter changes ----
     silent_not_ready,       // no administration root / no usable ACL
     silent_no_source,       // R-RA-13: SOURCE_HASH absent. ⛔ Never aliased to the 8-bit origin, never 0-as-absent.
     silent_bad_carrier,     // the received leg is not a real carrier shape
@@ -332,9 +371,10 @@ struct RemoteRxInput {
     RemoteCarrier            request_carrier{};    // the leg it ARRIVED on
     RemoteCarrier            reply_carrier{};      // the leg an answer would LEAVE on (the reversed shape)
     ReplyRoute               route{};              // the captured return metadata
+    bool                     reply_permitted = true; // paced fixed notices defer/refuse silently under TX pressure
 };
 
-// What the receive path decided. `reply` is the ONLY thing Slice 5 may put on air (R-RA-31).
+// Immediate, fully encoded bootstrap/admission/protocol reply; no resident reply/key cache.
 struct RemoteRxResult {
     RemoteAdmitVerdict verdict         = RemoteAdmitVerdict::silent_not_ready;
     uint8_t            controller_slot = kRadminNoSlot;
@@ -346,7 +386,7 @@ struct RemoteRxResult {
     ReplyRoute         route{};        // the FIRST-ADMITTED route, not the retry's
     bool               has_reply       = false;
     uint8_t            reply_len       = 0;
-    uint8_t            reply[kRemoteOverheadBootstrapResponse] = {};   // 33: [ctl][id 8][epoch 8][tag 16]
+    uint8_t            reply[kRemoteOverheadRolloverResult] = {};
 };
 
 // =====================================================================================================
@@ -365,6 +405,23 @@ struct RemoteSessionInstall {
                                                     //   false = the slot is UNCHANGED and keeps its epoch EXACTLY.
     bool        invalidate_all = false;             // a root change: every old session dies, the ACL survives
 };
+
+struct RadminControlView {
+    uint8_t slot = kRadminNoSlot;
+    uint8_t request_ctl = 0;
+    uint64_t request_id = 0, epoch = 0;
+    uint32_t source_hash = 0;
+    ReplyRoute route{};
+};
+enum class RadminControlDecision : uint8_t { ready, busy, executing, stale };
+[[nodiscard]] bool remote_control_next(const RemoteSessionState& s, RadminControlView& out);
+[[nodiscard]] RadminControlDecision remote_control_check(const RemoteSessionState& s,
+                                                         const RadminControlView& view, uint8_t& completed);
+// A successful result has BOTH its wire bytes and non-failing install plan prepared before mutation.
+[[nodiscard]] RemoteStatus remote_control_prepare(const RemoteSessionState& s, const RadminControlView& view,
+                                                  uint64_t fresh_epoch, std::span<uint8_t> out, size_t& written,
+                                                  RemoteSessionInstall& plan, bool& install);
+void remote_control_release(RemoteSessionState& s, const RadminControlView& view);
 
 // Apply one prepared plan. ⛔ NON-FAILING by construction — every fallible step (validation, key derivation,
 // the entropy draw) happened in the caller's PREPARE, before the durable save. It recomputes readiness.

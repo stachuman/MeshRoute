@@ -124,9 +124,36 @@ void Node::admin_session_entropy_failed() {
 }
 
 bool Node::radmin_next_admitted(RadminIngressView& out) {
-    // The main loop drains timers before service; restate the deadline here for other real callers too.
-    if (remote_session_expire(_radmin_session, _hal.now())) radmin_expiry_arm();
     return remote_next_admitted(_radmin_session, out);
+}
+
+void Node::radmin_service_expire() {
+    // One service-entry snapshot, before control, authenticated or open work can run.
+    const uint64_t now = _hal.now();
+    if (remote_session_expire(_radmin_session, now)) radmin_expiry_arm();
+}
+
+bool Node::radmin_next_open(RadminOpenView& out) { return remote_open_next_admitted(_radmin_session, out); }
+bool Node::radmin_reserve_open(uint8_t i, uint16_t cap) { return remote_open_reserve(_radmin_session, i, cap); }
+void Node::radmin_open_append(uint8_t i, const uint8_t* p, size_t n) { remote_open_append(_radmin_session, i, p, n); }
+void Node::radmin_open_complete(uint8_t i, RemoteTerminal result) {
+    const auto before = radmin_counters();
+    remote_open_complete(_radmin_session, i, result);
+    radmin_report_counters(before);
+}
+
+void Node::radmin_report_counters(const RadminCounters& before) const {
+    const auto after = radmin_counters();
+    if (after.inbound_refusal != before.inbound_refusal)
+        MR_EMIT("radmin_inbound_refusal", EF_I("count", after.inbound_refusal));
+    if (after.open_rate_refusal != before.open_rate_refusal)
+        MR_EMIT("radmin_open_rate_refusal", EF_I("count", after.open_rate_refusal));
+    if (after.transcript_exhaustion != before.transcript_exhaustion)
+        MR_EMIT("radmin_transcript_exhaustion", EF_I("count", after.transcript_exhaustion));
+    if (after.response_enqueue_failure != before.response_enqueue_failure)
+        MR_EMIT("radmin_response_enqueue_failure", EF_I("count", after.response_enqueue_failure));
+    if (after.response_seal_failure != before.response_seal_failure)
+        MR_EMIT("radmin_response_seal_failure", EF_I("count", after.response_seal_failure));
 }
 
 bool Node::radmin_reserve_transcript(uint8_t seen_index, uint16_t chunk_bytes) {

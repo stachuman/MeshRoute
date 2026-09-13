@@ -1,0 +1,31 @@
+[
+  {
+    "name": "b388-build",
+    "cmd": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE",
+      "-Ilib/core",
+      "-Ilib/monocypher",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/b388.cpp",
+      "-Wl,--start-group",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio/build/native/lib18f/libconsole.a",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio/build/native/lib4fb/libcore.a",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio/build/native/libae2/libhal.a",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio/build/native/libafa/libmonocypher.a",
+      "-Wl,--end-group",
+      "-o",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/b388"
+    ],
+    "rc": 0,
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "b388",
+    "cmd": [
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/b388"
+    ],
+    "rc": 0,
+    "log_sha256": "581d6cd03f50efea3a1fa0e5496ef7da58d5029eca23437572e9ed9b028ae084"
+  }
+]

@@ -81,8 +81,13 @@ static_assert(offsetof(TranscriptHeader, request_id) == 0 && offsetof(Transcript
 static_assert(sizeof(TranscriptChunk) == 210 && alignof(TranscriptChunk) == 2
               && offsetof(TranscriptChunk, len) == 206 && offsetof(TranscriptChunk, next) == 208,
               "TranscriptChunk layout");
-// Original 2064 + pool 1776 + counters 6 + alignment 2. Node pins are measured separately.
-static_assert(sizeof(RemoteSessionState) == 3848 && alignof(RemoteSessionState) == 8,
+static_assert(sizeof(OpenCapture) == 1658 && alignof(OpenCapture) == 2, "OpenCapture layout");
+static_assert(offsetof(OpenCapture, len) == 1648 && offsetof(OpenCapture, next_offset) == 1650
+              && offsetof(OpenCapture, frame_cap) == 1652 && offsetof(OpenCapture, phase) == 1654
+              && offsetof(OpenCapture, truncated) == 1655 && offsetof(OpenCapture, terminal) == 1656
+              && offsetof(OpenCapture, next_seq) == 1657, "OpenCapture offsets");
+// The 4974 capture bytes + four counters bytes reuse the previous two tail-padding bytes: +4976.
+static_assert(sizeof(RemoteSessionState) == 8824 && alignof(RemoteSessionState) == 8,
               "RemoteSessionState: re-derive the ACCEPT block and measure the Node re-pin");
 static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, admin_ed_pub) == 32
@@ -100,7 +105,10 @@ static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, chunks) == 2160
               && offsetof(RemoteSessionState, transcript_exhaustion) == 3840
               && offsetof(RemoteSessionState, response_enqueue_failure) == 3842
-              && offsetof(RemoteSessionState, response_seal_failure) == 3844, "RemoteSessionState offsets");
+              && offsetof(RemoteSessionState, response_seal_failure) == 3844
+              && offsetof(RemoteSessionState, open) == 3846
+              && offsetof(RemoteSessionState, inbound_refusal) == 8820
+              && offsetof(RemoteSessionState, open_rate_refusal) == 8822, "RemoteSessionState offsets");
 static_assert(sizeof(RemoteSessionState::acl) == 340 && sizeof(RemoteSessionState::epoch) == 80
               && sizeof(RemoteSessionState::seen) == 896 && sizeof(RemoteSessionState::ingress) == 80
               && sizeof(RemoteSessionState::body) == 472 && sizeof(RemoteSessionState::staging) == 128,
@@ -110,6 +118,10 @@ static_assert(kRadminIngressGeneral < kRadminIngressSlots && kRadminIngressContr
               && kRadminIngressGeneral != kRadminIngressControl, "the two ingress partitions must be distinct rows");
 static_assert(kRadminOpenSlots + 1 == kRadminStagingSlots && kRadminBootstrapSlot == kRadminOpenSlots,
               "staging is THREE open + ONE bootstrap — the bootstrap row is never inside the open range");
+static_assert(sizeof(RemoteRxResult::reply) >= kRemoteOverheadBootstrapResponse
+              && sizeof(RemoteRxResult::reply) >= kRemoteOverheadAdmissionResult
+              && sizeof(RemoteRxResult::reply) >= kRemoteOverheadAuthResponse + 1,
+              "fixed reply scratch must fit bootstrap, admission and one-byte protocol error");
 // The body array must hold the largest RPC body ANY legal carrier can present, so storage can never be the
 // thing that refuses a legal request (the cap authority is `remote_body_cap`, never this number).
 static_assert(kRadminBodyBytes >= protocol::max_payload_bytes_hard_cap
@@ -210,6 +222,7 @@ void ingress_release(RemoteSessionState& s, uint8_t i) {
 
 void staging_release(RemoteSessionState& s, uint8_t i) {
     if (i >= kRadminStagingSlots) return;
+    if (i < kRadminOpenSlots) crypto_wipe(&s.open[i], sizeof s.open[i]);
     s.staging[i] = OpenStagingSlot{};
     s.staging[i].controller_slot = kRadminNoSlot;
 }
@@ -658,6 +671,7 @@ bool remote_admit_is_silent(RemoteAdmitVerdict v) {
         case RemoteAdmitVerdict::open_staging_full:
         case RemoteAdmitVerdict::bootstrap_staging_busy:
         case RemoteAdmitVerdict::open_peer_bound:
+        case RemoteAdmitVerdict::open_rate_refused:
         case RemoteAdmitVerdict::ack_released:
         case RemoteAdmitVerdict::ack_premature:
         case RemoteAdmitVerdict::ack_duplicate:
@@ -681,6 +695,7 @@ const char* remote_admit_name(RemoteAdmitVerdict v) {
         case RemoteAdmitVerdict::open_staging_full:       return "open_staging_full";
         case RemoteAdmitVerdict::bootstrap_staging_busy:  return "bootstrap_staging_busy";
         case RemoteAdmitVerdict::open_peer_bound:         return "open_peer_bound";
+        case RemoteAdmitVerdict::open_rate_refused:       return "open_rate_refused";
         case RemoteAdmitVerdict::ack_released:            return "ack_released";
         case RemoteAdmitVerdict::ack_premature:           return "ack_premature";
         case RemoteAdmitVerdict::ack_duplicate:           return "ack_duplicate";
@@ -748,11 +763,290 @@ void commit_admit(RemoteSessionState& s, const RemoteRxInput& in, const RemoteDe
 
 }  // namespace
 
+namespace {
+
+uint8_t open_oldest(const RemoteSessionState& s, OpenPhase phase) {
+    uint8_t found = kRadminNoSlot;
+    for (uint8_t i = 0; i < kRadminOpenSlots; ++i) {
+        if (s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::open_execute)
+            || s.open[i].phase != static_cast<uint8_t>(phase)) continue;
+        if (found == kRadminNoSlot || s.staging[i].expires_at_ms < s.staging[found].expires_at_ms) found = i;
+    }
+    return found;
+}
+
+} // namespace
+
+bool remote_open_next_admitted(const RemoteSessionState& s, RadminOpenView& out) {
+    out = RadminOpenView{};
+    const uint8_t i = open_oldest(s, OpenPhase::admitted);
+    if (i == kRadminNoSlot || s.open[i].len > kRadminBodyBytes) return false;
+    out.index = i;
+    out.request_id = s.staging[i].request_id;
+    out.body = std::span<const uint8_t>(s.open[i].bytes, s.open[i].len);
+    out.reply_carrier = remote_reply_carrier(s.staging[i].route);
+    return true;
+}
+
+bool remote_open_reserve(RemoteSessionState& s, uint8_t i, uint16_t frame_cap) {
+    if (i >= kRadminOpenSlots || s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::open_execute)
+        || s.open[i].phase != static_cast<uint8_t>(OpenPhase::admitted)) return false;
+    size_t cap = 0;
+    if (remote_body_cap(remote_reply_carrier(s.staging[i].route), cap) != RemoteStatus::ok
+        || cap <= kRemoteOverheadOpenResponse || frame_cap != cap - kRemoteOverheadOpenResponse) return false;
+    // The executor copied the input to its wiped automatic buffer before this output reservation.
+    crypto_wipe(&s.open[i], sizeof s.open[i]);
+    s.open[i].frame_cap = frame_cap;
+    s.open[i].phase = static_cast<uint8_t>(OpenPhase::capturing);
+    return true;
+}
+
+void remote_open_append(RemoteSessionState& s, uint8_t i, const uint8_t* p, size_t n) {
+    if (i >= kRadminOpenSlots || s.open[i].phase != static_cast<uint8_t>(OpenPhase::capturing) || !p) return;
+    auto& c = s.open[i];
+    const size_t room = sizeof c.bytes - c.len;
+    const size_t take = n < room ? n : room;
+    std::memcpy(c.bytes + c.len, p, take);
+    c.len = static_cast<uint16_t>(c.len + take);
+    if (take != n) c.truncated = 1;
+}
+
+void remote_open_complete(RemoteSessionState& s, uint8_t i, RemoteTerminal result) {
+    if (i >= kRadminOpenSlots || s.open[i].phase != static_cast<uint8_t>(OpenPhase::capturing)) return;
+    auto& c = s.open[i];
+    if (result == RemoteTerminal::refused || result == RemoteTerminal::unknown_command)
+        remote_counter_increment(s, RadminCounter::inbound_refusal);
+    c.terminal = static_cast<uint8_t>(c.truncated && result == RemoteTerminal::completed
+                                       ? RemoteTerminal::output_truncated : result);
+    c.phase = static_cast<uint8_t>(OpenPhase::ready);
+}
+
+uint8_t remote_open_next(const RemoteSessionState& s) { return open_oldest(s, OpenPhase::ready); }
+
+RemoteStatus remote_open_encode(const RemoteSessionState& s, uint8_t i, std::span<uint8_t> out, size_t& written) {
+    written = 0;
+    if (i >= kRadminOpenSlots || s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::open_execute))
+        return RemoteStatus::bad_pairing;
+    const auto& c = s.open[i];
+    if (c.phase != static_cast<uint8_t>(OpenPhase::ready) || !c.frame_cap
+        || c.len > sizeof c.bytes || c.next_offset > c.len) return RemoteStatus::bad_pairing;
+    const bool terminal = c.next_offset == c.len;
+    const size_t remaining = c.len - c.next_offset;
+    const size_t take = remaining < c.frame_cap ? remaining : c.frame_cap;
+    const auto plain = terminal ? std::span<const uint8_t>(&c.terminal, 1)
+                               : std::span<const uint8_t>(c.bytes + c.next_offset, take);
+    RemoteMessage m{};
+    m.outer_type = DATA_TYPE_REMOTE_RESP;
+    m.opcode = static_cast<uint8_t>(terminal ? RemoteRespOpcode::terminal : RemoteRespOpcode::output);
+    m.slot = kRemoteSlotSentinel;
+    m.request_id = s.staging[i].request_id;
+    m.response_seq = c.next_seq;
+    return remote_body_encode(out, written, m, plain, RemoteKeys{},
+                              RemoteSource{true, s.staging[i].peer_source_hash},
+                              remote_reply_carrier(s.staging[i].route));
+}
+
+void remote_open_sent(RemoteSessionState& s, uint8_t i) {
+    if (i >= kRadminOpenSlots || s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::open_execute)) return;
+    auto& c = s.open[i];
+    if (c.phase != static_cast<uint8_t>(OpenPhase::ready) || !c.frame_cap || c.next_offset > c.len) return;
+    if (c.next_offset < c.len) {
+        const uint16_t remaining = c.len - c.next_offset;
+        c.next_offset += remaining < c.frame_cap ? remaining : c.frame_cap;
+        ++c.next_seq;
+        return;
+    }
+    // A completed admission still spends quota until its ORIGINAL deadline. Retain no ID, route or content.
+    const auto deadline = s.staging[i].expires_at_ms;
+    const auto peer = s.staging[i].peer_source_hash;
+    staging_release(s, i);
+    s.staging[i].expires_at_ms = deadline;
+    s.staging[i].peer_source_hash = peer;
+    s.staging[i].kind = static_cast<uint8_t>(OpenStagingKind::open_cooldown);
+}
+
+bool remote_control_next(const RemoteSessionState& s, RadminControlView& out) {
+    out = RadminControlView{};
+    const auto& h = s.ingress[kRadminIngressControl];
+    RemoteLayout layout{};
+    if (h.state != static_cast<uint8_t>(IngressState::reserved) || h.partition != kRadminIngressControl
+        || h.body_slot != kRadminIngressControl || h.seen_index != kRadminNoSlot || h.body_len != 0
+        || remote_layout(DATA_TYPE_REMOTE_CMD, h.ctl, layout) != RemoteStatus::ok
+        || (layout.domain != RemoteDomainId::cmd_safe_rollover && layout.domain != RemoteDomainId::cmd_force_rollover)
+        || layout.slot >= kRadminAclSlots || !row_occupied(s.acl[layout.slot]) || !s.epoch[layout.slot]) return false;
+    out.slot = layout.slot;
+    out.request_ctl = h.ctl;
+    out.request_id = h.request_id;
+    out.epoch = s.epoch[layout.slot];
+    out.source_hash = h.source_hash;
+    out.route = h.route;
+    return true;
+}
+
+RadminControlDecision remote_control_check(const RemoteSessionState& s, const RadminControlView& view,
+                                           uint8_t& completed) {
+    completed = 0;
+    RadminControlView live{};
+    if (!remote_control_next(s, live) || live.slot != view.slot || live.request_ctl != view.request_ctl
+        || live.request_id != view.request_id || live.epoch != view.epoch || live.source_hash != view.source_hash
+        || std::memcmp(&live.route, &view.route, sizeof live.route) != 0) return RadminControlDecision::stale;
+    for (const auto& e : s.seen)
+        if (e.record.state == static_cast<uint8_t>(SeenState::executing)) return RadminControlDecision::executing;
+    for (const auto& c : s.open)
+        if (c.phase == static_cast<uint8_t>(OpenPhase::capturing)) return RadminControlDecision::executing;
+    for (const auto& h : s.transcripts) {
+        if (h.state == static_cast<uint8_t>(TranscriptState::capturing)) return RadminControlDecision::executing;
+        if (h.state == static_cast<uint8_t>(TranscriptState::ready) && h.controller_slot == view.slot) ++completed;
+    }
+    if ((view.request_ctl >> 4) == static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover) && completed)
+        return RadminControlDecision::busy;
+    return RadminControlDecision::ready;
+}
+
+RemoteStatus remote_control_prepare(const RemoteSessionState& s, const RadminControlView& view,
+                                    uint64_t fresh_epoch, std::span<uint8_t> out, size_t& written,
+                                    RemoteSessionInstall& plan, bool& install) {
+    written = 0;
+    install = false;
+    plan = RemoteSessionInstall{};
+    uint8_t completed = 0;
+    const auto decision = remote_control_check(s, view, completed);
+    if (decision == RadminControlDecision::stale) return RemoteStatus::bad_pairing;
+    const bool rollover = decision == RadminControlDecision::ready && fresh_epoch && fresh_epoch != view.epoch;
+    RemoteMessage m{};
+    m.outer_type = DATA_TYPE_REMOTE_RESP;
+    m.slot = view.slot;
+    m.request_id = view.request_id;
+    if (rollover) {
+        m.opcode = static_cast<uint8_t>(RemoteRespOpcode::rollover_result);
+        m.admin_epoch = fresh_epoch;
+        m.abandoned_count = completed;
+    } else {
+        m.opcode = static_cast<uint8_t>(RemoteRespOpcode::admission_result);
+        m.request_ctl = view.request_ctl;
+        m.admission_code = decision == RadminControlDecision::busy ? RemoteAdmission::session_busy
+                         : decision == RadminControlDecision::executing ? RemoteAdmission::executing
+                         : RemoteAdmission::preparation_failed;
+        m.admission_detail = decision == RadminControlDecision::busy ? completed : 0;
+    }
+    uint8_t base[32] = {}, session[32] = {};
+    RemoteStatus st = derive_base(s, s.acl[view.slot].ed_pub, base);
+    if (st == RemoteStatus::ok && !rollover) st = remote_kdf_session(session, base, view.epoch);
+    if (st == RemoteStatus::ok)
+        st = remote_body_encode(out, written, m, {}, RemoteKeys{base, session},
+                                RemoteSource{true, view.source_hash}, remote_reply_carrier(view.route));
+    crypto_wipe(base, sizeof base);
+    crypto_wipe(session, sizeof session);
+    if (st == RemoteStatus::ok && rollover) {
+        plan.epoch_set[view.slot] = true;
+        plan.epoch[view.slot] = fresh_epoch;
+        install = true;
+    }
+    return st;
+}
+
+void remote_control_release(RemoteSessionState& s, const RadminControlView& view) {
+    RadminControlView live{};
+    if (remote_control_next(s, live) && live.request_ctl == view.request_ctl && live.request_id == view.request_id
+        && live.slot == view.slot && live.epoch == view.epoch && live.source_hash == view.source_hash
+        && std::memcmp(&live.route, &view.route, sizeof live.route) == 0) ingress_release(s, kRadminIngressControl);
+}
+
+void remote_counter_increment(RemoteSessionState& s, RadminCounter counter) {
+    uint16_t* value = nullptr;
+    switch (counter) {
+        case RadminCounter::inbound_refusal: value = &s.inbound_refusal; break;
+        case RadminCounter::open_rate_refusal: value = &s.open_rate_refusal; break;
+        case RadminCounter::transcript_exhaustion: value = &s.transcript_exhaustion; break;
+        case RadminCounter::response_enqueue_failure: value = &s.response_enqueue_failure; break;
+        case RadminCounter::response_seal_failure: value = &s.response_seal_failure; break;
+    }
+    if (value && *value != UINT16_MAX) ++*value;
+}
+
+RadminCounters remote_counters(const RemoteSessionState& s) {
+    return {s.inbound_refusal, s.open_rate_refusal, s.transcript_exhaustion,
+            s.response_enqueue_failure, s.response_seal_failure};
+}
+
+namespace {
+
+// One completion path accounts each intake verdict exactly once, including early syntax refusals.
+// Only authenticated decisions select a fixed response; variable state NEVER enters TERMINAL's domain.
+struct ReceiveCompletion {
+    RemoteSessionState& s;
+    const RemoteRxInput& in;
+    RemoteRxResult& out;
+    ~ReceiveCompletion() {
+        bool fixed_reply = false;
+        switch (out.verdict) {
+            case RemoteAdmitVerdict::admit:
+            case RemoteAdmitVerdict::replay_transcript:
+            case RemoteAdmitVerdict::bootstrap_answered:
+            case RemoteAdmitVerdict::control_admitted:
+            case RemoteAdmitVerdict::open_staged:
+            case RemoteAdmitVerdict::ack_released:
+            case RemoteAdmitVerdict::ack_premature:
+            case RemoteAdmitVerdict::ack_duplicate:
+            case RemoteAdmitVerdict::ack_unknown:
+                return;
+            case RemoteAdmitVerdict::open_rate_refused:
+                remote_counter_increment(s, RadminCounter::open_rate_refusal); return;
+            case RemoteAdmitVerdict::silent_reply_unbuildable:
+                remote_counter_increment(s, RadminCounter::response_seal_failure); return;
+            case RemoteAdmitVerdict::session_full:
+            case RemoteAdmitVerdict::ingress_full:
+            case RemoteAdmitVerdict::already_acknowledged:
+                fixed_reply = true; break;
+            default: break;
+        }
+        remote_counter_increment(s, RadminCounter::inbound_refusal);
+        if (!fixed_reply || !in.reply_permitted) return;
+        const uint8_t slot = out.controller_slot;
+        if (slot >= kRadminAclSlots) return;
+        uint8_t base[32] = {}, session[32] = {};
+        RemoteStatus st = derive_base(s, s.acl[slot].ed_pub, base);
+        if (st == RemoteStatus::ok) st = remote_kdf_session(session, base, s.epoch[slot]);
+        crypto_wipe(base, sizeof base);
+        if (out.verdict != RemoteAdmitVerdict::already_acknowledged) out.route = in.route;
+        RemoteMessage m{};
+        m.outer_type = DATA_TYPE_REMOTE_RESP;
+        m.slot = slot;
+        m.request_id = out.request_id;
+        m.opcode = static_cast<uint8_t>(RemoteRespOpcode::admission_result);
+        m.request_ctl = in.body[0];
+        m.admission_code = out.verdict == RemoteAdmitVerdict::session_full
+                              ? RemoteAdmission::session_full : RemoteAdmission::ingress_full;
+        const uint8_t acknowledged = static_cast<uint8_t>(RemoteProtocolError::already_acknowledged);
+        std::span<const uint8_t> body{};
+        if (out.verdict == RemoteAdmitVerdict::already_acknowledged) {
+            m.opcode = static_cast<uint8_t>(RemoteRespOpcode::protocol_error);
+            m.request_ctl = 0;
+            body = std::span<const uint8_t>(&acknowledged, 1);
+        }
+        size_t written = 0;
+        if (st == RemoteStatus::ok)
+            st = remote_body_encode(out.reply, written, m, body, RemoteKeys{{}, session},
+                                    RemoteSource{true, out.source_hash}, remote_reply_carrier(out.route));
+        crypto_wipe(session, sizeof session);
+        if (st != RemoteStatus::ok) {
+            crypto_wipe(out.reply, sizeof out.reply);
+            remote_counter_increment(s, RadminCounter::response_seal_failure);
+            return;
+        }
+        out.reply_len = static_cast<uint8_t>(written);
+        out.has_reply = true;
+    }
+};
+
+} // namespace
+
 void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, RemoteRxResult& out) {
     out = RemoteRxResult{};
     out.source_hash = in.source.hash;
+    const ReceiveCompletion completion{s, in, out};
 
-    // ---- the four pre-crypto gates, in order. Each costs ZERO state and reveals NOTHING. ----------------
+    // ---- pre-crypto gates, in order. No admission state/key oracle; one scalar refusal is accounted. -----
     if (!remote_session_accepting(s))                { out.verdict = RemoteAdmitVerdict::silent_not_ready;  return; }
     // ★★ R-RA-13, AND IT IS THE FIRST OF SLICE 1b's FOUR DEFERRED OBLIGATIONS DISCHARGED HERE: the v2 arm
     //    REQUIRES a `SOURCE_HASH`. ⛔ It is never aliased to the 8-bit `pa.origin` (which repeats across
@@ -849,12 +1143,7 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
             return;
         }
 
-        // ===== §8.3 OPEN EXECUTE — UNAUTHENTICATED. Storage admission only. ================================
-        // ⓘ MARK DONE-VS-MISSING IN CODE: what is DONE here is the bounded RESERVATION (three rows, at most
-        //   one per source, expiring on the shared timer). What is MISSING BY DESIGN is everything that
-        //   would make it useful — ⛔ no verb validation (`status`/`routes` are the only ones policy will
-        //   accept), ⛔ no rate policy, ⛔ no dispatcher and ⛔ no response. Those are Slices 6/7b's, and
-        //   this narrow admission is deliberately NOT the common command validator.
+        // ===== §8.3 OPEN EXECUTE — own input now; validate and dispatch only on the main loop. =============
         case RemoteDomainId::cmd_open_execute: {
             RemoteDecoded d{};
             const RemoteKeys none{};
@@ -863,17 +1152,32 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
                                                        in.request_carrier, std::span<uint8_t>(pt, 0));
             if (st != RemoteStatus::ok)              { out.verdict = RemoteAdmitVerdict::silent_bad_request;  return; }
             out.request_id = d.msg.request_id;
+            // Exact rolling-window edge: expired open admissions no longer spend quota. Do not expire
+            // authenticated work here; its existing shared expiry service owns that independent lifetime.
+            for (uint8_t i = 0; i < kRadminOpenSlots; ++i)
+                if (s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::free)
+                    && in.now_ms >= s.staging[i].expires_at_ms) staging_release(s, i);
             // ★ AT MOST ONE ACTIVE OPEN ROW PER SOURCE, and a changed request id does not evade it: the bound
             //   is on the SOURCE, not on the operation.
             for (uint8_t i = 0; i < kRadminOpenSlots; ++i)
                 if (s.staging[i].kind == static_cast<uint8_t>(OpenStagingKind::open_execute)
                     && s.staging[i].peer_source_hash == in.source.hash)
                                                      { out.verdict = RemoteAdmitVerdict::open_peer_bound;     return; }
+            bool cooldown = false;
+            for (uint8_t i = 0; i < kRadminOpenSlots; ++i) {
+                if (s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::open_cooldown)) continue;
+                cooldown = true;
+                if (s.staging[i].peer_source_hash == in.source.hash)
+                    { out.verdict = RemoteAdmitVerdict::open_rate_refused; return; }
+            }
             uint8_t idx = kRadminNoSlot;
             for (uint8_t i = 0; i < kRadminOpenSlots; ++i)
                 if (s.staging[i].kind == static_cast<uint8_t>(OpenStagingKind::free)) { idx = i; break; }
             // ⛔ THE BOOTSTRAP ROW IS NEVER LENT. Three open rows is three, even with staging[3] free.
-            if (idx == kRadminNoSlot)                { out.verdict = RemoteAdmitVerdict::open_staging_full;   return; }
+            if (idx == kRadminNoSlot) {
+                out.verdict = cooldown ? RemoteAdmitVerdict::open_rate_refused : RemoteAdmitVerdict::open_staging_full;
+                return;
+            }
             OpenStagingSlot& row = s.staging[idx];
             row = OpenStagingSlot{};
             row.request_id       = d.msg.request_id;
@@ -882,6 +1186,11 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
             row.route            = in.route;
             row.kind             = static_cast<uint8_t>(OpenStagingKind::open_execute);
             row.controller_slot  = kRadminNoSlot;    // ⛔ an OPEN request claims no slot and authenticates none
+            auto& capture = s.open[idx];
+            crypto_wipe(&capture, sizeof capture);
+            std::memcpy(capture.bytes, d.body.data(), d.body.size());
+            capture.len = static_cast<uint16_t>(d.body.size());
+            capture.phase = static_cast<uint8_t>(OpenPhase::admitted);
             out.staging_index    = idx;
             out.route            = in.route;
             out.verdict          = RemoteAdmitVerdict::open_staged;
@@ -972,7 +1281,7 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
     if (is_control) {
         // ⛔ CONTROL ADMISSION ALLOCATES NO EXECUTE SEEN ROW — which is precisely why a full seen pool can
         //    never consume the control reservation. ACK already took the synchronous path above.
-        //    No rollover effect/response here: this row expires; Slice 7b-2 owns its consumer.
+        //    No rollover effect in RX: the main-loop control consumer prepares and commits, or this row expires.
         const uint8_t ii = ingress_free_index(s, partition);
         if (ii == kRadminNoSlot) { crypto_wipe(pt, sizeof pt); out.verdict = RemoteAdmitVerdict::ingress_full; return; }
         IngressOperationHeader& h = s.ingress[ii];

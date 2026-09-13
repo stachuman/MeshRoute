@@ -1,0 +1,55 @@
+{
+  "shared": {
+    "inputs_checked": 1087,
+    "unchanged": true,
+    "head": "564f460a3b755a104f146da70457e5c8c68e99b9",
+    "diff_check_exit": 0
+  },
+  "frozen": {
+    "inputs_checked": 1087,
+    "unchanged": true
+  },
+  "gate": {
+    "inputs_checked": 1087,
+    "unchanged": true
+  },
+  "mutations": {
+    "inputs_checked": 1087,
+    "unchanged": true
+  },
+  "simulator": {
+    "head": "06746a97de5764415d6fcef10b97bca90569b9c7",
+    "diff_check_exit": 0,
+    "clean": true
+  },
+  "measurement_files_sha256": {
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/build.log": "103fcd8be86bb4556b8a64fff8f57889d1b57d85ad116d381a72bcd90911670e",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/compiler-state.json": "2c289db9a591d7f426527dd55cf63370f480bef3d1ebc455540dc8544ceaff8e",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/firmware.elf": "6898849c74046ccd4a400fe1c03e350fcf500cefa6f7798d86273946bf1dec7e",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/firmware.hex": "59d38dc2a5ee8a5a909582d9f4bd513bbf0d80a1cdfa5a2734c8edf3e41300a6",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/manifest.json": "33f1386025a3740d30b9a3a493ea4c71a2564c308828cd6744423ac3ea3cbbcf",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/sections.txt": "0360bc021754956eb93d11eec3fb8bdcefdc97cb07d78ff88b9de9c23e71c015",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/gateway/symbols.txt": "f50349c5d7bf91fa7a4e4a5aa42c38f6215e54838d5b6fd9ec2e6eb37dc81278",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/build.log": "76ddeb41871870f273839a2a61d671d345b5235ab81c1527be40134f89240519",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/compiler-state.json": "0c1791c26cc5b5b6e199a90df907dea42dfdcad80a0fb450685be85ca28b4ed7",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/firmware.bin": "7ccc2d69452efa83fced128f1123c354baf7fa1b90ea1c9afa6bb5a4075dce3e",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/firmware.elf": "f7f215d5ea208dbbcc61c8c2e8dd3cda78afe07eccee9771add5c623a3f0dcf4",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/manifest.json": "d904c0318b7487d924b8c4eda98b4df5c12d303ecd000171bab2c1325c9f4b05",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/sections.txt": "f8b00cb6c8c61162e58cda6c5255be43af43beb021e2480cd2c867764e148a38",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-base/heltec_mobile/symbols.txt": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/build.log": "c3facf2f0f3aa090739d5f4dd95359d8e359c81670b1e6f55b21ade955c29761",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/compiler-state.json": "2c289db9a591d7f426527dd55cf63370f480bef3d1ebc455540dc8544ceaff8e",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/firmware.elf": "f41a0d7f9ade6c7f9421251cedd0cdb0ae56679449d583f30223d888fd46046d",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/firmware.hex": "75a07e8fecc57fc133678146d68779a32116e5e3125ece05527577a7cfcc2902",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/manifest.json": "648d69cea91d77b921d17d89a8a81d1c57dab0b88df78f4fcdc4a55a60ab2c3c",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/sections.txt": "3ead6cc27ef9f6309ccb5f4b3b5dd118dfa0c416f5c3f082440268eb398dffb5",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/gateway/symbols.txt": "5ce5e7d52ee80f72e06bcac7f069b5a687f3cf0d09946650b7a9767979f6e00f",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/build.log": "55ac7aba7e3dc999bbcaec0f5e521d255b1ae9c47c076db92c31425ec4034a88",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/compiler-state.json": "0c1791c26cc5b5b6e199a90df907dea42dfdcad80a0fb450685be85ca28b4ed7",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/firmware.bin": "bb9c495653bf87817b805fec4900cdc9138a2c39256181ea8c02c5c78ac980b9",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/firmware.elf": "6ab2e128e09dda9615adf3ad061f9aef5f5ab3606ec2a6ab9edf22e7ae36d35c",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/manifest.json": "1c1f3f8de93230f3566504edc81e88c13b26094f234b1f5b51a0497ea59006a9",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/sections.txt": "44026fe1b49741e6b8d1566a983bb288e1b09972227a8ba38d8c961f9ca57263",
+    "/tmp/mr-qa-s7b2-gate-0phs0ag4/measure/.pio-measure/qa-final/heltec_mobile/symbols.txt": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+  }
+}

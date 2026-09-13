@@ -1,0 +1,1 @@
+First QA comparison stopped on four symlink hash encodings. Coder final_audit.py:125 hashes SYMLINK: plus target. QA now independently hashes that exact representation; all 1086 inputs match. No input mismatch or source change.

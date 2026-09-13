@@ -87,6 +87,24 @@ struct Target {
     Identity           root = make_identity(1);
     std::vector<Identity> ctrl;
 
+    std::vector<uint8_t> open_request(uint64_t id, std::span<const uint8_t> line) {
+        RemoteMessage m{}; m.outer_type = DATA_TYPE_REMOTE_CMD;
+        m.opcode = static_cast<uint8_t>(RemoteCmdOpcode::open_execute); m.slot = kRemoteSlotSentinel; m.request_id = id;
+        std::vector<uint8_t> bytes(kRadminBodyBytes); size_t n = 0;
+        CHECK(remote_body_encode(bytes, n, m, line, {}, {true, 0}, same_layer_cmd()) == RemoteStatus::ok);
+        bytes.resize(n); return bytes;
+    }
+
+    RemoteStatus decode_result(const RemoteRxResult& r, RemoteDecoded& d, std::span<uint8_t> pt) {
+        uint8_t base[32] = {}, session[32] = {};
+        CHECK(controller_base_key(ctrl[r.controller_slot], root.ed_pub, base));
+        CHECK(remote_kdf_session(session, base, st.epoch[r.controller_slot]) == RemoteStatus::ok);
+        const auto result = remote_body_decode(d, DATA_TYPE_REMOTE_RESP, {r.reply, r.reply_len}, {base, session},
+                                               {true, r.source_hash}, remote_reply_carrier(r.route), pt);
+        crypto_wipe(base, sizeof base); crypto_wipe(session, sizeof session);
+        return result;
+    }
+
     // B369: old capacity fixtures expired never-executed bodies and retained their fingerprints.
     // That claim is withdrawn. Complete and ACK real transcripts instead, retaining executed tombstones.
     void complete_and_ack(const RemoteRxResult& r, uint32_t src) {
@@ -200,11 +218,12 @@ TEST_CASE("§radmin-5/L1 the original 2064-byte prefix and appended 7b-1 pool ha
     CHECK(sizeof(IngressOperationHeader) == 40);
     CHECK(sizeof(IngressBodySlot) == 236);
     CHECK(sizeof(OpenStagingSlot) == 32);
-    CHECK(sizeof(RemoteSessionState) == 3848);
+    CHECK(sizeof(RemoteSessionState) == 8824);
     CHECK(alignof(RemoteSessionState) == 8);
     // ★ THE ARITHMETIC CLOSES WITH NO REMAINDER — that is what makes the Node re-pin attributable.
     // Previously the eight prefix terms alone were the whole 2064-byte state.
-    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 6u + 2u == sizeof(RemoteSessionState));
+    // 7b-1's 3848 included two tail bytes. Three 1658-byte captures + two counters reuse them.
+    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 6u + 3u * 1658u + 4u == sizeof(RemoteSessionState));
     CHECK(offsetof(RemoteSessionState, acl)     == 64);
     CHECK(offsetof(RemoteSessionState, epoch)   == 408);
     CHECK(offsetof(RemoteSessionState, seen)    == 488);
@@ -229,9 +248,9 @@ TEST_CASE("§radmin-5/L2 N is 16 TOTAL seen entries SHARED across the ten slots 
     CHECK(kRadminOpenSlots == 3);
     CHECK(kRadminBootstrapSlot == 3);
     CHECK(kRadminAclSlots == kRemoteSlotSessionMax + 1);
-    // Historical claim "Slice 7b's rows are ABSENT" is superseded: 7b-1's pool is present,
-    // but the deferred-action rows still belong to 7b-3, not this slice.
-    CHECK(sizeof(RemoteSessionState) < 2064u + 1824u);
+    // Historical ceiling 2064 + 1824 covered only 7b-1. R-RA-35 adds exactly the independent open captures.
+    // Deferred-action rows still belong to 7b-3; this ceiling leaves no unapproved resident work buffer.
+    CHECK(sizeof(RemoteSessionState) == 3848u + 4976u);
 }
 
 // =============================================================================================================
@@ -980,4 +999,277 @@ TEST_CASE("§radmin-5/V1 every verdict has a distinct name, and the silent set i
     CHECK(remote_admit_is_silent(RemoteAdmitVerdict::silent_no_acl_row));
     CHECK(remote_admit_is_silent(RemoteAdmitVerdict::silent_auth_failed));
     CHECK(remote_admit_is_silent(RemoteAdmitVerdict::silent_bad_key));
+}
+
+TEST_CASE("§radmin-7b2/open owns raw bytes and shares three rolling admissions across every source") {
+    Target t; t.provision(2);
+    const uint8_t line[] = {'s','t','a','t','u','s'};
+    const auto admit = [&](uint32_t peer, uint64_t at, uint64_t id) {
+        return t.deliver(t.open_request(id, line), peer, at);
+    };
+    auto wire = t.open_request(1, line);
+    const auto a = t.deliver(wire, 101, 1000);
+    CHECK(a.verdict == RemoteAdmitVerdict::open_staged);
+    std::fill(wire.begin(), wire.end(), 0xCC);
+    RadminOpenView view{}; CHECK(remote_open_next_admitted(t.st, view));
+    CHECK(view.index == a.staging_index); CHECK(view.request_id == 1);
+    CHECK(std::vector<uint8_t>(view.body.begin(), view.body.end()) == std::vector<uint8_t>(line, line + sizeof line));
+    auto expected = t.st;
+    CHECK(admit(101, 2000, 99).verdict == RemoteAdmitVerdict::open_peer_bound);
+    ++expected.inbound_refusal;
+    CHECK(std::memcmp(&t.st, &expected, sizeof expected) == 0);
+    CHECK(remote_open_reserve(t.st, 0, 222));
+    remote_open_complete(t.st, 0, RemoteTerminal::completed);
+    remote_open_sent(t.st, 0); // pure lifecycle: the Node sender separately proves ownership before this call
+    CHECK(t.st.staging[0].kind == static_cast<uint8_t>(OpenStagingKind::open_cooldown));
+    CHECK(t.st.staging[0].expires_at_ms == 301000); CHECK(t.st.staging[0].request_id == 0);
+    const OpenCapture empty{}; const ReplyRoute empty_route{};
+    CHECK(std::memcmp(&t.st.open[0], &empty, sizeof empty) == 0);
+    CHECK(std::memcmp(&t.st.staging[0].route, &empty_route, sizeof empty_route) == 0);
+    CHECK(admit(101, 1500, 88).verdict == RemoteAdmitVerdict::open_rate_refused); // even with two FREE pairs
+    CHECK(admit(102, 2000, 2).verdict == RemoteAdmitVerdict::open_staged);
+    CHECK(admit(103, 3000, 3).verdict == RemoteAdmitVerdict::open_staged);
+    expected = t.st;
+    CHECK(admit(104, 300999, 4).verdict == RemoteAdmitVerdict::open_rate_refused);
+    CHECK(admit(101, 300999, 5).verdict == RemoteAdmitVerdict::open_rate_refused);
+    CHECK(admit(102, 300999, 6).verdict == RemoteAdmitVerdict::open_peer_bound);
+    expected.open_rate_refusal += 2; ++expected.inbound_refusal;
+    CHECK(std::memcmp(&t.st, &expected, sizeof expected) == 0);
+    CHECK(admit(104, 301000, 7).verdict == RemoteAdmitVerdict::open_staged);
+    CHECK(t.st.staging[0].expires_at_ms == 601000);
+    CHECK(admit(105, 301999, 8).verdict == RemoteAdmitVerdict::open_staging_full);
+    CHECK(admit(105, 302000, 9).verdict == RemoteAdmitVerdict::open_staged);
+    CHECK(admit(106, 303000, 10).verdict == RemoteAdmitVerdict::open_staged);
+    CHECK(remote_session_seen_used(t.st) == 0); CHECK(remote_session_ingress_used(t.st) == 0);
+    CHECK(t.st.staging[kRadminBootstrapSlot].kind == static_cast<uint8_t>(OpenStagingKind::free));
+}
+
+TEST_CASE("§radmin-7b2/open clear framing exact bounds truncation freeze and expiry on every return depth") {
+    for (const uint8_t depth : {uint8_t(0), uint8_t(2), uint8_t(3), uint8_t(4)}) {
+        for (const size_t count : {size_t(0), size_t(222), size_t(1648), size_t(1649)}) {
+            Target t; t.provision(1);
+            const uint8_t line[] = {'r','o','u','t','e','s'};
+            const auto admitted = t.deliver(t.open_request(89, line), 303, 1000);
+            CHECK(admitted.verdict == RemoteAdmitVerdict::open_staged);
+            auto& route = t.st.staging[0].route; // labelled carrier fixture; real reversed flights are Node cases
+            if (depth) { route.carrier = static_cast<uint8_t>(RadminCarrierKind::cross_layer);
+                route.n_layers = depth; route.cur = depth - 1; for (uint8_t i = 0; i < depth; ++i) route.layer_ids[i] = i + 1; }
+            const auto carrier = remote_reply_carrier(route); size_t cap = 0;
+            CHECK(remote_body_cap(carrier, cap) == RemoteStatus::ok);
+            CHECK_FALSE(remote_open_reserve(t.st, 0, static_cast<uint16_t>(cap - kRemoteOverheadAuthResponse)));
+            CHECK(remote_open_reserve(t.st, 0, static_cast<uint16_t>(cap - kRemoteOverheadOpenResponse)));
+            std::vector<uint8_t> content(count); for (size_t i = 0; i < count; ++i) content[i] = static_cast<uint8_t>(i);
+            remote_open_append(t.st, 0, content.data(), count / 2);
+            if (count) remote_open_append(t.st, 0, content.data() + count / 2, count - count / 2);
+            remote_open_complete(t.st, 0, RemoteTerminal::completed);
+            const auto frozen = t.st.open[0];
+            remote_open_append(t.st, 0, line, sizeof line); remote_open_complete(t.st, 0, RemoteTerminal::internal_error);
+            CHECK(std::memcmp(&frozen, &t.st.open[0], sizeof frozen) == 0);
+            std::vector<uint8_t> assembled; uint8_t seq = 0; bool terminal = false;
+            while (remote_open_next(t.st) != kRadminNoSlot && seq < 20) {
+                uint8_t bytes[kRadminBodyBytes] = {}, repeat[kRadminBodyBytes] = {}, pt[kRadminBodyBytes] = {};
+                size_t n = 0, n2 = 0;
+                CHECK(remote_open_encode(t.st, 0, bytes, n) == RemoteStatus::ok);
+                CHECK(remote_open_encode(t.st, 0, repeat, n2) == RemoteStatus::ok);
+                CHECK(n == n2); CHECK(std::memcmp(bytes, repeat, n) == 0); CHECK(n <= cap);
+                RemoteDecoded decoded{};
+                CHECK(remote_body_decode(decoded, DATA_TYPE_REMOTE_RESP, {bytes, n}, {}, {true, 303}, carrier, pt)
+                      == RemoteStatus::ok);
+                CHECK(decoded.msg.slot == kRemoteSlotSentinel); CHECK(decoded.msg.request_id == 89);
+                CHECK(decoded.msg.response_seq == seq++);
+                terminal = decoded.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::terminal);
+                if (terminal) { CHECK(decoded.body.size() == 1);
+                    CHECK(decoded.body[0] == static_cast<uint8_t>(count > kRadminOpenBytes
+                        ? RemoteTerminal::output_truncated : RemoteTerminal::completed)); }
+                else { CHECK(n == decoded.body.size() + kRemoteOverheadOpenResponse);
+                    assembled.insert(assembled.end(), decoded.body.begin(), decoded.body.end()); }
+                remote_open_sent(t.st, 0);
+            }
+            CHECK(terminal); content.resize(count > kRadminOpenBytes ? kRadminOpenBytes : count); CHECK(assembled == content);
+            CHECK(t.st.staging[0].expires_at_ms == 301000);
+            CHECK(remote_session_expire(t.st, 300999) == 0); CHECK(remote_session_expire(t.st, 301000) == 1);
+            CHECK(remote_session_staging_used(t.st) == 0);
+            CHECK(remote_session_earliest_deadline(t.st) == UINT64_MAX);
+        }
+    }
+}
+
+TEST_CASE("§radmin-7b2/control prepare is immutable and busy notices bind mutable details before force install") {
+    Target t; t.provision(3);
+    const uint8_t line[] = {'s','t','a','t','u','s'};
+    const auto execute = [&](uint8_t slot, uint64_t id, uint32_t src) {
+        const auto r = t.deliver(t.request(slot, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), id, line, src,
+                                            same_layer_cmd()), src);
+        CHECK(r.verdict == RemoteAdmitVerdict::admit);
+        CHECK(remote_transcript_reserve(t.st, r.seen_index, kRadminChunkBytes));
+        remote_transcript_append(t.st, r.seen_index, line, sizeof line);
+        remote_transcript_complete(t.st, r.seen_index, RemoteTerminal::completed); return r;
+    };
+    const auto own1 = execute(0, 1, 11); const auto own2 = execute(0, 2, 11);
+    const auto other1 = execute(1, 3, 12); const auto other2 = execute(2, 4, 13);
+    remote_transcript_sent(t.st, other1.seen_index); // nonzero surviving cursor is load-bearing (B386)
+    const auto control_wire = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover), 10, {}, 11, same_layer_cmd());
+    CHECK(t.deliver(control_wire, 11).verdict == RemoteAdmitVerdict::control_admitted);
+    RadminControlView view{}; CHECK(remote_control_next(t.st, view));
+    uint8_t completed = 0; CHECK(remote_control_check(t.st, view, completed) == RadminControlDecision::busy);
+    CHECK(completed == 2);
+    RemoteSessionInstall plan{}; bool install = true; uint8_t bytes[34] = {}; size_t n = 0;
+    auto before = t.st;
+    CHECK(remote_control_prepare(t.st, view, 0, bytes, n, plan, install) == RemoteStatus::ok);
+    CHECK_FALSE(install); CHECK(n == kRemoteOverheadAdmissionResult); CHECK(bytes[11] == 2);
+    CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+    const std::vector<uint8_t> busy2(bytes, bytes + n);
+    remote_control_release(t.st, view);
+    CHECK(t.deliver(t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::response_ack), 1, {}, 11, same_layer_cmd()), 11).verdict
+          == RemoteAdmitVerdict::ack_released);
+    CHECK(t.deliver(control_wire, 11).verdict == RemoteAdmitVerdict::control_admitted);
+    CHECK(remote_control_next(t.st, view));
+    CHECK(remote_control_prepare(t.st, view, 0, bytes, n, plan, install) == RemoteStatus::ok);
+    CHECK(bytes[11] == 1); CHECK(std::vector<uint8_t>(bytes, bytes + n) != busy2);
+    RemoteRxResult wire{}; wire.controller_slot = 0; wire.source_hash = 11; wire.route = view.route;
+    wire.reply_len = n; std::memcpy(wire.reply, bytes, n); uint8_t pt[32] = {}; RemoteDecoded decoded{};
+    CHECK(t.decode_result(wire, decoded, pt) == RemoteStatus::ok);
+    CHECK(decoded.msg.admission_code == RemoteAdmission::session_busy); CHECK(decoded.msg.admission_detail == 1);
+    for (const uint8_t at : {uint8_t(9), uint8_t(10), uint8_t(11)}) {
+        wire.reply[at] ^= 1;
+        CHECK(t.decode_result(wire, decoded, pt) != RemoteStatus::ok);
+        wire.reply[at] ^= 1;
+    }
+    remote_control_release(t.st, view);
+    CHECK(t.deliver(t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::force_rollover), 11, {}, 11, same_layer_cmd()), 11).verdict
+          == RemoteAdmitVerdict::control_admitted);
+    CHECK(remote_control_next(t.st, view));
+    before = t.st;
+    uint8_t other_wire[2][kRadminBodyBytes] = {}; size_t other_n[2] = {};
+    CHECK(remote_transcript_encode(t.st, other1.seen_index, other_wire[0], other_n[0]) == RemoteStatus::ok);
+    CHECK(remote_transcript_encode(t.st, other2.seen_index, other_wire[1], other_n[1]) == RemoteStatus::ok);
+    CHECK(remote_control_prepare(t.st, view, 999, bytes, n, plan, install) == RemoteStatus::ok);
+    CHECK(install); CHECK(n == kRemoteOverheadRolloverResult); CHECK(plan.epoch[0] == 999);
+    CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+    wire.reply_len = n; std::memcpy(wire.reply, bytes, n);
+    CHECK(t.decode_result(wire, decoded, pt) == RemoteStatus::ok);
+    CHECK(decoded.msg.admin_epoch == 999); CHECK(decoded.msg.abandoned_count == 1);
+    remote_session_install(t.st, plan);
+    CHECK(t.st.epoch[0] == 999); CHECK(t.st.epoch[1] == before.epoch[1]); CHECK(t.st.epoch[2] == before.epoch[2]);
+    CHECK(remote_session_seen_find(t.st, 0, 1) == kRadminNoSlot); CHECK(remote_session_seen_find(t.st, 0, 2) == kRadminNoSlot);
+    uint8_t which = 0;
+    for (const auto& r : {other1, other2}) {
+        const auto ti = t.st.seen[r.seen_index].record.transcript_slot;
+        auto expected = before.transcripts[ti]; --expected.order;
+        CHECK(std::memcmp(&t.st.transcripts[ti], &expected, sizeof expected) == 0);
+        CHECK(std::memcmp(&t.st.seen[r.seen_index], &before.seen[r.seen_index], sizeof(SeenEntry)) == 0);
+        for (uint16_t ci = expected.first_chunk; ci < kRadminChunkSlots; ci = t.st.chunks[ci].next)
+            CHECK(std::memcmp(&t.st.chunks[ci], &before.chunks[ci], sizeof(TranscriptChunk)) == 0);
+        uint8_t after[kRadminBodyBytes] = {}; size_t an = 0;
+        CHECK(remote_transcript_encode(t.st, r.seen_index, after, an) == RemoteStatus::ok);
+        CHECK(an == other_n[which]); CHECK(std::memcmp(after, other_wire[which], an) == 0); ++which;
+    }
+    CHECK(remote_transcript_next(t.st) == other1.seen_index);
+    CHECK(t.deliver(control_wire, 11).verdict == RemoteAdmitVerdict::silent_auth_failed);
+    (void)own1; (void)own2;
+}
+
+TEST_CASE("§radmin-7b2/counters saturation preserves all state except the named scalar and invalidation preserves totals") {
+    Target t; t.provision(1);
+    for (const auto counter : {RadminCounter::inbound_refusal, RadminCounter::open_rate_refusal,
+                              RadminCounter::transcript_exhaustion, RadminCounter::response_enqueue_failure,
+                              RadminCounter::response_seal_failure}) {
+        for (unsigned i = 0; i < 65537; ++i) remote_counter_increment(t.st, counter);
+    }
+    auto before = t.st;
+    CHECK(t.deliver({}, 0).verdict == RemoteAdmitVerdict::silent_bad_request);
+    CHECK(std::memcmp(&t.st, &before, sizeof before) == 0);
+    const auto counters = remote_counters(t.st);
+    CHECK(counters.inbound_refusal == UINT16_MAX); CHECK(counters.open_rate_refusal == UINT16_MAX);
+    CHECK(counters.transcript_exhaustion == UINT16_MAX); CHECK(counters.response_enqueue_failure == UINT16_MAX);
+    CHECK(counters.response_seal_failure == UINT16_MAX);
+    RemoteSessionInstall plan{}; plan.epoch_set[0] = true; plan.epoch[0] = 123;
+    remote_session_install(t.st, plan);
+    auto after = remote_counters(t.st); CHECK(std::memcmp(&after, &counters, sizeof after) == 0);
+    plan = {}; plan.clear_root = true; remote_session_install(t.st, plan);
+    after = remote_counters(t.st); CHECK(std::memcmp(&after, &counters, sizeof after) == 0);
+    remote_session_clear(t.st); after = remote_counters(t.st); const RadminCounters empty{};
+    CHECK(std::memcmp(&after, &empty, sizeof after) == 0);
+}
+
+TEST_CASE("§radmin-7b2/control prepare rejects short output stale views and equal epochs without touching admitted work") {
+    Target t; t.provision(2, false);
+    const uint8_t line[] = {'s','t','a','t','u','s'};
+    const auto admitted = t.deliver(t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 1, line, 11,
+                                              same_layer_cmd()), 11);
+    CHECK(admitted.verdict == RemoteAdmitVerdict::admit); CHECK(admitted.ingress_index == kRadminIngressGeneral);
+    const auto control = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover), 2, {}, 11, same_layer_cmd());
+    CHECK(t.deliver(control, 11).verdict == RemoteAdmitVerdict::control_admitted);
+    RadminControlView view{}; CHECK(remote_control_next(t.st, view));
+    const auto before = t.st; uint8_t bytes[34]; size_t n = 99; bool install = true; RemoteSessionInstall plan{};
+    CHECK(remote_control_prepare(t.st, view, 999, {bytes, 33}, n, plan, install) != RemoteStatus::ok);
+    CHECK_FALSE(install); CHECK(n == 0); CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+    for (const uint64_t draw : {uint64_t(0), view.epoch}) {
+        CHECK(remote_control_prepare(t.st, view, draw, bytes, n, plan, install) == RemoteStatus::ok);
+        CHECK_FALSE(install); CHECK(n == kRemoteOverheadAdmissionResult);
+        CHECK(bytes[10] == static_cast<uint8_t>(RemoteAdmission::preparation_failed));
+        CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+    }
+    for (uint8_t which = 0; which < 6; ++which) {
+        auto stale = view;
+        switch (which) {
+            case 0: stale.request_ctl ^= 0x10; break;
+            case 1: ++stale.request_id; break;
+            case 2: ++stale.epoch; break;
+            case 3: ++stale.source_hash; break;
+            case 4: ++stale.route.origin; break;
+            case 5: ++stale.slot; break;
+        }
+        CHECK(remote_control_prepare(t.st, stale, 999, bytes, n, plan, install) == RemoteStatus::bad_pairing);
+        CHECK_FALSE(install); CHECK(n == 0); remote_control_release(t.st, stale);
+        CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+    }
+    CHECK(remote_control_prepare(t.st, view, 999, bytes, n, plan, install) == RemoteStatus::ok);
+    CHECK(install); CHECK(n == 34); CHECK(bytes[17] == 0); // cancelled admission is NOT an abandoned transcript
+    remote_session_install(t.st, plan);
+    CHECK(remote_session_seen_used(t.st) == 0); CHECK(remote_session_ingress_used(t.st) == 0);
+    CHECK(t.st.epoch[0] == 999); CHECK(t.st.epoch[1] == before.epoch[1]);
+}
+
+TEST_CASE("§radmin-7b2/control target-wide executing guard includes a labelled paused open capture") {
+    Target t; t.provision(1); const uint8_t line[] = {'s','t','a','t','u','s'};
+    CHECK(t.deliver(t.open_request(1, line), 22).verdict == RemoteAdmitVerdict::open_staged);
+    CHECK(remote_open_reserve(t.st, 0, 222)); // labelled paused-open-executor fixture; no natural RX interleaving claimed
+    for (const auto opcode : {RemoteCmdOpcode::safe_rollover, RemoteCmdOpcode::force_rollover}) {
+        CHECK(t.deliver(t.request(0, static_cast<uint8_t>(opcode), 2, {}, 11, same_layer_cmd()), 11).verdict
+              == RemoteAdmitVerdict::control_admitted);
+        RadminControlView view{}; CHECK(remote_control_next(t.st, view)); const auto before = t.st;
+        uint8_t count = 99; CHECK(remote_control_check(t.st, view, count) == RadminControlDecision::executing);
+        uint8_t bytes[34]; size_t n = 0; bool install = true; RemoteSessionInstall plan{};
+        CHECK(remote_control_prepare(t.st, view, 999, bytes, n, plan, install) == RemoteStatus::ok);
+        CHECK_FALSE(install); CHECK(n == 28); CHECK(bytes[10] == static_cast<uint8_t>(RemoteAdmission::executing));
+        CHECK(bytes[11] == 0); CHECK(std::memcmp(&before, &t.st, sizeof before) == 0);
+        remote_control_release(t.st, view); CHECK(t.st.open[0].phase == static_cast<uint8_t>(OpenPhase::capturing));
+    }
+}
+
+TEST_CASE("§radmin-7b2/refusal accounting changes exactly the named scalar and fixed notices own no rows") {
+    Target t; t.provision(1); const uint8_t line[] = {'s','t','a','t','u','s'};
+    const auto req = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 1, line, 11, same_layer_cmd());
+    CHECK(t.deliver(req, 11).verdict == RemoteAdmitVerdict::admit);
+    const auto new_id = t.request(0, static_cast<uint8_t>(RemoteCmdOpcode::auth_execute), 2, line, 11, same_layer_cmd());
+    auto expected = t.st; ++expected.inbound_refusal;
+    const auto notice = t.deliver(new_id, 11);
+    CHECK(notice.verdict == RemoteAdmitVerdict::ingress_full); CHECK(notice.has_reply); CHECK(notice.reply_len == 28);
+    CHECK(std::memcmp(&expected, &t.st, sizeof expected) == 0);
+    RemoteDecoded d{}; uint8_t pt[32] = {}; CHECK(t.decode_result(notice, d, pt) == RemoteStatus::ok);
+    CHECK(d.msg.admission_code == RemoteAdmission::ingress_full); CHECK(d.msg.request_ctl == new_id[0]);
+    RemoteRxInput in{}; in.now_ms = 1000; in.outer_type = DATA_TYPE_REMOTE_CMD; in.body = new_id;
+    in.source = {true, 11}; in.request_carrier = same_layer_cmd(); in.reply_carrier = same_layer_resp();
+    in.route.carrier = static_cast<uint8_t>(RadminCarrierKind::same_layer); in.reply_permitted = false;
+    RemoteRxResult out{}; ++expected.inbound_refusal;
+    remote_session_receive(t.st, in, out); CHECK(out.verdict == RemoteAdmitVerdict::ingress_full); CHECK_FALSE(out.has_reply);
+    CHECK(std::memcmp(&expected, &t.st, sizeof expected) == 0);
+    in.source.present = false; ++expected.inbound_refusal; remote_session_receive(t.st, in, out);
+    CHECK(out.verdict == RemoteAdmitVerdict::silent_no_source); CHECK_FALSE(out.has_reply);
+    CHECK(std::memcmp(&expected, &t.st, sizeof expected) == 0);
+    auto tampered = req; tampered.back() ^= 1; in.body = tampered; in.source.present = true;
+    ++expected.inbound_refusal; remote_session_receive(t.st, in, out);
+    CHECK(out.verdict == RemoteAdmitVerdict::silent_auth_failed); CHECK_FALSE(out.has_reply);
+    CHECK(std::memcmp(&expected, &t.st, sizeof expected) == 0);
 }

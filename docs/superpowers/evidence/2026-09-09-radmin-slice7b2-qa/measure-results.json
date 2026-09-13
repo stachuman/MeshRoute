@@ -1,0 +1,250 @@
+[
+  {
+    "name": "base-native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "rc": 0,
+    "seconds": 27.497787598520517,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/base-native-build.log",
+    "sha256": "1c54fc4d46f8829f672bc024e989b7850c0d90096d94cf9049893d056905fb8e"
+  },
+  {
+    "name": "base-native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "rc": 0,
+    "seconds": 0.6231900937855244,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/base-native.log",
+    "sha256": "a2e0ce52c12a9daa874f65752888c89269450859a07f6f520628937a021d140d"
+  },
+  {
+    "name": "base-native-remote",
+    "cmd": [
+      "./.pio/build/native/program",
+      "--source-file=*test_firmware_remote_executor.cpp,*test_node_remote_session.cpp,*test_remote_session.cpp",
+      "--reporters=xml"
+    ],
+    "rc": 0,
+    "seconds": 0.09204445779323578,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/base-native-remote.log",
+    "sha256": "66b94ea4972a27ab03fe04aeb7cfd2ec116de3511adbbc86d4116f4f944e1882"
+  },
+  {
+    "name": "base-boards",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--output",
+      ".pio-measure/qa-base",
+      "--jobs",
+      "1"
+    ],
+    "rc": 0,
+    "seconds": 51.41818717122078,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/base-boards.log",
+    "sha256": "340083a4af9fb6972463f9607f205871ca174c3a387d0eb8bf943e2161dfe650"
+  },
+  {
+    "name": "sim-base-configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-base",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-qa-s7b2-gate-0phs0ag4/measure",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "rc": 0,
+    "seconds": 0.4215731918811798,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/sim-base-configure.log",
+    "sha256": "4e09c475d9f45abba9eff735921bb2c6a17331942c000c358665d24fdf8736df"
+  },
+  {
+    "name": "sim-base-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-base",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "rc": 0,
+    "seconds": 36.433461260050535,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/sim-base-build.log",
+    "sha256": "f52f87bf9ee747d54a4da2610e82fa1c789f2f35348dbc86f54852daf105043f"
+  },
+  {
+    "name": "corpus-base",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-base",
+      "--lus",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-base/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "rc": 0,
+    "seconds": 52.792823512107134,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/corpus-base.log",
+    "sha256": "4b87de5c6f0cdea4555045ef17322806f049de75966ef77a225bd715be40bee1"
+  },
+  {
+    "name": "corpus-validate-base",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-base"
+    ],
+    "rc": 0,
+    "seconds": 0.6554057598114014,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/corpus-validate-base.log",
+    "sha256": "d5140e0fb307bd2f6473d7c8f9cf922de9cb8a75c95121e872baba818197bed1"
+  },
+  {
+    "name": "final-native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "rc": 0,
+    "seconds": 21.34681424498558,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/final-native-build.log",
+    "sha256": "4ac79403522a1195bdf68eadf6a94d02df29d706a6cd679f5c4b4f7a928b5872"
+  },
+  {
+    "name": "final-native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "rc": 0,
+    "seconds": 0.6339603401720524,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/final-native.log",
+    "sha256": "f6e7566311ee165d36395ee798ad0007a8550c8ea3b01a689cc20919550f726f"
+  },
+  {
+    "name": "final-native-remote",
+    "cmd": [
+      "./.pio/build/native/program",
+      "--source-file=*test_firmware_remote_executor.cpp,*test_node_remote_session.cpp,*test_remote_session.cpp",
+      "--reporters=xml"
+    ],
+    "rc": 0,
+    "seconds": 0.1449654921889305,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/final-native-remote.log",
+    "sha256": "25f4578a7d16f865ed7cba35c224548f2a2e73d2bb93cdb319b15796700767c1"
+  },
+  {
+    "name": "final-boards",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--output",
+      ".pio-measure/qa-final",
+      "--jobs",
+      "1"
+    ],
+    "rc": 0,
+    "seconds": 46.436724837869406,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/final-boards.log",
+    "sha256": "3f1157a568a8d66c10d70d0ddf85ed0d5f99be79fcfda4b971d009d13360cbaa"
+  },
+  {
+    "name": "sim-final-configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-final",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-qa-s7b2-gate-0phs0ag4/measure",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "rc": 0,
+    "seconds": 0.42621875554323196,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/sim-final-configure.log",
+    "sha256": "fb0fb19a5225092a6bc5a755fc5549043174e100ffc77b3a3b6d4e95dda4f072"
+  },
+  {
+    "name": "sim-final-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-final",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "rc": 0,
+    "seconds": 36.81111412122846,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/sim-final-build.log",
+    "sha256": "b55fb8fbf02aac44056d7e25b285e1ecd5b588ab10beef7fb94a8f4fa8446fb9"
+  },
+  {
+    "name": "corpus-final",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-final",
+      "--lus",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/sim-final/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "rc": 0,
+    "seconds": 53.21911561489105,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/corpus-final.log",
+    "sha256": "1b26bd0bbbb399e4c829ed0649b8ab7e170562612dbe393f4cd027d63deaff6a"
+  },
+  {
+    "name": "corpus-validate-final",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-final"
+    ],
+    "rc": 0,
+    "seconds": 0.6529607698321342,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/corpus-validate-final.log",
+    "sha256": "fc9366cd6ecf2f410f4c8d4585f31c97300cd830cef93db97d8fbc59b04e1c79"
+  },
+  {
+    "name": "corpus-comparator",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--compare",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-base",
+      "/tmp/mr-qa-s7b2-gate-0phs0ag4/corpus-final"
+    ],
+    "rc": 1,
+    "seconds": 1.2548553496599197,
+    "log": "/tmp/mr-qa-s7b2-gate-0phs0ag4/logs/corpus-comparator.log",
+    "sha256": "52f846ebe977c910004c681ca7a7b04b0a389be9090371f66d7f3e006b3da377"
+  }
+]

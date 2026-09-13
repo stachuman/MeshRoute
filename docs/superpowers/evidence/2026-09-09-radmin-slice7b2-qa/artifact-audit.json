@@ -1,0 +1,1434 @@
+{
+  "gateway": {
+    "measurements": {
+      "base": {
+        "flash_bytes": 562748,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 976,
+          ".text": 561764
+        },
+        "object_count": 285,
+        "ram_bytes": 198980,
+        "symbol_count": 6488,
+        "symbol_size_total": 738717,
+        "symbols_sha256": "f50349c5d7bf91fa7a4e4a5aa42c38f6215e54838d5b6fd9ec2e6eb37dc81278"
+      },
+      "final": {
+        "flash_bytes": 570588,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 976,
+          ".text": 569604
+        },
+        "object_count": 285,
+        "ram_bytes": 203956,
+        "symbol_count": 6577,
+        "symbol_size_total": 751339,
+        "symbols_sha256": "5ce5e7d52ee80f72e06bcac7f069b5a687f3cf0d09946650b7a9767979f6e00f"
+      }
+    },
+    "sections": [
+      {
+        "name": ".text",
+        "allocated": true,
+        "size_before": 561764,
+        "size_after": 569604,
+        "addr_before": 159744,
+        "addr_after": 159744,
+        "bytes_equal": false
+      },
+      {
+        "name": ".ARM.exidx",
+        "allocated": true,
+        "size_before": 8,
+        "size_after": 8,
+        "addr_before": 721508,
+        "addr_after": 729348,
+        "bytes_equal": false
+      },
+      {
+        "name": ".data",
+        "allocated": true,
+        "size_before": 976,
+        "size_after": 976,
+        "addr_before": 536895488,
+        "addr_after": 536895488,
+        "bytes_equal": false
+      },
+      {
+        "name": ".bss",
+        "allocated": true,
+        "size_before": 197972,
+        "size_after": 202948,
+        "addr_before": 536896464,
+        "addr_after": 536896464,
+        "bytes_equal": false
+      },
+      {
+        "name": ".noinit",
+        "allocated": true,
+        "size_before": 32,
+        "size_after": 32,
+        "addr_before": 537094436,
+        "addr_after": 537099412,
+        "bytes_equal": true
+      },
+      {
+        "name": ".heap",
+        "allocated": true,
+        "size_before": 36540,
+        "size_after": 31564,
+        "addr_before": 537094468,
+        "addr_after": 537099444,
+        "bytes_equal": false
+      },
+      {
+        "name": ".symtab",
+        "allocated": false,
+        "size_before": 103808,
+        "size_after": 105232,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".strtab",
+        "allocated": false,
+        "size_before": 81239,
+        "size_after": 83734,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      }
+    ],
+    "elf_sha256": {
+      "base": "6898849c74046ccd4a400fe1c03e350fcf500cefa6f7798d86273946bf1dec7e",
+      "final": "f41a0d7f9ade6c7f9421251cedd0cdb0ae56679449d583f30223d888fd46046d"
+    },
+    ".text_symbol_size_changes": [
+      {
+        "name": "CSWTCH.241",
+        "before": 4,
+        "after": 0,
+        "delta": -4
+      },
+      {
+        "name": "CSWTCH.248",
+        "before": 0,
+        "after": 4,
+        "delta": 4
+      },
+      {
+        "name": "CSWTCH.517",
+        "before": 20,
+        "after": 0,
+        "delta": -20
+      },
+      {
+        "name": "CSWTCH.531",
+        "before": 16,
+        "after": 0,
+        "delta": -16
+      },
+      {
+        "name": "CSWTCH.533",
+        "before": 12,
+        "after": 20,
+        "delta": 8
+      },
+      {
+        "name": "CSWTCH.551",
+        "before": 0,
+        "after": 16,
+        "delta": 16
+      },
+      {
+        "name": "CSWTCH.553",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "CSWTCH.657",
+        "before": 36,
+        "after": 0,
+        "delta": -36
+      },
+      {
+        "name": "CSWTCH.659",
+        "before": 64,
+        "after": 0,
+        "delta": -64
+      },
+      {
+        "name": "CSWTCH.677",
+        "before": 0,
+        "after": 36,
+        "delta": 36
+      },
+      {
+        "name": "CSWTCH.679",
+        "before": 0,
+        "after": 64,
+        "delta": 64
+      },
+      {
+        "name": "_ZL17mesh_service_oncev",
+        "before": 7628,
+        "after": 7632,
+        "delta": 4
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget11open_appendEhPKhj",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget12reserve_openEht",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget13open_completeEhN9meshroute14RemoteTerminalE",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget15send_open_frameEv",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget15service_controlEv",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget6expireEv",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_112RemoteTarget9next_openERN9meshroute14RadminOpenViewE",
+        "before": 0,
+        "after": 12,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_115TranscriptPrint5writeEPKhj",
+        "before": 76,
+        "after": 16,
+        "delta": -60
+      },
+      {
+        "name": "_ZN4mrfw12_GLOBAL__N_115TranscriptPrint5writeEh",
+        "before": 96,
+        "after": 30,
+        "delta": -66
+      },
+      {
+        "name": "_ZN4mrfw12acl_emit_errERNS_11IAdminLinesENS_6AclErrE",
+        "before": 0,
+        "after": 92,
+        "delta": 92
+      },
+      {
+        "name": "_ZN4mrfw12handle_leaveER5Print",
+        "before": 672,
+        "after": 680,
+        "delta": 8
+      },
+      {
+        "name": "_ZN4mrfw14handle_cfg_setEPKcR5Print",
+        "before": 5020,
+        "after": 5012,
+        "delta": -8
+      },
+      {
+        "name": "_ZN4mrfw14handle_gatewayEPKcR5Print",
+        "before": 1228,
+        "after": 1232,
+        "delta": 4
+      },
+      {
+        "name": "_ZN4mrfw15make_cfg_extrasEv",
+        "before": 1128,
+        "after": 1120,
+        "delta": -8
+      },
+      {
+        "name": "_ZN4mrfw15nv_load_stampedERN4mrnv4BlobE",
+        "before": 604,
+        "after": 616,
+        "delta": 12
+      },
+      {
+        "name": "_ZN4mrfw17handle_pull_inboxEPKcR5Print",
+        "before": 192,
+        "after": 196,
+        "delta": 4
+      },
+      {
+        "name": "_ZN4mrfw18handle_clear_inboxEPKcjR5Print",
+        "before": 208,
+        "after": 212,
+        "delta": 4
+      },
+      {
+        "name": "_ZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecE.constprop.0",
+        "before": 0,
+        "after": 782,
+        "delta": 782
+      },
+      {
+        "name": "_ZN4mrfw28remote_executor_service_onceEv",
+        "before": 368,
+        "after": 28,
+        "delta": -340
+      },
+      {
+        "name": "_ZN4mrfw29remote_activation_live_inputsEv",
+        "before": 168,
+        "after": 164,
+        "delta": -4
+      },
+      {
+        "name": "_ZN4mrfw8dispatchEPKcjR5Print",
+        "before": 8932,
+        "after": 9064,
+        "delta": 132
+      },
+      {
+        "name": "_ZN4mrfwL8dump_cfgER5Print",
+        "before": 3472,
+        "after": 3496,
+        "delta": 24
+      },
+      {
+        "name": "_ZN9meshroute12_GLOBAL__N_115invalidate_slotERNS_18RemoteSessionStateEh",
+        "before": 1346,
+        "after": 1384,
+        "delta": 38
+      },
+      {
+        "name": "_ZN9meshroute15remote_countersERKNS_18RemoteSessionStateE",
+        "before": 0,
+        "after": 28,
+        "delta": 28
+      },
+      {
+        "name": "_ZN9meshroute16remote_open_nextERKNS_18RemoteSessionStateE",
+        "before": 0,
+        "after": 226,
+        "delta": 226
+      },
+      {
+        "name": "_ZN9meshroute16remote_open_sentERNS_18RemoteSessionStateEh",
+        "before": 0,
+        "after": 180,
+        "delta": 180
+      },
+      {
+        "name": "_ZN9meshroute18remote_open_appendERNS_18RemoteSessionStateEhPKhj",
+        "before": 0,
+        "after": 98,
+        "delta": 98
+      },
+      {
+        "name": "_ZN9meshroute18remote_open_encodeERKNS_18RemoteSessionStateEhSt4spanIhLj4294967295EERj",
+        "before": 0,
+        "after": 328,
+        "delta": 328
+      },
+      {
+        "name": "_ZN9meshroute19remote_control_nextERKNS_18RemoteSessionStateERNS_17RadminControlViewE",
+        "before": 0,
+        "after": 240,
+        "delta": 240
+      },
+      {
+        "name": "_ZN9meshroute19remote_open_reserveERNS_18RemoteSessionStateEht",
+        "before": 0,
+        "after": 186,
+        "delta": 186
+      },
+      {
+        "name": "_ZN9meshroute20remote_control_checkERKNS_18RemoteSessionStateERKNS_17RadminControlViewERh",
+        "before": 0,
+        "after": 620,
+        "delta": 620
+      },
+      {
+        "name": "_ZN9meshroute20remote_open_completeERNS_18RemoteSessionStateEhNS_14RemoteTerminalE",
+        "before": 0,
+        "after": 108,
+        "delta": 108
+      },
+      {
+        "name": "_ZN9meshroute20remote_session_clearERNS_18RemoteSessionStateE",
+        "before": 180,
+        "after": 0,
+        "delta": -180
+      },
+      {
+        "name": "_ZN9meshroute21remote_session_expireERNS_18RemoteSessionStateEy",
+        "before": 650,
+        "after": 690,
+        "delta": 40
+      },
+      {
+        "name": "_ZN9meshroute22remote_control_prepareERKNS_18RemoteSessionStateERKNS_17RadminControlViewEySt4spanIhLj4294967295EERjRNS_20RemoteSessionInstallERb",
+        "before": 0,
+        "after": 688,
+        "delta": 688
+      },
+      {
+        "name": "_ZN9meshroute22remote_control_releaseERNS_18RemoteSessionStateERKNS_17RadminControlViewE",
+        "before": 0,
+        "after": 368,
+        "delta": 368
+      },
+      {
+        "name": "_ZN9meshroute22remote_session_installERNS_18RemoteSessionStateERKNS_20RemoteSessionInstallE",
+        "before": 1556,
+        "after": 1600,
+        "delta": 44
+      },
+      {
+        "name": "_ZN9meshroute22remote_session_receiveERNS_18RemoteSessionStateERKNS_13RemoteRxInputERNS_14RemoteRxResultE",
+        "before": 3942,
+        "after": 5720,
+        "delta": 1778
+      },
+      {
+        "name": "_ZN9meshroute24remote_counter_incrementERNS_18RemoteSessionStateENS_13RadminCounterE",
+        "before": 0,
+        "after": 88,
+        "delta": 88
+      },
+      {
+        "name": "_ZN9meshroute25remote_open_next_admittedERKNS_18RemoteSessionStateERNS_14RadminOpenViewE",
+        "before": 0,
+        "after": 438,
+        "delta": 438
+      },
+      {
+        "name": "_ZN9meshroute30remote_session_staging_releaseERNS_18RemoteSessionStateEh",
+        "before": 32,
+        "after": 56,
+        "delta": 24
+      },
+      {
+        "name": "_ZN9meshroute34remote_session_mark_entropy_failedERNS_18RemoteSessionStateE",
+        "before": 16,
+        "after": 166,
+        "delta": 150
+      },
+      {
+        "name": "_ZN9meshroute4Node10handle_ctsEPKhjRKNS_6RxMetaE",
+        "before": 796,
+        "after": 800,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node10handle_rtsEPKhjRKNS_6RxMetaE",
+        "before": 3044,
+        "after": 3036,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node10issue_sendERKNS_6TxItemE",
+        "before": 920,
+        "after": 924,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node10join_adoptEh",
+        "before": 110,
+        "after": 118,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node10on_commandERKNS_7CommandE",
+        "before": 2150,
+        "after": 2170,
+        "delta": 20
+      },
+      {
+        "name": "_ZN9meshroute4Node11do_post_ackEv",
+        "before": 4696,
+        "after": 4796,
+        "delta": 100
+      },
+      {
+        "name": "_ZN9meshroute4Node11emit_beaconEPKc",
+        "before": 2280,
+        "after": 2332,
+        "delta": 52
+      },
+      {
+        "name": "_ZN9meshroute4Node11handle_dataEPKhjRKNS_6RxMetaE",
+        "before": 4064,
+        "after": 4116,
+        "delta": 52
+      },
+      {
+        "name": "_ZN9meshroute4Node11handle_nackEPKhjRKNS_6RxMetaE",
+        "before": 2224,
+        "after": 2228,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node11id_bind_setEhmNS0_12IdBindSourceENS0_10IdBindConfE",
+        "before": 638,
+        "after": 642,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node12enqueue_dataEhPKhhhPKcbhNS_11CryptIntentEmmhNS_5PlaneEPNS0_12SendDispatchE",
+        "before": 1698,
+        "after": 1678,
+        "delta": -20
+      },
+      {
+        "name": "_ZN9meshroute4Node12join_deny_idEh",
+        "before": 578,
+        "after": 618,
+        "delta": 40
+      },
+      {
+        "name": "_ZN9meshroute4Node12rreq_rate_okEhhb",
+        "before": 140,
+        "after": 144,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node12send_by_hashEmPKhhhNS_11CryptIntentEmtNS_5PlaneEhbPNS0_12SendDispatchE",
+        "before": 4464,
+        "after": 4432,
+        "delta": -32
+      },
+      {
+        "name": "_ZN9meshroute4Node12tx_rts_retryEv",
+        "before": 384,
+        "after": 388,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node13deleg_ack_putEmttNS0_12DelegAckPeerEmS1_mhhNS0_15DelegAckCustodyE",
+        "before": 516,
+        "after": 528,
+        "delta": 12
+      },
+      {
+        "name": "_ZN9meshroute4Node13e2e_ack_clearEhtm",
+        "before": 386,
+        "after": 384,
+        "delta": -2
+      },
+      {
+        "name": "_ZN9meshroute4Node13ingest_beaconEPKhjRKNS_6RxMetaE",
+        "before": 3080,
+        "after": 3108,
+        "delta": 28
+      },
+      {
+        "name": "_ZN9meshroute4Node13mark_mediatedEhm",
+        "before": 250,
+        "after": 244,
+        "delta": -6
+      },
+      {
+        "name": "_ZN9meshroute4Node13retry_stashedEh",
+        "before": 312,
+        "after": 316,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node13send_c_configEh",
+        "before": 452,
+        "after": 460,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node13tx_initiatingEPKhjsNS0_7LbtKindEmPNS0_11TxAdmissionE",
+        "before": 516,
+        "after": 514,
+        "delta": -2
+      },
+      {
+        "name": "_ZN9meshroute4Node14activate_layerEh.part.0",
+        "before": 672,
+        "after": 664,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node14adopt_c_configEPKhj",
+        "before": 444,
+        "after": 452,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node14cascade_to_altENS_16CustodyRootStageEPKc",
+        "before": 362,
+        "after": 364,
+        "delta": 2
+      },
+      {
+        "name": "_ZN9meshroute4Node14h_forward_fireEh",
+        "before": 70,
+        "after": 64,
+        "delta": -6
+      },
+      {
+        "name": "_ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb.part.0",
+        "before": 368,
+        "after": 374,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node15handle_f_commonERKNS_5f_outERKNS_6RxMetaEbh",
+        "before": 700,
+        "after": 704,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node15id_bind_age_outEv",
+        "before": 226,
+        "after": 232,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node15learn_route_viaEhhhsb",
+        "before": 108,
+        "after": 112,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node15park_send_layerEmPKhhh",
+        "before": 246,
+        "after": 242,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node15request_resolveEmb",
+        "before": 196,
+        "after": 200,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node15send_req_sync_qEPKcbb",
+        "before": 252,
+        "after": 244,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node16duty_over_budgetEjsPm",
+        "before": 228,
+        "after": 220,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node16flood_state_freeEh",
+        "before": 96,
+        "after": 92,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node16handle_flood_rtsERKNS_7rts_outEPKhs",
+        "before": 976,
+        "after": 972,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node16ingest_channel_mERKNS_5m_outEh",
+        "before": 1590,
+        "after": 1582,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node16join_start_claimEPKc",
+        "before": 260,
+        "after": 264,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node16radmin_next_openERNS_14RadminOpenViewE",
+        "before": 0,
+        "after": 6,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node16send_config_pullEhtt",
+        "before": 176,
+        "after": 178,
+        "delta": 2
+      },
+      {
+        "name": "_ZN9meshroute4Node16send_route_replyEhhhb",
+        "before": 150,
+        "after": 154,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node17channel_pull_fireEh",
+        "before": 324,
+        "after": 332,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node17deleg_ack_releaseEmtNS0_12DelegAckPeerEmhNS0_20DelegAckReleaseCauseE",
+        "before": 548,
+        "after": 546,
+        "delta": -2
+      },
+      {
+        "name": "_ZN9meshroute4Node17l2c_park_redirectEmRKNS_7PostAckE",
+        "before": 428,
+        "after": 424,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node17leaf_config_writeEv",
+        "before": 92,
+        "after": 96,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node17mobile_offer_fireEv",
+        "before": 1582,
+        "after": 1588,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node17park_reflood_fireEv",
+        "before": 256,
+        "after": 264,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node17purge_tx_carriersENS0_9PurgeAxisE",
+        "before": 1558,
+        "after": 1546,
+        "delta": -12
+      },
+      {
+        "name": "_ZN9meshroute4Node17restart_discoveryEv",
+        "before": 152,
+        "after": 160,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node17start_ack_timeoutEv",
+        "before": 424,
+        "after": 420,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node18deleg_ack_activateEhtNS0_12DelegAckPeerEmhhNS0_15DelegAckCustodyE",
+        "before": 1160,
+        "after": 1148,
+        "delta": -12
+      },
+      {
+        "name": "_ZN9meshroute4Node18drain_parked_sendsEmhh",
+        "before": 1756,
+        "after": 1784,
+        "delta": 28
+      },
+      {
+        "name": "_ZN9meshroute4Node18emit_route_requestEhhb",
+        "before": 370,
+        "after": 382,
+        "delta": 12
+      },
+      {
+        "name": "_ZN9meshroute4Node18radmin_open_appendEhPKhj",
+        "before": 0,
+        "after": 6,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node18req_sync_loop_fireEv",
+        "before": 264,
+        "after": 274,
+        "delta": 10
+      },
+      {
+        "name": "_ZN9meshroute4Node18schedule_lbt_deferEPKhjsNS0_7LbtKindEmmPKmh",
+        "before": 408,
+        "after": 402,
+        "delta": -6
+      },
+      {
+        "name": "_ZN9meshroute4Node18set_window_anchorsEh",
+        "before": 130,
+        "after": 126,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node18try_drain_deferredEv",
+        "before": 1336,
+        "after": 1340,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node18window_switch_fireEv",
+        "before": 300,
+        "after": 292,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node19clear_learned_stateEv",
+        "before": 920,
+        "after": 896,
+        "delta": -24
+      },
+      {
+        "name": "_ZN9meshroute4Node19clear_routing_stateEv",
+        "before": 490,
+        "after": 492,
+        "delta": 2
+      },
+      {
+        "name": "_ZN9meshroute4Node19enqueue_cross_layerEhmPKhhhS2_hhPthm",
+        "before": 492,
+        "after": 484,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node19handle_channel_dataEPKhjRKNS_6RxMetaE",
+        "before": 80,
+        "after": 84,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node19handle_channel_pullEhhPKmh",
+        "before": 940,
+        "after": 954,
+        "delta": 14
+      },
+      {
+        "name": "_ZN9meshroute4Node19radmin_reserve_openEht",
+        "before": 0,
+        "after": 6,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node20age_out_parked_sendsEv",
+        "before": 1020,
+        "after": 1018,
+        "delta": -2
+      },
+      {
+        "name": "_ZN9meshroute4Node20age_out_stale_routesEPNS_7RtEntryERhb",
+        "before": 366,
+        "after": 376,
+        "delta": 10
+      },
+      {
+        "name": "_ZN9meshroute4Node20channel_origin_admitEhmb",
+        "before": 784,
+        "after": 788,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node20deleg_custody_lookupERKNS_20CustodyFailureRecordEhRNS0_18DelegCustodyActionERh",
+        "before": 432,
+        "after": 412,
+        "delta": -20
+      },
+      {
+        "name": "_ZN9meshroute4Node20id_pubkey_intent_armEhh",
+        "before": 180,
+        "after": 184,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node20mobile_offer_releaseEm",
+        "before": 278,
+        "after": 276,
+        "delta": -2
+      },
+      {
+        "name": "_ZN9meshroute4Node20periodic_beacon_fireEv",
+        "before": 412,
+        "after": 416,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node20presence_emit_rosterEv",
+        "before": 1168,
+        "after": 1216,
+        "delta": 48
+      },
+      {
+        "name": "_ZN9meshroute4Node20radmin_next_admittedERNS_17RadminIngressViewE",
+        "before": 60,
+        "after": 6,
+        "delta": -54
+      },
+      {
+        "name": "_ZN9meshroute4Node20radmin_open_completeEhNS_14RemoteTerminalE",
+        "before": 0,
+        "after": 42,
+        "delta": 42
+      },
+      {
+        "name": "_ZN9meshroute4Node20rx_remote_cmd_acceptERKNS_7PostAckEPKNS_18data_unicast_innerE",
+        "before": 0,
+        "after": 306,
+        "delta": 306
+      },
+      {
+        "name": "_ZN9meshroute4Node20rx_remote_cmd_acceptERKNS_7PostAckEPKNS_18data_unicast_innerE.part.0",
+        "before": 340,
+        "after": 0,
+        "delta": -340
+      },
+      {
+        "name": "_ZN9meshroute4Node21learn_direct_neighborEhsbb",
+        "before": 140,
+        "after": 144,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node21radmin_service_expireEv",
+        "before": 0,
+        "after": 38,
+        "delta": 38
+      },
+      {
+        "name": "_ZN9meshroute4Node22pending_rx_expiry_fireEv",
+        "before": 66,
+        "after": 70,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node22process_channel_digestEhPKmh",
+        "before": 1052,
+        "after": 1056,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node22radmin_send_open_frameEv",
+        "before": 0,
+        "after": 246,
+        "delta": 246
+      },
+      {
+        "name": "_ZN9meshroute4Node22radmin_service_controlEv",
+        "before": 0,
+        "after": 396,
+        "delta": 396
+      },
+      {
+        "name": "_ZN9meshroute4Node22schedule_sync_responseEhbb",
+        "before": 732,
+        "after": 716,
+        "delta": -16
+      },
+      {
+        "name": "_ZN9meshroute4Node22team_key_grant_receiveEPKhhmh",
+        "before": 50,
+        "after": 54,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node23addr_conflict_send_denyEhmmhbm",
+        "before": 128,
+        "after": 132,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node23build_gateway_layer_extEPhj",
+        "before": 1832,
+        "after": 1836,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node23l2c_confirmed_collisionEm",
+        "before": 156,
+        "after": 160,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node25age_out_pending_id_pubkeyEv",
+        "before": 144,
+        "after": 140,
+        "delta": -4
+      },
+      {
+        "name": "_ZN9meshroute4Node25gateway_schedule_defer_msEh",
+        "before": 612,
+        "after": 616,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node25maybe_emit_gateway_beaconEv",
+        "before": 516,
+        "after": 492,
+        "delta": -24
+      },
+      {
+        "name": "_ZN9meshroute4Node25mobile_host_pending_clearEv",
+        "before": 154,
+        "after": 156,
+        "delta": 2
+      },
+      {
+        "name": "_ZN9meshroute4Node25schedule_triggered_beaconEv",
+        "before": 204,
+        "after": 196,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node27deferred_beacon_jitter_fireEh",
+        "before": 300,
+        "after": 328,
+        "delta": 28
+      },
+      {
+        "name": "_ZN9meshroute4Node27drain_resolved_parked_sendsEv",
+        "before": 1560,
+        "after": 1552,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node27gateway_window_align_beaconEm",
+        "before": 462,
+        "after": 480,
+        "delta": 18
+      },
+      {
+        "name": "_ZN9meshroute4Node28deleg_custody_mark_forwardedERKNS0_18DelegCustodyActionE",
+        "before": 150,
+        "after": 142,
+        "delta": -8
+      },
+      {
+        "name": "_ZN9meshroute4Node32commit_channel_digest_advertisedEPKmh",
+        "before": 600,
+        "after": 604,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node7nav_armEm",
+        "before": 40,
+        "after": 42,
+        "delta": 2
+      },
+      {
+        "name": "_ZN9meshroute4Node7on_initERKNS_10NodeConfigE",
+        "before": 772,
+        "after": 788,
+        "delta": 16
+      },
+      {
+        "name": "_ZN9meshroute4Node8handle_cEPKhjRKNS_6RxMetaE",
+        "before": 52,
+        "after": 56,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node8handle_fEPKhjRKNS_6RxMetaE",
+        "before": 92,
+        "after": 96,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node8handle_hEPKhjRKNS_6RxMetaE",
+        "before": 1768,
+        "after": 1776,
+        "delta": 8
+      },
+      {
+        "name": "_ZN9meshroute4Node8handle_jEPKhjRKNS_6RxMetaE",
+        "before": 3372,
+        "after": 3384,
+        "delta": 12
+      },
+      {
+        "name": "_ZN9meshroute4Node8jtx_fireEPhRhNS0_7LbtKindEPNS0_11TxAdmissionE",
+        "before": 40,
+        "after": 44,
+        "delta": 4
+      },
+      {
+        "name": "_ZN9meshroute4Node8on_timerEm",
+        "before": 1372,
+        "after": 1378,
+        "delta": 6
+      },
+      {
+        "name": "_ZN9meshroute4Node9park_sendEmPKhhhNS_11CryptIntentEmthbbNS_5PlaneE.part.0",
+        "before": 416,
+        "after": 410,
+        "delta": -6
+      },
+      {
+        "name": "_ZNK9meshroute4Node11duty_statusEv",
+        "before": 196,
+        "after": 192,
+        "delta": -4
+      },
+      {
+        "name": "_ZNK9meshroute4Node11max_data_sfEv",
+        "before": 72,
+        "after": 76,
+        "delta": 4
+      },
+      {
+        "name": "_ZNK9meshroute4Node14key_hash_of_idEhRmNS0_10IdBindConfEPS2_",
+        "before": 200,
+        "after": 206,
+        "delta": 6
+      },
+      {
+        "name": "_ZNK9meshroute4Node14peer_book_walkEbPFvRKNS0_11PeerBookRowEPvES4_",
+        "before": 1112,
+        "after": 1108,
+        "delta": -4
+      },
+      {
+        "name": "_ZNK9meshroute4Node14select_data_sfEhs",
+        "before": 366,
+        "after": 370,
+        "delta": 4
+      },
+      {
+        "name": "_ZNK9meshroute4Node15cfg_config_hashEv",
+        "before": 220,
+        "after": 244,
+        "delta": 24
+      },
+      {
+        "name": "_ZNK9meshroute4Node15limits_snapshotEv",
+        "before": 684,
+        "after": 676,
+        "delta": -8
+      },
+      {
+        "name": "_ZNK9meshroute4Node15peer_book_by_idEhRNS0_11PeerBookRowES2_",
+        "before": 550,
+        "after": 562,
+        "delta": 12
+      },
+      {
+        "name": "_ZNK9meshroute4Node16find_gw_scheduleEh",
+        "before": 96,
+        "after": 94,
+        "delta": -2
+      },
+      {
+        "name": "_ZNK9meshroute4Node16nav_duration_ctsEhhh",
+        "before": 176,
+        "after": 172,
+        "delta": -4
+      },
+      {
+        "name": "_ZNK9meshroute4Node16nav_duration_rtsEhhh",
+        "before": 252,
+        "after": 248,
+        "delta": -4
+      },
+      {
+        "name": "_ZNK9meshroute4Node17mediated_recentlyEhm",
+        "before": 104,
+        "after": 108,
+        "delta": 4
+      },
+      {
+        "name": "_ZNK9meshroute4Node18channel_capacity_CEv",
+        "before": 180,
+        "after": 188,
+        "delta": 8
+      },
+      {
+        "name": "_ZNK9meshroute4Node18id_on_leaf_by_hashEhm",
+        "before": 154,
+        "after": 164,
+        "delta": 10
+      },
+      {
+        "name": "_ZNK9meshroute4Node18peer_book_join_idsERNS0_11PeerBookRowE",
+        "before": 530,
+        "after": 546,
+        "delta": 16
+      },
+      {
+        "name": "_ZNK9meshroute4Node19exchange_airtime_msEv",
+        "before": 164,
+        "after": 172,
+        "delta": 8
+      },
+      {
+        "name": "_ZNK9meshroute4Node20id_bind_find_by_hashEmPNS0_10IdBindConfE",
+        "before": 154,
+        "after": 162,
+        "delta": 8
+      },
+      {
+        "name": "_ZNK9meshroute4Node21radmin_build_carriersERKNS_7PostAckERKNS_18data_unicast_innerERNS_13RemoteRxInputE",
+        "before": 0,
+        "after": 222,
+        "delta": 222
+      },
+      {
+        "name": "_ZNK9meshroute4Node22radmin_report_countersERKNS_14RadminCountersE",
+        "before": 0,
+        "after": 20,
+        "delta": 20
+      },
+      {
+        "name": "_ZNK9meshroute4Node25id_bind_auth_holder_otherEmh",
+        "before": 142,
+        "after": 148,
+        "delta": 6
+      },
+      {
+        "name": "_ZNK9meshroute4Node30deleg_ack_activation_availableEhtNS0_12DelegAckPeerEmhRm",
+        "before": 1124,
+        "after": 1108,
+        "delta": -16
+      },
+      {
+        "name": "_ZNK9meshroute4Node30gateway_schedule_base_defer_msEhPm",
+        "before": 612,
+        "after": 620,
+        "delta": 8
+      },
+      {
+        "name": "_ZTVN4mrfw12_GLOBAL__N_112RemoteTargetE",
+        "before": 40,
+        "after": 68,
+        "delta": 28
+      },
+      {
+        "name": "_ZTVZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecEE8OpenSink",
+        "before": 0,
+        "after": 20,
+        "delta": 20
+      },
+      {
+        "name": "_ZZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecEEN8OpenSink6appendEPKhj",
+        "before": 0,
+        "after": 48,
+        "delta": 48
+      },
+      {
+        "name": "_ZZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecEEN8OpenSinkD0Ev",
+        "before": 0,
+        "after": 14,
+        "delta": 14
+      },
+      {
+        "name": "_ZZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecEEN8OpenSinkD1Ev",
+        "before": 0,
+        "after": 2,
+        "delta": 2
+      },
+      {
+        "name": "_ZZN4mrfw19radmin_service_onceERNS_13IRadminTargetERNS_11IRadminExecEEN8OpenSinkD2Ev",
+        "before": 0,
+        "after": 2,
+        "delta": 2
+      }
+    ],
+    ".bss_symbol_size_changes": [
+      {
+        "name": "g_node",
+        "before": 152288,
+        "after": 157264,
+        "delta": 4976
+      }
+    ],
+    ".data_symbol_size_changes": [],
+    "text_covered_bytes": [
+      528811,
+      536455
+    ],
+    "text_uncovered_bytes": [
+      32953,
+      33149
+    ],
+    "text_named_size_delta": 7646
+  },
+  "heltec_mobile": {
+    "measurements": {
+      "base": {
+        "flash_bytes": 1372992,
+        "loadable_sections": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 216740,
+          ".flash.text": 1052122,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 207756,
+        "symbol_count": 13185,
+        "symbol_size_total": 1472166,
+        "symbols_sha256": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+      },
+      "final": {
+        "flash_bytes": 1372992,
+        "loadable_sections": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 216740,
+          ".flash.text": 1052122,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 207756,
+        "symbol_count": 13185,
+        "symbol_size_total": 1472166,
+        "symbols_sha256": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+      }
+    },
+    "sections": [
+      {
+        "name": ".debug_aranges",
+        "allocated": false,
+        "size_before": 101864,
+        "size_after": 101864,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".debug_info",
+        "allocated": false,
+        "size_before": 10139703,
+        "size_after": 10139730,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".debug_abbrev",
+        "allocated": false,
+        "size_before": 740360,
+        "size_after": 740312,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".debug_line",
+        "allocated": false,
+        "size_before": 4307883,
+        "size_after": 4307877,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".debug_loc",
+        "allocated": false,
+        "size_before": 1915349,
+        "size_after": 1915355,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      },
+      {
+        "name": ".debug_loclists",
+        "allocated": false,
+        "size_before": 126489,
+        "size_after": 126489,
+        "addr_before": 0,
+        "addr_after": 0,
+        "bytes_equal": false
+      }
+    ],
+    "elf_sha256": {
+      "base": "f7f215d5ea208dbbcc61c8c2e8dd3cda78afe07eccee9771add5c623a3f0dcf4",
+      "final": "6ab2e128e09dda9615adf3ad061f9aef5f5ab3606ec2a6ab9edf22e7ae36d35c"
+    },
+    "payloads": [
+      {
+        "elf_digest_offset": 176,
+        "checksum_offset": 1373599,
+        "segments": [
+          [
+            1007747104,
+            216996
+          ],
+          [
+            1070167296,
+            25260
+          ],
+          [
+            1077362688,
+            19864
+          ],
+          [
+            1107296288,
+            1052124
+          ],
+          [
+            1077382552,
+            59008
+          ],
+          [
+            1611653120,
+            264
+          ]
+        ],
+        "size": 1373632,
+        "sha256": "7ccc2d69452efa83fced128f1123c354baf7fa1b90ea1c9afa6bb5a4075dce3e"
+      },
+      {
+        "elf_digest_offset": 176,
+        "checksum_offset": 1373599,
+        "segments": [
+          [
+            1007747104,
+            216996
+          ],
+          [
+            1070167296,
+            25260
+          ],
+          [
+            1077362688,
+            19864
+          ],
+          [
+            1107296288,
+            1052124
+          ],
+          [
+            1077382552,
+            59008
+          ],
+          [
+            1611653120,
+            264
+          ]
+        ],
+        "size": 1373632,
+        "sha256": "bb9c495653bf87817b805fec4900cdc9138a2c39256181ea8c02c5c78ac980b9"
+      }
+    ],
+    "payload_different_bytes": 65,
+    "only_elf_digest_checksum_trailer": true,
+    "allocated_sections_and_full_symbols_equal": true
+  },
+  "pristine_files_verified": 28
+}

@@ -1,0 +1,73 @@
+-- target b251rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp (19 entries)
+-- selection: IN FULL (all 19 entries)
+-- workers: 4
+-- scratch root: /tmp/mr_mutation_run-6pqdgwyv   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b251rx: /tmp/mr_mutation_run-6pqdgwyv/w0/lib/core/node_mac_rx.cpp (5 of 19 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b251rx: /tmp/mr_mutation_run-6pqdgwyv/w2/lib/core/node_mac_rx.cpp (5 of 19 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b251rx: /tmp/mr_mutation_run-6pqdgwyv/w1/lib/core/node_mac_rx.cpp (5 of 19 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w3] -- target b251rx: /tmp/mr_mutation_run-6pqdgwyv/w3/lib/core/node_mac_rx.cpp (4 of 19 entries in this shard)
+  [w3] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   X01 B251 translation is removed, restoring the downstream home/mobile counter alias -> RED (44 assertion(s) failed, match count 1)
+  [w2]   ok   X03 B251 the hosted-mobile hash discriminator is dropped from the seen-origin key -> RED (31 assertion(s) failed, match count 1)
+  [w1]   ok   X02 B251 first-hop identity is rebuilt from current row zero instead of the accepted hosted-mobile row -> RED (31 assertion(s) failed, match count 1)
+  [w3]   ok   X04 B251 ordinary CRYPTED mobile transit is admitted to counter rewriting -> RED (6 assertion(s) failed, match count 1)
+  [w0]   ok   X05 B251 mobile_from alone authorises translation, collapsing TEAM and static planes -> RED (5 assertion(s) failed, match count 1)
+  [w2]   ok   X07 B251 queue/correlation pressure is checked but ignored, so the mobile is hop-ACKed anyway -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   X06 B251 a mismatching SOURCE_HASH is allowed to borrow the hosted row's translation authority -> RED (5 assertion(s) failed, match count 1)
+  [w3]   ok   X09 B251 completed-flight lookup drops the immediate sender, so two mobiles can alias before DATA -> RED (36 assertion(s) failed, match count 1)
+  [w0]   ok   X10 B278 R1=A is defeated: a plain non-E2E delegated transit now reserves a correlation row -> RED (13 assertion(s) failed, match count 1)
+  [w2]   ok   X13 B278 S1b the wrapper reservation IGNORES `has_cross_layer`, so a cross-layer wrapper gets a candidate -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   X11 B278 the long-busy BUSY_RX REQUEUE is deleted, so a refused -a send dies on its first NACK -> RED (13 assertion(s) failed, match count 1)
+  [w3]   ok   X14 B278 S1b the wrapper reservation CLAIMS to know the enclosed type, so no wrapper is ever provisional -> RED (2 assertion(s) failed, match count 1)
+  [w2]   ok   X18 B278 S1b the pre-ACK uniqueness refusal moves BEHIND the mobile's hop ACK -> RED (39 assertion(s) failed, match count 1)
+  [w0]   ok   X16 B278 S1b the DIRECT-TRANSIT activation verdict is inverted (the one arm that must carry custody stops) -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   X17 B278 S1b the WRAPPER CROSS-LAYER branch acquires a custody obligation §5(6) forbids (ACK-only arm 3 of 4) -> RED (2 assertion(s) failed, match count 1)
+  [w3]   ok   X19 B278 S1b F6 `mobile_hash`/`ctr_h` are DROPPED from `mobile_reverse_ack` (the census loses its exact bind) -> RED (5 assertion(s) failed, match count 1)
+  [w3] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w3] shard 3: 4 RED / 0 unusable   (of 4 entries)
+  [w2]   ok   X24 ★★★ [[B296]] SHAPE 2: the home's refusal of a MOBILE_SEND wrapper WITHOUT its mandatory source hash is removed — the wrapper skips the delegation fork (which requires the field), is application-bearing so the fail-closed internal guard never sees it, and lands in the HOME'S OWN INBOX as an ordinary message -> RED (3 assertion(s) failed, match count 1)
+  [w2] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w2] shard 2: 5 RED / 0 unusable   (of 5 entries)
+  [w0]   ok   X20 B278 S1b F6 `mobile_reverse_ack` is REORDERED instead of appended (its two pre-existing fields move) -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w0] shard 0: 5 RED / 0 unusable   (of 5 entries)
+  [w1]   ok   X21 B278 S1b F6 `mobile_reverse_ack` reports the HOME's ctr as the mobile's (the two counters are swapped) -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target b251rx: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+  ok   X01 B251 translation is removed, restoring the downstream home/mobile counter alias -> RED (44 assertion(s) failed, match count 1)
+  ok   X02 B251 first-hop identity is rebuilt from current row zero instead of the accepted hosted-mobile row -> RED (31 assertion(s) failed, match count 1)
+  ok   X03 B251 the hosted-mobile hash discriminator is dropped from the seen-origin key -> RED (31 assertion(s) failed, match count 1)
+  ok   X04 B251 ordinary CRYPTED mobile transit is admitted to counter rewriting -> RED (6 assertion(s) failed, match count 1)
+  ok   X05 B251 mobile_from alone authorises translation, collapsing TEAM and static planes -> RED (5 assertion(s) failed, match count 1)
+  ok   X06 B251 a mismatching SOURCE_HASH is allowed to borrow the hosted row's translation authority -> RED (5 assertion(s) failed, match count 1)
+  ok   X07 B251 queue/correlation pressure is checked but ignored, so the mobile is hop-ACKed anyway -> RED (2 assertion(s) failed, match count 1)
+  ok   X09 B251 completed-flight lookup drops the immediate sender, so two mobiles can alias before DATA -> RED (36 assertion(s) failed, match count 1)
+  ok   X10 B278 R1=A is defeated: a plain non-E2E delegated transit now reserves a correlation row -> RED (13 assertion(s) failed, match count 1)
+  ok   X11 B278 the long-busy BUSY_RX REQUEUE is deleted, so a refused -a send dies on its first NACK -> RED (13 assertion(s) failed, match count 1)
+  ok   X13 B278 S1b the wrapper reservation IGNORES `has_cross_layer`, so a cross-layer wrapper gets a candidate -> RED (2 assertion(s) failed, match count 1)
+  ok   X14 B278 S1b the wrapper reservation CLAIMS to know the enclosed type, so no wrapper is ever provisional -> RED (2 assertion(s) failed, match count 1)
+  ok   X16 B278 S1b the DIRECT-TRANSIT activation verdict is inverted (the one arm that must carry custody stops) -> RED (2 assertion(s) failed, match count 1)
+  ok   X17 B278 S1b the WRAPPER CROSS-LAYER branch acquires a custody obligation §5(6) forbids (ACK-only arm 3 of 4) -> RED (2 assertion(s) failed, match count 1)
+  ok   X18 B278 S1b the pre-ACK uniqueness refusal moves BEHIND the mobile's hop ACK -> RED (39 assertion(s) failed, match count 1)
+  ok   X19 B278 S1b F6 `mobile_hash`/`ctr_h` are DROPPED from `mobile_reverse_ack` (the census loses its exact bind) -> RED (5 assertion(s) failed, match count 1)
+  ok   X20 B278 S1b F6 `mobile_reverse_ack` is REORDERED instead of appended (its two pre-existing fields move) -> RED (1 assertion(s) failed, match count 1)
+  ok   X21 B278 S1b F6 `mobile_reverse_ack` reports the HOME's ctr as the mobile's (the two counters are swapped) -> RED (1 assertion(s) failed, match count 1)
+  ok   X24 ★★★ [[B296]] SHAPE 2: the home's refusal of a MOBILE_SEND wrapper WITHOUT its mandatory source hash is removed — the wrapper skips the delegation fork (which requires the field), is application-bearing so the fail-closed internal guard never sees it, and lands in the HOME'S OWN INBOX as an ordinary message -> RED (3 assertion(s) failed, match count 1)
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 24.1s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-6pqdgwyv/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 24.8s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-6pqdgwyv/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 23.8s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-6pqdgwyv/w2
+  worker 3: 4/4 entries, 4 RED / 0 worthless, wall 21.1s, rc 0, source restored: md5 286e851176b2a03ee5b5d579d94849c8 (MATCHES)   /tmp/mr_mutation_run-6pqdgwyv/w3
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations
+timing: copy 0.9s + battery 24.9s = 25.8s total, 19 entries over 4 worker(s)
+mutations: 19 RED / 0 unusable

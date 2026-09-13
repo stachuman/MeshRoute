@@ -1,12 +1,14 @@
 <!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
 # Remote-admin Slice 7b-2-0 — admission-response codec — revision 2 — 2026-09-09
 
-**Status: SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09 — UNCOMMITTED.** The frozen revision-2
+**Status: SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09 — OWNER-COMMITTED at `564f460`.** The frozen revision-2
 implementation passed QA's complete independent gate; [evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md).
 The consumed contract SHA-256 was `16ee9214041bca71699c2c04fd1ea932f09b203af2b680b68176e4edeb282f1d`;
 this status/closure landing does not revise its wire or behavior contract. B382/B383 are closed. R-RA-35/
-R-RA-36 are unchanged. Owner commits the codec preparation separately; QA then reissues the 7b-2 behavior
-brief at the actual successor. That behavior implementation remains HOLD.
+R-RA-36 are unchanged. QA verified the owner landing at `564f460a3b755a104f146da70457e5c8c68e99b9` and
+reissued the [7b-2 behavior brief](2026-09-08-radmin-slice7b2-session-open-status.md) as revision 4 at that base.
+It is ready for coder source-validation; behavior implementation remains HOLD until that validation passes.
+The original base/contract and pre-commit QA checkpoint below remain historical records.
 
 ## 1. Base, inputs and authority
 
@@ -310,3 +312,13 @@ The existing 87 literals, final 24-check B383 fixture and new valid-tag semantic
 134-check real-session/codec proof includes explicitly synthetic admission notices and real sequence-zero
 completion. **B378/B379 remain open for behavior implementation and real target lifecycle gates.**
 No producer, owner commit, behavior dispatch, simulator edit or bench result is included in this PASS.
+
+## 9. Owner commit and behavior reissue — 2026-09-09
+
+Owner committed the separately gated codec landing at `564f460a3b755a104f146da70457e5c8c68e99b9`.
+QA found the checkout clean and matched all five delivered hashes plus 390 implementation/gate inputs to its
+own final measured checkout. The commit subject “7b-2” does not make the target behavior implemented.
+The [revision-4 behavior brief](2026-09-08-radmin-slice7b2-session-open-status.md) now consumes these committed
+APIs; its [pre-check §8](2026-09-08-radmin-slice7b2-precheck.md#8-committed-codec-reissue--revision-4--2026-09-09)
+records fresh executions, artifact reuse and remaining obligations. B378/B379 remain open. This closure
+note changes no consumed codec contract, frozen implementation, gate measurement or owner ruling.

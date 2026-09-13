@@ -51,8 +51,16 @@ class RsHal : public mrtest::TestHalBase {
     //   64-bit draw is exactly what `Node::admin_draw_epoch` REFUSES — which is a case of its own below, driven
     //   by flipping this flag rather than by calling a different function.
     bool dead_rng = false;
+    bool fixed_rng = false;
+    uint64_t fixed_epoch = 0;
+    unsigned epoch_draws = 0;
     uint8_t rng_seed = 0x5A;
     void rand_bytes(uint8_t* o, size_t n) override {
+        if (n == sizeof(uint64_t)) ++epoch_draws;
+        if (fixed_rng && n == sizeof(uint64_t)) {
+            for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(fixed_epoch >> (8 * i));
+            return;
+        }
         for (size_t i = 0; i < n; ++i) o[i] = dead_rng ? 0 : static_cast<uint8_t>(rng_seed++ * 31 + 7);
     }
     TxResult tx_answer = TxResult::ok;
@@ -150,6 +158,13 @@ struct TargetNode : mrfw::IRadminTarget {
     void transcript_complete(uint8_t si, RemoteTerminal r) override { node.radmin_transcript_complete(si, r); }
     bool tx_queue_full() override { return node.tx_queue_full(); }
     RadminSend send_next_frame() override { return node.radmin_send_frame(); }
+    void expire() override { node.radmin_service_expire(); }
+    bool service_control() override { return node.radmin_service_control(); }
+    bool next_open(RadminOpenView& v) override { return node.radmin_next_open(v); }
+    bool reserve_open(uint8_t i, uint16_t cap) override { return node.radmin_reserve_open(i, cap); }
+    void open_append(uint8_t i, const uint8_t* p, size_t n) override { node.radmin_open_append(i, p, n); }
+    void open_complete(uint8_t i, RemoteTerminal r) override { node.radmin_open_complete(i, r); }
+    RadminSend send_open_frame() override { return node.radmin_send_open_frame(); }
 
     // B375 SYNTHETIC fault only: a real epoch installation wipes pending work. Keep the
     // mismatch scoped and restore the exact old epoch before any recovery/replay flight.
@@ -171,14 +186,20 @@ struct TargetNode : mrfw::IRadminTarget {
     }
     std::vector<uint8_t> auth_execute_request(uint8_t slot, uint64_t id, const RemoteCarrier& carrier,
                                              bool ack = false) {
+        return session_request(slot, id, carrier, ack ? RemoteCmdOpcode::response_ack : RemoteCmdOpcode::auth_execute,
+                               ctrl[slot].key_hash32);
+    }
+    std::vector<uint8_t> session_request(uint8_t slot, uint64_t id, const RemoteCarrier& carrier,
+                                         RemoteCmdOpcode opcode, uint32_t source) {
         uint8_t session[32]; controller_session_key(slot, session);
         RemoteMessage m{}; m.outer_type = DATA_TYPE_REMOTE_CMD; m.slot = slot; m.request_id = id;
-        m.opcode = static_cast<uint8_t>(ack ? RemoteCmdOpcode::response_ack : RemoteCmdOpcode::auth_execute);
+        m.opcode = static_cast<uint8_t>(opcode);
         const uint8_t command[] = {'s','t','a','t','u','s'};
-        const std::span<const uint8_t> body = ack ? std::span<const uint8_t>{} : std::span<const uint8_t>(command);
+        const std::span<const uint8_t> body = opcode == RemoteCmdOpcode::auth_execute
+            ? std::span<const uint8_t>(command) : std::span<const uint8_t>{};
         std::vector<uint8_t> out(kRadminBodyBytes); size_t n = 0;
         CHECK(remote_body_encode(out, n, m, body, RemoteKeys{{}, session},
-                                 RemoteSource{true, ctrl[slot].key_hash32}, carrier) == RemoteStatus::ok);
+                                 RemoteSource{true, source}, carrier) == RemoteStatus::ok);
         crypto_wipe(session, sizeof session); out.resize(n); return out;
     }
 
@@ -312,6 +333,34 @@ struct TargetNode : mrfw::IRadminTarget {
 };
 
 }  // namespace
+
+namespace {
+struct RadminOpenExec final : mrfw::IRadminExec {
+    unsigned calls = 0;
+    std::string output = "open output\n";
+    std::string input;
+    mrfw::CommandContext context{};
+    mrfw::RadminExecResult result{mrfw::DispatchOutcome::completed, mrfw::RefuseReason::none};
+    mrfw::RadminExecResult run(const char* p, size_t n, const mrfw::CommandContext& ctx,
+                              mrfw::IRadminTranscriptSink& sink) override {
+        ++calls; input.assign(p, n); context = ctx;
+        sink.append(reinterpret_cast<const uint8_t*>(output.data()), output.size());
+        return result;
+    }
+};
+RemoteCarrier radmin_command_carrier() {
+    RemoteCarrier c{}; c.outer_data_type = DATA_TYPE_REMOTE_CMD;
+    c.source_hash_on_wire = true; c.dst_hash_on_wire = true; return c;
+}
+std::vector<uint8_t> radmin_open_request(uint64_t id, const std::string& line, const RemoteCarrier& carrier) {
+    RemoteMessage m{}; m.outer_type = DATA_TYPE_REMOTE_CMD; m.slot = kRemoteSlotSentinel;
+    m.opcode = static_cast<uint8_t>(RemoteCmdOpcode::open_execute); m.request_id = id;
+    std::vector<uint8_t> bytes(kRadminBodyBytes); size_t n = 0;
+    CHECK(remote_body_encode(bytes, n, m, {reinterpret_cast<const uint8_t*>(line.data()), line.size()}, {},
+                             {true, 0}, carrier) == RemoteStatus::ok);
+    bytes.resize(n); return bytes;
+}
+}
 
 // Fixture entry points for test_node_remote_exec.cpp. Keep the original two-endpoint fixture in
 // this translation unit (no fixture fork/file move); the new file owns the separately named cases.
@@ -982,6 +1031,9 @@ TEST_CASE("§radmin-5/N11 a ZERO reply destination is an explicit SEND FAILURE, 
     CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty());   // ⛔ and nothing aired
     // ⛔ …and the reserved staging row was still RELEASED on that checked outcome, not leaked.
     CHECK(remote_session_staging_used(t.node.admin_session_state()) == 0);
+    const auto counters = t.node.radmin_counters();
+    CHECK(counters.response_enqueue_failure == 1);
+    CHECK(counters.inbound_refusal == 0); CHECK(counters.open_rate_refusal == 0); CHECK(counters.response_seal_failure == 0);
 }
 
 TEST_CASE("§radmin-5/N12 the reservation's deadline is stamped from the CURRENT time, not from zero") {
@@ -1032,4 +1084,411 @@ TEST_CASE("§radmin-5/N10 an unprovisioned node draws nothing, arms nothing and 
     CHECK(hal.count("radmin_rx") == 0);
     CHECK(hal.count("radmin_expired") == 0);
     for (size_t i = arms_before; i < hal.arms.size(); ++i) CHECK(hal.arms[i].first != 91);
+}
+
+TEST_CASE("§radmin-7b2/Node safe rollover prepares a base-key result then rejects old-session traffic") {
+    TargetNode t; t.provision(2); t.learn_peer(7, t.ctrl[0]); RadminOpenExec exec;
+    const auto carrier = radmin_command_carrier();
+    const auto old = t.auth_execute_request(0, 55, carrier);
+    const auto req = t.session_request(0, 44, carrier, RemoteCmdOpcode::safe_rollover, t.ctrl[0].key_hash32);
+    const auto before = t.node.admin_session_state();
+    t.flight(7, 0x300, t.ctrl[0].key_hash32, req, 10000);
+    CHECK(t.node.admin_session_state().epoch[0] == before.epoch[0]);
+    CHECK(remote_session_ingress_used(t.node.admin_session_state()) == 1);
+    const unsigned draws = t.hal.epoch_draws;
+    mrfw::radmin_service_once(t, exec);
+    const auto& s = t.node.admin_session_state();
+    CHECK(exec.calls == 0); CHECK(t.hal.epoch_draws == draws + 1);
+    CHECK(s.epoch[0] != before.epoch[0]); CHECK(s.epoch[1] == before.epoch[1]);
+    CHECK(remote_session_seen_used(s) == 0); CHECK(remote_session_ingress_used(s) == 0);
+    t.pump_tx(7);
+    const auto wire = t.last_rpc_body(DATA_TYPE_REMOTE_RESP); CHECK(wire.size() == 34);
+    uint8_t base[32] = {}, pt[32] = {}; RemoteDecoded d{};
+    CHECK(controller_base_key(t.ctrl[0], t.admin.ed_pub, base));
+    auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+    CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, wire, {base, {}}, {true, t.ctrl[0].key_hash32}, response, pt)
+          == RemoteStatus::ok);
+    CHECK(d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::rollover_result));
+    CHECK(d.msg.request_id == 44); CHECK(d.msg.slot == 0); CHECK(d.msg.admin_epoch == s.epoch[0]);
+    CHECK(d.msg.abandoned_count == 0); crypto_wipe(base, sizeof base);
+    t.flight(7, 0x301, t.ctrl[0].key_hash32, old, 20000);
+    CHECK(s.inbound_refusal == 1); CHECK(remote_session_seen_used(s) == 0);
+    mrfw::radmin_service_once(t, exec); CHECK(exec.calls == 0);
+    const auto fresh = t.auth_execute_request(0, 55, carrier);
+    t.flight(7, 0x302, t.ctrl[0].key_hash32, fresh, 30000);
+    mrfw::radmin_service_once(t, exec); CHECK(exec.calls == 1);
+    CHECK(s.response_seal_failure == 0); CHECK(s.response_enqueue_failure == 0);
+}
+
+TEST_CASE("§radmin-7b2/Node zero and current-epoch draws refuse exactly once without replacing the epoch") {
+    for (const bool equal : {false, true}) {
+        TargetNode t; t.provision(1); t.learn_peer(7, t.ctrl[0]); RadminOpenExec exec;
+        const auto carrier = radmin_command_carrier();
+        const uint64_t epoch = t.node.admin_session_state().epoch[0];
+        const auto req = t.session_request(0, 9, carrier, RemoteCmdOpcode::safe_rollover, t.ctrl[0].key_hash32);
+        t.flight(7, 0x310, t.ctrl[0].key_hash32, req, 10000);
+        t.hal.fixed_rng = true; t.hal.fixed_epoch = equal ? epoch : 0;
+        const unsigned draws = t.hal.epoch_draws;
+        mrfw::radmin_service_once(t, exec);
+        CHECK(t.hal.epoch_draws == draws + 1); CHECK(t.node.admin_session_state().epoch[0] == epoch);
+        CHECK(remote_session_ingress_used(t.node.admin_session_state()) == 0); CHECK(exec.calls == 0);
+        t.hal.fixed_rng = false; t.pump_tx(7);
+        const auto wire = t.last_rpc_body(DATA_TYPE_REMOTE_RESP); CHECK(wire.size() == kRemoteOverheadAdmissionResult);
+        uint8_t key[32], pt[1]; t.controller_session_key(0, key); RemoteDecoded d{};
+        auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, wire, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+              == RemoteStatus::ok);
+        CHECK(d.msg.admission_code == RemoteAdmission::preparation_failed); CHECK(d.msg.admission_detail == 0);
+        const auto counters = t.node.radmin_counters();
+        CHECK(counters.inbound_refusal == 0); CHECK(counters.response_seal_failure == 0);
+        CHECK(counters.response_enqueue_failure == 0); crypto_wipe(key, sizeof key);
+    }
+}
+
+TEST_CASE("§radmin-7b2/Node present-zero source preserves a committed rollover and bootstrap recovers its epoch") {
+    TargetNode t; t.provision(1); RadminOpenExec exec; const auto carrier = radmin_command_carrier();
+    const auto req = t.session_request(0, 9, carrier, RemoteCmdOpcode::force_rollover, 0);
+    const auto old_epoch = t.node.admin_session_state().epoch[0];
+    t.flight(7, 0x320, 0, req, 10000);
+    CHECK(remote_session_ingress_used(t.node.admin_session_state()) == 1);
+    mrfw::radmin_service_once(t, exec);
+    const auto& s = t.node.admin_session_state();
+    CHECK(s.epoch[0] != old_epoch); CHECK(s.response_enqueue_failure == 1);
+    CHECK(s.inbound_refusal == 0); CHECK(s.response_seal_failure == 0); CHECK(exec.calls == 0);
+    CHECK(t.hal.count("radmin_reply_no_dst") == 1); CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty());
+    CHECK(remote_session_ingress_used(s) == 0);
+    const auto epoch = s.epoch[0];
+    t.learn_peer(7, t.ctrl[0]);
+    const auto bootstrap = t.bootstrap_request(t.ctrl[0], 10, t.ctrl[0].key_hash32, carrier);
+    t.flight(7, 0x321, t.ctrl[0].key_hash32, bootstrap, 20000); t.pump_tx(7);
+    const auto response = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+    uint8_t base[32] = {}, pt[1] = {}; CHECK(controller_base_key(t.ctrl[0], t.admin.ed_pub, base));
+    auto response_carrier = carrier; response_carrier.outer_data_type = DATA_TYPE_REMOTE_RESP; RemoteDecoded d{};
+    CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, response, {base, {}}, {true, t.ctrl[0].key_hash32},
+                             response_carrier, pt) == RemoteStatus::ok);
+    CHECK(d.msg.admin_epoch == epoch); CHECK(s.response_enqueue_failure == 1);
+    crypto_wipe(base, sizeof base);
+}
+
+TEST_CASE("§radmin-7b2/Node open output owns input streams clear frames and cannot be dispatched twice") {
+    TargetNode t; t.provision(1); t.learn_peer(7, t.ctrl[0]); RadminOpenExec exec;
+    exec.output.assign(500, 'Q'); exec.output[19] = '\0'; exec.output[220] = '\n';
+    const auto carrier = radmin_command_carrier(); auto req = radmin_open_request(17, "status", carrier);
+    t.flight(7, 0x330, t.ctrl[0].key_hash32, req, 10000);
+    const auto& s = t.node.admin_session_state(); CHECK(remote_session_staging_used(s) == 1);
+    const auto deadline = s.staging[0].expires_at_ms;
+    std::fill(req.begin(), req.end(), 0xCC);
+    mrfw::radmin_service_once(t, exec);
+    CHECK(exec.calls == 1); CHECK(exec.input == "status");
+    CHECK(exec.context.authority == mrfw::CommandAuthority::remote_open);
+    CHECK(exec.context.transport == mrfw::CommandTransport::remote); CHECK_FALSE(exec.context.physical_presence);
+    CHECK(exec.context.acl_slot == kRadminNoSlot); CHECK(exec.context.request_id == 17);
+    CHECK(exec.context.line_max_bytes == console::remote_command_max_bytes);
+    CHECK(remote_session_seen_used(s) == 0); CHECK(remote_session_ingress_used(s) == 0);
+    std::string output; unsigned frames = 0, terminals = 0;
+    while (remote_open_next(s) != kRadminNoSlot && frames < 10) {
+        mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+        const auto bytes = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+        RemoteDecoded d{}; uint8_t pt[kRadminBodyBytes] = {};
+        auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, bytes, {}, {true, t.ctrl[0].key_hash32}, response, pt)
+              == RemoteStatus::ok);
+        CHECK(d.msg.response_seq == frames++); CHECK(d.msg.slot == kRemoteSlotSentinel); CHECK(d.msg.request_id == 17);
+        if (d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::output))
+            output.append(reinterpret_cast<const char*>(d.body.data()), d.body.size());
+        else { ++terminals; CHECK(d.terminal == RemoteTerminal::completed); }
+    }
+    CHECK(output == exec.output); CHECK(frames == 4); CHECK(terminals == 1); CHECK(exec.calls == 1);
+    CHECK(s.staging[0].kind == static_cast<uint8_t>(OpenStagingKind::open_cooldown));
+    const OpenCapture empty{}; CHECK(std::memcmp(&s.open[0], &empty, sizeof empty) == 0);
+    CHECK(s.staging[0].expires_at_ms == deadline);
+    const auto retry = radmin_open_request(18, "routes", carrier);
+    t.flight(7, 0x331, t.ctrl[0].key_hash32, retry, 20000);
+    CHECK(s.open_rate_refusal == 1); CHECK(s.inbound_refusal == 0); mrfw::radmin_service_once(t, exec);
+    CHECK(exec.calls == 1); CHECK(s.staging[0].expires_at_ms == deadline);
+    t.hal._now = deadline; mrfw::radmin_service_once(t, exec); CHECK(remote_session_staging_used(s) == 0);
+}
+
+TEST_CASE("§radmin-7b2/Node present-zero open sender refuses retains frozen capture and expires without a terminal") {
+    TargetNode t; t.provision(1); RadminOpenExec exec; const auto carrier = radmin_command_carrier();
+    const auto req = radmin_open_request(19, "status", carrier);
+    t.flight(7, 0x340, 0, req, 10000); mrfw::radmin_service_once(t, exec);
+    const auto& s = t.node.admin_session_state(); const auto capture = s.open[0];
+    CHECK(exec.calls == 1); CHECK(s.inbound_refusal == 0); CHECK(s.response_enqueue_failure == 0);
+    for (unsigned attempt = 1; attempt <= 2; ++attempt) {
+        mrfw::radmin_service_once(t, exec);
+        CHECK(s.response_enqueue_failure == attempt); CHECK(t.hal.count("radmin_reply_no_dst") == attempt);
+        CHECK(s.inbound_refusal == 0); CHECK(s.open_rate_refusal == 0); CHECK(s.response_seal_failure == 0);
+        CHECK(std::memcmp(&s.open[0], &capture, sizeof capture) == 0);
+        CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty()); CHECK(exec.calls == 1);
+    }
+    t.hal._now = s.staging[0].expires_at_ms;
+    mrfw::radmin_service_once(t, exec);
+    const OpenCapture empty{}; CHECK(std::memcmp(&s.open[0], &empty, sizeof empty) == 0);
+    CHECK(remote_session_staging_used(s) == 0); CHECK(s.response_enqueue_failure == 2);
+}
+
+TEST_CASE("§radmin-7b2/Node full notice then other-slot rotation allows same-key execute without terminal nonce reuse") {
+    TargetNode t; t.provision(2); t.learn_peer(7, t.ctrl[1]); t.learn_peer(8, t.ctrl[0]);
+    RadminOpenExec exec; exec.output.clear(); const auto carrier = radmin_command_carrier();
+    uint16_t ctr = 0x400; uint64_t now = 10000;
+    for (uint64_t id = 1; id <= kRadminSeenSlots; ++id) {
+        t.flight(7, ++ctr, t.ctrl[1].key_hash32, t.auth_execute_request(1, id, carrier), now += 1000);
+        mrfw::radmin_service_once(t, exec); mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+        t.flight(7, ++ctr, t.ctrl[1].key_hash32, t.auth_execute_request(1, id, carrier, true), now += 1000);
+        CHECK(remote_session_seen_used(t.node.admin_session_state()) == id);
+    }
+    const auto& s = t.node.admin_session_state(); const auto epoch = s.epoch[0];
+    const auto retry = t.auth_execute_request(0, 100, carrier);
+    t.flight(8, ++ctr, t.ctrl[0].key_hash32, retry, now += 1000); t.pump_tx(8);
+    const auto full = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+    uint8_t key[32], pt[kRadminBodyBytes]; t.controller_session_key(0, key);
+    auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP; RemoteDecoded d{};
+    CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, full, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+          == RemoteStatus::ok);
+    CHECK(d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::admission_result));
+    CHECK(d.msg.admission_code == RemoteAdmission::session_full); CHECK(s.inbound_refusal == 1);
+    CHECK(remote_session_seen_used(s) == 16); CHECK(remote_session_ingress_used(s) == 0);
+    const auto rotate = t.session_request(1, 101, carrier, RemoteCmdOpcode::safe_rollover, t.ctrl[1].key_hash32);
+    t.flight(7, ++ctr, t.ctrl[1].key_hash32, rotate, now += 1000);
+    mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+    CHECK(remote_session_seen_used(s) == 0); CHECK(s.epoch[0] == epoch);
+    t.flight(8, ++ctr, t.ctrl[0].key_hash32, retry, now += 1000);
+    mrfw::radmin_service_once(t, exec); mrfw::radmin_service_once(t, exec); t.pump_tx(8);
+    const auto terminal = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+    CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, terminal, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+          == RemoteStatus::ok);
+    CHECK(d.msg.request_id == 100); CHECK(d.msg.response_seq == 0); CHECK(d.terminal == RemoteTerminal::completed);
+    CHECK(d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::terminal));
+    CHECK(full[0] != terminal[0]); CHECK(exec.calls == 17); CHECK(s.inbound_refusal == 1);
+    t.flight(8, ++ctr, t.ctrl[0].key_hash32, t.auth_execute_request(0, 100, carrier, true), now += 1000);
+    std::vector<uint8_t> acknowledged;
+    for (unsigned i = 0; i < 2; ++i) {
+        t.flight(8, ++ctr, t.ctrl[0].key_hash32, retry, now += 1000); t.pump_tx(8);
+        const auto bytes = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, bytes, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+              == RemoteStatus::ok);
+        CHECK(d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::protocol_error));
+        CHECK(d.msg.response_seq == 0); CHECK(d.body.size() == 1); CHECK(d.body[0] == 0);
+        if (i) CHECK(bytes == acknowledged); else acknowledged = bytes;
+        mrfw::radmin_service_once(t, exec); CHECK(exec.calls == 17);
+        CHECK(remote_session_seen_used(s) == 1); CHECK(remote_session_ingress_used(s) == 0);
+    }
+    CHECK(s.inbound_refusal == 3); crypto_wipe(key, sizeof key);
+}
+
+TEST_CASE("§radmin-7b2/Node paused-executor synthetic guard refuses both controls target-wide") {
+    for (const auto opcode : {RemoteCmdOpcode::safe_rollover, RemoteCmdOpcode::force_rollover}) {
+        TargetNode t; t.provision(2); t.learn_peer(7, t.ctrl[0]); RadminOpenExec exec;
+        RemoteSessionInstall role{}; role.set_acl = true;
+        std::memcpy(role.acl, t.node.admin_session_state().acl, sizeof role.acl);
+        role.acl[1].role = kRadminRoleOperator; t.node.admin_session_commit(role);
+        const auto carrier = radmin_command_carrier();
+        t.flight(8, 0x470, t.ctrl[1].key_hash32, t.auth_execute_request(1, 1, carrier), 10000);
+        const auto& s = t.node.admin_session_state(); const auto si = remote_session_seen_find(s, 1, 1);
+        CHECK(si < kRadminSeenSlots); if (si >= kRadminSeenSlots) return;
+        CHECK(t.node.radmin_reserve_transcript(si, kRadminChunkBytes)); // explicitly paused synthetic executor
+        const auto protected_seen = s.seen[si]; const auto protected_header = s.transcripts[s.seen[si].record.transcript_slot];
+        const auto req = t.session_request(0, 2, carrier, opcode, t.ctrl[0].key_hash32);
+        t.flight(7, 0x471, t.ctrl[0].key_hash32, req, 20000);
+        const auto epoch = s.epoch[0]; const unsigned draws = t.hal.epoch_draws;
+        mrfw::radmin_service_once(t, exec); CHECK(exec.calls == 0); CHECK(t.hal.epoch_draws == draws);
+        CHECK(s.epoch[0] == epoch); CHECK(std::memcmp(&s.seen[si], &protected_seen, sizeof protected_seen) == 0);
+        CHECK(std::memcmp(&s.transcripts[s.seen[si].record.transcript_slot], &protected_header, sizeof protected_header) == 0);
+        t.pump_tx(7); const auto wire = t.last_rpc_body(DATA_TYPE_REMOTE_RESP);
+        uint8_t key[32], pt[1]; t.controller_session_key(0, key); RemoteDecoded d{};
+        auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, wire, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+              == RemoteStatus::ok);
+        CHECK(d.msg.admission_code == RemoteAdmission::executing); CHECK(d.msg.admission_detail == 0);
+        CHECK(s.inbound_refusal == 0); CHECK(s.response_enqueue_failure == 0); CHECK(s.response_seal_failure == 0);
+        crypto_wipe(key, sizeof key);
+    }
+}
+
+TEST_CASE("§radmin-7b2/Node full TX defers control without draw and expires the original reservation") {
+    TargetNode t; t.provision(2); RadminOpenExec exec; const auto carrier = radmin_command_carrier();
+    const auto req = t.session_request(0, 1, carrier, RemoteCmdOpcode::safe_rollover, 0);
+    t.flight(7, 0x480, 0, req, 10000);
+    const auto before = t.node.admin_session_state();
+    t.node.test_suspend_tx_drain(true); const uint8_t noise = 0;
+    for (unsigned i = 0; i < 64 && !t.node.tx_queue_full(); ++i)
+        (void)t.node.test_do_send_typed(7, &noise, 1, CryptIntent::off, 0, DATA_TYPE_REMOTE_RESP);
+    CHECK(t.node.tx_queue_full()); if (!t.node.tx_queue_full()) return;
+    const auto draws = t.hal.epoch_draws; const auto aired = t.hal.tx_frames.size();
+    mrfw::radmin_service_once(t, exec);
+    CHECK(std::memcmp(&before, &t.node.admin_session_state(), sizeof before) == 0);
+    CHECK(t.hal.epoch_draws == draws); CHECK(t.hal.tx_frames.size() == aired); CHECK(exec.calls == 0);
+    CHECK_FALSE(t.node.radmin_service_control()); CHECK(t.hal.epoch_draws == draws);
+    t.hal._now = before.ingress[kRadminIngressControl].expires_at_ms - 1;
+    mrfw::radmin_service_once(t, exec); CHECK(remote_session_ingress_used(t.node.admin_session_state()) == 1);
+    ++t.hal._now; mrfw::radmin_service_once(t, exec);
+    CHECK(remote_session_ingress_used(t.node.admin_session_state()) == 0);
+    CHECK(t.hal.epoch_draws == draws); CHECK(t.node.admin_session_state().epoch[0] == before.epoch[0]);
+    CHECK(t.node.radmin_counters().response_enqueue_failure == 0);
+}
+
+TEST_CASE("§radmin-7b2/Node busy two to one uses distinct nonces and force preserves later other-slot wire state") {
+    TargetNode t; t.provision(3); RadminOpenExec exec;
+    for (uint8_t slot = 0; slot < 3; ++slot) t.learn_peer(7 + slot, t.ctrl[slot]);
+    const auto carrier = radmin_command_carrier(); uint64_t now = 10000; uint16_t ctr = 0x500;
+    for (const auto pair : {std::pair<uint8_t,uint64_t>{0,1}, {1,2}, {2,3}, {0,4}}) {
+        const auto [slot, id] = pair;
+        t.flight(7 + slot, ++ctr, t.ctrl[slot].key_hash32, t.auth_execute_request(slot, id, carrier), now += 1000);
+        mrfw::radmin_service_once(t, exec);
+        mrfw::radmin_service_once(t, exec); t.pump_tx(7 + slot);
+        mrfw::radmin_service_once(t, exec); t.pump_tx(7 + slot);
+    }
+    CHECK(exec.calls == 4);
+    const auto safe = t.session_request(0, 10, carrier, RemoteCmdOpcode::safe_rollover, t.ctrl[0].key_hash32);
+    uint8_t key[32]; t.controller_session_key(0, key);
+    uint8_t nonces[2][24] = {}; auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+    const auto& s = t.node.admin_session_state(); const uint64_t epoch = s.epoch[0];
+    for (uint8_t i = 0; i < 2; ++i) {
+        t.flight(7, ++ctr, t.ctrl[0].key_hash32, safe, now += 1000);
+        const unsigned draws = t.hal.epoch_draws;
+        mrfw::radmin_service_once(t, exec); CHECK(t.hal.epoch_draws == draws); t.pump_tx(7);
+        const auto bytes = t.last_rpc_body(DATA_TYPE_REMOTE_RESP); RemoteDecoded d{}; uint8_t pt[1] = {};
+        CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, bytes, {{}, key}, {true, t.ctrl[0].key_hash32}, response, pt)
+              == RemoteStatus::ok);
+        CHECK(d.msg.admission_code == RemoteAdmission::session_busy); CHECK(d.msg.admission_detail == 2 - i);
+        RemoteLayout layout{}; CHECK(remote_layout(DATA_TYPE_REMOTE_RESP, bytes[0], layout) == RemoteStatus::ok);
+        CHECK(remote_nonce(nonces[i], layout, d.msg, key, {true, t.ctrl[0].key_hash32}) == RemoteStatus::ok);
+        CHECK(s.epoch[0] == epoch); CHECK(exec.calls == 4);
+        if (!i) t.flight(7, ++ctr, t.ctrl[0].key_hash32, t.auth_execute_request(0, 4, carrier, true), now += 1000);
+    }
+    CHECK(std::memcmp(nonces[0], nonces[1], 24) != 0); crypto_wipe(key, sizeof key);
+    // A real exact retry and one real send leave the first survivor's terminal pending at seq 1.
+    t.flight(8, ++ctr, t.ctrl[1].key_hash32, t.auth_execute_request(1, 2, carrier), now += 1000);
+    mrfw::radmin_service_once(t, exec); t.pump_tx(8);
+    const uint8_t survivors[2] = {remote_session_seen_find(s, 1, 2), remote_session_seen_find(s, 2, 3)};
+    CHECK(s.transcripts[s.seen[survivors[0]].record.transcript_slot].next_seq_to_send == 1);
+    const auto force = t.session_request(0, 11, carrier, RemoteCmdOpcode::force_rollover, t.ctrl[0].key_hash32);
+    t.flight(7, ++ctr, t.ctrl[0].key_hash32, force, now += 1000);
+    const auto before = s;
+    uint8_t pending[kRadminBodyBytes] = {}; size_t pn = 0;
+    CHECK(remote_transcript_encode(s, survivors[0], pending, pn) == RemoteStatus::ok);
+    mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+    const auto wire = t.last_rpc_body(DATA_TYPE_REMOTE_RESP); uint8_t base[32], pt[1]; RemoteDecoded result{};
+    CHECK(controller_base_key(t.ctrl[0], t.admin.ed_pub, base));
+    CHECK(remote_body_decode(result, DATA_TYPE_REMOTE_RESP, wire, {base, {}}, {true, t.ctrl[0].key_hash32}, response, pt)
+          == RemoteStatus::ok);
+    CHECK(result.msg.abandoned_count == 1); CHECK(result.msg.admin_epoch == s.epoch[0]); CHECK(s.epoch[0] != epoch);
+    CHECK(remote_session_seen_find(s, 0, 1) == kRadminNoSlot); CHECK(remote_session_seen_find(s, 0, 4) == kRadminNoSlot);
+    for (const auto si : survivors) {
+        CHECK(std::memcmp(&s.seen[si], &before.seen[si], sizeof(SeenEntry)) == 0);
+        const auto ti = s.seen[si].record.transcript_slot; auto expected = before.transcripts[ti]; --expected.order;
+        CHECK(std::memcmp(&s.transcripts[ti], &expected, sizeof expected) == 0);
+        for (uint16_t ci = expected.first_chunk; ci < kRadminChunkSlots; ci = s.chunks[ci].next)
+            CHECK(std::memcmp(&s.chunks[ci], &before.chunks[ci], sizeof(TranscriptChunk)) == 0);
+    }
+    CHECK(s.epoch[1] == before.epoch[1]); CHECK(s.epoch[2] == before.epoch[2]);
+    uint8_t after[kRadminBodyBytes] = {}; size_t an = 0;
+    CHECK(remote_transcript_encode(s, survivors[0], after, an) == RemoteStatus::ok);
+    CHECK(an == pn); CHECK(std::memcmp(after, pending, pn) == 0);
+    CHECK(remote_transcript_next(s) == survivors[0]); CHECK(exec.calls == 4);
+    CHECK(s.inbound_refusal == 0); CHECK(s.response_seal_failure == 0); CHECK(s.response_enqueue_failure == 0);
+    crypto_wipe(base, sizeof base);
+}
+
+TEST_CASE("§radmin-7b2/Node open nonzero cursor survives synthetic encode and send faults then resumes") {
+    TargetNode t; t.provision(1); t.learn_peer(7, t.ctrl[0]); RadminOpenExec exec; exec.output.assign(500, 'X');
+    const auto carrier = radmin_command_carrier();
+    t.flight(7, 0x580, t.ctrl[0].key_hash32, radmin_open_request(1, "status", carrier), 10000);
+    mrfw::radmin_service_once(t, exec); mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+    auto& s = const_cast<RemoteSessionState&>(t.node.admin_session_state());
+    CHECK(s.open[0].next_seq == 1); CHECK(s.open[0].next_offset == 222);
+    const auto frozen = s.open[0]; const auto route = s.staging[0].route;
+    s.staging[0].route.carrier = static_cast<uint8_t>(RadminCarrierKind::none); // labelled synthetic encoder fault
+    mrfw::radmin_service_once(t, exec);
+    CHECK(s.response_seal_failure == 1); CHECK(s.response_enqueue_failure == 0);
+    CHECK(t.hal.field("radmin_response_seal_failure", "count") == 1);
+    CHECK(std::memcmp(&s.open[0], &frozen, sizeof frozen) == 0);
+    s.staging[0].route = route;
+    s.staging[0].peer_source_hash = 0; // labelled synthetic sender fault AFTER seq0 was really sent
+    mrfw::radmin_service_once(t, exec);
+    CHECK(s.response_seal_failure == 1); CHECK(s.response_enqueue_failure == 1);
+    CHECK(t.hal.field("radmin_response_enqueue_failure", "count") == 1);
+    CHECK(std::memcmp(&s.open[0], &frozen, sizeof frozen) == 0);
+    s.staging[0].peer_source_hash = t.ctrl[0].key_hash32;
+    mrfw::radmin_service_once(t, exec); t.pump_tx(7);
+    CHECK(s.open[0].next_seq == 2); CHECK(s.open[0].next_offset == 444); CHECK(exec.calls == 1);
+    const auto wire = t.last_rpc_body(DATA_TYPE_REMOTE_RESP); RemoteDecoded d{}; uint8_t pt[kRadminBodyBytes] = {};
+    auto response = carrier; response.outer_data_type = DATA_TYPE_REMOTE_RESP;
+    CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, wire, {}, {true, t.ctrl[0].key_hash32}, response, pt) == RemoteStatus::ok);
+    CHECK(d.msg.response_seq == 1); CHECK(d.body.size() == 222);
+    CHECK(std::memcmp(d.body.data(), exec.output.data() + 222, 222) == 0);
+    t.node.test_suspend_tx_drain(true); const uint8_t noise = 0;
+    for (unsigned i = 0; i < 64 && !t.node.tx_queue_full(); ++i)
+        (void)t.node.test_do_send_typed(7, &noise, 1, CryptIntent::off, 0, DATA_TYPE_REMOTE_RESP);
+    CHECK(t.node.tx_queue_full()); if (!t.node.tx_queue_full()) return;
+    const auto full_capture = s.open[0];
+    CHECK(t.node.radmin_send_open_frame() == RadminSend::none); mrfw::radmin_service_once(t, exec);
+    CHECK(std::memcmp(&s.open[0], &full_capture, sizeof full_capture) == 0);
+    CHECK(s.response_seal_failure == 1); CHECK(s.response_enqueue_failure == 1);
+}
+
+TEST_CASE("§radmin-7b2/Node parked clear terminal transfers ownership even with raw counter zero") {
+    TargetNode t; t.provision(1); RadminOpenExec exec; exec.output.clear();
+    const auto carrier = radmin_command_carrier();
+    // No peer route is taught: the actual by-hash sender parks the encoded terminal.
+    t.flight(7, 0x590, t.ctrl[0].key_hash32, radmin_open_request(1, "status", carrier), 10000);
+    mrfw::radmin_service_once(t, exec);
+    CHECK(t.node.radmin_send_open_frame() == RadminSend::parked);
+    const auto& s = t.node.admin_session_state();
+    CHECK(s.staging[0].kind == static_cast<uint8_t>(OpenStagingKind::open_cooldown));
+    const OpenCapture empty{}; CHECK(std::memcmp(&s.open[0], &empty, sizeof empty) == 0);
+    CHECK(s.response_enqueue_failure == 0); CHECK(s.response_seal_failure == 0);
+    CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty()); CHECK(exec.calls == 1);
+}
+
+TEST_CASE("§radmin-7b2/Node clear returns reverse every real depth and price payload from the open overhead") {
+    for (const uint8_t depth : {uint8_t(2), uint8_t(3), uint8_t(4)}) {
+        TargetNode t; t.provision(1); RadminOpenExec exec; exec.output.assign(500, 'X');
+        const uint8_t all[4] = {0x31, 0x21, 0x11, 0}; const uint8_t* path = all + 4 - depth;
+        auto carrier = radmin_command_carrier(); carrier.cross_layer = true;
+        carrier.path_depth = depth; carrier.path_cursor = depth - 1;
+        const auto req = radmin_open_request(30, "routes", carrier);
+        t.flight(7, 0x600, t.ctrl[0].key_hash32, req, 10000, DATA_TYPE_REMOTE_CMD, path, depth, depth - 1, t.self.key_hash32);
+        mrfw::radmin_service_once(t, exec); CHECK(exec.calls == 1);
+        const auto& s = t.node.admin_session_state();
+        mrfw::radmin_service_once(t, exec);
+        CHECK(s.response_enqueue_failure == 1); CHECK(s.open[0].next_seq == 0);
+        CHECK(t.hal.count("xl_send_no_gateway") == 1); CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty());
+        // Existing two-endpoint fixture: teach a real gateway schedule, then use its RTS/CTS/DATA/ACK pump.
+        schedule_record schedule[2] = {{0, 7, false, 250, 0, 50}, {1, 7, false, 250, 250, 50}};
+        beacon_entry entry{}; entry.dest = entry.next = 9; entry.score_bucket = 14; entry.hops = 1;
+        beacon_in b{}; b.src = 9; b.key_hash32 = 0x9595; b.self_gateway = true;
+        b.schedule = schedule; b.entries = {&entry, 1};
+        std::array<uint8_t, 100> beacon{}; const size_t bn = pack_beacon(b, beacon);
+        CHECK(bn > 0); t.node.on_recv(beacon.data(), bn, RxMeta{12, -70, 0, 9});
+        CHECK(t.node.rt_gateway_schedule(9) != nullptr);
+        carrier.outer_data_type = DATA_TYPE_REMOTE_RESP; carrier.path_cursor = 1; size_t cap = 0;
+        CHECK(remote_body_cap(carrier, cap) == RemoteStatus::ok); CHECK(s.open[0].frame_cap == cap - 10);
+        std::string assembled; unsigned frames = 0, terminals = 0;
+        while (remote_open_next(s) != kRadminNoSlot && frames < 10) {
+            const auto first = t.hal.tx_frames.size();
+            mrfw::radmin_service_once(t, exec); t.pump_tx(9); unsigned emitted = 0;
+            for (size_t j = first; j < t.hal.tx_frames.size(); ++j) {
+                const auto& raw = t.hal.tx_frames[j].bytes; const auto data = parse_data(raw);
+                if (!data || data->type != DATA_TYPE_REMOTE_RESP) continue;
+                ++emitted; const auto inner = parse_unicast_inner(data_inner(raw, *data), data->flags);
+                CHECK(inner.has_value()); if (!inner) continue;
+                CHECK(data->next == 9); CHECK(inner->n_layers == depth); CHECK(inner->cur == 1);
+                for (uint8_t i = 0; i < depth; ++i) CHECK(inner->layer_ids[i] == path[depth - 1 - i]);
+                CHECK(inner->has_source_hash); CHECK(inner->source_hash == t.self.key_hash32);
+                CHECK(inner->has_dst_hash); CHECK(inner->dst_key_hash32 == t.ctrl[0].key_hash32);
+                RemoteDecoded d{}; uint8_t pt[kRadminBodyBytes] = {};
+                CHECK(remote_body_decode(d, DATA_TYPE_REMOTE_RESP, inner->body, {}, {true, t.ctrl[0].key_hash32}, carrier, pt)
+                      == RemoteStatus::ok);
+                CHECK(d.msg.response_seq == frames++); CHECK(d.msg.request_id == 30); CHECK(d.msg.slot == kRemoteSlotSentinel);
+                if (d.msg.opcode == static_cast<uint8_t>(RemoteRespOpcode::output))
+                    assembled.append(reinterpret_cast<const char*>(d.body.data()), d.body.size());
+                else { ++terminals; CHECK(d.terminal == RemoteTerminal::completed); }
+            }
+            CHECK(emitted == 1); CHECK(exec.calls == 1);
+        }
+        CHECK(assembled == exec.output); CHECK(terminals == 1); CHECK(frames == 4);
+        CHECK(s.response_enqueue_failure == 1); CHECK(s.response_seal_failure == 0);
+    }
 }

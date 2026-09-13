@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "cc": {
+      "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+      "command_template": "${TEMPFILE('$CC -o $TARGET -c $CFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CCCOMSTR')}",
+      "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+      "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+      "tool_token": "arm-none-eabi-gcc",
+      "wrapper_active": false,
+      "wrapper_prefix": []
+    },
+    "cxx": {
+      "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "command_template": "${TEMPFILE('$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CXXCOMSTR')}",
+      "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "tool_token": "arm-none-eabi-g++",
+      "wrapper_active": false,
+      "wrapper_prefix": []
+    },
+    "link": {
+      "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "command_template": "${TEMPFILE('$LINK -o $TARGET $LINKFLAGS $__RPATH $SOURCES $_LIBDIRFLAGS $_LIBFLAGS','$LINKCOMSTR')}",
+      "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+      "tool_token": "arm-none-eabi-g++",
+      "wrapper_active": false,
+      "wrapper_prefix": []
+    }
+  },
+  "link_aliases": [
+    "cxx"
+  ],
+  "schema": 2
+}

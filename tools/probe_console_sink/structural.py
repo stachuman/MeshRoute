@@ -550,12 +550,25 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         # the stores: its six executor links stay confined to RemoteTarget.
         executor_binding = _body(cmds, 'struct RemoteTarget final') if 'struct RemoteTarget final' in cmds else ''
         executor_calls = re.findall(r'\bg_node\s*\.\s*(\w+)', executor_binding)
-        store_calls = re.findall(r'\bg_node\s*\.\s*(\w+)', ''.join(acc_blocks).replace(executor_binding, ''))
+        status_body = _body(cmds, 'static void dump_status(Print& out)')
+        status_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_ACCEPT(.*?)#endif', status_body, re.S)
+        status_binding = status_blocks[0] if len(status_blocks) == 1 else ''
+        store_calls = re.findall(r'\bg_node\s*\.\s*(\w+)', ''.join(acc_blocks).replace(executor_binding, '').replace(status_binding, ''))
         executor_allowed = {'radmin_next_admitted', 'radmin_reserve_transcript', 'radmin_transcript_append',
-                            'radmin_transcript_complete', 'tx_queue_full', 'radmin_send_frame'}
-        add('S51', 'store bindings keep the three session links; RemoteTarget alone owns the six executor links',
+                            'radmin_transcript_complete', 'tx_queue_full', 'radmin_send_frame', 'radmin_service_expire',
+                            'radmin_service_control', 'radmin_next_open', 'radmin_reserve_open', 'radmin_open_append',
+                            'radmin_open_complete', 'radmin_send_open_frame'}
+        add('S51', 'store bindings keep the three session links; RemoteTarget alone owns thirteen executor links',
             bool(store_calls) and set(store_calls) <= allowed_node and set(executor_calls) == executor_allowed,
             f'{len(node_calls)} call(s): {sorted(set(node_calls))}')
+        fields = ('inbound_refusal', 'open_rate_refusal', 'transcript_exhaustion',
+                  'response_enqueue_failure', 'response_seal_failure')
+        expected_status = 'const auto radmin = g_node.radmin_counters();' + ''.join(
+            f'out.print(F(" radmin_{name}=")); out.print(radmin.{name});' for name in fields)
+        observed_status = re.sub(r'//[^\n]*', '', status_binding)
+        add('S83', 'ACCEPT text status owns exactly one scalar snapshot and five ordered fields before newline',
+            bool(status_binding) and re.sub(r'\s+', '', observed_status) == re.sub(r'\s+', '', expected_status)
+            and status_body.rfind('out.println();') > status_body.find(status_binding), '')
         # ★★ §RADMIN SLICE 5: THE SEAM IS ACTUALLY BOUND. Design §6.5's live activation exists only if the two
         #    entry points HAND the services an `AdminLiveInstall` — dropping the argument leaves both services at
         #    their Slice 3 behaviour (a durable change that never reaches the running node), and ⛔ nothing else

@@ -1,0 +1,115 @@
+[
+  {
+    "name": "native",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/program"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/native.log",
+    "sha256": "a2e0ce52c12a9daa874f65752888c89269450859a07f6f520628937a021d140d"
+  },
+  {
+    "name": "b379",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/b379-codec"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b379.log",
+    "sha256": "d4ab8eec2ce4bcac8e14425d60e2e45dade67369bb0e82a75d05196a1f48d014"
+  },
+  {
+    "name": "reference",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "/home/staszek/mr-slice2-ref/bin/python",
+      "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-reference.py",
+      "--compare",
+      "test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/reference.log",
+    "sha256": "67a75567f00ec9871f6559d3b2ea9c9e2ecbd80ca015329ab5b289e3139bf152"
+  },
+  {
+    "name": "corpus",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/corpus",
+      "--lus",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/sim-final-fresh/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/corpus.log",
+    "sha256": "25b2e6997c136d8002d8f31735e346043e271512422b85acc3cfc3c41f725913"
+  },
+  {
+    "name": "corpus-validate",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/corpus"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/corpus-validate.log",
+    "sha256": "6ebdd7fcbf1c5518690d2e5740dc727b1c060a9a3a8aa3accfc335317764474c"
+  },
+  {
+    "name": "candidate",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "python3",
+      "docs/superpowers/evidence/2026-09-08-radmin-slice7b2-precheck/measure_candidate.py",
+      "--root",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+      "--out",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/candidate"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/candidate.log",
+    "sha256": "98968187228e4bde6d2b4debee5e569013960d0e602cb704e90848a67a598ff5"
+  },
+  {
+    "name": "b386-build",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE",
+      "-Ilib/core",
+      "-Ilib/monocypher",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b386-order.cpp",
+      "-Wl,--start-group",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib295/libhal.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib5e0/libconsole.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/lib6cf/libcore.a",
+      "/tmp/mr-qa-s7b20-gate-qfpdn1ul/measure/.pio/build/native/libee7/libmonocypher.a",
+      "-Wl,--end-group",
+      "-o",
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b386-order"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b386-build.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "b386",
+    "cwd": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/source",
+    "cmd": [
+      "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b386-order"
+    ],
+    "rc": 0,
+    "log": "/tmp/mr-qa-s7b2-reissue-xo4_k4zt/b386.log",
+    "sha256": "1efe2fea7fad95b8915cab8e6ad57a0c6404d6c0e0682ff87d21ccc5153987df"
+  }
+]

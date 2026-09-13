@@ -1,0 +1,5 @@
+shared-pool proof: slot1 session_full -> rotate slot0 -> exact slot1 request admits; same slot1 epoch, terminal nonce equal, plaintext differs
+new domain proof: synthetic full notice nonce differs from real completed seq-zero transcript after shared-pool recovery; identical notice repeats; busy 2 -> 1 changes nonce and wire
+synthetic busy-count proof: same request/epoch/seq; count 2 -> 1; nonce equal; ciphertext XOR reveals detail XOR
+existing protocol-error domain separation control holds
+PASS: 134 checks

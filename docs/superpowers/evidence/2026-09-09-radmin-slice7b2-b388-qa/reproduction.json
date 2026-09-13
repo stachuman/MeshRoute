@@ -1,0 +1,52 @@
+[
+  {
+    "name": "monocypher",
+    "command": [
+      "gcc",
+      "-Ilib/monocypher/src",
+      "-c",
+      "lib/monocypher/src/monocypher.c",
+      "-o",
+      "/tmp/mr-qa-b388-return-kwseqbsg/monocypher.o"
+    ],
+    "cwd": "/tmp/mr-qa-b388-return-kwseqbsg/snapshot",
+    "exit": 0,
+    "seconds": 0.2811698839068413,
+    "log": "monocypher.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "compile",
+    "command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE",
+      "-Ilib/core",
+      "-Ilib/monocypher/src",
+      "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa/b388.cpp",
+      "lib/core/remote_session.cpp",
+      "lib/core/remote_codec.cpp",
+      "lib/core/identity.cpp",
+      "lib/core/dm_crypto.cpp",
+      "/tmp/mr-qa-b388-return-kwseqbsg/monocypher.o",
+      "-o",
+      "/tmp/mr-qa-b388-return-kwseqbsg/b388"
+    ],
+    "cwd": "/tmp/mr-qa-b388-return-kwseqbsg/snapshot",
+    "exit": 0,
+    "seconds": 0.9107003398239613,
+    "log": "compile.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "run",
+    "command": [
+      "/tmp/mr-qa-b388-return-kwseqbsg/b388"
+    ],
+    "cwd": "/tmp/mr-qa-b388-return-kwseqbsg/snapshot",
+    "exit": 0,
+    "seconds": 0.0030588097870349884,
+    "log": "run.log",
+    "log_sha256": "581d6cd03f50efea3a1fa0e5496ef7da58d5029eca23437572e9ed9b028ae084"
+  }
+]

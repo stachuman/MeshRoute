@@ -1,0 +1,35 @@
+-- target sliceEnode: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node.cpp (3 entries)
+-- selection: IN FULL (all 3 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-_vucg_04   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceEnode: /tmp/mr_mutation_run-_vucg_04/w0/lib/core/node.cpp (1 of 3 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target sliceEnode: /tmp/mr_mutation_run-_vucg_04/w2/lib/core/node.cpp (1 of 3 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target sliceEnode: /tmp/mr_mutation_run-_vucg_04/w1/lib/core/node.cpp (1 of 3 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w2]   ok   E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone -> RED (6 assertion(s) failed, match count 1)
+  [w2] source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)
+  [w2] shard 2: 1 RED / 0 unusable   (of 1 entries)
+  [w1]   ok   E02 ★★★ THE TRANSIT AXIS IS INVERTED — only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app -> RED (34 assertion(s) failed, match count 1)
+  [w1] source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+  [w0]   ok   E01 ★★★★ [[B263]] IS RESTORED — the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one -> RED (4 assertion(s) failed, match count 1)
+  [w0] source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceEnode: /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations/lib/core/node.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   E01 ★★★★ [[B263]] IS RESTORED — the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one -> RED (4 assertion(s) failed, match count 1)
+  ok   E02 ★★★ THE TRANSIT AXIS IS INVERTED — only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app -> RED (34 assertion(s) failed, match count 1)
+  ok   E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone -> RED (6 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.9s, rc 0, source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)   /tmp/mr_mutation_run-_vucg_04/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.8s, rc 0, source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)   /tmp/mr_mutation_run-_vucg_04/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 74b20a89c6a872f6bcd846b3f4fd1fcf (MATCHES)   /tmp/mr_mutation_run-_vucg_04/w2
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b2-gate-0phs0ag4/mutations
+timing: copy 0.6s + battery 8.9s = 9.6s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable

@@ -26,6 +26,7 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - D2 lib/core → the s18 md5 must reproduce the current `BASELINE.md` keystone (a `src/`-only change is inert by construction); a node.h reorder → `-Wreorder`-clean + `sizeof(Node)` assert + a per-board RAM diff (native alignment hides board padding)
 - D3 report outcomes honestly — failures with their output; if a step was skipped, say so
 - ★ D4 never `git commit` or offer to — leave green work uncommitted + report ready; the user commits + bench-verifies on metal
+- D5 pins consumed by strict source readers stay bare `NAME=<integer>`; put derivations above them and run full tools discovery after runner edits (B377/B387)
 
 **[PROCESS] — task shape**
 - P1 present the exact code state *before* proposing (any check / redesign / explore)

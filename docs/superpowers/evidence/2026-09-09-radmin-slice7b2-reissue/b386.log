@@ -1,0 +1,3 @@
+survivor 1: order 1 -> 0; full header differs; header minus order, seen, output chunk and pending seq1 wire unchanged
+survivor 2: order 2 -> 1; full header differs; header minus order, seen, output chunk and pending seq1 wire unchanged
+PASS: 43 checks
