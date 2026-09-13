@@ -4357,3 +4357,21 @@ floor/default the node prints (7006 / 14012 at SF8 / 125 kHz / CR5 with zero slo
 6. B354 regression: `cfg set gw_announce_interval 7200000` → `> cfg gw_announce_interval=7200000 ok (live + saved)`
    (before Slice 7a it answered `> cfg err unknown_key gw_announce_interva`).
 7. A CLIENT (mobile) node prints NO `> remote-activation` boot line; its `cfg` still carries the `radmin:` line.
+
+
+## Part 57b — deferred actions / prep-restart lockout (7b-3 reservation)
+
+**DRAFT / OWNER CALL B392 / IMPLEMENTATION AND METAL PENDING — NOT RUNNABLE NOW.** This reserves only the
+hardware consequence; [7b-3 brief](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md) owns the
+software proofs. If the owner keeps remote prep-restart schedulable, activate this check after software PASS
+and availability of the 8b controller/carrier metal path. Do not carve mesh RX/admin service out of the halt.
+
+Observe these exact proposed local metadata formats before the hardware effect:
+`> remote-action scheduled request_id=<16 lowercase hex> activation_ms=<decimal> action=prep-restart`, then
+`> remote-action activate request_id=<same> trigger=<ack|deadline>`.
+After activation, mesh RX/TX/admin processing must stop: remote reboot and rollover cannot recover the target.
+Recover by **local restart**: USB `reboot` (or secured BLE where supported) prints `> rebooting`; hardware reset
+or power-cycle also restarts it. Local console service remains available during halt. Record recovery and the
+exact firmware/diagnostic lines; partial-erase warnings remain meaningful. These local observations do not prove
+radio delivery, and native scheduling tests do not close this metal check. If the owner instead refuses remote
+prep-restart, replace this reservation with that chosen contract before any bench dispatch.

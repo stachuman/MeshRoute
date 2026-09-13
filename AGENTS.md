@@ -27,6 +27,7 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - D3 report outcomes honestly — failures with their output; if a step was skipped, say so
 - ★ D4 never `git commit` or offer to — leave green work uncommitted + report ready; the user commits + bench-verifies on metal
 - D5 pins consumed by strict source readers stay bare `NAME=<integer>`; put derivations above them and run full tools discovery after runner edits (B377/B387)
+- D6 comment-only returns still audit exact-source mutation/probe readers; re-run affected controls before inheriting gate attribution (B391)
 
 **[PROCESS] — task shape**
 - P1 present the exact code state *before* proposing (any check / redesign / explore)

@@ -1,0 +1,19 @@
+-- target radmin5rx: /tmp/mr-qa-s7b3-author-8srh2_5f/snapshot/lib/core/node_mac_rx.cpp (14 entries)
+-- selection: as a FILTERED run — only the 1 entry matching 'X09', of 14
+-- workers: 1   [SERIAL REFERENCE PATH]
+-- scratch root: /tmp/mr_mutation_run-ip2_mpsq   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin5rx: /tmp/mr_mutation_run-ip2_mpsq/w0/lib/core/node_mac_rx.cpp (1 of 14 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2909 / 174485 / 0   (DERIVED from this tree)
+  [w0]   ok   X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 13aab3b4d2b0d9e36b39d4201790d030 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin5rx: /tmp/mr-qa-s7b3-author-8srh2_5f/snapshot/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2909 / 174485 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 13aab3b4d2b0d9e36b39d4201790d030 (MATCHES)   /tmp/mr_mutation_run-ip2_mpsq/w0
+real tree untouched: all 56 target files byte-identical to launch (md5); no build ran in /tmp/mr-qa-s7b3-author-8srh2_5f/snapshot
+timing: copy 0.2s + battery 8.7s = 9.0s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable

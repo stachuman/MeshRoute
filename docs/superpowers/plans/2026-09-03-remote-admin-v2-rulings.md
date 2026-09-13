@@ -861,3 +861,68 @@ base. Actual gateway Node/RAM +4976 B, mobile unchanged; global admission/owners
 full/busy/retry producers pass. B388's comment-only return is independently verified with 1238 other inputs
 preserved and 15 fresh checks; the completed full gate remains attributable. **B378/B379 are CLOSED** by
 these measurements and final QA, not by a new ruling. [Independent gate §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).
+
+### R-RA-37 (owner, 2026-09-13) — B390: one outstanding disruptive promise, one row, typed `action_busy` via 7b-3-0
+
+**Owner, confirmed directly to the second reader (Claude), one line for three findings:**
+
+> B390 agreed as recommended, B392 option 1, B389 fallback pre-authorized
+
+"As recommended" binds the second-read recommendation as written in the 7b-3 brief revision 2 §2.2 (Codex,
+2026-09-13) and the second reader's explanation to the owner the same day. **Settled admission:** at most **one
+outstanding disruptive promise per target across all ACL slots**, from successful reservation/preparation until
+activation consumes it. No compatibility matrix. **Settled storage class:** **ONE** `DeferredActionRecord` row;
+this explicitly replaces R-RA-22's two-row candidate count for this class (the second row has no reachable use
+under serialization). The row's SIZE and the native/gateway Node re-pins remain the B389 allocation ruling.
+**Settled conflict reply:** a distinct conflicting disruptive request receives a retained, immutable **typed
+TERMINAL `action_busy` = `0x08`**, never `refused` + text: the controller must decide "retry with a fresh ID"
+versus "not allowed" from the typed field alone. The busy result is that request ID's final transcript: exact
+retries replay identical bytes, the ID never later becomes `scheduled`, and no action row is occupied. **Settled
+order:** `0x08` is currently rejected (`remote_codec.h:85` `kRemoteTerminalMax = 0x07`, `remote_codec.cpp:641`),
+so a **separate codec-only slice 7b-3-0** first allocates the result (`kRemoteTerminalMax` → `0x08`, decoder,
+exhaustive consumers, PyNaCl reference, KATs; the existing `0x08` invalid-result fixtures move to `0x09` without
+losing their coverage), with its own gate and owner commit and no producer/scheduler/state change; the 7b-3
+behaviour brief is then reissued at that hash. No `wire_version` bump (design §8.1: the opcode is the
+discriminator). **Rollover interplay (as proposed):** active preparation or an ARMED action reads as target-wide
+`executing` to safe/force (R-RA-36 admission code); a completed UNARMED transcript keeps safe-busy /
+confirmed-force-abandon semantics in its own slot; a permitted owner `acl remove` of the blocked slot
+(`firmware_admin_verbs.h:386–396`, `remote_session.cpp:364–372`) releases an unarmed promise. **Accepted
+residual:** an unsendable, never-owned promise holds the single row until one of those two paths runs; no
+invented timeout. B390 stays OPEN until the implementation and independent gate prove the policy.
+
+### R-RA-38 (owner, 2026-09-13) — B392: remote `prep-restart` stays schedulable; the lockout is documented, not hidden
+
+**Owner:** *"B392 option 1"* (same message as R-RA-37).
+
+**Settled:** `prep-restart` remains a remotely schedulable deferred action under its ruled operator/disruptive
+classification. Its existing local semantics are unchanged: activation sets `g_halted` (`src/fw_main.cpp:438`)
+and the main loop skips the whole operating block — mesh RX, timers, TX and `remote_executor_service_once()`
+(`:1372`–`:1803`) — so **mesh remote administration stops and no remote request can recover the node**.
+Recovery is **local restart only**: USB console `reboot` (or BLE where enabled; `service_console()` `:1808`,
+`mrble::service_rx()` `:1814` run outside the halted block; `firmware_commands.cpp:1528` → `fw_reboot()`),
+hardware reset or power-cycle. **Obligations:** (1) the 7b-3 brief states the lockout (rev 2 §2.4 already does);
+(2) bench **Part 57b** carries the lockout observation and local-restart recovery as its metal check once the
+software slice passes; (3) **8a** shows the brief's pre-submission warning text verbatim before a remote
+`prep-restart` is submitted (no new confirmation token, no controller UI in 7b-3). **Rejected:** refusing the verb
+remotely (option b) and carving remote-admin RX/service out of the halt (option c — it would break the deliberate
+silent-network contract). No new physical-presence authority is granted.
+
+### R-RA-39 (owner, 2026-09-13) — B389: named-family refusal fallback PRE-AUTHORIZED; the allocation itself still awaits measurement
+
+**Owner:** *"B389 fallback pre-authorized"* (same message as R-RA-37).
+
+**Settled fallback:** if the coder's source-validation demonstrates that a named disruptive family's real
+handlers mix validation and effect such that a validate/apply split (a refactor, C1) is needed before it can be
+prepared safely, **7b-3 may land with that family still remotely `refused`**: zero disruptive effects, the
+retained refusal tested, the authority classification unchanged, and a **registered, separately fenced follow-up
+slice**. Conditions (rev 2 §2.1): the preflight lists each affected policy row/family, the missing seam, the
+real-source reason, the proposed follow-up and its closure proof; QA records the explicit exception before
+coding; the family is never labelled complete, never promised `scheduled`, and its tests are not dropped. This is
+**not automatic**: without a listed and recorded exception the full 48-row fence stands and a preparatory split
+returns STOP-1. **Still pending (NOT ruled here):** the row size and the native/gateway `Node` re-pins — ruled
+only after the coder enumerates the complete typed-plan union (prefer typed request structs such as
+`JoinRequest`, `firmware_join_service.h:73`, 32/8) plus metadata, the u32 immutable terminal detail
+(`TranscriptHeader` 24 → 32) and any auxiliary resident state, measured on native/ARM/Xtensa. Boundaries that
+already hold: ACCEPT-only residency, one row (R-RA-37), mobile `Node` size AND RAM unchanged, re-pins in the
+R-RA-31 measured shape, no hidden blob/heap/adapter. The rev-2 one-row raw-line figure (+280 B) is a comparison,
+not a ceiling or an approved allocation.

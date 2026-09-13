@@ -1,0 +1,13 @@
+--- a/tools/probe_ui_model_mutations.py
++++ b/tools/probe_ui_model_mutations.py
+@@ -11017,8 +11017,8 @@
+   '    in.request_carrier.cross_layer         = ui.has_cross_layer;',
+   '    in.request_carrier.cross_layer         = false;'),
+  ('X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node',
+-  '    // to exactly what was already armed.\n    radmin_expiry_arm();',
+-  '    // to exactly what was already armed.\n    ;'),
++  '    radmin_expiry_arm();\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT',
++  '    ;\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT'),
+  ('X10 ★★ the scan RE-ARMS BEFORE releasing instead of after, so it re-arms to the deadline that just fired — a zero-delay livelock, and the wheel is never cancelled on an emptied pool',
+   '    const uint64_t now = _hal.now();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is\n    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.\n    radmin_expiry_arm();',
+   '    const uint64_t now = _hal.now();\n    radmin_expiry_arm();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));'),

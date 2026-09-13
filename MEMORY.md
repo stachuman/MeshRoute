@@ -1,5 +1,24 @@
 # MeshRoute durable decisions
 
+- **Remote-admin 7b-3 owner rulings (2026-09-13, R-RA-37/38/39):** B390 as recommended — one outstanding disruptive promise per target, ONE `DeferredActionRecord` row, conflicting request → typed TERMINAL `action_busy` `0x08` via a separate codec-only slice **7b-3-0** (next brief, own gate/commit; then 7b-3 reissued at that hash); B392 option (a) — remote `prep-restart` stays schedulable, lockout documented (brief §2.4, Part 57b, 8a warning); B389 named-family refusal fallback pre-authorized, row size / native+gateway re-pins still pending the coder's typed-plan enumeration. Recorded by the second reader; register B389/B390/B392 rows updated, next free B393.
+- **Remote-admin 7b-3 author dispatch (2026-09-13, closure base `f993191`):** revision 2 incorporates the
+  second-read PASS/fold-ins and is ready for coder source-validation; **implementation HOLD B389/B390/B391/B392**.
+  B390 now proposes one outstanding disruptive promise per target, **one** row, and typed `action_busy` (proposed
+  0x08) via a separate 7b-3-0 codec gate/owner commit before the behavior brief is reissued. No owner ruling yet.
+  B389 awaits complete typed-plan enumeration/cost; one raw-line comparison is +280 B on three ABIs (two-row
+  historical +528), not linked RAM or an expected/final plan. Optional named-family refusal/follow-up requires
+  explicit owner scope approval. Scheduled's existing five-byte body needs no codec change. B392 is a pending
+  choice: keep prep-restart schedulable with explicit mesh lockout warning, or refuse it. Local USB/BLE reboot
+  or hardware restart remains possible while mesh RX is halted; a physical power-cycle is not the only recovery.
+  A never-owned blocked promise is unarmed; armed work has a fallback deadline. Same-slot force or permitted
+  other-owner ACL invalidation may release unarmed work; no cross-slot force privilege. ACCEPT status exposes
+  scalar action state, and deliberate local physical pre-emption is an external-interruption/unknown-outcome
+  boundary, not permission for internal lost promises. Part 57b/8a warnings are conditional, not a bench PASS.
+  **B391 remains open:** X09 old pattern matches zero; private proposal is RED/1 failed assertion. No shared
+  repair; prior 772 RED predates B388's comment return. Revision-1 native 2909/174485/0 and corpus 36/36 remain
+  historical baseline checks, not rerun for fold-ins. B378/B379/B387/B388 stay closed. Brief/pre-check:
+  `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; no production or simulator edits.
+
 - **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
   revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
   opcode 0x5, K_session; matching request ctl/code/detail enter nonce and AAD. Existing 87 literals stay
@@ -10,7 +29,8 @@
   valid-tag semantic failure can leave plaintext, while bad tags preserve it and decoded results publish
   only on success. B384's reference-generator error and B385's discarded QA incremental build are recorded
   and closed. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md`.
-  **7b-2 revision 4 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS (2026-09-09), uncommitted at `564f460`.**
+  **7b-2 revision 4 software gate passed 2026-09-09; owner commit `f993191` (base `564f460`).**
+  **B391 above qualifies post-comment instrument attribution; its repair is pending.**
   Independent full gate: native **2909/174485/0**, corpus **36/36 byte-identical**, union **772 RED / known
   unusable B342**, tools **343 OK / zero skips**, all ABI/probes/checkers/boards/census. Gateway Node/RAM
   **+4976 B**, flash **+7840 B**; mobile Node/RAM/linked sections unchanged. **B378/B379/B388 are CLOSED**;
@@ -23,8 +43,7 @@
   admission remains separate from checked sender refusal. B388 correctly documents that refusal may update
   counters and expire an older row before the shared scan re-arms. D5 preserves strict bare pins after B387.
   B386's real force-producer survivor/order proof passes. No production repair or commit by QA. Evidence:
-  `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §8. **Next: owner commit, then QA/Author's
-  separate 7b-3 deferred-action brief against that hash, coder source-validation before coding.**
+  `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §8. **The owner commit and separate 7b-3 draft are now recorded above; coder source-validation precedes coding.**
   Controller-dependent open/control round trips and flood/recovery remain 8b's metal gate. No new bench part.
 
 - **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; owner commit `1d4b3ad`):**

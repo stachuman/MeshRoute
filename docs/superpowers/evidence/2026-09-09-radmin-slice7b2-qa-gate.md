@@ -1,6 +1,11 @@
 <!-- Independent QA/Author: OpenAI Codex, replacing Claude; production coder: separate Codex session -->
 # Remote-admin Slice 7b-2 — independent QA gate — 2026-09-09
 
+**2026-09-13 erratum / current closure base `f993191`:** software/runtime evidence below is retained;
+**current mutation gate integrity is HOLD B391**. B388's correct comment invalidated X09's exact-source
+search. The scoped return did not audit that reader, so its inherited full-gate attribution was too broad.
+See §9 for the independently reproduced failure and private repair proof. B388 remains closed.
+
 **Verdict: PASS — Slice 7b-2 software-complete, uncommitted at `564f460`, 2026-09-09.**
 B388's scoped return is independently verified and closed in §8. Exactly three comment lines changed;
 all executable/instrument inputs retain the completed full gate's attribution. B378/B379 now close with
@@ -276,3 +281,30 @@ No new finding or owner decision. Source, tests, tools, inventory and the final 
 hash for coder source-validation. This closure does not start 7b-3 implementation. Controller/carrier
 open/control round trips and on-air flood/recovery remain 8b's metal gate; no new bench part now. B312/B315/
 B342/B350/B359/B364 and other standing unrelated limits retain their existing dispositions.
+
+## 9. Owner commit and B391 gate-attribution erratum — 2026-09-13
+
+The owner committed the 7b-2 implementation and B388 closure at
+**`f993191be7f6980870f440f6032bca72278539a7`**. QA independently matches all 1254 starting inputs to the
+closure/retained evidence and builds fresh native and simulator snapshots: **2909/174485/0**, **36/36
+anchors and byte-identical streams**. This does not constitute a new full gate.
+
+**Correction to §8 and the original verdict:** unchanged executable bytes and unchanged instrument files
+do not imply that a source-reading instrument still passes. `radmin5rx` X09 in the mutation harness retains
+B388's removed comment in its exact search pattern. QA's actual run at the closure commit has a clean
+**2909/174485/0** worker baseline but **VACUOUS /match count 0 /exit 1**. Thus the reported 772 RED remains
+valid historical evidence from the earlier full-gate input; it cannot be called a passing post-B388 union.
+This was an omission in QA's scoped return. No production defect is demonstrated; B388's factual comment
+fix stays closed. **B391** is the separate open instrument repair and current gate-integrity HOLD.
+
+QA independently tries a unique executable/feature-boundary pattern in a private copy, deleting the same
+expiry-arm call: **X09 RED /1 failed assertion /match count 1 /exit 0**, same clean worker baseline. Both
+runs preserve all 56 target files; the private harness is restored. No shared production/tool edit and no
+other full-gate rerun. Proposal patch, raw runs, complete source/pattern audit and attribution are retained
+in [7b-3 author pre-check evidence](2026-09-13-radmin-slice7b3-precheck/README.md).
+
+Close B391 only after the coder's narrow pattern repair, whole radmin5rx battery, cardinality audit and full
+tools discovery, followed by independent QA verification of that frozen return. D6/CODE_GUIDELINES now
+require auditing comment-sensitive readers during scoped returns. This correction does not reopen runtime
+B378/B379/B387/B388 or authorize 7b-3 behavior. The separate 7b-3 brief is based on the actual owner commit,
+with B389/B390 decisions and B391 repair explicitly pending.

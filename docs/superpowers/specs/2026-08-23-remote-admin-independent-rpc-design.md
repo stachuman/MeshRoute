@@ -6,16 +6,26 @@ round-2 findings H1-H3/F1-F11, and owner rulings R-RA-1..R-RA-24 incorporated. S
 independently through §19; none is authorized until its own brief passes. Slices 0d and 0f have landed; Slice 0e
 has completed measurement in its isolated worktree with its exact coder-owned integration package still pending.**
 
-**Implementation update 2026-09-09:** Slice 7b-1 is software-complete / independent QA PASS, owner commit
+**Implementation update 2026-09-13:** Slice 7b-1 is software-complete / independent QA PASS, owner commit
 `1d4b3ad`; R-RA-34 splits 7b into 7b-1/7b-2/7b-3. R-RA-35 approves separate open storage and three admissions
 TOTAL per target per five minutes; R-RA-36's separate 7b-2-0 codec is QA-passed and owner-committed at
-`564f460`. **7b-2 revision 4 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS, uncommitted at that base.**
+`564f460`. **7b-2 revision 4 is owner-committed at `f993191`; its software gate passed 2026-09-09.**
 B388's comment-only return passes independent source/preservation review and a fresh 15-check reproduction;
-B378/B379/B388 close, B387 stays closed. The prior full gate remains attributable without repetition:
+B378/B379/B388 close, B387 stays closed. The prior full gate measurements remain historical evidence:
 native 2909/174485/0, corpus 36/36 byte-identical, 772 RED /known unusable B342, tools 343/zero skips,
 all required probes/ABI/checkers/census. Gateway RAM +4976 B, flash +7840 B; mobile linked sections unchanged.
-Next is the owner commit, then a separate 7b-3 deferred-action brief at its actual hash. No new owner ruling.
+**Gate-attribution erratum B391:** the comment-only return left X09 searching for removed text; actual current
+harness run is VACUOUS/0 matches. The prior 772 RED is pre-comment history, not a passing current union.
+B388 remains correctly closed. A private pattern proposal restores X09 RED; shared repair/verification pending.
+[7b-3 revision-2 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) is ready for source-validation
+at `f993191`, implementation HOLD B389 complete prepared-state allocation, B390 conflicting-action admission
+and B391 reader repair, plus B392's prep-restart lockout choice. Revision 2 folds in the second read: one-row
+serialization and typed action_busy/7b-3-0 codec preparation are **revised proposals**, not owner rulings;
+B389's optional named-family deferral likewise needs explicit scope approval. Scheduled detail already fits
+the codec. ACCEPT status and physical-pre-emption clarifications are in the brief; the B392 bench/controller
+warning is conditional. These do not silently change §13 or grant implementation authority.
 [7b-2 independent gate and scoped closure](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).
+**Owner rulings 2026-09-13 (R-RA-37/38/39, recorded by the second reader):** 7b-3 uses ONE deferred-action row and ONE outstanding disruptive promise per target; a conflicting request gets typed TERMINAL `action_busy` `0x08` allocated first by a separate codec slice 7b-3-0; remote `prep-restart` stays schedulable with its lockout documented (Part 57b, 8a warning); a named family needing a validate/apply split may stay remotely `refused` in 7b-3 with a registered follow-up. The B389 row size and Node re-pins remain pending the coder's typed-plan enumeration.
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -2181,8 +2191,9 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 7a | ✅ software-complete / QA-passed 2026-09-08 (two commits: 7a-0 `89071fb` the MAC wait-window refactor `lib/core/mac_wait_windows.h`; 7a the feature, uncommitted at report): NV v25 `remote_action_activation_ms` (offset 276, record 280, explicit `kVersionMinLoad = 25`), `lib/core/remote_activation.h` (R-RA-20/23 budget, KAT 7006/14012), `src/firmware_remote_activation.h` (five-state resolver, never clamps), the `cfg set` key, text/JSON read-out, post-init boot line; B352–B358, B360–B363 folded in; B354 (unreachable `gw_announce_interval`) fixed | zero remote events; `lus` changed twice with 36/36 byte-identical; inventory 204; ruled pair RAM +8 / +8 (global + alignment), flash +5072 / +1476 attributed; union 204 RED / 1 pre-existing | **Part 57a** (landed) |
 | 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, owner-committed at `1d4b3ad`; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
 | 7b-2-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, revision 2, attribution base `1d4b3ad`, owner commit `564f460`; R-RA-36 ADMISSION_RESULT codec, no new live producer; B382/B383 closed, B384/B385 corrected/recorded; [QA evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md) | native 2888/172264/0; old literals 87/87, new arrays/controls verified; corpus 36/36 byte-identical; 712 RED / known unusable B342; tools 343 OK / zero skips; all ABI/probes/checkers/census; Node/RAM unchanged, gateway flash −64 B attributed, mobile linked sections identical | none; owner-committed, no new metal-only behavior |
-| 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, uncommitted at `564f460`, consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate remains attributable. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
-| 7b-3 | **PENDING:** scheduler and deferred-action owners; fresh brief required | zero remote events, 36/36 unchanged; ruled pair | **Part 57b:** exact scheduled-terminal line carries request ID and activation delay before the action occurs |
+| 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, owner commit `f993191` (base `564f460`), consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate is historical; **B391 OPEN**: post-comment X09 is VACUOUS, scoped instrument repair required. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
+| 7b-3-0 | **PENDING BRIEF (R-RA-37):** codec-only allocation of typed TERMINAL `action_busy` = `0x08` (`kRemoteTerminalMax` 0x07 → 0x08, decoder, exhaustive consumers, PyNaCl reference, KATs; existing `0x08` invalid fixtures move to `0x09`); no producer, no state, no `wire_version` | native KATs + reference comparison; corpus 36/36 byte-identical; boards Node/RAM unchanged | none (no metal behaviour) |
+| 7b-3 | **REVISION 2 + OWNER RULINGS R-RA-37/38/39 RECORDED 2026-09-13 — CODER SOURCE-VALIDATION AND THE 7b-3-0 CODEC PREREQUISITE NEXT**, base `f993191`; implementation HOLD B389/B390/B391/B392. [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): one-row/typed-conflict and optional family deferral are pending owner proposals; separate codec preparation only if approved; scheduled itself uses existing codec | Revision-1 native 2909/174485/0 and corpus 36/36; new one-row comparison +280 B and JoinRequest 32/8 on three ABIs, type costs only; complete prepared union/rulings/full gates pending | Part 57b conditional reservation documents B392 mesh lockout with local restart; 8a must warn before submission if scheduling is selected; no current bench PASS |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
 | 8c | USB/BLE renderer/router and companion contract gate | corpus cannot prove direct JSON; executed golden wiring gates; ruled pair | **Part 57d:** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |
@@ -2498,3 +2509,18 @@ mobile-only client/static-gateway-only accept split, node-owned key/crypto bound
 legacy removal, random 64-bit request identity, optional-default-off carrier ACK, static-only home invariant,
 mandatory source hash, one parameterized command validator, authenticated-remote `-e` requirement, capability-owned
 pre-tail handlers, or carrier-specific first-hop budget rule.
+
+
+### 7b-3 / 8a second-read handoff — 2026-09-13, pending owner decisions
+
+The [revision-2 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) preserves B389/B390/B391 HOLD
+and adds B392. If B392 keeps remote prep-restart, 8a must display before submission:
+“prep-restart stops mesh radio and remote administration. Restart the target locally to restore access;
+remote reboot and rollover cannot recover it while halted.” This warning adds no confirmation token and
+requires no radio-admin exception to the halt. Local USB/BLE availability is product-specific; local reboot,
+hardware reset or power-cycle are recovery, so physical power-cycle is not the sole mechanism.
+
+Proposed action_busy is a typed non-execution outcome retained for that request ID; exact retry must replay it,
+not execute when capacity later frees. Any fresh-ID retry policy is 8a's separate responsibility. New code 0x08
+needs owner-approved 7b-3-0 codec preparation, its own gate/commit, then a reissued behavior base; the existing
+scheduled detail needs no codec slice. This handoff records proposals, not a new ruling or implemented feature.

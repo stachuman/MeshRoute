@@ -1,0 +1,2 @@
+PASS: byte-identical corpora — both runs VALIDATED, 36/36 streams agree on md5, sha256, size, event count and assertion count
+  A: jobs=3 wall=52.515s    B: jobs=3 wall=52.33s

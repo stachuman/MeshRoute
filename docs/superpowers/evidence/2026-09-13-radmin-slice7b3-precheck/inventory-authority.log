@@ -1,0 +1,6 @@
+Tool output captured from the executed private-snapshot commands:
+python3 tools/gen_command_inventory.py --check
+python3 tools/check_command_authority.py
+
+gen_command_inventory: PASS: /tmp/mr-qa-s7b3-author-8srh2_5f/snapshot/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (204 command rows)
+PASS: command authority — ruled table / production header / generated inventory agree

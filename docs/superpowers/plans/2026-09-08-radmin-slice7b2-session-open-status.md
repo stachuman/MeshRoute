@@ -1,6 +1,14 @@
 <!-- QA/Author: OpenAI Codex, replacing Claude; production coder: separate Codex session -->
 # Remote-admin v2 Slice 7b-2 — session control, open execution and status counters — brief — 2026-09-08
 
+**Owner-commit update / gate erratum 2026-09-13:** closure commit `f993191be7f6980870f440f6032bca72278539a7`
+lands this implementation/B388. The new [7b-3 draft](2026-09-13-radmin-slice7b3-deferred-actions.md) is ready
+for source-validation, not production dispatch. **B391**: X09's exact-source pattern retained the removed
+B388 comment and is VACUOUS at this commit. Prior full-gate results below are pre-comment history; they do
+not prove the final reader passes. A private pattern proposal is RED, shared repair/verification pending.
+B388's comment remains correct/closed; see [QA report §9](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#9-owner-commit-and-b391-gate-attribution-erratum--2026-09-13).
+The following original status/pre-commit narrative is retained as history, with that attribution correction.
+
 **Status: revision 4 SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09, uncommitted at
 `564f460a3b755a104f146da70457e5c8c68e99b9`.** B388's exact three-line comment return is independently
 verified; fresh focused reproduction 15 checks PASS, all executable/instrument inputs unchanged.
