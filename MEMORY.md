@@ -1,32 +1,8 @@
 # MeshRoute durable decisions
 
-- **Remote-admin 7b-3 owner rulings (2026-09-13, R-RA-37/38/39):** B390 as recommended — one outstanding disruptive promise per target, ONE `DeferredActionRecord` row, conflicting request → typed TERMINAL `action_busy` `0x08` via a separate codec-only slice **7b-3-0** (brief authored below, own gate/commit; then 7b-3 reissued at that hash); B392 option (a) — remote `prep-restart` stays schedulable, lockout documented (brief §2.4, Part 57b, 8a warning); B389 named-family refusal fallback pre-authorized, row size / native+gateway re-pins still pending the coder's typed-plan enumeration. Recorded by the second reader; register B389/B390/B392 remain open for their named closure obligations; next free B394.
-- **Remote-admin 7b-3-0 codec — SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-15, uncommitted at `b9d75aa`:**
-  R-RA-37's typed TERMINAL `action_busy` = `0x08` is allocated in `remote_codec.{h,cpp}` (ceiling 0x07 → 0x08, both
-  terminal security classes decode it, 0x09..FF still reject, protocol-error/admission namespaces unchanged, generic
-  encoder unchanged); test file gains five independently frozen literals + three cases; tool gains R67/R68 and the
-  B391 code-based X09 pattern. QA independently measured native **2912/184461/0**, reference **94/94** (old 89
-  identical), domain proof **9787**, corpus **36/36 byte-identical**, tools 343/0 skips, census at pins, boards
-  **unchanged** (gateway 203956/570588, mobile 207756/1372992), union **816 RED / 1 known unusable B342 / 817**.
-  **B391 CLOSED.** Evidence: `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md`. **Next: owner
-  commit (git add the untracked brief/pre-check/evidence paths), then QA reissues the 7b-3 behaviour brief at that
-  hash with the coder's 48-row typed-plan enumeration folded in (12 rows preparable, 36 R-RA-39 candidates);
-  B389 allocation ruling still pending.**
-- **Remote-admin 7b-3 behavior remains HOLD:** revision-3 owner-ruling overlay is the coder's enumeration
-  contract at `f993191`, with production/source equality verified at `b9d75aa`. R-RA-37/38/39 are settled;
-  do not ask again for one row/typed conflict, remote prep-restart, or the named-family fallback under its
-  listed conditions. Complete typed-plan row size and native/gateway allocation still await enumeration,
-  three-ABI measurement and the owner's B389 ruling. One raw-line row comparison +280 B (historical two-row
-  +528) is neither linked RAM nor an approved complete plan. B390 stays open for runtime policy proof;
-  B392 stays open for Part 57b/local-restart recovery and 8a's exact pre-submission warning. Scheduled detail
-  already fits the codec. A never-owned blocked promise is unarmed; same-slot force or permitted other-owner
-  ACL invalidation can release it, with no invented timeout or cross-slot force privilege. Armed work has its
-  fallback deadline. ACCEPT status exposes scalar action state; deliberate physical/local pre-emption is an
-  external-interruption/unknown-outcome boundary, not an internal lost-promise allowance. USB/BLE reboot where
-  available or hardware restart can recover a halted node; a power-cycle is not the only local restart.
-  After separate 7b-3-0 independent PASS and owner commit, QA reissues the behavior
-  brief at that exact hash; B391 must also be verified. No behavior implementation or bench PASS is implied.
-  Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md` (preserved revision 3).
+- **Remote-admin 7b-3-0 codec owner-committed at `ac5f9a5` (2026-09-15):** independent QA PASS and B391 closure remain intact. Committed QA evidence reports native 2912/184461/0, reference 94/94, domain 9787, corpus 36/36, tools 343/no skips, unchanged board pair, 816 RED + known unusable B342 /817. Its reviewer reproduced linked/section/object totals, not the coder's single-byte gateway ELF attribution. `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md` remains unchanged.
+- **7b-3 revision 4 reissued at `ac5f9a5`: READY for source-validation; behavior HOLD B389+B394.** Twelve selected policy rows require separate **7b-3-P1** shared typed admission/effect/sink preparation, its own full gate/owner commit, then QA refreshes the behavior base. The actual coder enumeration had four reusable effects + eight needing extraction; its +80 comparison covered four rows. B394 records the overbroad twelve-existing-seams summary without revoking codec PASS. QA's fresh complete twelve-row model measures one 40-byte row + four u32 detail/header increases + two diagnostics/alignment = **+80 B** session state on native/ARM/Xtensa. Modeled Node **230976 native /157344 gateway /117912 mobile**; **owner allocation/re-pins still unruled**, no linked-RAM or implementation claim. Fresh author native **2912/184461/0**, rebuilt simulator/corpus **36/36 byte-identical**, reference **94/94**, all **52/817 source patterns match once**; no full implementation gate or union run this author turn. Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; P1: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md`; pre-check: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-reissue-precheck.md`.
+- **R-RA-37/38/39 remain settled:** one outstanding disruptive promise per target across slots, ONE row, retained typed action_busy 08 (codec complete, producer pending); remote prep-restart stays schedulable with local-restart lockout (brief §2.5, Part 57b, exact 8a warning); named-family refusal fallback pre-authorized. QA records **36 exact exceptions** in revision 4 §2.2: **B395/F-config 23, B396/F-provision 10, B397/F-team 2, B398/F-regen 1**, each with a separate fence/closure proof, not implementation dispatch. Immutable refused/zero effects, local semantics/classification unchanged; these rows remain incomplete. Next free **B399**. B390 awaits runtime proof; B392 awaits metal/8a. Never-owned unsendable work is unarmed: same-slot force or permitted other-owner ACL invalidation can release it, with no new timeout/cross-slot force. Armed work keeps its fallback deadline. ACCEPT scalar status exposes action state and last kind/outcome without secrets. Physical/local pre-emption is external interruption/unknown outcome; USB/BLE reboot where supported or hardware restart recovers a halted node. No behavior or bench PASS is implied.
 
 - **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
   revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
@@ -39,7 +15,7 @@
   only on success. B384's reference-generator error and B385's discarded QA incremental build are recorded
   and closed. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md`.
   **7b-2 revision 4 software gate passed 2026-09-09; owner commit `f993191` (base `564f460`).**
-  **B391 above qualifies post-comment instrument attribution; its repair is pending.**
+  **Historical B391 attribution is qualified by the codec gate above; its repair is now independently verified/closed.**
   Independent full gate: native **2909/174485/0**, corpus **36/36 byte-identical**, union **772 RED / known
   unusable B342**, tools **343 OK / zero skips**, all ABI/probes/checkers/boards/census. Gateway Node/RAM
   **+4976 B**, flash **+7840 B**; mobile Node/RAM/linked sections unchanged. **B378/B379/B388 are CLOSED**;

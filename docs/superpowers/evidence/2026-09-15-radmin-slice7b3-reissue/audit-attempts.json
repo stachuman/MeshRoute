@@ -1,0 +1,8 @@
+[
+  {
+    "attempt": 1,
+    "result": "AssertionError on the long retained STOP quotation",
+    "cause": "The author audit stripped Markdown blockquote prefixes from the brief but not the quoted-source document. The source words were identical.",
+    "correction": "Apply the same Markdown-prefix and whitespace normalization to both source and excerpt; no quote or source document was changed for this correction."
+  }
+]

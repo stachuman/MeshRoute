@@ -935,3 +935,17 @@ reissued at that hash. The B389 allocation is still unruled: the coder's 48-row 
 preparable with existing seams and 36 rows (all disruptive `cfg set` keys, `gateway`, `join`, `create`, `leave`,
 `team`, `regen`) needing validate/apply splits — R-RA-39 refusal candidates, to be listed row by row in the
 reissue. [Independent gate](../evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md).
+
+**Author reissue/source clarification, 2026-09-15 — owner codec commit ac5f9a5; no new ruling:** revision 4
+is reissued at `ac5f9a592065d08e7cc8c06ef395e79891d41b34`. Codec PASS and B391 closure stand. The preceding
+completion note's twelve-existing-seams phrase overstates the coder enumeration: four reusable effects,
+eight rows needing preparatory extraction, and 36 complex-service follow-ups. B394 records this correction;
+the original coder/QA receipts and R-RA-37/38/39 text remain unchanged. Separate 7b-3-P1 supplies the shared
+typed admission/effect/sink interfaces without changing local behavior or adding resident state, then receives
+its own gate/owner commit before QA refreshes the behavior base. QA explicitly records R-RA-39's 36 rows and
+separate fences in revision 4 §2.2: B395 config/gateway 23, B396 join/create/leave 10, B397 team 2, B398 regen 1.
+They remain retained refusals and incomplete. B389 is still UNRULED: a new complete twelve-row author model
+measures one 40-byte row, four independent header details and two diagnostics/alignment, +80 session bytes
+on native/ARM/Xtensa; proposed Node 230976/157344/117912. This compile-only model is not linked RAM or owner
+allocation. [Author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) records fresh native/corpus,
+reference and source/layout evidence; no new full implementation gate is claimed.

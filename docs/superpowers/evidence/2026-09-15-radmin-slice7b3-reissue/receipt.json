@@ -1,0 +1,28 @@
+{
+  "base": "ac5f9a592065d08e7cc8c06ef395e79891d41b34",
+  "simulator": "06746a97de5764415d6fcef10b97bca90569b9c7",
+  "root": "/tmp/mr-qa-s7b3-r4-zwfe7qky",
+  "meshroute_inputs": 1403,
+  "simulator_inputs": 285,
+  "source_files_equal_to_enumeration": [
+    "src/fw_main.cpp",
+    "src/firmware_commands.cpp",
+    "src/firmware_config.cpp",
+    "src/firmware_join_service.h",
+    "src/firmware_provisioning_service.h",
+    "src/firmware_team_keyring.h",
+    "src/firmware_config_parse.h",
+    "src/firmware_config_service.h",
+    "src/firmware_command_authority.h",
+    "src/device_ota.cpp",
+    "lib/core/remote_session.h",
+    "lib/core/remote_session.cpp"
+  ],
+  "codec_freeze_four_files_match": true,
+  "symlink_bindings": {
+    "spec/dv_dual_sf.lua": {
+      "original": "../../lora-universal-simulator/scenarios/dv_dual_sf.lua",
+      "resolved": "/home/staszek/lora-universal-simulator/scenarios/dv_dual_sf.lua"
+    }
+  }
+}

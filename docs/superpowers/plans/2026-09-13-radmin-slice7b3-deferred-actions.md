@@ -1,47 +1,50 @@
-<!-- QA/Author: OpenAI Codex, replacing Claude; production coder: separate Codex session -->
-# Remote-admin v2 Slice 7b-3 — deferred actions and scheduled terminals — 2026-09-13
+<!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
+# Remote-admin v2 Slice 7b-3 — deferred actions and scheduled terminals
 
-**Revision 3 (2026-09-13, second reader): OWNER RULINGS R-RA-37/38/39 RECORDED — READY FOR CODER SOURCE-VALIDATION; IMPLEMENTATION HOLD narrows to B389 allocation, the 7b-3-0 codec prerequisite and B391.**
-**Rulings applied to this text without rewriting it:** §2.2 is RULED as written (R-RA-37: one promise per target, ONE row, typed `action_busy` `0x08` via a separate 7b-3-0 codec slice — QA authors that brief next; this brief is reissued at the 7b-3-0 commit). §2.4 is RULED option (a) (R-RA-38: `prep-restart` stays schedulable; lockout documented, Part 57b + 8a warning). §2.1's optional scope fallback is PRE-AUTHORIZED (R-RA-39) under its listed conditions; the B389 row size / Node re-pins still await the coder's typed-plan enumeration. Where the revision-2 text below still says "proposal", "recommendation" or "owner call" for these three items, read it as ruled; ledger: `2026-09-03-remote-admin-v2-rulings.md` R-RA-37..39. Revision-2 status line, retained as history:
-**Revision 2: SECOND-READ PASS WITH FOLD-INS APPLIED — READY FOR CODER SOURCE-VALIDATION; IMPLEMENTATION HOLD B389/B390/B391/B392.**
-Base **`f993191be7f6980870f440f6032bca72278539a7`**, the owner's 7b-2/B388 closure commit. Simulator
-**`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean, unchanged. Both repositories were clean at this
-pre-check's start. This is a complete proposed behavior/fence and validation contract, not a production
-implementation authorization: **B389** needs a complete prepared-state budget and owner allocation ruling;
-**B390** needs the owner's conflicting-action admission choice. **B391** is a reproduced gate-pattern defect
-at the closure commit; its narrow instrument repair needs no owner policy decision, but must be verified.
-**B392** additionally requires the owner's prep-restart lockout choice before dispatch. The second read's
-PASS is for coder source-validation. Its recommendations for one row, typed conflict result, optional family
-deferral and prep-restart are recorded below as proposals, not owner confirmations. The coder first returns
-source-validation and complete candidate measurements; QA records actual owner decisions before dispatch.
-No silent narrowing to only reboot/prep or assumption that access permission settled a design choice.
+**Revision 4 — 2026-09-15: REISSUED AT OWNER CODEC COMMIT; READY FOR CODER SOURCE-VALIDATION.
+BEHAVIOR IMPLEMENTATION HOLD: B389 allocation and B394 shared-effect preparation.**
+Base **`ac5f9a592065d08e7cc8c06ef395e79891d41b34`**, the owner's separate 7b-3-0 codec commit.
+Simulator **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean/unchanged. Both repositories were clean
+before this authoring pass. R-RA-37's codec prerequisite is fulfilled; **B391 is closed** by the committed
+independent QA gate. R-RA-37/38/39 are settled, not renewed owner choices.
 
-Revision 1 SHA-256 was `4c99a305fb44e6bbc05630eab14a1ba4acc497f96b45877edb56681f8f77243a`; it is retained
-with the second-read input and revision-2 evidence in the pre-check directory. Revision 2 incorporates the
-source-backed codec detail, explicit recovery boundaries, scalar status and physical-pre-emption fold-ins.
-B390's revised recommendation is one row plus a separately prepared typed `action_busy` result; B389 still
-awaits the coder's actual typed-plan enumeration. No owner ruling is created by this revision.
+This reissue selects **12 policy rows for scheduling after preparation**, and records **36 exact rows as
+retained remote refusals under R-RA-39**, with registered, separately fenced follow-ups. It does not label
+those 36 families/rows complete. The 12 require [7b-3-P1](2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md)
+first: existing grammar/effect/sink seams must be separated under C1, independently gated and owner-committed.
+QA will then refresh this behavior brief's base and actual APIs at the P1 hash before behavior implementation.
+The codec commit satisfies its own sequencing ruling; it does not make the missing preparation disappear.
 
-**Preparation inputs:** this brief; [author pre-check](2026-09-13-radmin-slice7b3-precheck.md) and
-`docs/superpowers/evidence/2026-09-13-radmin-slice7b3-precheck/`; the register's dispatch/B389–B392 rows (including the preserved second-reader B392 edit);
-MEMORY's current dispatch; design implementation header and §19.1 rows; 7b-2 brief's commit/erratum note;
-7b-2 independent QA report §9; AGENTS D6 and its CODE_GUIDELINES detail; and the conditional Part 57b reservation
-in `docs/2026-07-31-bench-test-script.md`. Revision-2 artifacts are nested under the same pre-check directory.
-These are QA documentation/evidence
-changes. The old coder receipt is preserved, not edited by QA. Coder creates
-`docs/superpowers/evidence/2026-09-13-radmin-slice7b3.md`, identifies this brief's actual SHA-256, inventories
-all preparation inputs, and appends preflight, implementation, failures and frozen handoff in order.
+**Source correction B394:** the coder enumeration says four rows have reusable no-argument effects and eight
+need a small preparatory refactor. Its +80-byte comparison was explicitly for the four-row scope. The codec
+QA completion summary's “12 rows preparable with existing seams” overstates that evidence. This reissue has
+its own complete proposed twelve-row type model, freshly measured at +80 B (§2.1); this is neither linked RAM
+nor an approved production allocation. Codec PASS/B391 closure remain intact; the historical receipt is preserved.
 
-Preserve every tracked/untracked input. Never reset, clean or commit. An isolated snapshot must include the
-actual dirty implementation, not just HEAD. No QA build or mutation run overlaps coder edits in a shared tree.
+Revision-3 SHA-256 **`f7256bf12d4cf56a7dff23b0db8523470b27de4f31be2306555625a031d9cdd8`** is retained unchanged in
+`docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/brief-revision-3.md`.
+The [new author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) records fresh instruments, exact
+48-row dispositions, source equality, model compiler commands and preservation. The older September-13
+pre-check and codec QA report remain their own historical evidence; their runs are not relabelled as this gate.
+
+**Permitted preparation inputs:** this reissue; the P1 brief; the new pre-check/evidence directory; register
+B389–B398/current dispatch; current design/MEMORY/ledger completion alignment; codec brief commit-status note; and Part 57b's ruled lockout
+reservation. The design edit, explicit R-RA-39 list and follow-up fences are intended inputs, not unexpected
+production changes. QA leaves coder/other-reviewer reports untouched. The coder appends source-validation
+and later implementation/frozen handoff to `docs/superpowers/evidence/2026-09-13-radmin-slice7b3.md`, naming
+the consumed revision and SHA. P1 has its own receipt/gate and adds no behavior implementation permission.
+
+Preserve every tracked/untracked input. Never reset, clean or commit. An isolated snapshot includes the
+actual dirty implementation, not only HEAD. No QA build or mutation run overlaps coder edits in a shared tree.
 Owner alone rules, commits and verifies on metal; QA authors, independently gates and lands documentation.
 
 ## 1. Binding design and exact current state
 
 Read AGENTS/CODE_GUIDELINES, the 2026-09-07 role override, MEMORY/register §0, design §§8.7–8.10, 10–13, 15,
-19/19.1; rulings R-RA-16/20/22/23/24′/27/33/34/35/36; the 7a activation brief and evidence; 7b-1 revision 6,
-7b-2 revision 4 and their independent QA reports, including the new B391 erratum. Recheck every source anchor
-below at the actual base before acting (V1/V2). Existing owner rulings remain binding; §2 proposals are not rulings.
+19/19.1; rulings R-RA-16/20/22/23/24′/27/33/34/35/36/37/38/39; the 7a activation brief and evidence; 7b-1 revision 6,
+7b-2 revision 4, 7b-3-0 and their independent QA reports, including B391 closure and the codec byte-level
+ELF limitation. Recheck every source anchor at the actual base (V1/V2). §2.1 requests only B389 allocation;
+the other policy choices are ruled. The future P1 APIs below are required interfaces, not claims of existing code.
 
 Design §13, verbatim:
 
@@ -91,185 +94,182 @@ this slice gets no second increase. R-RA-34 authorized the 7b split and **7b-1**
 | `src/firmware_command_authority.h`, `lib/console/console_line.h:11` | 180 policy entries, 48 marked disruptive; generated inventory has 204 rows across its surfaces. RPC tail cap is **201**, not withdrawn 159. The policy/validator are the authorities; preparation is not a second whitelist. |
 | `remote_session.h:208/213/255`, `remote_session.cpp:541/574/612` | Four headers/eight chunks; completion releases ingress/body; terminal producer currently encodes one byte. No deferred pool exists. Completed transcript cannot borrow future action memory for its immutable detail. |
 | `remote_session.cpp:1252`, `:344`, `:886` | ACK releases transcript synchronously; install invalidates session rows; rollover has an executing guard. Connect action identity/lifetime before destructive cleanup. |
-| `node_mac_rx.cpp:2190–2213`, `:2224–2275` | Sender distinguishes checked queued/parked/refused; cursor advances on ownership. Single expiry arm scans current rows. Neither raw counter nor queue capacity proves ownership. B391 affects the X09 reader of the final call. |
+| `node_mac_rx.cpp:2190–2213`, `:2224–2275` | Sender distinguishes checked queued/parked/refused; cursor advances on ownership. Single expiry arm scans current rows. Neither raw counter nor queue capacity proves ownership. The committed B391 repair preserves the X09 reader of the final call. |
 | `remote_activation.h:14–32`, `firmware_remote_activation.h:8–26`, `firmware_commands.cpp:72` | Use 7a's real live-PHY binding and effective-value resolver, including both HAL slops, maximal terminal length and impossible-PHY refusal. |
 | `fw_main.cpp:320/335/395/423/1372/1759/1799` | Reset, OTA, crash and halt happen synchronously; v2 service is inside `!g_halted`; legacy action uses unrelated globals. A new pending action must not starve behind a halt/full queue or a reply-first early return. |
 | `firmware_commands.cpp:1031/1071/1096`; `firmware_config.cpp:251/692/902/1180/2025/2422` | Real identity, reset, sleep, cfg, gateway, join/create/team/leave handlers mix validation and effects. Preparation must reuse their parsing/services and expose typed validity, not infer success from console text. |
 
-Revision-1 author checks (not rerun for these documentation fold-ins): native **2909 cases /174485 assertions /0 failures /0 skips**; a fresh Release simulator
-build executes 64 compiler actions (both namespaces); all **36** current anchors and actual stream bytes match
-the independently gated 7b-2 corpus. No 7b-3 behavior is exercised. Candidate ABI and focused B391 proofs are
-separate below. No new full tools/probes/census/board-pair/full-mutation gate was run for this authoring task.
+Fresh revision-4 author baseline: **2912 cases /184461 assertions /0 failures /0 skips**; fresh Release/Ninja
+simulator, **64 actual compiler actions** across both namespaces; all **36 anchors/streams byte-identical**
+to the validated codec final corpus. Extended reference **94/94**, old 89 unchanged, five comparator controls.
+Current source audit: **52 batteries/817 configured patterns, all match once**, not an executed mutation union.
+Three-ABI compile-only models are below. No full implementation gate or linked board-RAM measurement this turn.
 
-## 2. Decisions and gate prerequisite exposed by the pre-check
+## 2. Scope, preparation, ruled policy and allocation
 
-### 2.1 B389 — owned arguments and prepared state: OWNER RULING REQUESTED after source-validation
+### 2.1 B389 — complete twelve-row proposal: OWNER ALLOCATION RULING STILL REQUIRED
 
-0e's `DeferredActionRecord` is **24/8**, two rows **48 B**, with request ID, 32-bit deadline and five u8 flags.
-It contains no arguments. Production completion wipes the ingress body, and ACK/epoch changes release the
-transcript. Borrowing either buffer leaves parameterized actions dangling. R-RA-22 also prohibits borrowing
-open/bootstrap capacity. A live `span`, parser pointer, shared command scratch or stack adapter is not ownership.
+The production action row does not exist. `remote_transcript_complete` releases ingress/body; ACK/invalidation
+can release a transcript. No command bytes, stack Print, service pointer, raw parser buffer, open/bootstrap
+scratch or old transcript may be borrowed as action state. No whole NV Blob, seed or dynamic payload is needed
+for the selected twelve rows; the complex prepared transactions remain explicitly refused under §2.2.
 
-QA compiled an **illustrative argument-owning candidate**, not a finished implementation plan, with the real
-native/ARM/Xtensa flags: full request/epoch/source identity, u64 deadline, frozen u32 delay, role/kind/phase,
-length, and 202 bytes for the exact 201-byte line plus NUL. Each row is **248/8**. Adding independent u32
-scheduled detail to each transcript header makes it **32/8**, up from 24/8. Two rows plus four enlarged headers
-price **8824/8 → 9352/8: +528 B** on all three ABIs. Mobile's feature-inclusion marker remains absent; compiling
-a candidate type on Xtensa is not evidence that a mobile instance is resident. No Node pin or linked RAM changed.
+The proposed row owns the following exact semantic information; internal enum names/order may follow the
+codebase, but no field or lifetime may be dropped:
 
-This candidate demonstrates the missing ownership cost. **Retaining a raw line alone is not sufficient proof
-of reliable preparation.** Source-validation must enumerate the actual prepared representation for all families,
-including generated identity material, config/provisioning deltas and backend information where needed; prove
-that activation cannot fall back into a second mutable-policy/validation pass; and measure the complete candidate
-on all three ABIs. An explicit bounded byte carrier is acceptable only with a single typed conversion and full
-ownership/size proofs. Do not hide a whole NV blob, extra static scratch, heap allocation or resident adapter.
+| Owned information | Representation in the measured model |
+| --- | --- |
+| Request/authority identity | request_id u64, admin_epoch u64, source_hash u32, controller_slot u8, authority u8 |
+| Clock | activate_at_ms u64, frozen activation_ms u32 |
+| Complete action argument | One u8 kind: none, reboot, prep_restart, ota, factory_reset, sleep_on, sleep_off, crash_hang, crash_fault, crash_reboot. Sleep boolean and crash mode are encoded in kind, not borrowed text. |
+| Resolved hardware | One u8 backend: none, nrf_reset, esp_reset, nrf_dfu, wifi_ota, nrf_fault, esp_fault. Applicable kinds capture their backend before scheduled. |
+| Ownership/eligibility | One u8 phase: none/preparing/prepared/armed/due; one u8 trigger: none/ack/deadline. Zero ID is legal; phase is presence. |
 
-**Revision-2 recommendation:** price **one** deferred row under B390's serialized policy, with independent
-immutable terminal detail and ACCEPT-only residency. This deliberately proposes replacing R-RA-22's two-row
-capacity; it is not already authorized by that ruling. Fresh compile-only pricing of the same illustrative
-248-byte row, once, gives **8824/8 →9104/8 (+280 B)** on native/ARM/Xtensa: 248 + four 8-byte header increases.
-This is still not the expected implementation layout or linked RAM. The original +528 two-row measurement
-remains valid historical evidence. No native/gateway Node re-pin is authorized until the complete plan is priced.
+One row is **40/8** on native/ARM/Xtensa. Each of four transcript headers independently owns a u32 immutable
+activation detail, growing **24/8→32/8**. Two retained u8 diagnostic fields (`last_activation_kind/outcome`)
+plus final alignment are included: state **8824/8→8904/8 (+80 B)**. There are no secret-bearing payloads,
+extra resident adapters or hidden sixth counter. Explicit zero-init/canonical padding and complete owned
+transfer/clear at consume are required; transient apply/sink/report bindings are measured separately on stack.
 
-Prefer the existing **typed** request/plan paths. `firmware_config.cpp:915–918` already constructs `JoinRequest`
-and calls `JoinService::apply_join`; the actual `JoinRequest` measures **32/8** on these three ABIs and
-`firmware_join_service.h:150` owns validation. Existing cfg/PHY parsers likewise provide reuse points. Neither
-that 32-byte request nor the raw-line candidate proves a complete prepared apply plan. The 248-byte row is a
-comparison for storing a maximum raw line, not an expected allocation and not a mathematical upper bound for
-every family's generated/prepared state. The coder must enumerate and measure the complete typed-plan union,
-metadata, immutable detail and any auxiliary resident state before the owner rules B389. No hidden blob/heap.
+QA's fresh compile-only **full Node layout model** measures:
 
-**Optional scope fallback proposed for owner review:** if the enumeration demonstrates that a named family
-needs a separate validate/apply preparation slice, the owner may authorize 7b-3 to keep that family remotely
-`refused`, with zero disruptive effects and a registered, separately fenced follow-up. This is not an automatic
-fallback. Preflight must list each affected policy row/family, missing seam, real-source reason, proposed
-follow-up and closure proof; QA records the explicit exception before coding. Keep the authority classification
-unchanged and test the retained refusal. Do not promise `scheduled`, label the family complete, quietly drop
-its tests, or call the overall disruptive-command arc complete. Without that exception, the full-family fence
-stands and any necessary preparatory split returns STOP-1. Role protocol step 7 reserves allocation/scope
-rulings to the owner; this draft makes neither.
+| ABI | Current Node | Proposed Node | Change |
+| --- | ---: | ---: | ---: |
+| Native ACCEPT+CLIENT | 230896/8 | 230976/8 | +80 B |
+| Gateway ARM ACCEPT | 157264/8 | 157344/8 | +80 B |
+| Heltec mobile Xtensa CLIENT | 117912/8 | 117912/8 | 0 B |
 
-### 2.2 B390 — conflicting accepted actions: OWNER RULING REQUESTED
+The model uses private shadow headers; no production Node/header/pin was changed. The initial shadow compile
+hit the current native static_assert; that failure is retained, followed by an explicit model-only proposed
+pin. This is layout pricing, not a software implementation or linked-RAM result. No P1 resident growth is
+allowed. Before behavior code, the coder source-validates this complete representation against the gated P1
+APIs; any extra owned state returns to QA for measurement, not an unnoticed allocation increase.
 
-Two rows alone do not define which two promises can coexist. An accepted reboot/DFU/factory reset loses a second
-RAM-only action; `prep-restart` sets `g_halted` and skips the current executor/timer block. These are planned
-side effects, not the design's external power-loss exception. A second retune can also invalidate a prepared
-first action or its reply. No production v2 scheduler currently exposes this bug; this is a design/admission gap.
+**Concrete recommendation for the owner's B389 ruling:** approve one 40-byte ACCEPT-only row, four independent
+u32 transcript details and the two diagnostic bytes/alignment, **+80 B total resident session state**, with
+native/gateway Node re-pins **230976/157344**, measured final linked-RAM attribution and unchanged mobile Node
+**117912** and RAM. Existing linked baselines from the committed codec gate are gateway **203956 RAM /570588
+flash**, mobile **207756 RAM /1372992 flash**. +80 gateway RAM is a prediction, not today's measurement.
+No approval is inferred from the codec commit, the four-row comparison, or general filesystem permission.
 
-**Revised recommendation:** at most **one outstanding disruptive promise per target, across all ACL slots**,
-from successful reservation/preparation until activation consumes it, with **one deferred-action row**. The
-second row would have no reachable use under this admission rule; dropping it is an explicit proposed change
-to R-RA-22's capacity. B389 prices the final representation after enumeration.
+### 2.2 Exact R-RA-39 refusal list and named follow-ups
 
-Use a retained, immutable **typed TERMINAL `action_busy`**, proposed code **0x08**, for a distinct conflicting
-request. Revision 1's `refused` plus `deferred_busy` text proposal is superseded: the controller must distinguish
-capacity conflict without parsing OUTPUT. `refused` keeps its not-allowed/unsupported meaning. A busy request
-has not executed, but its result is final for that request ID: exact retries replay identical bytes, never
-become scheduled after capacity frees, and never occupy the action row. Any later execution is a fresh request
-under 8a's policy; no automatic retry of an unknown non-idempotent outcome is authorized here.
+QA records these exceptions now under the owner's existing R-RA-39 authorization. The authoritative
+[row-by-row disposition](../evidence/2026-09-15-radmin-slice7b3-reissue/all-48-dispositions.md) covers all
+**180 policy entries /48 disruptive entries**, with **12 scheduled-scope +36 refused** and exact source
+lines/aliases. Its extraction independently matches the coder's enumeration; no policy row is dropped.
+Metadata alias/coarse rows are not extra independently executable commands. Source policy and the one
+common grammar still decide what an actual request means.
 
-**Separate 7b-3-0 codec prerequisite if this proposal is approved:** 0x08 is currently unallocated and rejected
-(`remote_codec.h:73–86`, `remote_codec.cpp:641`). QA first authors a small codec-only brief; it allocates the
-typed result, updates the real result guards/exhaustive consumers/reference and invalid-boundary tests, and
-gets its own gate and owner commit, with no scheduler/producer/state change. For example the existing 0x08
-invalid-result fixtures must move to the next genuinely unallocated value without losing their semantic-
-failure coverage. No new envelope or `wire_version` is needed. Then QA reissues this behavior brief at that
-actual hash with the codec gate's full acceptance floor. Do not put this new result into production under the
-current behavior fence or hide it as an ADMISSION_RESULT code. **The five-byte `scheduled` terminal itself
-needs no codec slice**: `remote_codec.cpp:654` already preserves bytes after its result as `result_detail`.
+| Refused family | Exact affected policy rows | Missing boundary / registered follow-up |
+| --- | --- | --- |
+| cfg set (22) | bw; cr; freq; gateway_only; host_mobiles; l1_bw; l1_cr; l1_freq; l1_layer_id; l1_node_id; l1_routing_sf; l1_sf_list; layer0_id; leaf_id; mobile; mobile_autoregister; mobile_autoregister true; n_layers; node_id; routing_sf (alias: control_sf); sf_list; tx_power | B395 / 7b-3-F-config. `firmware_config.cpp:251–631` interleaves parsing, live changes and save; existing ConfigService covers only its own fields and reloads/merges fresh NV. Need one typed delta/prepare/apply authority. |
+| gateway (1) | gateway / — | B395 / 7b-3-F-config. `firmware_config.cpp:692–763` composes a deliberate pending-Blob subset inline, resolves defaults and saves. Preserve persist-only/reboot-to-apply, no implicit reboot. |
+| join (2), create (7), leave (1) | join / —; join (alias: create) / —; create / —, active_fraction, ch_min_ms, dm_min_ms, duty, name, sf_list; leave / — | B396 / 7b-3-F-provision. JoinRequest is owned but apply_join revalidates/loads/saves/applies (`firmware_join_service.h:196–222`); create generates lineage and applies in one handler (`firmware_config.cpp:1180–1230`); leave rereads pending frequency then saves/applies (`:2422–2435`). |
+| team (2) | team / —; team / new | B397 / 7b-3-F-team. `firmware_provisioning_service.h:755` owns project/stage/commit lifetimes; snapshot has borrowed key pointers. Keyring put reads, capacity-checks and writes (`firmware_team_keyring.h:519–556`) with no held reservation. |
+| regen (1) | regen / — | B398 / 7b-3-F-regen. `firmware_commands.cpp:1031–1056` draws, saves and installs messaging identity together; no prepared identity commit. |
 
-Safe and force rollover regard
-active preparation or an **armed** action awaiting activation as target-wide executing work and return the
-existing `executing` admission notice. A completed **unarmed** transcript instead retains existing safe-busy/
-confirmed-force-abandon semantics: force can release its own slot's unowned action with the abandoned transcript.
-This prevents an unsendable prepared response from becoming uncancellable executing work.
-The restriction does not redefine command authority or the separate open-rate budget.
+For every listed row and representative valid/invalid/profile/authority forms, retain typed **refused**, zero
+execution/draw/write/live-change/retune/halt/reset/OTA effects and immutable retry. Existing command policy
+classification stays unchanged; these exceptions are implementation support limits, not authority changes.
+The full probe also preserves non-disruptive cfg/team/key forms and local USB/BLE semantics; do not refuse
+an entire command family when only its disruptive rows are listed. These refused requests never occupy the
+action row or become scheduled. They stay refused even while another action is busy or after capacity frees.
 
-**Recovery precision for the second-read residual:** never-owned/unsendable is **unarmed**. An armed row already
-has checked queued/parked ownership and an activation deadline; even if it never airs or reaches the controller,
-loss of delivery/ACK does not extend that deadline. Force is not a cancellation API for an armed promise.
-An unarmed response may retain the single row indefinitely; same-slot confirmed force can abandon it. A
-*different operator* cannot roll that slot, but a permitted **remote owner ACL change** can invalidate it:
-`firmware_admin_verbs.h:386–396` dispatches confirmed removal; `firmware_admin_acl.h:335–353/399–414` preserves
-self/last-owner safeguards and commits the live invalidation; `remote_session.cpp:364–372` applies it. Under
-§3.4 the invalidated unarmed action is released too. Thus “another credential has only physical recovery” is
-too broad. Prove same-slot force and a different owner's permitted removal, operator/self/last-owner refusal,
-and failed/no-op ACL write preservation. Physical recovery remains when no usable authorized remote path
-exists. No new cross-slot force/cancel privilege is proposed.
+**Separately fenced follow-ups (registered, not implementation dispatch here):**
 
-This conservative policy is a proposed restriction, **not implied by R-RA-22 or access permission**. An alternative
-allowing compatible concurrent promises needs an explicit complete action-pair matrix and proof that neither
-accepted deadline, prepared meaning nor response ownership can be invalidated. The coder may source-validate
-that alternative but cannot silently adopt it. The rest of this draft uses the recommended serialized policy;
-QA reissues the affected clauses if the owner chooses differently.
+- **B395 / 7b-3-F-config (23 rows):** prepare a shared cfg/gateway typed delta and canonical conversion in
+  firmware_config/config-parse/config-service and related carriers only as needed; local refactor first,
+  then separately gated deferred support. Preserve current numeric grammar, deliberate gateway seed subset,
+  pending-only versus live effects, all field mappings and unrelated fresh NV updates. Prove all 23 rows'
+  local output/operation-order equivalence and later zero early mutation/frozen values/late-merge safety.
+- **B396 / 7b-3-F-provision (10):** firmware_config/join-service/provisioning service and directly necessary
+  pure carriers. Reuse blob_put_static_join/provision_apply_live; freeze lineage once, own full leaf/name/SF/
+  duty/interval data, preserve unrelated state and save-before-live/DAD order. Refactor and deferred feature
+  are separate increments; prove scratch destruction, save failure and profile refusals on actual services.
+- **B397 / 7b-3-F-team (2):** firmware_provisioning_service/team-keyring and real config bindings only. Specify
+  owned prepared transaction, admission/commit and capacity/membership lifetime before coding; no hidden
+  reservation or stale snapshot. Prove no-change/live drift, full/corrupt stores, supplied/minted keys,
+  keyring→cfg write order, full secret wiping and preserved DATA-SF/hosting state, with zero early effects.
+- **B398 / 7b-3-F-regen (1):** messaging identity preparation/commit in firmware_commands and a focused pure
+  identity helper using existing derivation/checked-seed idioms. Generate once; own prepared material, preserve
+  current name/location and local behavior, wipe on all exits, install only at activation. Prove ordinary
+  regen leaves dedicated admin/controller stores and sessions unchanged. No B312 provider fix in that slice.
 
-### 2.3 B391 — stale X09 after B388: scoped instrument repair, no new owner ruling
+Each follow-up needs its own source-validated brief, complete state/lifetime measurement and any owner
+allocation ruling, full implementation/independent gate, and an explicit removal of its refusal exception.
+Listing it does not authorize a broad refactor in this behavior fence or label the disruptive arc complete.
 
-At `f993191`, `radmin5rx` X09 in `tools/probe_ui_model_mutations.py:11020` still searches for the removed
-comment `// to exactly what was already armed.` followed by `radmin_expiry_arm();`. A fresh run of the actual
-harness gives baseline **2909/174485/0**, **VACUOUS /match count 0**, exit 1. Therefore the previous **772 RED**
-full gate is historical evidence from before B388; unchanged executable bytes do not make this strict reader pass.
-B388's comment correction remains correct and closed. The scoped-return claim of complete gate attribution
-was too broad; the independent QA report §9 records that error rather than erasing the old report.
+### 2.3 B394 preparation; fulfilled codec/B391 prerequisites
 
-A private, code-based replacement pattern ending at the ACCEPT/CLIENT boundary matches once and drops exactly
-the same expiry-arm call. The actual harness then gives **X09 RED /1 failed assertion /match count 1**, baseline
-**2909/174485/0**. Proposal patch and both raw runs are retained in the pre-check directory. No shared harness
-edit was made. The coder may apply this narrow instrument-only repair during source-validation and return it
-separately for QA's scoped verification, before production work; no counts, assertions or production lines change.
-Run the whole `radmin5rx` battery and all source-pattern matches after repair, plus tools discovery for the runner
-edit. The future full gate still executes the full union. Do not count VACUOUS as the known B342 exception.
+The selected twelve rows are reboot/prep aliases (3), OTA (1), factory-reset bare/confirm (2), sleep bare/off
+(2), and crashtest bare/fault/hang/reboot (4). Bare/invalid factory/crash forms must refuse before scheduled;
+“twelve rows” is coverage, not twelve unconditional success forms. Four have reusable effects; eight need
+shared parse/admission/apply extraction. All twelve need explicit typed outcomes and bounded sink/backend
+bindings. **7b-3-P1** supplies these under C1, with local behavior unchanged and all remote disruptive guards
+still refusing. It gets its own gate/owner commit before this feature, then QA refreshes this brief at that hash.
+No implicit narrowing to only four rows and no hidden effect/parser refactor in 7b-3.
 
+The owner codec commit ac5f9a5 already allocates **RemoteTerminal::action_busy (08)** and preserves scheduled's
+opaque detail. Do not edit the codec again here. Its reported independent gate is **2912/184461/0**, reference
+94/94, union **52 batteries /816 RED /known unusable B342 /817 configured**, with B391 X09 executed RED/one
+match/one failed assertion. Four frozen codec/test/tool hashes match this commit. This author pass repeats
+native/reference/corpus and cardinality, not that full gate. Preserve the independent report's limitation:
+QA reproduced linked totals, not the coder's one-byte base/final gateway ELF attribution.
 
-### 2.4 B392 — prep-restart remote lockout: OWNER CALL before dispatch
+### 2.4 R-RA-37 — one promise, immutable conflict, rollover and recovery
 
-The second reader registered B392; preserve it open until the owner chooses. Source `fw_main.cpp:438` sets
-`g_halted`; the `:1372–1803` operating block contains mesh RX, timers, TX and remote executor. Once prep-restart
-activates, **mesh remote administration stops**: no remote `reboot`, rollover or follow-up request can recover
-it. This is the existing halt behavior, not an instruction to keep radio administration secretly running.
+At most **one outstanding disruptive promise per target across all ACL slots**, from reservation/preparation
+until activation consumes it; exactly **one** action row. R-RA-37 replaces R-RA-22's two-row comparison for
+this class. A distinct eligible supported disruptive request conflicting with that row receives retained,
+immutable typed TERMINAL **action_busy (08)**. Authority/support/grammar refusals stay refused. No text is
+required to identify the busy condition. That ID never later changes to scheduled; exact retries replay the
+same bytes without occupying an action row. A fresh ID is required to try again.
 
-**Recommendation:** retain remote scheduling and explicitly warn of this deliberate lockout. Recovery requires
-**local restart**, not necessarily a physical power-cycle: USB/BLE service remains outside the halted block
-(`fw_main.cpp:1808/1813–1814`), and local `reboot` reaches the reset wrapper (`firmware_commands.cpp:1528`).
-Hardware reset/power-cycle also restarts it. BLE availability/security remains product-specific; do not grant
-new physical-presence authority. A different remotely held ACL credential alone does not overcome stopped RX.
+Active preparation or an **armed/due** action reads as target-wide executing to safe/force, using R-RA-36's
+existing admission code. A completed **unarmed** transcript retains same-slot safe-busy/confirmed-force-
+abandon behavior. The unarmed row can persist indefinitely if its terminal never gains checked send ownership;
+same-slot force or a permitted other-owner ACL invalidation can release it with its invalidated transcript.
+No new timeout, cross-slot force/cancel privilege or general local-command lock. Prove operator/self/last-owner
+refusals and failed/no-op ACL-write preservation. An armed row already has an activation deadline even if
+its reply never airs; lost delivery/ACK cannot extend it, and force cannot cancel it.
 
-The alternative is a retained remote refusal for prep-restart with its operator/disruptive classification
-unchanged. Keeping mesh RX/executor active while halted would change the deliberate silent-network contract
-and is outside this fence. The owner chooses before dispatch; a second-read recommendation is not that choice.
-If scheduling is selected, land the Part 57b lockout observation and pass this exact proposed warning to 8a:
+### 2.5 R-RA-38 — prep-restart remains schedulable with documented lockout
+
+R-RA-38 chooses scheduling, not remote refusal or a halt carve-out. Activation sets g_halted and stops mesh
+RX/TX/timers/admin processing in the operating block (`fw_main.cpp:1372–1803`). No remote reboot/rollover can
+recover the target. Local USB/BLE service remains outside (`:1808/:1814`); local reboot where supported,
+hardware reset or power-cycle can restart it. No new physical-presence authority is granted. Part 57b remains
+pending software PASS/metal access; the 8a controller must display this exact warning before submission:
 
 > prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted.
 
-8a displays the warning before submission; this does not add a new command confirmation token or implement
-controller UI in 7b-3. The bench reservation below is conditional and not a claim that current firmware schedules it.
+There is no new confirmation token, no controller UI in this slice and no further owner choice on B392.
 
 ## 3. Execution contract
 
 ### 3.1 Scope and preparation
 
-All source-policy disruptive families are inventoried and source-validated (any delivery exception requires
-the explicit B389 fallback ruling above; prep-restart additionally depends on B392): reboot/prep aliases, factory reset, ordinary `regen`, OTA
-entry, crash tests, sleep, disruptive cfg keys, gateway, join/create, leave and team. The exact 48 policy rows
-are retained in `disruptive-inventory.json`; aliases/subrows are not 48 independent handlers. Read-only/usage
-forms within a coarsely disruptive family must be classified by the existing grammar: an invalid command,
-missing confirmation, unsupported backend, disabled crash gate or usage-only form must never promise an action.
-Operator/owner/physical and profile restrictions remain as ruled. Open execution remains exact status/routes.
+Apply the existing byte validator and command policy/authority once, preserve exact grammar/confirmation,
+and reserve the mandatory transcript before any execution. Use P1's shared typed admission/argument seam
+for the twelve selected rows; record retained refusal for the 36 exceptions. No call to a disruptive public
+handler merely to validate, no local/physical context substitution and no response-text parsing.
 
-Before any side effect, run the shared byte validator, source policy/authority and existing grammar/confirmation;
-reserve mandatory transcript and permitted action state; obtain a valid 7a effective delay; prepare the complete
-owned action; then freeze the response. No live retune, halt, wipe, membership change, identity installation,
-OTA entry or crash/reset call is permitted during preparation. Non-disruptive preparation must be documented
-per family, reversible on failure, and shown not to invalidate the current return path or administration trust.
-Reuse `firmware_config_parse.h`, existing gateway/PHY parsers and provisioning prepare/validate/apply services.
-Do not copy those parsers or perform a file move/refactor alongside this feature (C1/U1/U2).
+Supported, authorized forms acquire the one action row only after admission and conflict handling are known.
+Run 7a's real delay resolver; invalid/unsupported/debug-disabled/usage/confirmation forms refuse before any
+promise. Freeze kind, backend, identity and delay with no reset/erase/halt/flag write/OTA start. Factory-reset
+confirmation is consumed as authorization; sleep on/off and crash mode are represented by the owned kind.
+Crash debug/backend admission is frozen here, never repeated after scheduled. MR_NO_POWERSAVE may retain
+its current local no-op behavior; remote sleep is unsupported on such a build and refuses before scheduling.
+P1's local prefix grammar must not become an incidental remote grammar rewrite; the existing authority and
+byte validator still apply before that grammar.
 
-Preparation returns a typed outcome. Invalid/unauthorized/unsupported requests get a truthful retained
-refusal; conflict gets the proposed typed `action_busy` only after the separate approved codec prerequisite; internal preparation or response-staging failure gets `internal_error` before any scheduled transcript
-exists. No action remains armed after either failure. Full transcript capacity retains existing ingress pacing
-and exhaustion accounting: never execute without a terminal reservation. Capacity refusal after a transcript
-reservation is completed and remembered, so an exact same-ID retry cannot later become scheduled under the same
-terminal nonce. No new mutable `ADMISSION_RESULT` code or replacement negative-response cache is introduced.
+Preparation/staging failure produces retained **internal_error** only before a truthful completed/scheduled
+transcript exists; unsupported/validation/authority exceptions produce **refused**, conflict **action_busy**.
+No action remains after either preparation failure. Do not increment a send-failure or exhaustion counter
+for an ordinary execution refusal. Exhausted transcript capacity retains existing pacing and its accounting;
+never execute without its terminal reservation. Freeze the completed response once; no different negative
+terminal/plaintext for the same retained request ID/nonce after conditions change.
 
 ### 3.2 Frozen scheduled terminal
 
@@ -290,7 +290,7 @@ request retry resets only the replay cursor to zero. No suspension latch, replac
 
 ### 3.3 Clock origin, ACK and action ownership
 
-The proposed explicit clock origin is **the first checked ownership of that scheduled TERMINAL** by the existing
+The explicit clock origin is **the first checked ownership of that scheduled TERMINAL** by the existing
 response sender: queued or parked. Reserving output, completing a transcript, accepting an earlier OUTPUT,
 a raw counter, full-queue pacing, a seal refusal or a checked send refusal cannot arm it. Use the actual
 `SendDispatch::Admit`, including parked with counter zero. Ownership is not an assertion that DATA aired or
@@ -318,9 +318,10 @@ to move mesh RX/TX/admin request processing out of `!g_halted` or undo B392's ch
 
 ### 3.4 Invalidation and failure after acceptance
 
-Ordinary messaging `regen` preserves `/mradmid`, `/mracl` and administration sessions. Other authenticated
+The listed remote `regen` row stays refused; ordinary local messaging `regen` still preserves `/mradmid`,
+`/mracl` and administration sessions. Other authenticated
 transcripts and their bytes/cursors/routes remain protected except already-ruled order-rank compaction.
-Under §2.2's proposed policy, safe/force cannot pass while preparation is active or an armed action awaits
+Under R-RA-37, safe/force cannot pass while preparation is active or an armed action awaits
 activation. Force may abandon a completed unarmed transcript/action in its own slot under the existing epoch-
 rotation contract; another slot's work stays intact. Safe still refuses any same-slot unacknowledged transcript.
 Explicit root/ACL invalidation may discard an **unarmed**, never-owned promise with its now-invalid transcript;
@@ -365,16 +366,16 @@ Keep `device_fault.h`'s hardware/ISR ownership; fw_main remains glue, not the ne
 
 **ACCEPT status observability (fold-in, no additional counter):** extend the real scalar status snapshot;
 never expose the action plan, arguments, secrets or a pointer to resident state. Always print
-`radmin_action_phase=none|prepared|armed|due` and `radmin_action_armed=0|1`. For a present row also print
+`radmin_action_phase=none|preparing|prepared|armed|due` and `radmin_action_armed=0|1`. For a present row also print
 `radmin_action_request_id=<16 lowercase hex>`, `radmin_action_slot=<decimal>`, `radmin_action_kind=<stable name>`,
 `radmin_action_activation_ms=<frozen decimal>` and `radmin_action_remaining_ms=<decimal|unarmed>`.
-The phase determines presence (request ID zero is legal); none omits row-specific fields, prepared uses
+The phase determines presence (request ID zero is legal); none omits row-specific fields, preparing/prepared use
 `unarmed`; armed derives remaining time from one current clock snapshot with zero at/past the deadline;
 due reports zero, including early eligibility from an ACK.
 The armed flag means terminal ownership has occurred, including due. Values are live-derived, not new cached
 resident state; pure status reads cannot arm, consume, expire or refresh a row. Local/authenticated/open text
 status share this bounded scalar view under existing access rules; CLIENT-only builds expose none of it.
-Assert exact seeded values, empty/prepared/armed/due transitions and no side effects in the real-TU status probe.
+Assert exact seeded values, empty/preparing/prepared/armed/due transitions and no side effects in the real-TU status probe.
 
 Keep the five saturating ACCEPT counters and meanings. Action busy/validation refusal is an execution result,
 not transcript exhaustion or a failed send attempt; no sixth counter is authorized. Seal failure increments
@@ -382,52 +383,67 @@ only seal failure, with no enqueue attempt; checked send refusal increments enqu
 neither. A labelled synthetic fault is allowed only in a fixture when a real-Node failure is otherwise
 unreachable, with a reachable positive control, full state/cursor accounting and subsequent recovery.
 
+**Bounded activation result, included in §2.1's price:** retain only last kind and last outcome, both u8.
+Cold init clears them to none; ordinary session/root/ACL invalidation preserves them like the five counters.
+A failed preparation does not replace the last activation. On consumption set kind and outcome=started
+before the effect; typed apply/report updates outcome while the runtime survives. Outcomes are
+none/started/completed/inbox_partial/nv_partial/inbox_nv_partial/backend_failed/unexpected_return. Report
+partial failures before any non-returning reset, using a call-scoped observer if needed; never parse output.
+Success of a requested reset is not inferred from a return. Actual power loss/reset has no durable result
+claim. Getter text is `radmin_last_activation_kind=<stable name|none>` and
+`radmin_last_activation_outcome=<name>`; no retained old request ID, history, timestamp or extra counter.
+
+Stable kind names in status/diagnostics: reboot, prep-restart, ota, factory_reset, sleep-on, sleep-off,
+crash-hang, crash-fault, crash-reboot. These are scalar metadata, not echoed command lines. Remote apply uses
+P1's non-forwarding effect sink and typed observer; raw handler/transcript/backend text cannot escape through
+mrcon/BLE. Existing local handlers retain their exact output/warnings. Hardware failures remain observable via
+these bounded outcomes and the permitted scalar diagnostic below. No raw output fallback after completion.
+
 ## 5. Implementation fence
 
-Predict `git diff --stat` paths/counts before editing. Expected feature diff spans core lifecycle, firmware
-preparation/application and their executed instruments; no file move, unrelated cleanup or simulator change.
+This is the **feature after P1**, not permission to extract existing parsers/services while adding scheduling.
+Predict the changed paths/counts before editing. No file move, unrelated cleanup or simulator edit.
 
-- Core: `lib/core/remote_session.{h,cpp}`, `node.{h,cpp}`, `node_mac_rx.cpp`; existing bounded state, transcript
-  producer, ACK/install/scan and checked sender seams. New feature-local private headers only if they avoid
-  dependency cycles and are named in preflight. No firmware/NV includes or handler execution in lib/core.
-- Firmware: `src/firmware_remote_executor.h`, `firmware_commands.{h,cpp}`, `firmware_config.{h,cpp}`, relevant
-  existing pure config/provisioning helpers; a focused `firmware_remote_actions.{h,cpp}` is the proposed new
-  feature owner. `fw_context.h`/`fw_main.cpp` only declarations, concrete backend bindings and bounded loop
-  calls/order. `device_ota.{h,cpp}` only if the explicit entry primitive requires it, preserving local behavior.
-  Any broader parser/service rewrite is a STOP-1 proposal for separate preparation; only an explicit B389
-  scope-fallback ruling can permit named families to remain refused with registered follow-up. No hidden cleanup.
-- Native: extend existing executor/session/transcript/Node tests and 7a timing cases; a focused
-  `test_remote_actions.cpp` is permitted. Use real codec/session/Node and count hardware effects with fixtures.
-  No production fault hooks. ABI re-pins only after the owner's complete B389 allocation ruling and measurement.
-- Instruments: narrow B391 harness repair; source/dependency mutation additions; board ABI measured entries;
-  existing inbox/console/UI/features probes for new real bindings. A new `tools/probe_deferred_actions/` is
-  permitted if needed to compile the **real command/config/action TUs** with hardware/store fakes; include
-  default controlled and no-controls runs in the gate and test discovery. No copied handler implementation.
-  Regenerate command inventory with its tool; 204 inventory rows /existing authority semantics should remain.
-- Coder's new receipt and directly required instrument artifacts. Register, bench, design, rulings, MEMORY and
-  QA reports remain QA-owned. Preparation documentation listed at the top is preserved as permitted input.
+- Core: `lib/core/remote_session.{h,cpp}`, `node.{h,cpp}`, `node_mac_rx.cpp`; one bounded action record,
+  independent transcript detail, ACK/install/expiry/checked-send ownership. A pure feature-local header may
+  hold the shared carrier if named in preflight; core must not include firmware/NV or execute handlers.
+- Firmware: `src/firmware_remote_executor.h`, `firmware_commands.{h,cpp}`, focused new
+  `firmware_remote_actions.{h,cpp}`, with `fw_context.h`/`fw_main.cpp` limited to concrete P1 bindings and
+  loop calls/order. Reuse the gated P1 APIs; do not reparse at activation or change their local behavior.
+  No firmware_config/provisioning/keyring/identity-service or device_ota implementation edits in this feature.
+  Add a new TU to the actual three base build_src_filter lists in platformio.ini if needed; no profile change.
+- Native: extend existing session/transcript/executor/Node/7a tests; `test_remote_actions.cpp` if useful.
+  Real codec/session/Node paths, no production fault hooks. ABI/Node pins only after B389's explicit ruling
+  and measured final layout/link attribution. Price transient transfer/observer stack as well as state.
+- Instruments: all dependency/source mutation additions, actual measured ABI entries, existing six probes
+  and P1's real-effect probe. Extend the real firmware command/action path under hardware/store fakes;
+  compile actual owners and controlled board-function extracts, never copied handlers. Keep B391's X09
+  effective after changed expiry/ACK code. Full tools discovery and D5/D6 source-reader checks are mandatory.
+- Coder's append-only receipt and inventoried artifacts. QA owns maintained register/design/rulings/MEMORY/
+  bench/brief updates. Regenerated inventory may move anchors, not its 204-row authority/command semantics.
 
-OUT: codec/domain/wire-version changes; NV schema/journal; simulator/anchor edits; new timers/capacity without
-ruling; authority/DM/ACL policy changes; controller request/ACK/custody/confirmation UI; legacy removal or legacy
-activation cleanup; transport redesign; unrelated B312/B315/B342/B350/B359/B364 fixes. Preserve full BLE command
-bounds and default identity/trust separation. CLIENT-only builds gain no deferred state or remote action service.
+OUT: codec/reference/domain/wire/NV-format changes, simulator/anchors, new timer IDs, unapproved resident
+state, the 36 refused families' implementation, new command authority/DM/ACL rules, controller/confirmation/
+ACK/custody UI, legacy cleanup and unrelated B312/B315/B342/B350/B359/B364 fixes. Existing factory-erase calls
+are the selected effect, not permission to modify NV schema/erase semantics. CLIENT-only Node/RAM is unchanged
+and gains no remote action service; P1's existing local behavior remains available in its original profiles.
 
 ## 6. Required discriminating proofs
 
 | Surface | Evidence required from actual production decisions |
 | --- | --- |
-| Coverage/preparation | Map every one of the 48 disruptive policy rows and relevant forms to a real preparation decision and handler; valid, invalid/confirmation, unsupported/profile and authority arms. Assert zero disruptive effects before scheduling. Local USB/BLE grammar and behavior regressions are controlled. |
-| Complete ownership | Overwrite RX/body/parser/stack scratch after preparation; release ingress, ACK transcript, reuse a different transcript/action slot; activation still uses the original complete plan. Generated secrets and buffers wipe on abort/consume. No local/BLE plaintext leakage. |
-| Reservation and conflict | No terminal/action capacity ⇒ zero execution; approved typed action_busy replays unchanged after capacity returns; never parse text to identify conflict. Drive two credentials and two different disruptive commands; assert the owner-selected B390 policy, exact retries and no promise lost to reset/halt. |
+| Coverage/preparation | Map all 48 disruptive policy rows to the 12 prepared-scope decisions or 36 explicit retained refusals; valid, invalid/confirmation, unsupported/profile and authority arms. Assert zero disruptive effects before scheduling. Local USB/BLE grammar and behavior regressions are controlled. |
+| Complete ownership | Overwrite RX/body/parser/stack scratch after preparation; release ingress, ACK transcript, reuse a different transcript/action slot; activation still uses the original complete plan. No secret payload in this selected scope; clear owned metadata/transfer on abort/consume. No local/BLE plaintext leakage. |
+| Reservation and conflict | No terminal/action capacity ⇒ zero execution; approved typed action_busy replays unchanged after capacity returns; never parse text to identify conflict. Drive two credentials and two different disruptive commands; assert R-RA-37, exact retries and no promise lost to reset/halt. |
 | Terminal encoding | Real producer/codec: exact five-byte body, correct LE delay, output order/last sequence, all return carriers, delay at both edges, immutable retry ciphertext/detail before and after activation; other non-scheduled terminals retain old shape. |
 | Ownership/send faults | No arming on OUTPUT, capture, full queue, seal/send refusal. Checked queued and parked-zero ownership arm once. Pending frame retries next eligible pass; exact request retry resets replay only. Real Node synthetic seal fault labelled and recovery verified. |
 | ACK/clock | Before-owned ACK cannot consume a pending scheduled promise; after-owned valid ACK makes action eligible, actual hardware call only on next main-loop service. Duplicate/wrong identity/tampered ACK does nothing. Lost ACK: deadline−1 no action, deadline exactly one action, later none; wrap/saturation and delayed-loop cases. |
 | Configuration/lifetime | Raw=0 follows live default; valid configured uses that value; all three invalid resolver states refuse. Change raw/PHY after scheduling: frozen detail/deadline unchanged. ACK and ordinary invalidation do not erase armed work; safe/force guard armed work; same-slot force or permitted other-owner ACL invalidation releases unarmed work; operator/self/last-owner and failed/no-op write controls; boot/power-loss clears without a fabricated result. |
-| Real handlers | Real `firmware_commands.cpp`, `firmware_config.cpp`, action owner and provisioning decisions execute under host fakes. Assert NV/radio/identity/halt/reset/OTA operation order, exact confirm gate, crash debug/backend gate, ordinary regen admin-trust preservation and preexisting partial-erase failure behavior. Fake executors alone cannot prove this row. |
-| Lockout/pre-emption | B392 owner-selected remote prep behavior, stopped mesh RX with local service retained; distinguish external local physical pre-emption/unknown outcome from an internal missed activation. No new cross-slot force or halt carve-out. |
+| Real handlers | Real `firmware_commands.cpp`, action owner and gated P1 effect decisions execute under host fakes. Assert all 12 supported/invalid/profile/authority paths, exact confirm/sleep/crash grammar, frozen debug/backend decision, NV/halt/reset/OTA operation order and partial failures. The 36 refused rows must produce zero backend/NV/identity effects, with non-disruptive/local forms preserved. Fake executors alone cannot prove this row. |
+| Lockout/pre-emption | R-RA-38 remote prep behavior, stopped mesh RX with local service retained; distinguish external local physical pre-emption/unknown outcome from an internal missed activation. No new cross-slot force or halt carve-out. |
 | OTA | ESP inactive→entry; active never→stop from remote; nRF DFU deferred; unsupported refuses. Exact backend OUTPUT retained, no firmware body sent; local toggle regression control. |
 | Main-loop/timer | Due action runs despite full TX/continually pending output and does not starve inside `!g_halted`; exactly one consumed action per service call. Real production owner runs in probe; existing fw_main extractor/structural controls must prove actual call and placement, not masquerade as compiling all fw_main. Wheel remains 92/id91, earliest bounded scan/no zero-delay livelock and sleep wake are tested. |
-| Counter/compatibility | Preserve all five counters and saturation; new ACCEPT scalar action-status fields exactly match the same live snapshot without mutating it; no mobile residency/symbols; all previous B374–B388 runtime/ownership controls remain effective. B391 is repaired without reducing its detection power. |
+| Counter/compatibility | Preserve all five counters and saturation; new ACCEPT scalar action-status fields exactly match the same live snapshot without mutating it; no mobile remote-action-service residency/symbols; all previous B374–B388 runtime/ownership controls remain effective. B391 X09 stays effective; all last-result diagnostic states are truthful and non-mutating on reads. |
 
 Each new decision needs an effective mutation or executed real-TU probe control: premature action/ACK, missed
 or repeated activation, deadline refresh, missing owned copy, mutable delay/terminal, wrong result mapping,
@@ -436,53 +452,56 @@ hardware/global-sink escape. A source string match or fake executor is not a rea
 
 ## 7. Full implementation gate and frozen handoff
 
-Run 7b-2 brief §8.2's entire standing chain, with the following explicit inherited/current obligations.
-QA independently repeats every required instrument on the complete frozen final inputs; a coder PASS is not QA PASS.
-If 7b-3-0 is approved, its own separately gated/committed result and full acceptance floor are prerequisites
-for the reissued behavior brief; do not use this pre-codec base or its old reference counts as the final baseline.
+The coder runs this whole chain, then QA independently reruns every required instrument on the complete
+frozen implementation. The committed codec and future P1 gate are prerequisites, not replacement measurements.
 
-1. Fresh `pio test -e native` **and** `./.pio/build/native/program`; derive actual cases/assertions and failure/
-   skip counts. A filtered case is only a focused proof. Preserve known B364 limitations.
-2. Fresh simulator normal/gateway build graphs and actual compile/link provenance (B385), all 36 current
-   `simulation/BASELINE.md` anchors, manifest validation and actual byte comparison against a freshly matching
-   base. Do not rewrite manifests to bypass an executable-hash mismatch; retain any comparator refusal and
-   independently compare validated streams. Predict zero remote corpus events /36 unchanged; any delta STOP.
-3. Both ABI probes, all controls; all six existing probes (console-sink, inbox-verbs, firmware-UI, custody-USB,
-   BLE-line, features), default controlled and `--no-neg`; new deferred-action probe likewise if introduced.
-   Set `MR_LUS_SRC` explicitly in private snapshots. Only controlled runs qualify; disclose B350.
-4. Full tools unittest discovery with a real measured ELF under private `.pio-measure/` so it cannot skip;
-   inventory `--write`, bare and `--check`; authority checker +six selftests; A0, DataType literal checker;
-   both repositories' whitespace. Preserve the independent PyNaCl codec reference comparison/selftests:
-   `2026-09-09-radmin-slice7b2-0-reference.py --compare test/test_remote_codec.cpp --selftest` (89 existing
-   arrays including the old 87, four comparator controls and one-byte corruption check). No expected-byte edits.
-5. Deterministic base/final **gateway then heltec_mobile**, sequential, same private paths/fixed identity,
-   outputs under that checkout's `.pio-measure/`. Preserve/hash original ELFs/payloads and attribute Node,
-   linked RAM, flash/sections/objects/symbols and any transient stack growth. Gateway/mobile are the only
-   normal board pair; the warning census's own six-environment pinned set is the sole exception. Run it too.
-6. Derive two mutation selectors: **S**, every configured TARGET_SRC changed; **H**, complete historical and
-   dependency acceptance. Gate **S ∪ H**. H contains the complete 7b-2 **49 batteries** plus 7a's
-   `remoteactivation` (22 patterns), `fwactivation` (10), `macwait` (10): **52 batteries /815 configured
-   patterns at this base**, before new action controls. Names/counts live in `historical-mutation-floor.json`.
-   **Do not report 814 RED as measured:** at the uncorrected closure base X09 is VACUOUS and B342 is the
-   separate known unusable control. Repair B391, derive final counts again and execute every selected battery.
-   Add preparation/provisioning/config dependencies even if their TARGET_SRC did not change; list each reason,
-   pattern matches, actual clean worker baselines, RED/unusable totals and source-restoration hashes. Never
-   silently drop a no-match control or replace the union with only new action tests.
+1. Fresh base/final `pio test -e native` **and `./.pio/build/native/program`**. Derive cases/assertions/failures/
+   skips; filtered per-case XML is arithmetic only, never a whole-suite substitute over B364's boundary.
+2. Fresh simulator normal/gateway compile/link provenance (B385); all **36** current BASELINE anchors,
+   validate both manifests and compare actual base/final bytes. Read the live s18 anchor. If differing lus
+   hashes make canonical comparison refuse, retain the refusal and independently compare validated streams;
+   never rewrite manifests. No re-anchor or remote corpus movement is authorized.
+3. Both ABI probes with controls; six standing probes (console-sink, inbox-verbs, firmware-UI, custody-USB,
+   BLE-line, features), controlled default and --no-neg, plus explicit inbox CLIENT arm. Include P1/new
+   action probe default/--no-neg. Set MR_LUS_SRC explicitly for private snapshots. Disclose B350's wording.
+4. Full tools unittest discovery with a measured real ELF under the private .pio-measure tree so no hidden
+   skip; inventory write/bare/check; authority checker plus six selftests; A0; DataType literals; both repos'
+   whitespace/source integrity. Run `2026-09-13-radmin-slice7b3-0-reference.py --freeze-check --compare
+   test/test_remote_codec.cpp --selftest` in the independent PyNaCl environment: **94 arrays**, old 89
+   unchanged, five comparator controls; retain separately executed one-byte corruption refusal. No expected
+   vector edits. This is the committed extension, not the obsolete 89-only whole-file command.
+5. Deterministic base/final **gateway then heltec_mobile**, sequentially, same fixed identity/private paths,
+   under that checkout's .pio-measure/. Hash pristine ELFs/payloads; attribute Node/RAM/flash/sections/objects/
+   symbols and transient stack. Only this normal board pair; also run the census's own **six pinned envs**.
+   No new warnings or -Wreorder suppression; production allocation must match the actual owner ruling.
+6. Derive **S**, every changed configured TARGET_SRC battery, and **H**, complete historical/dependency
+   acceptance; gate **S ∪ H**. The codec floor is **52 batteries/817 configured**, reported independent
+   **816 RED +known unusable B342**, now including the repaired X09. Names/counts are in this author
+   pre-check's mutation-floor.json and the committed codec QA union summary. Include every new P1 and
+   behavior dependency/control, even if its TARGET_SRC did not change. Derive final counts again, audit
+   every pattern and run every selected battery; record actual clean worker baselines, assertion RED versus
+   compile failures, no-match/green/unusable outcomes and restored source hashes. Historical totals are not
+   a current run; a subset is not this union. Only sliceBmac M04/B342 remains the named unusable exception.
 
 Required exact report line: **`PIN re-synced? YES — <independently derived base + additions = final>`**.
-Keep strict-reader pin declarations bare; derivations precede them (D5). D6 covers comment-dependent readers.
-The frozen report includes actual HEAD/brief hash, all tracked/untracked input hashes, complete failures and
-reruns, new tool discovery/inventory, changed path fence and remaining metal limitations. No fixture count is
-hardware qualification. There is no fresh full implementation gate at this authoring checkpoint.
+Strict-reader declarations stay bare; derivations precede them (D5). Comment/moved-source readers require
+D6 audit and affected controls. Preserve every failed attempt and corrected rerun; do not silently repair
+unrelated instruments. B312/B315/B350/B359/B364 remain separate limits. A fake board reset is not metal proof.
+
+The frozen report names HEAD/brief hash, all tracked/untracked inputs, permitted preparation documents,
+all new instruments, exact commands/output, both mutation selectors, allocation and linker attribution,
+48-row disposition coverage, P1 dependency, known limits and freeze. QA builds/mutations cannot overlap coder
+edits in the same tree. No shared code fix by QA, commit, or coder recommendation substitutes for independent
+PASS/HOLD. No full implementation gate has run for this author reissue.
 
 ## 8. Predictions, STOP conditions and documentation landing
 
-Predict simulator rebuild with 36 byte-identical streams, no NV/wire version movement, unchanged authority/
-inventory semantics, ACCEPT-only state/code growth and no mobile Node/RAM growth. Current independently
-compiled Node baselines are native **230896/8**, gateway **157264/8**, mobile **117912/8**. Earlier linked
-7b-2 measurements, retained but not rerun here: gateway RAM **203956**, flash **570588**; mobile RAM **207756**,
-flash **1372992**. Do not turn the +528 candidate into a replacement pin. Publish final allocations/stack and
-linker attribution; stop on an unexplained delta, new warning or weakened check.
+Predict 36 byte-identical streams, unchanged wire/NV/authority semantics and mobile Node/RAM; ACCEPT-only
+state grows only under the final B389 ruling. Fresh current Node baselines are native 230896/8, gateway
+157264/8, mobile 117912/8. The complete author model is native 230976/8, gateway 157344/8, mobile unchanged;
++80 B state is proposed, not approved or linked. §2.1 supplies the exact ruling request and measured scope.
+Do not carry the older +280/+528 raw-line or four-row +80 comparison forward as a final allocation pin.
+P1 and final production builds must establish actual API/layout and linked/stack attribution.
 
 Retained 7b-2 STOP text, verbatim:
 
@@ -497,33 +516,36 @@ Retained 7b-2 STOP text, verbatim:
 authenticated preparation → owned scheduled terminal → ACK/deadline → main-loop activation contract. It is
 still forbidden to call a disruptive effect in ordinary remote dispatch, RX or timer context. A typed deferred
 apply is one activation of the already-admitted request, not permission for a second public dispatcher call.
-All other quoted prohibitions remain. Also STOP on missing owner storage/concurrency/B392 decisions or
-a missing approved codec prerequisite; an unapproved family omission; stale/concurrent
+All other quoted prohibitions remain. Also STOP on missing B389 allocation or gated P1 preparation; a missing
+base reissue after P1; an unlisted family omission; stale/concurrent
 inputs; predictable validation postponed until after scheduled; new nonce plaintext for an old terminal;
 borrowed action/detail lifetime; internally canceled/extended armed promises (external local physical
 pre-emption is the explicit unknown-outcome exception above); new timers; mobile Node/RAM growth;
-production codec/NV/controller work; or another unusable/vacuous instrument. B342 stays separately named.
+production codec/NV-schema/controller work; or another unusable/vacuous instrument. B342 stays separately named.
 
 After independent PASS, QA closes findings in place and lands the measured allocation, timer/ACK/retry/lifetime
 contracts in design/MEMORY/tracker, preserving the original proposals/rulings. Protocol/frame/manual replacement
 remains Slice 9; an intervening documentation claim must still be accurate. Owner commits and verifies on metal.
 
-**Part 57b has a conditional documentation reservation, not a runnable/passed gate now.** On software PASS QA adds only irreducible hardware checks:
+**Part 57b is ruled but pending implementation/metal, not a runnable or passed gate now.** On software PASS QA adds only irreducible hardware checks:
 real reboot/halt/DFU/OTA/reset/wipe effects and any newly grown hardware-only stack path. Require a scalar-only
 scheduled diagnostic before activation with exact format
 `> remote-action scheduled request_id=<16 lowercase hex> activation_ms=<decimal> action=<stable action name>`
 and activation diagnostic
 `> remote-action activate request_id=<same> trigger=<ack|deadline>`.
 These are local metadata observations, never copies of command/output/secrets and never proof of RF delivery.
-OTA backend is separately proven in captured response OUTPUT. The coder must bind/verify these formats and
-publish the action-name list before the bench entry lands. Actual controller ACK/lost-ACK/RF round trips remain
+OTA backend is captured as exactly `> ota backend=wifi\n` or `> ota backend=ble-dfu\n` before scheduled;
+these are backend availability labels, not claims that startup/upload succeeded. Stable action names are
+listed in §4. When a typed effect reports a result, its permitted scalar local line is
+`> remote-action result request_id=<same> outcome=<name>`, using only §4 outcomes. These bounded hardware
+observations do not permit raw effect/transcript output to escape; local handlers keep their own exact warnings. Actual controller ACK/lost-ACK/RF round trips remain
 8b's controller/carrier metal gate; a labelled host/controller fixture must not be described as that product gate.
 
-If B392 keeps remote prep-restart, Part 57b must observe the scheduled/activate diagnostics for
+Under R-RA-38, Part 57b must observe the scheduled/activate diagnostics for
 `action=prep-restart`, the actual halt and loss of mesh remote access, followed by successful local restart.
 The existing local success line is
 `> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean.`
 It is a local handler/hardware reference, not permission to leak the remote transcript to USB. Preserve the
 existing partial-erase warnings. Local `reboot` prints `> rebooting`; USB/BLE local service and hardware reset/
 power-cycle are distinct recovery mechanisms. Do not present the lockout observation as an automated gate or
-promise a remote recovery action after the halt. 8a inherits §2.4's pre-submission warning after the owner's choice.
+promise a remote recovery action after the halt. 8a inherits §2.5's ruled pre-submission warning. B395–B398 stay open for the refused rows; no full disruptive-arc completion is claimed.

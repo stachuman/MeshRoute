@@ -1,0 +1,97 @@
+[
+  {
+    "name": "native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 25.333225216716528,
+    "log": "native-build.log",
+    "sha256": "5340c47509c37fa641b9e38dfeba3b9985f3f0d8169f62b68d42e1a491a5d9c9"
+  },
+  {
+    "name": "native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 0.6343514323234558,
+    "log": "native.log",
+    "sha256": "2cd4188f0a83315378a6a5cd38397ead139c9763110fbeab05b7c15325897552"
+  },
+  {
+    "name": "sim-configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-qa-s7b3-r4-zwfe7qky/sim-build",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 0.4134686104953289,
+    "log": "sim-configure.log",
+    "sha256": "3451d1cfc10265a75e3985595401a5c619519191d25b64734706debe9e15c559"
+  },
+  {
+    "name": "sim-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-qa-s7b3-r4-zwfe7qky/sim-build",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 36.19278470426798,
+    "log": "sim-build.log",
+    "sha256": "879c0bb5764e5c9e59cedc08e06bcf64e076a270e32940c05d3470ca9c7d5ae1"
+  },
+  {
+    "name": "corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-qa-s7b3-r4-zwfe7qky/corpus",
+      "--lus",
+      "/tmp/mr-qa-s7b3-r4-zwfe7qky/sim-build/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 52.29343955218792,
+    "log": "corpus.log",
+    "sha256": "3d3dfd1a260220004f33ed084fce7a08c4e4c12145b8f48b2e79b79c42f59054"
+  },
+  {
+    "name": "corpus-validate",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-qa-s7b3-r4-zwfe7qky/corpus"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "rc": 0,
+    "seconds": 0.6540989801287651,
+    "log": "corpus-validate.log",
+    "sha256": "3f03f3d39156976d619c21ed06d076e6baf023465c6d1417bc20b14190ab2c25"
+  }
+]

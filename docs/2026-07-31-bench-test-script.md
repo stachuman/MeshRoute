@@ -4361,17 +4361,23 @@ floor/default the node prints (7006 / 14012 at SF8 / 125 kHz / CR5 with zero slo
 
 ## Part 57b — deferred actions / prep-restart lockout (7b-3 reservation)
 
-**DRAFT / OWNER CALL B392 / IMPLEMENTATION AND METAL PENDING — NOT RUNNABLE NOW.** This reserves only the
-hardware consequence; [7b-3 brief](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md) owns the
-software proofs. If the owner keeps remote prep-restart schedulable, activate this check after software PASS
-and availability of the 8b controller/carrier metal path. Do not carve mesh RX/admin service out of the halt.
+**RULED R-RA-38 / IMPLEMENTATION AND METAL PENDING — NOT RUNNABLE NOW.** This reserves only the hardware
+consequence; [7b-3 revision 4](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md) owns the
+software proofs. Remote prep-restart stays schedulable. Activate this check after software PASS and
+availability of the 8b controller/carrier metal path. Do not carve mesh RX/admin service out of the halt.
+The preparatory P1 refactor adds no new metal behavior and does not make this bench runnable.
 
-Observe these exact proposed local metadata formats before the hardware effect:
+Observe these exact local metadata formats before the hardware effect:
 `> remote-action scheduled request_id=<16 lowercase hex> activation_ms=<decimal> action=prep-restart`, then
 `> remote-action activate request_id=<same> trigger=<ack|deadline>`.
 After activation, mesh RX/TX/admin processing must stop: remote reboot and rollover cannot recover the target.
 Recover by **local restart**: USB `reboot` (or secured BLE where supported) prints `> rebooting`; hardware reset
-or power-cycle also restarts it. Local console service remains available during halt. Record recovery and the
-exact firmware/diagnostic lines; partial-erase warnings remain meaningful. These local observations do not prove
-radio delivery, and native scheduling tests do not close this metal check. If the owner instead refuses remote
-prep-restart, replace this reservation with that chosen contract before any bench dispatch.
+or power-cycle also restarts it. Local console service remains available during halt. Record the recovery and
+exact firmware/diagnostic lines. If an erase fails, record the scalar
+`> remote-action result request_id=<same> outcome=<name>` using brief §4's exact outcome vocabulary; local
+handler warning behavior stays unchanged, but remote execution must not forward raw handler/transcript text
+onto USB/BLE. These observations do not prove radio delivery; native tests cannot close this metal check.
+
+8a must display before submission, without a new confirmation token:
+
+> prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted.

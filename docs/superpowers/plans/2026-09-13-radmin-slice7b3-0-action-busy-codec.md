@@ -1,7 +1,10 @@
 <!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
 # Remote-admin Slice 7b-3-0 — typed action_busy codec preparation — 2026-09-13
 
-**Revision 1 — IMPLEMENTED; INDEPENDENT QA PASS 2026-09-15 (Claude), uncommitted at `b9d75aa` — see §8. Owner commit next.**
+**Revision 1 — IMPLEMENTED; INDEPENDENT QA PASS 2026-09-15 (Claude), owner commit `ac5f9a592065d08e7cc8c06ef395e79891d41b34` — see §8.**
+The implementation/frozen gate base remains b9d75aa in the historical receipt. Codec/B391 prerequisites are
+fulfilled; current behavior dispatch is [revision 4](2026-09-13-radmin-slice7b3-deferred-actions.md), HOLD for
+B389 allocation and B394/P1 preparation. The original brief/pre-check/gate wording below is historical.
 Historical status line: **Revision 1 — QA/AUTHOR PRE-CHECK PASS; READY FOR CODER SOURCE-VALIDATION.** After source-validation
 passes, implement only this codec fence. R-RA-37 authorizes the allocation; no new owner policy call is
 needed. This is not implementation QA PASS. **7b-3 behavior remains HOLD** for B389's measured allocation,

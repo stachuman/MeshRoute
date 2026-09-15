@@ -1,0 +1,16 @@
+[
+  {
+    "name": "reference",
+    "command": [
+      "/home/staszek/mr-slice2-ref/bin/python",
+      "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+      "--freeze-check",
+      "--compare",
+      "test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-qa-s7b3-r4-zwfe7qky/snapshot",
+    "exit": 0,
+    "log": "reference.log"
+  }
+]
