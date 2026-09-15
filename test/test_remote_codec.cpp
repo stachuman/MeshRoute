@@ -15,7 +15,7 @@
 //     is derived through a production KDF, nonce, AAD or encoder. A round-trip is SECONDARY coverage only:
 //     it passes even when both sides are wrong together, which is precisely what these literals rule out.
 //
-// Session/bootstrap/transcript consumers now exist; only the new R-RA-36 domain has no live producer yet.
+// Session/bootstrap/transcript/admission consumers exist; the new action_busy producer belongs to 7b-3.
 // This suite proves that the SEAL/OPEN/ADMISSION path itself reaches
 //    the tested authorities: every sealed literal is reproduced through `remote_body_encode`/`remote_body_decode` (not
 //    through `remote_nonce`/`remote_aad`/`remote_body_cap` in isolation), so a mutation that bypasses the key
@@ -30,6 +30,7 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include "admin_auth.h"          // the REAL legacy codec, for the legacy-rejection fixture
@@ -4714,7 +4715,28 @@ const uint8_t kRefBody_resp_protocol_error_auth_codeff[27] = {
     0x9f, 0x07, 0x70, 0x27, 0xe5, 0x48, 0x8f, 0xee, 0x72, 0xda, 0xdf, 0x00,
     0x1f, 0x77, 0x5e,
 };
-// kRefBody_resp_terminal_auth_code08 (27 bytes)
+// R-RA-37 additions, independently frozen before production output. Generator:
+// docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py
+const uint8_t kRefBody_resp_terminal_auth_code09[27] = {
+    0x13, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x38, 0xef,
+    0xa9, 0x46, 0xc3, 0xfa, 0xbe, 0xe9, 0xe1, 0x09, 0x1b, 0x9a, 0x05, 0xc3,
+    0xc2, 0xf8, 0xbd,
+};
+const uint8_t kRefBody_resp_terminal_open_code08[11] = {
+    0x1f, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x08,
+};
+const uint8_t kRefBody_resp_terminal_open_code09[11] = {
+    0x1f, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x09,
+};
+const uint8_t kRefBody_resp_terminal_auth_code08_detail[28] = {
+    0x13, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x39, 0x61,
+    0x60, 0x15, 0x5d, 0x29, 0x22, 0x95, 0xa3, 0xfc, 0x4e, 0xae, 0x50, 0xe9,
+    0xd5, 0x4e, 0x1f, 0xc3,
+};
+const uint8_t kRefBody_resp_terminal_open_code08_detail[12] = {
+    0x1f, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x08, 0xd1,
+};
+// kRefBody_resp_terminal_auth_code08 (27 bytes): original literal, now a positive.
 const uint8_t kRefBody_resp_terminal_auth_code08[27] = {
     0x13, 0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0, 0x2a, 0x39, 0x4e,
     0x7e, 0x15, 0xbd, 0x99, 0x59, 0x8d, 0xeb, 0x3c, 0x43, 0x6d, 0xe5, 0xb6,
@@ -5845,24 +5867,26 @@ TEST_CASE("§radmin-2/corruption — a changed source hash, key or header byte f
 // §7 — THE TYPED RESULT DOMAINS (§8.9). The same byte 0x00 under two opcodes decodes to two different typed
 //      meanings, and no other byte is admitted into the authenticated protocol-error namespace.
 // =========================================================================================================
-TEST_CASE("§radmin-2/result — all eight terminal meanings, through the real decoder") {
+TEST_CASE("§radmin-2/result — all allocated terminal meanings, through the real decoder") {
     const Creds c = creds();
     const RemoteKeys keys = keys_of(c.base, c.session);
     const RemoteSource src = src_ok();
     const RemoteCarrier car = carrier_same_layer(DATA_TYPE_REMOTE_RESP, true);
     uint8_t ptbuf[P::max_payload_bytes_hard_cap];
 
-    const uint8_t* bodies[8] = {
+    const uint8_t* bodies[9] = {
         kRefBody_resp_terminal_auth_t0, kRefBody_resp_terminal_auth_t1, kRefBody_resp_terminal_auth_t2,
         kRefBody_resp_terminal_auth_t3, kRefBody_resp_terminal_auth_t4, kRefBody_resp_terminal_auth_t5,
         kRefBody_resp_terminal_auth_t6, kRefBody_resp_terminal_auth_t7,
+        kRefBody_resp_terminal_auth_code08,
     };
-    const RemoteTerminal want[8] = {
+    const RemoteTerminal want[9] = {
         RemoteTerminal::completed, RemoteTerminal::scheduled, RemoteTerminal::unknown_command,
         RemoteTerminal::refused,   RemoteTerminal::output_truncated, RemoteTerminal::internal_error,
         RemoteTerminal::session_full, RemoteTerminal::session_busy,
+        RemoteTerminal::action_busy,
     };
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 9; ++i) {
         RemoteDecoded got = sentinel_decoded();
         std::memset(ptbuf, 0x5A, sizeof ptbuf);
         CHECK_STATUS("terminal", remote_body_decode(got, DATA_TYPE_REMOTE_RESP,
@@ -5874,8 +5898,8 @@ TEST_CASE("§radmin-2/result — all eight terminal meanings, through the real d
         CHECK(got.authenticated);
         CHECK(got.result_detail.empty());
     }
-    // 0x08 and 0xFF AUTHENTICATE and are still refused: the rejection is the CODE-DOMAIN check, not a bad tag.
-    for (const uint8_t* b : {kRefBody_resp_terminal_auth_code08, kRefBody_resp_terminal_auth_codeff}) {
+    // 0x09 and 0xFF AUTHENTICATE and are still refused: the rejection is the CODE-DOMAIN check, not a bad tag.
+    for (const uint8_t* b : {kRefBody_resp_terminal_auth_code09, kRefBody_resp_terminal_auth_codeff}) {
         RemoteDecoded got = sentinel_decoded();
         CHECK_STATUS("unallocated terminal code",
                      remote_body_decode(got, DATA_TYPE_REMOTE_RESP, std::span<const uint8_t>(b, 27), keys, src, car,
@@ -5981,9 +6005,9 @@ TEST_CASE("§radmin-2/result — 0x00 means two different things, and the domain
     CHECK(op.body[0] == 0x00);
     // an OPEN terminal with an unallocated code still rejects (the namespace is the code's, not the tag's)
     std::vector<uint8_t> ob(kRefBody_resp_terminal_open, kRefBody_resp_terminal_open + 11);
-    ob[10] = 0x08;
+    ob[10] = 0x09;
     RemoteDecoded og = sentinel_decoded();
-    CHECK_STATUS("open terminal 0x08",
+    CHECK_STATUS("open terminal 0x09",
                  remote_body_decode(og, DATA_TYPE_REMOTE_RESP, std::span<const uint8_t>(ob.data(), ob.size()), keys,
                                src, car, std::span<uint8_t>(ptbuf, sizeof ptbuf)), RemoteStatus::bad_result_code);
     CHECK(sentinel_intact(og));
@@ -6767,4 +6791,172 @@ TEST_CASE("§radmin-2/admission — fixed zero application capacity shares the r
     bad = carrier_same_layer(msg.outer_type, true); bad.source_hash_on_wire = false;
     CHECK_STATUS("missing carrier source", admission_refusal({kAdmissionRefValid + 69, 28}, keys,
         src_ok(), bad), RemoteStatus::bad_carrier);
+}
+
+TEST_CASE("§radmin-2/action-busy — append-only values and independent public wire with opaque detail") {
+    CHECK((std::is_same_v<std::underlying_type_t<RemoteTerminal>, uint8_t>));
+    CHECK(sizeof(RemoteTerminal) == 1);
+    CHECK(kRemoteTerminalMax == 0x08);
+    const RemoteTerminal meanings[] = {RemoteTerminal::completed, RemoteTerminal::scheduled,
+        RemoteTerminal::unknown_command, RemoteTerminal::refused, RemoteTerminal::output_truncated,
+        RemoteTerminal::internal_error, RemoteTerminal::session_full, RemoteTerminal::session_busy,
+        RemoteTerminal::action_busy};
+    for (unsigned i = 0; i < 9; ++i) CHECK(static_cast<uint8_t>(meanings[i]) == i);
+
+    const auto keys = keys_of(kRefBaseKey, kRefSessionKey);
+    const auto source = src_ok();
+    const auto carrier = carrier_same_layer(DATA_TYPE_REMOTE_RESP, true);
+    const uint8_t busy[] = {0x08}, reserved[] = {0x09}, detail[] = {0x08, 0xD1};
+    struct Row { bool auth; std::span<const uint8_t> payload, wire; RemoteStatus status; };
+    const Row rows[] = {
+        {true, busy, kRefBody_resp_terminal_auth_code08, RemoteStatus::ok},
+        {false, busy, kRefBody_resp_terminal_open_code08, RemoteStatus::ok},
+        {true, reserved, kRefBody_resp_terminal_auth_code09, RemoteStatus::bad_result_code},
+        {false, reserved, kRefBody_resp_terminal_open_code09, RemoteStatus::bad_result_code},
+        {true, detail, kRefBody_resp_terminal_auth_code08_detail, RemoteStatus::ok},
+        {false, detail, kRefBody_resp_terminal_open_code08_detail, RemoteStatus::ok},
+    };
+    for (const auto& row : rows) {
+        INFO("auth=", row.auth, " code=", int(row.payload[0]), " bytes=", row.payload.size());
+        RemoteMessage msg{};
+        msg.outer_type = DATA_TYPE_REMOTE_RESP; msg.opcode = 1;
+        msg.slot = row.auth ? kSlot : kRemoteSlotSentinel;
+        msg.request_id = kReqId; msg.response_seq = kSeq;
+        uint8_t wire[32]{}; size_t written = 999;
+        CHECK_STATUS("independent seal (including reserved byte)",
+            remote_body_encode(wire, written, msg, row.payload, keys, source, carrier), RemoteStatus::ok);
+        CHECK(written == row.wire.size());
+        CHECK_BYTES("frozen complete wire", wire, row.wire.data(), row.wire.size());
+        const auto before = admission_sentinel();
+        RemoteDecoded d = before;
+        uint8_t plain[32]; std::memset(plain, 0xC7, sizeof plain);
+        const auto status = remote_body_decode(d, msg.outer_type, row.wire, keys, source, carrier, plain);
+        CHECK(status == row.status);
+        if (row.status == RemoteStatus::ok && status == RemoteStatus::ok) {
+            CHECK(d.result_kind == RemoteResultKind::terminal);
+            CHECK(d.terminal == RemoteTerminal::action_busy);
+            CHECK(d.authenticated == row.auth);
+            CHECK(d.layout.domain == (row.auth ? RemoteDomainId::resp_terminal_auth : RemoteDomainId::resp_terminal_open));
+            CHECK(d.msg.request_id == kReqId); CHECK(d.msg.response_seq == kSeq);
+            CHECK(d.body.size() == row.payload.size());
+            CHECK_BYTES("opaque body", d.body.data(), row.payload.data(), row.payload.size());
+            const uint8_t* storage = row.auth ? plain : row.wire.data() + kRemoteOverheadOpenResponse;
+            CHECK(d.body.data() == storage);
+            CHECK(d.result_detail.data() == storage + 1);
+            CHECK(d.result_detail.size() == row.payload.size() - 1);
+        } else if (row.status != RemoteStatus::ok) {
+            CHECK(decoded_value(d) == decoded_value(before));
+        }
+        for (size_t i = 0; i < sizeof plain; ++i)
+            CHECK(plain[i] == (row.auth && i < row.payload.size() ? row.payload[i] : 0xC7));
+    }
+    // All established slots seal/decode 08; F stays OPEN, A..E never fall back.
+    for (uint8_t slot = 0; slot < 16; ++slot) {
+        RemoteMessage msg{}; msg.outer_type = DATA_TYPE_REMOTE_RESP; msg.opcode = 1;
+        msg.slot = slot; msg.request_id = kReqId; msg.response_seq = kSeq;
+        uint8_t wire[32]{}, plain[32]{}; size_t written = 999;
+        const bool legal = slot <= 9 || slot == 15;
+        const auto status = remote_body_encode(wire, written, msg, detail, keys, source, carrier);
+        CHECK(status == (legal ? RemoteStatus::ok : RemoteStatus::bad_slot));
+        if (!legal) { CHECK(written == 999); continue; }
+        if (status != RemoteStatus::ok) continue;
+        RemoteDecoded d{};
+        CHECK_STATUS("slot decode", remote_body_decode(d, msg.outer_type, {wire, written}, keys, source, carrier, plain), RemoteStatus::ok);
+        CHECK(d.msg.slot == slot); CHECK(d.terminal == RemoteTerminal::action_busy);
+        CHECK(d.authenticated == (slot != 15)); CHECK(d.result_kind == RemoteResultKind::terminal);
+        CHECK(d.result_detail.size() == 1);
+        if (!d.result_detail.empty()) CHECK(d.result_detail[0] == 0xD1);
+    }
+}
+
+TEST_CASE("§radmin-2/action-busy — every result byte retains its own authenticated or open domain") {
+    const auto keys = keys_of(kRefBaseKey, kRefSessionKey);
+    const auto carrier = carrier_same_layer(DATA_TYPE_REMOTE_RESP, true);
+    // Synthetic alternate plaintexts deliberately share an ID/sequence here to
+    // probe decoding, not a permissible live producer/replay lifecycle.
+    for (unsigned domain = 0; domain < 4; ++domain) {
+        const bool terminal = domain < 2, auth = (domain % 2) == 0;
+        unsigned accepted = 0, refused = 0;
+        RemoteMessage msg{}; msg.outer_type = DATA_TYPE_REMOTE_RESP;
+        msg.opcode = terminal ? 1 : 4; msg.slot = auth ? kSlot : kRemoteSlotSentinel;
+        msg.request_id = kReqId; msg.response_seq = kSeq;
+        for (unsigned code = 0; code < 256; ++code) {
+            INFO("domain=", domain, " code=", code);
+            const uint8_t payload[] = {static_cast<uint8_t>(code), 0xD1};
+            uint8_t wire[32]{}; size_t written = 999;
+            const auto encoded = remote_body_encode(wire, written, msg, payload, keys, src_ok(), carrier);
+            CHECK(encoded == RemoteStatus::ok);  // generic encoder STILL accepts every result byte
+            if (encoded != RemoteStatus::ok) continue;
+            const auto before = admission_sentinel();
+            RemoteDecoded d = before;
+            uint8_t plain[4]; std::memset(plain, 0xC7, sizeof plain);
+            const auto status = remote_body_decode(d, msg.outer_type, {wire, written}, keys, src_ok(), carrier, plain);
+            const bool valid = terminal ? code <= 8 : (!auth || code == 0);
+            CHECK(status == (valid ? RemoteStatus::ok : RemoteStatus::bad_result_code));
+            if (status == RemoteStatus::ok) {
+                ++accepted;
+                CHECK(d.authenticated == auth);
+                CHECK(d.result_kind == (terminal ? RemoteResultKind::terminal : auth ? RemoteResultKind::protocol_error : RemoteResultKind::none));
+                CHECK(d.layout.domain == (terminal ? (auth ? RemoteDomainId::resp_terminal_auth : RemoteDomainId::resp_terminal_open)
+                                                  : (auth ? RemoteDomainId::resp_protocol_error_auth : RemoteDomainId::resp_protocol_error_open)));
+                CHECK(d.msg.request_id == kReqId); CHECK(d.msg.response_seq == kSeq);
+                CHECK(d.body.size() == 2);
+                if (d.body.size() == 2) CHECK_BYTES("decoded bytes", d.body.data(), payload, 2);
+                if (terminal) CHECK(static_cast<unsigned>(d.terminal) == code);
+                else if (auth) CHECK(d.protocol_error == RemoteProtocolError::already_acknowledged);
+                CHECK(d.result_detail.size() == (terminal || auth ? 1 : 0));
+                if (!d.result_detail.empty()) CHECK(d.result_detail[0] == 0xD1);
+            } else {
+                ++refused;
+                CHECK(decoded_value(d) == decoded_value(before));
+            }
+            for (unsigned i = 0; i < sizeof plain; ++i)
+                CHECK(plain[i] == (auth && i < 2 ? payload[i] : 0xC7));
+        }
+        CHECK(accepted == (terminal ? 9 : auth ? 1 : 256));
+        CHECK(refused == (terminal ? 247 : auth ? 255 : 0));
+        // An empty terminal still encodes; decode refuses, without a default result.
+        if (terminal) {
+            uint8_t wire[32]{}, plain[4]; size_t written = 999;
+            std::memset(plain, 0xC7, sizeof plain);
+            CHECK_STATUS("empty encoder preserved", remote_body_encode(wire, written, msg, {}, keys, src_ok(), carrier), RemoteStatus::ok);
+            const auto before = admission_sentinel(); RemoteDecoded d = before;
+            CHECK_STATUS("empty decoder refusal", remote_body_decode(d, msg.outer_type, {wire, written}, keys, src_ok(), carrier, plain), RemoteStatus::bad_length);
+            CHECK(decoded_value(d) == decoded_value(before));
+            for (uint8_t byte : plain) CHECK(byte == 0xC7);
+        }
+    }
+}
+
+TEST_CASE("§radmin-2/action-busy — failure publication and caller-owned plaintext distinguish valid and bad tags") {
+    const auto keys = keys_of(kRefBaseKey, kRefSessionKey);
+    const auto carrier = carrier_same_layer(DATA_TYPE_REMOTE_RESP, true);
+    auto decode = [&](std::span<const uint8_t> wire, const RemoteKeys& supplied,
+                      const RemoteSource& source, RemoteStatus want, std::span<const uint8_t> decrypted) {
+        const auto before = admission_sentinel(); RemoteDecoded d = before;
+        uint8_t plain[32]; std::memset(plain, 0xC7, sizeof plain);
+        CHECK_STATUS("failure boundary", remote_body_decode(d, DATA_TYPE_REMOTE_RESP, wire, supplied, source, carrier, plain), want);
+        CHECK(decoded_value(d) == decoded_value(before));
+        for (size_t i = 0; i < sizeof plain; ++i) CHECK(plain[i] == (i < decrypted.size() ? decrypted[i] : 0xC7));
+    };
+    decode(kRefBody_resp_terminal_auth_code08_detail, {{}, {}}, src_ok(), RemoteStatus::bad_key, {});
+    decode(kRefBody_resp_terminal_auth_code08_detail, {keys.base, {}}, src_ok(), RemoteStatus::bad_key, {});
+    decode(kRefBody_resp_terminal_auth_code08_detail, {keys.base, keys.session.first(31)}, src_ok(), RemoteStatus::bad_key, {});
+    decode(kRefBody_resp_terminal_auth_code08_detail, {keys.base, keys.base}, src_ok(), RemoteStatus::auth_failed, {});
+    decode(kRefBody_resp_terminal_auth_code08_detail, keys, {}, RemoteStatus::bad_argument, {});
+    decode(kRefBody_resp_terminal_auth_code08_detail, keys, src_ok(kSrcHash ^ 1u), RemoteStatus::auth_failed, {});
+    std::vector<uint8_t> bad(kRefBody_resp_terminal_auth_code08_detail, kRefBody_resp_terminal_auth_code08_detail + 28);
+    bad.back() ^= 1;
+    decode(bad, keys, src_ok(), RemoteStatus::auth_failed, {});
+    // Fresh B383 negatives: terminal 09 d1 and protocol-error 01/08 d1
+    // authenticate, expose decrypted bytes, and publish NO logical result.
+    for (const auto pair : {std::pair<uint8_t, uint8_t>{1, 9}, {4, 1}, {4, 8}}) {
+        RemoteMessage msg{}; msg.outer_type = DATA_TYPE_REMOTE_RESP; msg.opcode = pair.first;
+        msg.slot = kSlot; msg.request_id = kReqId; msg.response_seq = kSeq;
+        const uint8_t payload[] = {pair.second, 0xD1}; uint8_t wire[32]{}; size_t written = 999;
+        CHECK_STATUS("valid-tag semantic fixture", remote_body_encode(wire, written, msg, payload, keys, src_ok(), carrier), RemoteStatus::ok);
+        decode({wire, written}, keys, src_ok(), RemoteStatus::bad_result_code, payload);
+        wire[written - 1] ^= 1;
+        decode({wire, written}, keys, src_ok(), RemoteStatus::auth_failed, {});
+    }
 }

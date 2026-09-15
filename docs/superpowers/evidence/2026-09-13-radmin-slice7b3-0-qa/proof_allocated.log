@@ -1,0 +1,5 @@
+authenticated TERMINAL: encode 256/256; decode accepted 9 / rejected 247
+open TERMINAL: encode 256/256; decode accepted 9 / rejected 247
+authenticated PROTOCOL_ERROR: encode 256/256; decode accepted 1 / rejected 255
+open PROTOCOL_ERROR: encode 256/256; decode accepted 256 / rejected 0
+PASS: 9787 checks; terminal ceiling 0x08; valid-tag failure writes plaintext; bad-tag controls preserve it

@@ -1,0 +1,14 @@
+{
+  "root": "/tmp/mr-qa-s7b30-author-x6wfc8ai",
+  "base": "b9d75aaca55a0e350d9707512e9b6eec8a81ab22",
+  "meshroute_files": 1312,
+  "simulator_files": 285,
+  "source_diff_from_f993191": [],
+  "snapshot_symlink_bindings": {
+    "spec/dv_dual_sf.lua": {
+      "link": "../../lora-universal-simulator/scenarios/dv_dual_sf.lua",
+      "resolved": "/home/staszek/lora-universal-simulator/scenarios/dv_dual_sf.lua"
+    }
+  },
+  "setup_correction": "Initial copy2 followed a clone symlink with no private sibling target; no checks ran. Bound snapshot symlinks to exact original resolved inputs, then verified all content hashes and modes."
+}

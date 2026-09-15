@@ -8,8 +8,8 @@
 // carrier caps), R-RA-4 (frozen control values / labels / independent KATs), R-RA-5 (64-bit random request id),
 // R-RA-13 (`SOURCE_HASH` mandatory on every RPC carrier), R-RA-25 and R-RA-28 (always reserve the DST_HASH bytes).
 //
-// Session/bootstrap/transcript paths already consume this codec. Slice 7b-2-0 adds only the R-RA-36
-// ADMISSION_RESULT domain; its live producers arrive separately. Independent reference vectors in
+// Session/bootstrap/transcript/admission paths already consume this codec. Slice 7b-3-0 adds the R-RA-37
+// action_busy terminal meaning; its live producer arrives separately. Independent reference vectors in
 // `test/test_remote_codec.cpp` pin old and new domains without deriving expectations through this codec.
 //
 // ⛔ WHAT THIS MODULE DELIBERATELY DOES **NOT** DO (so no later reader mistakes a byte codec for policy):
@@ -70,7 +70,7 @@ enum class RemoteRespOpcode : uint8_t {
     // 0x6..0xF reserved — reject.
 };
 
-// §8.9 TERMINAL result namespace (Author allocation, QA-accepted 2026-09-06). 0x08..0xFF are UNALLOCATED and
+// §8.9 TERMINAL result namespace (original allocation plus R-RA-37 action_busy). 0x09..0xFF are UNALLOCATED and
 // must never decode as a known meaning or as success.
 enum class RemoteTerminal : uint8_t {
     completed        = 0x00,
@@ -81,11 +81,12 @@ enum class RemoteTerminal : uint8_t {
     internal_error   = 0x05,
     session_full     = 0x06,
     session_busy     = 0x07,
+    action_busy      = 0x08,
 };
-inline constexpr uint8_t kRemoteTerminalMax = 0x07;
+inline constexpr uint8_t kRemoteTerminalMax = 0x08;
 
 // §8.9 AUTHENTICATED PROTOCOL_ERROR result namespace — a SEPARATE domain that happens to reuse the byte 0x00.
-// ⛔ `already_acknowledged` is NOT a ninth terminal result: 0x00 means `completed` under TERMINAL and
+// ⛔ `already_acknowledged` is NOT a terminal result: 0x00 means `completed` under TERMINAL and
 //    `already_acknowledged` under authenticated PROTOCOL_ERROR, and only the opcode domain tells them apart.
 //    That is why a decoded result is a TYPED value here and never a bare byte (design §8.9 Slice-2 contract).
 //    0x01..0xFF reject in this domain even though several are valid TERMINAL codes.

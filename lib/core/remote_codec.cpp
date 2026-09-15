@@ -108,8 +108,8 @@ static_assert(kRemoteSlotSessionMax == 0x09, "§8.1: slots 0..9 select establish
 static_assert(kRemoteSlotSentinel   == 0x0F, "§8.1: F is the sentinel, not a tenth session slot");
 static_assert(static_cast<uint8_t>(RemoteCmdOpcode::force_rollover)  <= 0x0F, "opcodes are a nibble");
 static_assert(static_cast<uint8_t>(RemoteRespOpcode::admission_result) <= 0x0F, "opcodes are a nibble");
-static_assert(kRemoteTerminalMax == static_cast<uint8_t>(RemoteTerminal::session_busy),
-              "§8.9: 0x00..0x07 is the whole allocated terminal namespace; 0x08..0xFF reject");
+static_assert(kRemoteTerminalMax == static_cast<uint8_t>(RemoteTerminal::action_busy),
+              "§8.9 / R-RA-37: 0x00..0x08 is the whole allocated terminal namespace; 0x09..0xFF reject");
 static_assert(kRemoteMaxAadBytes == 1 + kRemoteMaxHeaderBytes + kRemoteSourceHashBytes,
               "AAD = outer_type | the exact clear header | source_hash LE32");
 
@@ -638,7 +638,7 @@ RemoteStatus remote_body_decode(RemoteDecoded& out, uint8_t outer_type, std::spa
         if (payload.empty()) return RemoteStatus::bad_length;         // the result code is REQUIRED
         const uint8_t rc = payload[0];
         if (L.domain == RemoteDomainId::resp_terminal_auth || L.domain == RemoteDomainId::resp_terminal_open) {
-            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;   // 0x08..0xFF unallocated
+            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;   // 0x09..0xFF unallocated
             d.result_kind = RemoteResultKind::terminal;
             d.terminal    = static_cast<RemoteTerminal>(rc);
         } else {

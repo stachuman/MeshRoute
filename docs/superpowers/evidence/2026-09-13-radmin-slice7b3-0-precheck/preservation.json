@@ -1,0 +1,82 @@
+{
+  "result": "PASS",
+  "baseline_inputs": 1312,
+  "old_inputs_unchanged": 1309,
+  "only_changed_existing_inputs": {
+    "MEMORY.md": {
+      "before": {
+        "sha256": "e7369fe64d03db13c35db4f86a16bcfbcaf25d133ca5e915b7b73f5e9c58be25",
+        "mode": 420
+      },
+      "after": {
+        "sha256": "0e587069f6af2895a059a8c95c8b9da317710c3837d8ff1f7718b05406bc3952",
+        "mode": 420
+      }
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "before": {
+        "sha256": "419f13fe7cf1c19746fbdceb74b5be3fbb8fca8cec8b56cccabad1cd4954cc5d",
+        "mode": 420
+      },
+      "after": {
+        "sha256": "07c3b4de5982e082c56c8c67ada5a3c2ae0f20b202fc539efb6d11b49ca0f2de",
+        "mode": 420
+      }
+    },
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+      "before": {
+        "sha256": "4e50ae66a9b8217586b768f1d7765f96a9a8e5117be9bcb1dd782f3685c0d346",
+        "mode": 420
+      },
+      "after": {
+        "sha256": "8a0def3501490e1c00efd884e624ce750f2ba38ddbe9f48afb07002f548576d5",
+        "mode": 420
+      }
+    }
+  },
+  "source_test_tool_simulation_production_changes": [],
+  "simulator_inputs_preserved": 285,
+  "owner_ledger_preserved": true,
+  "behavior_revision3_preserved": true,
+  "all_prior_coder_receipts_preserved": true,
+  "no_git_index_change": true,
+  "new_inputs_at_validation": [
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/README.md",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/allocation-negative-control.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/codec-audit.py",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/codec-results.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus-audit.py",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus-compare.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus-identity.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus-manifest.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus-validate.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/corpus.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/document-audit.py",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/document-validation.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/domain-proof-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/domain-proof.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/independent-boundary-vectors.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/inputs-before.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/mutation-pattern-audit.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/native-build.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/native.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/oracle.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/precheck.py",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/preservation.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/previous-corpus-validate.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/receipt.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/reference-corrupted.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/reference-environment.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/reference.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/result-domain-proof.cpp",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/results.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/sim-build.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/sim-configure.log.gz",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/simulator-before.json",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/terminal-consumers.log.gz",
+    "docs/superpowers/plans/2026-09-13-radmin-slice7b3-0-action-busy-codec.md",
+    "docs/superpowers/plans/2026-09-13-radmin-slice7b3-0-precheck.md"
+  ],
+  "new_input_scope": "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-precheck/ plus codec brief and pre-check; final artifact index inventories all evidence files"
+}

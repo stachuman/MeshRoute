@@ -1,0 +1,77 @@
+{
+  "allocation-negative-control.log": {
+    "artifact": "allocation-negative-control.log.gz",
+    "uncompressed_sha256": "d21bd94ce7cbbc8284b1fb40e615ea790c0e2d0e72d27a8106724342b1dbb681",
+    "bytes": 13
+  },
+  "corpus-compare.log": {
+    "artifact": "corpus-compare.log.gz",
+    "uncompressed_sha256": "0a134993b71f03bc0b445bc872a380a3285bb90a0017c3a0a50faa2d3270a041",
+    "bytes": 178
+  },
+  "corpus-validate.log": {
+    "artifact": "corpus-validate.log.gz",
+    "uncompressed_sha256": "ac27a08aeef45cd81fbce515bff52e75aadbd6784cc6e0cfe41878b6a06839f4",
+    "bytes": 124
+  },
+  "corpus.log": {
+    "artifact": "corpus.log.gz",
+    "uncompressed_sha256": "e8bcf8fdde2c8f2bdd255e006992a6d8f7e72632d56693c7d284fc298f5c896b",
+    "bytes": 3356
+  },
+  "domain-proof-compile.log": {
+    "artifact": "domain-proof-compile.log.gz",
+    "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "domain-proof.log": {
+    "artifact": "domain-proof.log.gz",
+    "uncompressed_sha256": "3aa9a84d6cd58c04181ce1d47aa770c08cdc6c1f0a4688703d9c8ac23c563bf6",
+    "bytes": 393
+  },
+  "native-build.log": {
+    "artifact": "native-build.log.gz",
+    "uncompressed_sha256": "48baff80ec8904ca28766f3f8a7cddc3a54e369eabda4766f1810dc9c9e75118",
+    "bytes": 5134
+  },
+  "native.log": {
+    "artifact": "native.log.gz",
+    "uncompressed_sha256": "f6e7566311ee165d36395ee798ad0007a8550c8ea3b01a689cc20919550f726f",
+    "bytes": 409
+  },
+  "oracle.log": {
+    "artifact": "oracle.log.gz",
+    "uncompressed_sha256": "c01ddd263f3d62e465c5c2790bbc85090ded9561c21391259c3b3bad3bc1a5a7",
+    "bytes": 2198
+  },
+  "previous-corpus-validate.log": {
+    "artifact": "previous-corpus-validate.log.gz",
+    "uncompressed_sha256": "442f5c7a79b82e2569c3438d1a199ab3075c695a43e60b40a1057c42d42a769c",
+    "bytes": 123
+  },
+  "reference-corrupted.log": {
+    "artifact": "reference-corrupted.log.gz",
+    "uncompressed_sha256": "e66d7cfd73149ee4e23084e98538ac02aeecc58440d7de44cdeea9d04a85fc4c",
+    "bytes": 2530
+  },
+  "reference.log": {
+    "artifact": "reference.log.gz",
+    "uncompressed_sha256": "67a75567f00ec9871f6559d3b2ea9c9e2ecbd80ca015329ab5b289e3139bf152",
+    "bytes": 2684
+  },
+  "sim-build.log": {
+    "artifact": "sim-build.log.gz",
+    "uncompressed_sha256": "4e1b2506dc5c7590c993b0f6977c6bd87c91209dd88e03a7a4aa308ab8dfb982",
+    "bytes": 58270
+  },
+  "sim-configure.log": {
+    "artifact": "sim-configure.log.gz",
+    "uncompressed_sha256": "bc5e85b00758d33abdfb847d0b099547c6fd49db9d4e479aea40018d5a0d4bf0",
+    "bytes": 1023
+  },
+  "terminal-consumers.log": {
+    "artifact": "terminal-consumers.log.gz",
+    "uncompressed_sha256": "43a58e7637b1ea9dc9e726e242e7e4917ff24aa3453a2f454bc2049aa1db4e57",
+    "bytes": 5684
+  }
+}

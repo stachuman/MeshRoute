@@ -1,0 +1,4 @@
+== [[B229]] the coverage roll-up attributes a label of ANY length ==
+coverage: 703 of 840 checks (both arms, unioned) are reddened by at least one control
+controls: 223 verified / 0 unusable
+PASS

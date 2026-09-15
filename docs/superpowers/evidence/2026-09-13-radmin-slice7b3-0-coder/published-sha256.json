@@ -1,0 +1,10 @@
+{
+  "artifact-sha256.json": "fc46fef848af94748bd99ee41b8fc71381fd4900830927391eca94c5a7feec69",
+  "artifacts.tar.gz": "25598cfdb31073e9e58b4b8e8c73348ee9609edb3e24851c16d663516ddbfaca",
+  "board-attribution.json": "aacdcd1a24a6c22c56bb461ae2b606396c24d709e000c548c79c6b17b0c6c4b9",
+  "corpus-attribution.json": "194edce17d455d7faba11a32f0ee942808f780abc84705cea3edd8c7b9e371f3",
+  "mutation-outcomes.json": "c49a7c8382258fd87422c3af68409d0029e625719d3383cf0c74af64de535de2",
+  "native-arithmetic.json": "76d32f56dad9cf6e7db845447fcde8bc6b9a171f80aaec1fe2fb90dd95bcde9c",
+  "preservation-checkpoint.json": "844c3b22f1a76f3ef55a9e25f05c59cc5e569a93b7b1a95180114b35404ef626",
+  "selectors-final.json": "d05d26ecfb8a65e3cd43b5e0602cad36e2dc0be2596221a50e7bb81b6855a458"
+}

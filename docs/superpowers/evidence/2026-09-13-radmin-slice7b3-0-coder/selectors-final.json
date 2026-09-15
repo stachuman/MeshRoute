@@ -1,0 +1,3748 @@
+{
+  "S": [
+    "radmin2codec"
+  ],
+  "H": [
+    "a0rx",
+    "b134ack",
+    "b134inbox",
+    "b134ram",
+    "b134store",
+    "b159mac",
+    "b159map",
+    "b159rx",
+    "b161hash",
+    "b161mac",
+    "b161rx",
+    "b20codec",
+    "b20mac",
+    "b251hash",
+    "b251rx",
+    "cmdauthority",
+    "consoleline",
+    "devicenv",
+    "fwactivation",
+    "grantadmit",
+    "grantpark",
+    "macwait",
+    "radmin2codec",
+    "radmin3acl",
+    "radmin3id",
+    "radmin3verbs",
+    "radmin5runtime",
+    "radmin5rx",
+    "radmin5session",
+    "radmin72rx",
+    "radmin72session",
+    "radmin7exec",
+    "radmin7rx",
+    "radmin7transcript",
+    "remoteactivation",
+    "sliceAinbox",
+    "sliceAjson",
+    "sliceBmac",
+    "sliceBnode",
+    "sliceBrx",
+    "sliceCinbox",
+    "sliceCpull",
+    "sliceDack",
+    "sliceDclear",
+    "sliceDstore",
+    "sliceDtoken",
+    "sliceEnode",
+    "sliceGinbox",
+    "sliceGjson",
+    "sliceGrx",
+    "teamgrant",
+    "teamkeyring"
+  ],
+  "union": [
+    "a0rx",
+    "b134ack",
+    "b134inbox",
+    "b134ram",
+    "b134store",
+    "b159mac",
+    "b159map",
+    "b159rx",
+    "b161hash",
+    "b161mac",
+    "b161rx",
+    "b20codec",
+    "b20mac",
+    "b251hash",
+    "b251rx",
+    "cmdauthority",
+    "consoleline",
+    "devicenv",
+    "fwactivation",
+    "grantadmit",
+    "grantpark",
+    "macwait",
+    "radmin2codec",
+    "radmin3acl",
+    "radmin3id",
+    "radmin3verbs",
+    "radmin5runtime",
+    "radmin5rx",
+    "radmin5session",
+    "radmin72rx",
+    "radmin72session",
+    "radmin7exec",
+    "radmin7rx",
+    "radmin7transcript",
+    "remoteactivation",
+    "sliceAinbox",
+    "sliceAjson",
+    "sliceBmac",
+    "sliceBnode",
+    "sliceBrx",
+    "sliceCinbox",
+    "sliceCpull",
+    "sliceDack",
+    "sliceDclear",
+    "sliceDstore",
+    "sliceDtoken",
+    "sliceEnode",
+    "sliceGinbox",
+    "sliceGjson",
+    "sliceGrx",
+    "teamgrant",
+    "teamkeyring"
+  ],
+  "patterns": 817,
+  "rows": [
+    {
+      "target": "a0rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 7,
+      "entries": [
+        {
+          "label": "A04 \u2605\u2605\u2605 THE MISSING DEFAULT ARM IS INSTALLED (Slice B's fail-closed rule, applied early) \u2014 an addressed unknown type is dropped instead of inboxed, so the pre-transition fall-through stops being pinned",
+          "matches": 1
+        },
+        {
+          "label": "A08 \u2605\u2605\u2605 THE E2E-ACK REPLY IS GATED ON A KNOWN TYPE \u2014 an unknown addressed type stops earning an ACK, so the amplification half of the unknown-type fall-through ([[A0-F3]]) stops being pinned",
+          "matches": 1
+        },
+        {
+          "label": "1b-01 \u2605\u2605\u2605 THE ACCEPT-OWNED CALL IS DELETED FROM THE DISPATCH \u2014 a REMOTE_CMD is still CONSUMED (become_free + return) but nothing stages it, so the command is swallowed in silence: no slot, no main-loop execution, and no fail-closed drop either",
+          "matches": 1
+        },
+        {
+          "label": "1b-02 \u2605\u2605\u2605 THE CLIENT-OWNED CALL IS DELETED FROM THE DISPATCH \u2014 a REMOTE_RESP is consumed and never staged, so the issuer's reply disappears with no drop, no print and no evidence",
+          "matches": 1
+        },
+        {
+          "label": "1b-03 \u2605\u2605\u2605 THE ACCEPT ARM STOPS CONSUMING \u2014 a staged REMOTE_CMD falls through to the fail-closed internal guard as well, so a HANDLED type reports itself unsupported (and any later arm gets a second opinion on it)",
+          "matches": 1
+        },
+        {
+          "label": "1b-04 \u2605\u2605\u2605 THE TWO OWNED CALLS ARE SWAPPED AT THE DISPATCH \u2014 a REMOTE_CMD is handed to the CLIENT entry point, so an incoming command stages as `is_response=true` and fw_main would PRINT it instead of executing it",
+          "matches": 1
+        },
+        {
+          "label": "A05 \u2605\u2605\u2605 THE E2E-ACK ARM STOPS CONSUMING \u2014 the receipt falls through to the generic deliver, so an ack becomes an ordinary inbox message and the \"consumed types are not delivered\" control stops being pinned",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b134ack",
+      "source": "lib/console/console_json.h",
+      "count": 2,
+      "entries": [
+        {
+          "label": "A01 \u2605\u2605\u2605 the ack's result mapping becomes UNCONDITIONAL SUCCESS \u2014 the exact shape the verb had before QG round 7: a cursor the store refused to persist is reported to the companion as marked",
+          "matches": 1
+        },
+        {
+          "label": "A02 \u2605\u2605 the mapping is INVERTED \u2014 a persisted cursor reports io_error, so a working node looks broken and the companion retries for ever",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b134inbox",
+      "source": "lib/core/inbox.cpp",
+      "count": 5,
+      "entries": [
+        {
+          "label": "H01 \u2605\u2605\u2605 TOMBSTONE CAP IGNORED \u2014 erase() writes a marker past the bound pull()'s fixed pre-pass array can hold, so a deleted message becomes visible again: the one outcome \u00a73.5 forbids",
+          "matches": 1
+        },
+        {
+          "label": "H02 \u2605\u2605 a REPEAT delete reports `erased` instead of not_found \u2014 the modal shows success and appends a second marker against the cap for a record that was already gone",
+          "matches": 1
+        },
+        {
+          "label": "H03 \u2605\u2605\u2605 the verdict stops asking whether the append LANDED \u2014 a torn tombstone reports `erased` while the message is still in every future pull ('a success that isn't', across the NEW backend this time)",
+          "matches": 1
+        },
+        {
+          "label": "H04 \u2605\u2605\u2605 BOTH mounts stop running: the `||` short-circuit is restored, so a DM failure means the CHANNEL store never attempts its mount and two corrupted keys report 5/0 \u2014 a diagnostic that UNDER-STATES the damage",
+          "matches": 1
+        },
+        {
+          "label": "H05 \u2605\u2605\u2605 `mark_read` DISCARDS the store's verdict again \u2014 the verb above it then acks success for a cursor the store refused to persist, and an unwired inbox reports success too",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b134ram",
+      "source": "lib/core/fixed_inbox_store.h",
+      "count": 3,
+      "entries": [
+        {
+          "label": "R01 \u2605\u2605\u2605 wipe() drops back to the base's successful NO-OP \u2014 `prep-restart` HALTS but does NOT reboot, so the console reports a cleared inbox while `pull_inbox` still streams every record until the operator cuts power",
+          "matches": 1
+        },
+        {
+          "label": "R02 \u2605\u2605 wipe() empties the ring but leaves the READ CURSOR pointing at records that no longer exist \u2014 the unread badge then counts against a history that was just destroyed",
+          "matches": 1
+        },
+        {
+          "label": "R03 \u2605\u2605 wipe() also re-rolls the storage epoch \u2014 it announces a wipe to the companion that the imminent reboot makes moot, forcing a full re-pull for nothing",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b134store",
+      "source": "lib/core/segmented_inbox_store.h",
+      "count": 39,
+      "entries": [
+        {
+          "label": "G01 \u2605\u2605\u2605 wipe() reverts to the base NO-OP \u2014 `factory_reset confirm` and `prep-restart` leave the ENTIRE durable history on the medium, which is the exact state [[B134]] exists to end",
+          "matches": 1
+        },
+        {
+          "label": "G02 \u2605\u2605 wipe() erases the records but leaves the ring bookkeeping stale (its nRF52 twin's shape) \u2014 the store resumes at a head that describes bytes that no longer exist",
+          "matches": 1
+        },
+        {
+          "label": "G04 \u2605\u2605 wipe() also resets next_seq \u2014 'a wipe means start over' makes a wiped store REUSE sequences the companion has already filed, which no epoch bump can repair",
+          "matches": 1
+        },
+        {
+          "label": "G05 \u2605\u2605\u2605 THE BLOCKER VERBATIM: the ROTATION's save_meta() result is discarded again \u2014 the head moves, the record is written and `append` returns TRUE while the persisted meta still points at the OLD head, so a reboot loses an ACKNOWLEDGED record and a tombstone written this way lets the deleted message COME BACK",
+          "matches": 1
+        },
+        {
+          "label": "G06 \u2605\u2605\u2605 the RETRY-BEFORE-WRITE latch is dropped \u2014 after one failed save the store keeps accepting records under a topology the medium does not have, and never re-persists it either",
+          "matches": 1
+        },
+        {
+          "label": "G07 \u2605\u2605 the retry is attempted but its RESULT is ignored \u2014 'we tried, carry on': the append proceeds under the same unpersisted topology it was supposed to refuse",
+          "matches": 1
+        },
+        {
+          "label": "G08 \u2605\u2605\u2605 begin()'s FRESH-baseline save goes back to persisting nothing \u2014 the store runs with no topology, epoch or high-water on the medium, and a reboot inside the first seq batch REUSES sequences over a live log",
+          "matches": 1
+        },
+        {
+          "label": "G09 \u2605\u2605 begin()'s \u00a710.1 epoch-bump save is unchecked \u2014 the records were wiped, the bump never reaches the medium, and the companion keeps its cursors against a history that no longer exists",
+          "matches": 1
+        },
+        {
+          "label": "G10 \u2605\u2605 the ROLL's target-segment erase is unchecked \u2014 stale lapped bytes survive into the new head and read_since parses them as frames (the \u00a7B135 mis-parse arriving from the other end)",
+          "matches": 1
+        },
+        {
+          "label": "G11 \u2605\u2605\u2605 wipe() ignores every erase result \u2014 `prep-restart` and `factory_reset` report a cleared inbox over records that are still RECOVERABLE on flash (a data-retention lie, the worst direction)",
+          "matches": 1
+        },
+        {
+          "label": "G12 \u2605\u2605 wipe() ignores the metadata half \u2014 the segments went but the topology saying so did not, and the verb still claims success",
+          "matches": 1
+        },
+        {
+          "label": "G13 \u2605\u2605 wipe() STOPS at the first failing segment \u2014 same `false`, but strictly MORE recoverable history left behind, which is the opposite of what a destructive verb owes",
+          "matches": 1
+        },
+        {
+          "label": "G15 \u2605\u2605\u2605 THE ROUND-2 BLOCKER VERBATIM: the fresh-vs-corrupted DISCRIMINATOR is dropped \u2014 missing/invalid metadata over EXISTING records re-initialises again, so head/tail reset to 0/0 hides every segment past the first and next_seq resets to 1 over a log the companion has already filed",
+          "matches": 1
+        },
+        {
+          "label": "G16 \u2605\u2605\u2605 the INSPECTION FAILURE is mapped onto 'no records' \u2014 the other door into the same silent re-init: a records store that could not ANSWER is treated as one that answered 'empty'",
+          "matches": 1
+        },
+        {
+          "label": "G17 \u2605\u2605 the discriminator is inverted by trusting `formatted` alone \u2014 a store that mounted CLEANLY over live records is re-initialised because nothing had to be formatted",
+          "matches": 1
+        },
+        {
+          "label": "G18 \u2605\u2605 the discriminator REFUSES EVERY torn meta, records or not \u2014 first boot and every post-format boot then come up with a dead inbox, which is the 19.7 reflash-wipes-once expectation broken from the safe side",
+          "matches": 1
+        },
+        {
+          "label": "G19 \u2605\u2605\u2605 THE ROUND-3 BLOCKER VERBATIM: a CORRUPT meta is read back as ABSENT \u2014 so corrupt metadata over an EMPTY record store is 'first boot' again, which is exactly the post-prep-restart state where the meta is the only thing still holding the sequence high-water and the epoch",
+          "matches": 1
+        },
+        {
+          "label": "G20 \u2605\u2605 the OTHER direction: a genuinely ABSENT meta is treated as corrupt, so FIRST BOOT refuses to mount and every freshly flashed node comes up with a dead inbox (19.7 broken from the safe side)",
+          "matches": 1
+        },
+        {
+          "label": "G21 \u2605\u2605\u2605 `load_meta` stops classifying a STRUCTURALLY IMPOSSIBLE blob as an error and calls it absent again \u2014 the same conflation one layer down, where a torn seg_count/head/tail becomes 'we must be fresh'",
+          "matches": 1
+        },
+        {
+          "label": "G23 \u2605\u2605\u2605 THE ROUND-5 BLOCKER VERBATIM: the \u00a710.1 detect goes back to guarding on `next_seq > 1`, which says 'this store once had traffic' and stays true for ever \u2014 so every reboot of an empty store bumps the epoch again (2, 3, 4...) and the companion re-pulls an unchanged empty inbox on each one",
+          "matches": 1
+        },
+        {
+          "label": "G24 \u2605\u2605\u2605 the detect stops RECORDING the acknowledgement \u2014 it bumps correctly once but never marks the store empty, so the very next boot detects the same loss again: the ratchet restored one line lower",
+          "matches": 1
+        },
+        {
+          "label": "G25 \u2605\u2605\u2605 the EMPTY -> NON_EMPTY transition's save is unchecked \u2014 a record is acknowledged under a marker that never reached the medium, so the next boot reads it as an external loss and bumps for nothing",
+          "matches": 1
+        },
+        {
+          "label": "G26 \u2605\u2605 ...or the transition is not persisted AT ALL \u2014 the marker lives only in RAM, so every boot after a wipe re-detects the first append's records as a loss",
+          "matches": 1
+        },
+        {
+          "label": "G27 \u2605\u2605\u2605 the WIPE transition's bump+mark is dropped \u2014 a deliberate wipe stops telling the companion anything, and the \u00a710.1 arm then has to re-derive it on the next boot (which is the ratchet again)",
+          "matches": 1
+        },
+        {
+          "label": "G28 \u2605\u2605 the wipe bumps UNCONDITIONALLY \u2014 wiping an already-empty store destroyed no history but still tells every companion to drop its cursors and re-pull",
+          "matches": 1
+        },
+        {
+          "label": "G29 \u2605\u2605\u2605 THE EXTERNAL-LOSS ARM IS DROPPED ENTIRELY \u2014 \u00a710.1 goes dead, so a records wipe outside this store is never announced and the companion reads its cursors against a history that no longer exists",
+          "matches": 1
+        },
+        {
+          "label": "G37 \u2605\u2605\u2605 THE ROUND-7 BLOCKER VERBATIM: the save result is discarded, so `mark_read` reports success over a cursor that never reached the medium",
+          "matches": 1
+        },
+        {
+          "label": "G38 \u2605\u2605\u2605 the failed value is RETAINED in RAM \u2014 the cursor then LOOKS persisted, and the retry with the same value is swallowed by the coalescing, so the medium can never be repaired",
+          "matches": 1
+        },
+        {
+          "label": "G39 \u2605\u2605\u2605 the coalescing stops consulting the dirty latch \u2014 a repeat of the same cursor short-circuits to success even while the store knows its metadata did not persist",
+          "matches": 1
+        },
+        {
+          "label": "G40 \u2605\u2605 the wear guard is removed instead of being made dirty-aware \u2014 every mark_read in a pull session rewrites the meta blob again, which is the churn the coalescing exists to stop",
+          "matches": 1
+        },
+        {
+          "label": "G41 \u2605\u2605 `set_next_seq` keeps the un-persisted high-water in RAM \u2014 `persisted_next_seq()` then reports a value that is not on the medium, which is the same over-claim one field along",
+          "matches": 1
+        },
+        {
+          "label": "G30 \u2605\u2605\u2605 THE ROUND-6 GAP VERBATIM: the pending state is dropped and the marker goes straight to `non_empty` before any bytes are written \u2014 a first append whose record write then lands NOTHING leaves that claim over an empty medium, and the next boot bumps the epoch for a message that never existed",
+          "matches": 1
+        },
+        {
+          "label": "G31 \u2605\u2605\u2605 pending resolves to `non_empty` REGARDLESS of the medium \u2014 'an append was attempted, so there must be something there': the resolve stops looking and the false-wipe bump comes straight back",
+          "matches": 1
+        },
+        {
+          "label": "G32 \u2605\u2605 ...or to `empty` regardless \u2014 the opposite guess, which DISARMS \u00a710.1 for a store whose records really did land and then really were lost",
+          "matches": 1
+        },
+        {
+          "label": "G33 \u2605\u2605\u2605 the pending RESOLUTION bumps the epoch \u2014 resolving a bookkeeping question is reported to the companion as a wipe, so every interrupted append costs a full re-pull",
+          "matches": 1
+        },
+        {
+          "label": "G34 \u2605\u2605\u2605 the records_state RANGE CHECK is removed \u2014 a corrupt marker value falls through every arm that tests it, so the store mounts with fault=0 over a partition it cannot classify and \u00a710.1 is bypassed entirely",
+          "matches": 1
+        },
+        {
+          "label": "G35 \u2605\u2605 the range check REFUSES A VALID VALUE (`pending` becomes out of range) \u2014 every store caught mid-append then refuses to mount for ever, which is the guard broken from the safe side",
+          "matches": 1
+        },
+        {
+          "label": "G36 \u2605\u2605 the wipe's pending arm stops consulting the medium and treats pending as history \u2014 an append that never landed then makes a wipe announce a loss that did not happen",
+          "matches": 1
+        },
+        {
+          "label": "G14 \u2605 the EVICTION path charges back bytes it never erased \u2014 `_total` under-counts the medium, so the byte cap stops capping and the partition fills past its ring",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b159mac",
+      "source": "lib/core/node_mac.cpp",
+      "count": 2,
+      "entries": [
+        {
+          "label": "B06 the RTS HAL handoff on the DUTY-deferred path stops testing the deadline (the blocker-1 defect verbatim)",
+          "matches": 1
+        },
+        {
+          "label": "B07 the RTS HAL handoff on the immediate/LBT-deferred path stops testing the deadline",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b159map",
+      "source": "lib/core/node.cpp",
+      "count": 2,
+      "entries": [
+        {
+          "label": "B16 the expiry is mapped to a NON-TERMINAL outcome \u2014 the flight re-enters retry instead of ending",
+          "matches": 1
+        },
+        {
+          "label": "B17 the wrong-flight guard is dropped \u2014 a SUPERSEDED flight's expiry fails the LIVE flight",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b159rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 3,
+      "entries": [
+        {
+          "label": "B09 the dedup ignores expiry \u2014 a genuinely-new flight reusing the identity is SUPPRESSED (over-correction)",
+          "matches": 1
+        },
+        {
+          "label": "B10 the expiry PRUNE is removed \u2014 the clearing term the B239 audit rests on",
+          "matches": 1
+        },
+        {
+          "label": "B11 capacity pressure REFUSES the new key instead of rolling the oldest",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b161hash",
+      "source": "lib/core/node_hashlocate.cpp",
+      "count": 6,
+      "entries": [
+        {
+          "label": "H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority",
+          "matches": 1
+        },
+        {
+          "label": "H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope",
+          "matches": 1
+        },
+        {
+          "label": "H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO",
+          "matches": 1
+        },
+        {
+          "label": "H04 B161 type 13 omits both name_len and the name tail from the transmitted body",
+          "matches": 1
+        },
+        {
+          "label": "H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix",
+          "matches": 1
+        },
+        {
+          "label": "H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b161mac",
+      "source": "lib/core/node_mac.cpp",
+      "count": 1,
+      "entries": [
+        {
+          "label": "M01 B161 flight_identity trusts PendingTx.origin instead of the origin exposed by the DATA inner",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b161rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 8,
+      "entries": [
+        {
+          "label": "R01 B161 types 1/2 restore a legacy raw fallback when canonical parsing/shape validation refuses",
+          "matches": 1
+        },
+        {
+          "label": "R02 B161 type 8 restores a legacy raw fallback when canonical parsing/shape validation refuses",
+          "matches": 1
+        },
+        {
+          "label": "R03 B161 destination types 1/2 pass the whole inner, reintroducing the one-byte body shift",
+          "matches": 1
+        },
+        {
+          "label": "R04 B161 destination type 8 passes the whole inner, reintroducing the one-byte body shift",
+          "matches": 1
+        },
+        {
+          "label": "R05 B161 destination type 13 passes the whole inner, reintroducing the one-byte body shift",
+          "matches": 1
+        },
+        {
+          "label": "R06 B161 relay snoop passes the whole inner while forwarding still carries the canonical bytes",
+          "matches": 1
+        },
+        {
+          "label": "R07 B161 implicit-forward credit collapses the identity back to the counter low nibble",
+          "matches": 1
+        },
+        {
+          "label": "R08 B161 terminal CTS collapses the identity back to the counter low byte",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b20codec",
+      "source": "lib/core/frame_codec.h",
+      "count": 5,
+      "entries": [
+        {
+          "label": "C01 \u2605\u2605\u2605 [[B20]]'s ROOT CAUSE, AT THE AUTHORITY: the trailer is assumed to be the 4-B MAC for every frame, so a CRYPTED inner cap reads 243 instead of 239 and the two silent bytes come back",
+          "matches": 1
+        },
+        {
+          "label": "C02 \u2605\u2605 the TYPE byte is forgotten in the inner cap, so a TYPED sealed DM (MOBILE_SEND, the team key grant) is given one byte more than its frame can carry \u2014 the same defect one byte narrower",
+          "matches": 1
+        },
+        {
+          "label": "C03 \u2605\u2605\u2605 the cap becomes the WHOLE FRAME BUDGET (the overhead is computed and ignored) \u2014 every length is admitted, a tx-queue slot is burned and the RTS airs for a DATA that pack_data then refuses",
+          "matches": 1
+        },
+        {
+          "label": "C04 \u2605\u2605 data_frame_len forgets the TYPE byte, so the packer's refusal and the sender's preflight DRIFT \u2014 the exact two-copies-of-the-arithmetic failure this helper exists to make impossible",
+          "matches": 1
+        },
+        {
+          "label": "C05 \u2605\u2605 data_frame_len's trailer collapses to the 4-B MAC \u2014 the frame length it reports for a CRYPTED DATA is 4 B short, so it stops describing the frame pack_data actually writes",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b20mac",
+      "source": "lib/core/node_mac.cpp",
+      "count": 11,
+      "entries": [
+        {
+          "label": "B01 \u2605\u2605\u2605 [[B20]] VERBATIM: the seal is sized by the BUFFER again (241, a 4-B-MAC constant) instead of the frame \u2014 the 215-216 band is admitted, queued, its RTS airs, and the DATA is dropped at TX time with nothing pushed",
+          "matches": 1
+        },
+        {
+          "label": "B02 \u2605\u2605 the carrier boundary is OFF BY ONE \u2014 exactly one body length (the cap+1) still disappears, which is the hardest shape to notice and the reason both sides of every cap are asserted",
+          "matches": 1
+        },
+        {
+          "label": "B03 \u2605\u2605\u2605 THE TWO BOUNDS ARE RECONCILED THE WRONG WAY \u2014 the LAXER one wins, so the buffer's 241 re-admits what the carrier will drop. The brief's named failure: a laxer check re-admitting past the carrier cap",
+          "matches": 1
+        },
+        {
+          "label": "B04 \u2605\u2605\u2605 [[B21]]'s WRONG CONDITION, MIRRORED: the guard stops distinguishing 'no key' from 'the key did not fit' the other way round, so a send to a peer whose key we do NOT hold is reported as a size problem",
+          "matches": 1
+        },
+        {
+          "label": "B05 \u2605\u2605 [[B21]]'s SILENCE, at its new address: the PLAINTEXT size refusal emits but no longer PUSHES \u2014 the app is told nothing, which is exactly the 'no send_failed' the register row names",
+          "matches": 1
+        },
+        {
+          "label": "B06 \u2605\u2605 [[B21]]'s SILENCE, HALF TWO: the genuinely-keyless arm emits but no longer PUSHES \u2014 the sibling defect, removed separately so neither half can pass on the other's assertion",
+          "matches": 1
+        },
+        {
+          "label": "B07 \u2605\u2605\u2605 THE FAILED FLIGHT IS NEVER RELEASED: `_pending_tx` still holds the frame pack_data refused, so nothing re-fires it and the node's NEXT DM never reaches the air \u2014 the pre-2026-08-28 wedge, half one",
+          "matches": 1
+        },
+        {
+          "label": "B08 \u2605\u2605\u2605 THE QUEUE IS NEVER PUMPED: the flight IS released, but `become_free()` is the DRAIN (node_mac.cpp:891), so a DM already waiting behind the doomed forward is never started \u2014 the same wedge, other half",
+          "matches": 1
+        },
+        {
+          "label": "H01 \u2605\u2605\u2605 [[B296]] HALF ONE: `SOURCE_HASH` becomes OPTIONAL-FOR-SIZE again \u2014 a full-cap application DM airs with the sender's stable identity stripped, so the receiver's `sender_hash` is 0 and inbox dedup / XL ack identity die",
+          "matches": 1
+        },
+        {
+          "label": "H02 \u2605\u2605\u2605 [[B296]] HALF TWO: a DERIVED `DST_HASH` becomes OPTIONAL-FOR-SIZE again \u2014 a by-HASH send silently degrades into a by-ID send, deliverable to whoever happens to hold that id",
+          "matches": 1
+        },
+        {
+          "label": "H03 \u2605\u2605\u2605 [[B296]] HALF THREE / [[B297]]: the PLAINTEXT arm stops checking its packer, so an inner that did not pack is queued as `inner_len = 0`, the RTS airs, and the TX-time bail drops it in silence",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b251hash",
+      "source": "lib/core/node_hashlocate.cpp",
+      "count": 55,
+      "entries": [
+        {
+          "label": "D01 B251 reverse lookup drops the returning destination discriminator",
+          "matches": 1
+        },
+        {
+          "label": "D02 B251 reverse lookup drops the layer/plane discriminator",
+          "matches": 1
+        },
+        {
+          "label": "D03 B251 reverse lookup drops the hosted-mobile hash discriminator",
+          "matches": 1
+        },
+        {
+          "label": "D04 B251 a full live correlation ring evicts slot zero instead of applying backpressure",
+          "matches": 1
+        },
+        {
+          "label": "D05 B251 MOBILE_SEND treats a minted non-zero counter as admission and manufactures phantom evidence/state",
+          "matches": 1
+        },
+        {
+          "label": "D06 B278 a full ring EVICTS at RESERVATION instead of refusing, so the ninth -a send is never BUSY-NACKed",
+          "matches": 1
+        },
+        {
+          "label": "D07 B278 ACK translation stops being ONE-SHOT: the row survives, so a duplicate ACK translates again",
+          "matches": 1
+        },
+        {
+          "label": "D08 B278 prune-before-admit is removed from deleg_ack_put, so the ring never self-drains at its TTL",
+          "matches": 1
+        },
+        {
+          "label": "D09i B278 S1b the CROSS-MOBILE refusal is undone at the availability probe (the `mobile_hash` term returns)",
+          "matches": 1
+        },
+        {
+          "label": "D09j B278 S1b the CROSS-MOBILE refusal is undone at the ACTIVE-match arm (the `mobile_hash` term returns)",
+          "matches": 1
+        },
+        {
+          "label": "D09k B278 S1b a colliding foreign mobile OVERWRITES the incumbent instead of being refused",
+          "matches": 1
+        },
+        {
+          "label": "D09m B278 S1b a colliding foreign mobile falls THROUGH to a free slot, creating the second indistinguishable row",
+          "matches": 1
+        },
+        {
+          "label": "D10 B278 S1a the mobile-visible TARGET is overwritten at activation (B251's single phase-dependent `peer` restored)",
+          "matches": 1
+        },
+        {
+          "label": "D11 B278 S1a the outward carrier TYPE is silently dropped at activation instead of being stored",
+          "matches": 1
+        },
+        {
+          "label": "D12 B278 S1b a RESERVED row is born with a candidate REGARDLESS of the caller's \u00a75 verdict",
+          "matches": 1
+        },
+        {
+          "label": "D14 B278 S1b the reservation's custody verdict is DROPPED, so no row is ever provisional",
+          "matches": 1
+        },
+        {
+          "label": "D15 B278 S1b a `candidate` SURVIVES activation (the arm's verdict never lands on the row)",
+          "matches": 1
+        },
+        {
+          "label": "D16 B278 S1b `forwarded` \u2014 S3's state \u2014 is written at activation, one arc-slice early",
+          "matches": 1
+        },
+        {
+          "label": "D17 B278 S1b an ACTIVE refresh RE-DECIDES the custody state instead of preserving it",
+          "matches": 1
+        },
+        {
+          "label": "D18 B278 S1b an exact RESERVED retry re-decides the provisional state instead of preserving it",
+          "matches": 1
+        },
+        {
+          "label": "D19 B278 S1b F6 the release CAUSE is hard-coded, so every release reads as the same reason",
+          "matches": 1
+        },
+        {
+          "label": "D20 B278 S1b F6 `deleg_ack_released` is emitted AFTER the clear, so it reports a zeroed row",
+          "matches": 1
+        },
+        {
+          "label": "D21 B278 S1b F6 a NO-MATCH release emits anyway, so the census counts releases that never happened",
+          "matches": 1
+        },
+        {
+          "label": "D22 B278 S1b F6 the park-giveup call site BYPASSES the helper, so an aged-out send reports no release",
+          "matches": 1
+        },
+        {
+          "label": "D23 B278 S1b F6 the expiry emit is DELETED, so a row's end becomes unobservable again",
+          "matches": 1
+        },
+        {
+          "label": "D24 B278 S1b F6 the expiry is emitted AFTER the clear, so every field reports a zeroed row",
+          "matches": 1
+        },
+        {
+          "label": "D25 B278 S1b F6 the exclusive 300 s edge becomes inclusive, so a row dies one scan early",
+          "matches": 1
+        },
+        {
+          "label": "D26 B278 S1b F6 the translate prune site BYPASSES the one expiry authority",
+          "matches": 1
+        },
+        {
+          "label": "D27 B278 S1b F6 `target_kind` is DROPPED from `deleg_ack_reserved` (the appended field never lands)",
+          "matches": 1
+        },
+        {
+          "label": "D28 B278 S1b F6 `deleg_ack_reserved` is REORDERED instead of appended (the corpus anchor becomes unattributable)",
+          "matches": 1
+        },
+        {
+          "label": "D13 B278 S1a the RESERVED-phase key silently reads the ACTIVE-phase identity, so no reservation can ever match",
+          "matches": 1
+        },
+        {
+          "label": "S30 B278 S3 the \u00a74.4 lookup drops the COUNTER term, so any live eligible row answers any report",
+          "matches": 1
+        },
+        {
+          "label": "S31 B278 S3 the \u00a74.4 lookup drops the RETURN-KIND term \u2014 a hash-addressed return key matches a node-id report",
+          "matches": 1
+        },
+        {
+          "label": "S32 B278 S3 THE COUNTER-ONLY MATCHER: the RETURN PEER is dropped, so a report about one destination translates a flight to ANOTHER. Home counters are minted PER DESTINATION, so two live rows really can share `ctr_h` \u2014 this is the defect the whole \u00a74.4 key exists to prevent",
+          "matches": 1
+        },
+        {
+          "label": "S33 B278 S3 the \u00a74.4 lookup drops the LAYER term, so a dual-layer gateway's other leaf answers",
+          "matches": 1
+        },
+        {
+          "label": "S34 B278 S3 the \u00a74.4 lookup drops the OUTWARD-TYPE cross-check, so a report about one carrier type translates a flight that dispatched another",
+          "matches": 1
+        },
+        {
+          "label": "S35 B278 S3 the optional DST_HASH cross-check becomes MANDATORY \u2014 \u00a74.4 says lookup must not fail merely because the hash is unavailable, and the production direct-transit shape carries none",
+          "matches": 1
+        },
+        {
+          "label": "S36 B278 S3 the DST_HASH cross-check is applied to a NODE-ID row too \u2014 a node id compared against a 32-bit hash is a category error that happens to be arithmetic (the `HashQuerySeen::by_id` key-space lesson)",
+          "matches": 1
+        },
+        {
+          "label": "S37 B278 S3 the lookup stops requiring `eligible`, so a `none` row \u2014 one whose arm carried NO custody obligation \u2014 acquires one, and a `forwarded` row is translated a SECOND time",
+          "matches": 1
+        },
+        {
+          "label": "S38 B278 S3 PRUNE-BEFORE-SCAN IS REMOVED, so a report arriving at or after the 300 s edge matches a row that should already be gone",
+          "matches": 1
+        },
+        {
+          "label": "S39 B278 S3 the SILENT zero-population case is collapsed into `no_map`, so every ordinary custody receipt on a v1-only node emits a diagnostic (and four corpus streams move)",
+          "matches": 1
+        },
+        {
+          "label": "S40 B278 S3 an AMBIGUOUS ring is resolved by taking the FIRST match \u2014 the guess \u00a74.4 forbids",
+          "matches": 1
+        },
+        {
+          "label": "S41 B278 S3 the outbound copy's `record_len` is NOT normalized, so a direct report carrying an unknown future tail can never be translated at all (the S2 packer requires a direct-shaped 24)",
+          "matches": 1
+        },
+        {
+          "label": "S42 B278 S3 the translated tail's `original_reporter` becomes the record's own `failed_origin` \u2014 i.e. the TRANSLATING HOME \u2014 so the mobile is told H1 lost custody of its own message",
+          "matches": 1
+        },
+        {
+          "label": "S43 B278 S3 the translated tail carries the HOME counter as `mobile_ctr` \u2014 the mobile then correlates the outcome to an operation it never started",
+          "matches": 1
+        },
+        {
+          "label": "S44 B278 S3 the tail's `target_value` is INFERRED from the return peer instead of the row's RETAINED target \u2014 \u00a76.2 exists precisely so a hash-addressed delegation stays representable",
+          "matches": 1
+        },
+        {
+          "label": "S45 B278 S3 the tail's `target_kind` is hard-wired to `node_id`, so a hash-addressed delegation's mobile-visible identity is silently re-typed",
+          "matches": 1
+        },
+        {
+          "label": "S46 B278 S3 the COMMIT's complete-identity recheck collapses to the counter, so a row REPLACED between the lookup and the send is marked as though it were the one that was sent",
+          "matches": 1
+        },
+        {
+          "label": "S47 B278 S3 the commit marks the FIRST candidate even when several match \u2014 an ambiguous commit is a misdelivery to the wrong mobile",
+          "matches": 1
+        },
+        {
+          "label": "S48 B278 S3 the commit will mark a row in ANY custody state, so a `none` row (one whose arm owed no custody) is stamped `forwarded`",
+          "matches": 1
+        },
+        {
+          "label": "S49 B278 S3 the commit CLEARS the row instead of stamping it \u2014 the ACK obligation is destroyed, so the later E2E ACK can no longer translate ctr_H -> ctr_M and the mobile times out",
+          "matches": 1
+        },
+        {
+          "label": "R01 \u00a7RADMIN-0d arm 1/4 (the delegated SEALED_RELAY wrapper) is restored to Plane::AUTO, so a teammate whose team-local id equals the home's static id captures the sealed wrapper onto _rt_team",
+          "matches": 1
+        },
+        {
+          "label": "R02 \u00a7RADMIN-0d arm 2/4 (the nonzero enclosed-type wrapper) is restored to Plane::AUTO",
+          "matches": 1
+        },
+        {
+          "label": "R03 \u00a7RADMIN-0d arm 3/4 (the plain MOBILE_SEND wrapper) is restored to Plane::AUTO",
+          "matches": 1
+        },
+        {
+          "label": "R04 \u00a7RADMIN-0d arm 4/4 (the cached-home send) is restored to Plane::AUTO, so an unregistered team mobile's DM to a target's home is captured by a colliding teammate (the arm D-0d-1 added)",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "b251rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 19,
+      "entries": [
+        {
+          "label": "X01 B251 translation is removed, restoring the downstream home/mobile counter alias",
+          "matches": 1
+        },
+        {
+          "label": "X02 B251 first-hop identity is rebuilt from current row zero instead of the accepted hosted-mobile row",
+          "matches": 1
+        },
+        {
+          "label": "X03 B251 the hosted-mobile hash discriminator is dropped from the seen-origin key",
+          "matches": 1
+        },
+        {
+          "label": "X04 B251 ordinary CRYPTED mobile transit is admitted to counter rewriting",
+          "matches": 1
+        },
+        {
+          "label": "X05 B251 mobile_from alone authorises translation, collapsing TEAM and static planes",
+          "matches": 1
+        },
+        {
+          "label": "X06 B251 a mismatching SOURCE_HASH is allowed to borrow the hosted row's translation authority",
+          "matches": 1
+        },
+        {
+          "label": "X07 B251 queue/correlation pressure is checked but ignored, so the mobile is hop-ACKed anyway",
+          "matches": 1
+        },
+        {
+          "label": "X09 B251 completed-flight lookup drops the immediate sender, so two mobiles can alias before DATA",
+          "matches": 1
+        },
+        {
+          "label": "X10 B278 R1=A is defeated: a plain non-E2E delegated transit now reserves a correlation row",
+          "matches": 1
+        },
+        {
+          "label": "X11 B278 the long-busy BUSY_RX REQUEUE is deleted, so a refused -a send dies on its first NACK",
+          "matches": 1
+        },
+        {
+          "label": "X13 B278 S1b the wrapper reservation IGNORES `has_cross_layer`, so a cross-layer wrapper gets a candidate",
+          "matches": 1
+        },
+        {
+          "label": "X14 B278 S1b the wrapper reservation CLAIMS to know the enclosed type, so no wrapper is ever provisional",
+          "matches": 1
+        },
+        {
+          "label": "X16 B278 S1b the DIRECT-TRANSIT activation verdict is inverted (the one arm that must carry custody stops)",
+          "matches": 1
+        },
+        {
+          "label": "X17 B278 S1b the WRAPPER CROSS-LAYER branch acquires a custody obligation \u00a75(6) forbids (ACK-only arm 3 of 4)",
+          "matches": 1
+        },
+        {
+          "label": "X18 B278 S1b the pre-ACK uniqueness refusal moves BEHIND the mobile's hop ACK",
+          "matches": 1
+        },
+        {
+          "label": "X19 B278 S1b F6 `mobile_hash`/`ctr_h` are DROPPED from `mobile_reverse_ack` (the census loses its exact bind)",
+          "matches": 1
+        },
+        {
+          "label": "X20 B278 S1b F6 `mobile_reverse_ack` is REORDERED instead of appended (its two pre-existing fields move)",
+          "matches": 1
+        },
+        {
+          "label": "X21 B278 S1b F6 `mobile_reverse_ack` reports the HOME's ctr as the mobile's (the two counters are swapped)",
+          "matches": 1
+        },
+        {
+          "label": "X24 \u2605\u2605\u2605 [[B296]] SHAPE 2: the home's refusal of a MOBILE_SEND wrapper WITHOUT its mandatory source hash is removed \u2014 the wrapper skips the delegation fork (which requires the field), is application-bearing so the fail-closed internal guard never sees it, and lands in the HOME'S OWN INBOX as an ordinary message",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "cmdauthority",
+      "source": "src/firmware_command_authority.h",
+      "count": 16,
+      "entries": [
+        {
+          "label": "A01 security configuration downgraded",
+          "matches": 1
+        },
+        {
+          "label": "A02 acl list incorrectly physical remotely",
+          "matches": 1
+        },
+        {
+          "label": "A03 physical reset admitted to a remote owner",
+          "matches": 1
+        },
+        {
+          "label": "A04 open commands inherit arguments",
+          "matches": 1
+        },
+        {
+          "label": "A05 operator gains owner authority",
+          "matches": 1
+        },
+        {
+          "label": "A06 remote owner gains physical authority",
+          "matches": 1
+        },
+        {
+          "label": "A07 local no longer admits unconditionally",
+          "matches": 1
+        },
+        {
+          "label": "A08 unknown command acquires a default policy",
+          "matches": 1
+        },
+        {
+          "label": "A09 shortest verb wins",
+          "matches": 1
+        },
+        {
+          "label": "A10 shortest subverb wins",
+          "matches": 1
+        },
+        {
+          "label": "A11 owner-prefixed legacy subcommand falls to a weaker family",
+          "matches": 1
+        },
+        {
+          "label": "A12 primary token boundary disappears",
+          "matches": 1
+        },
+        {
+          "label": "A13 alias spellings are ignored",
+          "matches": 1
+        },
+        {
+          "label": "A14 team mint loses its disruptive flag",
+          "matches": 1
+        },
+        {
+          "label": "A15 inter-token spaces bypass the stronger subcommand",
+          "matches": 1
+        },
+        {
+          "label": "A16 first matching row wins before the most-specific policy",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "consoleline",
+      "source": "lib/console/console_line.h",
+      "count": 12,
+      "entries": [
+        {
+          "label": "L01 inclusive cap becomes exclusive",
+          "matches": 1
+        },
+        {
+          "label": "L02 length check bypassed",
+          "matches": 1
+        },
+        {
+          "label": "L03 last byte is not scanned",
+          "matches": 1
+        },
+        {
+          "label": "L04 first byte is not scanned",
+          "matches": 1
+        },
+        {
+          "label": "L05 NUL accepted",
+          "matches": 1
+        },
+        {
+          "label": "L06 CR accepted",
+          "matches": 1
+        },
+        {
+          "label": "L07 LF accepted",
+          "matches": 1
+        },
+        {
+          "label": "L08 LF reason collapses to CR",
+          "matches": 1
+        },
+        {
+          "label": "L09 remote command cap drifts above the live codec derivation",
+          "matches": 1
+        },
+        {
+          "label": "L10 USB command bound drifts",
+          "matches": 1
+        },
+        {
+          "label": "L11 byte error incorrectly precedes length error",
+          "matches": 1
+        },
+        {
+          "label": "L12 unknown reason silently means ok",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "devicenv",
+      "source": "src/device_nv.h",
+      "count": 42,
+      "entries": [
+        {
+          "label": "N01 \u2605\u2605\u2605 THE DEFECT ITSELF: the mount result is discarded again, so a dead FS reads as a fresh device",
+          "matches": 1
+        },
+        {
+          "label": "N02 the mount failure is recorded but the read continues (a half-fix: the fact is set, the early return dropped)",
+          "matches": 1
+        },
+        {
+          "label": "N03 \u2605\u2605 THE ESP32 CLASSIFIER IS INVERTED: a first boot is called a STORAGE FAILURE (the same lie, other way)",
+          "matches": 1
+        },
+        {
+          "label": "N04 the ESP32 classifier is dropped, so 'NVS would not open' is a fresh device again",
+          "matches": 1
+        },
+        {
+          "label": "N05 \u2605\u2605 the backend fact is consulted AFTER the absent test \u2014 the ordering that loses it entirely",
+          "matches": 1
+        },
+        {
+          "label": "N06 a storage failure is folded into `invalid` (the tempting collapse \u2014 it prints the WRONG remedy)",
+          "matches": 1
+        },
+        {
+          "label": "N13 \u2605\u2605\u2605 THE REOPENED DEFECT: ANY lookup error is absent again \u2014 a metadata error reads as a fresh device",
+          "matches": 1
+        },
+        {
+          "label": "N14 \u2605\u2605\u2605 present-but-unopenable collapses to absent \u2014 four possibly-intact profiles read as NO PROFILES",
+          "matches": 1
+        },
+        {
+          "label": "N15 \u26d4 the lookup is issued for EVERY record ('compute first, gate later') \u2014 the four bool records pay a stat each",
+          "matches": 1
+        },
+        {
+          "label": "N07 \u2605\u2605\u2605 THE OVER-LENGTH CHECK IS DROPPED, so a longer file is accepted on its valid PREFIX",
+          "matches": 1
+        },
+        {
+          "label": "N08 the size comparison is `>=`, so an EXACTLY-sized record is rejected too (the off-by-one wrong fix)",
+          "matches": 1
+        },
+        {
+          "label": "N09 the ESP32 over-length check is dropped",
+          "matches": 1
+        },
+        {
+          "label": "N10 an over-length record is accepted anyway (the fact is gathered and then ignored)",
+          "matches": 1
+        },
+        {
+          "label": "N11 \u26d4 the extra FS question is asked for EVERY record (\u26d4 /mrcfg, /mrid, /mrpeers, /mrfault must not move)",
+          "matches": 1
+        },
+        {
+          "label": "N12 \u26d4 the ESP32 nvs_open classification runs for every record, on every open failure",
+          "matches": 1
+        },
+        {
+          "label": "N17 \u2605\u2605 the keyring's backend-failure arm is ordered AFTER `absent`, so a dead flash reports NO STORED KEYS",
+          "matches": 1
+        },
+        {
+          "label": "N18 an OVER-LENGTH keyring is accepted as a valid PREFIX (the nRF52 short-read hazard, one record over)",
+          "matches": 1
+        },
+        {
+          "label": "N19 \u2605 the keyring's version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as keys",
+          "matches": 1
+        },
+        {
+          "label": "N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy",
+          "matches": 1
+        },
+        {
+          "label": "N21 \u2605\u2605\u2605 THE CATALOG IS ADDRESSED AT `/mrcfg`: a phrase edit now writes the record whose version mismatch REPROVISIONS the node",
+          "matches": 1
+        },
+        {
+          "label": "N22 \u2605\u2605 the catalog carries `/mrcfg`'s MAGIC \u2014 the two records become mutually readable, which is the same collapse one layer in",
+          "matches": 1
+        },
+        {
+          "label": "N23 \u2605\u2605 the /mrui seed stamps generation ZERO \u2014 the value reserved for 'no generation', which a SendReq can never seal",
+          "matches": 1
+        },
+        {
+          "label": "N24 the /mrui version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as the wearer's phrases",
+          "matches": 1
+        },
+        {
+          "label": "N25 \u2605\u2605 the /mrui read tests `absent` FIRST, so a store that would not open announces 'no catalog configured'",
+          "matches": 1
+        },
+        {
+          "label": "N40 \u2605\u2605 /mradmid's VERSION POLICY becomes a RANGE \u2014 a record written under another layout is adopted",
+          "matches": 1
+        },
+        {
+          "label": "N41 /mracl's version policy becomes a range",
+          "matches": 1
+        },
+        {
+          "label": "N42 \u2605\u2605 /mradmid's backend fact is consulted AFTER the absent test \u2014 a dead store reads as a fresh device",
+          "matches": 1
+        },
+        {
+          "label": "N43 \u2605\u2605 /mracl's backend fact is consulted after the absent test",
+          "matches": 1
+        },
+        {
+          "label": "N44 \u2605 /mradmid's OVER-LENGTH check is dropped \u2014 a longer file is accepted on its valid PREFIX",
+          "matches": 1
+        },
+        {
+          "label": "N45 \u2605 /mracl's over-length check is dropped",
+          "matches": 1
+        },
+        {
+          "label": "N50 \u2605 `admin_id_blob_init` leaves the header UNSTAMPED, so a minted record reads back as invalid",
+          "matches": 1
+        },
+        {
+          "label": "N51 `acl_blob_init` stamps the WRONG magic (the two target records become interchangeable)",
+          "matches": 1
+        },
+        {
+          "label": "N52 `acl_blob_init` no longer value-initialises, so `reserved`/holes carry indeterminate bytes",
+          "matches": 1
+        },
+        {
+          "label": "N53 \u2605 the ACL slot table names the ADMIN record's file (both records share one file)",
+          "matches": 1
+        },
+        {
+          "label": "N54 \u2605\u2605 /mradmid moves OUT of the factory-reset namespace \u2014 a factory reset would keep the root",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-1 \u00a7RADMIN-4: `/mrmkeys` and `/mrtargets` share ONE backend key \u2014 an update to one lands on the other",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-2 \u00a7RADMIN-4: the CONTROLLER keyring lands in the fault namespace \u2014 a factory reset would spare the seeds",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-3 \u00a7RADMIN-4: `/mrmkeys` reuses the ACL magic \u2014 one record becomes readable as another",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-4 \u00a7RADMIN-4: `/mrtargets` accepts ANY version \u2014 a v2 record is adopted under a v1 layout guess",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-5 \u00a7RADMIN-4: a dead backend reads as a FRESH controller \u2014 the keyring's io_failed arm is gone",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-6 \u00a7RADMIN-4: an OVER-LENGTH target book passes on its valid prefix",
+          "matches": 1
+        },
+        {
+          "label": "N-S4-7 \u00a7RADMIN-4: `mgmt_key_blob_init` stops stamping the magic \u2014 every fresh keyring reads as invalid",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "fwactivation",
+      "source": "src/firmware_remote_activation.h",
+      "count": 10,
+      "entries": [
+        {
+          "label": "F01 impossible default admitted",
+          "matches": 1
+        },
+        {
+          "label": "F02 zero no longer selects default",
+          "matches": 1
+        },
+        {
+          "label": "F03 inclusive floor rejected",
+          "matches": 1
+        },
+        {
+          "label": "F04 inclusive ceiling rejected",
+          "matches": 1
+        },
+        {
+          "label": "F05 below-floor clamp",
+          "matches": 1
+        },
+        {
+          "label": "F06 above-ceiling clamp",
+          "matches": 1
+        },
+        {
+          "label": "F07 configured value silently defaulted",
+          "matches": 1
+        },
+        {
+          "label": "F08 unusable state publishes a default",
+          "matches": 1
+        },
+        {
+          "label": "F09 default state called configured",
+          "matches": 1
+        },
+        {
+          "label": "F10 unusable state name lies",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "grantadmit",
+      "source": "lib/core/node_mac.cpp",
+      "count": 1,
+      "entries": [
+        {
+          "label": "A01 \u2605\u2605\u2605 the enqueue reports ADMITTED whether or not it stored the item \u2014 the `if`'s own answer discarded again, one layer below every word that depends on it",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "grantpark",
+      "source": "lib/core/node_hashlocate.cpp",
+      "count": 3,
+      "entries": [
+        {
+          "label": "K01 \u2605\u2605\u2605 a FULL parked ring reports a STORED park \u2014 the send is dropped and the caller is told it is waiting behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37)",
+          "matches": 1
+        },
+        {
+          "label": "K02 \u2605\u2605\u2605 `park_send` RESTORES ITS CLAMP: an over-cap parked body is silently truncated to the cap and parked anyway, so the message is delivered short and every layer reports success",
+          "matches": 1
+        },
+        {
+          "label": "K03 \u2605\u2605\u2605 `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing \u2014 the sibling defect, attacked separately so neither park can pass on the other's assertion",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "macwait",
+      "source": "lib/core/mac_wait_windows.h",
+      "count": 10,
+      "entries": [
+        {
+          "label": "W01 CTS backoff caps one attempt early",
+          "matches": 1
+        },
+        {
+          "label": "W02 CTS backoff exceeds the existing x4 cap",
+          "matches": 1
+        },
+        {
+          "label": "W03 CTS exponential backoff becomes a linear increment",
+          "matches": 1
+        },
+        {
+          "label": "W04 CTS loses its one-millisecond margin",
+          "matches": 1
+        },
+        {
+          "label": "W05 CTS pays only one of the two turnarounds",
+          "matches": 1
+        },
+        {
+          "label": "W06 ACK loses DATA airtime",
+          "matches": 1
+        },
+        {
+          "label": "W07 ACK loses routing ACK airtime",
+          "matches": 1
+        },
+        {
+          "label": "W08 ACK loses the DATA-SF turnaround",
+          "matches": 1
+        },
+        {
+          "label": "W09 ACK loses the routing-SF turnaround",
+          "matches": 1
+        },
+        {
+          "label": "W10 ACK loses its two-millisecond margin",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin2codec",
+      "source": "lib/core/remote_codec.cpp",
+      "count": 105,
+      "entries": [
+        {
+          "label": "R01 \u2605\u2605\u2605 the base KDF binds the two full public keys in the WRONG ROLE ORDER, so a controller and its target derive the same key from either end \u2014 the DM sorted-hash habit imported into a protocol whose two endpoints are NOT interchangeable",
+          "matches": 1
+        },
+        {
+          "label": "R02 \u2605\u2605 the base KDF label loses its version tag (same length, so every static_assert still holds) \u2014 remote-admin v1 and v2 would derive the same key from the same inputs",
+          "matches": 1
+        },
+        {
+          "label": "R03 \u2605\u2605 the base KDF drops the SHARED POINT and derives a key from two public keys alone",
+          "matches": 1
+        },
+        {
+          "label": "R04 \u2605\u2605\u2605 the session KDF drops the epoch, so a rollover does not change the session key \u2014 the whole point of the epoch",
+          "matches": 1
+        },
+        {
+          "label": "R05 \u2605\u2605 the session KDF writes the epoch BIG-endian \u2014 the wrong-endian defect at a key boundary, invisible to any round-trip",
+          "matches": 1
+        },
+        {
+          "label": "R06 \u2605\u2605 the base key is truncated from the WRONG END of the 64-byte digest \u2014 still 32 bytes, still self-consistent, and not the spec's [:32]",
+          "matches": 1
+        },
+        {
+          "label": "R07 \u2605\u2605\u2605 the ALL-ZERO shared point is accepted and turned into a key \u2014 exactly what the existing void `ecdh_shared` would hand over unchecked",
+          "matches": 1
+        },
+        {
+          "label": "R08 \u2605\u2605\u2605 the ECDH boundary stops rejecting a degenerate result, so every low-order peer point yields a key both sides agree on and an attacker knows",
+          "matches": 1
+        },
+        {
+          "label": "R09 \u2605\u2605\u2605 the nonce drops the DIRECTION byte, so a request and a response with the same opcode nibble and request id collide under one key",
+          "matches": 1
+        },
+        {
+          "label": "R10 \u2605\u2605\u2605 the nonce drops the CONTROL BYTE, so every opcode and every ACL slot share one nonce domain at a given request id",
+          "matches": 1
+        },
+        {
+          "label": "R11 \u2605\u2605 the nonce drops the RESPONSE SEQUENCE, so two frames of one transcript reuse a nonce under the same session key",
+          "matches": 1
+        },
+        {
+          "label": "R12 \u2605\u2605\u2605 the nonce drops the stable controller SOURCE_HASH \u2014 two controllers deliberately sharing one credential lose their pre-encryption nonce separation (design \u00a79)",
+          "matches": 1
+        },
+        {
+          "label": "R13 \u2605\u2605\u2605 EVERY domain gets the epoch in its nonce \u2014 including the bootstrap REQUEST, whose controller does not yet know one (\u00a78.1)",
+          "matches": 1
+        },
+        {
+          "label": "R14 \u2605\u2605 NO domain gets the epoch in its nonce, so a replayed bootstrap after a rollover reuses the old response nonce",
+          "matches": 1
+        },
+        {
+          "label": "R15 \u2605\u2605 the nonce is truncated from the wrong end of the digest",
+          "matches": 1
+        },
+        {
+          "label": "R16 \u2605\u2605\u2605 an OPEN domain is handed a nonce, so an unauthenticated envelope could join an authenticated inequality claim as a fake zero-nonce member",
+          "matches": 1
+        },
+        {
+          "label": "R17 \u2605\u2605 the ABSENT-SOURCE fallback comes back: a message with no captured controller source is derived against whatever number the field happens to hold",
+          "matches": 1
+        },
+        {
+          "label": "R18 \u2605\u2605 one byte of the nonce LABEL changes (same length, so every static_assert still holds) \u2014 the derivation drifts out of its frozen domain without any structural sign",
+          "matches": 1
+        },
+        {
+          "label": "R19 \u2605\u2605\u2605 the AAD drops the DIRECTION byte, so a sealed request body would authenticate as a response body",
+          "matches": 1
+        },
+        {
+          "label": "R20 \u2605\u2605\u2605 the AAD drops the controller SOURCE_HASH, so the return identity is no longer bound and a relay could rewrite it without breaking the tag",
+          "matches": 1
+        },
+        {
+          "label": "R21 \u2605\u2605 the AAD length stops covering the source hash \u2014 the bytes are written and then not authenticated, which is the shape that looks right in a hex dump",
+          "matches": 1
+        },
+        {
+          "label": "R22 \u2605\u2605\u2605 the request id is written BIG-endian in the clear header \u2014 wrong on the wire and wrong in the AAD, and a round-trip never notices",
+          "matches": 1
+        },
+        {
+          "label": "R23 \u2605\u2605 the clear header puts the request id BEFORE the control byte",
+          "matches": 1
+        },
+        {
+          "label": "R24 \u2605\u2605 the rollover result writes its abandoned count BEFORE the epoch \u2014 the field order of \u00a78.6 reversed",
+          "matches": 1
+        },
+        {
+          "label": "R25 \u2605\u2605 a bootstrap request may be built without its 32-byte controller key, or any other layout with one \u2014 the header/AAD field set stops being checked",
+          "matches": 1
+        },
+        {
+          "label": "R26 \u2605\u2605\u2605 the outer DATA type is not validated, so a FOREIGN typed frame's first body byte is read as a remote `ctl`",
+          "matches": 1
+        },
+        {
+          "label": "R27 \u2605\u2605\u2605 the RESERVED slot nibbles A..E stop being refused as a class",
+          "matches": 1
+        },
+        {
+          "label": "R28 \u2605\u2605 a RESERVED REMOTE_CMD opcode (0x6..0xF) is admitted instead of refused",
+          "matches": 1
+        },
+        {
+          "label": "R29 \u2605\u2605 a RESERVED REMOTE_RESP opcode (0x5..0xF) is admitted instead of refused",
+          "matches": 1
+        },
+        {
+          "label": "R30 \u2605\u2605\u2605 an AUTHENTICATED EXECUTE is accepted on the sentinel slot \u2014 open becomes a fake ACL slot, which \u00a78.1 forbids by name",
+          "matches": 1
+        },
+        {
+          "label": "R31 \u2605\u2605\u2605 a BOOTSTRAP REQUEST is accepted on an established slot, i.e. on a row the controller cannot yet know",
+          "matches": 1
+        },
+        {
+          "label": "R32 \u2605\u2605 a BOOTSTRAP RESPONSE is accepted on the sentinel, so it stops carrying the actual matched slot",
+          "matches": 1
+        },
+        {
+          "label": "R33 \u2605\u2605\u2605 the OPEN protocol error acquires the AUTHENTICATED `already_acknowledged` result namespace \u2014 an unauthenticated envelope gaining an authenticated meaning",
+          "matches": 1
+        },
+        {
+          "label": "R34 \u2605\u2605\u2605 a FIXED layout accepts a trailing byte (the exact-length rule becomes a minimum)",
+          "matches": 1
+        },
+        {
+          "label": "R35 \u2605\u2605 a VARIABLE layout stops checking that its fixed fields are even present",
+          "matches": 1
+        },
+        {
+          "label": "R36 \u2605\u2605 a FIXED layout is allowed to carry an application payload",
+          "matches": 1
+        },
+        {
+          "label": "R37 \u2605\u2605\u2605 ENCODE admission is skipped: an oversize body is built and handed on rather than refused",
+          "matches": 1
+        },
+        {
+          "label": "R38 \u2605\u2605 ENCODE admission is off by one: a body EXACTLY at the carrier's cap is refused",
+          "matches": 1
+        },
+        {
+          "label": "R39 \u2605\u2605\u2605 DECODE admission is skipped, so an oversize body's size check hides behind a tag that happens to verify",
+          "matches": 1
+        },
+        {
+          "label": "R40 \u2605\u2605\u2605 [[R-RA-28]] REVERSED: the four DST_HASH bytes are reclaimed on a leg that does not transmit them \u2014 the optional-for-size decision the ruling exists to forbid",
+          "matches": 1
+        },
+        {
+          "label": "R41 \u2605\u2605 the mandatory SOURCE_HASH reservation is dropped from the capacity derivation",
+          "matches": 1
+        },
+        {
+          "label": "R42 \u2605\u2605 the origin byte is forgotten in the capacity derivation",
+          "matches": 1
+        },
+        {
+          "label": "R43 \u2605\u2605\u2605 the AIR-fit bound is ignored and STORAGE always governs \u2014 [[B20]]'s conflation at a new authority (the outer-CRYPTED shape then reads 232 instead of 229)",
+          "matches": 1
+        },
+        {
+          "label": "R44 \u2605\u2605\u2605 the STORAGE bound is ignored and AIR always governs, so a plaintext carrier is told it may fill 233 inner bytes the 241-byte TxItem buffer cannot hold alongside its fields",
+          "matches": 1
+        },
+        {
+          "label": "R45 \u2605\u2605 the typed wrapper's enclosed-TYPE byte is free",
+          "matches": 1
+        },
+        {
+          "label": "R46 \u2605\u2605 the cross-layer path forgets its two count bytes and charges only the layer ids",
+          "matches": 1
+        },
+        {
+          "label": "R47 \u2605\u2605\u2605 [[B309]]: the typed wrapper is given the FULL path's depth limit, so destination depth 4 is admitted as a 225-byte carrier the home could never re-originate",
+          "matches": 1
+        },
+        {
+          "label": "R48 \u2605\u2605 the path cursor stops being validated against the depth (`pack_unicast_inner` refuses what this would admit)",
+          "matches": 1
+        },
+        {
+          "label": "R49 \u2605\u2605 [[R-RA-13]] reversed: a carrier without SOURCE_HASH is admitted",
+          "matches": 1
+        },
+        {
+          "label": "R50 \u2605\u2605 `pack_data`'s structural rule is dropped: outer CRYPTED with no DST_HASH is reported as a carrier with a lower cap instead of no carrier at all",
+          "matches": 1
+        },
+        {
+          "label": "R51 \u2605\u2605 a same-layer descriptor is allowed to carry a path block that its flags would never emit",
+          "matches": 1
+        },
+        {
+          "label": "R52 \u2605\u2605 `addr_len` beyond the mobile last mile is admitted (`pack_data` refuses it)",
+          "matches": 1
+        },
+        {
+          "label": "R53 \u2605\u2605\u2605 the ENCODE key selector collapses to the session key, so a bootstrap is sealed under a key the target cannot have yet",
+          "matches": 1
+        },
+        {
+          "label": "R54 \u2605\u2605\u2605 the DECODE key selector collapses to the session key",
+          "matches": 1
+        },
+        {
+          "label": "R55 \u2605\u2605\u2605 the AEAD verdict is IGNORED: a body with a broken tag publishes its plaintext",
+          "matches": 1
+        },
+        {
+          "label": "R56 \u2605\u2605\u2605 a FAILED authenticated open FALLS BACK to the open decoder \u2014 the exact behaviour \u00a78.1 forbids by name",
+          "matches": 1
+        },
+        {
+          "label": "R57 \u2605\u2605 an OPEN body is published as AUTHENTICATED \u2014 a success that isn't",
+          "matches": 1
+        },
+        {
+          "label": "R58 \u2605\u2605\u2605 the two result namespaces COLLAPSE: the authenticated protocol error accepts the whole terminal namespace, so 0x01..0x08 stop rejecting",
+          "matches": 1
+        },
+        {
+          "label": "R59 \u2605\u2605\u2605 the typed DOMAIN is lost: a protocol-error body decodes as a TERMINAL result, so 0x00 reads as `completed` instead of `already_acknowledged`",
+          "matches": 1
+        },
+        {
+          "label": "R60 \u2605\u2605 an UNALLOCATED terminal code (0x09..0xFF) is decoded as a known meaning",
+          "matches": 1
+        },
+        {
+          "label": "R61 \u2605\u2605 a TERMINAL body with NO result code defaults to `completed` instead of refusing",
+          "matches": 1
+        },
+        {
+          "label": "R62 \u2605\u2605 the bounded terminal DETAIL bytes are dropped rather than preserved exactly",
+          "matches": 1
+        },
+        {
+          "label": "R63 \u2605\u2605\u2605 [[B312]] VERBATIM: the entropy provider's status is IGNORED, so a failed or partial draw becomes a usable request id",
+          "matches": 1
+        },
+        {
+          "label": "R64 \u2605\u2605\u2605 an ABSENT provider silently yields the reserved id zero instead of refusing",
+          "matches": 1
+        },
+        {
+          "label": "R65 \u2605\u2605 the request id is composed BIG-endian from the drawn bytes",
+          "matches": 1
+        },
+        {
+          "label": "R66 \u2605\u2605\u2605 the request id is silently NARROWED to 32 bits \u2014 R-RA-5's rejected width, and the birthday bound moves from 2^-33 to about 0.5",
+          "matches": 1
+        },
+        {
+          "label": "R67 R-RA-37 decoder retains the old terminal ceiling 07 (must compile and reject positive 08)",
+          "matches": 1
+        },
+        {
+          "label": "R68 R-RA-37 action_busy is misreported as session_busy",
+          "matches": 1
+        },
+        {
+          "label": "A01 R-RA-36 domain absent",
+          "matches": 1
+        },
+        {
+          "label": "A02 R-RA-36 notice is open",
+          "matches": 1
+        },
+        {
+          "label": "A03 R-RA-36 notice selects base key",
+          "matches": 1
+        },
+        {
+          "label": "A04 R-RA-36 notice variable body",
+          "matches": 1
+        },
+        {
+          "label": "A05 R-RA-36 wrong response opcode",
+          "matches": 1
+        },
+        {
+          "label": "A06 R-RA-36 wrong fixed overhead",
+          "matches": 1
+        },
+        {
+          "label": "A07 R-RA-36 nonce omits w.u8(msg.request_ctl);",
+          "matches": 1
+        },
+        {
+          "label": "A08 R-RA-36 nonce omits w.u8(static_cast<uint8_t>(msg.admission_code));",
+          "matches": 1
+        },
+        {
+          "label": "A09 R-RA-36 nonce omits w.u8(msg.admission_detail);",
+          "matches": 1
+        },
+        {
+          "label": "A10 R-RA-36 nonce reorders suffix",
+          "matches": 1
+        },
+        {
+          "label": "A11 R-RA-36 old preimage contaminated",
+          "matches": 1
+        },
+        {
+          "label": "A12 R-RA-36 header field order reversed",
+          "matches": 1
+        },
+        {
+          "label": "A13 R-RA-36 AAD clear byte 0 zeroed",
+          "matches": 1
+        },
+        {
+          "label": "A14 R-RA-36 AAD clear byte 1 zeroed",
+          "matches": 1
+        },
+        {
+          "label": "A15 R-RA-36 AAD clear byte 9 zeroed",
+          "matches": 1
+        },
+        {
+          "label": "A16 R-RA-36 AAD clear byte 10 zeroed",
+          "matches": 1
+        },
+        {
+          "label": "A17 R-RA-36 AAD clear byte 11 zeroed",
+          "matches": 1
+        },
+        {
+          "label": "A18 R-RA-36 busy zero admitted",
+          "matches": 1
+        },
+        {
+          "label": "A19 R-RA-36 unused detail admitted",
+          "matches": 1
+        },
+        {
+          "label": "A20 R-RA-36 unsupported code admitted",
+          "matches": 1
+        },
+        {
+          "label": "A21 R-RA-36 unsupported request admitted",
+          "matches": 1
+        },
+        {
+          "label": "A22 R-RA-36 mismatched slot admitted",
+          "matches": 1
+        },
+        {
+          "label": "A23 R-RA-36 busy codec invents max four",
+          "matches": 1
+        },
+        {
+          "label": "A24 R-RA-36 typed notice becomes terminal",
+          "matches": 1
+        },
+        {
+          "label": "A25 R-RA-36 typed notice becomes protocol error",
+          "matches": 1
+        },
+        {
+          "label": "A26 R-RA-36 fixed trailing byte accepted",
+          "matches": 1
+        },
+        {
+          "label": "A27 R-RA-36 fixed receive carrier bypass",
+          "matches": 1
+        },
+        {
+          "label": "A28 R-RA-36 fixed encode carrier bypass",
+          "matches": 1
+        },
+        {
+          "label": "A29 R-RA-36 bad tag publishes parsed header",
+          "matches": 1
+        },
+        {
+          "label": "A30 R-RA-36 semantic failure publishes parsed header",
+          "matches": 1
+        },
+        {
+          "label": "A31 R-RA-36 decode semantic check bypassed",
+          "matches": 1
+        },
+        {
+          "label": "A32 R-RA-36 encode semantic check bypassed",
+          "matches": 1
+        },
+        {
+          "label": "A33 R-RA-36 clear detail becomes payload view",
+          "matches": 1
+        },
+        {
+          "label": "A34 R-RA-36 unused sequence contaminates nonce",
+          "matches": 1
+        },
+        {
+          "label": "A35 R-RA-36 request field not decoded",
+          "matches": 1
+        },
+        {
+          "label": "A36 R-RA-36 detail field not decoded",
+          "matches": 1
+        },
+        {
+          "label": "A37 R-RA-36 notice sentinel admitted",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin3acl",
+      "source": "src/firmware_admin_acl.h",
+      "count": 36,
+      "entries": [
+        {
+          "label": "B01 \u2605\u2605 `count` NO LONGER HAS TO EQUAL THE POPULATION \u2014 a lying count is adopted",
+          "matches": 1
+        },
+        {
+          "label": "B02 the count is CLAMPED instead of refused (\u00a76.5's 'never clamp' reversed)",
+          "matches": 1
+        },
+        {
+          "label": "B03 \u2605\u2605 AN OWNERLESS NON-EMPTY ACL IS ACCEPTED \u2014 a node nobody can manage and nobody can repair remotely",
+          "matches": 1
+        },
+        {
+          "label": "B04 DUPLICATE KEYS ARE ACCEPTED \u2014 one controller holds two slots",
+          "matches": 1
+        },
+        {
+          "label": "B05 an ILLEGAL ROLE BYTE is treated as an ignorable row instead of a corrupt record",
+          "matches": 1
+        },
+        {
+          "label": "B06 an occupied row with an ALL-ZERO key is accepted (it grants nothing to nobody)",
+          "matches": 1
+        },
+        {
+          "label": "B07 a 'deleted' row that KEPT its key still reads as empty",
+          "matches": 1
+        },
+        {
+          "label": "B08 `reserved` leaves the content policy (the whole-record write guard becomes unsound)",
+          "matches": 1
+        },
+        {
+          "label": "B09 the CENSUS trusts the stored `count` instead of counting rows",
+          "matches": 1
+        },
+        {
+          "label": "B10 \u2605\u2605 THE FIRST CREDENTIAL MAY BE AN OPERATOR \u2014 an unmanageable node is created",
+          "matches": 1
+        },
+        {
+          "label": "B11 \u2605 A DUPLICATE ADD SUCCEEDS instead of refusing (\u00a76.5's explicit rejection reversed)",
+          "matches": 1
+        },
+        {
+          "label": "B12 a duplicate is answered as an UNCHANGED SUCCESS \u2014 the operator is not told he mistyped",
+          "matches": 1
+        },
+        {
+          "label": "B13 an ALL-ZERO key is accepted as a controller key",
+          "matches": 1
+        },
+        {
+          "label": "B14 \u2605\u2605 A FULL ACL EVICTS SLOT 0 instead of refusing loudly",
+          "matches": 1
+        },
+        {
+          "label": "B15 \u2605\u2605 ADD NO LONGER TAKES THE LOWEST FREE SLOT \u2014 holes are skipped and handles drift",
+          "matches": 1
+        },
+        {
+          "label": "B17 \u2605 THE IDENTITY GATE IS DROPPED: a first owner is granted with no administration root",
+          "matches": 1
+        },
+        {
+          "label": "B18 an ordinary ADD is allowed over an INVALID record (an implicit, silent re-seed)",
+          "matches": 1
+        },
+        {
+          "label": "B19 \u2605\u2605\u2605 THE LAST OWNER CAN BE DEMOTED \u2014 the node becomes unmanageable and unrepairable remotely",
+          "matches": 1
+        },
+        {
+          "label": "B20 \u2605\u2605\u2605 THE LAST OWNER CAN BE REMOVED",
+          "matches": 1
+        },
+        {
+          "label": "B21 \u2605\u2605 THE SELF-SLOT RULE IS DROPPED FOR `remove` (a caller can delete its own authenticating slot)",
+          "matches": 1
+        },
+        {
+          "label": "B22 \u2605\u2605 THE SELF-SLOT RULE IS DROPPED FOR `set` (a caller can demote itself)",
+          "matches": 1
+        },
+        {
+          "label": "B23 the SELF-SLOT rule is widened to a legal SAME-ROLE no-op (a correct request is refused)",
+          "matches": 1
+        },
+        {
+          "label": "B24 \u2605 THE NO-OP ARM CLAIMS A WRITE HAPPENED: an identical role assignment reports `changed`, so the console says `updated` for a flash write that never occurred",
+          "matches": 1
+        },
+        {
+          "label": "B25 `set`/`remove` accept an EMPTY slot (a hole is edited into an occupied-looking row)",
+          "matches": 1
+        },
+        {
+          "label": "B26 \u2605 REMOVE COMPACTS THE ROWS \u2014 \u00a76.5's stable wire handles are shifted under the controller",
+          "matches": 1
+        },
+        {
+          "label": "B27 a removed row keeps its KEY (the slot reads empty but the material is still on flash)",
+          "matches": 1
+        },
+        {
+          "label": "B28 the slot RANGE check is dropped (slot 250 indexes past the ten rows)",
+          "matches": 1
+        },
+        {
+          "label": "B29 \u26d4\u26d4 RECOVERY IS ALLOWED OVER `io_failed` \u2014 ten intact rows destroyed because a mount failed",
+          "matches": 1
+        },
+        {
+          "label": "B30 recovery re-initialises an `ok` record too (a 'repair' that erases a healthy authority list)",
+          "matches": 1
+        },
+        {
+          "label": "B31 \u2605 RECOVERY GRANTS AN OWNER \u2014 design \u00a76.4's 'never invents an active owner' reversed",
+          "matches": 1
+        },
+        {
+          "label": "B33 a FAILED SAVE is reported as success",
+          "matches": 1
+        },
+        {
+          "label": "B34 \u2605 THE BYTE-COMPARISON WRITE GUARD IS INVERTED \u2014 a real change writes NOTHING and reports success",
+          "matches": 1
+        },
+        {
+          "label": "B35 `read()` leaves the PARTIAL bytes of a failed read in the caller's buffer",
+          "matches": 1
+        },
+        {
+          "label": "B36 provisioning readiness stops requiring an OWNER (an empty ACL reads as provisioned)",
+          "matches": 1
+        },
+        {
+          "label": "B38 \u2605 the ROLE NAMER returns the same token for both roles \u2014 a listing cannot be read",
+          "matches": 1
+        },
+        {
+          "label": "B37 the ROLE DOMAIN opens: `empty` becomes an assignable role, so a verb could blank a row",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin3id",
+      "source": "src/firmware_admin_identity.h",
+      "count": 23,
+      "entries": [
+        {
+          "label": "A01 \u2605\u2605\u2605 THE DEAD-RNG REFUSAL IS DELETED: an all-zero draw mints the world-known root and reports SUCCESS",
+          "matches": 1
+        },
+        {
+          "label": "A02 the PROVIDER'S ANSWER is ignored \u2014 a refused/partial draw is minted from anyway",
+          "matches": 1
+        },
+        {
+          "label": "A03 \u2605\u2605 THE ORDER IS INVERTED: the record is SAVED BEFORE the draw is validated",
+          "matches": 1
+        },
+        {
+          "label": "A04 a FAILED SAVE is reported as success (the record is not there, the console says it is)",
+          "matches": 1
+        },
+        {
+          "label": "A05 the all-zero predicate EXITS EARLY on the first byte \u2014 a seed of 00 ff ff \u2026 would read as zero",
+          "matches": 1
+        },
+        {
+          "label": "A06 `reserved` is no longer part of the content policy (a non-canonical record compares unequal forever)",
+          "matches": 1
+        },
+        {
+          "label": "A07 \u2605\u2605 a STORAGE-ok record with a dead seed is called `ok` \u2014 the composition is dropped",
+          "matches": 1
+        },
+        {
+          "label": "A08 `io_failed` is folded into `invalid` \u2014 a transient mount failure becomes a recoverable corruption",
+          "matches": 1
+        },
+        {
+          "label": "A09 `absent` is folded into `invalid` \u2014 a fresh device reports a corrupt root",
+          "matches": 1
+        },
+        {
+          "label": "A10 \u2605\u2605 `generate` OVERWRITES an existing root instead of refusing",
+          "matches": 1
+        },
+        {
+          "label": "A11 `generate` mints over an INVALID record (an implicit re-seed, which only recovery may do)",
+          "matches": 1
+        },
+        {
+          "label": "A12 \u26d4\u26d4 `generate` WRITES OVER AN UNREADABLE STORE \u2014 nothing is known and an intact root is destroyed",
+          "matches": 1
+        },
+        {
+          "label": "A13 `rotate` mints on an ABSENT node (a rotation invents a root that never existed)",
+          "matches": 1
+        },
+        {
+          "label": "A14 \u26d4\u26d4 RECOVERY IS ALLOWED OVER `io_failed` \u2014 a transient mount failure re-mints the node's root",
+          "matches": 1
+        },
+        {
+          "label": "A15 recovery re-mints an `ok` record too (a 'repair' that destroys a healthy root)",
+          "matches": 1
+        },
+        {
+          "label": "A16 `show` WRITES: the read-only path gains a durable save",
+          "matches": 1
+        },
+        {
+          "label": "A17 \u2605\u2605\u2605 THE DIGEST SIZE BECOMES 8 \u2014 an 8-byte BLAKE2b is a DIFFERENT function, not a truncation",
+          "matches": 1
+        },
+        {
+          "label": "A18 \u2605\u2605 THE PREFIX OFFSET MOVES: bytes 8..15 instead of 0..7",
+          "matches": 1
+        },
+        {
+          "label": "A19 the prefix LENGTH moves to four bytes (the grindable `key_hash32` shape R-RA-29 forbids)",
+          "matches": 1
+        },
+        {
+          "label": "A20 the INPUT is the whole 64-byte digest of something else \u2014 the key is hashed with a stray extra byte",
+          "matches": 1
+        },
+        {
+          "label": "A21 the hex renderer emits UPPERCASE (a selector that changes case is a different string)",
+          "matches": 1
+        },
+        {
+          "label": "A22 the hex renderer swaps the nibble order (every byte reads back reversed)",
+          "matches": 1
+        },
+        {
+          "label": "A23 \u2605 THE PUBLISHED KEY IS THE SEED \u2014 the one substitution that leaks the secret to the console",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin3verbs",
+      "source": "src/firmware_admin_verbs.h",
+      "count": 28,
+      "entries": [
+        {
+          "label": "C01 \u2605\u2605 THE PRIMARY TOKEN BECOMES A PREFIX TEST \u2014 `admin-identity` and `aclx` are swallowed",
+          "matches": 1
+        },
+        {
+          "label": "C02 the family loses its `admin-id` half (only `acl` is recognised)",
+          "matches": 1
+        },
+        {
+          "label": "C03 the family loses its `acl` half",
+          "matches": 1
+        },
+        {
+          "label": "C04 a TAB no longer separates the primary token from its tail",
+          "matches": 1
+        },
+        {
+          "label": "C05 \u2605\u2605\u2605 THE TOKEN SCAN IGNORES `len` \u2014 it reads past the span into whatever follows the console stage",
+          "matches": 1
+        },
+        {
+          "label": "C06 \u2605\u2605 THE KEY TOKEN IS TRUNCATED TO THE FIELD WIDTH instead of refused \u2014 a 65-character paste installs a DIFFERENT key than the operator copied, silently",
+          "matches": 1
+        },
+        {
+          "label": "C07 the key scratch is sized to a slot number, so every legal 64-hex key is refused",
+          "matches": 1
+        },
+        {
+          "label": "C08 \u2605\u2605 `admin-id rotate` NO LONGER NEEDS ITS CONFIRMATION \u2014 a bare word rotates the root",
+          "matches": 1
+        },
+        {
+          "label": "C09 \u2605\u2605 `admin-id reset` loses its confirmation",
+          "matches": 1
+        },
+        {
+          "label": "C10 \u2605\u2605 `acl remove` loses its confirmation",
+          "matches": 1
+        },
+        {
+          "label": "C11 \u2605\u2605 `acl reset` loses its confirmation",
+          "matches": 1
+        },
+        {
+          "label": "C12 a MALFORMED confirmation is TRIMMED into an accepted one (`confirm x` becomes `confirm`)",
+          "matches": 1
+        },
+        {
+          "label": "C13 \u2605\u2605 THE SLOT IS PARSED WITH A PREFIX PARSE AGAIN \u2014 `acl remove 2junk confirm` frees slot 2",
+          "matches": 1
+        },
+        {
+          "label": "C14 the 0..9 domain check is dropped, so slot 250 is narrowed into slot 250 % 256",
+          "matches": 1
+        },
+        {
+          "label": "C15 the ROLE token becomes a PREFIX match \u2014 `own` and `operators` are accepted",
+          "matches": 1
+        },
+        {
+          "label": "C16 an unknown role DEFAULTS to operator instead of refusing (C2's fail-loud reversed)",
+          "matches": 1
+        },
+        {
+          "label": "C17 `admin-id show` silently ignores an extra token",
+          "matches": 1
+        },
+        {
+          "label": "C18 `acl add` silently ignores everything after the key",
+          "matches": 1
+        },
+        {
+          "label": "C19 an UNKNOWN subcommand falls through silently instead of answering bad_args",
+          "matches": 1
+        },
+        {
+          "label": "C20 \u2605 `unchanged` is reported as `updated` \u2014 the operator is told a write happened that did not",
+          "matches": 1
+        },
+        {
+          "label": "C21 the ACL listing renders EMPTY rows too (holes are published as slots)",
+          "matches": 1
+        },
+        {
+          "label": "C22 the listing's end line counts from the STORED count instead of the census",
+          "matches": 1
+        },
+        {
+          "label": "C23 \u2605 the ADD line prints the FINGERPRINT in place of the full key \u2014 the USB exchange loses the key",
+          "matches": 1
+        },
+        {
+          "label": "C24 \u2605 the BOOT line drops its `state=` field \u2014 absent and io_failed become indistinguishable",
+          "matches": 1
+        },
+        {
+          "label": "C25 the boot report starts printing the ADMINISTRATION KEY (a boot line must carry no material)",
+          "matches": 1
+        },
+        {
+          "label": "C26 a REFUSAL reason is mapped to the wrong lexeme (`last_owner` prints as `slot_empty`)",
+          "matches": 1
+        },
+        {
+          "label": "C27 the STATE names collapse (`io_failed` prints as `invalid` \u2014 the wrong remedy)",
+          "matches": 1
+        },
+        {
+          "label": "C29 the `acl add` path stops reading the administration identity (the gate is bypassed at the VERB)",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin5runtime",
+      "source": "src/firmware_admin_runtime.h",
+      "count": 16,
+      "entries": [
+        {
+          "label": "T01 \u2605\u2605\u2605 every slot gets a fresh epoch on any ACL edit, so an unrelated controller's live session dies whenever someone else's row changes (design \u00a76.5: \"role change or removal invalidates THAT SLOT's session\")",
+          "matches": 1
+        },
+        {
+          "label": "T02 \u2605\u2605\u2605 a REMOVED slot is re-minted with a fresh epoch instead of being made unusable, so a revoked controller's slot number stays live",
+          "matches": 1
+        },
+        {
+          "label": "T03 \u2605\u2605\u2605 a ROLE change is no longer a change, so demoting an owner to operator leaves that slot's session running under its old authority",
+          "matches": 1
+        },
+        {
+          "label": "T04 \u2605\u2605\u2605 a refused epoch draw does not abort the preparation, so a partially prepared plan reaches the durable save and the commit",
+          "matches": 1
+        },
+        {
+          "label": "T05 \u2605\u2605\u2605 a ROOT preparation publishes an INCOMPLETE candidate \u2014 a refused draw part-way through still installs, so some slots run whatever the plan left behind",
+          "matches": 1
+        },
+        {
+          "label": "T06 \u2605\u2605\u2605 an ALL-ZERO seed is accepted as an administration root, so a dead RNG mints one world-known identity on every such device",
+          "matches": 1
+        },
+        {
+          "label": "T07 \u2605\u2605\u2605 a ROOT change no longer invalidates the old sessions, so requests sealed to the previous pair keep matching stored fingerprints",
+          "matches": 1
+        },
+        {
+          "label": "T08 \u2605\u2605\u2605 `commit()` installs even when NOTHING was prepared, so a refused preparation followed by a commit publishes an EMPTY image over the running one",
+          "matches": 1
+        },
+        {
+          "label": "T09 \u2605\u2605\u2605 a failed PREPARATION leaves the plan ARMED, so the next commit installs the half-built state the refusal was supposed to abandon",
+          "matches": 1
+        },
+        {
+          "label": "T10 \u2605\u2605\u2605 BOOT reports READY without the readiness conjunction, so a node with a bad half still publishes an accepting boot line and a slot count",
+          "matches": 1
+        },
+        {
+          "label": "T11 \u2605\u2605\u2605 a BAD ACL half leaves the running image ALONE instead of installing the CLEARED one, so a node whose record went bad keeps its stale live ACL across the reboot",
+          "matches": 1
+        },
+        {
+          "label": "T12 \u2605\u2605\u2605 a cold-boot entropy refusal on the ROOT half is reported as an ordinary `disabled` and the seam is never told, so a live RNG fault is indistinguishable from an unprovisioned node",
+          "matches": 1
+        },
+        {
+          "label": "T13 \u2605\u2605 the live image copies an UNRECOGNISED role byte verbatim, so a corrupt record could install a row no policy accepts",
+          "matches": 1
+        },
+        {
+          "label": "T14 \u2605\u2605 `acl reset` leaves the epochs untouched, so the slots it emptied keep usable session keys",
+          "matches": 1
+        },
+        {
+          "label": "T15 \u2605\u2605\u2605 [[B341]] RESTORED: the boot installs NOTHING when the CONJUNCTION fails, so a valid half is discarded and live activation stops composing across a reboot",
+          "matches": 1
+        },
+        {
+          "label": "T16 \u2605\u2605\u2605 [[B341]] HALF-FIX: the ROOT half composes but the ACL half does not \u2014 a valid owner ACL is discarded whenever the root record is bad, so sequence D still leaves the node disabled after recovery",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin5rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 14,
+      "entries": [
+        {
+          "label": "X01 \u2605\u2605\u2605 R-RA-13 is dropped: the v2 arm stops REQUIRING `SOURCE_HASH`, so an unidentifiable request reaches the classifier and the reply has no destination",
+          "matches": 1
+        },
+        {
+          "label": "X02 \u2605\u2605\u2605 the reply is addressed to the 8-bit `pa.origin` instead of the captured 32-bit controller source \u2014 the alias-across-leaves defect Slice 1b named as this slice's obligation",
+          "matches": 1
+        },
+        {
+          "label": "X03 \u2605\u2605\u2605 a cross-layer request is answered SAME-LAYER, which sends the response to a hash on the wrong plane",
+          "matches": 1
+        },
+        {
+          "label": "X04 \u2605\u2605\u2605 the captured path is NOT reversed \u2014 the reply is sent back along the OUTBOUND order, i.e. away from the controller",
+          "matches": 1
+        },
+        {
+          "label": "X05 \u2605\u2605\u2605 the WHOLE reversed path is handed to `originate_layer_path`, which prepends our layer AGAIN \u2014 a duplicated first hop",
+          "matches": 1
+        },
+        {
+          "label": "X06 \u2605\u2605 the reversed path's DESTINATION END is no longer checked against our own layer, so a path that does not terminate here is reversed into a return leg anyway",
+          "matches": 1
+        },
+        {
+          "label": "X07 \u2605\u2605\u2605 the received CROSS-LAYER path is not captured at all, so every cross-layer controller is answered same-layer",
+          "matches": 1
+        },
+        {
+          "label": "X08 \u2605\u2605 the request carrier claims SAME-LAYER whatever arrived, so `remote_body_cap` admits a body the real leg cannot carry",
+          "matches": 1
+        },
+        {
+          "label": "X09 \u2605\u2605\u2605 the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire \u2014 i.e. forever on an idle node",
+          "matches": 1
+        },
+        {
+          "label": "X10 \u2605\u2605 the scan RE-ARMS BEFORE releasing instead of after, so it re-arms to the deadline that just fired \u2014 a zero-delay livelock, and the wheel is never cancelled on an emptied pool",
+          "matches": 1
+        },
+        {
+          "label": "X11 \u2605\u2605\u2605 the receive path stamps the deadline from ZERO instead of the current time, so every reservation is born already expired and the first scan releases work that just arrived",
+          "matches": 1
+        },
+        {
+          "label": "X14 \u2605\u2605\u2605 the request carrier claims NO `SOURCE_HASH` on the wire, so `remote_body_cap` refuses the leg and every authenticated request is silently dropped as a bad carrier",
+          "matches": 1
+        },
+        {
+          "label": "X12 \u2605\u2605\u2605 the bootstrap staging row is NEVER released, so the second discovery a controller ever sends is refused for want of the one reserved row",
+          "matches": 1
+        },
+        {
+          "label": "X13 \u2605\u2605 a ZERO reply destination is treated as sendable instead of an explicit failure, so an unroutable answer is handed to the transport",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin5session",
+      "source": "lib/core/remote_session.cpp",
+      "count": 25,
+      "entries": [
+        {
+          "label": "S01 \u2605\u2605\u2605 the request FINGERPRINT is taken from the FRONT of the body instead of the authenticated TAG at its end \u2014 a same-id retry with a different payload would compare EQUAL on its clear header and be answered as a replay (design \u00a710 case 3 collapses into case 2)",
+          "matches": 1
+        },
+        {
+          "label": "S02 \u2605\u2605\u2605 the tag comparison always succeeds, so an ID-REUSE request (case 3) is answered as a replay and the shared credential loses its at-most-once separation",
+          "matches": 1
+        },
+        {
+          "label": "S03 \u2605\u2605\u2605 the AUTHENTICATED SOURCE is dropped from the retry comparison, so a second controller holding the same credential can take over an existing request id",
+          "matches": 1
+        },
+        {
+          "label": "S04 \u2605\u2605\u2605 a FULL seen pool EVICTS row 0 instead of refusing \u2014 design \u00a710, verbatim: \"session records are not silently evicted while their session key remains valid\"",
+          "matches": 1
+        },
+        {
+          "label": "S05 \u2605\u2605\u2605 expired NEVER-EXECUTED work retains its fingerprint and cannot re-admit (B369)",
+          "matches": 1
+        },
+        {
+          "label": "S06 \u2605\u2605 the expiry boundary becomes STRICTLY greater, so a row whose deadline is exactly `now` survives the scan it was armed for and the next arm is a zero delay",
+          "matches": 1
+        },
+        {
+          "label": "S07 \u2605\u2605\u2605 the deadline addition WRAPS instead of saturating, so a `now` near the top of the range produces a deadline in the PAST and the row expires instantly",
+          "matches": 1
+        },
+        {
+          "label": "S08 \u2605\u2605\u2605 an OVER-CAP body is CLAMPED to the storage array instead of refused \u2014 Slice 1b named refuse-not-clamp as this slice's obligation, and a clamp hands a truncated ciphertext to the AEAD",
+          "matches": 1
+        },
+        {
+          "label": "S09 \u2605\u2605\u2605 ABSENCE is re-spelled as the VALUE ZERO, so a legitimate source hash of 0 is refused and a missing field is admitted \u2014 the exact confusion `RemoteSource`'s two separate members exist to prevent",
+          "matches": 1
+        },
+        {
+          "label": "S10 \u2605\u2605\u2605 BOOTSTRAP ROTATES THE EPOCH it reports, so a replayed read-only discovery disrupts every live session \u2014 design \u00a77.2 says in as many words that it \"never changes the epoch\"",
+          "matches": 1
+        },
+        {
+          "label": "S11 \u2605\u2605\u2605 BOOTSTRAP CONSUMES A SEEN ROW, so a controller that repeats a lost discovery exhausts the shared pool the executes need",
+          "matches": 1
+        },
+        {
+          "label": "S12 \u2605\u2605\u2605 the bootstrap key lookup matches the FIRST OCCUPIED ROW instead of the exact full key \u2014 an ACL-membership oracle, and it would answer a stranger under someone else's slot",
+          "matches": 1
+        },
+        {
+          "label": "S13 \u2605\u2605\u2605 the bootstrap response reports the SENTINEL slot instead of the MATCHED ACL slot, so a controller cannot learn which credential the target actually recognised",
+          "matches": 1
+        },
+        {
+          "label": "S14 \u2605\u2605\u2605 an occupied slot holding EPOCH 0 counts as usable, so a node publishes readiness while a slot would run the zero epoch \u00a74.1 forbids",
+          "matches": 1
+        },
+        {
+          "label": "S15 \u2605\u2605\u2605 the HARD PARTITION collapses: control work takes the general row, so a saturated ordinary-execute stream starves the reserved owner/control class",
+          "matches": 1
+        },
+        {
+          "label": "S16 \u2605\u2605\u2605 CONTROL ADMISSION ALLOCATES AN EXECUTE SEEN ROW, so seen exhaustion consumes the reservation the partition exists to protect",
+          "matches": 1
+        },
+        {
+          "label": "S17 \u2605\u2605\u2605 the reservation stops being ATOMIC \u2014 the seen row is committed before the ingress row is known to be free, so a refused ingress strands a fingerprint that will answer `replay` for a request that was never admitted",
+          "matches": 1
+        },
+        {
+          "label": "S18 \u2605\u2605 an OPEN request BORROWS the reserved bootstrap row, so an open flood locks out the one thing this slice can actually answer",
+          "matches": 1
+        },
+        {
+          "label": "S19 \u2605\u2605 the PER-SOURCE open bound is dropped, so one peer fills all three open rows by changing its request id",
+          "matches": 1
+        },
+        {
+          "label": "S20 \u2605\u2605\u2605 an ACL change invalidates EVERY slot instead of the one that moved, so an unrelated controller's live session dies on someone else's role edit",
+          "matches": 1
+        },
+        {
+          "label": "S21 \u2605\u2605\u2605 a ROOT change no longer invalidates the old sessions, so a rotated node keeps answering `replay` for requests sealed under a key it no longer holds",
+          "matches": 1
+        },
+        {
+          "label": "S22 \u2605\u2605\u2605 the RETRY's route replaces the FIRST-ADMITTED one, so a later request re-addresses an already-admitted operation's answer",
+          "matches": 1
+        },
+        {
+          "label": "S23 \u2605\u2605\u2605 an admitted row is stored as FREE, so the pool never fills, every retry RE-ADMITS instead of classifying, and at-most-once execution is gone entirely",
+          "matches": 1
+        },
+        {
+          "label": "S24 \u2605\u2605\u2605 the bootstrap response is sealed against the RESPONSE carrier's own source instead of the ORIGINAL controller's, so the controller cannot open its own answer",
+          "matches": 1
+        },
+        {
+          "label": "S25 \u2605\u2605\u2605 the released ingress body keeps its decoded plaintext, so administration command bytes outlive the row that owned them",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin72rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 15,
+      "entries": [
+        {
+          "label": "P01 control ignores TX pressure",
+          "matches": 1
+        },
+        {
+          "label": "P02 epoch draws retry after refusal",
+          "matches": 1
+        },
+        {
+          "label": "P03 epoch changes before reply preparation",
+          "matches": 1
+        },
+        {
+          "label": "P04 successful epoch installation is dropped",
+          "matches": 1
+        },
+        {
+          "label": "P05 sent or lost rollover resurrects the old epoch",
+          "matches": 1
+        },
+        {
+          "label": "P06 control refusal leaves its reservation held",
+          "matches": 1
+        },
+        {
+          "label": "P07 control send refusal is not counted",
+          "matches": 1
+        },
+        {
+          "label": "P08 bootstrap and fixed sender refusals are not counted",
+          "matches": 1
+        },
+        {
+          "label": "P09 open sender ignores full TX",
+          "matches": 1
+        },
+        {
+          "label": "P10 open encoder failure consumes cursor",
+          "matches": 1
+        },
+        {
+          "label": "P11 open encoder failure replaces frozen terminal",
+          "matches": 1
+        },
+        {
+          "label": "P12 open encoder failure resets a nonzero cursor",
+          "matches": 1
+        },
+        {
+          "label": "P13 open ownership success does not advance",
+          "matches": 1
+        },
+        {
+          "label": "P14 parked open result is misclassified as refusal",
+          "matches": 1
+        },
+        {
+          "label": "P15 open sender refusal advances cursor",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin72session",
+      "source": "lib/core/remote_session.cpp",
+      "count": 36,
+      "entries": [
+        {
+          "label": "O01 open admission loses owned command bytes",
+          "matches": 1
+        },
+        {
+          "label": "O02 open admission skips execution phase",
+          "matches": 1
+        },
+        {
+          "label": "O03 a fresh ID evades an active peer's bound",
+          "matches": 1
+        },
+        {
+          "label": "O04 cooldown peer evades its bound while another pair is free",
+          "matches": 1
+        },
+        {
+          "label": "O05 global cooldown refusal charged as active pressure",
+          "matches": 1
+        },
+        {
+          "label": "O06 exact rolling-window edge remains occupied",
+          "matches": 1
+        },
+        {
+          "label": "O07 duplicate refreshes the admission deadline",
+          "matches": 1
+        },
+        {
+          "label": "O08 completion starts a second rate window",
+          "matches": 1
+        },
+        {
+          "label": "O09 staging release leaves plaintext capture resident",
+          "matches": 1
+        },
+        {
+          "label": "O10 reserve accepts a cap that is not this carrier's open cap",
+          "matches": 1
+        },
+        {
+          "label": "O11 bound-plus-one output silently truncates",
+          "matches": 1
+        },
+        {
+          "label": "O12 truncated output reports completed",
+          "matches": 1
+        },
+        {
+          "label": "O13 open output sequence resets at every frame",
+          "matches": 1
+        },
+        {
+          "label": "O14 open completion frees quota immediately",
+          "matches": 1
+        },
+        {
+          "label": "O15 clear output enters an authenticated slot domain",
+          "matches": 1
+        },
+        {
+          "label": "O16 open bytes are overwritten instead of appended",
+          "matches": 1
+        },
+        {
+          "label": "C01 safe rollover ignores completed work",
+          "matches": 1
+        },
+        {
+          "label": "C02 another slot's completions enter the abandoned count",
+          "matches": 1
+        },
+        {
+          "label": "C03 current epoch accepted as fresh",
+          "matches": 1
+        },
+        {
+          "label": "C04 force misreports abandoned work",
+          "matches": 1
+        },
+        {
+          "label": "C05 preparation uses the opposite key domain",
+          "matches": 1
+        },
+        {
+          "label": "C06 successful control invalidates every slot",
+          "matches": 1
+        },
+        {
+          "label": "C07 control reply authenticates the wrong source",
+          "matches": 1
+        },
+        {
+          "label": "C08 short-buffer failure publishes an install plan",
+          "matches": 1
+        },
+        {
+          "label": "C09 changed control route accepted as the original",
+          "matches": 1
+        },
+        {
+          "label": "C10 busy notice uses the wrong code",
+          "matches": 1
+        },
+        {
+          "label": "C11 executing notice uses the wrong code",
+          "matches": 1
+        },
+        {
+          "label": "C12 capacity notice uses ordinary terminal nonce space",
+          "matches": 1
+        },
+        {
+          "label": "C13 already-acknowledged reply invents a second protocol-error byte",
+          "matches": 1
+        },
+        {
+          "label": "C14 full TX still encodes a fixed refusal reply",
+          "matches": 1
+        },
+        {
+          "label": "N01 scalar counter never advances",
+          "matches": 1
+        },
+        {
+          "label": "N02 scalar counter wraps",
+          "matches": 1
+        },
+        {
+          "label": "N03 inbound refusal charged to rate counter",
+          "matches": 1
+        },
+        {
+          "label": "N04 rate refusal charged to inbound counter",
+          "matches": 1
+        },
+        {
+          "label": "N05 encoder failure charged to enqueue",
+          "matches": 1
+        },
+        {
+          "label": "N06 sender failure charged to encoder",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin7exec",
+      "source": "src/firmware_remote_executor.h",
+      "count": 20,
+      "entries": [
+        {
+          "label": "E01 ignore queue pacing",
+          "matches": 1
+        },
+        {
+          "label": "E02 only queued consumes pass",
+          "matches": 1
+        },
+        {
+          "label": "E03 dispatch without reservation",
+          "matches": 1
+        },
+        {
+          "label": "E04 reserve at storage rather than carrier cap",
+          "matches": 1
+        },
+        {
+          "label": "E05 operators become owners",
+          "matches": 1
+        },
+        {
+          "label": "E06 authenticated slot lost",
+          "matches": 1
+        },
+        {
+          "label": "E07 remote context becomes local",
+          "matches": 1
+        },
+        {
+          "label": "E08 disruptive remote handler called",
+          "matches": 1
+        },
+        {
+          "label": "E09 unclassified collapses into refused",
+          "matches": 1
+        },
+        {
+          "label": "E10 internal failure becomes success",
+          "matches": 1
+        },
+        {
+          "label": "E11 one request dispatched twice",
+          "matches": 1
+        },
+        {
+          "label": "E12 pending control is not serviced first",
+          "matches": 1
+        },
+        {
+          "label": "E13 service omits expiry snapshot",
+          "matches": 1
+        },
+        {
+          "label": "E14 open input is not copied before capture overwrite",
+          "matches": 1
+        },
+        {
+          "label": "E15 open context falsely authenticates ACL slot zero",
+          "matches": 1
+        },
+        {
+          "label": "E16 open context becomes owner",
+          "matches": 1
+        },
+        {
+          "label": "E17 refused open send does not consume the pass",
+          "matches": 1
+        },
+        {
+          "label": "E18 open operation executes twice",
+          "matches": 1
+        },
+        {
+          "label": "E19 an authenticated dispatch also permits an open dispatch in one pass",
+          "matches": 1
+        },
+        {
+          "label": "E20 open executor uses the overwritten borrowed input",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin7rx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 13,
+      "entries": [
+        {
+          "label": "R01 real sender ignores full queue",
+          "matches": 1
+        },
+        {
+          "label": "R02 seal refusal handed to transport",
+          "matches": 1
+        },
+        {
+          "label": "R03 seal counter missing",
+          "matches": 1
+        },
+        {
+          "label": "R04 seal failure charged to enqueue counter",
+          "matches": 1
+        },
+        {
+          "label": "R05 seal counter wraps",
+          "matches": 1
+        },
+        {
+          "label": "R06 seal failure advances cursor",
+          "matches": 1
+        },
+        {
+          "label": "R07 seal failure resets nonzero cursor",
+          "matches": 1
+        },
+        {
+          "label": "R08 seal failure changes frozen terminal",
+          "matches": 1
+        },
+        {
+          "label": "R09 seal event misclassified",
+          "matches": 1
+        },
+        {
+          "label": "R10 enqueue refusal advances cursor",
+          "matches": 1
+        },
+        {
+          "label": "R11 enqueue counter wraps",
+          "matches": 1
+        },
+        {
+          "label": "R12 enqueue refusal charged to seal counter",
+          "matches": 1
+        },
+        {
+          "label": "R13 queued frame cursor stays",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin7transcript",
+      "source": "lib/core/remote_session.cpp",
+      "count": 20,
+      "entries": [
+        {
+          "label": "T01 reserve permits a second execution",
+          "matches": 1
+        },
+        {
+          "label": "T02 carrier chunk authority bypassed",
+          "matches": 1
+        },
+        {
+          "label": "T03 full header pool evicts row zero",
+          "matches": 1
+        },
+        {
+          "label": "T04 exhaustion counter never advances",
+          "matches": 1
+        },
+        {
+          "label": "T05 captured bytes overwritten at every append",
+          "matches": 1
+        },
+        {
+          "label": "T06 last chunk is silently lost",
+          "matches": 1
+        },
+        {
+          "label": "T07 truncation reported as complete",
+          "matches": 1
+        },
+        {
+          "label": "T08 mandatory terminal omitted",
+          "matches": 1
+        },
+        {
+          "label": "T09 silent chunk emitted as output",
+          "matches": 1
+        },
+        {
+          "label": "T10 frozen completion overwritten",
+          "matches": 1
+        },
+        {
+          "label": "T11 late append rewrites completed transcript",
+          "matches": 1
+        },
+        {
+          "label": "T12 complete keeps ingress body reserved",
+          "matches": 1
+        },
+        {
+          "label": "T13 exact retry does not restart",
+          "matches": 1
+        },
+        {
+          "label": "T14 ACK competes for reserved ingress",
+          "matches": 1
+        },
+        {
+          "label": "T15 ACK erases executed tombstone",
+          "matches": 1
+        },
+        {
+          "label": "T16 ACK retains transcript under pressure",
+          "matches": 1
+        },
+        {
+          "label": "T17 encoder ignores retained epoch mismatch",
+          "matches": 1
+        },
+        {
+          "label": "T18 wrong original controller crypto source",
+          "matches": 1
+        },
+        {
+          "label": "T19 original sequence misnumbered",
+          "matches": 1
+        },
+        {
+          "label": "T20 slot invalidation leaves chunk plaintext",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "remoteactivation",
+      "source": "lib/core/remote_activation.h",
+      "count": 22,
+      "entries": [
+        {
+          "label": "A01 drop attempt zero",
+          "matches": 1
+        },
+        {
+          "label": "A02 drop attempt one",
+          "matches": 1
+        },
+        {
+          "label": "A03 only final CTS attempt",
+          "matches": 1
+        },
+        {
+          "label": "A04 one CTS turnaround disappears",
+          "matches": 1
+        },
+        {
+          "label": "A05 ACK data slop disappears",
+          "matches": 1
+        },
+        {
+          "label": "A06 ACK routing slop disappears",
+          "matches": 1
+        },
+        {
+          "label": "A07 reference budget hardcoded",
+          "matches": 1
+        },
+        {
+          "label": "A08 on-air RTS dropped",
+          "matches": 1
+        },
+        {
+          "label": "A09 on-air CTS dropped",
+          "matches": 1
+        },
+        {
+          "label": "A10 terminal airtime dropped",
+          "matches": 1
+        },
+        {
+          "label": "A11 on-air ACK dropped",
+          "matches": 1
+        },
+        {
+          "label": "A12 CTS to DATA gap dropped",
+          "matches": 1
+        },
+        {
+          "label": "A13 busy retries dropped",
+          "matches": 1
+        },
+        {
+          "label": "A14 requeue uses forbidden capped backoff",
+          "matches": 1
+        },
+        {
+          "label": "A15 default stops doubling",
+          "matches": 1
+        },
+        {
+          "label": "A16 ceiling includes the outer deadline",
+          "matches": 1
+        },
+        {
+          "label": "A17 saturation becomes wrapping",
+          "matches": 1
+        },
+        {
+          "label": "A18 DATA chooses the routing SF",
+          "matches": 1
+        },
+        {
+          "label": "A19 empty data-SF set silently defaulted",
+          "matches": 1
+        },
+        {
+          "label": "A20 terminal omits the reserved destination hash",
+          "matches": 1
+        },
+        {
+          "label": "A21 full path loses a hop",
+          "matches": 1
+        },
+        {
+          "label": "A22 saturated ACK helper guard omitted",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceAinbox",
+      "source": "lib/core/inbox.cpp",
+      "count": 1,
+      "entries": [
+        {
+          "label": "S05 \u2605\u2605\u2605 record_ack STAMPS THE OLD ORDINAL 3 \u2014 a durable receipt is written with the value that now means SEALED_RELAY, so every stored ack becomes an application record",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceAjson",
+      "source": "lib/console/console_json.cpp",
+      "count": 1,
+      "entries": [
+        {
+          "label": "S08 \u2605\u2605\u2605 THE [[B265]] NUMERIC LITERAL COMES BACK \u2014 the companion encoder compares the DM type against 3 again, which after the transition is SEALED_RELAY and not the receipt",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceBmac",
+      "source": "lib/core/node_mac.cpp",
+      "count": 4,
+      "entries": [
+        {
+          "label": "B01 \u2605\u2605\u2605 THE CHECK HALF REVERTS TO THE HISTORICAL THREE-TYPE LIST \u2014 every hash/mobile answer is paced behind the 3 s USER-DM floor again, which is the \u00a76.2(4) widening undone at the half \u00a7A0-2 cannot see",
+          "matches": 1
+        },
+        {
+          "label": "B02 \u2605\u2605\u2605 THE STAMP HALF REVERTS TO THE HISTORICAL THREE-TYPE LIST \u2014 an internal origination arms the user-DM floor again, so the NEXT user DM waits behind a frame the user never sent",
+          "matches": 1
+        },
+        {
+          "label": "B03 \u2605\u2605\u2605 THE ORIGINATION GATE ASKS `app_dm` INSTEAD OF THE TRAIT \u2014 the sealed team-key grant keeps a generic user-send failure it does not own (design \u00a76.1: app_dm is an encoding input, not a lifecycle authority)",
+          "matches": 1
+        },
+        {
+          "label": "M04 \u2605\u2605 THE HELPER CALL IN `do_data_tx`'s PACK-FAILED PATH IS DELETED \u2014 the SEVENTH site this sweep found reverts to destroying an admitted carrier in total silence, grant included ([[B268]] blocker-1)",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceBnode",
+      "source": "lib/core/node.cpp",
+      "count": 8,
+      "entries": [
+        {
+          "label": "N01 \u2605\u2605\u2605 THE GRANT'S AIRED PUSH IS DELETED \u2014 \u00a7UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close",
+          "matches": 1
+        },
+        {
+          "label": "N02 \u2605\u2605\u2605 THE CORRELATION IS DROPPED \u2014 the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen",
+          "matches": 1
+        },
+        {
+          "label": "N03 \u2605\u2605\u2605 THE SUPPRESSION IS DISABLED FOR EVERY TYPE \u2014 the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (\u00a76.2(5) undone) AND its own kind is never minted",
+          "matches": 1
+        },
+        {
+          "label": "N04 \u2605\u2605\u2605 THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED \u2014 a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1)",
+          "matches": 1
+        },
+        {
+          "label": "N05 \u2605\u2605 THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED \u2014 the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1)",
+          "matches": 1
+        },
+        {
+          "label": "N06 \u2605\u2605\u2605 THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM \u2014 every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is \u00a76.4 inverted",
+          "matches": 1
+        },
+        {
+          "label": "N07 \u2605\u2605\u2605 THE HELPER'S TRAIT TERM IS DROPPED \u2014 a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape)",
+          "matches": 1
+        },
+        {
+          "label": "N08 \u2605\u2605\u2605 THE HELPER'S GRANT ARM IS DELETED \u2014 every one of the eleven post-admission carrier deaths stops reporting the grant at once: the \u00a7UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceBrx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 16,
+      "entries": [
+        {
+          "label": "B04 \u2605\u2605\u2605 THE FAIL-CLOSED GUARD IS DELETED \u2014 an addressed unknown-internal type falls through to the deliver tail exactly as it did before this slice, i.e. the stray 0x94's 32 raw key bytes become inbox TEXT again (A0-F10b's \"harmless\" stray, restored verbatim)",
+          "matches": 1
+        },
+        {
+          "label": "B05 \u2605\u2605\u2605 THE GUARD IS WEAKENED TO `internal && !known` \u2014 a KNOWN-but-unwired internal type (MOBILE_KEY_FORWARD on a static/gateway build) walks straight past it into the inbox as text, which is the exact [[B264]] class the strong predicate exists to close",
+          "matches": 1
+        },
+        {
+          "label": "B06 \u2605\u2605\u2605 A SECOND, CORRECTLY-WRITTEN GUARD IS PLACED **BEFORE** THE HOSTED-MOBILE LAST-MILE FORK \u2014 the home is the outer wire destination but only a PROXY, so it now EATS its own mobile's unknown-internal traffic and the mobile never gets to judge it. Every \"unknown internal is dropped\" assertion still passes.",
+          "matches": 1
+        },
+        {
+          "label": "B07 \u2605\u2605\u2605 THE RELAY ARM GAINS THE GUARD \u2014 a content-blind forwarder now passes a SEMANTIC verdict on traffic that is not addressed to it, so an unknown-internal frame dies at the first hop instead of reaching its destination (design \u00a76.2(3): a relay forwards it normally)",
+          "matches": 1
+        },
+        {
+          "label": "B08 \u2605\u2605\u2605 THE GUARD'S TELEMETRY GAINS A BODY-DERIVED FIELD \u2014 the ruled SCALAR-ONLY bound is broken and the stray key material reaches the event stream instead of the inbox, which is the same leak one pipe along",
+          "matches": 1
+        },
+        {
+          "label": "B09 \u2605\u2605\u2605 THE TRAIT GATE IS APPLIED ONE LINE TOO FAR, TO `send_e2e_acked` \u2014 the PROTOCOL-SPECIFIC result of the one internal type that has one disappears with the generic family (\u00a76.2(6) inverted): a -a send is delivered and acked end-to-end and the app is never told",
+          "matches": 1
+        },
+        {
+          "label": "1b-05 \u2605\u2605\u2605 THE `accept_on` TERM IS DROPPED \u2014 REMOTE_CMD becomes owned on EVERY configuration, so a client-only mobile would stage and execute remote commands again (R-RA-27 item 3 inverted)",
+          "matches": 1
+        },
+        {
+          "label": "1b-06 \u2605\u2605\u2605 THE `client_on` TERM IS DROPPED \u2014 REMOTE_RESP becomes owned on EVERY configuration, which is the `|| MR_FEAT_REMOTE_MGMT` legacy widening R-RA-27 item 1 forbids, reached by another route",
+          "matches": 1
+        },
+        {
+          "label": "1b-07 \u2605\u2605\u2605 THE TWO CAPABILITIES ARE SWAPPED INSIDE THE DECISION \u2014 accept starts owning the RESPONSE and client the COMMAND, i.e. exactly the R-RA-8 inversion (a managed node answering itself, a managing node executing)",
+          "matches": 1
+        },
+        {
+          "label": "1b-08 \u2605\u2605\u2605 THE DECISION STEALS EVERY OTHER TYPE \u2014 its `none` tail answers `command_accept`, so E2E acks, hash answers, custody notices and ordinary DMs are all routed into the remote staging slot",
+          "matches": 1
+        },
+        {
+          "label": "1b-09 \u2605\u2605\u2605 THE RESPONSE MARKER IS HARD-WIRED FALSE IN THE SHARED STAGING BODY \u2014 the ONE field that distinguishes the two owners is lost, so fw_main would try to EXECUTE every reply it receives",
+          "matches": 1
+        },
+        {
+          "label": "1b-10 \u2605\u2605\u2605 THE DROP-FULL GUARD IS DELETED FROM THE SHARED STAGING BODY \u2014 a second remote frame OVERWRITES the pending one instead of being dropped, so the slot silently loses the first command and emits nothing",
+          "matches": 1
+        },
+        {
+          "label": "1b-11 \u2605\u2605\u2605 THE STAGING LENGTH CLAMP IS TIGHTENED \u2014 a long remote body is silently TRUNCATED, which is the clamp-instead-of-refuse shape the seam comment marks as deferred (it must stay a no-op until Slice 5/7b)",
+          "matches": 1
+        },
+        {
+          "label": "1b-12 \u2605\u2605\u2605 THE STAGED ORIGIN BECOMES `pa.dst` \u2014 the reply address is our OWN id, so a remote answer would be addressed back to this node instead of to the peer that asked",
+          "matches": 1
+        },
+        {
+          "label": "1b-13 \u2605\u2605\u2605 THE BODY COPY STOPS COPYING \u2014 the length and the flags are staged and the BYTES are not, so every remote command/response arrives the right size and completely wrong (a length-shaped assertion cannot see it)",
+          "matches": 1
+        },
+        {
+          "label": "R04 \u2605\u2605\u2605 THE HELPER CALL IN `handle_nack`'s FULL-QUEUE GIVE-UP IS DELETED \u2014 a grant NACKed with no requeue room dies unreported. \u26d4 A DIFFERENT SITE FROM `giveup_flight`, which is why it needs its own arm ([[B268]] blocker-1)",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceCinbox",
+      "source": "lib/core/inbox.h",
+      "count": 2,
+      "entries": [
+        {
+          "label": "S06 \u2605\u2605\u2605\u2605 THE CLASSIFICATION PREDICATE IS DROPPED \u2014 every internal outcome record becomes an ordinary message again: rows on the panel, a bigger visible total, and a binary body through the byte sanitizer",
+          "matches": 1
+        },
+        {
+          "label": "S07 \u2605\u2605\u2605\u2605 THE PREDICATE IS WEAKENED TO `persistent_outcome` \u2014 an 0x81-class record (and every reserved, retired or future internal value) becomes VISIBLE as ordinary text, while today's E2E ack still hides",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceCpull",
+      "source": "lib/core/inbox.cpp",
+      "count": 2,
+      "entries": [
+        {
+          "label": "S08 \u2605\u2605\u2605\u2605 `Inbox::pull()` FILTERS INTERNAL RECORDS \u2014 the diagnostic stream loses every E2E receipt, so an offline-delivered message can never be confirmed and the DM cursor never advances past it",
+          "matches": 1
+        },
+        {
+          "label": "S09 \u2605\u2605\u2605 `Inbox::erase` PROTECTS AN INTERNAL RECORD \u2014 `del_msg dm <seq>` on a receipt answers not_found, so a record the diagnostic stream still shows can never be deleted",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceDack",
+      "source": "lib/console/console_json.h",
+      "count": 1,
+      "entries": [
+        {
+          "label": "D12 \u2605\u2605\u2605\u2605 A FAILED CLEAR STILL PRINTS `cleared` \u2014 the operator is told an inbox was destroyed that is still on the medium, which is the one direction a data-retention report must never fail in",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceDclear",
+      "source": "lib/core/inbox.cpp",
+      "count": 5,
+      "entries": [
+        {
+          "label": "D01 \u2605\u2605\u2605\u2605 THE PRE-ERASE HIGH-WATER PERSIST IS DROPPED \u2014 the records are erased while the metadata still holds a stale counter, so a reboot after a clear REUSES sequences the companion has already filed",
+          "matches": 1
+        },
+        {
+          "label": "D02 \u2605\u2605\u2605\u2605 THE ERASE-NEITHER GUARD IS DROPPED \u2014 a high-water that could not be persisted no longer stops the erase, so both stores are destroyed over metadata the medium never accepted",
+          "matches": 1
+        },
+        {
+          "label": "D03 \u2605\u2605\u2605 THE SECOND WIPE IS SHORT-CIRCUITED ON THE FIRST'S FAILURE \u2014 a partial clear leaves the healthy store's entire history on the medium and still reports the same io_error",
+          "matches": 1
+        },
+        {
+          "label": "D04 \u2605\u2605\u2605 THE READ CURSORS ARE NOT RESET \u2014 the unread badge keeps a cursor into a history that was destroyed",
+          "matches": 1
+        },
+        {
+          "label": "D05 \u2605\u2605\u2605\u2605 THE CLEAR ALSO RESETS THE SEQUENCE COUNTERS \u2014 the high-water is destroyed by the very operation that just persisted it, so the next message reuses seq 1",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceDstore",
+      "source": "lib/core/segmented_inbox_store.h",
+      "count": 3,
+      "entries": [
+        {
+          "label": "D06 \u2605\u2605\u2605\u2605 THE SHARED TARGET IS APPLIED ONLY TO A STORE THAT HELD HISTORY \u2014 clearing a full channel store beside an empty DM store leaves the ONE published epoch unmoved and the companion never re-syncs",
+          "matches": 1
+        },
+        {
+          "label": "D07 \u2605\u2605\u2605 THE EPOCH IS DOUBLE-BUMPED \u2014 the shared target is applied AND the legacy transition bump still fires, so one clear moves a populated store twice and an empty one once",
+          "matches": 1
+        },
+        {
+          "label": "D08 \u2605\u2605\u2605\u2605 THE TARGET-EPOCH ARM IS DROPPED \u2014 a confirmed clear announces itself with the legacy per-store rule, so an empty store's epoch never moves and the two stores can disagree",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceDtoken",
+      "source": "src/firmware_config_parse.h",
+      "count": 2,
+      "entries": [
+        {
+          "label": "D10 \u2605\u2605\u2605\u2605 THE CONFIRM TOKEN IS MATCHED AS A PREFIX \u2014 `clear_inbox confirm extra` and `clear_inbox confirmation` both DESTROY the inbox",
+          "matches": 1
+        },
+        {
+          "label": "D11 \u2605\u2605\u2605\u2605 THE CONFIRM GATE IS DROPPED ENTIRELY \u2014 a bare `clear_inbox` (or any tail at all) clears the inbox with no confirmation",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceEnode",
+      "source": "lib/core/node.cpp",
+      "count": 3,
+      "entries": [
+        {
+          "label": "E01 \u2605\u2605\u2605\u2605 [[B263]] IS RESTORED \u2014 the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one",
+          "matches": 1
+        },
+        {
+          "label": "E02 \u2605\u2605\u2605 THE TRANSIT AXIS IS INVERTED \u2014 only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app",
+          "matches": 1
+        },
+        {
+          "label": "E03 \u2605\u2605\u2605 THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED \u2014 `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceGinbox",
+      "source": "lib/core/inbox.cpp",
+      "count": 4,
+      "entries": [
+        {
+          "label": "G30 \u2605\u2605\u2605\u2605 \u00a77.2's `origin` IS THE FAILED ORIGIN INSTEAD OF THE REPORTER \u2014 the stored record starts naming THIS NODE as the relay that lost custody of its own message. `origin` is the one field that says WHO reported, and it is the only place the (unauthenticated) reporter identity is kept at all",
+          "matches": 1
+        },
+        {
+          "label": "G31 \u2605\u2605\u2605\u2605 THE RECORD IS STORED AS AN ORDINARY DM (`type = 0`) \u2014 it stops being `internal`, so \u00a7CUSTODY-C's presentation predicate admits it to the ordinary view and 24 bytes of packed binary reach the OLED byte sanitizer and the `inbox_dm` text encoder. That is \u00a77.2's forbidden outcome, reached by one argument",
+          "matches": 1
+        },
+        {
+          "label": "G32 \u2605\u2605\u2605 THE REPORTER IS NOT RECORDED \u2014 `origin` becomes 0, so the pulled record and its JSON name reporter 0, an id no node can hold. A diagnostic that cannot say who reported is not evidence of anything",
+          "matches": 1
+        },
+        {
+          "label": "G33 \u2605\u2605\u2605 A DISABLED INBOX RETURNS A NONZERO SEQUENCE \u2014 `seq = 0` is EXCLUSIVELY the storage-disabled receipt (\u00a77.3), and the app reads a nonzero seq as a record it can pull. Returning 1 makes every storage-disabled node advertise a record that does not exist",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceGjson",
+      "source": "lib/console/console_json.cpp",
+      "count": 16,
+      "entries": [
+        {
+          "label": "G40 \u2605\u2605\u2605\u2605 **A SECOND OFFSET-READER IS INTRODUCED** \u2014 the live emitter stops calling the shared codec and decodes `Push::body` by hand, reading the little-endian `failed_ctr` the other way round. \u00a79.2, verbatim: *\"Do not re-read byte offsets separately in those consumers.\"* This is exactly how a 24-byte record ends up meaning two different things, and the JSON golden is what catches it. \u24d8 The golden that catches it is \u00a7CUSTODY-G/5d's, NOT \u00a714.2's own example: the spec's counter 3598 is `0x0E0E`, whose two wire bytes are IDENTICAL, so this arm SURVIVED against it until a non-palindromic 0x1234 was pinned",
+          "matches": 1
+        },
+        {
+          "label": "G41 \u2605\u2605\u2605\u2605 **THE BINARY RECORD REACHES THE ORDINARY TEXT ENCODER** \u2014 the pulled-record fork is removed, so a stored custody report renders as `inbox_dm` with its 24 packed bytes JSON-escaped into a `\"body\"` string. \u00a77.2/\u00a714.2 forbid exactly this: *\"The ordinary `inbox_dm` text encoder must not stringify the binary record\"*",
+          "matches": 1
+        },
+        {
+          "label": "G42 \u2605\u2605\u2605 THE STAGE NAME TABLE COLLAPSES \u2014 `hop_ack` renders as \"cts\", so every report claims it died waiting for a CTS. \u00a79.3 keeps the stage separate from the reason so an operator can tell a CTS death from an ACK death; one wrong string erases that distinction on all three surfaces at once",
+          "matches": 1
+        },
+        {
+          "label": "G43 \u2605\u2605\u2605 THE REASON NAME TABLE MIS-MAPS `one_way_throttled` \u2014 \u00a79.4's five causes are distinct remedies (a throttled reprobe window is not an exhausted requeue budget), and a wrong word sends an operator after the wrong fix",
+          "matches": 1
+        },
+        {
+          "label": "G44 \u2605\u2605\u2605 `dst_hash` IS EMITTED UNCONDITIONALLY \u2014 \u00a714.2 says it is emitted ONLY when its flag is valid, and the flag is what says the FAILED FRAME carried a hash. Emitting a zero as a hash publishes an identity the record explicitly does not have (the display-shaped-field rule)",
+          "matches": 1
+        },
+        {
+          "label": "G45 \u2605\u2605\u2605 THE PUSH KIND FALLS THROUGH TO \"unknown\" \u2014 the app boundary's silent-fallback defect, on the new kind. The whole `pushkind_name` sweep exists because three enum->string mappings shipped broken this way",
+          "matches": 1
+        },
+        {
+          "label": "G46 \u2605\u2605\u2605 THE LIVE EVENT ALWAYS EMITS `seq`, INCLUDING 0 \u2014 the existing push convention OMITS it when the inbox is disabled, and a `\"seq\":0` tells the app there is a record at sequence 0, which cannot exist (sequences are 1-based; 0 is the before-everything pull cursor)",
+          "matches": 1
+        },
+        {
+          "label": "G47 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE TRANSLATED BLOCK NEVER RUNS \u2014 every translated record renders as an ordinary DIRECT event. The app cannot tell a report about its OWN static flight from one translated on its behalf, and the mobile-visible target and ctrM simply vanish. This is the \"a success that isn't\" shape on a surface",
+          "matches": 1
+        },
+        {
+          "label": "G48 \u2605\u2605\u2605 \u00a7B278 S4 THE TARGET-KIND NAME TABLE COLLAPSES \u2014 a hash-addressed report says `\"target_kind\":\"node_id\"` while carrying `target_hash`, so the two fields contradict each other. The same enum->string defect class this file's history already carries three of",
+          "matches": 1
+        },
+        {
+          "label": "G49 \u2605\u2605\u2605\u2605 \u00a7B278 S4 **BOTH** TARGET FIELDS ARE EMITTED \u2014 \u00a78.4 forbids it in as many words (*\"Emit exactly one target-value field\"*): a duplicated value is a second compatibility surface, and one of the two is always meaningless (a node id rendered as an 8-digit hash, or a hash rendered as a node id)",
+          "matches": 1
+        },
+        {
+          "label": "G50 \u2605\u2605\u2605 \u00a7B278 S4 THE `via_home` ALIAS IS ADDED \u2014 the exact alias \u00a78.4 names and refuses. A second spelling of a value the event already carries is a second thing a decoder can key on, and they drift exactly once",
+          "matches": 1
+        },
+        {
+          "label": "G51 \u2605\u2605\u2605\u2605 \u00a7B278 S4 `mobile_ctr` CARRIES ctrH \u2014 the app is handed the HOME's counter as the mobile's correlation token, so a pending operation keyed on ctrM never matches. Both numbers are plausible counters, which is precisely why only a golden can see it",
+          "matches": 1
+        },
+        {
+          "label": "G52 \u2605\u2605\u2605 \u00a7B278 S4 `target_hash` STOPS USING THE HASH HELPER \u2014 it becomes a bare decimal integer instead of the canonical quoted 8-digit lower-case hex every other key on this surface uses (`dst_hash`, `team_id`, `key`). A TYPE change on the app boundary, not a formatting preference",
+          "matches": 1
+        },
+        {
+          "label": "G53 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE TRANSLATED BLOCK RUNS FOR **DIRECT** RECORDS TOO \u2014 a direct report grows a trailing `\"error\":\"unparseable_tail\"` (bit 6 is clear, so the tail reader refuses), which BREAKS the direct event's byte compatibility. \u2605 This is the arm that proves S4 left the direct bytes alone",
+          "matches": 1
+        },
+        {
+          "label": "G54 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE **PULLED** EMITTER HANDS THE FIELD AUTHORITY AN EMPTY BODY \u2014 the live event keeps its translated fields and the pulled one loses them, so the two surfaces disagree about the SAME record and an app needs two decoders. \u00a718.5.3 requires the identical semantic tuple on both",
+          "matches": 1
+        },
+        {
+          "label": "G55 \u2605\u2605\u2605 \u00a7B278 S4 THE **LIVE** EMITTER HANDS THE FIELD AUTHORITY ONLY THE v1 PREFIX \u2014 the mirror image of G54, on the other call site: the tail reader refuses a 32-byte record sliced at 24 and the live event loses the fields the pulled one keeps",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceGrx",
+      "source": "lib/core/node_mac_rx.cpp",
+      "count": 42,
+      "entries": [
+        {
+          "label": "G10 \u2605\u2605\u2605\u2605 \u00a713.1 THE PLAINTEXT TERM IS DROPPED \u2014 a CRYPTED carrier's inner is sealed to the recipient, so its bytes are ciphertext; parsing them as a v1 record and storing the result is a diagnostic built out of noise. \u00a79.1 clears CRYPTED at origination, so anything that arrives sealed is a bug or an attack",
+          "matches": 1
+        },
+        {
+          "label": "G11 \u2605\u2605\u2605 \u00a713.2 AN UNPARSEABLE INNER BECOMES A SILENT CONSUME \u2014 the frame is still dropped, but the ruled bounded `custody_failure_reject` never fires, so a malformed-input population becomes invisible to the operator, the corpus instrument and the bug register at once",
+          "matches": 1
+        },
+        {
+          "label": "G12 \u2605\u2605\u2605\u2605 THE CODEC'S VERDICT IS IGNORED \u2014 `parse_custody_failure` is still CALLED and its `nullopt` still stops the record, but the ruled reject event is dropped. \u2605 THIS IS THE ARM THAT PROVES THE ELEVEN CODEC-OWNED \u00a713 TERMS ARE REACHED THROUGH THE RECEIVER AT ALL: a receiver that imported the header and hand-checked a few fields would pass every codec-level test in `sliceFcodec` and fail here",
+          "matches": 1
+        },
+        {
+          "label": "G13 \u2605\u2605\u2605\u2605 \u00a713.10 THE v1 PLANE-SUPPORT TERM IS DROPPED \u2014 the RESERVED planes (team / hosted_mobile / cross_layer / unknown) PARSE by design, so refusing them is this layer's only job; without it a v1 node stores and reports a cross-layer or team custody failure it has no vocabulary to interpret",
+          "matches": 1
+        },
+        {
+          "label": "G14 \u2605\u2605\u2605 \u00a713.10's RECEIVER-CONTEXT HALF IS DROPPED \u2014 a record CLAIMING `static_same_layer` that ARRIVED on the TEAM plane is consumed, so a team-plane `origin` (a DAD-assigned team_local_id) is stored in a field documented as a static reporting relay. \u00a713's own closing rule: outer-vs-body mismatch is MALFORMED",
+          "matches": 1
+        },
+        {
+          "label": "G15 \u2605\u2605\u2605\u2605 \u00a713.11 THE ADDRESSEE TEST IS DROPPED \u2014 **THE NON-ADDRESSEE CONSUME.** Any node that happens to be the wire destination now stores and reports a custody failure about a message SOMEONE ELSE sent, as if it were its own. This is the single term that makes 'only the original sender consumes' true",
+          "matches": 1
+        },
+        {
+          "label": "G16 \u2605\u2605\u2605 \u00a713.14 THE NEVER-ABOUT-ITSELF RULE IS DROPPED AT THE RECEIVER \u2014 a record claiming a relay lost custody of an E2E ACK, or of another custody notice, is accepted. The generator cannot produce either (\u00a710.1(11)), so such a record is by construction forged or corrupt",
+          "matches": 1
+        },
+        {
+          "label": "G17 \u2605\u2605\u2605\u2605 \u00a713.15 THE RECEIVING-LAYER MATCH IS DROPPED \u2014 a report stamped with ANOTHER layer's id is accepted as same-layer v1 evidence. \u24d8 It is also the arm an UNWRITTEN byte would slip through: 0 is what a zeroed `reporter_layer` looks like, and without this term it reads as a legitimate layer",
+          "matches": 1
+        },
+        {
+          "label": "G18 \u2605\u2605\u2605 \u00a713.18 THE `requeue_count` DOMAIN IS DROPPED \u2014 a record claiming more requeues than `cascade_requeue_max` permits is stored as fact, and the cascade budget stops bounding its own diagnostic",
+          "matches": 1
+        },
+        {
+          "label": "G19 \u2605\u2605\u2605 \u00a713.18 THE `alternatives_tried` DOMAIN IS DROPPED \u2014 `alts_tried[]` holds at most `protocol::max_rt_candidates`, so a larger count describes a route table this protocol cannot have",
+          "matches": 1
+        },
+        {
+          "label": "G20 \u2605\u2605\u2605 \u00a713.18 THE `committed_hops` DOMAIN IS DROPPED \u2014 the field is a 3-BIT wire field, so any value above 7 could not have travelled on a DATA header at all",
+          "matches": 1
+        },
+        {
+          "label": "G21 \u2605\u2605\u2605 \u00a713.18 THE `remaining_hops` DOMAIN IS DROPPED \u2014 the field is the 5-bit hop budget, so a value above 31 is not a hop count this network can express",
+          "matches": 1
+        },
+        {
+          "label": "G22 \u2605\u2605\u2605\u2605 **PUSH BEFORE RECORD** \u2014 the ORDER DEFECT \u00a77.3 exists to prevent. The sequence is read BEFORE the append instead of being the append's return value, so the live push carries a sequence that names a DIFFERENT record (or none). The app unifies live + pulled BY SEQ, so this silently mis-joins every report",
+          "matches": 1
+        },
+        {
+          "label": "G23 \u2605\u2605\u2605\u2605 **THE TAIL IS DROPPED FROM STORAGE** \u2014 only the 24-byte v1 prefix is retained, so a newer reporter's appended tail is destroyed on the one node that received it. \u00a79.2's tail rule exists so a v1 reader can be a faithful CARRIER of what it cannot interpret; truncating makes it a lossy one",
+          "matches": 1
+        },
+        {
+          "label": "G24 \u2605\u2605\u2605\u2605 **THE CUSTODY REASON IS PLACED IN `Push::reason`** \u2014 \u00a714.1, verbatim: *\"Do not place the custody reason in `Push::reason`; that field is a `SendFailReason` and the wire enum is deliberately independent.\"* The two vocabularies COLLIDE on `queue_full` with different meanings, so this makes one read as the other",
+          "matches": 1
+        },
+        {
+          "label": "G25 \u2605\u2605\u2605 THE LIVE PUSH IS SUPPRESSED WHEN STORAGE IS DISABLED \u2014 \u00a77.3 rules the opposite: the receipt still emits ONE push carrying `seq = 0`. A node with no inbox backend (every simulator node, and any board built without one) would go silent on the whole diagnostic. \u24d8 The anchor carries the line ABOVE it: a bare `enqueue_push(pu);` matches several sites in this file and the entry went VACUOUS at match count 3",
+          "matches": 1
+        },
+        {
+          "label": "S50 \u2605\u2605\u2605\u2605 \u00a7B278 S3 THE LOCAL DIAGNOSTIC BECOMES CONDITIONAL ON CORRELATION \u2014 the lookup is hoisted above the store and a successful correlation SUPPRESSES H1's own record. \u00a77, verbatim: *\"Translation never suppresses or rewrites H1's original diagnostic\"* \u2014 and the ONLY thing implementing that sentence is these lines sitting BELOW the store and the Push",
+          "matches": 1
+        },
+        {
+          "label": "S51 \u2605\u2605\u2605\u2605 \u00a7B278 S3 A **PARK** STOPS COUNTING AS FORWARDED \u2014 the row stays `eligible` although a 32-byte outcome really is retained under the mobile's hash and will drain on the H answer, so the next report translates it a SECOND time",
+          "matches": 1
+        },
+        {
+          "label": "S52 \u2605\u2605\u2605\u2605 \u00a7B278 S3 A **REFUSAL** COUNTS AS FORWARDED \u2014 the obligation is discharged although nothing was stored and nothing will ever air, so the genuinely fresh repeat report \u00a74.5 allows can never retry",
+          "matches": 1
+        },
+        {
+          "label": "S54 \u2605\u2605\u2605\u2605 \u00a7B278 S3 A PACK REFUSAL STILL SENDS \u2014 the 32-byte buffer is aired with whatever the refusing packer left in it. \u00a76.3's refusal is fail-loud precisely so no caller hand-builds the bytes",
+          "matches": 1
+        },
+        {
+          "label": "S56 \u2605\u2605\u2605\u2605 \u00a7B278 S3 THE TRANSLATED CARRIER REQUESTS AN E2E ACK \u2014 evidence is turned into a message awaiting a reply, arming a deadline whose expiry is a user-visible `send_failed` about a diagnostic",
+          "matches": 1
+        },
+        {
+          "label": "S57 \u2605\u2605\u2605 \u00a7B278 S3 THE CARRIER IS SEALED \u2014 a CRYPTED 0x81 is refused by \u00a713.1 at every receiver, so the outcome can never be read; and a home that holds no pubkey for its own mobile fails loud instead",
+          "matches": 1
+        },
+        {
+          "label": "S58 \u2605\u2605\u2605\u2605 \u00a7B278 S3 THE SEND BECOMES A DELEGATED RE-ORIGINATION (`reply_to_hash`/`mobile_ctr` set), so the diagnostic carrier RESERVES a correlation row of its own \u2014 a custody notice consuming the very ring it reports on, and stamping SOURCE_HASH as though the mobile had asked for it",
+          "matches": 1
+        },
+        {
+          "label": "S59 \u2605\u2605\u2605 \u00a7B278 S3 THE TYPE BYTE IS DROPPED (`type = 0`), so the translated record arrives as an ORDINARY DM: 32 bytes of packed binary reach the app text surface, an INTRO prefix may auto-attach, and 0x81's no-generic-lifecycle trait stops applying to the refusal path",
+          "matches": 1
+        },
+        {
+          "label": "S61 \u2605\u2605\u2605 \u00a7B278 S3 THE AMBIGUOUS ARM ORIGINATES ANYWAY \u2014 a wire-indistinguishable pair is resolved by sending to whichever row the lookup materialized, i.e. a misdelivery to the wrong mobile",
+          "matches": 1
+        },
+        {
+          "label": "S62 \u2605\u2605\u2605 \u00a7B278 S3 THE SILENT `no_live_rows` ARM IS FOLDED INTO `no_map` AT THE RECEIVER, so every ordinary custody receipt on a v1-only node emits a diagnostic (four corpus streams move)",
+          "matches": 1
+        },
+        {
+          "label": "S63 \u2605\u2605\u2605 \u00a7B278 S3 THE REFUSAL IS REPORTED AS A SUCCESS \u2014 `deleg_custody_forwarded` is emitted on the path where nothing was sent and nothing was marked",
+          "matches": 1
+        },
+        {
+          "label": "S64 \u2605\u2605\u2605 \u00a7B278 S3 the forwarded/refused events report the HOME counter as `ctr_m`, so the mobile-facing correlation scalar names a counter the mobile never used",
+          "matches": 1
+        },
+        {
+          "label": "S65 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE MODE SPLIT IS FORCED TO **DIRECT** \u2014 the successor to the retired X68. A translated record is judged by \u00a713's direct terms again, so the intended mobile refuses its own outcome (its `_node_id` is a host-assigned local id and `failed_origin` is the home's) and the whole S3->S4 chain goes silent while every direct case still passes",
+          "matches": 1
+        },
+        {
+          "label": "S66 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE CONFIGURED-MOBILE TERM IS DROPPED \u2014 \u00a78.1, verbatim: *\"A static node never treats a translated record as its direct report.\"* Without it the TRANSLATING HOME consumes its own translation: its static id sits in `failed_origin`, so `pa.origin == failed_origin` holds at that home and a node ends up reporting to itself that it lost custody of someone else's message. \u2605 This is the consequence the retired X68 named, attacked at the term that now prevents it",
+          "matches": 1
+        },
+        {
+          "label": "S67 \u2605\u2605\u2605\u2605 \u00a7B278 S4 \u00a78.2 RULE 3 IS DROPPED \u2014 the DATA carrying the report no longer has to BE the home that originated the failed flight, so any relay can hand a mobile an outcome about a flight it never delegated",
+          "matches": 1
+        },
+        {
+          "label": "S68 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE `DST_HASH` EQUALITY IS DROPPED \u2014 a hash-addressed translated record is consumed by whichever mobile the frame happens to reach, which is the one term that makes the re-homed arm safe at all",
+          "matches": 1
+        },
+        {
+          "label": "S69 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE NO-HASH ARM'S REGISTRATION RELATION IS DROPPED \u2014 a mobile with no live registration, or one registered to a DIFFERENT home, consumes a report from any home that can address its local id. \u24f5 Local ids are per-home and are RE-USED, so this is the plane-collision shape, not a theoretical one",
+          "matches": 1
+        },
+        {
+          "label": "S70 \u2605\u2605\u2605\u2605 \u00a7B278 S4 RULE 7'S TWO ARMS BECOME A **CONJUNCTION** \u2014 the ordinary hosted direct-transit form carries NO `DST_HASH` by construction (`send_by_hash` passes `override_dst_hash = 0` and hosted local ids are absent from `_id_bind`), so demanding both refuses every record the production producer actually emits",
+          "matches": 1
+        },
+        {
+          "label": "S71 \u2605\u2605\u2605 \u00a7B278 S4 THE HASH ARM ALSO DEMANDS THE HOME RELATION \u2014 which locks out exactly the case the hash arm exists for: a RE-HOMED mobile whose report still originates at the OLD home and arrives through the new one. The stable hash is the identity there; the selected-home relation is not",
+          "matches": 1
+        },
+        {
+          "label": "S72 \u2605\u2605\u2605 \u00a7B278 S4 THE LAYER TERM IS DROPPED FROM THE NO-HASH ARM \u2014 the hosted last mile is same-layer by construction, so a report stamped with another layer arriving on that arm is an outer/body contradiction; and 0 is what an UNWRITTEN `reporter_layer` byte looks like",
+          "matches": 1
+        },
+        {
+          "label": "S73 \u2605\u2605\u2605\u2605 \u00a7B278 S4 \u00a78.3's ORIGIN MAPPING COLLAPSES TO THE CARRIER \u2014 the stored record and the live Push name the TRANSLATING HOME as the reporting relay instead of the relay that actually reported. The home is a translator, not a witness, and the tail carries the witness precisely because the outer origin cannot",
+          "matches": 1
+        },
+        {
+          "label": "S74 \u2605\u2605\u2605\u2605 \u00a7B278 S4 \u00a78.3's COUNTER MAPPING COLLAPSES TO ctrH \u2014 the mobile is handed the HOME's counter as its own correlation token, so its pending operation (keyed on ctrM) never matches and the outcome is orphaned. \u24f5 ctrH stays readable INSIDE the body, which is why this is a silent mis-join rather than a lost field",
+          "matches": 1
+        },
+        {
+          "label": "S75 \u2605\u2605\u2605 \u00a7B278 S4 \u00a78.3's LAYER MAPPING COLLAPSES TO THE RECEIVING LAYER \u2014 the outcome is filed under the layer the CARRIER arrived over rather than the layer the flight died on. They differ exactly when the hash arm is in use (a re-homed mobile reached through a home on another layer), which is why the hash arm does not test the layer at all",
+          "matches": 1
+        },
+        {
+          "label": "S76 \u2605\u2605\u2605\u2605 \u00a7B278 S4 THE TRANSLATED BRANCH FALLS THROUGH INTO S3's BLOCK \u2014 a MOBILE runs the HOME's correlation lookup over a ring it structurally does not have, and a report about someone else's flight can re-originate a third copy. The `return` is the whole of the mode's containment",
+          "matches": 1
+        },
+        {
+          "label": "S77 \u2605\u2605\u2605 \u00a7B278 S4 THE FACTUAL TELEMETRY REPORTS THE CARRIER'S ORIGIN \u2014 `custody_failure_rx` names the translating home as the reporter, so the corpus instrument and the operator see a different identity from the one the store and the Push carry. \u26d4 One selected identity, three surfaces",
+          "matches": 1
+        },
+        {
+          "label": "S78 \u2605\u2605\u2605 \u00a7B278 S4 THE FACTUAL TELEMETRY REPORTS ctrH AS `ctr` \u2014 the same divergence as S77 on the other half of the identity pair",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "teamgrant",
+      "source": "lib/core/node.cpp",
+      "count": 4,
+      "entries": [
+        {
+          "label": "G01 \u2605\u2605\u2605 THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` \u2014 a full TX queue (or a full parked ring) drops the frame at the door and the caller is told it was admitted, which is the QG blocker verbatim",
+          "matches": 1
+        },
+        {
+          "label": "G02 \u2605\u2605\u2605 THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` \u2014 the pre-correction answer, which left the panel to guess the parked state from a zero handle (the inference S-37 now forbids)",
+          "matches": 1
+        },
+        {
+          "label": "G03 \u2605\u2605\u2605 A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `queued` \u2014 the loud refusals (the joining gate, a seal failure, the type-19 structural refusals) are dressed as a successful enqueue",
+          "matches": 1
+        },
+        {
+          "label": "G04 \u2605\u2605\u2605 THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED \u2014 the caller gets a handle with no address, so no `send_aired` can ever correlate and the grant screen waits for ever",
+          "matches": 1
+        }
+      ]
+    },
+    {
+      "target": "teamkeyring",
+      "source": "src/firmware_team_keyring.h",
+      "count": 68,
+      "entries": [
+        {
+          "label": "T01 \u2605\u2605\u2605 P-15 BROKEN: a FULL keyring EVICTS THE OLDEST record \u2014 the tree's own idiom, destroying a secret",
+          "matches": 1
+        },
+        {
+          "label": "T02 \u2605 the byte-identical coalescing guard is dropped \u2014 every re-grant of the SAME key writes flash",
+          "matches": 1
+        },
+        {
+          "label": "T03 the compare covers only the KEY, not the whole record (a moved id or a dirty `reserved` reads as unchanged)",
+          "matches": 1
+        },
+        {
+          "label": "T04 \u2605\u2605 `team_id == 0` IS STORED \u2014 a zero-keyed row that matches every teamless node's binding",
+          "matches": 1
+        },
+        {
+          "label": "T05 \u2605\u2605 ONE RECORD PER TEAM BROKEN: a re-key APPENDS a second row for the same team_id",
+          "matches": 1
+        },
+        {
+          "label": "T06 the composition path no longer zeroes the record first \u2014 a stale tail defeats the coalescing compare",
+          "matches": 1
+        },
+        {
+          "label": "T07 an UNREADABLE store is silently RESEEDED \u2014 up to four intact keys destroyed by a transient mount fault",
+          "matches": 1
+        },
+        {
+          "label": "T08 the two unreadable answers are COLLAPSED, so a dead store and a corrupt record read alike",
+          "matches": 1
+        },
+        {
+          "label": "T09 `io_failed` stops counting as unreadable, so `put` writes onto a record it never read",
+          "matches": 1
+        },
+        {
+          "label": "T10 the ABSENT seed is dropped, so a partial read's GARBAGE is written back as the keyring",
+          "matches": 1
+        },
+        {
+          "label": "T11 a failed save is reported as a success (the 'success that isn't', over a key nothing stored)",
+          "matches": 1
+        },
+        {
+          "label": "T12 \u2605\u2605 THE SECRET BUFFER IS LEFT UNWIPED \u2014 the transient key material outlives the call",
+          "matches": 1
+        },
+        {
+          "label": "T14 \u2605\u2605\u2605 TERM (i) \u2014 P-2b BROKEN: the ACTIVE flag is dropped, so mere knowledge of the team id reactivates the key",
+          "matches": 1
+        },
+        {
+          "label": "T22 \u2605\u2605\u2605 TERM (ii) \u2014 MEMBERSHIP DROPPED: a stale binding installs ANOTHER team's key on this node",
+          "matches": 1
+        },
+        {
+          "label": "T15 \u2605\u2605 TERM (iii) \u2014 the restore falls back to the FIRST record when the bound team has none",
+          "matches": 1
+        },
+        {
+          "label": "T23 \u2605\u2605\u2605 TERM (iv) \u2014 THE COMMITTED WITNESS DROPPED: a FAILED re-key becomes effective at the next boot",
+          "matches": 1
+        },
+        {
+          "label": "T25 TERM (iv) HALF-APPLIED: the witness is consulted only when /mrcfg happens to carry one",
+          "matches": 1
+        },
+        {
+          "label": "T16 \u2605\u2605 TERM (v) \u2014 THE CORRUPTION CHECK IS IGNORED: a record whose pub does not verify is reported as installed",
+          "matches": 1
+        },
+        {
+          "label": "T24 \u2605\u2605\u2605 THE VERDICT IS REPORTED BUT NOT APPLIED \u2014 a key installed by an earlier boot step SURVIVES a refusal",
+          "matches": 1
+        },
+        {
+          "label": "T26 the governance is HALF-APPLIED: the store arms clear, the BINDING arms do not (the stale-binding hole)",
+          "matches": 1
+        },
+        {
+          "label": "T17 an UNREADABLE store is reported as 'no key stored' (the honesty this record's four states exist for)",
+          "matches": 1
+        },
+        {
+          "label": "T18 the restore WRITES (a 'repair' on the read path \u2014 flash wear, and a corrupt store overwritten unread)",
+          "matches": 1
+        },
+        {
+          "label": "T19 `team_key_find` answers for team 0, so a bit-rotted zero row can satisfy a binding",
+          "matches": 1
+        },
+        {
+          "label": "T20 a bit-rotted count is PERSISTED FORWARD instead of repaired by the write that follows it",
+          "matches": 1
+        },
+        {
+          "label": "T21 the ruled `KEYRING FULL` lexeme is re-spelled (a string declared once, changed in one place \u2014 or not)",
+          "matches": 1
+        },
+        {
+          "label": "T27 \u2605\u2605\u2605 THE ORDER IS INVERTED \u2014 the `/mrcfg` ACTIVATION is written BEFORE the durable key, so a reboot landing between the two finds a binding with no key behind it (QG blocker 2, arriving by push)",
+          "matches": 1
+        },
+        {
+          "label": "T28 \u2605\u2605\u2605 A FAILED `/mrteams` WRITE STILL ANSWERS `saved` \u2014 the push is forwarded and the panel says TEAM KEY RECEIVED for a key that exists only in RAM. This IS [[B240]] restored (F-10, the headline)",
+          "matches": 1
+        },
+        {
+          "label": "T29 \u2605\u2605 A FAILED `/mrcfg` ACTIVATION STILL ANSWERS `saved` \u2014 the key is durable but nothing will ever install it, and the panel claims durable adoption anyway",
+          "matches": 1
+        },
+        {
+          "label": "T30 \u2605 RE-CHECK (1) DROPPED \u2014 a grant naming team 0 reaches the store, which then has to refuse it there",
+          "matches": 1
+        },
+        {
+          "label": "T31 \u2605\u2605\u2605 RE-CHECK (2) DROPPED \u2014 the LIVE membership is not re-asked, so a `team 0` between RX and drain still activates the departed team's key",
+          "matches": 1
+        },
+        {
+          "label": "T32 \u2605\u2605\u2605 RE-CHECK (3) ANSWERS `saved` \u2014 a node whose key was WIPED between RX and drain forwards the push and the panel says TEAM KEY RECEIVED for a key it does not even hold",
+          "matches": 1
+        },
+        {
+          "label": "T37 \u2605\u2605 RE-CHECK (3) IS MOVED **BELOW** THE `/mrcfg` READ \u2014 the refusal still happens, but a node with no key now pays a flash read for a receipt it was always going to drop (the \u26d4 ZERO-I/O half of the rule)",
+          "matches": 1
+        },
+        {
+          "label": "T33 \u2605\u2605\u2605 RE-CHECK (4) DROPPED \u2014 the PERSISTED record is never compared, so a key is marked ACTIVE against a `/mrcfg` that names another team (QG blocker 3, arriving by push)",
+          "matches": 1
+        },
+        {
+          "label": "T34 \u2605\u2605 THE UNREADABLE `/mrcfg` RECORD FAILS **OPEN** \u2014 an unestablished term is treated as satisfied and both records are written on facts nobody read (C2, inverted)",
+          "matches": 1
+        },
+        {
+          "label": "T35 \u2605\u2605 THE ACTIVATION'S ZERO-WRITE GUARD IS DROPPED \u2014 every re-grant of the SAME key rewrites `/mrcfg`, and a teammate re-sends on every join (K1's flash-wear discipline, on the second record)",
+          "matches": 1
+        },
+        {
+          "label": "T36 \u2605 THE GUARD BECOMES 'A KEY IS PRESENT' RATHER THAN 'THIS KEY' \u2014 a stale witness for another team, or for a different public half, is accepted and the boot then rejects the pair it names",
+          "matches": 1
+        },
+        {
+          "label": "T38 \u2605 THE SENTINEL IS GIVEN A PLAUSIBLE WORD \u2014 `count` stops reading as 'not an outcome' and starts reading as one, which is how a sentinel quietly becomes a state a carrier may hold",
+          "matches": 1
+        },
+        {
+          "label": "T39 \u2605\u2605\u2605\u2605 A SUPPRESSED ARM IS ROUTED TO THE FAILED-SAVE DOOR \u2014 the live pair was WIPED between RX and drain, and the panel is made to say `TEAM KEY ACTIVE` about a key this node does not hold. THIS IS THE QG BLOCKER of 2026-08-25, restored verbatim (the honest-looking 'tell the operator something' reflex)",
+          "matches": 1
+        },
+        {
+          "label": "T40 \u2605\u2605\u2605 AN `active_unsaved` ARM IS COLLAPSED INTO SILENCE \u2014 a keyring write that really failed over a key that really IS live says NOTHING, so the operator walks away believing a key he will lose on the next reboot is durable ([[B243]] restored from the other side)",
+          "matches": 1
+        },
+        {
+          "label": "T41 \u2605\u2605\u2605\u2605 THE VERDICT IS COLLAPSED BACK TO A BOOLEAN \u2014 every non-`saved` outcome takes the failed-save door, which is the WITHDRAWN shape exactly: the three before-re-check-(3) arms all claim an ACTIVE key",
+          "matches": 1
+        },
+        {
+          "label": "T42 \u2605\u2605 the presence question FAILS OPEN \u2014 an unreadable store answers 'yes', so the offer is made against a keyring nobody could read and the operator is walked into a refusal",
+          "matches": 1
+        },
+        {
+          "label": "T43 \u2605\u2605\u2605 the presence question stops naming THE TEAM \u2014 any record at all answers yes, so `SAVED KEY FOUND` is offered for a team with NO retained record (P-2b's sibling)",
+          "matches": 1
+        },
+        {
+          "label": "T44 \u2605\u2605\u2605\u2605 THE ACTIVATION FORKS A SECOND INSTALL PATH \u2014 the binding is committed WITHOUT adopting, so the record is never verified and the panel reports a key the core does not hold",
+          "matches": 1
+        },
+        {
+          "label": "T45 \u2605\u2605\u2605 A FAILED ACTIVATION IS REPORTED AS A SUCCESS \u2014 the `/mrcfg` write came back false and the verb still answers `installed`, so the panel claims a key the next boot will not restore",
+          "matches": 1
+        },
+        {
+          "label": "T46 \u2605\u2605\u2605 THE FAILED ACTIVATION IS LEFT **HALF-INSTALLED** \u2014 the live key stays up with no durable binding behind it, which is [[B240]]'s exact shape (works at the trailhead, dead at the summit)",
+          "matches": 1
+        },
+        {
+          "label": "T47 \u2605\u2605 THE ORDER IS INVERTED \u2014 the `/mrcfg` activation is committed BEFORE the record is verified, so a CORRUPT record leaves an active binding with nothing behind it",
+          "matches": 1
+        },
+        {
+          "label": "T48 \u2605\u2605 the activation's ZERO FLOOR is dropped \u2014 `use_saved(0)` reaches the store instead of being refused before a load, and answers a different arm's word",
+          "matches": 1
+        },
+        {
+          "label": "T49 \u2605 the two absent-ish answers are COLLAPSED \u2014 'there is no record for this team' and 'the store could not be read at all' read alike, although they take different operator actions",
+          "matches": 1
+        },
+        {
+          "label": "T50 \u2605\u2605\u2605\u2605 THE MEMBERSHIP RE-CHECK IS DROPPED \u2014 a STALE offer installs another team's key under this team's record (the A -> B race, QG blocker 1 restored verbatim)",
+          "matches": 1
+        },
+        {
+          "label": "T51 \u2605\u2605\u2605 THE RE-CHECK ASKS THE **BINDING** INSTEAD OF THE MEMBERSHIP \u2014 a stale binding then authorises itself, which is QG blocker 3's shape (the boot restore's term (ii)) arriving through the operator's button",
+          "matches": 1
+        },
+        {
+          "label": "T52 \u2605\u2605\u2605\u2605 THE REFUSAL GOES BACK THROUGH A CLEARING FUNNEL \u2014 the stale-target arm WIPES the live key, which at that moment belongs to the team we ARE in: an innocent key destroyed by a refusal about a different one",
+          "matches": 1
+        },
+        {
+          "label": "T53 \u2605\u2605\u2605 THE WRITER'S SECOND AUTHORITY IS DROPPED \u2014 `commit_active` will write an ACTIVE BINDING into a `/mrcfg` record whose MEMBERSHIP names another team, i.e. a binding that lies and a boot that comes up keyless",
+          "matches": 1
+        },
+        {
+          "label": "T54 \u2605\u2605 THE FAIL-CLOSED READ IS FAIL-OPEN \u2014 an unreadable `/mrcfg` record is treated as a satisfied membership term, so the activation proceeds on facts nobody read (C2, inverted \u2014 T34's shape one verb over)",
+          "matches": 1
+        },
+        {
+          "label": "T55 \u2605\u2605\u2605\u2605 SILENT OLDEST-RECORD EVICTION IN `put` \u2014 the fifth team quietly displaces the first, so a `team new` destroys an unrelated retained key and the operator is never told (P-15 inverted, the idiom's own trap)",
+          "matches": 1
+        },
+        {
+          "label": "T56 \u2605\u2605\u2605\u2605 THE ACTIVE KEY'S PROTECTION IS DROPPED \u2014 the record behind the LIVE binding can be forgotten, so a working node reads the team channel today and, the boot restore finding no record, silently cannot tomorrow ([[B240]]'s exact shape arriving through a management screen)",
+          "matches": 1
+        },
+        {
+          "label": "T57 \u2605\u2605\u2605\u2605 THE DELETE IS KEYED ON THE **DISPLAY FINGERPRINT** \u2014 the low 24 bits the panel prints \u2014 so two teams that share six hex digits are indistinguishable and the wrong key is destroyed while the right one is on screen ([[B48]]'s class, arriving through a delete)",
+          "matches": 1
+        },
+        {
+          "label": "T58 \u2605\u2605\u2605\u2605 THE COMPACTION LEAVES A **SECRET-BEARING TAIL** \u2014 the vacated slot is not wiped, so the blob keeps a byte-for-byte DUPLICATE of a still-live team's PRIVATE key in a slot nothing reads and nothing clears, recoverable from a flash dump long after the operator believed a key had been removed",
+          "matches": 1
+        },
+        {
+          "label": "T59 \u2605\u2605\u2605 THE COMPACTION BECOMES A SWAP-WITH-THE-LAST \u2014 the survivors are re-ordered under the operator's cursor between one removal and the next, and the tail wipe then clears a slot the swap already overwrote",
+          "matches": 1
+        },
+        {
+          "label": "T60 \u2605\u2605\u2605 A FAILED SAVE IS RENDERED AS A SUCCESS \u2014 the one `/mrteams` write came back false and the verb still answers `forgotten`, so the panel says `KEY FORGOTTEN` about a removal that did not complete",
+          "matches": 1
+        },
+        {
+          "label": "T61 \u2605\u2605\u2605\u2605 THE LIST RETURNS **KEY MATERIAL** \u2014 the metadata row is filled from the record's PRIVATE half instead of from its public id, so the enumeration becomes the reader K1 says this file does not have",
+          "matches": 1
+        },
+        {
+          "label": "T62 \u2605\u2605 THE MISSING STORE AND THE UNREADABLE STORE ARE COLLAPSED \u2014 \"the flash would not open\" reads as \"there is no such record\", so the operator is told a key is already gone while four intact ones sit behind a transient mount failure",
+          "matches": 1
+        },
+        {
+          "label": "T63 \u2605\u2605\u2605 THE BINDING READ IS FAIL-OPEN \u2014 an unreadable `/mrcfg` record is treated as \"nothing is active\", so a removal proceeds without ever establishing which record is the PROTECTED one (C2 inverted, T54's shape one verb over and with a destructive consequence)",
+          "matches": 1
+        },
+        {
+          "label": "T64 \u2605\u2605\u2605 THE ACTIVE PREDICATE ASKS **MEMBERSHIP** INSTEAD OF THE BINDING \u2014 a node that has left a team (`team 0` clears the binding and RETAINS the record, P-2b) can no longer free that record, and a stale binding's own record stops being protected: the marker and the protection both move to the wrong row",
+          "matches": 1
+        },
+        {
+          "label": "T65 \u2605\u2605 THE REMOVAL'S ZERO FLOOR IS DROPPED \u2014 `forget(0)` reaches the binding and the store instead of being refused before anything is read, and answers a different arm's word",
+          "matches": 1
+        },
+        {
+          "label": "T67 \u2605\u2605\u2605\u2605 THE RECEIVED GRANT'S FULL-KEYRING DISTINCTION IS REMOVED \u2014 the verdict stops carrying the one fact a ROUTE cannot, so the fifth RECEIVED grant loses its way out of the dead end (spec \u00a7K6 :987, either origin)",
+          "matches": 1
+        },
+        {
+          "label": "T68 \u2605\u2605\u2605 THE FULL FACT IS CLAIMED FOR **EVERY** KEYRING REFUSAL \u2014 a corrupt or unopenable store also offers the removal list, i.e. a false remedy for a fault that has nothing to do with the four records",
+          "matches": 1
+        },
+        {
+          "label": "T69 \u2605\u2605 THE VERDICT RE-DECIDES THE ROUTE instead of CALLING the landed classifier \u2014 the three ruled rows are put at the mercy of a second authority that can drift from `grant_ui_route_of`",
+          "matches": 1
+        },
+        {
+          "label": "T66 \u2605 THE `KeyringForget` SENTINEL IS GIVEN A PLAUSIBLE WORD \u2014 `count` stops reading as \"not an outcome\" and starts reading as a successful removal, which is the fence's whole point (the T38 shape, a fourth enum over)",
+          "matches": 1
+        }
+      ]
+    }
+  ]
+}

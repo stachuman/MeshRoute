@@ -1,23 +1,32 @@
 # MeshRoute durable decisions
 
-- **Remote-admin 7b-3 owner rulings (2026-09-13, R-RA-37/38/39):** B390 as recommended — one outstanding disruptive promise per target, ONE `DeferredActionRecord` row, conflicting request → typed TERMINAL `action_busy` `0x08` via a separate codec-only slice **7b-3-0** (next brief, own gate/commit; then 7b-3 reissued at that hash); B392 option (a) — remote `prep-restart` stays schedulable, lockout documented (brief §2.4, Part 57b, 8a warning); B389 named-family refusal fallback pre-authorized, row size / native+gateway re-pins still pending the coder's typed-plan enumeration. Recorded by the second reader; register B389/B390/B392 rows updated, next free B393.
-- **Remote-admin 7b-3 author dispatch (2026-09-13, closure base `f993191`):** revision 2 incorporates the
-  second-read PASS/fold-ins and is ready for coder source-validation; **implementation HOLD B389/B390/B391/B392**.
-  B390 now proposes one outstanding disruptive promise per target, **one** row, and typed `action_busy` (proposed
-  0x08) via a separate 7b-3-0 codec gate/owner commit before the behavior brief is reissued. No owner ruling yet.
-  B389 awaits complete typed-plan enumeration/cost; one raw-line comparison is +280 B on three ABIs (two-row
-  historical +528), not linked RAM or an expected/final plan. Optional named-family refusal/follow-up requires
-  explicit owner scope approval. Scheduled's existing five-byte body needs no codec change. B392 is a pending
-  choice: keep prep-restart schedulable with explicit mesh lockout warning, or refuse it. Local USB/BLE reboot
-  or hardware restart remains possible while mesh RX is halted; a physical power-cycle is not the only recovery.
-  A never-owned blocked promise is unarmed; armed work has a fallback deadline. Same-slot force or permitted
-  other-owner ACL invalidation may release unarmed work; no cross-slot force privilege. ACCEPT status exposes
-  scalar action state, and deliberate local physical pre-emption is an external-interruption/unknown-outcome
-  boundary, not permission for internal lost promises. Part 57b/8a warnings are conditional, not a bench PASS.
-  **B391 remains open:** X09 old pattern matches zero; private proposal is RED/1 failed assertion. No shared
-  repair; prior 772 RED predates B388's comment return. Revision-1 native 2909/174485/0 and corpus 36/36 remain
-  historical baseline checks, not rerun for fold-ins. B378/B379/B387/B388 stay closed. Brief/pre-check:
-  `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; no production or simulator edits.
+- **Remote-admin 7b-3 owner rulings (2026-09-13, R-RA-37/38/39):** B390 as recommended — one outstanding disruptive promise per target, ONE `DeferredActionRecord` row, conflicting request → typed TERMINAL `action_busy` `0x08` via a separate codec-only slice **7b-3-0** (brief authored below, own gate/commit; then 7b-3 reissued at that hash); B392 option (a) — remote `prep-restart` stays schedulable, lockout documented (brief §2.4, Part 57b, 8a warning); B389 named-family refusal fallback pre-authorized, row size / native+gateway re-pins still pending the coder's typed-plan enumeration. Recorded by the second reader; register B389/B390/B392 remain open for their named closure obligations; next free B394.
+- **Remote-admin 7b-3-0 codec — SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-15, uncommitted at `b9d75aa`:**
+  R-RA-37's typed TERMINAL `action_busy` = `0x08` is allocated in `remote_codec.{h,cpp}` (ceiling 0x07 → 0x08, both
+  terminal security classes decode it, 0x09..FF still reject, protocol-error/admission namespaces unchanged, generic
+  encoder unchanged); test file gains five independently frozen literals + three cases; tool gains R67/R68 and the
+  B391 code-based X09 pattern. QA independently measured native **2912/184461/0**, reference **94/94** (old 89
+  identical), domain proof **9787**, corpus **36/36 byte-identical**, tools 343/0 skips, census at pins, boards
+  **unchanged** (gateway 203956/570588, mobile 207756/1372992), union **816 RED / 1 known unusable B342 / 817**.
+  **B391 CLOSED.** Evidence: `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md`. **Next: owner
+  commit (git add the untracked brief/pre-check/evidence paths), then QA reissues the 7b-3 behaviour brief at that
+  hash with the coder's 48-row typed-plan enumeration folded in (12 rows preparable, 36 R-RA-39 candidates);
+  B389 allocation ruling still pending.**
+- **Remote-admin 7b-3 behavior remains HOLD:** revision-3 owner-ruling overlay is the coder's enumeration
+  contract at `f993191`, with production/source equality verified at `b9d75aa`. R-RA-37/38/39 are settled;
+  do not ask again for one row/typed conflict, remote prep-restart, or the named-family fallback under its
+  listed conditions. Complete typed-plan row size and native/gateway allocation still await enumeration,
+  three-ABI measurement and the owner's B389 ruling. One raw-line row comparison +280 B (historical two-row
+  +528) is neither linked RAM nor an approved complete plan. B390 stays open for runtime policy proof;
+  B392 stays open for Part 57b/local-restart recovery and 8a's exact pre-submission warning. Scheduled detail
+  already fits the codec. A never-owned blocked promise is unarmed; same-slot force or permitted other-owner
+  ACL invalidation can release it, with no invented timeout or cross-slot force privilege. Armed work has its
+  fallback deadline. ACCEPT status exposes scalar action state; deliberate physical/local pre-emption is an
+  external-interruption/unknown-outcome boundary, not an internal lost-promise allowance. USB/BLE reboot where
+  available or hardware restart can recover a halted node; a power-cycle is not the only local restart.
+  After separate 7b-3-0 independent PASS and owner commit, QA reissues the behavior
+  brief at that exact hash; B391 must also be verified. No behavior implementation or bench PASS is implied.
+  Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md` (preserved revision 3).
 
 - **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
   revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response

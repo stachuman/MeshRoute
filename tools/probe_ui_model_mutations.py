@@ -696,7 +696,9 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Codec-only attribution: 3934 -> 48489; old layout/length rows extend in place.
 # Slice 7b-2 candidate native execution: 2888/172264 + 21 cases / 2221 assertions = 2909/174485.
 # Filtered per-case XML attribution is also required in the final evidence; this is not a skipped-suite override.
-PIN_CASES, PIN_ASSERTS = 2909, 174485
+# Slice 7b-3-0: executed 2909/174485 + 3 cases / 9976 assertions = 2912/184461.
+# Codec-only: 48489 -> 58465 assertions (old terminal case +6; three new cases +9970).
+PIN_CASES, PIN_ASSERTS = 2912, 184461
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -10452,15 +10454,15 @@ MUTS_RADMIN2CODEC = [
  ("R57 ★★ an OPEN body is published as AUTHENTICATED — a success that isn't",
   '        payload = body.subspan(L.header_bytes, n_body);     // an OPEN body: explicitly UNAUTHENTICATED\n        d.authenticated = false;',
   '        payload = body.subspan(L.header_bytes, n_body);     // an OPEN body: explicitly UNAUTHENTICATED\n        d.authenticated = true;'),
- ('R58 ★★★ the two result namespaces COLLAPSE: the authenticated protocol error accepts the whole terminal namespace, so 0x01..0x07 stop rejecting',
+ ('R58 ★★★ the two result namespaces COLLAPSE: the authenticated protocol error accepts the whole terminal namespace, so 0x01..0x08 stop rejecting',
   '            if (rc != static_cast<uint8_t>(RemoteProtocolError::already_acknowledged))\n                return RemoteStatus::bad_result_code;',
   '            if (rc > kRemoteTerminalMax)\n                return RemoteStatus::bad_result_code;'),
  ('R59 ★★★ the typed DOMAIN is lost: a protocol-error body decodes as a TERMINAL result, so 0x00 reads as `completed` instead of `already_acknowledged`',
   '            d.result_kind    = RemoteResultKind::protocol_error;\n            d.protocol_error = RemoteProtocolError::already_acknowledged;',
   '            d.result_kind    = RemoteResultKind::terminal;\n            d.terminal       = static_cast<RemoteTerminal>(rc);'),
- ('R60 ★★ an UNALLOCATED terminal code (0x08..0xFF) is decoded as a known meaning',
-  '            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;   // 0x08..0xFF unallocated',
-  '            if (false) return RemoteStatus::bad_result_code;   // 0x08..0xFF unallocated'),
+ ('R60 ★★ an UNALLOCATED terminal code (0x09..0xFF) is decoded as a known meaning',
+  '            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;',
+  '            if (false) return RemoteStatus::bad_result_code;'),
  ('R61 ★★ a TERMINAL body with NO result code defaults to `completed` instead of refusing',
   '        if (payload.empty()) return RemoteStatus::bad_length;         // the result code is REQUIRED',
   '        if (payload.empty()) { d.result_kind = RemoteResultKind::terminal;\n                               d.terminal = RemoteTerminal::completed; out = d; return RemoteStatus::ok; }'),
@@ -10479,6 +10481,12 @@ MUTS_RADMIN2CODEC = [
  ("R66 ★★★ the request id is silently NARROWED to 32 bits — R-RA-5's rejected width, and the birthday bound moves from 2^-33 to about 0.5",
   '    for (size_t i = 0; i < sizeof b; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);   // little-endian',
   '    for (size_t i = 0; i < 4; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);'),
+ ('R67 R-RA-37 decoder retains the old terminal ceiling 07 (must compile and reject positive 08)',
+  '            if (rc > kRemoteTerminalMax) return RemoteStatus::bad_result_code;',
+  '            if (rc > 0x07) return RemoteStatus::bad_result_code;'),
+ ('R68 R-RA-37 action_busy is misreported as session_busy',
+  '            d.terminal    = static_cast<RemoteTerminal>(rc);',
+  '            d.terminal    = rc == 0x08 ? RemoteTerminal::session_busy : static_cast<RemoteTerminal>(rc);'),
  ("A01 R-RA-36 domain absent",
   "                L.domain = RemoteDomainId::resp_admission_result;\n                L.authenticated = true;\n                L.has_admission = true;",
   "                return RemoteStatus::bad_opcode;"),
@@ -11017,8 +11025,8 @@ MUTS_RADMIN5RX = [
   '    in.request_carrier.cross_layer         = ui.has_cross_layer;',
   '    in.request_carrier.cross_layer         = false;'),
  ('X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node',
-  '    // to exactly what was already armed.\n    radmin_expiry_arm();',
-  '    // to exactly what was already armed.\n    ;'),
+  '    radmin_expiry_arm();\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT',
+  '    ;\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT'),
  ('X10 ★★ the scan RE-ARMS BEFORE releasing instead of after, so it re-arms to the deadline that just fired — a zero-delay livelock, and the wheel is never cancelled on an emptied pool',
   '    const uint64_t now = _hal.now();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is\n    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.\n    radmin_expiry_arm();',
   '    const uint64_t now = _hal.now();\n    radmin_expiry_arm();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));'),

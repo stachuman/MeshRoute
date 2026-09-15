@@ -926,3 +926,12 @@ only after the coder enumerates the complete typed-plan union (prefer typed requ
 already hold: ACCEPT-only residency, one row (R-RA-37), mobile `Node` size AND RAM unchanged, re-pins in the
 R-RA-31 measured shape, no hidden blob/heap/adapter. The rev-2 one-row raw-line figure (+280 B) is a comparison,
 not a ceiling or an approved allocation.
+
+**QA completion note, 2026-09-15 — R-RA-37 codec prerequisite done; R-RA-38/39 unchanged:** the separate 7b-3-0
+codec slice (typed TERMINAL `action_busy` = `0x08`) has independent QA PASS, uncommitted at `b9d75aa`: native
+2912/184461/0, reference 94/94, domain proof 9787, corpus 36/36 byte-identical, boards unchanged, union 816 RED /
+1 known unusable. B391 is closed by that gate. After the owner's separate commit the 7b-3 behaviour brief is
+reissued at that hash. The B389 allocation is still unruled: the coder's 48-row enumeration finds 12 rows
+preparable with existing seams and 36 rows (all disruptive `cfg set` keys, `gateway`, `join`, `create`, `leave`,
+`team`, `regen`) needing validate/apply splits — R-RA-39 refusal candidates, to be listed row by row in the
+reissue. [Independent gate](../evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md).

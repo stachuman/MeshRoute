@@ -1,0 +1,97 @@
+[
+  {
+    "name": "native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 25.636234063655138,
+    "log": "native-build.log",
+    "sha256": "48baff80ec8904ca28766f3f8a7cddc3a54e369eabda4766f1810dc9c9e75118"
+  },
+  {
+    "name": "native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 0.6440414786338806,
+    "log": "native.log",
+    "sha256": "f6e7566311ee165d36395ee798ad0007a8550c8ea3b01a689cc20919550f726f"
+  },
+  {
+    "name": "sim-configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-qa-s7b30-author-x6wfc8ai/sim-build",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 0.42465709149837494,
+    "log": "sim-configure.log",
+    "sha256": "bc5e85b00758d33abdfb847d0b099547c6fd49db9d4e479aea40018d5a0d4bf0"
+  },
+  {
+    "name": "sim-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-qa-s7b30-author-x6wfc8ai/sim-build",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 36.457490012049675,
+    "log": "sim-build.log",
+    "sha256": "4e1b2506dc5c7590c993b0f6977c6bd87c91209dd88e03a7a4aa308ab8dfb982"
+  },
+  {
+    "name": "corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-qa-s7b30-author-x6wfc8ai/corpus",
+      "--lus",
+      "/tmp/mr-qa-s7b30-author-x6wfc8ai/sim-build/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 52.874939776957035,
+    "log": "corpus.log",
+    "sha256": "e8bcf8fdde2c8f2bdd255e006992a6d8f7e72632d56693c7d284fc298f5c896b"
+  },
+  {
+    "name": "corpus-validate",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-qa-s7b30-author-x6wfc8ai/corpus"
+    ],
+    "cwd": "/tmp/mr-qa-s7b30-author-x6wfc8ai/snapshot",
+    "rc": 0,
+    "seconds": 0.6507077626883984,
+    "log": "corpus-validate.log",
+    "sha256": "ac27a08aeef45cd81fbce515bff52e75aadbd6784cc6e0cfe41878b6a06839f4"
+  }
+]

@@ -17,15 +17,20 @@ all required probes/ABI/checkers/census. Gateway RAM +4976 B, flash +7840 B; mob
 **Gate-attribution erratum B391:** the comment-only return left X09 searching for removed text; actual current
 harness run is VACUOUS/0 matches. The prior 772 RED is pre-comment history, not a passing current union.
 B388 remains correctly closed. A private pattern proposal restores X09 RED; shared repair/verification pending.
-[7b-3 revision-2 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) is ready for source-validation
-at `f993191`, implementation HOLD B389 complete prepared-state allocation, B390 conflicting-action admission
-and B391 reader repair, plus B392's prep-restart lockout choice. Revision 2 folds in the second read: one-row
-serialization and typed action_busy/7b-3-0 codec preparation are **revised proposals**, not owner rulings;
-B389's optional named-family deferral likewise needs explicit scope approval. Scheduled detail already fits
-the codec. ACCEPT status and physical-pre-emption clarifications are in the brief; the B392 bench/controller
-warning is conditional. These do not silently change §13 or grant implementation authority.
+**Current dispatch at owner prep commit `b9d75aa` (documentation-only over `f993191`):**
+[7b-3-0 codec brief](../plans/2026-09-13-radmin-slice7b3-0-action-busy-codec.md) is implemented and
+**INDEPENDENT QA PASS 2026-09-15** (uncommitted); next is the owner's separate codec commit, then the 7b-3 reissue. Fresh private author pre-check: native
+2909/174485/0, corpus 36/36 byte-identical, reference 89/89 and real-codec domain proof 9781 checks. No full gate.
+R-RA-37 rules ONE promise per target, ONE row and typed TERMINAL `action_busy` 08, first allocated through
+that separate codec gate/owner commit. R-RA-38 keeps remote prep-restart schedulable, with local-restart
+lockout documented in Part 57b and 8a's exact warning. R-RA-39 pre-authorizes named-family refusal/follow-up
+under its explicit listing conditions. These are settled choices, not pending proposals.
+**7b-3 behavior remains HOLD** for B389 complete typed-plan allocation, the codec gate/commit and B391's
+verified repair. Its [revision-3 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) remains the
+enumeration contract; source equality permits preflight at b9d75aa. QA reissues behavior only at the actual
+codec commit. B390 runtime policy and B392 metal/controller closure remain open. Scheduled detail already
+fits the codec. B393 closes current documentation drift, with the owner ledger and old brief preserved.
 [7b-2 independent gate and scoped closure](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure).
-**Owner rulings 2026-09-13 (R-RA-37/38/39, recorded by the second reader):** 7b-3 uses ONE deferred-action row and ONE outstanding disruptive promise per target; a conflicting request gets typed TERMINAL `action_busy` `0x08` allocated first by a separate codec slice 7b-3-0; remote `prep-restart` stays schedulable with its lockout documented (Part 57b, 8a warning); a named family needing a validate/apply split may stay remotely `refused` in 7b-3 with a registered follow-up. The B389 row size and Node re-pins remain pending the coder's typed-plan enumeration.
 
 This revision incorporates the owner's decisions through 2026-09-04. It does not modify firmware behaviour
 and remains subject to independent review. If ratified, it replaces the implementation direction in
@@ -758,7 +763,7 @@ The outer DATA type already distinguishes request from response. The opcode nibb
 | `REMOTE_RESP` | `0x2` | `BOOTSTRAP` |
 | `REMOTE_RESP` | `0x3` | `ROLLOVER_RESULT` |
 | `REMOTE_RESP` | `0x4` | `PROTOCOL_ERROR` |
-| `REMOTE_RESP` | `0x5` | `ADMISSION_RESULT` — R-RA-36, codec QA-passed; producer pending |
+| `REMOTE_RESP` | `0x5` | `ADMISSION_RESULT` — R-RA-36, codec and 7b-2 target producer QA-passed |
 
 All other opcode nibbles remain reserved and reject. Values are append-only after the codec/KAT slice.
 
@@ -918,11 +923,12 @@ transcript replay.
 The terminal frame is the next contiguous `response_seq` after the last output frame. Its authenticated
 ciphertext or open plaintext starts with one unsigned one-byte result code.
 
-**Author allocation accepted by QA and implemented by QA-passed Slice 2, 2026-09-06:**
-the listed meanings below receive values in their existing order. Independent wire vectors pin this accepted
-allocation; it is append-only, with no renumbering or reuse of retired values. The consumer-free codec retains
-the typed domain alongside each result; no command authority or execution behaviour is added. Implementation
-is integrated at MeshRoute `f2735f7`, with simulator integration `8688884` (§19 item 2).
+**Original 0x00..0x07 allocation accepted by QA and implemented by QA-passed Slice 2, 2026-09-06:**
+those meanings below received values in their existing order. Independent wire vectors pin this accepted
+allocation; it is append-only, with no renumbering or reuse of retired values. Slice 2 introduced the typed
+codec, integrated at MeshRoute `f2735f7`, simulator `8688884` (§19 item 2); later slices added real consumers.
+**R-RA-37 appends action_busy below (approved, codec implementation pending 7b-3-0 at b9d75aa).** The new
+allocation grants no command authority or producer behavior; 7b-3 owns the disruptive-conflict producer.
 
 | `TERMINAL` result byte | Name |
 | --- | --- |
@@ -934,9 +940,14 @@ is integrated at MeshRoute `f2735f7`, with simulator integration `8688884` (§19
 | `0x05` | `internal_error` |
 | `0x06` | `session_full` |
 | `0x07` | `session_busy` |
+| `0x08` | `action_busy` — R-RA-37; codec 7b-3-0 independent QA PASS 2026-09-15 (uncommitted); producer pending 7b-3 |
 
-Values `0x08..0xFF` are unallocated in this terminal-result namespace. They must not be decoded as a known
-terminal meaning or accepted as success. The assigned meanings remain:
+Under R-RA-37, values `0x09..0xFF` are unallocated and must not decode as a known terminal meaning or
+accepted success. The 7b-3-0 codec (independent QA PASS 2026-09-15, uncommitted at `b9d75aa`) decodes `0x08` as
+`action_busy` for both authenticated and open TERMINAL; the producer is 7b-3's. No open disruptive execution is granted. Authenticated
+PROTOCOL_ERROR `0x01..0xFF` and ADMISSION_RESULT validation remain unchanged. Existing terminal `0x08`
+reference bytes are retained and become positive; new terminal `0x09` negatives replace their former
+rejection role, while protocol-error `0x08` remains negative. The assigned meanings remain:
 
 - `completed` — a matching handler returned; its normal text contains any command-specific warning/error;
 - `scheduled` — a disruptive action was accepted and deferred until response handling permits it;
@@ -948,6 +959,9 @@ terminal meaning or accepted as success. The assigned meanings remain:
   **R-RA-36 supersedes their production assignment to TERMINAL:** no-execution capacity refusal and a changing
   safe-rollover busy count use ADMISSION_RESULT below. Old transcript bytes/nonces and decoder recognition
   remain unchanged; new target producers must not emit these state-dependent refusals in TERMINAL.
+- `action_busy` — a distinct disruptive request conflicts with the target's single outstanding promise
+  (R-RA-37; producer pending 7b-3). It is that request ID's retained immutable final result; an exact retry
+  replays it unchanged and never later becomes scheduled. A fresh request ID is needed to try again.
 
 Optional short detail bytes may follow, but ordinary handler output must not be duplicated into a special
 terminal encoding. The `scheduled` result is the exception that must carry its bounded activation delay.
@@ -957,7 +971,7 @@ Authenticated `PROTOCOL_ERROR` is reserved for a structurally valid, authenticat
 operation is already known but for which no ordinary terminal replay exists—for v2, the concrete case is an
 exact retry after that response was already acknowledged, carrying the compact code
 `already_acknowledged`. **Slice 2 Author allocation, accepted by QA 2026-09-06:** this code is `0x00` in the
-separate authenticated `PROTOCOL_ERROR` result namespace; it is not a ninth terminal result. Its interpretation
+separate authenticated `PROTOCOL_ERROR` result namespace; it is not a terminal result. Its interpretation
 requires the authenticated protocol-error opcode/domain, not just the result byte. It uses its distinct
 response opcode and therefore does not reuse a `TERMINAL` nonce for different plaintext. Authentication/tag
 failures remain silent. The clear/open `PROTOCOL_ERROR` is
@@ -2192,8 +2206,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 7b-1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-08**, owner-committed at `1d4b3ad`; authenticated executor/transcript/Node sender, real-handler/context probes; B365–B377 closed | native **2883/127709/0**; union **675 RED / 1 known unusable B342**; tools **343 OK**; all required probes/checkers/ABI/census; fresh simulator arms, **36/36 byte-identical**; gateway Node **+1784**, RAM **+1792**, flash **+7520 B**; mobile Node/RAM **unchanged**, flash **+260 B** fully attributed; [independent QA](../evidence/2026-09-08-radmin-slice7b1-qa-gate.md) | **DEFERRED to 8b:** real target `status` round trip requires the controller/carrier; no new bench part yet |
 | 7b-2-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, revision 2, attribution base `1d4b3ad`, owner commit `564f460`; R-RA-36 ADMISSION_RESULT codec, no new live producer; B382/B383 closed, B384/B385 corrected/recorded; [QA evidence](../evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md) | native 2888/172264/0; old literals 87/87, new arrays/controls verified; corpus 36/36 byte-identical; 712 RED / known unusable B342; tools 343 OK / zero skips; all ABI/probes/checkers/census; Node/RAM unchanged, gateway flash −64 B attributed, mobile linked sections identical | none; owner-committed, no new metal-only behavior |
 | 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, owner commit `f993191` (base `564f460`), consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate is historical; **B391 OPEN**: post-comment X09 is VACUOUS, scoped instrument repair required. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
-| 7b-3-0 | **PENDING BRIEF (R-RA-37):** codec-only allocation of typed TERMINAL `action_busy` = `0x08` (`kRemoteTerminalMax` 0x07 → 0x08, decoder, exhaustive consumers, PyNaCl reference, KATs; existing `0x08` invalid fixtures move to `0x09`); no producer, no state, no `wire_version` | native KATs + reference comparison; corpus 36/36 byte-identical; boards Node/RAM unchanged | none (no metal behaviour) |
-| 7b-3 | **REVISION 2 + OWNER RULINGS R-RA-37/38/39 RECORDED 2026-09-13 — CODER SOURCE-VALIDATION AND THE 7b-3-0 CODEC PREREQUISITE NEXT**, base `f993191`; implementation HOLD B389/B390/B391/B392. [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): one-row/typed-conflict and optional family deferral are pending owner proposals; separate codec preparation only if approved; scheduled itself uses existing codec | Revision-1 native 2909/174485/0 and corpus 36/36; new one-row comparison +280 B and JoinRequest 32/8 on three ABIs, type costs only; complete prepared union/rulings/full gates pending | Part 57b conditional reservation documents B392 mesh lockout with local restart; 8a must warn before submission if scheduling is selected; no current bench PASS |
+| 7b-3-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-15**, uncommitted at `b9d75aa`, R-RA-37; B391 closed; [QA gate](../evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md): native 2912/184461/0, reference 94/94, domain proof 9787, corpus 36/36, union 816 RED/1 known unusable, boards unchanged. [Brief](../plans/2026-09-13-radmin-slice7b3-0-action-busy-codec.md): append typed TERMINAL action_busy 08; terminal 09..FF reject; preserve protocol-error/admission namespaces and old 89 vector bytes; no producer/state/wire_version change | Full independent native/reference/corpus/probe/ABI/board/checker/mutation gate required; B391 repair verified before PASS; Node/RAM unchanged. Own owner commit, then behavior reissue | none (no new metal behavior) |
+| 7b-3 | **REVISION 3, R-RA-37/38/39 RULED — ENUMERATION CONTINUES; IMPLEMENTATION HOLD** for B389 allocation, codec gate/commit and B391 repair. [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), source base f993191 equals b9d75aa; QA reissues at codec commit. One promise/one row, typed action_busy; named-family fallback under listed conditions | Historical author native 2909/174485/0 and corpus 36/36; one-row +280 B comparison and JoinRequest 32/8 are type costs only. Complete typed-plan allocation and full behavior gates pending | Part 57b on software PASS: prep-restart mesh lockout and local restart; 8a must show the exact warning before submission. No bench PASS |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
 | 8c | USB/BLE renderer/router and companion contract gate | corpus cannot prove direct JSON; executed golden wiring gates; ruled pair | **Part 57d:** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |
