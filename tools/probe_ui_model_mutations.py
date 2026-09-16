@@ -110,6 +110,7 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    "actionadmit": "src/firmware_action_effects.h",  # 7b-3-P1: shared typed grammar/support
     "remoteactivation": "lib/core/remote_activation.h",  # Slice 7a: timing-budget authority
     "fwactivation": "src/firmware_remote_activation.h",  # Slice 7a: live effective-value policy
     "macwait": "lib/core/mac_wait_windows.h",  # Slice 7a-0: the MAC's shared wait-window arithmetic
@@ -698,7 +699,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Filtered per-case XML attribution is also required in the final evidence; this is not a skipped-suite override.
 # Slice 7b-3-0: executed 2909/174485 + 3 cases / 9976 assertions = 2912/184461.
 # Codec-only: 48489 -> 58465 assertions (old terminal case +6; three new cases +9970).
-PIN_CASES, PIN_ASSERTS = 2912, 184461
+# 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
+PIN_CASES, PIN_ASSERTS = 2916, 184587
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -11484,7 +11486,20 @@ MUTS_RADMIN72RX = [
   "remote_open_sent(_radmin_session, i); remote_counter_increment(_radmin_session, RadminCounter::response_enqueue_failure);\n    radmin_report_counters(counters_before);\n    return RadminSend::refused;"),
 ]
 
-MUTS_BY_TARGET = {"radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+MUTS_ACTIONADMIT = [
+    ('A01 absent backend accepted', 'backend == ActionBackend::none ? ActionAdmissionStatus::unsupported', 'backend == ActionBackend::none ? ActionAdmissionStatus::ready'),
+    ('A02 confirmation bypassed', 'if (!parse_confirm_token(arg, n))', 'if (false && !parse_confirm_token(arg, n))'),
+    ('A03 factory kind lost', 'action_backend_admit(ActionKind::factory_reset, support.reboot)', 'action_backend_admit(ActionKind::reboot, support.reboot)'),
+    ('A04 sleep prefix narrowed', 'n >= 3 && !strncmp(arg, "off", 3)', 'n == 3 && !strncmp(arg, "off", 3)'),
+    ('A05 compiled-out sleep reported supported', 'support.power_save ? ActionAdmissionStatus::ready', 'true ? ActionAdmissionStatus::ready'),
+    ('A06 debug admission bypassed', 'if (!debug) return', 'if (false && !debug) return'),
+    ('A07 crash hang kind lost', '{{ActionKind::crash_hang, ActionBackend::none}, ActionAdmissionStatus::ready}', '{{ActionKind::sleep_on, ActionBackend::none}, ActionAdmissionStatus::ready}'),
+    ('A08 fault backend replaced by reset', 'action_backend_admit(ActionKind::crash_fault, support.fault)', 'action_backend_admit(ActionKind::crash_fault, support.reboot)'),
+    ('A09 crash reboot backend replaced by fault', 'action_backend_admit(ActionKind::crash_reboot, support.reboot)', 'action_backend_admit(ActionKind::crash_reboot, support.fault)'),
+    ('A10 OTA backend replaced by reset', 'action_backend_admit(ActionKind::ota, support.ota)', 'action_backend_admit(ActionKind::ota, support.reboot)'),
+]
+
+MUTS_BY_TARGET = {"actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,

@@ -1,0 +1,1198 @@
+diff --git a/MEMORY.md b/MEMORY.md
+index 946947a..10ce401 100644
+--- a/MEMORY.md
++++ b/MEMORY.md
+@@ -1,8 +1,10 @@
+ # MeshRoute durable decisions
+ 
++- **P1 coder gate PASS / frozen for independent QA (2026-09-15):** uncommitted at c591721 plus complete SHA-256 inventory; revision 3 folds B399/B400. Native 2916/184587/0, corpus 36/36 byte-identical, tools 351/no skips, all required reference/ABI/probes/checkers/census PASS, 53 batteries /826 RED /known B342 /827 configured /0 vacuous. Typed admission/effects add zero resident state; Node/RAM unchanged; gateway flash −2368 B, mobile +584 B; stack frames measured. Remote guards still refuse; 204 semantic inventory rows preserved. Receipt: `docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1.md` §11. Next is independent QA on the complete uncommitted freeze, then the QA behavior reissue at that frozen input set. B394/B399/B400 remain pending independent closure. Commits are not gates; R-RA-40 stays approved.
++
+ - **Remote-admin 7b-3-0 codec owner-committed at `ac5f9a5` (2026-09-15):** independent QA PASS and B391 closure remain intact. Committed QA evidence reports native 2912/184461/0, reference 94/94, domain 9787, corpus 36/36, tools 343/no skips, unchanged board pair, 816 RED + known unusable B342 /817. Its reviewer reproduced linked/section/object totals, not the coder's single-byte gateway ELF attribution. `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md` remains unchanged.
+-- **7b-3 revision 4 reissued at `ac5f9a5`: READY for source-validation; behavior HOLD B389+B394.** Twelve selected policy rows require separate **7b-3-P1** shared typed admission/effect/sink preparation, its own full gate/owner commit, then QA refreshes the behavior base. The actual coder enumeration had four reusable effects + eight needing extraction; its +80 comparison covered four rows. B394 records the overbroad twelve-existing-seams summary without revoking codec PASS. QA's fresh complete twelve-row model measures one 40-byte row + four u32 detail/header increases + two diagnostics/alignment = **+80 B** session state on native/ARM/Xtensa. Modeled Node **230976 native /157344 gateway /117912 mobile**; **owner allocation/re-pins still unruled**, no linked-RAM or implementation claim. Fresh author native **2912/184461/0**, rebuilt simulator/corpus **36/36 byte-identical**, reference **94/94**, all **52/817 source patterns match once**; no full implementation gate or union run this author turn. Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; P1: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md`; pre-check: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-reissue-precheck.md`.
+-- **R-RA-37/38/39 remain settled:** one outstanding disruptive promise per target across slots, ONE row, retained typed action_busy 08 (codec complete, producer pending); remote prep-restart stays schedulable with local-restart lockout (brief §2.5, Part 57b, exact 8a warning); named-family refusal fallback pre-authorized. QA records **36 exact exceptions** in revision 4 §2.2: **B395/F-config 23, B396/F-provision 10, B397/F-team 2, B398/F-regen 1**, each with a separate fence/closure proof, not implementation dispatch. Immutable refused/zero effects, local semantics/classification unchanged; these rows remain incomplete. Next free **B399**. B390 awaits runtime proof; B392 awaits metal/8a. Never-owned unsendable work is unarmed: same-slot force or permitted other-owner ACL invalidation can release it, with no new timeout/cross-slot force. Armed work keeps its fallback deadline. ACCEPT scalar status exposes action state and last kind/outcome without secrets. Physical/local pre-emption is external interruption/unknown outcome; USB/BLE reboot where supported or hardware restart recovers a halted node. No behavior or bench PASS is implied.
++- **7b-3 revision 4 reissued at `ac5f9a5`: READY for source-validation; behavior HOLD B394 only — B389 RULED R-RA-40 (2026-09-15): +80 B, re-pins 230976/157344, mobile unchanged.** Twelve selected policy rows require separate **7b-3-P1** shared typed admission/effect/sink preparation, its own full implementation/independent gate, then QA refreshes the behavior base at the complete frozen inputs; no commit wait. The actual coder enumeration had four reusable effects + eight needing extraction; its +80 comparison covered four rows. B394 records the overbroad twelve-existing-seams summary without revoking codec PASS. QA's fresh complete twelve-row model measures one 40-byte row + four u32 detail/header increases + two diagnostics/alignment = **+80 B** session state on native/ARM/Xtensa. Modeled Node **230976 native /157344 gateway /117912 mobile**; **owner allocation/re-pins approved by R-RA-40**, no linked-RAM or behavior implementation claim. Fresh author native **2912/184461/0**, rebuilt simulator/corpus **36/36 byte-identical**, reference **94/94**, all **52/817 source patterns match once**; no full implementation gate or union run this author turn. Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; P1: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md`; pre-check: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-reissue-precheck.md`.
++- **R-RA-37/38/39 remain settled:** one outstanding disruptive promise per target across slots, ONE row, retained typed action_busy 08 (codec complete, producer pending); remote prep-restart stays schedulable with local-restart lockout (brief §2.5, Part 57b, exact 8a warning); named-family refusal fallback pre-authorized. QA records **36 exact exceptions** in revision 4 §2.2: **B395/F-config 23, B396/F-provision 10, B397/F-team 2, B398/F-regen 1**, each with a separate fence/closure proof, not implementation dispatch. Immutable refused/zero effects, local semantics/classification unchanged; these rows remain incomplete. Next free **B401**. B390 awaits runtime proof; B392 awaits metal/8a. Never-owned unsendable work is unarmed: same-slot force or permitted other-owner ACL invalidation can release it, with no new timeout/cross-slot force. Armed work keeps its fallback deadline. ACCEPT scalar status exposes action state and last kind/outcome without secrets. Physical/local pre-emption is external interruption/unknown outcome; USB/BLE reboot where supported or hardware restart recovers a halted node. No behavior or bench PASS is implied.
+ 
+ - **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
+   revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
+diff --git a/docs/2026-07-30-open-bug-register.md b/docs/2026-07-30-open-bug-register.md
+index 8066303..6ab0917 100644
+--- a/docs/2026-07-30-open-bug-register.md
++++ b/docs/2026-07-30-open-bug-register.md
+@@ -23,11 +23,13 @@ mobile **207756/1372992**), union **52 batteries /816 RED /1 known unusable B342
+ reviewer's limitation remains: section/object/linked totals reproduced, but not the coder's single-byte
+ ELF attribution. The original coder and QA reports are preserved, not relabelled as a new full gate.
+ 
++**P1 CODER GATE PASS / FROZEN FOR INDEPENDENT QA (2026-09-15):** uncommitted at `c591721` plus the complete SHA-256 input inventory. P1 revision 3 folds B399/B400; both await independent closure with B394. Native **2916/184587/0**, corpus **36/36 byte-identical**, tools **351/no skips**, all required reference/ABI/probes/checkers/census PASS; union **53 batteries /826 RED /known B342 /827 configured /0 vacuous**. **Node and resident RAM unchanged**; gateway flash **−2368 B**, mobile **+584 B**, compiler stack frames measured. Both remote disruptive guards still refuse. The new source mapping preserves **204 semantic rows**. [Frozen receipt](superpowers/evidence/2026-09-15-radmin-slice7b3-p1.md#11-frozen-coder-handoff--2026-09-15). **Next: independent QA on the entire uncommitted freeze, then QA refreshes the behavior brief at that frozen base. Commits are not gates.** No independent P1 PASS or 7b-3 behavior implementation is claimed.
++
+ **Current author dispatch: [7b-3 revision 4](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md),
+-reissued at `ac5f9a5`, READY FOR SOURCE-VALIDATION; behavior implementation HOLD for B389 + B394.**
++reissued at `ac5f9a5`, READY FOR SOURCE-VALIDATION; behavior implementation HOLD for B394 only — B389 allocation RULED R-RA-40 (2026-09-15, +80 B).**
+ Twelve selected policy rows require the separately fenced [7b-3-P1 preparation](superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md)
+-first, with its own source-validation, complete implementation/independent gate and owner commit. QA then
+-refreshes the behavior base/API anchors at that hash. P1 adds no resident state or remote dispatch.
++first, with its own source-validation and complete implementation/independent gate. QA then
++refreshes the behavior base/API anchors at the QA-passed frozen inputs (last commit plus SHA-256 inventory). No step waits for a commit. P1 adds no resident state or remote dispatch.
+ **B394** corrects the earlier twelve-existing-seams summary: the actual coder enumeration had four reusable
+ effects and eight rows needing preparatory extraction; its +80 comparison covered four rows only.
+ 
+@@ -36,7 +38,7 @@ QA now records the exact **36 R-RA-39 retained-refusal rows** in revision 4 §2.
+ These follow-ups are separately fenced plans, not dispatch for production edits. Policy classifications and
+ local semantics stay unchanged; the 36 retain immutable refused/zero-effect behavior and remain incomplete.
+ R-RA-37/38/39 are settled; no repeated policy ruling is requested. B390 runtime and B392 metal/8a obligations
+-stay open. B389 **allocation is still unruled**: QA's new complete twelve-row model measures one 40/8 row,
++stay open. B389 **allocation is RULED — R-RA-40 (2026-09-15), approved as recommended**: QA's new complete twelve-row model measures one 40/8 row,
+ four 24→32 headers, two diagnostic bytes/alignment, session state **8824→8904 (+80 B)** on all three ABIs.
+ Modeled Node: native **230896→230976**, gateway **157264→157344**, mobile **117912 unchanged**.
+ This is compile-only pricing, not linked RAM, implemented seams or permission to re-pin production.
+@@ -45,7 +47,7 @@ Fresh [revision-4 author pre-check](superpowers/plans/2026-09-15-radmin-slice7b3
+ native **2912/184461/0/0 skips**; freshly rebuilt simulator, **36/36 actual byte-identical streams**;
+ reference **94/94**, old 89 identical/five comparator controls; source-cardinality **52/817 all match once**;
+ complete model compiled on native/ARM/Xtensa. **No full implementation gate, mutation union or board link
+-ran this author turn.** No production fixes, simulator edits, staging or commits by QA. Next free **B399**.
++ran this author turn.** No production fixes, simulator edits, staging or commits by QA. Next free **B401**.
+ 
+ **Slice 7b-1 revision 6 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS, committed by the owner at `1d4b3ad`.**
+ QA verified the complete frozen handoff, including uncommitted inputs, at `146569a` against original base
+@@ -89,7 +91,7 @@ remain intact; B313 and unrelated instrument/fixture limits keep their separate
+ **Historical 7b-2 next-step note is fulfilled by owner commit `f993191`; current codec/behavior dispatch
+ is above.** R-RA-37/38/39 remain recorded without alteration in the ledger. Controller/carrier open/control
+ round trips and on-air flood/recovery remain 8b's metal gate. No earlier software PASS grants 7b-3 behavior
+-implementation or a bench PASS. Next free finding: **B399**.
++implementation or a bench PASS. Next free finding: **B401**.
+ 
+ ## Recommended execution order
+ 
+@@ -348,7 +350,7 @@ coverage by implication. Their authority is `docs/superpowers/evidence/2026-09-0
+ These are maintained findings, not coder dispatch authorization. Slice 3's evidence reserves B323–B326
+ (B322 was the superseded alias of B325); Slice 4 owns B327–B330. Those proposals are now registered below
+ with their individual dispositions. S5-A1–A3 become B331–B333; HOME-A1/A2 become B334/B335, aliases retained.
+-The next free finding is **B399**. B394 preparation and B395–B398 named follow-ups are open. B389 allocation remains pending; B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
++The next free finding is **B400**. B394 preparation and B395–B398 named follow-ups are open. B389 allocation is RULED (R-RA-40, +80 B; open until gated); B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
+ Author does not edit QA's pre-check. All source observations below are at `a0ff994` (2026-09-06).
+ 
+ **QA review 2026-09-06:** preliminary Slice 5 brief PASS, no fold-ins. QA accepted S5-A1–S5-A3 and
+@@ -414,7 +416,7 @@ Numeric allocation is complete; the Slice 5 implementation/measurement closure o
+ | B386 (S7b2-QA1) | **CLOSED — BRIEF REVISION-4 CROSS-SLOT IMMUTABILITY CLARIFICATION, QA-verified 2026-09-09 at `564f460`** | Revision 3 §3.2 required other slots’ whole transcripts byte-identical while mandating existing slot install. `remote_session.cpp:240–256/262` releases through the shared pool and decrements later `TranscriptHeader::order`. **43-check real-session reproduction:** complete slot 0, then two slot-1 requests with nonzero pending cursors; rotate only slot 0; survivor ranks **1→0 / 2→1**, full headers differ but match with only that named field adjusted. Seen/route/epoch/ingress, owned binary output chunks, pending seq1 wire bytes and relative send order survive. Revision 4 permits existing shared rank/free-list bookkeeping only; all response/replay/identity invariants remain required. No new owner rule or production fix. The real force-producer cross-slot gate is still a behavior obligation. Evidence: `docs/superpowers/plans/2026-09-08-radmin-slice7b2-precheck.md` §8.3 and its committed-base standalone reproduction. |
+ | B387 (S7b2-C3) | **CLOSED — INDEPENDENT QA VERIFIED 2026-09-09** | Coder inline comments on console `PIN_STRUCTURAL=83` / `PIN_CONTROLS=149` repeated B377: standalone runner passed but the strict reader caused 322-test discovery/import failure. Final comments precede bare assignments; reader/assertions/pins unchanged. QA invokes the actual unchanged reader on disposable runner copies: final 8 pins parse; restoring each inline comment yields its missing-pin refusal, **2/2 RED**. Independent full discovery **343 OK / zero skips**, console **83 structural /149 controls RED**. D5 and CODE_GUIDELINES preserve the recurring lesson without weakening parsers. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §§4/7; coder receipt §9.5 retains the failure. |
+ | B388 (S7b2-QA2) | **CLOSED — COMMENT-ONLY / INDEPENDENT QA PASS 2026-09-09** | `lib/core/node_mac_rx.cpp:2273–2275` claims refusals changed nothing and re-arm the old deadline, despite new accounting and open expiry before refusal. QA **15-check real codec/session/scan reproduction:** admit peers at 1000/2000 ms; same-peer refusal at 301000 increments inbound **0→1**, wipes the earlier expired pair, preserves the surviving peer's whole row/capture and changes earliest deadline **301000→302000**. Runtime is correct; V1 and brief §6 require the touched comment corrected. **CLOSE BY:** coder describes scanning current rows including possible expiry before refusal, preserves behavior, returns frozen hashes; QA reviews that comment and complete input preservation. No new owner ruling or production repair by QA. All required independent instruments passed; B378/B379 close with this scoped return. Evidence/reproducer: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §2 and companion `b388.cpp`. **Closure:** exact three full-line comments at current 2272–2274, source still 3345 lines; all other 1238 inputs unchanged apart from appended receipt. QA freshly compiles/runs **15 checks PASS** in a complete private snapshot. No full gate rerun for this behavior-preserving return; §8 binds the unchanged implementation to the completed measurements. |
+-| B389 (S7b3-P1) | **OPEN — PREPARED-STATE STORAGE / ALLOCATION RULING AFTER ENUMERATION · fallback PRE-AUTHORIZED R-RA-39 (2026-09-13)** | At `f993191`, `remote_session.cpp:541` releases ingress/body on completion; `:1252` ACK releases transcript. The 0e deferred candidate (`test/radmin_0e_candidate_types.h:255`) is 24/8 with no arguments. QA's illustrative fully identified command-owning row is **248/8**, terminal header **24/8→32/8**, two rows + four header changes make complete state **8824/8→9352/8 (+528 B)** on native/ARM/Xtensa. This is type pricing, not linked RAM or a complete prepared-plan allocation; raw line ownership alone cannot prove validation/generation survives to activation. **CLOSE BY:** coder source-validates every disruptive family and measures the complete prepared representation; owner rules its ACCEPT-only allocation/native+gateway re-pins; implementation + independent QA prove lifetime/immutable terminal detail/linked attribution and mobile invariance. No borrowing transcript/ingress/open scratch, hidden heap/blob or inferred R-RA-34 authorization. Evidence: 7b-3 pre-check §§3–4 and candidate artifacts; brief §2.1. **Revision-2 fold-in:** prefer existing typed requests/plans (actual JoinRequest 32/8 on three ABIs); one illustrative raw-line row plus independent detail gives state 9104/8, +280 B. Neither candidate is a complete-plan ceiling or approved linked allocation. Owner may explicitly approve named-family remote refusals with registered preparation follow-ups after enumeration; no automatic fallback. **R-RA-39 (2026-09-13):** the named-family refusal fallback is PRE-AUTHORIZED (a family needing a validate/apply split may stay remotely `refused` in 7b-3 with a registered follow-up slice, under rev 2 §2.1's listing conditions; not automatic). One row (R-RA-37), ACCEPT-only, mobile Node/RAM unchanged. The row size / native+gateway re-pins are STILL PENDING the coder's typed-plan enumeration and three-ABI measurement. **Revision-4 source/measurement update 2026-09-15:** all 48 rows enumerated; 36 exact R-RA-39 exceptions now recorded (B395–B398), twelve selected rows depend on B394/P1. The older coder +80 was four-row pricing. QA independently measures a complete twelve-row model: one 40/8 row + four header increases + two diagnostic bytes/alignment, state 8824→8904 (+80 B) on all three ABIs; full modeled Node native 230976, gateway 157344, mobile unchanged 117912. This is not linked RAM or implemented interfaces. **Owner allocation/re-pins remain unruled**; behavior revision 4 §2.1 supplies the concrete proposal and closure obligations. |
++| B389 (S7b3-P1) | **RULED R-RA-40 (2026-09-15): +80 B ACCEPT-only, re-pins 230976/157344, mobile unchanged — OPEN until implemented and independently gated** | At `f993191`, `remote_session.cpp:541` releases ingress/body on completion; `:1252` ACK releases transcript. The 0e deferred candidate (`test/radmin_0e_candidate_types.h:255`) is 24/8 with no arguments. QA's illustrative fully identified command-owning row is **248/8**, terminal header **24/8→32/8**, two rows + four header changes make complete state **8824/8→9352/8 (+528 B)** on native/ARM/Xtensa. This is type pricing, not linked RAM or a complete prepared-plan allocation; raw line ownership alone cannot prove validation/generation survives to activation. **CLOSE BY:** coder source-validates every disruptive family and measures the complete prepared representation; owner rules its ACCEPT-only allocation/native+gateway re-pins; implementation + independent QA prove lifetime/immutable terminal detail/linked attribution and mobile invariance. No borrowing transcript/ingress/open scratch, hidden heap/blob or inferred R-RA-34 authorization. Evidence: 7b-3 pre-check §§3–4 and candidate artifacts; brief §2.1. **Revision-2 fold-in:** prefer existing typed requests/plans (actual JoinRequest 32/8 on three ABIs); one illustrative raw-line row plus independent detail gives state 9104/8, +280 B. Neither candidate is a complete-plan ceiling or approved linked allocation. Owner may explicitly approve named-family remote refusals with registered preparation follow-ups after enumeration; no automatic fallback. **R-RA-39 (2026-09-13):** the named-family refusal fallback is PRE-AUTHORIZED (a family needing a validate/apply split may stay remotely `refused` in 7b-3 with a registered follow-up slice, under rev 2 §2.1's listing conditions; not automatic). One row (R-RA-37), ACCEPT-only, mobile Node/RAM unchanged. The row size / native+gateway re-pins are STILL PENDING the coder's typed-plan enumeration and three-ABI measurement. **Revision-4 source/measurement update 2026-09-15:** all 48 rows enumerated; 36 exact R-RA-39 exceptions now recorded (B395–B398), twelve selected rows depend on B394/P1. The older coder +80 was four-row pricing. QA independently measures a complete twelve-row model: one 40/8 row + four header increases + two diagnostic bytes/alignment, state 8824→8904 (+80 B) on all three ABIs; full modeled Node native 230976, gateway 157344, mobile unchanged 117912. This is not linked RAM or implemented interfaces. **Owner allocation/re-pins remain unruled**; behavior revision 4 §2.1 supplies the concrete proposal and closure obligations. **R-RA-40 (2026-09-15):** owner approved revision 4 §2.1 as recommended — one 40/8 row (identity + clock + kind/backend/phase/trigger), four independent u32 transcript details (header 24 → 32), two diagnostic bytes; **+80 B** on all three ABIs; Node **230976 native / 157344 gateway**, mobile **117912** and RAM unchanged; linked attribution at the 7b-3 gate; extra owned state = STOP-1 for measurement. **CLOSE BY:** 7b-3 implementation proves the exact layout/pins/linked RAM/mobile invariance under independent QA. |
+ | B390 (S7b3-P2) | **RULED R-RA-37 (2026-09-13) — OPEN until implemented and independently gated** | R-RA-22 prices two rows but has no action-pair admission contract. `fw_main.cpp:320/335` reset/DFU lose a second RAM action; `:423/438` prep halts, and `:1372/1759` exclude executor/timers while halted. No production v2 scheduler exists, so this is a design gap, not an observed runtime exploit. QA recommends **one outstanding disruptive promise per target across ACL slots**, retaining two configured rows; distinct conflicts receive remembered immutable refusal and safe/force see active preparation/armed work as executing; force may abandon its own unarmed response/action. Compatible concurrency instead needs a complete proven pair/lifetime matrix. **CLOSE BY:** owner selects policy; coder implements it and QA proves no accepted action/deadline is lost by another planned reset/halt/retune. Evidence: 7b-3 pre-check §5 / brief §2.2. **Revision-2 supersession of the recommendation only:** one row under serialization (proposed R-RA-22 capacity change), typed action_busy proposed at 0x08 through separate 7b-3-0 codec preparation/commit, replacing refused-plus-text. An unsendable never-owned response is unarmed; armed work has a fallback deadline. A permitted different remote owner ACL mutation can also invalidate unarmed work, with existing self/last-owner/write guards; another operator gains no cross-slot force. These remain owner proposals. **R-RA-37:** owner agreed the second-read recommendation as written: ONE outstanding disruptive promise per target across all slots; ONE `DeferredActionRecord` row (replaces R-RA-22's two for this class); conflicting request → retained immutable typed TERMINAL `action_busy` = `0x08`, delivered by a separate codec-only slice **7b-3-0** (own gate + commit; `0x08` negative fixtures move to `0x09`); armed/preparing reads `executing` to safe/force; same-slot force or a permitted owner `acl remove` releases an unarmed promise; unsendable-promise hold accepted as residual. **CLOSE BY:** 7b-3-0 codec gate, then the 7b-3 implementation proves admission, replay, rollover and release under independent QA. **2026-09-15 current status:** R-RA-37 supersedes the historical recommendations above; the separate codec gate/owner commit is fulfilled at ac5f9a5. Runtime admission/replay/rollover/release proof remains pending in behavior revision 4 §2.4. No new owner choice. |
+ | B391 (S7b3-P3) | **CLOSED — INDEPENDENT QA VERIFIED 2026-09-15 (7b-3-0 gate)** | B388 correctly changed three comments, but `tools/probe_ui_model_mutations.py:11020` X09 still matches removed `to exactly what was already armed` text. QA at `f993191`: actual harness clean baseline **2909/174485/0**, X09 **VACUOUS /0 matches /exit 1**. This is the sole cardinality failure in the **52-battery /815-pattern** historical+7a timing floor; B342 remains separately unusable. Private code-based pattern replacement drops the same arm call and gives **RED /1 failed assertion /1 match /exit 0** with source restoration. Shared harness untouched. B388 stays closed; prior 772 RED was measured before its comment return and is not current union coverage. QA report §9 corrects its earlier overbroad attribution. **CLOSE BY:** coder applies narrow instrument repair, runs full radmin5rx + cardinality audit + full tools discovery; QA independently verifies frozen return. Future 7b-3 full union still required. D6 records comment-sensitive reader discipline. No production or owner-policy change. Evidence/proposed patch: `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-precheck/`. **Closure:** the coder delivered the narrow code-boundary X09 pattern with the 7b-3-0 tool file (`node_mac_rx.cpp` untouched). QA's own union run: `radmin5rx` **14 RED / 0 unusable**, X09 compiles, **1 match, 1 failed assertion → RED**, baseline 2912/184461/0; full tools discovery 343 OK / 0 skipped; whole 52-battery union 816 RED / 1 known unusable, zero vacuous. Evidence: `superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md` §4. |
+ | B392 (S7b3-Q1) | **RULED R-RA-38 (2026-09-13) — option (a) — OPEN until Part 57b + 8a warning land** | **A remotely activated `prep-restart` makes the target remotely UNREACHABLE until a LOCAL restart (USB/BLE console `reboot`, hardware reset or power-cycle).** Verified at `f993191`: `handle_prep_restart` sets `g_halted` (`src/fw_main.cpp:438`); the main loop skips the WHOLE operating block while halted — RX drain, timers, TX and `mrfw::remote_executor_service_once()` (`:1759`) all sit inside `if (!g_halted) {` (`:1372` … `:1803`); only the WDT feed, USB/BLE console and the no-sleep latch (`:1832`) keep running. So once the deferred `prep-restart` fires, no remote-admin request (not `reboot`, not a rollover) can reach the node again; recovery is local only — the USB console (`service_console()`, `:1808`) and BLE service (`:1813–1814`) stay outside the halted block, so a local `reboot` (`firmware_commands.cpp:1528` → `fw_reboot()`) restarts it, as does a hardware reset or power-cycle. (Corrected in place 2026-09-13: the first wording said "physical power-cycle" — too strong.) This is prep-restart's designed local semantics ("power-cycle the fleet", spec 2026-06-24), not a code defect, but the 7b-3 brief rev 1 lists `prep-restart` among the 48 covered disruptive rows (`firmware_command_authority.h:155/159`) without stating this consequence, and 8a's controller UI would present it as an ordinary scheduled action. Second-read finding (Claude, 2026-09-13). **OWNER OPTIONS:** (a) keep it remote-schedulable and document the lockout — brief §4/§8, Part 57b line, and an 8a controller warning text (RECOMMENDED: it is a deliberate fleet-maintenance verb and the operator restarts the fleet locally anyway); (b) refuse `prep-restart` remotely (policy row stays operator/disruptive, executor returns the retained `refused`); (c) carve remote-admin RX/service out of the halted block — a change to prep-restart's "net falls silent" contract, NOT recommended. **CLOSE BY:** owner ruling recorded in the ledger; the chosen option folded into the 7b-3 brief before coder dispatch; on (a) the Part 57b bench check states the lockout explicitly. **QA revision-2 clarification:** the lockout is mesh remote administration until a local restart, not necessarily power-cycle. USB/BLE service remains outside the halted block (`fw_main.cpp:1808/1813`), and local reboot reaches `fw_reboot` (`firmware_commands.cpp:1528`). The original second-read row is preserved with this correction. Brief §2.4, conditional Part 57b and proposed 8a warning now state that boundary; owner choice is still pending. **R-RA-38:** option (a) chosen — `prep-restart` stays remotely schedulable; the lockout and local-restart recovery are documented in the brief (§2.4), the conditional Part 57b bench reservation becomes the metal check on software PASS, and 8a shows the brief's pre-submission warning verbatim. Options (b) refuse and (c) halt carve-out REJECTED. **CLOSE BY:** Part 57b observed on metal and the 8a warning landed. **2026-09-15 current status:** the earlier pending/conditional wording is historical and superseded by R-RA-38. Revision 4 §2.5 and Part 57b now carry the chosen lockout/recovery contract and exact 8a warning. Metal observation and the future 8a warning remain pending; no bench PASS. |
+@@ -424,6 +426,7 @@ Numeric allocation is complete; the Slice 5 implementation/measurement closure o
+ | B396 (S7b3-F-provision) | **OPEN / PLANNED FOLLOW-UP — 10 R-RA-39 refusal exceptions; not implementation dispatch** | join 2 + create 7 + leave 1 policy rows remain immutable refused/zero effects. JoinRequest is owned but firmware_join_service.h:196–222 validates/loads/saves/applies together; firmware_config.cpp:1180–1230 draws lineage/save/live inline, and :2422–2435 rereads pending frequency before save/live. **FENCE/CLOSE BY:** 7b-3-F-provision in revision 4 §2.2: shared join/config/provisioning preparation, owned values and once-only lineage, preserve canonical join conversion and unrelated state; separate local refactor and later deferred feature/gates. Prove scratch destruction, save failure, profile refusals, DAD/order and no early effects on actual services before lifting any of the ten exceptions. |
+ | B397 (S7b3-F-team) | **OPEN / PLANNED FOLLOW-UP — 2 R-RA-39 refusal exceptions; not implementation dispatch** | team coarse/new rows remain immutable refused/zero effects; non-disruptive team/key forms retain their existing path. firmware_provisioning_service.h:755 projects/stages/commits with borrowed-key snapshot lifetimes; firmware_team_keyring.h:519–556 capacity-checks/writes without a held preparation reservation. **FENCE/CLOSE BY:** 7b-3-F-team in revision 4 §2.2: separately brief owned transaction and capacity/membership lifetime in those services/config bindings, measure complete secret-bearing state before owner allocation; separate refactor/deferred feature gates. Prove store full/corrupt, supplied/minted key, no-change/live drift, keyring→cfg order, wipe paths and preserved DATA-SF/hosting state before removing the exceptions. |
+ | B398 (S7b3-F-regen) | **OPEN / PLANNED FOLLOW-UP — 1 R-RA-39 refusal exception; not implementation dispatch** | regen stays immutable refused/zero effects. firmware_commands.cpp:1031–1056 draws/saves/installs messaging identity together; no prepared identity commit exists. **FENCE/CLOSE BY:** 7b-3-F-regen in revision 4 §2.2: focused shared identity preparation/commit using existing derivation/checked-seed idioms; separate local refactor and later deferred feature. Own and wipe prepared secret, generate once, retain name/location, activate install only after the promise, and prove dedicated admin/controller trust and sessions remain unchanged. Measure/obtain any required allocation before state. B312 real-provider limitation is not silently fixed here. |
++| B399 (S7b3P1-P1) | **FOLDED INTO P1 REVISION 2 — independent closure pending** | P1 revision 1 §1 says warnings precede factory_erase/reboot. Actual firmware_commands.cpp:1083–1086 orders both inbox wipes, conditional inbox warning, NV erase, conditional NV warning, reboot. The NV warning necessarily follows its call. Eight combinations through the extracted real function pass exact bytes/order; a reordered private control compiles and fails an assertion. **CLOSE BY:** QA corrects that sentence without changing behavior; coder source-validates the reconciled P1 base and carries exact local order into P1 equivalence tests. The preflight also records actual documentation-only successor c591721 versus named ac5f9a5 and all seven permitted dirty-document hashes; base mismatch is STOP under the owner instruction, not a commit requirement. Subsequent checkpoint: base reconciled without a commit, sentence corrected; P1 refactor and exact production-function equivalence are implemented, but independent closure awaits B400/full gate. Evidence: superpowers/evidence/2026-09-15-radmin-slice7b3-p1.md and its preflight artifacts. |
+ 
+ ## Standalone mobile Home design intake — 2026-09-06
+ 
+@@ -485,3 +488,5 @@ do not authorize implementation or reprioritize the remote-admin queue. Design:
+   B203.
+ 
+ Exact pre-cleanup wording and evidence remains in the dated snapshot. This is a disposition index, not a deletion.
++
++| B400 (S7b3P1-I1) | **FOLDED INTO P1 REVISION 3 — CODER GATE PASS / independent closure pending** | After the required pure parser extraction, unchanged `tools/gen_command_inventory.py` still classifies `handle_sleep`, `handle_factory_reset` and `handle_crashtest` as comparison-owning surfaces. Its own scanner measures **0 sites in each**; default and --no-neg console probes fail with `surface src/firmware_commands.cpp::handle_sleep produced NO rows`. `SCAN_FILES` omits the new action header; factory confirmation now delegates to the existing `parse_confirm_token`. P1 §3 explicitly permits generated anchors but does not name generator source-map changes. **CLOSE BY:** QA folds the generator and affected source-reader tests/controls into the fence; follow the actual shared predicate ownership and every call hop, allow honest owning-function/file provenance movement, preserve the exact **204 semantic policy rows** and authority/transport/disruptive classifications, retain empty/missing/duplicate/disconnected-source refusal controls. Run default/--no-neg console, inventory write/bare/check, authority/selftests and full tools discovery; re-freeze and independently gate. Do not restore duplicated local parsing, hand-edit generated rows, weaken empty-surface refusal or treat old tool counts as measured. Coder resolution: generator follows both action-header predicates and the existing confirmation predicate, with exact caller-hop checks and preserved feature gates; only the named predicate is scanned in the generic value-parser header. Fresh semantic comparison is **204/204 identical**; eight new reader tests pass. Authority policy remains byte-identical. Initial refusal logs are retained; affected controlled gates PASS and full tools discovery is **351 tests /0 failures /0 skips**. Independent closure is pending. Evidence: `superpowers/evidence/2026-09-15-radmin-slice7b3-p1.md`. |
+diff --git a/docs/2026-09-02-agent-roles.md b/docs/2026-09-02-agent-roles.md
+index 86ae42e..f6eab7a 100644
+--- a/docs/2026-09-02-agent-roles.md
++++ b/docs/2026-09-02-agent-roles.md
+@@ -71,3 +71,24 @@ Every recorded defect class in this codebase (masking holes, vacuous controls, "
+ - **PASS with fold-ins**: text corrections that need no re-review; fold in, then proceed.
+ - **HOLD**: numbered required corrections; one re-review of the changed sections only.
+ - **STOP**: a coder's slice hit a brief-named stop condition; nothing proceeds until the owner rules.
++
++## Owner ruling 2026-09-15 — commits are not blocking points
++
++**Owner, verbatim:** *"Commit are not blocking points for progress."*
++
++**What changes:** a slice's next step (source-validation of the next brief, its implementation, the QA gate, a
++brief refresh at the new base) may start on the **frozen, independently QA-passed** tree without waiting for the
++owner's `git commit`. The commit remains the owner's, whenever the owner chooses (D4 unchanged: agents never
++commit). What still gates progress is the **gate**, not the commit.
++
++**What does not change:**
++- A brief still names its base. When the base is uncommitted, the brief pins **the last commit hash plus the
++  SHA-256 of every uncommitted input it builds on** (the frozen-handoff inventory), and the coder verifies both
++  before editing — step 4's "mismatch is a STOP" applies to that pair exactly as it applied to a commit hash.
++- Attribution stays per slice: a later slice must not be measured against a base that mixes in unreviewed
++  edits. The frozen QA-passed state is the base; anything else on the tree is a STOP-1 to reconcile.
++- Never reset, clean or discard another agent's uncommitted work; the measured-tree rule applies to the
++  *frozen set*, not to `git status` being empty.
++- Step 8 reads: Author lands docs on PASS; the owner commits at a time of their choosing and bench-verifies.
++  Wording in briefs such as "own gate and owner commit, then QA refreshes the base" means "own gate, then
++  refresh"; the commit may land before, during or after that refresh.
+diff --git a/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md b/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
+index c45dd87..d0c5090 100644
+--- a/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
++++ b/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
+@@ -12,61 +12,65 @@ Total rows: **204**.
+ 
+ | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
+ | --- | --- | --- | --- | --- | --- | --- |
+-| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:533` | controller_local |
+-| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:534` | controller_local |
+-| `acl` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:374` | owner |
+-| `admin-id` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:373` | owner |
+-| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1558` | operator |
+-| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1557` | operator |
+-| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1615` | owner |
+-| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1513` | owner D |
+-| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1538` | operator D |
+-| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1560` | operator |
+-| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1612` | owner |
+-| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1526` | operator |
+-| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1529` | owner D |
+-| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1504` | operator |
+-| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1532` | operator D |
+-| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1609` | operator |
+-| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1534` | operator D |
+-| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1544` | operator D |
+-| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1537` | operator |
+-| `joinprofile` | `— refused gateway_build` | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1551` | operator |
+-| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1556` | operator D |
+-| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1527` | operator |
+-| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1619` | legacy |
+-| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1607` | operator |
+-| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1611` | operator |
+-| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1541` | operator |
+-| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1608` | operator |
+-| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1531` | owner D |
+-| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1617` | legacy |
+-| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1521` | operator |
+-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1517` | operator |
+-| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1505` | operator D |
+-| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1610` | operator |
+-| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1506` | legacy |
+-| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1528` | operator D |
+-| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1530` | owner D |
+-| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1524` | operator |
+-| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1514` | open |
+-| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1559` | operator D |
+-| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1525` | open |
+-| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1539` | operator D |
+-| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1511` | operator |
+-| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1507` | operator |
+-| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1509` | operator |
+-| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1508` | operator |
+-| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1576` | operator |
+-| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1618` | legacy |
+-| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1503` | operator |
+-| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1606` | operator |
++| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:534` | controller_local |
++| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:535` | controller_local |
++| `acl` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:375` | owner |
++| `admin-id` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:374` | owner |
++| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1577` | operator |
++| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1576` | operator |
++| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1634` | owner |
++| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1532` | owner D |
++| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1557` | operator D |
++| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1579` | operator |
++| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1631` | owner |
++| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1545` | operator |
++| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1548` | owner D |
++| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1523` | operator |
++| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1551` | operator D |
++| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1628` | operator |
++| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1553` | operator D |
++| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1563` | operator D |
++| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1556` | operator |
++| `joinprofile` | `— refused gateway_build` | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1570` | operator |
++| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1575` | operator D |
++| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1546` | operator |
++| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1638` | legacy |
++| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1626` | operator |
++| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1630` | operator |
++| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1560` | operator |
++| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1627` | operator |
++| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1550` | owner D |
++| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1636` | legacy |
++| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1540` | operator |
++| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1536` | operator |
++| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1524` | operator D |
++| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1629` | operator |
++| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1525` | legacy |
++| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1547` | operator D |
++| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1549` | owner D |
++| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1543` | operator |
++| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1533` | open |
++| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1578` | operator D |
++| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1544` | open |
++| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1558` | operator D |
++| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1530` | operator |
++| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1526` | operator |
++| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1528` | operator |
++| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1527` | operator |
++| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1595` | operator |
++| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1637` | legacy |
++| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1522` | operator |
++| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1625` | operator |
+ | `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:165` | local_only · surface:local |
+ 
+ ## Surface 2 — sub-verb dispatchers
+ 
+ | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
+ | --- | --- | --- | --- | --- | --- | --- |
++| `crashtest` | `fault` | `action_crash_admit` | serial,ble | — | `src/firmware_action_effects.h:64` | owner D |
++| `crashtest` | `hang` | `action_crash_admit` | serial,ble | — | `src/firmware_action_effects.h:62` | owner D |
++| `crashtest` | `reboot` | `action_crash_admit` | serial,ble | — | `src/firmware_action_effects.h:65` | owner D |
++| `sleep` | `off` | `action_sleep_admit` | serial,ble | — | `src/firmware_action_effects.h:55` | operator D |
+ | `admin-key` | `export` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:411` | controller_local |
+ | `admin-key` | `generate` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:380` | controller_local |
+ | `admin-key` | `import` | `admin_key_verb` | serial | — | `src/firmware_admin_client_verbs.h:389` | controller_local |
+@@ -90,14 +94,12 @@ Total rows: **204**.
+ | `admin-id` | `reset` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:279` | physical |
+ | `admin-id` | `rotate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:273` | physical |
+ | `admin-id` | `show` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:261` | owner |
+-| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1111` | operator |
+-| `factory_reset` | `confirm` | `handle_factory_reset` | serial,ble | — | `src/firmware_commands.cpp:1073` | owner D |
+-| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:595` | operator |
+-| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:608` | operator |
+-| `sleep` | `off` | `handle_sleep` | serial,ble | — | `src/firmware_commands.cpp:1098` | operator D |
+-| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1435` | operator |
+-| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1436` | operator |
+-| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1437` | operator |
++| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1130` | operator |
++| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:596` | operator |
++| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:609` | operator |
++| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1454` | operator |
++| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1455` | operator |
++| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1456` | operator |
+ | `cfg set` | `active_fraction` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:406` | operator |
+ | `cfg set` | `beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:335` | operator |
+ | `cfg set` | `ble_mode` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:494` | owner |
+@@ -177,15 +179,13 @@ Total rows: **204**.
+ | `team` | `keys` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2059` | operator |
+ | `team` | `new` | `handle_team` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:2066` | owner D |
+ | `team forgetkey` | `confirm` | `team_forget_key` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_config.cpp:1976` | owner |
++| `factory_reset` | `confirm` | `parse_confirm_token` | serial,ble | — | `src/firmware_config_parse.h:565` | owner D |
+ | `ui` | `preset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:325` | operator |
+ | `ui` | `preset clear` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:357` | operator |
+ | `ui` | `preset list` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:328` | operator |
+ | `ui` | `preset reset` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:372` | operator |
+ | `ui` | `preset reset all` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:376` | operator |
+ | `ui` | `preset set` | `preset_verb` | serial,ble | — | `src/firmware_ui_preset_verbs.h:333` | operator |
+-| `crashtest` | `fault` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:401` | owner D |
+-| `crashtest` | `hang` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:398` | owner D |
+-| `crashtest` | `reboot` | `handle_crashtest` | serial,ble | — | `src/fw_main.cpp:411` | owner D |
+ 
+ ## Surface 3 — caller-only arms around `dispatch()`
+ 
+@@ -201,25 +201,25 @@ Total rows: **204**.
+ | `send` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:264` | operator |
+ | `send_channel` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:265` | operator |
+ | `send_layer` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:266` | operator |
+-| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:554` | operator · surface:transport |
+-| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:548` | operator · surface:transport |
+-| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:570` | owner · surface:transport |
+-| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:523` | operator · surface:transport |
+-| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:596` | local_only · surface:transport |
+-| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:527` | operator · surface:transport |
+-| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:569` | operator · surface:transport |
+-| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:657` | owner · surface:transport |
+-| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:659` | operator · surface:transport |
+-| `peers` | `<args> — refused console_only` | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:566` | operator · surface:transport |
+-| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:565` | operator · surface:transport |
+-| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:515` | operator D · surface:transport |
+-| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:568` | operator · surface:transport |
+-| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:519` | legacy · surface:transport |
+-| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:559` | open · surface:transport |
+-| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:540` | open · surface:transport |
+-| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:509` | operator · surface:transport |
+-| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:486` | operator · surface:transport |
+-| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1181` | owner · surface:transport |
++| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:629` | operator · surface:transport |
++| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:623` | operator · surface:transport |
++| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:645` | owner · surface:transport |
++| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:598` | operator · surface:transport |
++| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:671` | local_only · surface:transport |
++| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:602` | operator · surface:transport |
++| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:644` | operator · surface:transport |
++| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:732` | owner · surface:transport |
++| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:734` | operator · surface:transport |
++| `peers` | `<args> — refused console_only` | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:641` | operator · surface:transport |
++| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:640` | operator · surface:transport |
++| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:590` | operator D · surface:transport |
++| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:643` | operator · surface:transport |
++| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:594` | legacy · surface:transport |
++| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:634` | open · surface:transport |
++| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:615` | open · surface:transport |
++| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:584` | operator · surface:transport |
++| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:561` | operator · surface:transport |
++| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1256` | owner · surface:transport |
+ 
+ ## Legacy over-the-air remote-admin verbs (what v2 replaces)
+ 
+diff --git a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+index a5fe572..07313ff 100644
+--- a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
++++ b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+@@ -949,3 +949,30 @@ measures one 40-byte row, four independent header details and two diagnostics/al
+ on native/ARM/Xtensa; proposed Node 230976/157344/117912. This compile-only model is not linked RAM or owner
+ allocation. [Author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) records fresh native/corpus,
+ reference and source/layout evidence; no new full implementation gate is claimed.
++
++### R-RA-40 (owner, 2026-09-15) — B389: the 7b-3 deferred-action allocation, approved as recommended
++
++**Owner, verbatim (to the second reader):**
++
++> B389 approved as recommended, record it as R-RA-40 - give final instruction to coder - if any
++
++"As recommended" binds the 7b-3 revision-4 brief §2.1 model (Codex, 2026-09-15) and the second reader's
++explanation to the owner the same day. **Settled allocation (ACCEPT-only, one instance in `g_node`):**
++one 40-byte / align-8 `DeferredActionRecord` row owning request/authority identity (`request_id` u64,
++`admin_epoch` u64, `source_hash` u32, `controller_slot` u8, `authority` u8), the clock (`activate_at_ms` u64,
++frozen `activation_ms` u32) and the complete action (`kind` u8 — none/reboot/prep_restart/ota/factory_reset/
++sleep_on/sleep_off/crash_hang/crash_fault/crash_reboot; `backend` u8; `phase` u8; `trigger` u8); **each of the
++four `TranscriptHeader`s owns its own u32 immutable activation detail** (24 → 32 B) so a replay stays
++byte-identical after the row is consumed or reused; plus two u8 diagnostics (`last_activation_kind`,
++`last_activation_outcome`) with alignment. **Total +80 B of `RemoteSessionState` on native, ARM and Xtensa;
++Node re-pins native 230896 → 230976 and gateway 157264 → 157344; heltec_mobile Node 117912 AND its RAM
++unchanged.** Linked gateway RAM is predicted +80 inside `g_node` and is MEASURED at the 7b-3 gate (R-RA-31
++shape), with the apply/observer transient stack measured separately and not counted as resident state.
++**Excluded:** heap, any config-blob copy, stored pointers/Print/service references, a raw command line, a sixth
++counter (the two diagnostic bytes are a last-result snapshot, not a counter), any wire/NV change. **Declined
++alternatives:** a 4-entry detail array (saves 16 B, muddies ownership); reserving room for the R-RA-39 refused
++families (they price their own state when their follow-ups land). **Rule for the coder:** any additional owned
++state found necessary during source-validation returns to QA for measurement as STOP-1 — it is not absorbed.
++B389 stays OPEN until the 7b-3 implementation and independent gate prove the layout, the pins, the linked
++attribution and mobile invariance. This ruling does not touch B394/P1 (zero resident state) or the 36
++retained refusals (B395–B398).
+diff --git a/docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md b/docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md
+index cee0662..fa9ccab 100644
+--- a/docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md
++++ b/docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md
+@@ -2,7 +2,7 @@
+ # Remote-admin v2 Slice 7b-3 — deferred actions and scheduled terminals
+ 
+ **Revision 4 — 2026-09-15: REISSUED AT OWNER CODEC COMMIT; READY FOR CODER SOURCE-VALIDATION.
+-BEHAVIOR IMPLEMENTATION HOLD: B389 allocation and B394 shared-effect preparation.**
++BEHAVIOR IMPLEMENTATION HOLD: B394 shared-effect preparation only — B389 allocation RULED R-RA-40 (2026-09-15) as §2.1 proposes.**
+ Base **`ac5f9a592065d08e7cc8c06ef395e79891d41b34`**, the owner's separate 7b-3-0 codec commit.
+ Simulator **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean/unchanged. Both repositories were clean
+ before this authoring pass. R-RA-37's codec prerequisite is fulfilled; **B391 is closed** by the committed
+@@ -107,7 +107,7 @@ Three-ABI compile-only models are below. No full implementation gate or linked b
+ 
+ ## 2. Scope, preparation, ruled policy and allocation
+ 
+-### 2.1 B389 — complete twelve-row proposal: OWNER ALLOCATION RULING STILL REQUIRED
++### 2.1 B389 — complete twelve-row model: RULED R-RA-40 (owner, 2026-09-15) exactly as proposed below
+ 
+ The production action row does not exist. `remote_transcript_complete` releases ingress/body; ACK/invalidation
+ can release a transcript. No command bytes, stack Print, service pointer, raw parser buffer, open/bootstrap
+@@ -145,7 +145,7 @@ pin. This is layout pricing, not a software implementation or linked-RAM result.
+ allowed. Before behavior code, the coder source-validates this complete representation against the gated P1
+ APIs; any extra owned state returns to QA for measurement, not an unnoticed allocation increase.
+ 
+-**Concrete recommendation for the owner's B389 ruling:** approve one 40-byte ACCEPT-only row, four independent
++**R-RA-40 (owner, 2026-09-15) — RULED as follows, verbatim from the recommendation:** approve one 40-byte ACCEPT-only row, four independent
+ u32 transcript details and the two diagnostic bytes/alignment, **+80 B total resident session state**, with
+ native/gateway Node re-pins **230976/157344**, measured final linked-RAM attribution and unchanged mobile Node
+ **117912** and RAM. Existing linked baselines from the committed codec gate are gateway **203956 RAM /570588
+@@ -413,7 +413,7 @@ Predict the changed paths/counts before editing. No file move, unrelated cleanup
+   No firmware_config/provisioning/keyring/identity-service or device_ota implementation edits in this feature.
+   Add a new TU to the actual three base build_src_filter lists in platformio.ini if needed; no profile change.
+ - Native: extend existing session/transcript/executor/Node/7a tests; `test_remote_actions.cpp` if useful.
+-  Real codec/session/Node paths, no production fault hooks. ABI/Node pins only after B389's explicit ruling
++  Real codec/session/Node paths, no production fault hooks. ABI/Node pins exactly per R-RA-40 (230976 native / 157344 gateway; mobile 117912)
+   and measured final layout/link attribution. Price transient transfer/observer stack as well as state.
+ - Instruments: all dependency/source mutation additions, actual measured ABI entries, existing six probes
+   and P1's real-effect probe. Extend the real firmware command/action path under hardware/store fakes;
+@@ -497,7 +497,7 @@ PASS/HOLD. No full implementation gate has run for this author reissue.
+ ## 8. Predictions, STOP conditions and documentation landing
+ 
+ Predict 36 byte-identical streams, unchanged wire/NV/authority semantics and mobile Node/RAM; ACCEPT-only
+-state grows only under the final B389 ruling. Fresh current Node baselines are native 230896/8, gateway
++state grows exactly per R-RA-40 (+80 B); any extra owned state is STOP-1 for measurement. Fresh current Node baselines are native 230896/8, gateway
+ 157264/8, mobile 117912/8. The complete author model is native 230976/8, gateway 157344/8, mobile unchanged;
+ +80 B state is proposed, not approved or linked. §2.1 supplies the exact ruling request and measured scope.
+ Do not carry the older +280/+528 raw-line or four-row +80 comparison forward as a final allocation pin.
+@@ -516,7 +516,7 @@ Retained 7b-2 STOP text, verbatim:
+ authenticated preparation → owned scheduled terminal → ACK/deadline → main-loop activation contract. It is
+ still forbidden to call a disruptive effect in ordinary remote dispatch, RX or timer context. A typed deferred
+ apply is one activation of the already-admitted request, not permission for a second public dispatcher call.
+-All other quoted prohibitions remain. Also STOP on missing B389 allocation or gated P1 preparation; a missing
++All other quoted prohibitions remain. Also STOP on any allocation beyond R-RA-40 or on missing gated P1 preparation; a missing
+ base reissue after P1; an unlisted family omission; stale/concurrent
+ inputs; predictable validation postponed until after scheduled; new nonce plaintext for an old terminal;
+ borrowed action/detail lifetime; internally canceled/extended armed promises (external local physical
+diff --git a/docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md b/docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md
+index 23f705a..b4adc9d 100644
+--- a/docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md
++++ b/docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md
+@@ -1,17 +1,19 @@
+ <!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
+ # Slice 7b-3-P1 — simple-action preparation seams — 2026-09-15
+ 
+-**Revision 1 — READY FOR CODER SOURCE-VALIDATION; B394 preparation, before 7b-3 behavior.** This is a
++**Revision 3 — CODER GATE PASS; FROZEN FOR INDEPENDENT QA; B394 preparation, before 7b-3 behavior.** This is a
+ behavior-preserving C1 refactor, not deferred execution. After source-validation passes, implement only this
+ fence. No new owner policy decision or B389 state allocation is needed for this zero-resident-state slice.
+-Base **`ac5f9a592065d08e7cc8c06ef395e79891d41b34`**, the owner's QA-passed codec commit; simulator
++Base **`c591721c2e09bb4e7583f49e458da9e5155cf822`** plus the permitted preparation inventory in the P1
++coder receipt §5. This documentation-only successor preserves every production input from QA-passed codec
++`ac5f9a592065d08e7cc8c06ef395e79891d41b34`; simulator
+ **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean/unchanged. Both repositories were clean at pre-check start.
+ 
+ The [revision-4 author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) provides fresh native/corpus,
+ source enumeration and measured candidate layouts. The [behavior brief](2026-09-13-radmin-slice7b3-deferred-actions.md)
+ is an implementation HOLD; its +80-byte proposal is not authority to add state here. This preparation gets
+-its own implementation report, complete independent gate and owner commit. QA then refreshes the behavior
+-brief's base/anchors against that commit. Do not mix this refactor with scheduling, new remote admission or
++its own implementation report and complete independent gate. QA then refreshes the behavior
++brief's base/anchors against that frozen input set; commits are not gates. Do not mix this refactor with scheduling, new remote admission or
+ production Node re-pins in a single change.
+ 
+ ## 1. Source issue and binding constraints
+@@ -32,9 +34,9 @@ The code guidelines' hardware boundary is binding, verbatim:
+ 
+ > `device_fault.h` is **single-TU** — its ISR/exception vectors *and* the `MRFAULT_HW`/`MRFAULT_ESP32` macros are defined inside it; never `#include` it in a second TU.
+ 
+-| Source at ac5f9a5 | Refactor obligation |
++| Source unchanged from ac5f9a5 at the reconciled base | Refactor obligation |
+ | --- | --- |
+-| `firmware_commands.cpp:1071–1089` | Factory-reset grammar skips leading spaces and accepts exactly seven remaining bytes `confirm`. Both inbox wipes are attempted independently, warnings precede factory_erase/reboot, and partial failure does not skip later effects. No effect-only typed helper exists. |
++| `firmware_commands.cpp:1071–1089` | Factory-reset grammar skips leading spaces and accepts exactly seven remaining bytes `confirm`. Both inbox wipes are attempted independently; their conditional warning precedes NV factory_erase. The conditional NV-failure warning follows that call; reboot follows both checks. Partial failure does not skip later effects. No effect-only typed helper exists. |
+ | `firmware_commands.cpp:1096–1105` | Sleep uses an `off` prefix after leading spaces; every other tail selects on, including empty/unknown text. Preserve that local grammar and MR_NO_POWERSAVE's current limitation. |
+ | `fw_main.cpp:395–416` | Crash checks current debug admission, then prefix-parses hang/fault/reboot. Backend guards, messages, flushes and non-returning hardware operations are inside the board TU. A later raw-text call would repeat mutable admission. |
+ | `fw_main.cpp:293–298`, `:320–351`, `:423–447` | Reboot/prep/OTA wrappers are reusable effects, but return void or use global output. Prep reports wipe failures only through Print; typed outcome/sink binding is missing. Keep reset marking, delays, both wipes and halt order. |
+@@ -43,6 +45,11 @@ The code guidelines' hardware boundary is binding, verbatim:
+ 
+ ## 2. Resulting interface and local behavior
+ 
++**Owner fold-in (2026-09-15):** typed admission explicitly reports build-level support, including power-saving
++compiled out, absent fault backend and absent OTA backend. Local handlers still run their existing grammar,
++output and effects on those builds; an unsupported typed result is not permission to change local behavior.
++No resident state is added. The later remote consumer uses this support result before promising.
++
+ Expose reusable bounded typed admission/argument results and effect-only entry points for reboot,
+ prep-restart, OTA entry, confirmed factory reset, sleep on/off and crash hang/fault/reboot. Semantic kinds
+ must own all choices; no stored command pointer, Print reference, string parser or borrowed request is an
+@@ -88,8 +95,13 @@ No file move bundled with new behavior. Do not extend device_fault.h's include o
+ Tests/instruments: existing local command/sink tests, a focused pure grammar test if needed, the existing
+ console/inbox probes and their exact-source controls, and `tools/probe_deferred_actions/` for the actual
+ shared effect path if required. Mutation harness changes are only dependency/grammar/effect controls and
+-independently derived pins. Generated command inventory may change source anchors only; all 204 rows and
+-authority/disruptive semantics must remain unchanged. QA owns register/design/MEMORY/bench/brief landing.
++independently derived pins. Generated command inventory may change source/owning-function provenance only; all 204 semantic rows and
++authority/transport/disruptive classifications must remain unchanged. B400 clarifies the necessary instrument
++dependency: update `tools/gen_command_inventory.py` and its source-reader tests to follow the shared action
++parsers and the existing confirmation predicate, verifying each caller hop. Preserve empty/missing/duplicate
++and disconnected-source refusals and full-file coverage of every existing command file. The generic config
++value-parser header is consumed only for its named confirmation predicate, with its enclosing feature gates.
++This is source-provenance maintenance for the authorized refactor, not a new semantic policy or owner ruling. QA owns register/design/MEMORY/bench/brief landing.
+ 
+ OUT: all lib/core production changes, codec/reference bytes, remote guards/admission/executor behavior,
+ 7b-3's state/status/counters/diagnostics/timer, B389 Node allocation, the 36 refused families' services,
+@@ -151,5 +163,14 @@ Standing STOP, verbatim:
+ Also STOP on local output/grammar/effect-order drift, a remote disruptive action newly admitted, resident
+ state/RAM growth, unexplained flash/stack movement, unsupported backend accidentally green-compiling,
+ lost/unusable/vacuous controls beyond B342, out-of-fence changes or a mismatched/concurrent base.
+-Owner commits after independent PASS. B394 closes only when these shared seams are implemented and gated;
+-QA then refreshes 7b-3 to that commit. The B389 allocation ruling and later behavior gate remain separate.
++The owner commits when they choose; no step waits for a commit. B394 closes only when these shared seams are implemented and gated;
++QA then refreshes 7b-3 to that frozen input set (last commit plus SHA-256 inventory). The B389 allocation is ruled (R-RA-40, +80 B, no resident state in P1); the later behavior gate remains separate.
++
++### P1 coder completion — 2026-09-15
++
++The [coder receipt](../evidence/2026-09-15-radmin-slice7b3-p1.md#11-frozen-coder-handoff--2026-09-15)
++records the completed implementation gate: native 2916/184587/0, corpus 36/36 byte-identical, tools 351/no
++skips, full probes/reference/ABI/checkers/census, 826 RED plus known B342 across 53 batteries, unchanged
++Node/resident RAM and measured flash/stack movement. B399/B400 are folded and await independent closure.
++This is the coder's result, not independent QA PASS. The complete uncommitted freeze is the next QA input;
++7b-3 behavior remains pending independent QA and the separate behavior brief refresh. No commit is a gate.
+diff --git a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+index 65eae77..ce342d3 100644
+--- a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
++++ b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+@@ -15,7 +15,7 @@ was independently effective. The pre-comment 7b-2 union remains historical; its
+ The codec reviewer reproduced section/object/linked totals but not the coder's single-byte ELF attribution.
+ 
+ **Current dispatch: [7b-3 revision 4](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), reissued at
+-`ac5f9a5`, ready for source-validation; behavior HOLD B389+B394.** Twelve selected policy rows require separate
++`ac5f9a5`, ready for source-validation; behavior HOLD B394 only — B389 RULED R-RA-40 (2026-09-15).** Twelve selected policy rows require separate
+ [7b-3-P1 preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), full gate/owner commit,
+ then a refreshed behavior base. B394 corrects the earlier twelve-existing-seams summary: four reusable
+ effects, eight needing extraction. QA records 36 exact R-RA-39 refusals/fenced follow-ups in brief §2.2
+@@ -1450,7 +1450,7 @@ credentials. This is the explicit security reason for the exception to otherwise
+ 
+ ## 13. Disruptive commands and reply-path honesty
+ 
+-**Current implementation scope (7b-3 revision 4):** after separate P1 preparation and the B389 allocation
++**Current implementation scope (7b-3 revision 4):** after separate P1 preparation (the B389 allocation is ruled: R-RA-40, +80 B)
+ ruling, twelve policy rows cover reboot/prep aliases, OTA, confirmed factory reset, sleep and crash modes.
+ Thirty-six exact disruptive cfg/gateway/join/create/leave/team/regen rows remain retained remote refusals
+ under R-RA-39, listed with separately fenced follow-ups in the brief §2.2 (B395–B398). No early effects and
+@@ -1778,7 +1778,7 @@ padding, ownership or auxiliary-state drift.
+ 
+ **Current deferred-class supersession:** R-RA-37 replaces those two candidate deferred rows with ONE row.
+ The old 2,968 total above is historical characterization, not today's production allocation or a recomputed
+-one-row budget. B389 remains unruled. Revision 4's complete twelve-row author model prices a 40-byte action
++one-row budget. B389 is RULED by R-RA-40 (2026-09-15): +80 B, Node 230976/157344, mobile unchanged. Revision 4's complete twelve-row author model prices a 40-byte action
+ row, four independent u32 transcript-detail/header increases and two diagnostic bytes/alignment: session
+ state 8824→8904 (+80) on all three ABIs, native/gateway Node +80 and mobile Node unchanged. These are
+ compile-only model figures, not linked RAM or permission to change pins. P1 must add no resident state.
+@@ -2173,7 +2173,7 @@ The complete design does not provide:
+      `session_busy`, `PROTOCOL_ERROR{already_acknowledged}`, shared-credential behavior, measured open/bootstrap
+      partition and rate limit, open staging/response release, and §15 status-counter exposure. Controller-side
+      automatic rollover and ACK debt remain with the controller slices.
+-   - **7b-3, deferred actions — revision 4, implementation HOLD B389+B394:** ONE R-RA-37 deferred row,
++   - **7b-3, deferred actions — revision 4, implementation HOLD B394 only (B389 RULED R-RA-40):** ONE R-RA-37 deferred row,
+      scheduled terminal/7a activation, ACK-earlier and the separate 300-second outcome bound. Twelve policy
+      rows after independently gated P1 preparation; 36 exact retained-refusal rows and B395–B398 follow-ups.
+      Remote OTA reports the locally reached backend. Each preparation/behavior increment has its own gate
+@@ -2234,7 +2234,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
+ | 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, owner commit `f993191` (base `564f460`), consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate is historical; **Historical B391 erratum, now CLOSED by 7b-3-0**: post-comment X09 was vacuous; the separate instrument repair is independently verified. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
+ | 7b-3-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-15; owner commit ac5f9a5**, R-RA-37; B391 closed. [QA gate](../evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md). Typed TERMINAL action_busy 08; terminal 09..FF reject; protocol-error/admission domains and old 89 bytes preserved; no producer/state/wire_version change | native 2912/184461/0, reference 94/94, domain 9787, corpus 36/36, union 816 RED + known unusable B342 /817, all required probes/ABI/checkers/boards; Node/RAM unchanged. Behavior reissued at this hash | none (no new metal behavior) |
+ | 7b-3-P1 | **REVISION 1, ready for source-validation at ac5f9a5**, [simple-action preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), B394; shared typed admission/effects/sinks for twelve selected rows, local behavior unchanged and remote disruptive guards still refuse | Separate C1 refactor/full gate/owner commit; zero Node/resident RAM growth, real-source equivalence/control proof; then QA refreshes behavior base | none added by this behavior-preserving refactor |
+-| 7b-3 | **REVISION 4 at ac5f9a5, READY for source-validation; behavior HOLD B389+B394.** [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): twelve selected rows after P1; 36 exact R-RA-39 refusals. One promise/one row, typed action_busy, frozen 7a activation | Fresh author native 2912/184461/0, corpus 36/36, reference 94/94. Complete model +80 on three ABIs, Node 230976/157344/117912; owner allocation and linked attribution pending. P1 commit requires base refresh before behavior implementation/full gate | Part 57b on software PASS/controller availability: prep-restart lockout/local recovery; 8a exact warning, no bench PASS |
++| 7b-3 | **REVISION 4 at ac5f9a5, READY for source-validation; behavior HOLD B394 only, B389 RULED R-RA-40 (+80 B).** [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): twelve selected rows after P1; 36 exact R-RA-39 refusals. One promise/one row, typed action_busy, frozen 7a activation | Fresh author native 2912/184461/0, corpus 36/36, reference 94/94. Complete model +80 on three ABIs, Node 230976/157344/117912; owner allocation and linked attribution pending. P1 commit requires base refresh before behavior implementation/full gate | Part 57b on software PASS/controller availability: prep-restart lockout/local recovery; 8a exact warning, no bench PASS |
+ | 7b-3-F-config / F-provision / F-team / F-regen | **PLANNED, NOT IMPLEMENTATION DISPATCH**, B395–B398; 23/10/2/1 retained-refusal policy rows. Individual fences/reasons/closure proofs in behavior §2.2 | Each needs a separate source-validated brief, any state ruling, refactor and feature increments/gates, and explicit removal of its refusal list; not complete in 7b-3 | derive only when the individual follow-up is authored |
+ | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
+ | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
+@@ -2556,7 +2556,7 @@ pre-tail handlers, or carrier-specific first-hop budget rule.
+ ### Historical 7b-3 / 8a second-read handoff — 2026-09-13, superseded by R-RA-37/38/39 and revision 4
+ 
+ The following records the proposals at that date. The current ruled warning and dispatch are in §§13/19.1;
+-codec ac5f9a5 fulfills its prerequisite, and B394/P1 plus B389 allocation now hold behavior implementation.
++codec ac5f9a5 fulfills its prerequisite, and B394/P1 now holds behavior implementation; B389 is ruled (R-RA-40, +80 B).
+ 
+ The [revision-2 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) preserves B389/B390/B391 HOLD
+ and adds B392. If B392 keeps remote prep-restart, 8a must display before submission:
+diff --git a/src/device_ota.cpp b/src/device_ota.cpp
+index 03a6063..175422b 100644
+--- a/src/device_ota.cpp
++++ b/src/device_ota.cpp
+@@ -89,22 +89,24 @@ static void handle_root() {
+     s_server.send(200, "text/html", FPSTR(kOtaPage));
+ }
+ 
+-bool ota_start() {
++bool ota_start(Print& out) {
+     if (s_active) return true;
+     if (!WiFi.softAP("MeshRoute-OTA")) {
+-        mrcon.println(F("OTA: SoftAP start FAILED"));
++        out.println(F("OTA: SoftAP start FAILED"));
+         return false;
+     }
+-    mrcon.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
+-    mrcon.println(WiFi.softAPIP());
++    out.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
++    out.println(WiFi.softAPIP());
+     s_server.on("/",       HTTP_GET,  handle_root);
+     s_server.on("/update", HTTP_POST, handle_update);
+     s_server.begin();
+     s_active = true;
+-    mrcon.println(F("OTA: browse to the IP above, upload firmware.bin"));
++    out.println(F("OTA: browse to the IP above, upload firmware.bin"));
+     return true;
+ }
+ 
++bool ota_start() { return ota_start(mrcon); }
++
+ void ota_stop() {
+     if (!s_active) return;
+     s_server.stop();
+diff --git a/src/device_ota.h b/src/device_ota.h
+index e9fc4cc..66b76ea 100644
+--- a/src/device_ota.h
++++ b/src/device_ota.h
+@@ -8,8 +8,11 @@
+ #pragma once
+ #include <stdint.h>
+ 
++class Print;
++
+ namespace mrota {
+ 
++bool ota_start(Print& out); // same idempotent entry with an explicit startup-output sink
+ bool ota_start();        // bring up SoftAP + web server; false on failure
+ void ota_stop();         // tear down
+ void ota_loop();         // call from main loop — handles one HTTP request (non-blocking)
+diff --git a/src/firmware_commands.cpp b/src/firmware_commands.cpp
+index a042f15..f04678f 100644
+--- a/src/firmware_commands.cpp
++++ b/src/firmware_commands.cpp
+@@ -6,6 +6,7 @@
+ // handle_crashtest/handle_prep_restart) is reached ONLY via the fw_context.h wrappers — this TU MUST NOT include
+ // device_fault.h (its ISR vectors + the MRFAULT_HW/MRFAULT_ESP32 macros are single-TU). Behaviour-preserving.
+ #include "firmware_commands.h"
++#include "firmware_action_effects.h"
+ #include "firmware_command_authority.h"
+ #include "firmware_remote_activation.h"
+ #include "firmware_remote_executor.h"
+@@ -1068,21 +1069,31 @@ static void do_regen(Print& out) {
+ 
+ // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
+ // + empty inbox). The literal `confirm` token guards against an accidental paste (irreversible).
++ActionOutcome action_factory_reset_apply(ActionBackend backend, Print& out, Print& reboot_out,
++                                         ActionObserver observer) {
++    out.println(F("> factory reset — erasing all NV, rebooting…"));
++    // §5: drop the durable inbox RECORDS (their store's domain); factory_erase does the NV slots + the meta.
++    // ⛔ [[B134]] QG blocker 3: BOTH results are now checked. `wipe()` used to return `void`, so this verb
++    //    rebooted claiming a factory state while records stayed RECOVERABLE on flash — a data-retention lie in
++    //    the worst direction, since a user told the history is gone will act as if it is. ⚠ Both stores are
++    //    wiped BEFORE the `&&` short-circuits could skip one: a partial erase must still erase what it can.
++    // ★ "MAY remain" is the RULED wording (2026-08-29) and the qualifier is load-bearing: every segment can
++    //   erase cleanly and the METADATA save still fail, so a flat "messages remain" would be its own overclaim.
++    const bool dm_ok = g_inbox_dm.wipe(), ch_ok = g_inbox_ch.wipe();
++    if (!dm_ok || !ch_ok) out.println(F("> factory_reset WARN: inbox erase incomplete (messages may remain on flash)"));
++    const bool nv_ok = mrnv::factory_erase();
++    if (!nv_ok) out.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
++    const auto reset_outcome = !dm_ok || !ch_ok
++        ? (nv_ok ? ActionOutcome::inbox_partial : ActionOutcome::inbox_nv_partial)
++        : (nv_ok ? ActionOutcome::started : ActionOutcome::nv_partial);
++    return action_reboot_apply(backend, reboot_out, observer, reset_outcome);
++}
++
+ static void handle_factory_reset(const char* arg, size_t n, Print& out) {
+-    while (n && *arg == ' ') { ++arg; --n; }
+-    if (n == 7 && !strncmp(arg, "confirm", 7)) {
+-        out.println(F("> factory reset — erasing all NV, rebooting…"));
+-        // §5: drop the durable inbox RECORDS (their store's domain); factory_erase does the NV slots + the meta.
+-        // ⛔ [[B134]] QG blocker 3: BOTH results are now checked. `wipe()` used to return `void`, so this verb
+-        //    rebooted claiming a factory state while records stayed RECOVERABLE on flash — a data-retention lie in
+-        //    the worst direction, since a user told the history is gone will act as if it is. ⚠ Both stores are
+-        //    wiped BEFORE the `&&` short-circuits could skip one: a partial erase must still erase what it can.
+-        // ★ "MAY remain" is the RULED wording (2026-08-29) and the qualifier is load-bearing: every segment can
+-        //   erase cleanly and the METADATA save still fail, so a flat "messages remain" would be its own overclaim.
+-        const bool dm_ok = g_inbox_dm.wipe(), ch_ok = g_inbox_ch.wipe();
+-        if (!dm_ok || !ch_ok) out.println(F("> factory_reset WARN: inbox erase incomplete (messages may remain on flash)"));
+-        if (!mrnv::factory_erase()) out.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
+-        fw_reboot();
++    const auto admission = action_factory_reset_admit(arg, n, action_build_support());
++    // Build-level support is for a later remote consumer; preserve the local erase even without reset HW.
++    if (admission.status != ActionAdmissionStatus::confirmation) {
++        action_factory_reset_apply(admission.plan.backend, out, mrcon);
+     } else {
+         out.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
+     }
+@@ -1093,15 +1104,23 @@ static void handle_factory_reset(const char* arg, size_t n, Print& out) {
+ // on its own — this command is only for a node you're connected to. After `sleep on` the console goes quiet
+ // (light-sleep gates the UART) — reconnect to get it back (DTR resets the board). The node still wakes on RX
+ // (a peer DM prints RECV) and on its scheduled timers. No-op on -DMR_NO_POWERSAVE builds (the gate is gone).
+-static void handle_sleep(const char* arg, size_t n, Print& out) {
+-    while (n && *arg == ' ') { ++arg; --n; }
+-    if (n >= 3 && !strncmp(arg, "off", 3)) {
++ActionOutcome action_sleep_apply(ActionKind kind, Print& out, ActionObserver observer) {
++    if (kind == ActionKind::sleep_off) {
+         g_force_sleep = false;
+         out.println(F("> sleep off — staying awake while a host is connected"));
+-    } else {
++    } else if (kind == ActionKind::sleep_on) {
+         g_force_sleep = true;
+         out.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
++    } else {
++        return action_report(observer, ActionOutcome::backend_failed);
+     }
++    return action_report(observer, ActionOutcome::completed);
++}
++
++static void handle_sleep(const char* arg, size_t n, Print& out) {
++    const auto admission = action_sleep_admit(arg, n, action_build_support());
++    // MR_NO_POWERSAVE still sets the local flag and prints; it only removes the sleep policy.
++    action_sleep_apply(admission.plan.kind, out);
+ }
+ 
+ // `debug on` / `debug off` (also `debug 1`/`debug 0`) — gate the decoded per-frame «rx/»tx console trace
+diff --git a/src/fw_main.cpp b/src/fw_main.cpp
+index 86379ad..224693c 100644
+--- a/src/fw_main.cpp
++++ b/src/fw_main.cpp
+@@ -40,7 +40,8 @@
+ #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
+ #include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
+ #include "firmware_config_parse.h"   // §cleanup 2026-07-14: pure config/provisioning parse primitives (native-tested)
+-#include "fw_context.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
++#include "fw_context.h"
++#include "firmware_action_effects.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
+ using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
+ using mrfw::kv_next;
+ using mrfw::team_fnv1a32;
+@@ -317,41 +318,91 @@ uint32_t loop_stack_free_bytes() {   // extern in fw_context.h (shared with firm
+ // Extra protocol knobs (nav/nav_ignore/hop_cap/leaf_id/gateway) apply live but are NOT persisted yet (reboot reverts).
+ // handle_cfg_set moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment A); `using mrfw::handle_cfg_set` (top).
+ 
+-static void do_reboot() {
+-    mrcon.println(F("> rebooting")); mrcon.flush(); delay(100);
++mrfw::ActionSupport mrfw::action_build_support() {
++    ActionSupport support{};
++#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
++    support.reboot = ActionBackend::nrf_reset;
++    support.ota = ActionBackend::nrf_dfu;
++#elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
++    support.reboot = ActionBackend::esp_reset;
++    support.ota = ActionBackend::wifi_ota;
++#endif
++#if defined(NRF52_PLATFORM)
++    support.fault = ActionBackend::nrf_fault;
++#elif defined(MRFAULT_ESP32)
++    support.fault = ActionBackend::esp_fault;
++#endif
++#if !defined(MR_NO_POWERSAVE)
++    support.power_save = true;
++#endif
++    return support;
++}
++
++mrfw::ActionOutcome mrfw::action_reboot_apply(ActionBackend backend, Print& out, ActionObserver observer,
++                                            ActionOutcome reset_outcome) {
++    out.println(F("> rebooting")); out.flush(); delay(100);
+ #if defined(MRFAULT_HW)
+     mrfault::mark_expected_reset();   // v2 fault log: classify the upcoming reset as REBOOT, not UNEXPECTED
+ #endif
++    action_report(observer, reset_outcome);
+ #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
++    if (backend != ActionBackend::nrf_reset) return action_report(observer, ActionOutcome::backend_failed);
+     NVIC_SystemReset();
+ #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
++    if (backend != ActionBackend::esp_reset) return action_report(observer, ActionOutcome::backend_failed);
+     ESP.restart();
++#else
++    (void)backend;
++    return action_report(observer, ActionOutcome::backend_failed);
+ #endif
++    return action_report(observer, ActionOutcome::unexpected_return);
++}
++
++static void do_reboot() {
++    const auto admission = mrfw::action_reboot_admit(mrfw::action_build_support());
++    mrfw::action_reboot_apply(admission.plan.backend, mrcon);
+ }
+ 
+ // handle_factory_reset moved to firmware_commands.{h,cpp} (cleanup 2026-07-15; terminal reset via fw_reboot()).
+ 
+ // `ota` — platform-native firmware update. XIAO: BLE DFU; Heltec: WiFi SoftAP + web upload.
+-static void do_ota() {
++mrfw::ActionOutcome mrfw::action_ota_apply(ActionBackend backend, Print& out, ActionObserver observer) {
+ #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+-    mrcon.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
+-    mrcon.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
+-    mrcon.flush(); delay(500);
++    if (backend != ActionBackend::nrf_dfu) return action_report(observer, ActionOutcome::backend_failed);
++    out.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
++    out.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
++    out.flush(); delay(500);
+     mrfault::mark_expected_reset();   // v2 fault log: the OTA reset is a REBOOT, not UNEXPECTED
+     NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET
++    action_report(observer, ActionOutcome::started);
+     NVIC_SystemReset();
++    return action_report(observer, ActionOutcome::unexpected_return);
+ #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
++    if (backend != ActionBackend::wifi_ota) return action_report(observer, ActionOutcome::backend_failed);
++    if (mrota::ota_start(out)) {
++        mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });
++        out.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
++        return action_report(observer, ActionOutcome::completed);
++    }
++    out.println(F("> OTA: start FAILED"));
++    return action_report(observer, ActionOutcome::backend_failed);
++#else
++    (void)backend; (void)out;
++    return action_report(observer, ActionOutcome::backend_failed);
++#endif
++}
++
++static void do_ota() {
++#if !(defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)) \
++    && (defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3))
+     if (mrota::ota_active()) {
+         mrota::ota_stop();
+         mrcon.println(F("> OTA: stopped"));
+-    } else {
+-        if (mrota::ota_start()) {
+-            mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });   // v2 fault log: a WiFi-OTA reboot is a REBOOT, not UNEXPECTED
+-            mrcon.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
+-        } else
+-            mrcon.println(F("> OTA: start FAILED"));
++        return;
+     }
+ #endif
++    const auto admission = mrfw::action_ota_admit(mrfw::action_build_support());
++    mrfw::action_ota_apply(admission.plan.backend, mrcon);
+ }
+ 
+ // handle_sleep/handle_debug/handle_lookup/handle_nameof/handle_hashof/handle_whoami/hl/dump_help moved to firmware_commands.{h,cpp} (cleanup 2026-07-15).
+@@ -392,27 +443,45 @@ static void dump_faults(Print& out) {
+ // `crashtest <hang|fault|reboot>` — deliberate fault injection to exercise the WDT / HardFault / reset paths on
+ // metal. Gated behind `debug on` (ALWAYS compiled, active only after `debug on` — so the bench exercises the real
+ // deployable image, not a separate crashtest build). spec 2026-06-24 §9.
+-static void handle_crashtest(const char* args, Print& out) {
+-    if (!meshroute::g_mr_trace_on) { out.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
+-    while (*args == ' ') ++args;
+-    if (!strncmp(args, "hang", 4)) {
++mrfw::ActionOutcome mrfw::action_crash_apply(ActionPlan plan, Print& out, Print& reboot_out,
++                                           ActionObserver observer) {
++    if (plan.kind == ActionKind::crash_hang) {
+         out.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); out.flush();
++        action_report(observer, ActionOutcome::started);
+         for (;;) { /* no WDT feed -> DOG reset (nRF52); on a no-WDT build this hangs until power-cycle) */ }
+-    } else if (!strncmp(args, "fault", 5)) {
++    } else if (plan.kind == ActionKind::crash_fault) {
+         out.println(F("> crashtest fault — forcing a crash")); out.flush();
+ #if defined(NRF52_PLATFORM)
+-        volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;   // bad-address read -> BusFault -> HardFault capture
+-        __asm volatile("udf #0");                                                              // belt+braces: undefined instruction
++        if (plan.backend != ActionBackend::nrf_fault) return action_report(observer, ActionOutcome::backend_failed);
++        action_report(observer, ActionOutcome::started);
++        volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;
++        __asm volatile("udf #0");
+ #elif defined(MRFAULT_ESP32)
+-        abort();                                                                               // -> the IDF panic handler -> reboot, ESP_RST_PANIC (recorded as PANIC)
++        if (plan.backend != ActionBackend::esp_fault) return action_report(observer, ActionOutcome::backend_failed);
++        action_report(observer, ActionOutcome::started);
++        abort();
+ #else
+         out.println(F("> (no HW fault path on this build)"));
++        return action_report(observer, ActionOutcome::backend_failed);
+ #endif
+-    } else if (!strncmp(args, "reboot", 6)) {
++        return action_report(observer, ActionOutcome::unexpected_return);
++    } else if (plan.kind == ActionKind::crash_reboot) {
+         out.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); out.flush();
+-        do_reboot();
+-    } else {
++        return action_reboot_apply(plan.backend, reboot_out, observer);
++    }
++    return action_report(observer, ActionOutcome::backend_failed);
++}
++
++static void handle_crashtest(const char* args, Print& out) {
++    const auto admission = mrfw::action_crash_admit(args, strlen(args), meshroute::g_mr_trace_on,
++                                                 mrfw::action_build_support());
++    if (admission.status == mrfw::ActionAdmissionStatus::debug_disabled) {
++        out.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)"));
++    } else if (admission.status == mrfw::ActionAdmissionStatus::usage) {
+         out.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
++    } else {
++        // Unsupported local fault still prints its original two lines; typed support stays explicit.
++        mrfw::action_crash_apply(admission.plan, out, mrcon);
+     }
+ }
+ 
+@@ -420,7 +489,7 @@ static void handle_crashtest(const char* args, Print& out) {
+ // records, KEEP the provisioning (node_id/layer/sf_list/lineage + identity), then go DORMANT (no reboot).
+ // Run on every node -> the net falls silent (no stale beacons to cross-poison) -> power-cycle the whole fleet ->
+ // everyone converges from true zero. spec 2026-06-24.
+-static void handle_prep_restart(Print& out) {
++mrfw::ActionOutcome mrfw::action_prep_restart_apply(Print& out, ActionObserver observer) {
+     g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
+     // Drop the durable inbox RECORDS. ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: this line used to say
+     // *"(no-op on the RAM/ESP32 store); the boot epoch bumps"*. Both halves have stopped being true on ESP32 —
+@@ -442,6 +511,12 @@ static void handle_prep_restart(Print& out) {
+         out.println(F("> prep-restart WARN: inbox erase incomplete (messages may remain on flash)"));
+         out.println(F("> prep-restart — routes cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+     }
++    return action_report(observer, inbox_dm_ok && inbox_ch_ok ? ActionOutcome::completed
++                                                            : ActionOutcome::inbox_partial);
++}
++
++static void handle_prep_restart(Print& out) {
++    mrfw::action_prep_restart_apply(out);
+ }
+ 
+ // OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
+diff --git a/tools/gen_command_inventory.py b/tools/gen_command_inventory.py
+index d0d61b4..57df7da 100644
+--- a/tools/gen_command_inventory.py
++++ b/tools/gen_command_inventory.py
+@@ -140,17 +140,21 @@ SURFACES = (
+     # ---- surface 2: the sub-verb dispatchers ---------------------------------------------------------------
+     Surface("src/firmware_commands.cpp", "handle_route_cmd", "sub", "serial,ble", parent="route",
+             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_route_cmd"),)),
+-    Surface("src/firmware_commands.cpp", "handle_sleep", "sub", "serial,ble", parent="sleep",
+-            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_sleep"),)),
++    Surface("src/firmware_action_effects.h", "action_sleep_admit", "sub", "serial,ble", parent="sleep",
++            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_sleep"),
++                          ("src/firmware_commands.cpp", "handle_sleep", "action_sleep_admit"))),
+     Surface("src/firmware_commands.cpp", "handle_debug", "sub", "serial,ble", parent="debug",
+             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_debug"),)),
+-    Surface("src/firmware_commands.cpp", "handle_factory_reset", "sub", "serial,ble", parent="factory_reset",
+-            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_factory_reset"),)),
++    Surface("src/firmware_config_parse.h", "parse_confirm_token", "sub", "serial,ble", parent="factory_reset",
++            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_factory_reset"),
++                          ("src/firmware_commands.cpp", "handle_factory_reset", "action_factory_reset_admit"),
++                          ("src/firmware_action_effects.h", "action_factory_reset_admit", "parse_confirm_token"))),
+     Surface("src/firmware_commands.cpp", "handle_testsched", "sub", "serial,ble", parent="testsend|testch",
+             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_testsched"),)),
+-    Surface("src/fw_main.cpp", "handle_crashtest", "sub", "serial,ble", parent="crashtest",
++    Surface("src/firmware_action_effects.h", "action_crash_admit", "sub", "serial,ble", parent="crashtest",
+             reached_from=(("src/firmware_commands.cpp", "dispatch", "fw_crashtest"),
+-                          ("src/fw_main.cpp", "fw_crashtest", "handle_crashtest"))),
++                          ("src/fw_main.cpp", "fw_crashtest", "handle_crashtest"),
++                          ("src/fw_main.cpp", "handle_crashtest", "action_crash_admit"))),
+     Surface("src/firmware_config.cpp", "handle_cfg_set", "sub", "serial,ble", parent="cfg set",
+             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_cfg_set"),
+                           ("src/fw_main.cpp", "ble_dispatch_line", "handle_cfg_set"))),
+@@ -254,6 +258,8 @@ NON_COMMAND = {
+ 
+ SCAN_FILES = (
+     "src/firmware_commands.cpp",
++    "src/firmware_action_effects.h",
++    "src/firmware_config_parse.h",
+     "src/firmware_help.h",
+     "src/firmware_config.cpp",
+     "src/firmware_remote.cpp",
+@@ -264,6 +270,13 @@ SCAN_FILES = (
+     "lib/console/console_parse.cpp",
+ )
+ 
++# P1 reuses this existing library predicate for factory confirmation. The rest of
++# the library parses configuration VALUES, outside the command scanner's scope.
++# All prior command files and the new action header retain full-file coverage.
++# Keep the actual predicate's file/line and verify every caller hop above.
++PREDICATE_ONLY = {"src/firmware_config_parse.h": ("parse_confirm_token",)}
++
++
+ # ★ THE REAL PRODUCT PROFILE MATRIX — the resolved macro set of at least one REAL board env. Moved here from the
+ #   RETIRED `tools/probe_console_sink/help_manifest.py` by slice 0g so that ONE table serves the generator, the
+ #   console-sink gate and its wrapper; `tools/probe_console_sink/run.sh` builds exactly these six and its wrapper
+@@ -453,6 +466,22 @@ def scan_file(root: str, rel: str) -> list:
+         text = fh.read()
+     lines = text.split("\n")
+     blank_lines = _blank_comments_and_literals(text).split("\n")
++    if rel in PREDICATE_ONLY:
++        spans = _function_spans(root, rel)
++        keep = set()
++        for name in PREDICATE_ONLY[rel]:
++            definitions = [i for i, (raw, blank) in enumerate(zip(lines, blank_lines), 1)
++                           if (m := FUNC_DEF_RE.match(raw)) and m.group(1) == name
++                           and "{" in blank and not blank.rstrip().endswith(";")]
++            if len(definitions) != 1 or name not in spans:
++                raise GeneratorError("predicate %s::%s must resolve to exactly one definition" % (rel, name))
++            lo, hi = spans[name]
++            keep.update(range(lo, hi + 1))
++        # Keep enclosing feature gates too; blank, never delete, other source lines.
++        keep.update(i for i, line in enumerate(blank_lines, 1)
++                    if re.match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line))
++        lines = [line if i in keep else "" for i, line in enumerate(lines, 1)]
++        blank_lines = [line if i in keep else "" for i, line in enumerate(blank_lines, 1)]
+ 
+     sites = []
+     value_sites = []
+diff --git a/tools/probe_inbox_verbs/fakes/Preferences.h b/tools/probe_inbox_verbs/fakes/Preferences.h
+index c0ba863..2e8c943 100644
+--- a/tools/probe_inbox_verbs/fakes/Preferences.h
++++ b/tools/probe_inbox_verbs/fakes/Preferences.h
+@@ -50,6 +50,7 @@ struct MrProbeNvSlot {
+ };
+ 
+ struct MrProbeNv {
++    void (*observe)(const char*) = nullptr; // optional operation trace for the real-action probe
+     MrProbeNvSlot slot[8];
+     // --- the medium's honest, controllable facts ---
+     bool ns_present = false;   // a READ-ONLY begin() succeeds: this namespace has been written before
+@@ -91,6 +92,7 @@ inline MrProbeNv& mrprobe_nv() { static MrProbeNv nv; return nv; }
+ class Preferences {
+ public:
+     bool begin(const char* ns, bool readOnly = false) {
++        if (mrprobe_nv().observe && ns && !std::strcmp(ns, "mr")) mrprobe_nv().observe("nv-open");
+         _ns = ns ? ns : "";
+         _open = readOnly ? mrprobe_nv().ns_present : mrprobe_nv().rw_ok;
+         return _open;
+@@ -118,7 +120,7 @@ public:
+         return nv.fail_write ? 0 : n;
+     }
+     bool remove(const char*) { return true; }
+-    bool clear() { return true; }
++    bool clear() { if (mrprobe_nv().observe) mrprobe_nv().observe("nv-clear"); return true; }
+ private:
+     const char* _ns  = "";
+     bool        _open = false;
+diff --git a/tools/probe_inbox_verbs/probe_main.cpp b/tools/probe_inbox_verbs/probe_main.cpp
+index 2a3a3ba..53a68c1 100644
+--- a/tools/probe_inbox_verbs/probe_main.cpp
++++ b/tools/probe_inbox_verbs/probe_main.cpp
+@@ -35,6 +35,7 @@
+ //
+ // NB: `-fno-exceptions`; the probe reports with CHK and returns 0/1. It must never crash — see `classify_control`
+ //     in run.sh, which treats a dying mutant as UNUSABLE rather than as a successful reddening ([[B237]]).
++#include "firmware_action_effects.h"
+ #include "fw_context.h"          // the REAL device context — g_node/g_hal + every global the router references
+ #include "firmware_commands.h"   // mrfw::dispatch — THE ROUTER UNDER TEST
+ #include "firmware_inbox.h"
+@@ -123,7 +124,12 @@ static int g_chk  = 0;
+ struct CaptureSink : public Print {
+     char   buf[4096] = {};
+     size_t n = 0;
+-    size_t write(uint8_t b) override { if (n + 1 < sizeof buf) { buf[n++] = char(b); buf[n] = '\0'; } return 1; }
++    void (*newline_hook)(const char*) = nullptr;
++    size_t write(uint8_t b) override {
++        if (n + 1 < sizeof buf) { buf[n++] = char(b); buf[n] = '\0'; }
++        if (b == '\n' && newline_hook) newline_hook(buf);
++        return 1;
++    }
+     void   reset() { n = 0; buf[0] = '\0'; }
+     bool   is(const char* s) const { return std::strcmp(buf, s) == 0; }
+     bool   has(const char* s) const { return std::strstr(buf, s) != nullptr; }
+@@ -209,7 +215,13 @@ struct ProbeSegs : public meshroute::ISegmentStore {
+     bool     seg_size(uint16_t, uint32_t*) const override { return false; }
+     bool     seg_append(uint16_t, const uint8_t*, uint16_t) override { return false; }
+     uint32_t seg_read(uint16_t, uint8_t*, uint32_t) const override { return 0; }
+-    bool     seg_erase(uint16_t) override { ++erases; return true; }
++    const char* trace_tag = nullptr;
++    bool     seg_erase(uint16_t) override {
++        ++erases;
++        if (trace_tag && mrprobe_nv().observe) mrprobe_nv().observe(trace_tag);
++        return !fail_erase;
++    }
++    bool     fail_erase = false;
+     bool     any_segments(bool* ok) const override { if (ok) *ok = true; return false; }
+     int      erases = 0;
+ };
+@@ -266,11 +278,23 @@ void handle_rcmd(const char*, Print&)         { routed("rcmd"); }
+ void handle_team(const char*, Print&)         { routed("team"); }
+ void handle_unlock(const char*, Print&)       { routed("unlock"); }
+ }  // namespace mrfw
++#ifndef MR_PROBE_ACTION_EFFECTS
++namespace mrfw {
++// The standing router probe still fakes board effects; probe_deferred_actions separately executes their owners.
++ActionSupport action_build_support() {
++    return {ActionBackend::esp_reset, ActionBackend::wifi_ota, ActionBackend::esp_fault, true};
++}
++ActionOutcome action_reboot_apply(ActionBackend, Print&, ActionObserver observer, ActionOutcome outcome) {
++    routed("reboot");
++    return action_report(observer, outcome);
++}
++}
+ void fw_reboot()                 { routed("reboot"); }
+ void fw_ota()                    { routed("ota"); }
+ void fw_prep_restart(Print&)     { routed("prep_restart"); }
+ void fw_crashtest(const char*, Print&) { routed("crashtest"); }
+ void fw_faults_dump(Print&)      { routed("faults_dump"); }
++#endif // MR_PROBE_ACTION_EFFECTS: the action probe links the actual board-owned functions
+ // ⓘ `handle_del_msg` / `handle_mark_read` / `handle_pull_inbox` are DELIBERATELY NOT STUBBED: they live in the
+ //   REAL `src/firmware_inbox.cpp` this probe links, so W10 below observes their REAL acks — a stronger check than a
+ //   stub's name, and it also proves the new arm was INSERTED beside them rather than substituted for one.
+diff --git a/tools/probe_ui_model_mutations.py b/tools/probe_ui_model_mutations.py
+index bd64a66..9dd7f43 100755
+--- a/tools/probe_ui_model_mutations.py
++++ b/tools/probe_ui_model_mutations.py
+@@ -110,6 +110,7 @@ ROOT = str(Path(__file__).resolve().parents[1])
+ # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
+ #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
+ TARGET_SRC = {
++    "actionadmit": "src/firmware_action_effects.h",  # 7b-3-P1: shared typed grammar/support
+     "remoteactivation": "lib/core/remote_activation.h",  # Slice 7a: timing-budget authority
+     "fwactivation": "src/firmware_remote_activation.h",  # Slice 7a: live effective-value policy
+     "macwait": "lib/core/mac_wait_windows.h",  # Slice 7a-0: the MAC's shared wait-window arithmetic
+@@ -698,7 +699,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
+ # Filtered per-case XML attribution is also required in the final evidence; this is not a skipped-suite override.
+ # Slice 7b-3-0: executed 2909/174485 + 3 cases / 9976 assertions = 2912/184461.
+ # Codec-only: 48489 -> 58465 assertions (old terminal case +6; three new cases +9970).
+-PIN_CASES, PIN_ASSERTS = 2912, 184461
++# 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
++PIN_CASES, PIN_ASSERTS = 2916, 184587
+ # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
+                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
+                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
+@@ -11484,7 +11486,20 @@ MUTS_RADMIN72RX = [
+   "remote_open_sent(_radmin_session, i); remote_counter_increment(_radmin_session, RadminCounter::response_enqueue_failure);\n    radmin_report_counters(counters_before);\n    return RadminSend::refused;"),
+ ]
+ 
+-MUTS_BY_TARGET = {"radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
++MUTS_ACTIONADMIT = [
++    ('A01 absent backend accepted', 'backend == ActionBackend::none ? ActionAdmissionStatus::unsupported', 'backend == ActionBackend::none ? ActionAdmissionStatus::ready'),
++    ('A02 confirmation bypassed', 'if (!parse_confirm_token(arg, n))', 'if (false && !parse_confirm_token(arg, n))'),
++    ('A03 factory kind lost', 'action_backend_admit(ActionKind::factory_reset, support.reboot)', 'action_backend_admit(ActionKind::reboot, support.reboot)'),
++    ('A04 sleep prefix narrowed', 'n >= 3 && !strncmp(arg, "off", 3)', 'n == 3 && !strncmp(arg, "off", 3)'),
++    ('A05 compiled-out sleep reported supported', 'support.power_save ? ActionAdmissionStatus::ready', 'true ? ActionAdmissionStatus::ready'),
++    ('A06 debug admission bypassed', 'if (!debug) return', 'if (false && !debug) return'),
++    ('A07 crash hang kind lost', '{{ActionKind::crash_hang, ActionBackend::none}, ActionAdmissionStatus::ready}', '{{ActionKind::sleep_on, ActionBackend::none}, ActionAdmissionStatus::ready}'),
++    ('A08 fault backend replaced by reset', 'action_backend_admit(ActionKind::crash_fault, support.fault)', 'action_backend_admit(ActionKind::crash_fault, support.reboot)'),
++    ('A09 crash reboot backend replaced by fault', 'action_backend_admit(ActionKind::crash_reboot, support.reboot)', 'action_backend_admit(ActionKind::crash_reboot, support.fault)'),
++    ('A10 OTA backend replaced by reset', 'action_backend_admit(ActionKind::ota, support.ota)', 'action_backend_admit(ActionKind::ota, support.reboot)'),
++]
++
++MUTS_BY_TARGET = {"actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
+                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
+                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,
+diff --git a/tools/test_gen_command_inventory.py b/tools/test_gen_command_inventory.py
+index 81b6a95..b26af75 100644
+--- a/tools/test_gen_command_inventory.py
++++ b/tools/test_gen_command_inventory.py
+@@ -507,6 +507,80 @@ class TestHelpSurface(unittest.TestCase):
+         self.assertIn("help_command", str(cm.exception))
+ 
+ 
++class TestActionAdmissionSurfaces(unittest.TestCase):
++    """P1: shared predicates keep their real provenance and verified caller chains."""
++
++    def modified_rows(self, rel, old, new):
++        with tempfile.TemporaryDirectory() as root:
++            for path in (*G.SCAN_FILES, G.AUTHORITY_TABLE):
++                dest = os.path.join(root, path)
++                os.makedirs(os.path.dirname(dest), exist_ok=True)
++                shutil.copy2(os.path.join(REPO_ROOT, path), dest)
++            path = os.path.join(root, rel)
++            with open(path, encoding="utf-8") as f:
++                text = f.read()
++            self.assertEqual(text.count(old), 1, "control must match exactly once")
++            with open(path, "w", encoding="utf-8") as f:
++                f.write(text.replace(old, new))
++            return G.build_rows(root)[0]
++
++    def test_real_predicate_rows_have_original_policy_and_actual_owner(self):
++        rows = G.build_rows(REPO_ROOT)[0]
++        actual = {(r.verb, r.subverb, r.func, r.transports, r.authority)
++                  for r in rows if r.func in {"action_sleep_admit", "action_crash_admit", "parse_confirm_token"}}
++        self.assertEqual(actual, {
++            ("sleep", "off", "action_sleep_admit", "serial,ble", "operator D"),
++            ("factory_reset", "confirm", "parse_confirm_token", "serial,ble", "owner D"),
++            *(("crashtest", mode, "action_crash_admit", "serial,ble", "owner D")
++              for mode in ("hang", "fault", "reboot")),
++        })
++        self.assertEqual(len(rows), 204)
++
++    def test_each_new_caller_hop_must_exist(self):
++        for rel, old, new in (
++            ("src/firmware_commands.cpp", "action_sleep_admit(arg, n,", "wrong_sleep(arg, n,"),
++            ("src/firmware_commands.cpp", "action_factory_reset_admit(arg, n,", "wrong_factory(arg, n,"),
++            ("src/firmware_action_effects.h", "parse_confirm_token(arg, n)", "wrong_confirm(arg, n)"),
++            ("src/fw_main.cpp", "mrfw::action_crash_admit(args,", "mrfw::wrong_crash(args,"),
++        ):
++            with self.subTest(rel=rel, call=old), self.assertRaisesRegex(G.GeneratorError, "no call"):
++                self.modified_rows(rel, old, new)
++
++    def test_predicate_enclosing_feature_gate_is_preserved(self):
++        path = "src/firmware_config_parse.h"
++        lo, hi = G._function_spans(REPO_ROOT, path)["parse_confirm_token"]
++        with open(os.path.join(REPO_ROOT, path), encoding="utf-8") as f:
++            body = "\n".join(f.read().split("\n")[lo - 1:hi])
++        rows = self.modified_rows(path, body, "#if MR_FEAT_TEST\n" + body + "\n#endif")
++        predicate = [r for r in rows if r.func == "parse_confirm_token"]
++        self.assertEqual(len(predicate), 1)
++        self.assertEqual(predicate[0].gate, "MR_FEAT_TEST")
++
++    def test_empty_confirmation_predicate_is_refused(self):
++        with self.assertRaisesRegex(G.GeneratorError, "produced NO rows"):
++            self.modified_rows("src/firmware_config_parse.h", 'strncmp(s, "confirm", 7)', '0')
++
++    def test_missing_confirmation_predicate_is_refused(self):
++        with self.assertRaisesRegex(G.GeneratorError, "no longer resolves"):
++            self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(", "bool missing_confirm_token(")
++
++    def test_duplicate_confirmation_predicate_is_refused(self):
++        with self.assertRaisesRegex(G.GeneratorError, "exactly one definition"):
++            self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
++                               'bool parse_confirm_token() { return false; }\ninline bool parse_confirm_token(')
++
++    def test_new_action_header_dispatcher_cannot_be_silently_omitted(self):
++        with self.assertRaisesRegex(G.GeneratorError, "unclassified function"):
++            self.modified_rows("src/firmware_action_effects.h", "} // namespace mrfw",
++                               'inline bool unclassified(const char* x) { return !strcmp(x, "newverb"); }\n} // namespace mrfw')
++
++    def test_comment_and_string_shadows_do_not_create_predicates(self):
++        rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
++            '// bool parse_confirm_token() { return false; }\n'
++            'const char* example = "bool parse_confirm_token() { }";\ninline bool parse_confirm_token(')
++        self.assertEqual(len(rows), 204)
++
++
+ class TestRealTree(unittest.TestCase):
+     """Controls against the real repository."""
+ 

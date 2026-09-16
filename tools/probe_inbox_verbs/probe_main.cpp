@@ -35,6 +35,7 @@
 //
 // NB: `-fno-exceptions`; the probe reports with CHK and returns 0/1. It must never crash — see `classify_control`
 //     in run.sh, which treats a dying mutant as UNUSABLE rather than as a successful reddening ([[B237]]).
+#include "firmware_action_effects.h"
 #include "fw_context.h"          // the REAL device context — g_node/g_hal + every global the router references
 #include "firmware_commands.h"   // mrfw::dispatch — THE ROUTER UNDER TEST
 #include "firmware_inbox.h"
@@ -123,7 +124,12 @@ static int g_chk  = 0;
 struct CaptureSink : public Print {
     char   buf[4096] = {};
     size_t n = 0;
-    size_t write(uint8_t b) override { if (n + 1 < sizeof buf) { buf[n++] = char(b); buf[n] = '\0'; } return 1; }
+    void (*newline_hook)(const char*) = nullptr;
+    size_t write(uint8_t b) override {
+        if (n + 1 < sizeof buf) { buf[n++] = char(b); buf[n] = '\0'; }
+        if (b == '\n' && newline_hook) newline_hook(buf);
+        return 1;
+    }
     void   reset() { n = 0; buf[0] = '\0'; }
     bool   is(const char* s) const { return std::strcmp(buf, s) == 0; }
     bool   has(const char* s) const { return std::strstr(buf, s) != nullptr; }
@@ -209,7 +215,13 @@ struct ProbeSegs : public meshroute::ISegmentStore {
     bool     seg_size(uint16_t, uint32_t*) const override { return false; }
     bool     seg_append(uint16_t, const uint8_t*, uint16_t) override { return false; }
     uint32_t seg_read(uint16_t, uint8_t*, uint32_t) const override { return 0; }
-    bool     seg_erase(uint16_t) override { ++erases; return true; }
+    const char* trace_tag = nullptr;
+    bool     seg_erase(uint16_t) override {
+        ++erases;
+        if (trace_tag && mrprobe_nv().observe) mrprobe_nv().observe(trace_tag);
+        return !fail_erase;
+    }
+    bool     fail_erase = false;
     bool     any_segments(bool* ok) const override { if (ok) *ok = true; return false; }
     int      erases = 0;
 };
@@ -266,11 +278,23 @@ void handle_rcmd(const char*, Print&)         { routed("rcmd"); }
 void handle_team(const char*, Print&)         { routed("team"); }
 void handle_unlock(const char*, Print&)       { routed("unlock"); }
 }  // namespace mrfw
+#ifndef MR_PROBE_ACTION_EFFECTS
+namespace mrfw {
+// The standing router probe still fakes board effects; probe_deferred_actions separately executes their owners.
+ActionSupport action_build_support() {
+    return {ActionBackend::esp_reset, ActionBackend::wifi_ota, ActionBackend::esp_fault, true};
+}
+ActionOutcome action_reboot_apply(ActionBackend, Print&, ActionObserver observer, ActionOutcome outcome) {
+    routed("reboot");
+    return action_report(observer, outcome);
+}
+}
 void fw_reboot()                 { routed("reboot"); }
 void fw_ota()                    { routed("ota"); }
 void fw_prep_restart(Print&)     { routed("prep_restart"); }
 void fw_crashtest(const char*, Print&) { routed("crashtest"); }
 void fw_faults_dump(Print&)      { routed("faults_dump"); }
+#endif // MR_PROBE_ACTION_EFFECTS: the action probe links the actual board-owned functions
 // ⓘ `handle_del_msg` / `handle_mark_read` / `handle_pull_inbox` are DELIBERATELY NOT STUBBED: they live in the
 //   REAL `src/firmware_inbox.cpp` this probe links, so W10 below observes their REAL acks — a stronger check than a
 //   stub's name, and it also proves the new arm was INSERTED beside them rather than substituted for one.

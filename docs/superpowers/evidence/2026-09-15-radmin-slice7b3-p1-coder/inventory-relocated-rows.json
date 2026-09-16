@@ -1,0 +1,67 @@
+[
+  {
+    "verb": "sleep",
+    "subverb": "off",
+    "func": "handle_sleep",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1098",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::handle_sleep",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "factory_reset",
+    "subverb": "confirm",
+    "func": "handle_factory_reset",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1073",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::handle_factory_reset",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "fault",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:401",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "hang",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:398",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "reboot",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:411",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  }
+]

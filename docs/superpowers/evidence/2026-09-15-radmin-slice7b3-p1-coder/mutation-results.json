@@ -1,0 +1,586 @@
+[
+  {
+    "target": "actionadmit",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=actionadmit",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 21.73332390934229
+  },
+  {
+    "target": "a0rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=a0rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 17.99267352372408
+  },
+  {
+    "target": "b134ack",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b134ack",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.892243653535843
+  },
+  {
+    "target": "b134inbox",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b134inbox",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 14.236669681966305
+  },
+  {
+    "target": "b134ram",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b134ram",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.190380692481995
+  },
+  {
+    "target": "b134store",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b134store",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 53.878696858882904
+  },
+  {
+    "target": "b159mac",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b159mac",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.961494248360395
+  },
+  {
+    "target": "b159map",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b159map",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.978920802474022
+  },
+  {
+    "target": "b159rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b159rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.286312405019999
+  },
+  {
+    "target": "b161hash",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b161hash",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 14.367681492120028
+  },
+  {
+    "target": "b161mac",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b161mac",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.275364175438881
+  },
+  {
+    "target": "b161rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b161rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 18.222925920039415
+  },
+  {
+    "target": "b20codec",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b20codec",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 15.563878107815981
+  },
+  {
+    "target": "b20mac",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b20mac",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 21.931076679378748
+  },
+  {
+    "target": "b251hash",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b251hash",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 83.14674432575703
+  },
+  {
+    "target": "b251rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b251rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 32.63763566315174
+  },
+  {
+    "target": "cmdauthority",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=cmdauthority",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 28.671126045286655
+  },
+  {
+    "target": "consoleline",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=consoleline",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 21.575801011174917
+  },
+  {
+    "target": "devicenv",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=devicenv",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 63.53961713984609
+  },
+  {
+    "target": "fwactivation",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=fwactivation",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 21.22658423706889
+  },
+  {
+    "target": "grantadmit",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=grantadmit",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.362159460783005
+  },
+  {
+    "target": "grantpark",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=grantpark",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.523363891988993
+  },
+  {
+    "target": "macwait",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=macwait",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 22.22140058502555
+  },
+  {
+    "target": "radmin2codec",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin2codec",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 194.43142381682992
+  },
+  {
+    "target": "radmin3acl",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin3acl",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 50.85777932405472
+  },
+  {
+    "target": "radmin3id",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin3id",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 36.89853237196803
+  },
+  {
+    "target": "radmin3verbs",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin3verbs",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 43.37363229691982
+  },
+  {
+    "target": "radmin5runtime",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin5runtime",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 28.618379898369312
+  },
+  {
+    "target": "radmin5rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin5rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 48.27618080750108
+  },
+  {
+    "target": "radmin5session",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin5session",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 42.543277490884066
+  },
+  {
+    "target": "radmin72rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin72rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 26.13923454284668
+  },
+  {
+    "target": "radmin72session",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin72session",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 53.17630614340305
+  },
+  {
+    "target": "radmin7exec",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin7exec",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 32.32631511986256
+  },
+  {
+    "target": "radmin7rx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin7rx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 25.762762114405632
+  },
+  {
+    "target": "radmin7transcript",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin7transcript",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 33.585651122033596
+  },
+  {
+    "target": "remoteactivation",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=remoteactivation",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 35.984487392008305
+  },
+  {
+    "target": "sliceAinbox",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceAinbox",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.360265653580427
+  },
+  {
+    "target": "sliceAjson",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceAjson",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.136746115982533
+  },
+  {
+    "target": "sliceBmac",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceBmac",
+      "--workers=3"
+    ],
+    "exit": 1,
+    "seconds": 14.083418067544699,
+    "known_exception": "B342 M04: compiles but test remains green; 3 RED + 1 unusable"
+  },
+  {
+    "target": "sliceBnode",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceBnode",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 18.588194996118546
+  },
+  {
+    "target": "sliceBrx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceBrx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 28.432375848293304
+  },
+  {
+    "target": "sliceCinbox",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceCinbox",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.179658059030771
+  },
+  {
+    "target": "sliceCpull",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceCpull",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.942780990153551
+  },
+  {
+    "target": "sliceDack",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceDack",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.292193483561277
+  },
+  {
+    "target": "sliceDclear",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceDclear",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 14.252214163541794
+  },
+  {
+    "target": "sliceDstore",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceDstore",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.318502128124237
+  },
+  {
+    "target": "sliceDtoken",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceDtoken",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 9.94302773848176
+  },
+  {
+    "target": "sliceEnode",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceEnode",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 10.372480902820826
+  },
+  {
+    "target": "sliceGinbox",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceGinbox",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 14.168194107711315
+  },
+  {
+    "target": "sliceGjson",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceGjson",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 28.814503073692322
+  },
+  {
+    "target": "sliceGrx",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceGrx",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 60.99318169802427
+  },
+  {
+    "target": "teamgrant",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=teamgrant",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 14.349396113306284
+  },
+  {
+    "target": "teamkeyring",
+    "command": [
+      "python3",
+      "tools/probe_ui_model_mutations.py",
+      "--target=teamkeyring",
+      "--workers=3"
+    ],
+    "exit": 0,
+    "seconds": 96.7653986774385
+  }
+]

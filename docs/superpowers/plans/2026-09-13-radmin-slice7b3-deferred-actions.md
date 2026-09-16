@@ -2,7 +2,7 @@
 # Remote-admin v2 Slice 7b-3 — deferred actions and scheduled terminals
 
 **Revision 4 — 2026-09-15: REISSUED AT OWNER CODEC COMMIT; READY FOR CODER SOURCE-VALIDATION.
-BEHAVIOR IMPLEMENTATION HOLD: B389 allocation and B394 shared-effect preparation.**
+BEHAVIOR IMPLEMENTATION HOLD: B394 shared-effect preparation only — B389 allocation RULED R-RA-40 (2026-09-15) as §2.1 proposes.**
 Base **`ac5f9a592065d08e7cc8c06ef395e79891d41b34`**, the owner's separate 7b-3-0 codec commit.
 Simulator **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean/unchanged. Both repositories were clean
 before this authoring pass. R-RA-37's codec prerequisite is fulfilled; **B391 is closed** by the committed
@@ -107,7 +107,7 @@ Three-ABI compile-only models are below. No full implementation gate or linked b
 
 ## 2. Scope, preparation, ruled policy and allocation
 
-### 2.1 B389 — complete twelve-row proposal: OWNER ALLOCATION RULING STILL REQUIRED
+### 2.1 B389 — complete twelve-row model: RULED R-RA-40 (owner, 2026-09-15) exactly as proposed below
 
 The production action row does not exist. `remote_transcript_complete` releases ingress/body; ACK/invalidation
 can release a transcript. No command bytes, stack Print, service pointer, raw parser buffer, open/bootstrap
@@ -145,7 +145,7 @@ pin. This is layout pricing, not a software implementation or linked-RAM result.
 allowed. Before behavior code, the coder source-validates this complete representation against the gated P1
 APIs; any extra owned state returns to QA for measurement, not an unnoticed allocation increase.
 
-**Concrete recommendation for the owner's B389 ruling:** approve one 40-byte ACCEPT-only row, four independent
+**R-RA-40 (owner, 2026-09-15) — RULED as follows, verbatim from the recommendation:** approve one 40-byte ACCEPT-only row, four independent
 u32 transcript details and the two diagnostic bytes/alignment, **+80 B total resident session state**, with
 native/gateway Node re-pins **230976/157344**, measured final linked-RAM attribution and unchanged mobile Node
 **117912** and RAM. Existing linked baselines from the committed codec gate are gateway **203956 RAM /570588
@@ -413,7 +413,7 @@ Predict the changed paths/counts before editing. No file move, unrelated cleanup
   No firmware_config/provisioning/keyring/identity-service or device_ota implementation edits in this feature.
   Add a new TU to the actual three base build_src_filter lists in platformio.ini if needed; no profile change.
 - Native: extend existing session/transcript/executor/Node/7a tests; `test_remote_actions.cpp` if useful.
-  Real codec/session/Node paths, no production fault hooks. ABI/Node pins only after B389's explicit ruling
+  Real codec/session/Node paths, no production fault hooks. ABI/Node pins exactly per R-RA-40 (230976 native / 157344 gateway; mobile 117912)
   and measured final layout/link attribution. Price transient transfer/observer stack as well as state.
 - Instruments: all dependency/source mutation additions, actual measured ABI entries, existing six probes
   and P1's real-effect probe. Extend the real firmware command/action path under hardware/store fakes;
@@ -497,7 +497,7 @@ PASS/HOLD. No full implementation gate has run for this author reissue.
 ## 8. Predictions, STOP conditions and documentation landing
 
 Predict 36 byte-identical streams, unchanged wire/NV/authority semantics and mobile Node/RAM; ACCEPT-only
-state grows only under the final B389 ruling. Fresh current Node baselines are native 230896/8, gateway
+state grows exactly per R-RA-40 (+80 B); any extra owned state is STOP-1 for measurement. Fresh current Node baselines are native 230896/8, gateway
 157264/8, mobile 117912/8. The complete author model is native 230976/8, gateway 157344/8, mobile unchanged;
 +80 B state is proposed, not approved or linked. §2.1 supplies the exact ruling request and measured scope.
 Do not carry the older +280/+528 raw-line or four-row +80 comparison forward as a final allocation pin.
@@ -516,7 +516,7 @@ Retained 7b-2 STOP text, verbatim:
 authenticated preparation → owned scheduled terminal → ACK/deadline → main-loop activation contract. It is
 still forbidden to call a disruptive effect in ordinary remote dispatch, RX or timer context. A typed deferred
 apply is one activation of the already-admitted request, not permission for a second public dispatcher call.
-All other quoted prohibitions remain. Also STOP on missing B389 allocation or gated P1 preparation; a missing
+All other quoted prohibitions remain. Also STOP on any allocation beyond R-RA-40 or on missing gated P1 preparation; a missing
 base reissue after P1; an unlisted family omission; stale/concurrent
 inputs; predictable validation postponed until after scheduled; new nonce plaintext for an old terminal;
 borrowed action/detail lifetime; internally canceled/extended armed promises (external local physical

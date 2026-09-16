@@ -1,0 +1,420 @@
+{
+  "gateway": {
+    "allocated_sections": [
+      {
+        "name": ".ARM.exidx",
+        "base_bytes": 8,
+        "final_bytes": 8,
+        "delta": 0,
+        "base_sha256": "65098226827a38a30de08f3aa7c78f0b3666666e3a66649bc0b3fa88e0fda051",
+        "final_sha256": "184ec7065153550c83f88efdcb996a41ff4a6203fb87aa0d32f2952847db7ccb"
+      },
+      {
+        "name": ".bss",
+        "base_bytes": 202948,
+        "final_bytes": 202948,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".data",
+        "base_bytes": 976,
+        "final_bytes": 976,
+        "delta": 0,
+        "base_sha256": "36bd4ae9aed2d70c5121241be0668142742e47e458fb36b8f4b7e1a6ca629d91",
+        "final_sha256": "3d4e945302378700334e4c2c25c9ea71759da547ffda1938c85dcba8213f683d"
+      },
+      {
+        "name": ".heap",
+        "base_bytes": 31564,
+        "final_bytes": 31564,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".noinit",
+        "base_bytes": 32,
+        "final_bytes": 32,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".text",
+        "base_bytes": 569604,
+        "final_bytes": 567236,
+        "delta": -2368,
+        "base_sha256": "66aed8aa3b953be419b49afb6cabb276206d46e4fa631b0e77ff0fffe150236e",
+        "final_sha256": "1f4d342df64c3116c63d80ea0ff91ffe2a332b90f7c69aef16f92cebf834cd10"
+      }
+    ],
+    "text_coverage": [
+      {
+        "text_bytes": 569604,
+        "symbol_union_bytes": 536455,
+        "uncovered_bytes": 33149
+      },
+      {
+        "text_bytes": 567236,
+        "symbol_union_bytes": 534085,
+        "uncovered_bytes": 33151
+      }
+    ],
+    "removed_symbols": [
+      "CSWTCH.502\tOBJECT\tLOCAL\tDEFAULT\t.text\t36",
+      "CSWTCH.533\tOBJECT\tLOCAL\tDEFAULT\t.text\t20",
+      "CSWTCH.541\tOBJECT\tLOCAL\tDEFAULT\t.text\t48",
+      "CSWTCH.551\tOBJECT\tLOCAL\tDEFAULT\t.text\t16",
+      "CSWTCH.553\tOBJECT\tLOCAL\tDEFAULT\t.text\t12",
+      "CSWTCH.640\tOBJECT\tLOCAL\tDEFAULT\t.text\t28",
+      "CSWTCH.677\tOBJECT\tLOCAL\tDEFAULT\t.text\t36",
+      "CSWTCH.679\tOBJECT\tLOCAL\tDEFAULT\t.text\t64",
+      "CSWTCH.717\tOBJECT\tLOCAL\tDEFAULT\t.text\t20",
+      "_Z12fw_crashtestPKcR5Print\tFUNC\tGLOBAL\tDEFAULT\t.text\t192",
+      "_Z9fw_rebootv\tFUNC\tGLOBAL\tDEFAULT\t.text\t6",
+      "_ZL17ble_dispatch_linePKcjPcj\tFUNC\tLOCAL\tDEFAULT\t.text\t2376",
+      "_ZL17mesh_service_oncev\tFUNC\tLOCAL\tDEFAULT\t.text\t7632",
+      "_ZL19handle_prep_restartR5Print\tFUNC\tLOCAL\tDEFAULT\t.text\t2916",
+      "_ZL9do_rebootv\tFUNC\tLOCAL\tDEFAULT\t.text\t56",
+      "_ZN12mrcon_detail14GuardedConsole5stageEh\tFUNC\tWEAK\tDEFAULT\t.text\t320",
+      "_ZN4mrfw8acl_verbERNS_10AclServiceERNS_14AdminIdServiceEPKcjRNS_11IAdminLinesE\tFUNC\tWEAK\tDEFAULT\t.text\t8432",
+      "_ZN4mrfw8dispatchEPKcjR5Print\tFUNC\tGLOBAL\tDEFAULT\t.text\t9064",
+      "_ZN9meshroute11Sx1262Radio11set_rx_freqEd\tFUNC\tWEAK\tDEFAULT\t.text\t356",
+      "_ZN9meshroute19SegmentedInboxStore5beginEv\tFUNC\tWEAK\tDEFAULT\t.text\t4012",
+      "_ZN9meshroute19SegmentedInboxStore6appendEmPKht\tFUNC\tWEAK\tDEFAULT\t.text\t6448",
+      "setup\tFUNC\tGLOBAL\tDEFAULT\t.text\t5788"
+    ],
+    "added_symbols": [
+      "CSWTCH.504\tOBJECT\tLOCAL\tDEFAULT\t.text\t36",
+      "CSWTCH.543\tOBJECT\tLOCAL\tDEFAULT\t.text\t48",
+      "CSWTCH.551\tOBJECT\tLOCAL\tDEFAULT\t.text\t20",
+      "CSWTCH.569\tOBJECT\tLOCAL\tDEFAULT\t.text\t16",
+      "CSWTCH.571\tOBJECT\tLOCAL\tDEFAULT\t.text\t12",
+      "CSWTCH.641\tOBJECT\tLOCAL\tDEFAULT\t.text\t28",
+      "CSWTCH.690\tOBJECT\tLOCAL\tDEFAULT\t.text\t36",
+      "CSWTCH.692\tOBJECT\tLOCAL\tDEFAULT\t.text\t64",
+      "CSWTCH.736\tOBJECT\tLOCAL\tDEFAULT\t.text\t20",
+      "_Z12fw_crashtestPKcR5Print\tFUNC\tGLOBAL\tDEFAULT\t.text\t880",
+      "_Z9fw_rebootv\tFUNC\tGLOBAL\tDEFAULT\t.text\t688",
+      "_ZL17ble_dispatch_linePKcjPcj\tFUNC\tLOCAL\tDEFAULT\t.text\t2384",
+      "_ZL17mesh_service_oncev\tFUNC\tLOCAL\tDEFAULT\t.text\t7156",
+      "_ZN10mrinboxnrf6QspiIo5closeEv.part.0\tFUNC\tLOCAL\tDEFAULT\t.text\t72",
+      "_ZN12mrcon_detail14GuardedConsole4pumpEv\tFUNC\tWEAK\tDEFAULT\t.text\t172",
+      "_ZN12mrcon_detail14GuardedConsole5stageEh\tFUNC\tWEAK\tDEFAULT\t.text\t284",
+      "_ZN12mrcon_detail14GuardedConsole7compactEv\tFUNC\tWEAK\tDEFAULT\t.text\t58",
+      "_ZN4mrfw19action_reboot_applyENS_13ActionBackendER5PrintNS_14ActionObserverENS_13ActionOutcomeE\tFUNC\tGLOBAL\tDEFAULT\t.text\t100",
+      "_ZN4mrfw20action_build_supportEv\tFUNC\tGLOBAL\tDEFAULT\t.text\t32",
+      "_ZN4mrfw21print_custody_failureER5PrintRKN9meshroute4PushE\tFUNC\tWEAK\tDEFAULT\t.text\t644",
+      "_ZN4mrfw25action_prep_restart_applyER5PrintNS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.text\t2928",
+      "_ZN4mrfw26action_factory_reset_applyENS_13ActionBackendER5PrintS2_NS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.text\t648",
+      "_ZN4mrfw8acl_verbERNS_10AclServiceERNS_14AdminIdServiceEPKcjRNS_11IAdminLinesE\tFUNC\tWEAK\tDEFAULT\t.text\t8324",
+      "_ZN4mrfw8dispatchEPKcjR5Print\tFUNC\tGLOBAL\tDEFAULT\t.text\t8532",
+      "_ZN9meshroute11Sx1262Radio11set_rx_freqEd\tFUNC\tWEAK\tDEFAULT\t.text\t272",
+      "_ZN9meshroute19SegmentedInboxStore5beginEv\tFUNC\tWEAK\tDEFAULT\t.text\t3024",
+      "_ZN9meshroute19SegmentedInboxStore6appendEmPKht\tFUNC\tWEAK\tDEFAULT\t.text\t3740",
+      "_ZNSt8_Rb_treeIhSt4pairIKhtESt10_Select1stIS2_ESt4lessIhESaIS2_EE24_M_get_insert_unique_posERS1_\tFUNC\tWEAK\tDEFAULT\t.text\t98",
+      "setup\tFUNC\tGLOBAL\tDEFAULT\t.text\t5192"
+    ],
+    "objects": [
+      {
+        "tu": "fw_main.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  61274\t     45\t 177939\t 239258\t  3a69a\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-base-fw_main.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  59263\t     45\t 177939\t 237247\t  39ebf\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-final-fw_main.cpp.o\n"
+      },
+      {
+        "tu": "firmware_commands.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  61439\t      4\t   4744\t  66187\t  1028b\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-base-firmware_commands.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  61535\t      4\t   4744\t  66283\t  102eb\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-final-firmware_commands.cpp.o\n"
+      },
+      {
+        "tu": "device_ota.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n      0\t      0\t      0\t      0\t      0\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-base-device_ota.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n      0\t      0\t      0\t      0\t      0\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/gateway-final-device_ota.cpp.o\n"
+      }
+    ],
+    "measurements": [
+      {
+        "flash_bytes": 570588,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 976,
+          ".text": 569604
+        },
+        "object_count": 285,
+        "ram_bytes": 203956,
+        "symbol_count": 6577,
+        "symbol_size_total": 751339,
+        "symbols_sha256": "5ce5e7d52ee80f72e06bcac7f069b5a687f3cf0d09946650b7a9767979f6e00f"
+      },
+      {
+        "flash_bytes": 568220,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 976,
+          ".text": 567236
+        },
+        "object_count": 285,
+        "ram_bytes": 203956,
+        "symbol_count": 6588,
+        "symbol_size_total": 748969,
+        "symbols_sha256": "3c370f20f9371610f7d1c9ced57275a9e659e29f0ad4575ede8e26376d8aab48"
+      }
+    ],
+    "fixed_identity_equal": true
+  },
+  "heltec_mobile": {
+    "allocated_sections": [
+      {
+        "name": ".dram0.bss",
+        "base_bytes": 182496,
+        "final_bytes": 182496,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".dram0.data",
+        "base_bytes": 25260,
+        "final_bytes": 25260,
+        "delta": 0,
+        "base_sha256": "4b56d9445b1ec23ee6de173109220604727b155b6778593a838ecfca9ca8c22d",
+        "final_sha256": "581522c719cd5674d080ad44fd6cc89c0203e856f3f13d27c64f15436321e73e"
+      },
+      {
+        "name": ".dram0.dummy",
+        "base_bytes": 62720,
+        "final_bytes": 62720,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".ext_ram.dummy",
+        "base_bytes": 1376224,
+        "final_bytes": 1376224,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".flash.appdesc",
+        "base_bytes": 256,
+        "final_bytes": 256,
+        "delta": 0,
+        "base_sha256": "750fb07007be2baaa6e1c99c2c9d5fa6b5babb70b82dd01e6c1d46d1e58a8c80",
+        "final_sha256": "750fb07007be2baaa6e1c99c2c9d5fa6b5babb70b82dd01e6c1d46d1e58a8c80"
+      },
+      {
+        "name": ".flash.rodata",
+        "base_bytes": 216740,
+        "final_bytes": 216740,
+        "delta": 0,
+        "base_sha256": "b8d04c33213abd6017591dedfa657bbee1ed7cdbed06901d50ab956247b7dafa",
+        "final_sha256": "dcab74cb26492a81a6b9c2855f768d09b8cee21f78c398513eedba08c6e128d5"
+      },
+      {
+        "name": ".flash.rodata_noload",
+        "base_bytes": 21755,
+        "final_bytes": 21755,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".flash.text",
+        "base_bytes": 1052122,
+        "final_bytes": 1052706,
+        "delta": 584,
+        "base_sha256": "343e3c7f0fbbaa045ec596a533287d9fc0f5e4a2ce18a0f99208f0e5c65b2bbb",
+        "final_sha256": "1939005127b36f93428716b562bb6ddda6f888fde3851297c04c5987ff4b3904"
+      },
+      {
+        "name": ".flash_rodata_dummy",
+        "base_bytes": 1114112,
+        "final_bytes": 1114112,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".iram0.text",
+        "base_bytes": 77843,
+        "final_bytes": 77843,
+        "delta": 0,
+        "base_sha256": "6a5c3a8d0bf7e92f02f7ef1f2d29be82d07e0cf45a5f7e924e97ff27807e003b",
+        "final_sha256": "3cf0f1ea335830d774e706fa12fa0ff090d9b15d1d12fd72fa9f49159cb336fb"
+      },
+      {
+        "name": ".iram0.text_end",
+        "base_bytes": 233,
+        "final_bytes": 233,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".iram0.vectors",
+        "base_bytes": 1027,
+        "final_bytes": 1027,
+        "delta": 0,
+        "base_sha256": "8f1fcfb2672a406551e02b909aca065b9ac03784830cb3a067aef75ed618501b",
+        "final_sha256": "8f1fcfb2672a406551e02b909aca065b9ac03784830cb3a067aef75ed618501b"
+      },
+      {
+        "name": ".noinit",
+        "base_bytes": 0,
+        "final_bytes": 0,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".rtc.force_fast",
+        "base_bytes": 8,
+        "final_bytes": 8,
+        "delta": 0,
+        "base_sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+        "final_sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
+      },
+      {
+        "name": ".rtc.text",
+        "base_bytes": 256,
+        "final_bytes": 256,
+        "delta": 0,
+        "base_sha256": "f1da26c6db87e96c9d44e312c01ddec7ec65ca4f75e9c0bffab666a402fc2a39",
+        "final_sha256": "f1da26c6db87e96c9d44e312c01ddec7ec65ca4f75e9c0bffab666a402fc2a39"
+      },
+      {
+        "name": ".rtc_noinit",
+        "base_bytes": 12,
+        "final_bytes": 12,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": ".rtc_reserved",
+        "base_bytes": 40,
+        "final_bytes": 40,
+        "delta": 0,
+        "base_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "final_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "text_coverage": [
+      {
+        "text_bytes": 1052122,
+        "symbol_union_bytes": 979691,
+        "uncovered_bytes": 72431
+      },
+      {
+        "text_bytes": 1052706,
+        "symbol_union_bytes": 980253,
+        "uncovered_bytes": 72453
+      }
+    ],
+    "removed_symbols": [
+      "_Z12fw_crashtestPKcR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t148",
+      "_Z15fw_prep_restartR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t10",
+      "_Z5setupv\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t2702",
+      "_Z6fw_otav\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t49",
+      "_ZL17mesh_service_oncev\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t3806",
+      "_ZL19handle_prep_restartR5Print\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t63",
+      "_ZL9do_rebootv\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t46",
+      "_ZN12mrcon_detail14GuardedConsole5flushEv\tFUNC\tWEAK\tDEFAULT\t.flash.text\t78",
+      "_ZN4mrfw14MgmtKeyService5mint_EhPKh\tFUNC\tWEAK\tDEFAULT\t.flash.text\t730",
+      "_ZN4mrfw14admin_key_verbERNS_14MgmtKeyServiceEPKcjRNS_11IAdminLinesE\tFUNC\tWEAK\tDEFAULT\t.flash.text\t2450",
+      "_ZN4mrfw18admin_buf_all_zeroEPKhj\tFUNC\tWEAK\tDEFAULT\t.flash.text\t33",
+      "_ZN4mrfw8dispatchEPKcjR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t5626",
+      "_ZN5mrota9ota_startEv\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t255",
+      "_ZN9meshroute19SegmentedInboxStore4wipeEm\tFUNC\tWEAK\tDEFAULT\t.flash.text\t148",
+      "_ZN9meshroute19SegmentedInboxStore5beginEv\tFUNC\tWEAK\tDEFAULT\t.flash.text\t525",
+      "_ZN9mrinboxfs12PosixDirWalk4nextEPbPm\tFUNC\tWEAK\tDEFAULT\t.flash.text\t230",
+      "_ZZL6do_otavENUlvE_4_FUNEv\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t18"
+    ],
+    "added_symbols": [
+      "_Z12fw_crashtestPKcR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t223",
+      "_Z15fw_prep_restartR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t14",
+      "_Z5setupv\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t2698",
+      "_Z6fw_otav\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t43",
+      "_ZL17mesh_service_oncev\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t3822",
+      "_ZL9do_rebootv\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t26",
+      "_ZN12mrcon_detail14GuardedConsole5flushEv\tFUNC\tWEAK\tDEFAULT\t.flash.text\t79",
+      "_ZN4mrfw13action_reportENS_14ActionObserverENS_13ActionOutcomeE\tFUNC\tWEAK\tDEFAULT\t.flash.text\t19",
+      "_ZN4mrfw14MgmtKeyService5mint_EhPKh\tFUNC\tWEAK\tDEFAULT\t.flash.text\t729",
+      "_ZN4mrfw14admin_key_verbERNS_14MgmtKeyServiceEPKcjRNS_11IAdminLinesE\tFUNC\tWEAK\tDEFAULT\t.flash.text\t2445",
+      "_ZN4mrfw16action_ota_applyENS_13ActionBackendER5PrintNS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t74",
+      "_ZN4mrfw18action_crash_applyENS_10ActionPlanER5PrintS2_NS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t152",
+      "_ZN4mrfw18action_sleep_applyENS_10ActionKindER5PrintNS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t74",
+      "_ZN4mrfw18admin_buf_all_zeroEPKhj\tFUNC\tWEAK\tDEFAULT\t.flash.text\t32",
+      "_ZN4mrfw19action_reboot_applyENS_13ActionBackendER5PrintNS_14ActionObserverENS_13ActionOutcomeE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t90",
+      "_ZN4mrfw20action_build_supportEv\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t8",
+      "_ZN4mrfw25action_prep_restart_applyER5PrintNS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t97",
+      "_ZN4mrfw26action_factory_reset_applyENS_13ActionBackendER5PrintS2_NS_14ActionObserverE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t148",
+      "_ZN4mrfw8dispatchEPKcjR5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t5522",
+      "_ZN5mrota9ota_startER5Print\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t255",
+      "_ZN9meshroute19SegmentedInboxStore4wipeEm\tFUNC\tWEAK\tDEFAULT\t.flash.text\t150",
+      "_ZN9meshroute19SegmentedInboxStore5beginEv\tFUNC\tWEAK\tDEFAULT\t.flash.text\t527",
+      "_ZN9mrinboxfs12PosixDirWalk4nextEPbPm\tFUNC\tWEAK\tDEFAULT\t.flash.text\t234",
+      "_ZZN4mrfw16action_ota_applyENS_13ActionBackendER5PrintNS_14ActionObserverEENUlvE_4_FUNEv\tFUNC\tLOCAL\tDEFAULT\t.flash.text\t18"
+    ],
+    "objects": [
+      {
+        "tu": "fw_main.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  32078\t     51\t 137039\t 169168\t  294d0\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-base-fw_main.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  32603\t     51\t 137039\t 169693\t  296dd\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-final-fw_main.cpp.o\n"
+      },
+      {
+        "tu": "firmware_commands.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  54855\t     17\t  11586\t  66458\t  1039a\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-base-firmware_commands.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n  55033\t     17\t  11586\t  66636\t  1044c\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-final-firmware_commands.cpp.o\n"
+      },
+      {
+        "tu": "device_ota.cpp",
+        "base": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3874\t      8\t   2453\t   6335\t   18bf\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-base-device_ota.cpp.o\n",
+        "final": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3895\t      8\t   2453\t   6356\t   18d4\t/tmp/mr-codex-s7b3p1-gaz2dlhn/stack/heltec_mobile-final-device_ota.cpp.o\n"
+      }
+    ],
+    "measurements": [
+      {
+        "flash_bytes": 1372992,
+        "loadable_sections": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 216740,
+          ".flash.text": 1052122,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 207756,
+        "symbol_count": 13185,
+        "symbol_size_total": 1472166,
+        "symbols_sha256": "997d1b367de121f53bcc856bd1619f8668893189d9ce99a9ef74756e2dd6e457"
+      },
+      {
+        "flash_bytes": 1373576,
+        "loadable_sections": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 216740,
+          ".flash.text": 1052706,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 207756,
+        "symbol_count": 13192,
+        "symbol_size_total": 1472728,
+        "symbols_sha256": "ed3601eabecb812bd099fe16baea5884971a4d9c8d9e5714ad518212c20e3be5"
+      }
+    ],
+    "fixed_identity_equal": true
+  }
+}

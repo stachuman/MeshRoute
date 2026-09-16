@@ -1,0 +1,2657 @@
+[
+  {
+    "verb": "peerkey",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:178",
+    "authority": "owner",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "peername",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:206",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "reqpubkey",
+    "subverb": "-s",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:246",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "reqpubkey",
+    "subverb": "-t",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:245",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "reqpubkey",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:228",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "resolve",
+    "subverb": "hard",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:161",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "resolve",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:156",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "send",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:264",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "send_channel",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:265",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "send_layer",
+    "subverb": "\u2014",
+    "func": "parse_command",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "lib/console/console_parse.cpp:266",
+    "authority": "operator",
+    "surface": "lib/console/console_parse.cpp::parse_command",
+    "shapes": [
+      "S3"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "export",
+    "func": "admin_key_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:411",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "generate",
+    "func": "admin_key_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:380",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "import",
+    "func": "admin_key_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:389",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "list",
+    "func": "admin_key_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:350",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "remove",
+    "func": "admin_key_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:426",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "reset",
+    "func": "admin_key_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:438",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "show",
+    "func": "admin_key_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:364",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "show self",
+    "func": "admin_key_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:366",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_key_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "add",
+    "func": "admin_target_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:537",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "list",
+    "func": "admin_target_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:498",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "remove",
+    "func": "admin_target_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:605",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "reset",
+    "func": "admin_target_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:624",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "set",
+    "func": "admin_target_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:573",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "show",
+    "func": "admin_target_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_client_verbs.h:522",
+    "authority": "controller_local",
+    "surface": "src/firmware_admin_client_verbs.h::admin_target_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "add",
+    "func": "acl_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:336",
+    "authority": "owner",
+    "surface": "src/firmware_admin_verbs.h::acl_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "list",
+    "func": "acl_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:320",
+    "authority": "owner",
+    "surface": "src/firmware_admin_verbs.h::acl_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "remove",
+    "func": "acl_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:387",
+    "authority": "owner",
+    "surface": "src/firmware_admin_verbs.h::acl_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "reset",
+    "func": "acl_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:401",
+    "authority": "physical",
+    "surface": "src/firmware_admin_verbs.h::acl_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "set",
+    "func": "acl_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:365",
+    "authority": "owner",
+    "surface": "src/firmware_admin_verbs.h::acl_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-id",
+    "subverb": "generate",
+    "func": "admin_id_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:267",
+    "authority": "physical",
+    "surface": "src/firmware_admin_verbs.h::admin_id_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-id",
+    "subverb": "reset",
+    "func": "admin_id_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:279",
+    "authority": "physical",
+    "surface": "src/firmware_admin_verbs.h::admin_id_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-id",
+    "subverb": "rotate",
+    "func": "admin_id_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:273",
+    "authority": "physical",
+    "surface": "src/firmware_admin_verbs.h::admin_id_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-id",
+    "subverb": "show",
+    "func": "admin_id_verb",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_admin_verbs.h:261",
+    "authority": "owner",
+    "surface": "src/firmware_admin_verbs.h::admin_id_verb",
+    "shapes": [
+      "S7"
+    ]
+  },
+  {
+    "verb": "admin-key",
+    "subverb": "\u2014",
+    "func": "admin_client_router_arm",
+    "transports": "serial",
+    "gate": "MR_FEAT_RADMIN_CLIENT",
+    "source": "src/firmware_commands.cpp:533",
+    "authority": "controller_local",
+    "surface": "src/firmware_commands.cpp::admin_client_router_arm",
+    "shapes": [
+      "S6"
+    ]
+  },
+  {
+    "verb": "admin-target",
+    "subverb": "\u2014",
+    "func": "admin_client_router_arm",
+    "transports": "serial",
+    "gate": "MR_FEAT_RADMIN_CLIENT",
+    "source": "src/firmware_commands.cpp:534",
+    "authority": "controller_local",
+    "surface": "src/firmware_commands.cpp::admin_client_router_arm",
+    "shapes": [
+      "S6"
+    ]
+  },
+  {
+    "verb": "acl",
+    "subverb": "\u2014",
+    "func": "admin_router_arm",
+    "transports": "serial",
+    "gate": "MR_FEAT_RADMIN_ACCEPT",
+    "source": "src/firmware_commands.cpp:374",
+    "authority": "owner",
+    "surface": "src/firmware_commands.cpp::admin_router_arm",
+    "shapes": [
+      "S6"
+    ]
+  },
+  {
+    "verb": "admin-id",
+    "subverb": "\u2014",
+    "func": "admin_router_arm",
+    "transports": "serial",
+    "gate": "MR_FEAT_RADMIN_ACCEPT",
+    "source": "src/firmware_commands.cpp:373",
+    "authority": "owner",
+    "surface": "src/firmware_commands.cpp::admin_router_arm",
+    "shapes": [
+      "S6"
+    ]
+  },
+  {
+    "verb": "cfg",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1558",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1557",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "clear_inbox",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1615",
+    "authority": "owner",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1513",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_commands.cpp:1538",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "debug",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1560",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "del_msg",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1612",
+    "authority": "owner",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "duty",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1526",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "factory_reset",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1529",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "faults",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1504",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "gateway",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1532",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "hashof",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1609",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "join",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_commands.cpp:1534",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "join (alias: create)",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "!(MR_N_LAYERS < 2)",
+    "source": "src/firmware_commands.cpp:1544",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_commands.cpp:1537",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "\u2014 refused gateway_build",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "!(MR_N_LAYERS < 2)",
+    "source": "src/firmware_commands.cpp:1551",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "leave",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1556",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "limits",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1527",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "lock",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_commands.cpp:1619",
+    "authority": "legacy",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "lookup",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1607",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mark_read",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1611",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_commands.cpp:1541",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "nameof",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1608",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "ota",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1531",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "password",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_commands.cpp:1617",
+    "authority": "legacy",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peers",
+    "subverb": "all",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1521",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peers",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1517",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "prep-restart",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1505",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "pull_inbox",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1610",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "rcmd",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1506",
+    "authority": "legacy",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "reboot",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1528",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "regen",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1530",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "route",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1524",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "routes",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1514",
+    "authority": "open",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "sleep",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1559",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "status",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1525",
+    "authority": "open",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_commands.cpp:1539",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "testch",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1511",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "testclear",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1507",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "testsend",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1509",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "teststatus",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1508",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_FEAT_OLED",
+    "source": "src/firmware_commands.cpp:1576",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "unlock",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_commands.cpp:1618",
+    "authority": "legacy",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "version",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1503",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "whoami",
+    "subverb": "\u2014",
+    "func": "dispatch",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1606",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::dispatch",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "debug",
+    "subverb": "off (alias: 0)",
+    "func": "handle_debug",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1111",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_debug",
+    "shapes": [
+      "S1",
+      "S5"
+    ]
+  },
+  {
+    "verb": "factory_reset",
+    "subverb": "confirm",
+    "func": "handle_factory_reset",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1073",
+    "authority": "owner D",
+    "surface": "src/firmware_commands.cpp::handle_factory_reset",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "route",
+    "subverb": "add",
+    "func": "handle_route_cmd",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:595",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_route_cmd",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "route",
+    "subverb": "del",
+    "func": "handle_route_cmd",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:608",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_route_cmd",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "sleep",
+    "subverb": "off",
+    "func": "handle_sleep",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1098",
+    "authority": "operator D",
+    "surface": "src/firmware_commands.cpp::handle_sleep",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "testsend|testch",
+    "subverb": "-a",
+    "func": "handle_testsched",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1435",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_testsched",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "testsend|testch",
+    "subverb": "-e",
+    "func": "handle_testsched",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1436",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_testsched",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "testsend|testch",
+    "subverb": "-t",
+    "func": "handle_testsched",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_commands.cpp:1437",
+    "authority": "operator",
+    "surface": "src/firmware_commands.cpp::handle_testsched",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "active_fraction",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:406",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "beacon_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:335",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_mode",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:494",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_mode off",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:496",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_mode on",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:497",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_mode periodic",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:498",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_period",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:502",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ble_pin",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:507",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "bw",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:318",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "ch_min_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:410",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "cr",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:321",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "dm_min_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:414",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "duty",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:338",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "e2e_dm",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:382",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "freq",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:305",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "gateway_only",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:428",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "gw_announce_interval",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:400",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "gw_announce_pct",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:399",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "gw_herd_slack",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:401",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "hop_cap",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:361",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "host_mobiles",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:345",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "intra_layer_relay",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:344",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "intro_attach",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:396",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l0_window_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:549",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l0_window_offset_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:554",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_beacon_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:579",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_bw",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:599",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_cr",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:604",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_freq",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:594",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_layer_id",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:559",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_node_id",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:564",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_routing_sf",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:569",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_sf_list",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:574",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_window_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:584",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "l1_window_offset_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:589",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "lat (alias: lon)",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:264",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "layer0_id",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:539",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "lbt",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:334",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "leaf_id",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:423",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "leaf_name",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:418",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "mobile",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:451",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "mobile_autoregister",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:484",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "mobile_autoregister true",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:485",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "n_layers",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:534",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "name",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:276",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "nav",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:343",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "nav_ignore",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:360",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "node_id",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:296",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "remote_action_activation_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:512",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "routing_sf (alias: control_sf)",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:315",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "sf_list",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:330",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "team_channel_crypt",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:393",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "team_hop_cap",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:370",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "tx_power",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:324",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "window_period_ms",
+    "func": "handle_cfg_set",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_config.cpp:544",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_cfg_set",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "active_fraction",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1192",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "ch_min_ms",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1193",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "dm_min_ms",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1194",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "duty",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1190",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "name",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1191",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "create",
+    "subverb": "sf_list",
+    "func": "handle_create",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1189",
+    "authority": "operator D",
+    "surface": "src/firmware_config.cpp::handle_create",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "clear",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1106",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "list",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1063",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "reset",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1093",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "reset confirm",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1099",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "set",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1124",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "joinprofile",
+    "subverb": "set name",
+    "func": "handle_joinprofile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1139",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_joinprofile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "gateways",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2346",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "query",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2365",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "register",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2316",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "register scan",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2318",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "status",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2372",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "mobile",
+    "subverb": "unregister",
+    "func": "handle_mobile",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2 && MR_FEAT_MOBILE",
+    "source": "src/firmware_config.cpp:2341",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_mobile",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "exportkey",
+    "func": "handle_team",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:2041",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_team",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "forgetkey",
+    "func": "handle_team",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:2058",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_team",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "grantkey",
+    "func": "handle_team",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:2050",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::handle_team",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "keys",
+    "func": "handle_team",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:2059",
+    "authority": "operator",
+    "surface": "src/firmware_config.cpp::handle_team",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team",
+    "subverb": "new",
+    "func": "handle_team",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:2066",
+    "authority": "owner D",
+    "surface": "src/firmware_config.cpp::handle_team",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "team forgetkey",
+    "subverb": "confirm",
+    "func": "team_forget_key",
+    "transports": "serial,ble",
+    "gate": "MR_N_LAYERS < 2",
+    "source": "src/firmware_config.cpp:1976",
+    "authority": "owner",
+    "surface": "src/firmware_config.cpp::team_forget_key",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "help (alias: ?)",
+    "subverb": "\u2014",
+    "func": "help_command",
+    "transports": "serial",
+    "gate": "\u2014",
+    "source": "src/firmware_help.h:165",
+    "authority": "local_only \u00b7 surface:local",
+    "surface": "src/firmware_help.h::help_command",
+    "shapes": [
+      "S1",
+      "S5"
+    ]
+  },
+  {
+    "verb": "duty",
+    "subverb": "\u2014",
+    "func": "remote_encode",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:47",
+    "authority": "operator \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_encode",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "limits",
+    "subverb": "\u2014",
+    "func": "remote_encode",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:50",
+    "authority": "operator \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_encode",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "routes",
+    "subverb": "\u2014",
+    "func": "remote_encode",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:39",
+    "authority": "open \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_encode",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "status",
+    "subverb": "\u2014",
+    "func": "remote_encode",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:26",
+    "authority": "open \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_encode",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "password rotate",
+    "subverb": "\u2014",
+    "func": "remote_exec",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:125",
+    "authority": "legacy \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_exec",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "reboot (alias: prep-restart)",
+    "subverb": "\u2014",
+    "func": "remote_exec",
+    "transports": "radio(REMOTE_CMD)",
+    "gate": "MR_FEAT_REMOTE_MGMT",
+    "source": "src/firmware_remote.cpp:143",
+    "authority": "operator D \u00b7 surface:legacy",
+    "surface": "src/firmware_remote.cpp::remote_exec",
+    "shapes": [
+      "S2"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:325",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset clear",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:357",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset list",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:328",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset reset",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:372",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset reset all",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:376",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "ui",
+    "subverb": "preset set",
+    "func": "preset_verb",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/firmware_ui_preset_verbs.h:333",
+    "authority": "operator",
+    "surface": "src/firmware_ui_preset_verbs.h::preset_verb",
+    "shapes": [
+      "S4"
+    ]
+  },
+  {
+    "verb": "cfg",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:554",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "cfg set",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:548",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "del_msg",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:570",
+    "authority": "owner \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "duty",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:523",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "help (alias: ?)",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:596",
+    "authority": "local_only \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1",
+      "S5"
+    ]
+  },
+  {
+    "verb": "limits",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:527",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "mark_read",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:569",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peerkey",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:657",
+    "authority": "owner \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peername",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:659",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peers",
+    "subverb": "<args> \u2014 refused console_only",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:566",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peers",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:565",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "prep-restart",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:515",
+    "authority": "operator D \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "pull_inbox",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:568",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "rcmd",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:519",
+    "authority": "legacy \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "routes",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:559",
+    "authority": "open \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "status",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:540",
+    "authority": "open \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "version",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:509",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "whoami",
+    "subverb": "\u2014",
+    "func": "ble_dispatch_line",
+    "transports": "ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:486",
+    "authority": "operator \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::ble_dispatch_line",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "fault",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:401",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "hang",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:398",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "crashtest",
+    "subverb": "reboot",
+    "func": "handle_crashtest",
+    "transports": "serial,ble",
+    "gate": "\u2014",
+    "source": "src/fw_main.cpp:411",
+    "authority": "owner D",
+    "surface": "src/fw_main.cpp::handle_crashtest",
+    "shapes": [
+      "S1"
+    ]
+  },
+  {
+    "verb": "peerkey",
+    "subverb": "\u2014",
+    "func": "service_console",
+    "transports": "serial",
+    "gate": "MR_CONSOLE",
+    "source": "src/fw_main.cpp:1181",
+    "authority": "owner \u00b7 surface:transport",
+    "surface": "src/fw_main.cpp::service_console",
+    "shapes": [
+      "S1"
+    ]
+  }
+]

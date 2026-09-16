@@ -1,0 +1,105 @@
+{
+  "named_base": "ac5f9a592065d08e7cc8c06ef395e79891d41b34",
+  "actual_head": "c591721c2e09bb4e7583f49e458da9e5155cf822",
+  "permitted_uncommitted_preparation": {
+    "MEMORY.md": {
+      "sha256": "1e8bb349c766a69fe30180c804c6936a3ac28e2d52b8f29037c2a7eb39f32be4",
+      "mode": 420
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "sha256": "ea28f021a372154e40fa9d9477897552316f7b3ee65e52e57fdcce3024ec438f",
+      "mode": 420
+    },
+    "docs/2026-09-02-agent-roles.md": {
+      "sha256": "fd60c3ccf3179ddbf9ba0d0a2a2bd4064e7541796fe322b665feba1867184dc7",
+      "mode": 420
+    },
+    "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+      "sha256": "cbce67054db4caa0c2207dd2c21416481398969279875b7dc3b67d1f563f877e",
+      "mode": 420
+    },
+    "docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md": {
+      "sha256": "4a7af9b19e723598470fa5b9b054403c63f7e88d44ffaffd7bb7aa717c31b397",
+      "mode": 420
+    },
+    "docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md": {
+      "sha256": "1443c6821dea395b5db1ab46fe7ef127eaaefd997b71d0098b64a6ffba58d3bf",
+      "mode": 420
+    },
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+      "sha256": "309d576a7e485afcc9d8189a85202993687ff53309f41e60ada02303ab9daf9f",
+      "mode": 420
+    }
+  },
+  "committed_documentation_successor_paths": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/2026-07-31-bench-test-script.md",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/README.md",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/all-48-dispositions.md",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/artifact-sha256.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/audit-attempts.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/audit-author-landing.py",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/baseline-layout.cpp",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/brief-revision-3.md",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/codec-final-corpus-manifest.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/corpus-audit.py",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/corpus-identity.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/corpus-manifest.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/document-audit.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/gateway-idedata.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/heltec_mobile-idedata.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/inputs-before.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/corpus-compare.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/corpus-validate.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/corpus.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/gateway-baseline-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/gateway-proposed-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/heltec_mobile-baseline-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/heltec_mobile-proposed-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/native-baseline-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/native-build.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/native-proposed-compile.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/native-proposed-old-pin-control.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/native.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/previous-corpus-validate.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/reference.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/sim-build.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/logs/sim-configure.log.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/measure-plan.py",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/model-node.h.patch.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/model-remote_session.h.patch.gz",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/mutation-floor.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/native-idedata.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/plan-measurements.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/plan-old-pin-control.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/precheck.py",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/preservation.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/proposed-layout.cpp",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/receipt.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/results.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/row-dispositions.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/simulator-before.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/source-audit-results.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/source-audit.py",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/typed-plan/disruptive-enumeration.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/typed-plan/source-audit.json",
+    "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/typed-plan/typed-plan-preflight.md",
+    "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md",
+    "docs/superpowers/plans/2026-09-13-radmin-slice7b3-0-action-busy-codec.md",
+    "docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md",
+    "docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md",
+    "docs/superpowers/plans/2026-09-15-radmin-slice7b3-reissue-precheck.md",
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md"
+  ],
+  "initial_input_count": 1459,
+  "input_manifest_sha256": "12b6c7f126682bd948821bed0e086107f3d12e885459d3f3ede955b9f53515c8",
+  "non_documentation_input_count": 462,
+  "simulator_head": "06746a97de5764415d6fcef10b97bca90569b9c7",
+  "simulator_status": "",
+  "simulator_inputs": 285,
+  "staged": [],
+  "untracked": [],
+  "production_test_tool_profile_diff_against_named_base_empty": true
+}

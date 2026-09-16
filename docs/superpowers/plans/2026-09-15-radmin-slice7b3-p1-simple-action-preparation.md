@@ -1,17 +1,19 @@
 <!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
 # Slice 7b-3-P1 — simple-action preparation seams — 2026-09-15
 
-**Revision 1 — READY FOR CODER SOURCE-VALIDATION; B394 preparation, before 7b-3 behavior.** This is a
+**Revision 3 — CODER GATE PASS; FROZEN FOR INDEPENDENT QA; B394 preparation, before 7b-3 behavior.** This is a
 behavior-preserving C1 refactor, not deferred execution. After source-validation passes, implement only this
 fence. No new owner policy decision or B389 state allocation is needed for this zero-resident-state slice.
-Base **`ac5f9a592065d08e7cc8c06ef395e79891d41b34`**, the owner's QA-passed codec commit; simulator
+Base **`c591721c2e09bb4e7583f49e458da9e5155cf822`** plus the permitted preparation inventory in the P1
+coder receipt §5. This documentation-only successor preserves every production input from QA-passed codec
+`ac5f9a592065d08e7cc8c06ef395e79891d41b34`; simulator
 **`06746a97de5764415d6fcef10b97bca90569b9c7`**, clean/unchanged. Both repositories were clean at pre-check start.
 
 The [revision-4 author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) provides fresh native/corpus,
 source enumeration and measured candidate layouts. The [behavior brief](2026-09-13-radmin-slice7b3-deferred-actions.md)
 is an implementation HOLD; its +80-byte proposal is not authority to add state here. This preparation gets
-its own implementation report, complete independent gate and owner commit. QA then refreshes the behavior
-brief's base/anchors against that commit. Do not mix this refactor with scheduling, new remote admission or
+its own implementation report and complete independent gate. QA then refreshes the behavior
+brief's base/anchors against that frozen input set; commits are not gates. Do not mix this refactor with scheduling, new remote admission or
 production Node re-pins in a single change.
 
 ## 1. Source issue and binding constraints
@@ -32,9 +34,9 @@ The code guidelines' hardware boundary is binding, verbatim:
 
 > `device_fault.h` is **single-TU** — its ISR/exception vectors *and* the `MRFAULT_HW`/`MRFAULT_ESP32` macros are defined inside it; never `#include` it in a second TU.
 
-| Source at ac5f9a5 | Refactor obligation |
+| Source unchanged from ac5f9a5 at the reconciled base | Refactor obligation |
 | --- | --- |
-| `firmware_commands.cpp:1071–1089` | Factory-reset grammar skips leading spaces and accepts exactly seven remaining bytes `confirm`. Both inbox wipes are attempted independently, warnings precede factory_erase/reboot, and partial failure does not skip later effects. No effect-only typed helper exists. |
+| `firmware_commands.cpp:1071–1089` | Factory-reset grammar skips leading spaces and accepts exactly seven remaining bytes `confirm`. Both inbox wipes are attempted independently; their conditional warning precedes NV factory_erase. The conditional NV-failure warning follows that call; reboot follows both checks. Partial failure does not skip later effects. No effect-only typed helper exists. |
 | `firmware_commands.cpp:1096–1105` | Sleep uses an `off` prefix after leading spaces; every other tail selects on, including empty/unknown text. Preserve that local grammar and MR_NO_POWERSAVE's current limitation. |
 | `fw_main.cpp:395–416` | Crash checks current debug admission, then prefix-parses hang/fault/reboot. Backend guards, messages, flushes and non-returning hardware operations are inside the board TU. A later raw-text call would repeat mutable admission. |
 | `fw_main.cpp:293–298`, `:320–351`, `:423–447` | Reboot/prep/OTA wrappers are reusable effects, but return void or use global output. Prep reports wipe failures only through Print; typed outcome/sink binding is missing. Keep reset marking, delays, both wipes and halt order. |
@@ -42,6 +44,11 @@ The code guidelines' hardware boundary is binding, verbatim:
 | `firmware_remote_executor.h:41–55/87`, `firmware_commands.cpp:1666–1673` | Both current remote guards still refuse disruptive commands. They must remain effective throughout P1. |
 
 ## 2. Resulting interface and local behavior
+
+**Owner fold-in (2026-09-15):** typed admission explicitly reports build-level support, including power-saving
+compiled out, absent fault backend and absent OTA backend. Local handlers still run their existing grammar,
+output and effects on those builds; an unsupported typed result is not permission to change local behavior.
+No resident state is added. The later remote consumer uses this support result before promising.
 
 Expose reusable bounded typed admission/argument results and effect-only entry points for reboot,
 prep-restart, OTA entry, confirmed factory reset, sleep on/off and crash hang/fault/reboot. Semantic kinds
@@ -88,8 +95,13 @@ No file move bundled with new behavior. Do not extend device_fault.h's include o
 Tests/instruments: existing local command/sink tests, a focused pure grammar test if needed, the existing
 console/inbox probes and their exact-source controls, and `tools/probe_deferred_actions/` for the actual
 shared effect path if required. Mutation harness changes are only dependency/grammar/effect controls and
-independently derived pins. Generated command inventory may change source anchors only; all 204 rows and
-authority/disruptive semantics must remain unchanged. QA owns register/design/MEMORY/bench/brief landing.
+independently derived pins. Generated command inventory may change source/owning-function provenance only; all 204 semantic rows and
+authority/transport/disruptive classifications must remain unchanged. B400 clarifies the necessary instrument
+dependency: update `tools/gen_command_inventory.py` and its source-reader tests to follow the shared action
+parsers and the existing confirmation predicate, verifying each caller hop. Preserve empty/missing/duplicate
+and disconnected-source refusals and full-file coverage of every existing command file. The generic config
+value-parser header is consumed only for its named confirmation predicate, with its enclosing feature gates.
+This is source-provenance maintenance for the authorized refactor, not a new semantic policy or owner ruling. QA owns register/design/MEMORY/bench/brief landing.
 
 OUT: all lib/core production changes, codec/reference bytes, remote guards/admission/executor behavior,
 7b-3's state/status/counters/diagnostics/timer, B389 Node allocation, the 36 refused families' services,
@@ -151,5 +163,14 @@ Standing STOP, verbatim:
 Also STOP on local output/grammar/effect-order drift, a remote disruptive action newly admitted, resident
 state/RAM growth, unexplained flash/stack movement, unsupported backend accidentally green-compiling,
 lost/unusable/vacuous controls beyond B342, out-of-fence changes or a mismatched/concurrent base.
-Owner commits after independent PASS. B394 closes only when these shared seams are implemented and gated;
-QA then refreshes 7b-3 to that commit. The B389 allocation ruling and later behavior gate remain separate.
+The owner commits when they choose; no step waits for a commit. B394 closes only when these shared seams are implemented and gated;
+QA then refreshes 7b-3 to that frozen input set (last commit plus SHA-256 inventory). The B389 allocation is ruled (R-RA-40, +80 B, no resident state in P1); the later behavior gate remains separate.
+
+### P1 coder completion — 2026-09-15
+
+The [coder receipt](../evidence/2026-09-15-radmin-slice7b3-p1.md#11-frozen-coder-handoff--2026-09-15)
+records the completed implementation gate: native 2916/184587/0, corpus 36/36 byte-identical, tools 351/no
+skips, full probes/reference/ABI/checkers/census, 826 RED plus known B342 across 53 batteries, unchanged
+Node/resident RAM and measured flash/stack movement. B399/B400 are folded and await independent closure.
+This is the coder's result, not independent QA PASS. The complete uncommitted freeze is the next QA input;
+7b-3 behavior remains pending independent QA and the separate behavior brief refresh. No commit is a gate.

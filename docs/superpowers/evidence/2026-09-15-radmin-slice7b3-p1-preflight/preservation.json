@@ -1,0 +1,23 @@
+{
+  "input_paths": 1459,
+  "input_paths_preserved": 1457,
+  "authorized_reporting_changes": {
+    "MEMORY.md": "6e628a2c70fe755c5371b2ac27e8b325563e632dbe051ea48dac02ac184ef132",
+    "docs/2026-07-30-open-bug-register.md": "3af17635e2357c28586a2ee423195585c5bae700fb55790eada6d31d4b25465a"
+  },
+  "directory_symlinks_preserved": [
+    "spec/docs",
+    "spec/scenarios",
+    "spec/test"
+  ],
+  "original_preparation_diff_sha256": "0f9301b6079b9de95e33346af6e2462814b221716cc8ba528bd75cdbf42c3225",
+  "briefs_owner_rulings_roles_and_design_unchanged": true,
+  "production_test_tool_profile_unchanged": true,
+  "original_coder_QA_reports_unchanged": true,
+  "simulator_inputs_unchanged": 285,
+  "simulator_clean": true,
+  "staged": false,
+  "whitespace_clean": true,
+  "implementation_written": false,
+  "full_gate_run": false
+}

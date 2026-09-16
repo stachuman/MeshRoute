@@ -15,7 +15,7 @@ was independently effective. The pre-comment 7b-2 union remains historical; its 
 The codec reviewer reproduced section/object/linked totals but not the coder's single-byte ELF attribution.
 
 **Current dispatch: [7b-3 revision 4](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), reissued at
-`ac5f9a5`, ready for source-validation; behavior HOLD B389+B394.** Twelve selected policy rows require separate
+`ac5f9a5`, ready for source-validation; behavior HOLD B394 only — B389 RULED R-RA-40 (2026-09-15).** Twelve selected policy rows require separate
 [7b-3-P1 preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), full gate/owner commit,
 then a refreshed behavior base. B394 corrects the earlier twelve-existing-seams summary: four reusable
 effects, eight needing extraction. QA records 36 exact R-RA-39 refusals/fenced follow-ups in brief §2.2
@@ -1450,7 +1450,7 @@ credentials. This is the explicit security reason for the exception to otherwise
 
 ## 13. Disruptive commands and reply-path honesty
 
-**Current implementation scope (7b-3 revision 4):** after separate P1 preparation and the B389 allocation
+**Current implementation scope (7b-3 revision 4):** after separate P1 preparation (the B389 allocation is ruled: R-RA-40, +80 B)
 ruling, twelve policy rows cover reboot/prep aliases, OTA, confirmed factory reset, sleep and crash modes.
 Thirty-six exact disruptive cfg/gateway/join/create/leave/team/regen rows remain retained remote refusals
 under R-RA-39, listed with separately fenced follow-ups in the brief §2.2 (B395–B398). No early effects and
@@ -1778,7 +1778,7 @@ padding, ownership or auxiliary-state drift.
 
 **Current deferred-class supersession:** R-RA-37 replaces those two candidate deferred rows with ONE row.
 The old 2,968 total above is historical characterization, not today's production allocation or a recomputed
-one-row budget. B389 remains unruled. Revision 4's complete twelve-row author model prices a 40-byte action
+one-row budget. B389 is RULED by R-RA-40 (2026-09-15): +80 B, Node 230976/157344, mobile unchanged. Revision 4's complete twelve-row author model prices a 40-byte action
 row, four independent u32 transcript-detail/header increases and two diagnostic bytes/alignment: session
 state 8824→8904 (+80) on all three ABIs, native/gateway Node +80 and mobile Node unchanged. These are
 compile-only model figures, not linked RAM or permission to change pins. P1 must add no resident state.
@@ -2173,7 +2173,7 @@ The complete design does not provide:
      `session_busy`, `PROTOCOL_ERROR{already_acknowledged}`, shared-credential behavior, measured open/bootstrap
      partition and rate limit, open staging/response release, and §15 status-counter exposure. Controller-side
      automatic rollover and ACK debt remain with the controller slices.
-   - **7b-3, deferred actions — revision 4, implementation HOLD B389+B394:** ONE R-RA-37 deferred row,
+   - **7b-3, deferred actions — revision 4, implementation HOLD B394 only (B389 RULED R-RA-40):** ONE R-RA-37 deferred row,
      scheduled terminal/7a activation, ACK-earlier and the separate 300-second outcome bound. Twelve policy
      rows after independently gated P1 preparation; 36 exact retained-refusal rows and B395–B398 follow-ups.
      Remote OTA reports the locally reached backend. Each preparation/behavior increment has its own gate
@@ -2234,7 +2234,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 7b-2 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-09**, owner commit `f993191` (base `564f460`), consumed revision 4; B378/B379/B387/B388 closed. B388 is an exact three-comment-line return with full input preservation and fresh 15-check proof; prior full gate is historical; **Historical B391 erratum, now CLOSED by 7b-3-0**: post-comment X09 was vacuous; the separate instrument repair is independently verified. [QA evidence §8](../evidence/2026-09-09-radmin-slice7b2-qa-gate.md#8-b388-scoped-return--independent-pass-and-final-closure) | native 2909/174485/0; corpus 36/36 byte-identical; 772 RED /known unusable B342; tools 343/zero skips; all ABI/probes/checkers/census; gateway Node/RAM +4976 B, flash +7840 B, mobile unchanged; global three-admission and real notice/control/open producers verified | controller-dependent open/control round trips join 8b; no new bench part |
 | 7b-3-0 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-15; owner commit ac5f9a5**, R-RA-37; B391 closed. [QA gate](../evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md). Typed TERMINAL action_busy 08; terminal 09..FF reject; protocol-error/admission domains and old 89 bytes preserved; no producer/state/wire_version change | native 2912/184461/0, reference 94/94, domain 9787, corpus 36/36, union 816 RED + known unusable B342 /817, all required probes/ABI/checkers/boards; Node/RAM unchanged. Behavior reissued at this hash | none (no new metal behavior) |
 | 7b-3-P1 | **REVISION 1, ready for source-validation at ac5f9a5**, [simple-action preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), B394; shared typed admission/effects/sinks for twelve selected rows, local behavior unchanged and remote disruptive guards still refuse | Separate C1 refactor/full gate/owner commit; zero Node/resident RAM growth, real-source equivalence/control proof; then QA refreshes behavior base | none added by this behavior-preserving refactor |
-| 7b-3 | **REVISION 4 at ac5f9a5, READY for source-validation; behavior HOLD B389+B394.** [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): twelve selected rows after P1; 36 exact R-RA-39 refusals. One promise/one row, typed action_busy, frozen 7a activation | Fresh author native 2912/184461/0, corpus 36/36, reference 94/94. Complete model +80 on three ABIs, Node 230976/157344/117912; owner allocation and linked attribution pending. P1 commit requires base refresh before behavior implementation/full gate | Part 57b on software PASS/controller availability: prep-restart lockout/local recovery; 8a exact warning, no bench PASS |
+| 7b-3 | **REVISION 4 at ac5f9a5, READY for source-validation; behavior HOLD B394 only, B389 RULED R-RA-40 (+80 B).** [Brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md): twelve selected rows after P1; 36 exact R-RA-39 refusals. One promise/one row, typed action_busy, frozen 7a activation | Fresh author native 2912/184461/0, corpus 36/36, reference 94/94. Complete model +80 on three ABIs, Node 230976/157344/117912; owner allocation and linked attribution pending. P1 commit requires base refresh before behavior implementation/full gate | Part 57b on software PASS/controller availability: prep-restart lockout/local recovery; 8a exact warning, no bench PASS |
 | 7b-3-F-config / F-provision / F-team / F-regen | **PLANNED, NOT IMPLEMENTATION DISPATCH**, B395–B398; 23/10/2/1 retained-refusal policy rows. Individual fences/reasons/closure proofs in behavior §2.2 | Each needs a separate source-validated brief, any state ruling, refactor and feature increments/gates, and explicit removal of its refusal list; not complete in 7b-3 | derive only when the individual follow-up is authored |
 | 8a | mobile controller state/crypto files | no carrier, 36/36 unchanged; ruled pair | none |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
@@ -2556,7 +2556,7 @@ pre-tail handlers, or carrier-specific first-hop budget rule.
 ### Historical 7b-3 / 8a second-read handoff — 2026-09-13, superseded by R-RA-37/38/39 and revision 4
 
 The following records the proposals at that date. The current ruled warning and dispatch are in §§13/19.1;
-codec ac5f9a5 fulfills its prerequisite, and B394/P1 plus B389 allocation now hold behavior implementation.
+codec ac5f9a5 fulfills its prerequisite, and B394/P1 now holds behavior implementation; B389 is ruled (R-RA-40, +80 B).
 
 The [revision-2 brief](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md) preserves B389/B390/B391 HOLD
 and adds B392. If B392 keeps remote prep-restart, 8a must display before submission:

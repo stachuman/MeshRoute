@@ -1,0 +1,47 @@
+{
+  "source_file": "src/firmware_commands.cpp",
+  "source_sha256": "a91d78f79b931a35e83692d7390dd999bc457ae428e112753912f832629ab57e",
+  "first_line": 1071,
+  "last_line": 1089,
+  "extracted_production_function": true,
+  "whole_TU_or_real_router": false,
+  "hardware_or_NV_store_proof": false,
+  "cases": 8,
+  "control": "Private extracted-body reorder; compiles and fails assertion; no production mutation",
+  "results": [
+    {
+      "name": "baseline",
+      "compile_command": [
+        "g++",
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "/tmp/mr-codex-s7b3p1-preflight-5c23fcrq/baseline.cpp",
+        "-o",
+        "/tmp/mr-codex-s7b3p1-preflight-5c23fcrq/baseline"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "output": "8 factory-reset failure combinations: exact output/order PASS\n",
+      "cpp_sha256": "6cf99c44a4299259aa0ca6687186d8b477f3d716bc1ab0ab48a634841ad9118b"
+    },
+    {
+      "name": "inbox-warning-after-nv",
+      "compile_command": [
+        "g++",
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "/tmp/mr-codex-s7b3p1-preflight-5c23fcrq/inbox-warning-after-nv.cpp",
+        "-o",
+        "/tmp/mr-codex-s7b3p1-preflight-5c23fcrq/inbox-warning-after-nv"
+      ],
+      "compile_exit": 0,
+      "run_exit": 1,
+      "output": "ORDER/BYTES assertion failed, case 0\n",
+      "cpp_sha256": "a73d27046126f5e2dbdd7ddf3bb68ba0be116a3a5edcf33eea33180be2d755d6"
+    }
+  ]
+}

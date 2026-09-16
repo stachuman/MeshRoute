@@ -949,3 +949,30 @@ measures one 40-byte row, four independent header details and two diagnostics/al
 on native/ARM/Xtensa; proposed Node 230976/157344/117912. This compile-only model is not linked RAM or owner
 allocation. [Author pre-check](2026-09-15-radmin-slice7b3-reissue-precheck.md) records fresh native/corpus,
 reference and source/layout evidence; no new full implementation gate is claimed.
+
+### R-RA-40 (owner, 2026-09-15) — B389: the 7b-3 deferred-action allocation, approved as recommended
+
+**Owner, verbatim (to the second reader):**
+
+> B389 approved as recommended, record it as R-RA-40 - give final instruction to coder - if any
+
+"As recommended" binds the 7b-3 revision-4 brief §2.1 model (Codex, 2026-09-15) and the second reader's
+explanation to the owner the same day. **Settled allocation (ACCEPT-only, one instance in `g_node`):**
+one 40-byte / align-8 `DeferredActionRecord` row owning request/authority identity (`request_id` u64,
+`admin_epoch` u64, `source_hash` u32, `controller_slot` u8, `authority` u8), the clock (`activate_at_ms` u64,
+frozen `activation_ms` u32) and the complete action (`kind` u8 — none/reboot/prep_restart/ota/factory_reset/
+sleep_on/sleep_off/crash_hang/crash_fault/crash_reboot; `backend` u8; `phase` u8; `trigger` u8); **each of the
+four `TranscriptHeader`s owns its own u32 immutable activation detail** (24 → 32 B) so a replay stays
+byte-identical after the row is consumed or reused; plus two u8 diagnostics (`last_activation_kind`,
+`last_activation_outcome`) with alignment. **Total +80 B of `RemoteSessionState` on native, ARM and Xtensa;
+Node re-pins native 230896 → 230976 and gateway 157264 → 157344; heltec_mobile Node 117912 AND its RAM
+unchanged.** Linked gateway RAM is predicted +80 inside `g_node` and is MEASURED at the 7b-3 gate (R-RA-31
+shape), with the apply/observer transient stack measured separately and not counted as resident state.
+**Excluded:** heap, any config-blob copy, stored pointers/Print/service references, a raw command line, a sixth
+counter (the two diagnostic bytes are a last-result snapshot, not a counter), any wire/NV change. **Declined
+alternatives:** a 4-entry detail array (saves 16 B, muddies ownership); reserving room for the R-RA-39 refused
+families (they price their own state when their follow-ups land). **Rule for the coder:** any additional owned
+state found necessary during source-validation returns to QA for measurement as STOP-1 — it is not absorbed.
+B389 stays OPEN until the 7b-3 implementation and independent gate prove the layout, the pins, the linked
+attribution and mobile invariance. This ruling does not touch B394/P1 (zero resident state) or the 36
+retained refusals (B395–B398).

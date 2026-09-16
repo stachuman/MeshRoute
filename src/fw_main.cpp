@@ -40,7 +40,8 @@
 #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
 #include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
 #include "firmware_config_parse.h"   // §cleanup 2026-07-14: pure config/provisioning parse primitives (native-tested)
-#include "fw_context.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
+#include "fw_context.h"
+#include "firmware_action_effects.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
 using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
@@ -317,41 +318,91 @@ uint32_t loop_stack_free_bytes() {   // extern in fw_context.h (shared with firm
 // Extra protocol knobs (nav/nav_ignore/hop_cap/leaf_id/gateway) apply live but are NOT persisted yet (reboot reverts).
 // handle_cfg_set moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment A); `using mrfw::handle_cfg_set` (top).
 
-static void do_reboot() {
-    mrcon.println(F("> rebooting")); mrcon.flush(); delay(100);
+mrfw::ActionSupport mrfw::action_build_support() {
+    ActionSupport support{};
+#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+    support.reboot = ActionBackend::nrf_reset;
+    support.ota = ActionBackend::nrf_dfu;
+#elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    support.reboot = ActionBackend::esp_reset;
+    support.ota = ActionBackend::wifi_ota;
+#endif
+#if defined(NRF52_PLATFORM)
+    support.fault = ActionBackend::nrf_fault;
+#elif defined(MRFAULT_ESP32)
+    support.fault = ActionBackend::esp_fault;
+#endif
+#if !defined(MR_NO_POWERSAVE)
+    support.power_save = true;
+#endif
+    return support;
+}
+
+mrfw::ActionOutcome mrfw::action_reboot_apply(ActionBackend backend, Print& out, ActionObserver observer,
+                                            ActionOutcome reset_outcome) {
+    out.println(F("> rebooting")); out.flush(); delay(100);
 #if defined(MRFAULT_HW)
     mrfault::mark_expected_reset();   // v2 fault log: classify the upcoming reset as REBOOT, not UNEXPECTED
 #endif
+    action_report(observer, reset_outcome);
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+    if (backend != ActionBackend::nrf_reset) return action_report(observer, ActionOutcome::backend_failed);
     NVIC_SystemReset();
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    if (backend != ActionBackend::esp_reset) return action_report(observer, ActionOutcome::backend_failed);
     ESP.restart();
+#else
+    (void)backend;
+    return action_report(observer, ActionOutcome::backend_failed);
 #endif
+    return action_report(observer, ActionOutcome::unexpected_return);
+}
+
+static void do_reboot() {
+    const auto admission = mrfw::action_reboot_admit(mrfw::action_build_support());
+    mrfw::action_reboot_apply(admission.plan.backend, mrcon);
 }
 
 // handle_factory_reset moved to firmware_commands.{h,cpp} (cleanup 2026-07-15; terminal reset via fw_reboot()).
 
 // `ota` — platform-native firmware update. XIAO: BLE DFU; Heltec: WiFi SoftAP + web upload.
-static void do_ota() {
+mrfw::ActionOutcome mrfw::action_ota_apply(ActionBackend backend, Print& out, ActionObserver observer) {
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
-    mrcon.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
-    mrcon.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
-    mrcon.flush(); delay(500);
+    if (backend != ActionBackend::nrf_dfu) return action_report(observer, ActionOutcome::backend_failed);
+    out.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
+    out.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
+    out.flush(); delay(500);
     mrfault::mark_expected_reset();   // v2 fault log: the OTA reset is a REBOOT, not UNEXPECTED
     NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET
+    action_report(observer, ActionOutcome::started);
     NVIC_SystemReset();
+    return action_report(observer, ActionOutcome::unexpected_return);
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    if (backend != ActionBackend::wifi_ota) return action_report(observer, ActionOutcome::backend_failed);
+    if (mrota::ota_start(out)) {
+        mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });
+        out.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
+        return action_report(observer, ActionOutcome::completed);
+    }
+    out.println(F("> OTA: start FAILED"));
+    return action_report(observer, ActionOutcome::backend_failed);
+#else
+    (void)backend; (void)out;
+    return action_report(observer, ActionOutcome::backend_failed);
+#endif
+}
+
+static void do_ota() {
+#if !(defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)) \
+    && (defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3))
     if (mrota::ota_active()) {
         mrota::ota_stop();
         mrcon.println(F("> OTA: stopped"));
-    } else {
-        if (mrota::ota_start()) {
-            mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });   // v2 fault log: a WiFi-OTA reboot is a REBOOT, not UNEXPECTED
-            mrcon.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
-        } else
-            mrcon.println(F("> OTA: start FAILED"));
+        return;
     }
 #endif
+    const auto admission = mrfw::action_ota_admit(mrfw::action_build_support());
+    mrfw::action_ota_apply(admission.plan.backend, mrcon);
 }
 
 // handle_sleep/handle_debug/handle_lookup/handle_nameof/handle_hashof/handle_whoami/hl/dump_help moved to firmware_commands.{h,cpp} (cleanup 2026-07-15).
@@ -392,27 +443,45 @@ static void dump_faults(Print& out) {
 // `crashtest <hang|fault|reboot>` — deliberate fault injection to exercise the WDT / HardFault / reset paths on
 // metal. Gated behind `debug on` (ALWAYS compiled, active only after `debug on` — so the bench exercises the real
 // deployable image, not a separate crashtest build). spec 2026-06-24 §9.
-static void handle_crashtest(const char* args, Print& out) {
-    if (!meshroute::g_mr_trace_on) { out.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
-    while (*args == ' ') ++args;
-    if (!strncmp(args, "hang", 4)) {
+mrfw::ActionOutcome mrfw::action_crash_apply(ActionPlan plan, Print& out, Print& reboot_out,
+                                           ActionObserver observer) {
+    if (plan.kind == ActionKind::crash_hang) {
         out.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); out.flush();
+        action_report(observer, ActionOutcome::started);
         for (;;) { /* no WDT feed -> DOG reset (nRF52); on a no-WDT build this hangs until power-cycle) */ }
-    } else if (!strncmp(args, "fault", 5)) {
+    } else if (plan.kind == ActionKind::crash_fault) {
         out.println(F("> crashtest fault — forcing a crash")); out.flush();
 #if defined(NRF52_PLATFORM)
-        volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;   // bad-address read -> BusFault -> HardFault capture
-        __asm volatile("udf #0");                                                              // belt+braces: undefined instruction
+        if (plan.backend != ActionBackend::nrf_fault) return action_report(observer, ActionOutcome::backend_failed);
+        action_report(observer, ActionOutcome::started);
+        volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;
+        __asm volatile("udf #0");
 #elif defined(MRFAULT_ESP32)
-        abort();                                                                               // -> the IDF panic handler -> reboot, ESP_RST_PANIC (recorded as PANIC)
+        if (plan.backend != ActionBackend::esp_fault) return action_report(observer, ActionOutcome::backend_failed);
+        action_report(observer, ActionOutcome::started);
+        abort();
 #else
         out.println(F("> (no HW fault path on this build)"));
+        return action_report(observer, ActionOutcome::backend_failed);
 #endif
-    } else if (!strncmp(args, "reboot", 6)) {
+        return action_report(observer, ActionOutcome::unexpected_return);
+    } else if (plan.kind == ActionKind::crash_reboot) {
         out.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); out.flush();
-        do_reboot();
-    } else {
+        return action_reboot_apply(plan.backend, reboot_out, observer);
+    }
+    return action_report(observer, ActionOutcome::backend_failed);
+}
+
+static void handle_crashtest(const char* args, Print& out) {
+    const auto admission = mrfw::action_crash_admit(args, strlen(args), meshroute::g_mr_trace_on,
+                                                 mrfw::action_build_support());
+    if (admission.status == mrfw::ActionAdmissionStatus::debug_disabled) {
+        out.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)"));
+    } else if (admission.status == mrfw::ActionAdmissionStatus::usage) {
         out.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
+    } else {
+        // Unsupported local fault still prints its original two lines; typed support stays explicit.
+        mrfw::action_crash_apply(admission.plan, out, mrcon);
     }
 }
 
@@ -420,7 +489,7 @@ static void handle_crashtest(const char* args, Print& out) {
 // records, KEEP the provisioning (node_id/layer/sf_list/lineage + identity), then go DORMANT (no reboot).
 // Run on every node -> the net falls silent (no stale beacons to cross-poison) -> power-cycle the whole fleet ->
 // everyone converges from true zero. spec 2026-06-24.
-static void handle_prep_restart(Print& out) {
+mrfw::ActionOutcome mrfw::action_prep_restart_apply(Print& out, ActionObserver observer) {
     g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
     // Drop the durable inbox RECORDS. ⛔ [[B134]] CORRECTED IN PLACE 2026-08-28: this line used to say
     // *"(no-op on the RAM/ESP32 store); the boot epoch bumps"*. Both halves have stopped being true on ESP32 —
@@ -442,6 +511,12 @@ static void handle_prep_restart(Print& out) {
         out.println(F("> prep-restart WARN: inbox erase incomplete (messages may remain on flash)"));
         out.println(F("> prep-restart — routes cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
     }
+    return action_report(observer, inbox_dm_ok && inbox_ch_ok ? ActionOutcome::completed
+                                                            : ActionOutcome::inbox_partial);
+}
+
+static void handle_prep_restart(Print& out) {
+    mrfw::action_prep_restart_apply(out);
 }
 
 // OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact

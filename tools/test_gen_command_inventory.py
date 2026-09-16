@@ -507,6 +507,80 @@ class TestHelpSurface(unittest.TestCase):
         self.assertIn("help_command", str(cm.exception))
 
 
+class TestActionAdmissionSurfaces(unittest.TestCase):
+    """P1: shared predicates keep their real provenance and verified caller chains."""
+
+    def modified_rows(self, rel, old, new):
+        with tempfile.TemporaryDirectory() as root:
+            for path in (*G.SCAN_FILES, G.AUTHORITY_TABLE):
+                dest = os.path.join(root, path)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copy2(os.path.join(REPO_ROOT, path), dest)
+            path = os.path.join(root, rel)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            self.assertEqual(text.count(old), 1, "control must match exactly once")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text.replace(old, new))
+            return G.build_rows(root)[0]
+
+    def test_real_predicate_rows_have_original_policy_and_actual_owner(self):
+        rows = G.build_rows(REPO_ROOT)[0]
+        actual = {(r.verb, r.subverb, r.func, r.transports, r.authority)
+                  for r in rows if r.func in {"action_sleep_admit", "action_crash_admit", "parse_confirm_token"}}
+        self.assertEqual(actual, {
+            ("sleep", "off", "action_sleep_admit", "serial,ble", "operator D"),
+            ("factory_reset", "confirm", "parse_confirm_token", "serial,ble", "owner D"),
+            *(("crashtest", mode, "action_crash_admit", "serial,ble", "owner D")
+              for mode in ("hang", "fault", "reboot")),
+        })
+        self.assertEqual(len(rows), 204)
+
+    def test_each_new_caller_hop_must_exist(self):
+        for rel, old, new in (
+            ("src/firmware_commands.cpp", "action_sleep_admit(arg, n,", "wrong_sleep(arg, n,"),
+            ("src/firmware_commands.cpp", "action_factory_reset_admit(arg, n,", "wrong_factory(arg, n,"),
+            ("src/firmware_action_effects.h", "parse_confirm_token(arg, n)", "wrong_confirm(arg, n)"),
+            ("src/fw_main.cpp", "mrfw::action_crash_admit(args,", "mrfw::wrong_crash(args,"),
+        ):
+            with self.subTest(rel=rel, call=old), self.assertRaisesRegex(G.GeneratorError, "no call"):
+                self.modified_rows(rel, old, new)
+
+    def test_predicate_enclosing_feature_gate_is_preserved(self):
+        path = "src/firmware_config_parse.h"
+        lo, hi = G._function_spans(REPO_ROOT, path)["parse_confirm_token"]
+        with open(os.path.join(REPO_ROOT, path), encoding="utf-8") as f:
+            body = "\n".join(f.read().split("\n")[lo - 1:hi])
+        rows = self.modified_rows(path, body, "#if MR_FEAT_TEST\n" + body + "\n#endif")
+        predicate = [r for r in rows if r.func == "parse_confirm_token"]
+        self.assertEqual(len(predicate), 1)
+        self.assertEqual(predicate[0].gate, "MR_FEAT_TEST")
+
+    def test_empty_confirmation_predicate_is_refused(self):
+        with self.assertRaisesRegex(G.GeneratorError, "produced NO rows"):
+            self.modified_rows("src/firmware_config_parse.h", 'strncmp(s, "confirm", 7)', '0')
+
+    def test_missing_confirmation_predicate_is_refused(self):
+        with self.assertRaisesRegex(G.GeneratorError, "no longer resolves"):
+            self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(", "bool missing_confirm_token(")
+
+    def test_duplicate_confirmation_predicate_is_refused(self):
+        with self.assertRaisesRegex(G.GeneratorError, "exactly one definition"):
+            self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
+                               'bool parse_confirm_token() { return false; }\ninline bool parse_confirm_token(')
+
+    def test_new_action_header_dispatcher_cannot_be_silently_omitted(self):
+        with self.assertRaisesRegex(G.GeneratorError, "unclassified function"):
+            self.modified_rows("src/firmware_action_effects.h", "} // namespace mrfw",
+                               'inline bool unclassified(const char* x) { return !strcmp(x, "newverb"); }\n} // namespace mrfw')
+
+    def test_comment_and_string_shadows_do_not_create_predicates(self):
+        rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
+            '// bool parse_confirm_token() { return false; }\n'
+            'const char* example = "bool parse_confirm_token() { }";\ninline bool parse_confirm_token(')
+        self.assertEqual(len(rows), 204)
+
+
 class TestRealTree(unittest.TestCase):
     """Controls against the real repository."""
 

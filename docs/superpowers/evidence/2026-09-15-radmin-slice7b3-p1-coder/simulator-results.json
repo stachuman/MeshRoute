@@ -1,0 +1,72 @@
+[
+  {
+    "name": "configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-final",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-codex-s7b3p1-gaz2dlhn/gate",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/gate",
+    "exit": 0,
+    "seconds": 0.4216187782585621,
+    "log": "/tmp/mr-codex-s7b3p1-gaz2dlhn/logs/simulator-configure.log",
+    "sha256": "5187fa83ee3461d24ba053a875b69e218e5194bc82431f5232f7c2eb9eeb49f1"
+  },
+  {
+    "name": "build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-final",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/gate",
+    "exit": 0,
+    "seconds": 41.23602697625756,
+    "log": "/tmp/mr-codex-s7b3p1-gaz2dlhn/logs/simulator-build.log",
+    "sha256": "6c9408bf6be4d96cb422ebddbee2397de2f4304340d8052f132c9a5240be84c5"
+  },
+  {
+    "name": "corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/corpus-final",
+      "--lus",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-final/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/gate",
+    "exit": 0,
+    "seconds": 52.64818447455764,
+    "log": "/tmp/mr-codex-s7b3p1-gaz2dlhn/logs/simulator-corpus.log",
+    "sha256": "fbd0072cd0dc12e7eb98e4e705f49deb11aae362a7a16035bcbbdf4251c5c7ba"
+  },
+  {
+    "name": "validate",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/corpus-final"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/gate",
+    "exit": 0,
+    "seconds": 0.6595835350453854,
+    "log": "/tmp/mr-codex-s7b3p1-gaz2dlhn/logs/simulator-validate.log",
+    "sha256": "94056eabd42f2b58467abc74c1eef09290f6fe99509b7159c45f51d80a934596"
+  }
+]

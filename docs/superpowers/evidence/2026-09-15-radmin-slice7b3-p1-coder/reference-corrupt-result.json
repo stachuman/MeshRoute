@@ -1,0 +1,10 @@
+{
+  "cmd": [
+    "/home/staszek/mr-slice2-ref/bin/python",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+    "--compare",
+    "/tmp/mr-codex-s7b3p1-gaz2dlhn/corrupted-reference-array.cpp"
+  ],
+  "exit": 1,
+  "scope": "named independent reference array, one byte flipped"
+}

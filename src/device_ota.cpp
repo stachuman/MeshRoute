@@ -89,21 +89,23 @@ static void handle_root() {
     s_server.send(200, "text/html", FPSTR(kOtaPage));
 }
 
-bool ota_start() {
+bool ota_start(Print& out) {
     if (s_active) return true;
     if (!WiFi.softAP("MeshRoute-OTA")) {
-        mrcon.println(F("OTA: SoftAP start FAILED"));
+        out.println(F("OTA: SoftAP start FAILED"));
         return false;
     }
-    mrcon.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
-    mrcon.println(WiFi.softAPIP());
+    out.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
+    out.println(WiFi.softAPIP());
     s_server.on("/",       HTTP_GET,  handle_root);
     s_server.on("/update", HTTP_POST, handle_update);
     s_server.begin();
     s_active = true;
-    mrcon.println(F("OTA: browse to the IP above, upload firmware.bin"));
+    out.println(F("OTA: browse to the IP above, upload firmware.bin"));
     return true;
 }
+
+bool ota_start() { return ota_start(mrcon); }
 
 void ota_stop() {
     if (!s_active) return;

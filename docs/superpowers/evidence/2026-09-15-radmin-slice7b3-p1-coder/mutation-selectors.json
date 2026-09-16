@@ -1,0 +1,435 @@
+{
+  "S": [
+    "actionadmit"
+  ],
+  "H": [
+    "a0rx",
+    "b134ack",
+    "b134inbox",
+    "b134ram",
+    "b134store",
+    "b159mac",
+    "b159map",
+    "b159rx",
+    "b161hash",
+    "b161mac",
+    "b161rx",
+    "b20codec",
+    "b20mac",
+    "b251hash",
+    "b251rx",
+    "cmdauthority",
+    "consoleline",
+    "devicenv",
+    "fwactivation",
+    "grantadmit",
+    "grantpark",
+    "macwait",
+    "radmin2codec",
+    "radmin3acl",
+    "radmin3id",
+    "radmin3verbs",
+    "radmin5runtime",
+    "radmin5rx",
+    "radmin5session",
+    "radmin72rx",
+    "radmin72session",
+    "radmin7exec",
+    "radmin7rx",
+    "radmin7transcript",
+    "remoteactivation",
+    "sliceAinbox",
+    "sliceAjson",
+    "sliceBmac",
+    "sliceBnode",
+    "sliceBrx",
+    "sliceCinbox",
+    "sliceCpull",
+    "sliceDack",
+    "sliceDclear",
+    "sliceDstore",
+    "sliceDtoken",
+    "sliceEnode",
+    "sliceGinbox",
+    "sliceGjson",
+    "sliceGrx",
+    "teamgrant",
+    "teamkeyring"
+  ],
+  "union": [
+    "a0rx",
+    "actionadmit",
+    "b134ack",
+    "b134inbox",
+    "b134ram",
+    "b134store",
+    "b159mac",
+    "b159map",
+    "b159rx",
+    "b161hash",
+    "b161mac",
+    "b161rx",
+    "b20codec",
+    "b20mac",
+    "b251hash",
+    "b251rx",
+    "cmdauthority",
+    "consoleline",
+    "devicenv",
+    "fwactivation",
+    "grantadmit",
+    "grantpark",
+    "macwait",
+    "radmin2codec",
+    "radmin3acl",
+    "radmin3id",
+    "radmin3verbs",
+    "radmin5runtime",
+    "radmin5rx",
+    "radmin5session",
+    "radmin72rx",
+    "radmin72session",
+    "radmin7exec",
+    "radmin7rx",
+    "radmin7transcript",
+    "remoteactivation",
+    "sliceAinbox",
+    "sliceAjson",
+    "sliceBmac",
+    "sliceBnode",
+    "sliceBrx",
+    "sliceCinbox",
+    "sliceCpull",
+    "sliceDack",
+    "sliceDclear",
+    "sliceDstore",
+    "sliceDtoken",
+    "sliceEnode",
+    "sliceGinbox",
+    "sliceGjson",
+    "sliceGrx",
+    "teamgrant",
+    "teamkeyring"
+  ],
+  "configured": 827,
+  "rows": [
+    {
+      "target": "a0rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 7,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "actionadmit",
+      "path": "src/firmware_action_effects.h",
+      "count": 10,
+      "sha256": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd"
+    },
+    {
+      "target": "b134ack",
+      "path": "lib/console/console_json.h",
+      "count": 2,
+      "sha256": "1dfbd0e8c8536f251b709076a33ef054684efad002d152bc5e83dcc6af8f8f53"
+    },
+    {
+      "target": "b134inbox",
+      "path": "lib/core/inbox.cpp",
+      "count": 5,
+      "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b"
+    },
+    {
+      "target": "b134ram",
+      "path": "lib/core/fixed_inbox_store.h",
+      "count": 3,
+      "sha256": "de7f838adceec69890ee1909c09238faa7cb3a18495e9be1439367fe683e7732"
+    },
+    {
+      "target": "b134store",
+      "path": "lib/core/segmented_inbox_store.h",
+      "count": 39,
+      "sha256": "6a2ce6a7821dd6a4bafbb8c154694d2582a67cc7b541e95e8a1d7d60e2473a79"
+    },
+    {
+      "target": "b159mac",
+      "path": "lib/core/node_mac.cpp",
+      "count": 2,
+      "sha256": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8"
+    },
+    {
+      "target": "b159map",
+      "path": "lib/core/node.cpp",
+      "count": 2,
+      "sha256": "4d55fe82d4155cbf27adbc6c01cc29a8a5f03d2e80cd509e21b515a7f623342a"
+    },
+    {
+      "target": "b159rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 3,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "b161hash",
+      "path": "lib/core/node_hashlocate.cpp",
+      "count": 6,
+      "sha256": "ff7e36fbd2dbe7941354cae69fe79000aacf0295fb9e78092612185d30f1168d"
+    },
+    {
+      "target": "b161mac",
+      "path": "lib/core/node_mac.cpp",
+      "count": 1,
+      "sha256": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8"
+    },
+    {
+      "target": "b161rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 8,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "b20codec",
+      "path": "lib/core/frame_codec.h",
+      "count": 5,
+      "sha256": "d9476c95127cbd58cb9fd3eb98dce94f67b07f0c952081ae5ea5892b42036a66"
+    },
+    {
+      "target": "b20mac",
+      "path": "lib/core/node_mac.cpp",
+      "count": 11,
+      "sha256": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8"
+    },
+    {
+      "target": "b251hash",
+      "path": "lib/core/node_hashlocate.cpp",
+      "count": 55,
+      "sha256": "ff7e36fbd2dbe7941354cae69fe79000aacf0295fb9e78092612185d30f1168d"
+    },
+    {
+      "target": "b251rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 19,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "cmdauthority",
+      "path": "src/firmware_command_authority.h",
+      "count": 16,
+      "sha256": "fb33dcad48b36d87d8f09a31346d030a867ec708d6f49b0524922a5a6901d3ac"
+    },
+    {
+      "target": "consoleline",
+      "path": "lib/console/console_line.h",
+      "count": 12,
+      "sha256": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9"
+    },
+    {
+      "target": "devicenv",
+      "path": "src/device_nv.h",
+      "count": 42,
+      "sha256": "1f383a2decd6391c38303273314e9e6750e3d1e60f2d852e0a22283b3606923d"
+    },
+    {
+      "target": "fwactivation",
+      "path": "src/firmware_remote_activation.h",
+      "count": 10,
+      "sha256": "ca2e597ff0e5e62bb6ef23afc7cb3a8d4ce75881306742372132eef3d9e01514"
+    },
+    {
+      "target": "grantadmit",
+      "path": "lib/core/node_mac.cpp",
+      "count": 1,
+      "sha256": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8"
+    },
+    {
+      "target": "grantpark",
+      "path": "lib/core/node_hashlocate.cpp",
+      "count": 3,
+      "sha256": "ff7e36fbd2dbe7941354cae69fe79000aacf0295fb9e78092612185d30f1168d"
+    },
+    {
+      "target": "macwait",
+      "path": "lib/core/mac_wait_windows.h",
+      "count": 10,
+      "sha256": "872cf244672dc6c02969a038f4374e4a44fdf05057c016f86d02ff3b3ffc41be"
+    },
+    {
+      "target": "radmin2codec",
+      "path": "lib/core/remote_codec.cpp",
+      "count": 105,
+      "sha256": "afc81d9205ba0e1da45ee9b4d0666717405040366ffe2418383c507087ac1954"
+    },
+    {
+      "target": "radmin3acl",
+      "path": "src/firmware_admin_acl.h",
+      "count": 36,
+      "sha256": "7fd78fdbd5e588da342ad61182e930bc3c0ed7a4d432dea9a80a3712b2077bfd"
+    },
+    {
+      "target": "radmin3id",
+      "path": "src/firmware_admin_identity.h",
+      "count": 23,
+      "sha256": "99d176fa7c0bb50b4c72985fb82bc22f6ac5a60e627a8691ffc4f1cc9f81dd32"
+    },
+    {
+      "target": "radmin3verbs",
+      "path": "src/firmware_admin_verbs.h",
+      "count": 28,
+      "sha256": "79212818546c5f6b91384b9450ffe474b5a9ca04e952d6eeafb3717ea59f0e52"
+    },
+    {
+      "target": "radmin5runtime",
+      "path": "src/firmware_admin_runtime.h",
+      "count": 16,
+      "sha256": "9c2a2044af6586ab5b0519e9ab6d79929ec7328b9dc865106db76149d4c9dfc6"
+    },
+    {
+      "target": "radmin5rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 14,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "radmin5session",
+      "path": "lib/core/remote_session.cpp",
+      "count": 25,
+      "sha256": "76f4fa02f32d71b080b5a59cf8c3225695a788802879e17a9303b06e9ef84099"
+    },
+    {
+      "target": "radmin72rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 15,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "radmin72session",
+      "path": "lib/core/remote_session.cpp",
+      "count": 36,
+      "sha256": "76f4fa02f32d71b080b5a59cf8c3225695a788802879e17a9303b06e9ef84099"
+    },
+    {
+      "target": "radmin7exec",
+      "path": "src/firmware_remote_executor.h",
+      "count": 20,
+      "sha256": "8bd963b2b343e5e03b61769e328a10c904bf73f1a636cc62c190d455f7b4e3b7"
+    },
+    {
+      "target": "radmin7rx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 13,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "radmin7transcript",
+      "path": "lib/core/remote_session.cpp",
+      "count": 20,
+      "sha256": "76f4fa02f32d71b080b5a59cf8c3225695a788802879e17a9303b06e9ef84099"
+    },
+    {
+      "target": "remoteactivation",
+      "path": "lib/core/remote_activation.h",
+      "count": 22,
+      "sha256": "4510313092503927c29e983a9f7ecaee157993ac3b29e1026bb8a2f661ae361b"
+    },
+    {
+      "target": "sliceAinbox",
+      "path": "lib/core/inbox.cpp",
+      "count": 1,
+      "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b"
+    },
+    {
+      "target": "sliceAjson",
+      "path": "lib/console/console_json.cpp",
+      "count": 1,
+      "sha256": "6eee176e19eb3ff10102a6537fa173653f9a18cda040816bc649c63e8a139109"
+    },
+    {
+      "target": "sliceBmac",
+      "path": "lib/core/node_mac.cpp",
+      "count": 4,
+      "sha256": "4d85ea2e88e3e5a65e9b921d63d5082043061f597a6d591f78d797694ef2dda8"
+    },
+    {
+      "target": "sliceBnode",
+      "path": "lib/core/node.cpp",
+      "count": 8,
+      "sha256": "4d55fe82d4155cbf27adbc6c01cc29a8a5f03d2e80cd509e21b515a7f623342a"
+    },
+    {
+      "target": "sliceBrx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 16,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "sliceCinbox",
+      "path": "lib/core/inbox.h",
+      "count": 2,
+      "sha256": "f8ddc798652ffc4fea6f92ddb75e500e791d450d5d19015a78ed1a58096dd19a"
+    },
+    {
+      "target": "sliceCpull",
+      "path": "lib/core/inbox.cpp",
+      "count": 2,
+      "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b"
+    },
+    {
+      "target": "sliceDack",
+      "path": "lib/console/console_json.h",
+      "count": 1,
+      "sha256": "1dfbd0e8c8536f251b709076a33ef054684efad002d152bc5e83dcc6af8f8f53"
+    },
+    {
+      "target": "sliceDclear",
+      "path": "lib/core/inbox.cpp",
+      "count": 5,
+      "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b"
+    },
+    {
+      "target": "sliceDstore",
+      "path": "lib/core/segmented_inbox_store.h",
+      "count": 3,
+      "sha256": "6a2ce6a7821dd6a4bafbb8c154694d2582a67cc7b541e95e8a1d7d60e2473a79"
+    },
+    {
+      "target": "sliceDtoken",
+      "path": "src/firmware_config_parse.h",
+      "count": 2,
+      "sha256": "6df46b2e5b5eba98f259f621cd8c55b8e09feb73ec285989279acf37f66b886b"
+    },
+    {
+      "target": "sliceEnode",
+      "path": "lib/core/node.cpp",
+      "count": 3,
+      "sha256": "4d55fe82d4155cbf27adbc6c01cc29a8a5f03d2e80cd509e21b515a7f623342a"
+    },
+    {
+      "target": "sliceGinbox",
+      "path": "lib/core/inbox.cpp",
+      "count": 4,
+      "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b"
+    },
+    {
+      "target": "sliceGjson",
+      "path": "lib/console/console_json.cpp",
+      "count": 16,
+      "sha256": "6eee176e19eb3ff10102a6537fa173653f9a18cda040816bc649c63e8a139109"
+    },
+    {
+      "target": "sliceGrx",
+      "path": "lib/core/node_mac_rx.cpp",
+      "count": 42,
+      "sha256": "4c1bee50d31298ba9ffcb0290ea936ae6a6ae309c5e52f8c847e043d74685eb6"
+    },
+    {
+      "target": "teamgrant",
+      "path": "lib/core/node.cpp",
+      "count": 4,
+      "sha256": "4d55fe82d4155cbf27adbc6c01cc29a8a5f03d2e80cd509e21b515a7f623342a"
+    },
+    {
+      "target": "teamkeyring",
+      "path": "src/firmware_team_keyring.h",
+      "count": 68,
+      "sha256": "a427c1e36e76239d5a5dfae122cdeffc038722d1f2e23b82275f4e9bb14a43c5"
+    }
+  ]
+}

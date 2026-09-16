@@ -1,0 +1,17 @@
+[
+  {
+    "file": "src/firmware_commands.cpp",
+    "function": "handle_sleep",
+    "comparison_sites": 0
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "function": "handle_factory_reset",
+    "comparison_sites": 0
+  },
+  {
+    "file": "src/fw_main.cpp",
+    "function": "handle_crashtest",
+    "comparison_sites": 0
+  }
+]

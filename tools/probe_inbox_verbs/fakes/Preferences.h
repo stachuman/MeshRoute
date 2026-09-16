@@ -50,6 +50,7 @@ struct MrProbeNvSlot {
 };
 
 struct MrProbeNv {
+    void (*observe)(const char*) = nullptr; // optional operation trace for the real-action probe
     MrProbeNvSlot slot[8];
     // --- the medium's honest, controllable facts ---
     bool ns_present = false;   // a READ-ONLY begin() succeeds: this namespace has been written before
@@ -91,6 +92,7 @@ inline MrProbeNv& mrprobe_nv() { static MrProbeNv nv; return nv; }
 class Preferences {
 public:
     bool begin(const char* ns, bool readOnly = false) {
+        if (mrprobe_nv().observe && ns && !std::strcmp(ns, "mr")) mrprobe_nv().observe("nv-open");
         _ns = ns ? ns : "";
         _open = readOnly ? mrprobe_nv().ns_present : mrprobe_nv().rw_ok;
         return _open;
@@ -118,7 +120,7 @@ public:
         return nv.fail_write ? 0 : n;
     }
     bool remove(const char*) { return true; }
-    bool clear() { return true; }
+    bool clear() { if (mrprobe_nv().observe) mrprobe_nv().observe("nv-clear"); return true; }
 private:
     const char* _ns  = "";
     bool        _open = false;

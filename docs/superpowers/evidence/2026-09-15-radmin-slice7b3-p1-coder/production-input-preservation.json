@@ -1,0 +1,37 @@
+{
+  "head": "c591721c2e09bb4e7583f49e458da9e5155cf822",
+  "files": [
+    {
+      "path": "src/fw_main.cpp",
+      "sha256": "9689b68f37792e7713feb06b253c16351e367279ae231c66dc0c26f8950b4dc8",
+      "same_gate": true,
+      "same_board": true
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "sha256": "7263b45264ddffbe63659c3b59e7b4c8615573c285d5774c7f9674e4980c508e",
+      "same_gate": true,
+      "same_board": true
+    },
+    {
+      "path": "src/device_ota.cpp",
+      "sha256": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+      "same_gate": true,
+      "same_board": true
+    },
+    {
+      "path": "src/device_ota.h",
+      "sha256": "082873c9eab897eb2052c430ee99fbc1f554c065fdafa9109becef54ff4d39dd",
+      "same_gate": true,
+      "same_board": true
+    },
+    {
+      "path": "src/firmware_action_effects.h",
+      "sha256": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd",
+      "same_gate": true,
+      "same_board": true
+    }
+  ],
+  "entire_dispatch_tail_byte_identical": true,
+  "core_executor_profiles_anchors_diff_empty": true
+}

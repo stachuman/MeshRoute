@@ -71,3 +71,24 @@ Every recorded defect class in this codebase (masking holes, vacuous controls, "
 - **PASS with fold-ins**: text corrections that need no re-review; fold in, then proceed.
 - **HOLD**: numbered required corrections; one re-review of the changed sections only.
 - **STOP**: a coder's slice hit a brief-named stop condition; nothing proceeds until the owner rules.
+
+## Owner ruling 2026-09-15 — commits are not blocking points
+
+**Owner, verbatim:** *"Commit are not blocking points for progress."*
+
+**What changes:** a slice's next step (source-validation of the next brief, its implementation, the QA gate, a
+brief refresh at the new base) may start on the **frozen, independently QA-passed** tree without waiting for the
+owner's `git commit`. The commit remains the owner's, whenever the owner chooses (D4 unchanged: agents never
+commit). What still gates progress is the **gate**, not the commit.
+
+**What does not change:**
+- A brief still names its base. When the base is uncommitted, the brief pins **the last commit hash plus the
+  SHA-256 of every uncommitted input it builds on** (the frozen-handoff inventory), and the coder verifies both
+  before editing — step 4's "mismatch is a STOP" applies to that pair exactly as it applied to a commit hash.
+- Attribution stays per slice: a later slice must not be measured against a base that mixes in unreviewed
+  edits. The frozen QA-passed state is the base; anything else on the tree is a STOP-1 to reconcile.
+- Never reset, clean or discard another agent's uncommitted work; the measured-tree rule applies to the
+  *frozen set*, not to `git status` being empty.
+- Step 8 reads: Author lands docs on PASS; the owner commits at a time of their choosing and bench-verifies.
+  Wording in briefs such as "own gate and owner commit, then QA refreshes the base" means "own gate, then
+  refresh"; the commit may land before, during or after that refresh.

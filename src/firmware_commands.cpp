@@ -6,6 +6,7 @@
 // handle_crashtest/handle_prep_restart) is reached ONLY via the fw_context.h wrappers — this TU MUST NOT include
 // device_fault.h (its ISR vectors + the MRFAULT_HW/MRFAULT_ESP32 macros are single-TU). Behaviour-preserving.
 #include "firmware_commands.h"
+#include "firmware_action_effects.h"
 #include "firmware_command_authority.h"
 #include "firmware_remote_activation.h"
 #include "firmware_remote_executor.h"
@@ -1068,21 +1069,31 @@ static void do_regen(Print& out) {
 
 // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
 // + empty inbox). The literal `confirm` token guards against an accidental paste (irreversible).
+ActionOutcome action_factory_reset_apply(ActionBackend backend, Print& out, Print& reboot_out,
+                                         ActionObserver observer) {
+    out.println(F("> factory reset — erasing all NV, rebooting…"));
+    // §5: drop the durable inbox RECORDS (their store's domain); factory_erase does the NV slots + the meta.
+    // ⛔ [[B134]] QG blocker 3: BOTH results are now checked. `wipe()` used to return `void`, so this verb
+    //    rebooted claiming a factory state while records stayed RECOVERABLE on flash — a data-retention lie in
+    //    the worst direction, since a user told the history is gone will act as if it is. ⚠ Both stores are
+    //    wiped BEFORE the `&&` short-circuits could skip one: a partial erase must still erase what it can.
+    // ★ "MAY remain" is the RULED wording (2026-08-29) and the qualifier is load-bearing: every segment can
+    //   erase cleanly and the METADATA save still fail, so a flat "messages remain" would be its own overclaim.
+    const bool dm_ok = g_inbox_dm.wipe(), ch_ok = g_inbox_ch.wipe();
+    if (!dm_ok || !ch_ok) out.println(F("> factory_reset WARN: inbox erase incomplete (messages may remain on flash)"));
+    const bool nv_ok = mrnv::factory_erase();
+    if (!nv_ok) out.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
+    const auto reset_outcome = !dm_ok || !ch_ok
+        ? (nv_ok ? ActionOutcome::inbox_partial : ActionOutcome::inbox_nv_partial)
+        : (nv_ok ? ActionOutcome::started : ActionOutcome::nv_partial);
+    return action_reboot_apply(backend, reboot_out, observer, reset_outcome);
+}
+
 static void handle_factory_reset(const char* arg, size_t n, Print& out) {
-    while (n && *arg == ' ') { ++arg; --n; }
-    if (n == 7 && !strncmp(arg, "confirm", 7)) {
-        out.println(F("> factory reset — erasing all NV, rebooting…"));
-        // §5: drop the durable inbox RECORDS (their store's domain); factory_erase does the NV slots + the meta.
-        // ⛔ [[B134]] QG blocker 3: BOTH results are now checked. `wipe()` used to return `void`, so this verb
-        //    rebooted claiming a factory state while records stayed RECOVERABLE on flash — a data-retention lie in
-        //    the worst direction, since a user told the history is gone will act as if it is. ⚠ Both stores are
-        //    wiped BEFORE the `&&` short-circuits could skip one: a partial erase must still erase what it can.
-        // ★ "MAY remain" is the RULED wording (2026-08-29) and the qualifier is load-bearing: every segment can
-        //   erase cleanly and the METADATA save still fail, so a flat "messages remain" would be its own overclaim.
-        const bool dm_ok = g_inbox_dm.wipe(), ch_ok = g_inbox_ch.wipe();
-        if (!dm_ok || !ch_ok) out.println(F("> factory_reset WARN: inbox erase incomplete (messages may remain on flash)"));
-        if (!mrnv::factory_erase()) out.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
-        fw_reboot();
+    const auto admission = action_factory_reset_admit(arg, n, action_build_support());
+    // Build-level support is for a later remote consumer; preserve the local erase even without reset HW.
+    if (admission.status != ActionAdmissionStatus::confirmation) {
+        action_factory_reset_apply(admission.plan.backend, out, mrcon);
     } else {
         out.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
     }
@@ -1093,15 +1104,23 @@ static void handle_factory_reset(const char* arg, size_t n, Print& out) {
 // on its own — this command is only for a node you're connected to. After `sleep on` the console goes quiet
 // (light-sleep gates the UART) — reconnect to get it back (DTR resets the board). The node still wakes on RX
 // (a peer DM prints RECV) and on its scheduled timers. No-op on -DMR_NO_POWERSAVE builds (the gate is gone).
-static void handle_sleep(const char* arg, size_t n, Print& out) {
-    while (n && *arg == ' ') { ++arg; --n; }
-    if (n >= 3 && !strncmp(arg, "off", 3)) {
+ActionOutcome action_sleep_apply(ActionKind kind, Print& out, ActionObserver observer) {
+    if (kind == ActionKind::sleep_off) {
         g_force_sleep = false;
         out.println(F("> sleep off — staying awake while a host is connected"));
-    } else {
+    } else if (kind == ActionKind::sleep_on) {
         g_force_sleep = true;
         out.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
+    } else {
+        return action_report(observer, ActionOutcome::backend_failed);
     }
+    return action_report(observer, ActionOutcome::completed);
+}
+
+static void handle_sleep(const char* arg, size_t n, Print& out) {
+    const auto admission = action_sleep_admit(arg, n, action_build_support());
+    // MR_NO_POWERSAVE still sets the local flag and prints; it only removes the sleep policy.
+    action_sleep_apply(admission.plan.kind, out);
 }
 
 // `debug on` / `debug off` (also `debug 1`/`debug 0`) — gate the decoded per-frame «rx/»tx console trace

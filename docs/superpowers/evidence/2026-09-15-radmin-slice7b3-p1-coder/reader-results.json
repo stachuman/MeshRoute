@@ -1,0 +1,100 @@
+[
+  {
+    "name": "console",
+    "cmd": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 63.87994123622775,
+    "sha256": "87d31882f5ac826210fc6e77df1f2fe3ff264093bf3f08e9d81bde1790b3c21b"
+  },
+  {
+    "name": "console-no-neg",
+    "cmd": [
+      "bash",
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 20.315673623234034,
+    "sha256": "13405cd17b16ea201f06801e7b32c77a917e0b8938cb81934d2a7651e523294b"
+  },
+  {
+    "name": "inventory-write",
+    "cmd": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--write"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 1.9281864389777184,
+    "sha256": "09ae95de23dc1b790f0957569b00d5c9b1a103a36b8713197be3b0855d85ebb0"
+  },
+  {
+    "name": "inventory-bare",
+    "cmd": [
+      "python3",
+      "tools/gen_command_inventory.py"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 1.929330263286829,
+    "sha256": "671cebdeb27eb3e6223e4dcc8e40eca5bb781c1d3344115e110004114d18a03b"
+  },
+  {
+    "name": "inventory-check",
+    "cmd": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 1.931077841669321,
+    "sha256": "671cebdeb27eb3e6223e4dcc8e40eca5bb781c1d3344115e110004114d18a03b"
+  },
+  {
+    "name": "authority",
+    "cmd": [
+      "python3",
+      "tools/check_command_authority.py"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 0.04896426945924759,
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "name": "authority-controls",
+    "cmd": [
+      "python3",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 0.32845431938767433,
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87"
+  },
+  {
+    "name": "tools",
+    "cmd": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/readers-final",
+    "exit": 0,
+    "seconds": 636.0710099190474,
+    "sha256": "ac21401ba337ea7e896a441b220cea0218babe878479c9d6b0598b657a087915"
+  }
+]

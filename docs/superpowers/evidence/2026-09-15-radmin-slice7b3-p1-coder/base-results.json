@@ -1,0 +1,100 @@
+[
+  {
+    "name": "base-native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 25.213918268680573
+  },
+  {
+    "name": "base-native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 0.6331540793180466
+  },
+  {
+    "name": "base-sim-configure",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-build",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 0.4162861444056034
+  },
+  {
+    "name": "base-sim-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-build",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 36.643808126449585
+  },
+  {
+    "name": "base-corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/corpus-base",
+      "--lus",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/sim-build/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 53.093761045485735
+  },
+  {
+    "name": "base-corpus-validate",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-codex-s7b3p1-gaz2dlhn/corpus-base"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 0.6548574902117252
+  },
+  {
+    "name": "base-boards",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--output",
+      ".pio-measure/p1-base",
+      "--jobs",
+      "1"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3p1-gaz2dlhn/base",
+    "exit": 0,
+    "seconds": 47.6175707988441
+  }
+]

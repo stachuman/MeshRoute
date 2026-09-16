@@ -8,8 +8,11 @@
 #pragma once
 #include <stdint.h>
 
+class Print;
+
 namespace mrota {
 
+bool ota_start(Print& out); // same idempotent entry with an explicit startup-output sink
 bool ota_start();        // bring up SoftAP + web server; false on failure
 void ota_stop();         // tear down
 void ota_loop();         // call from main loop — handles one HTTP request (non-blocking)

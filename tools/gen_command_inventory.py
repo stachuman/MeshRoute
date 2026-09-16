@@ -140,17 +140,21 @@ SURFACES = (
     # ---- surface 2: the sub-verb dispatchers ---------------------------------------------------------------
     Surface("src/firmware_commands.cpp", "handle_route_cmd", "sub", "serial,ble", parent="route",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_route_cmd"),)),
-    Surface("src/firmware_commands.cpp", "handle_sleep", "sub", "serial,ble", parent="sleep",
-            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_sleep"),)),
+    Surface("src/firmware_action_effects.h", "action_sleep_admit", "sub", "serial,ble", parent="sleep",
+            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_sleep"),
+                          ("src/firmware_commands.cpp", "handle_sleep", "action_sleep_admit"))),
     Surface("src/firmware_commands.cpp", "handle_debug", "sub", "serial,ble", parent="debug",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_debug"),)),
-    Surface("src/firmware_commands.cpp", "handle_factory_reset", "sub", "serial,ble", parent="factory_reset",
-            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_factory_reset"),)),
+    Surface("src/firmware_config_parse.h", "parse_confirm_token", "sub", "serial,ble", parent="factory_reset",
+            reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_factory_reset"),
+                          ("src/firmware_commands.cpp", "handle_factory_reset", "action_factory_reset_admit"),
+                          ("src/firmware_action_effects.h", "action_factory_reset_admit", "parse_confirm_token"))),
     Surface("src/firmware_commands.cpp", "handle_testsched", "sub", "serial,ble", parent="testsend|testch",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_testsched"),)),
-    Surface("src/fw_main.cpp", "handle_crashtest", "sub", "serial,ble", parent="crashtest",
+    Surface("src/firmware_action_effects.h", "action_crash_admit", "sub", "serial,ble", parent="crashtest",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "fw_crashtest"),
-                          ("src/fw_main.cpp", "fw_crashtest", "handle_crashtest"))),
+                          ("src/fw_main.cpp", "fw_crashtest", "handle_crashtest"),
+                          ("src/fw_main.cpp", "handle_crashtest", "action_crash_admit"))),
     Surface("src/firmware_config.cpp", "handle_cfg_set", "sub", "serial,ble", parent="cfg set",
             reached_from=(("src/firmware_commands.cpp", "dispatch", "handle_cfg_set"),
                           ("src/fw_main.cpp", "ble_dispatch_line", "handle_cfg_set"))),
@@ -254,6 +258,8 @@ NON_COMMAND = {
 
 SCAN_FILES = (
     "src/firmware_commands.cpp",
+    "src/firmware_action_effects.h",
+    "src/firmware_config_parse.h",
     "src/firmware_help.h",
     "src/firmware_config.cpp",
     "src/firmware_remote.cpp",
@@ -263,6 +269,13 @@ SCAN_FILES = (
     "src/firmware_admin_client_verbs.h",
     "lib/console/console_parse.cpp",
 )
+
+# P1 reuses this existing library predicate for factory confirmation. The rest of
+# the library parses configuration VALUES, outside the command scanner's scope.
+# All prior command files and the new action header retain full-file coverage.
+# Keep the actual predicate's file/line and verify every caller hop above.
+PREDICATE_ONLY = {"src/firmware_config_parse.h": ("parse_confirm_token",)}
+
 
 # ★ THE REAL PRODUCT PROFILE MATRIX — the resolved macro set of at least one REAL board env. Moved here from the
 #   RETIRED `tools/probe_console_sink/help_manifest.py` by slice 0g so that ONE table serves the generator, the
@@ -453,6 +466,22 @@ def scan_file(root: str, rel: str) -> list:
         text = fh.read()
     lines = text.split("\n")
     blank_lines = _blank_comments_and_literals(text).split("\n")
+    if rel in PREDICATE_ONLY:
+        spans = _function_spans(root, rel)
+        keep = set()
+        for name in PREDICATE_ONLY[rel]:
+            definitions = [i for i, (raw, blank) in enumerate(zip(lines, blank_lines), 1)
+                           if (m := FUNC_DEF_RE.match(raw)) and m.group(1) == name
+                           and "{" in blank and not blank.rstrip().endswith(";")]
+            if len(definitions) != 1 or name not in spans:
+                raise GeneratorError("predicate %s::%s must resolve to exactly one definition" % (rel, name))
+            lo, hi = spans[name]
+            keep.update(range(lo, hi + 1))
+        # Keep enclosing feature gates too; blank, never delete, other source lines.
+        keep.update(i for i, line in enumerate(blank_lines, 1)
+                    if re.match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line))
+        lines = [line if i in keep else "" for i, line in enumerate(lines, 1)]
+        blank_lines = [line if i in keep else "" for i, line in enumerate(blank_lines, 1)]
 
     sites = []
     value_sites = []

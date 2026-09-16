@@ -1,0 +1,18 @@
+{
+  "README.md": "668e821c8d7b34c6503d13530d0b3bfb67be12b4187b42ead22b8035272d5cae",
+  "attempt-notes.json": "c5877c62f163911cef9aac56db580b18c5927c4a421e690a4f2d50ae934238fb",
+  "baseline-compile.log.gz": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+  "baseline.cpp": "6cf99c44a4299259aa0ca6687186d8b477f3d716bc1ab0ab48a634841ad9118b",
+  "baseline.log.gz": "823ebb241c49743e40fd63426921fc95b92f043201ef5f4662bf0707ea54b9b3",
+  "factory-order-proof.json": "070c68a198ae148190e8ad746063fa4904e629aabca685f7ac32536b3206f6ad",
+  "factory-proof.py": "f1ad217e7040cc622241a10d9d5ec32efa792d9d7e60c67412fc48df6c07e400",
+  "inbox-warning-after-nv-compile.log.gz": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+  "inbox-warning-after-nv.cpp": "a73d27046126f5e2dbdd7ddf3bb68ba0be116a3a5edcf33eea33180be2d755d6",
+  "inbox-warning-after-nv.log.gz": "abe2c9b3e8251043406a780a232c0aa394b796d9e620a502fab54152ef34b2cf",
+  "input-receipt.json": "14f50d40f4f9f66f0878114ae51d69b06806fa8bec1e19fc6244764e36071904",
+  "inputs-before.json": "12b6c7f126682bd948821bed0e086107f3d12e885459d3f3ede955b9f53515c8",
+  "inventory.py": "fa921a3123f111c266ccffff8b32c4ed20069c49ce11b6f0ebb72d7f305d072f",
+  "permitted-preparation.patch.gz": "9e0f78ed0b0054f1c50fbbe50cecd36b46a2866893e9d05c9f2a04d9f835ba83",
+  "preservation.json": "2244e1fedb0a8d1008d69ec9cbb867ea778b79f0eaa7aa103395907a44585cf6",
+  "simulator-before.json": "2a9dab548a725619f72f4a73c93fc593f0f63bcf56bb9029e2ac472e0da7985d"
+}
