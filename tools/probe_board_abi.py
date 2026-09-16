@@ -107,6 +107,7 @@ BOARD_TARGETS = ("heltec_mobile", "gateway")
 PROBE_HEADERS = (
     "mr_features.h",
     "node.h",
+    "remote_session.h",
     "device_nv.h",
     "firmware_team_keyring.h",
     "firmware_ui_model.h",
@@ -144,6 +145,9 @@ PROBE_HEADERS = (
 PINNED: tuple[tuple[str, str], ...] = (
     # --- always compiled, every env ---
     ("meshroute::Node",        "1"),
+    ("meshroute::DeferredActionRecord", "1"),
+    ("meshroute::TranscriptHeader", "1"),
+    ("meshroute::RemoteSessionState", "1"),
     ("mrnv::UiPresetSlot",     "1"),
     ("mrnv::UiPresetBlob",     "1"),
     ("mrfw::SavedKeyEntry",    "1"),
@@ -280,7 +284,10 @@ FIXTURE_SOURCE = (
 #      `tools/measure_board.py pair`, not this probe.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (230896, 8, True),   # R-RA-35: own-toolchain ABI reveal 225920 + 4976
+        "meshroute::Node":         (230976, 8, True),   # R-RA-40: 230896 + 80; measured by this probe
+        "meshroute::DeferredActionRecord": (40, 8, True),
+        "meshroute::TranscriptHeader": (32, 8, True),
+        "meshroute::RemoteSessionState": (8904, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -302,6 +309,9 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     },
     "heltec_mobile": {
         "meshroute::Node":         (117912, 8, True),
+        "meshroute::DeferredActionRecord": (40, 8, True),
+        "meshroute::TranscriptHeader": (32, 8, True),
+        "meshroute::RemoteSessionState": (8904, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),
@@ -325,7 +335,10 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         # ⓘ `Node` differs from xtensa's by far more than the ABI: `gateway` is MR_PROFILE_GATEWAY
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
-        "meshroute::Node":         (157264, 8, True),   # R-RA-35: own-toolchain ABI reveal 152288 + 4976
+        "meshroute::Node":         (157344, 8, True),   # R-RA-40: 157264 + 80; measured by this probe
+        "meshroute::DeferredActionRecord": (40, 8, True),
+        "meshroute::TranscriptHeader": (32, 8, True),
+        "meshroute::RemoteSessionState": (8904, 8, True),
         "mrnv::UiPresetSlot":      (21, 1, True),
         "mrnv::UiPresetBlob":      (372, 4, True),
         "mrfw::SavedKeyEntry":     (8, 4, True),

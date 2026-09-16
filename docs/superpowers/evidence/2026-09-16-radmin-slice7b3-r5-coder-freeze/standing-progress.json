@@ -1,0 +1,138 @@
+[
+  {
+    "log": "chain3-inbox_verbs.log",
+    "summary": [
+      "checks: 1374   failures: 4",
+      "FAIL"
+    ]
+  },
+  {
+    "log": "chain5-custody_usb.log",
+    "summary": [
+      "probe: 27 ok, 0 failed",
+      "probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)",
+      "controls: 10 verified / 0 unusable (pin 10)",
+      "PASS"
+    ]
+  },
+  {
+    "log": "chain4-inbox_verbs.log",
+    "summary": [
+      "checks: 1374   failures: 4",
+      "FAIL"
+    ]
+  },
+  {
+    "log": "chain5-firmware_ui.log",
+    "summary": [
+      "controls: 223 verified / 0 unusable",
+      "PASS"
+    ]
+  },
+  {
+    "log": "chain3-console_sink.log",
+    "summary": [
+      "PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls=149 unusable_controls=0",
+      "PASS: probe + structural + controls all green"
+    ]
+  },
+  {
+    "log": "chain4-console_sink-no-neg.log",
+    "summary": [
+      "PROBE-ONLY (negative controls SKIPPED) \u2014 this is NOT a gate result. Re-run without --no-neg."
+    ]
+  },
+  {
+    "log": "chain5-custody_usb-no-neg.log",
+    "summary": [
+      "probe: 27 ok, 0 failed",
+      "probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)",
+      "PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)"
+    ]
+  },
+  {
+    "log": "chain4-console_sink.log",
+    "summary": [
+      "PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls=149 unusable_controls=0",
+      "PASS: probe + structural + controls all green"
+    ]
+  },
+  {
+    "log": "chain-console_sink.log",
+    "summary": [
+      "PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls= unusable_controls=0",
+      "FAILED \u2014 see above"
+    ]
+  },
+  {
+    "log": "chain5-inbox_verbs-no-neg.log",
+    "summary": [
+      "checks: 1374   failures: 0",
+      "PASS",
+      "probe: 1374 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1374)",
+      "PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)",
+      "checks: 384   failures: 0",
+      "PASS",
+      "probe: 384 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 384)",
+      "PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)",
+      "BOTH ARMS PASS"
+    ]
+  },
+  {
+    "log": "chain2-console_sink.log",
+    "summary": [
+      "PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls=149 unusable_controls=0",
+      "FAILED \u2014 see above"
+    ]
+  },
+  {
+    "log": "chain5-firmware_ui-no-neg.log",
+    "summary": [
+      "controls: 0 verified / 0 unusable",
+      "PASS"
+    ]
+  },
+  {
+    "log": "chain3-console_sink-no-neg.log",
+    "summary": [
+      "PROBE-ONLY (negative controls SKIPPED) \u2014 this is NOT a gate result. Re-run without --no-neg."
+    ]
+  },
+  {
+    "log": "chain5-ble_line.log",
+    "summary": [
+      "probe: 40 checks against the REAL device_ble.h intake, 0 failed",
+      "probe: 40 checks against the REAL device_ble.h intake, 0 failed (pin 40)",
+      "controls: 8 verified / 0 unusable (pin 8)",
+      "PASS"
+    ]
+  },
+  {
+    "log": "chain5-ble_line-no-neg.log",
+    "summary": [
+      "probe: 40 checks against the REAL device_ble.h intake, 0 failed",
+      "probe: 40 checks against the REAL device_ble.h intake, 0 failed (pin 40)",
+      "PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)"
+    ]
+  },
+  {
+    "log": "chain5-inbox_verbs.log",
+    "summary": [
+      "checks: 1374   failures: 0",
+      "PASS",
+      "probe: 1374 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1374)",
+      "controls: 60 verified / 0 unusable (pin 60)",
+      "PASS",
+      "checks: 384   failures: 0",
+      "PASS",
+      "probe: 384 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 384)",
+      "controls: 45 verified / 0 unusable (pin 45)",
+      "PASS",
+      "BOTH ARMS PASS"
+    ]
+  },
+  {
+    "log": "chain5-features-no-neg.log",
+    "summary": []
+  }
+]

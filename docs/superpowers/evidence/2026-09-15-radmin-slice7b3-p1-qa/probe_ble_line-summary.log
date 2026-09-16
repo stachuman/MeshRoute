@@ -1,0 +1,4 @@
+probe: 40 checks against the REAL device_ble.h intake, 0 failed
+probe: 40 checks against the REAL device_ble.h intake, 0 failed (pin 40)
+controls: 8 verified / 0 unusable (pin 8)
+PASS

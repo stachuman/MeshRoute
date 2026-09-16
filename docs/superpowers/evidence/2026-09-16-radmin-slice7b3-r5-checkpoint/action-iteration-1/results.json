@@ -1,0 +1,45 @@
+{
+  "baseline": false,
+  "source": "/tmp/mr-codex-s7b3-0gt630zl/gate",
+  "results": [
+    {
+      "name": "b0-p1",
+      "cpp_sha256": "5310fe6209307063bc334bf284d0861dfe1f0a8f270b7b11307f393ab2f689f9",
+      "checks": 150,
+      "transcripts": 39
+    },
+    {
+      "name": "b1-p1",
+      "cpp_sha256": "9d8a98556ac4f651fa83fb3524f17f38d3ba894a9ae59d280b36a2d24cecb615",
+      "checks": 151,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p1",
+      "cpp_sha256": "5e5e617221a668e780e7e941430a2f244d02971d8f741f035c0033e5f53bcd56",
+      "checks": 158,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p0",
+      "cpp_sha256": "a83dbea7b4a6915d26339a2f7ba3040c2d45a9ef654732c09d6ac46e388eacd9",
+      "checks": 158,
+      "transcripts": 39
+    }
+  ],
+  "controls": [],
+  "source_preservation": {
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/src/fw_main.cpp": "77877d4a7ac394ddc8e841b0db09af726dda803a0f069f7b36b7725236db8960",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/src/firmware_commands.cpp": "d51934014de8d3486cc230365af4b743b72b0bcbd34902b76dcd74609569288c",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/src/device_ota.cpp": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/src/device_ota.h": "082873c9eab897eb2052c430ee99fbc1f554c065fdafa9109becef54ff4d39dd",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/src/firmware_action_effects.h": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_inbox_verbs/probe_main.cpp": "2f2a3e74491de91cabcd864e24c89183403dcf1a2f8ad57044c7ff58575e7acb",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_inbox_verbs/fakes/Preferences.h": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py": "87d216c5d36a8bbeac7a449a8faa4f3e3317b7f673f7ef32b9d61dac0becdcd4",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.sh": "711be73a747053a419d4afbebc60e9fc8ffc2f7594e47c01aebb134f7bee2532",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/probe.cpp": "ee89d8059ca69b04467c8288f1b744888378a0d4d4391fe8a3d1fe9a9b78a663",
+    "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/controls.py": "ec9a4594e58d2a986e938fefe9c2788f2812f197f05f84c313e578b7d6865e70"
+  },
+  "source_reader_controls": 4
+}

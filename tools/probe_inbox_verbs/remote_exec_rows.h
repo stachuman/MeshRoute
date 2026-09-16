@@ -71,6 +71,7 @@ struct Radmin7RadioFixture {
     meshroute::Identity self{}, root{}, controller[3]{};
     uint16_t ctr = 0xD0;
     uint64_t rid = 100;
+    bool quiet_after_preparation = false; // action fixture: freeze debug admission, then silence frame tracing
     Radmin7RadioFixture() {
         using namespace meshroute;
         uint8_t seed[32] = {91}; identity_from_seed(self, seed);
@@ -257,7 +258,8 @@ struct Radmin7RadioFixture {
         return text;
     }
 
-    std::string command(const char* line, uint8_t slot, meshroute::RemoteTerminal expected, bool compare_local = false) {
+    std::string command(const char* line, uint8_t slot, meshroute::RemoteTerminal expected, bool compare_local = false,
+                        bool acknowledge = true) {
         using namespace meshroute;
         ++rid; flight(line, slot);
         CHK(remote_session_seen_find(g_node.admin_session_state(), slot, rid) < kRadminSeenSlots
@@ -268,6 +270,7 @@ struct Radmin7RadioFixture {
         const unsigned node_calls = g_command_calls;
         g_routed[0] = 0; Serial.reset(); ble_reset();
         mrfw::remote_executor_service_once();
+        if (quiet_after_preparation) meshroute::g_mr_trace_on = false;
         CHK(remote_session_ingress_used(g_node.admin_session_state()) == 0, "R7-A12 main-loop completion releases ingress");
         std::string text; unsigned frames = 0, terminals = 0;
         uint8_t session[32]; session_key(slot, session);
@@ -299,7 +302,11 @@ struct Radmin7RadioFixture {
         if (expected == RemoteTerminal::refused || expected == RemoteTerminal::unknown_command)
             CHK(g_command_calls == node_calls && g_routed[0] == 0 && text.empty(), "R7-A20 refusal never calls Node/handler");
         mrcon.service();
-        CHK(Serial.n_out == 0 && g_ble_n == 0, "R7-A21 no transcript leaks to local console/BLE");
+        const std::string scalar = "> remote-action scheduled request_id=";
+        CHK(g_ble_n == 0 && (expected == RemoteTerminal::scheduled
+            ? std::string(Serial.out).find(scalar) == 0 && std::string(Serial.out).find("> rebooting") == std::string::npos
+            : Serial.n_out == 0), "R7-A21 only scheduled scalar metadata may reach the local console");
+        if (!acknowledge) return text;
         flight("", slot, true);
         const auto& state = g_node.admin_session_state();
         const uint8_t si = remote_session_seen_find(state, slot, rid);
@@ -319,7 +326,7 @@ static void radmin7_air_rows() {
     const int writes = mrprobe_nv().writes;
     f.command("unknown-verb", 1, RemoteTerminal::unknown_command);
     f.command("factory_reset confirm", 2, RemoteTerminal::refused);
-    f.command("reboot", 1, RemoteTerminal::refused);
+    f.command("reboot", 1, RemoteTerminal::scheduled);
     CHK(mrprobe_nv().writes == writes, "R7-A23 remote refused commands write no NV");
     CHK(f.command("acl remove 1 confirm", 1, RemoteTerminal::completed).find("self_slot") != std::string::npos,
         "R7-A24 real remote actor cannot remove itself");
@@ -348,9 +355,10 @@ static void radmin72_open_rows() {
             + " radmin_open_rate_refusal=" + std::to_string(state.open_rate_refusal)
             + " radmin_transcript_exhaustion=" + std::to_string(state.transcript_exhaustion)
             + " radmin_response_enqueue_failure=" + std::to_string(state.response_enqueue_failure)
-            + " radmin_response_seal_failure=" + std::to_string(state.response_seal_failure) + "\r\n";
+            + " radmin_response_seal_failure=" + std::to_string(state.response_seal_failure)
+            + " radmin_action_phase=none radmin_action_armed=0 radmin_last_activation_kind=none radmin_last_activation_outcome=none\r\n";
         CHK(text.size() >= expected.size() && text.compare(text.size() - expected.size(), expected.size(), expected) == 0,
-            "R72-S1 exact five status suffix fields at seed %u", unsigned(seed));
+            "R72-S1 exact five counters and empty action status at seed %u", unsigned(seed));
         for (const char* name : {"radmin_inbound_refusal=", "radmin_open_rate_refusal=", "radmin_transcript_exhaustion=",
                                  "radmin_response_enqueue_failure=", "radmin_response_seal_failure="}) {
             const auto first = text.find(name);

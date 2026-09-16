@@ -17,7 +17,7 @@
 //        whitelist or knows a dispatcher. There is no `CommandContext` (Slice 6) and no controller state (8a).
 //      * Slice 7b-1 adds bounded transcripts, OUTPUT/TERMINAL sealing, retry replay and ACK release.
 //        7b-2 adds independent open captures, rollover preparation and admission/protocol replies.
-//        MISSING: deferred actions (7b-3).
+//        7b-3 adds one owned deferred action; firmware alone interprets its opaque plan bytes.
 //        The main-loop firmware executor owns dispatch; this module owns bytes and lifecycle only.
 //      * ⛔ NO NV, NO `src/` INCLUDE, NO HEAP, NO TIMER CALL AND NO HAL CALL. Time arrives as an explicit
 //        `now_ms`; entropy arrives as an already-drawn, already-checked epoch. `Node` owns the timer and the
@@ -223,6 +223,8 @@ struct TranscriptHeader {
     uint16_t chunk_bytes;          // computed once at reservation for the actual return carrier
     uint8_t truncated;
     uint8_t order;                // 0..3 allocation order; no uptime-wrap-dependent scheduling
+    uint32_t activation_ms;       // immutable scheduled detail, independent of the action's lifetime
+    uint8_t reserved[4];          // canonical alignment, never implicit/uninitialized bytes
 };
 struct TranscriptChunk {
     uint8_t bytes[kRadminChunkBytes];
@@ -252,6 +254,23 @@ enum class RadminCounter : uint8_t { inbound_refusal, open_rate_refusal, transcr
 // ⛔ NO hidden resident counter, vtable or key cache lives here, and the derived
 //    base/session keys are per-call WIPED TRANSIENTS — never members.
 // =====================================================================================================
+enum class RemoteActionPhase : uint8_t { none, preparing, prepared, armed, due };
+enum class RemoteActionTrigger : uint8_t { none, ack, deadline };
+struct DeferredActionRecord {
+    uint64_t request_id;
+    uint64_t admin_epoch;
+    uint64_t activate_at_ms;
+    uint32_t source_hash;
+    uint32_t activation_ms;
+    uint8_t controller_slot;
+    uint8_t authority;
+    uint8_t kind;                 // opaque firmware plan bytes (B402): core never dispatches on them
+    uint8_t backend;
+    RemoteActionPhase phase;
+    RemoteActionTrigger trigger;
+    uint8_t reserved[2];
+};
+
 struct RemoteSessionState {
     uint8_t     admin_x_secret[32];              // @0   — SECRET. The ADMINISTRATION root's X25519 scalar.
     uint8_t     admin_ed_pub[32];                // @32  — the administration root's Ed25519 public key.
@@ -276,9 +295,33 @@ struct RemoteSessionState {
     OpenCapture           open[kRadminOpenSlots];
     uint16_t              inbound_refusal;
     uint16_t              open_rate_refusal;
+    DeferredActionRecord  action;
+    uint8_t               last_activation_kind;
+    uint8_t               last_activation_outcome;
+    uint8_t               reserved_action[6];
 };
 void remote_counter_increment(RemoteSessionState& s, RadminCounter counter);
 [[nodiscard]] RadminCounters remote_counters(const RemoteSessionState& s);
+
+// Call-scoped scalar view. No epoch, backend, authority, pointer or command bytes escape status.
+struct RadminActionStatus {
+    uint64_t request_id = 0;
+    uint64_t remaining_ms = 0;
+    uint32_t activation_ms = 0;
+    uint8_t controller_slot = 0;
+    uint8_t kind = 0;
+    RemoteActionPhase phase = RemoteActionPhase::none;
+    uint8_t last_kind = 0;
+    uint8_t last_outcome = 0;
+};
+[[nodiscard]] RadminActionStatus remote_action_status(const RemoteSessionState& s, uint64_t now_ms);
+[[nodiscard]] RemoteTerminal remote_action_reserve(RemoteSessionState& s, uint8_t slot, uint64_t request_id,
+                                                   uint8_t kind, uint8_t backend, uint32_t activation_ms);
+// Called only after checked ownership, before advancing the transcript cursor.
+void remote_action_owned(RemoteSessionState& s, uint8_t seen_index, uint64_t now_ms);
+// Eligibility is state only; firmware's main loop is the sole consumer/effect owner.
+void remote_action_expire(RemoteSessionState& s, uint64_t now_ms);
+[[nodiscard]] bool remote_action_take(RemoteSessionState& s, uint64_t now_ms, DeferredActionRecord& out);
 
 // Borrowed only during the main-loop service call; never retained by firmware or a Print adapter.
 struct RadminIngressView {

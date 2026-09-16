@@ -1,0 +1,13 @@
+[
+  {
+    "name": "console_sink",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3-0gt630zl/gate",
+    "exit": 1,
+    "seconds": 63.89712845534086,
+    "sha256": "40c9a833132e37368abba49c127bcbe6c768d138cdd2d62084d41821d73d2698"
+  }
+]

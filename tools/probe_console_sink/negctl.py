@@ -360,7 +360,7 @@ SRC_CTL += [
     ('S6-C12 BLE refusal replaced with fall-through', FWMAIN,
      '    if (e != LineErr::ok) return write_err(out, cap, "bad_line", line_err_name(e));',
      '    (void)e;', ('S61',)),
-    ('S6-C13 a scheduled producer appears before Slice 7b', CMDS,
+    ('S6-C13 a local completion incorrectly becomes scheduled', CMDS,
      '\n    r.outcome = DispatchOutcome::completed;\n',
      '\n    r.outcome = DispatchOutcome::scheduled;\n', ('S62',)),
 ]

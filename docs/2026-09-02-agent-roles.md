@@ -92,3 +92,37 @@ commit). What still gates progress is the **gate**, not the commit.
 - Step 8 reads: Author lands docs on PASS; the owner commits at a time of their choosing and bench-verifies.
   Wording in briefs such as "own gate and owner commit, then QA refreshes the base" means "own gate, then
   refresh"; the commit may land before, during or after that refresh.
+
+## Owner ruling 2026-09-16 — process optimization: symbol pins, two status homes, slice granularity
+
+**Owner, verbatim:** *"Agreed, write the rules and pair 8a/8c"* (to the second reader's assessment that the
+per-slice cost was round trips and paper, not gates: ~60 % of B365–B402 were brief/instrument findings, 7b-1
+took six brief revisions and 7b-3 five, while a full independent gate runs in about an hour).
+
+1. **Symbol pins (P4).** A brief pins `file:symbol`; any `file:line` beside it is a hint. The coder relocates by
+   symbol and records the actual line in the receipt; that is not a STOP. STOP-1 is reserved for a semantic
+   disagreement (the source does something other than the brief says, or an interface the brief relies on does
+   not exist). Step 4's "mismatch is a STOP" keeps applying to the BASE (commit + inventory), not to line drift.
+2. **Two status homes (P5).** The design's §19.1 row and the register (§0 dispatch + finding rows) are the only
+   places that state a slice's current status. `tracker.md` and the repo `MEMORY.md` carry one-line pointers to
+   them; the ledger holds rulings; briefs and evidence hold their own history. A brief is contract + fence + gate
+   list and links to rulings instead of quoting them at length.
+3. **Slice granularity (P6).** C1 (refactor XOR feature) and C4/M3 (a wire bump is its own slice) stand. Beyond
+   them: a producer-free codec change (the 7b-2-0 / 7b-3-0 shape) rides inside the feature slice that consumes
+   it, gated by its KATs and the independent reference; slices that share one product surface and cannot move
+   the corpus are paired — **8a+8c** (controller state/crypto + local USB/BLE delivery) is one brief and one
+   gate. **9 and 10 stay separate**: R-RA-6 and design §19 item 10 make the main-NV cleanup a standalone,
+   separately measured NV-version change. For a `src`-only slice the independent gate re-runs native, corpus,
+   boards, the touched mutation batteries and the affected probes; the full union and the six-environment census
+   stay in the coder's gate. A `lib/core` or wire change keeps the full gate on both sides.
+
+Kept unchanged: the register as the single findings log; the coder's preflight as a real second read; owner-only
+rulings; the full corpus gate for anything under `lib/core`.
+
+**Addendum 2026-09-16 (QA process error, recorded so it does not recur):** while the coder was implementing 7b-3
+revision 5, QA folded R-RA-41 into the brief in place; the coder correctly stopped on the frozen-input rule (the
+authorized hash `52bd0095…` no longer matched). Rule: **a brief under implementation is frozen from preflight PASS
+to the freeze.** A ruling that lands mid-slice is recorded in the ledger and the register only; the brief is
+refreshed at the next checkpoint (a STOP report or the freeze), and QA issues an explicit re-pin message: the new
+brief hash, the exact delta, and the statement that the implementation contract is or is not affected. Re-pin
+issued for revision 5 at `f1d38f86…`: delta = R-RA-41 wording in §0, §2.2 and §8 only; contract unchanged.

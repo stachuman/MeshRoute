@@ -1,54 +1,14 @@
 # MeshRoute durable decisions
 
-- **P1 coder gate PASS / frozen for independent QA (2026-09-15):** uncommitted at c591721 plus complete SHA-256 inventory; revision 3 folds B399/B400. Native 2916/184587/0, corpus 36/36 byte-identical, tools 351/no skips, all required reference/ABI/probes/checkers/census PASS, 53 batteries /826 RED /known B342 /827 configured /0 vacuous. Typed admission/effects add zero resident state; Node/RAM unchanged; gateway flash −2368 B, mobile +584 B; stack frames measured. Remote guards still refuse; 204 semantic inventory rows preserved. Receipt: `docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1.md` §11. Next is independent QA on the complete uncommitted freeze, then the QA behavior reissue at that frozen input set. B394/B399/B400 remain pending independent closure. Commits are not gates; R-RA-40 stays approved.
-
-- **Remote-admin 7b-3-0 codec owner-committed at `ac5f9a5` (2026-09-15):** independent QA PASS and B391 closure remain intact. Committed QA evidence reports native 2912/184461/0, reference 94/94, domain 9787, corpus 36/36, tools 343/no skips, unchanged board pair, 816 RED + known unusable B342 /817. Its reviewer reproduced linked/section/object totals, not the coder's single-byte gateway ELF attribution. `docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md` remains unchanged.
-- **7b-3 revision 4 reissued at `ac5f9a5`: READY for source-validation; behavior HOLD B394 only — B389 RULED R-RA-40 (2026-09-15): +80 B, re-pins 230976/157344, mobile unchanged.** Twelve selected policy rows require separate **7b-3-P1** shared typed admission/effect/sink preparation, its own full implementation/independent gate, then QA refreshes the behavior base at the complete frozen inputs; no commit wait. The actual coder enumeration had four reusable effects + eight needing extraction; its +80 comparison covered four rows. B394 records the overbroad twelve-existing-seams summary without revoking codec PASS. QA's fresh complete twelve-row model measures one 40-byte row + four u32 detail/header increases + two diagnostics/alignment = **+80 B** session state on native/ARM/Xtensa. Modeled Node **230976 native /157344 gateway /117912 mobile**; **owner allocation/re-pins approved by R-RA-40**, no linked-RAM or behavior implementation claim. Fresh author native **2912/184461/0**, rebuilt simulator/corpus **36/36 byte-identical**, reference **94/94**, all **52/817 source patterns match once**; no full implementation gate or union run this author turn. Brief: `docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md`; P1: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md`; pre-check: `docs/superpowers/plans/2026-09-15-radmin-slice7b3-reissue-precheck.md`.
-- **R-RA-37/38/39 remain settled:** one outstanding disruptive promise per target across slots, ONE row, retained typed action_busy 08 (codec complete, producer pending); remote prep-restart stays schedulable with local-restart lockout (brief §2.5, Part 57b, exact 8a warning); named-family refusal fallback pre-authorized. QA records **36 exact exceptions** in revision 4 §2.2: **B395/F-config 23, B396/F-provision 10, B397/F-team 2, B398/F-regen 1**, each with a separate fence/closure proof, not implementation dispatch. Immutable refused/zero effects, local semantics/classification unchanged; these rows remain incomplete. Next free **B401**. B390 awaits runtime proof; B392 awaits metal/8a. Never-owned unsendable work is unarmed: same-slot force or permitted other-owner ACL invalidation can release it, with no new timeout/cross-slot force. Armed work keeps its fallback deadline. ACCEPT scalar status exposes action state and last kind/outcome without secrets. Physical/local pre-emption is external interruption/unknown outcome; USB/BLE reboot where supported or hardware restart recovers a halted node. No behavior or bench PASS is implied.
-
-- **Remote-admin 7b-2-0 software-complete / independent QA PASS (2026-09-09, owner commit `564f460`; attribution base `1d4b3ad`):**
-  revision-2 codec preparation implements R-RA-36's 28-byte authenticated-clear ADMISSION_RESULT, response
-  opcode 0x5, K_session; matching request ctl/code/detail enter nonce and AAD. Existing 87 literals stay
-  byte-identical; no new producer, session/open behavior, timer or Node state. QA independently measured
-  native 2888/172264/0, corpus 36/36 byte-identical, 712 RED / one known unusable B342, tools 343 OK / zero
-  skips, all required ABI/probes/checkers/boards and the six-environment census. Node/RAM unchanged; gateway
-  flash −64 B attributed, mobile linked sections identical. B382/B383 comments are verified/closed; old
-  valid-tag semantic failure can leave plaintext, while bad tags preserve it and decoded results publish
-  only on success. B384's reference-generator error and B385's discarded QA incremental build are recorded
-  and closed. Evidence: `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-qa-gate.md`.
-  **7b-2 revision 4 software gate passed 2026-09-09; owner commit `f993191` (base `564f460`).**
-  **Historical B391 attribution is qualified by the codec gate above; its repair is now independently verified/closed.**
-  Independent full gate: native **2909/174485/0**, corpus **36/36 byte-identical**, union **772 RED / known
-  unusable B342**, tools **343 OK / zero skips**, all ABI/probes/checkers/boards/census. Gateway Node/RAM
-  **+4976 B**, flash **+7840 B**; mobile Node/RAM/linked sections unchanged. **B378/B379/B388 are CLOSED**;
-  B387 stays closed. Scoped B388 return changes exactly three comment lines, preserves the 3345-line source
-  and all 1238 other inputs except the append-only receipt; QA freshly compiles/runs 15 checks PASS.
-  Full gates were not repeated for the comment-only return; executable/instrument inputs are unchanged.
-  Rate: **three open admissions TOTAL per target per 300000 ms, shared across all requesters**, original
-  admission deadline/cooldown and separate storage. Real full/busy/retry producers use nonce-safe admission
-  replies. Five saturating counters survive normal invalidation and appear only in ACCEPT status. Present-zero
-  admission remains separate from checked sender refusal. B388 correctly documents that refusal may update
-  counters and expire an older row before the shared scan re-arms. D5 preserves strict bare pins after B387.
-  B386's real force-producer survivor/order proof passes. No production repair or commit by QA. Evidence:
-  `docs/superpowers/evidence/2026-09-09-radmin-slice7b2-qa-gate.md` §8. **The owner commit and separate 7b-3 draft are now recorded above; coder source-validation precedes coding.**
-  Controller-dependent open/control round trips and flood/recovery remain 8b's metal gate. No new bench part.
-
-- **Remote-admin Slice 7b-1 software-complete / independent QA PASS (2026-09-08, brief revision 6; owner commit `1d4b3ad`):**
-  the completed transcript is immutable. A send failure keeps its bytes, terminal, frame count and cursor; the next
-  eligible main-loop pass retries that pending frame. An authenticated exact request retry restarts the retained
-  completed transcript at sequence zero, without dispatching again. No suspension latch, new timer or replacement
-  terminal. `internal_error` covers execution/staging failure before a truthful normal result existed, decided only
-  at completion. ACCEPT state has three saturating u16 counters: transcript exhaustion, enqueue failure, seal failure;
-  seal refusal never attempts enqueue or increments the enqueue-failure counter. R-RA-34 requires measured final native/gateway
-  growth and unchanged mobile Node/RAM. B365–B377 are closed in place, including the labelled synthetic REAL
-  Node-path seal/accounting/recovery proof (142 assertions). QA independently measured native 2883/127709/0,
-  corpus 36/36 byte-identical, union 675 RED / 1 known unusable B342, tools 343 OK, all required probes/checkers,
-  both board pairs and the six-environment census. Gateway Node +1784 / RAM +1792 B; mobile Node/RAM unchanged,
-  flash +260 B fully attributed. Original attribution base `d467787`; frozen handoff HEAD `146569a` included all
-  uncommitted inputs. Final code and coder evidence remained unchanged by QA; the owner committed the landing.
-  The 7b-2 gate status is indexed above; 7b-3 owns deferred actions. The real target `status` round
-  trip remains deferred to 8b's controller/carrier metal gate. B315/B342/B350/B359/B364 are separate open limits.
-  Evidence: `docs/superpowers/evidence/2026-09-08-radmin-slice7b1-qa-gate.md`.
+- **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
+  (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
+  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..40 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+  queue pointer in `tracker.md`. As of 2026-09-16: everything through 7b-3-P1 is landed and committed (`7442e6f`);
+  7b-3 deferred actions is in flight on brief revision 5; then 8a+8c (paired), 8b, 9, 10.
+- **Remote-admin 7b-3 durable rulings:** R-RA-37 one outstanding disruptive promise per target, ONE row, typed TERMINAL
+  `action_busy` 0x08 (codec landed `ac5f9a5`); R-RA-38 remote `prep-restart` stays schedulable, lockout documented
+  (Part 57b, 8a warning); R-RA-39 named-family refusal fallback made permanent by R-RA-41 (36 rows refused remotely by design; B395–B398 closed as not required);
+  R-RA-40 allocation +80 B ACCEPT-only, Node 230976 native / 157344 gateway, mobile unchanged.
 
 - **Standalone mobile Home redesign (owner discussion, updated 2026-09-07):**
   `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated
@@ -135,36 +95,6 @@
   inbox-verbs; console-sink owns help/extracted BLE guard, and both extensions are fenced. Full mutation
   union is changed-source devicenv + three new services, plus unchanged teamkeyring/cfgparse/sliceDtoken
   dependencies. Bench Part 55a is drafted, not run; target half only, controller Part 55b later.
-- **Remote-admin Slice 4 software-complete (2026-09-07), independent QA PASS:** implementation/evidence
-  committed in 19c10bf; earlier Slice 3 preparation notes above are historical. Evidence:
-  docs/superpowers/evidence/2026-09-06-radmin-slice4.md. R-RA-30's ten seed slots and 32 × 64-byte target
-  rows are implemented; one 2056-byte CLIENT book, no resident management secret or Node growth.
-  Native 2763/118344/0; mutation union 296 RED/0 unusable; six probes, tools 329, inventory 204;
-  36/36 anchored streams, s18 unchanged, simulator identical with zero post-edit actions.
-  RAM/flash gateway 195844/531004 (+0/+32, B321 wipe); heltec_mobile 207740/1367448
-  (+2056/+12156); one-off xiao_mobile 172572/664636 (+2056/+86992), not a third ruled board.
-  B321/B327 closed; B328 reduced no-OLED router arms, B329 BLE include-coverage residue and B330
-  nRF52 flash headroom remain open. B330 is a separate size-control pre-check, not Slice 5 optimization.
-  Parts 55b/56 and Part 59's exact client regen warning are software-bound/METAL-PENDING, not run.
-  The standalone mobile Home/team-messaging design committed alongside it is Author-owned, DRAFT only;
-  it is not Slice 4 implementation or permission to reorder the remote-admin queue.
-- **Remote-admin Slice 5 preliminary brief QA PASS (2026-09-06), no fold-ins; closure fill-in 2026-09-07:** earlier
-  preparation-status entries above are historical, not fresh implementation verdicts. QA pre-check and
-  R-RA-31 authorize drafting `docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md`, still
-  NON-DISPATCHABLE until the owner commits the filled landing/preparation set, the Author pins that hash,
-  and QA runs the final brief gate. Slice 4 delivered results/source bindings are filled from 19c10bf.
-  R-RA-31: target bootstrap TX same-layer/by reversed path only; native/gateway Node re-pin authorized,
-  mobile Node fixed. Author §6.3–6.7 decisions: resident pair/live ACL, pre-save prepared activation,
-  16 shared seen entries with 128-bit tags and retained routes (2064-byte full state candidate to measure),
-  CLIENT-only old slot/drain, one timer ID91/kCap92. S5-A1–A3 are B331–B333; HOME-A1/A2 B334/B335;
-  aliases retained. Prior Slice 3 evidence findings are registered; next free B336, recheck before use.
-  TimerWheel belongs to DeviceHal, so mobile Node unchanged does not imply zero mobile RAM/flash delta.
-  Seen tombstones survive staging expiry and future ACK; bootstrap consumes no seen row and no epoch.
-  Simulator binary changes but old 36 streams must remain exact; no unconditional epoch draws on
-  unprovisioned sim nodes. No new bench part; only a draft legacy suspension note. No code/tool edit,
-  software PASS or commit claimed. QA accepted S5-A1–A3 and corrected its ledger with old claims visible;
-  maintained rows stay open until Slice 5 closure evidence. After §1 fill-in and final QA gate, QA dispatches
-  Slice 5 on the main tree under the brief's clean measured-start requirements.
 - **Deterministic board measurement (B138/B206 closed after independent QG, 2026-08-28):** build identity has one device-TU authority. Actionable
   RAM/flash comparisons use `tools/measure_board.py` with fixed epoch/revision, the same checkout and stable
   `.pio-measure/` build paths, one runner lock, exact source/toolchain/wrapper manifests, and two matching clean arms

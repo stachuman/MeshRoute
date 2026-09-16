@@ -1492,3 +1492,110 @@ TEST_CASE("§radmin-7b2/Node clear returns reverse every real depth and price pa
         CHECK(s.response_enqueue_failure == 1); CHECK(s.response_seal_failure == 0);
     }
 }
+
+namespace {
+// This executor only prepares an opaque plan. Real firmware applies are separately driven by the action probe.
+struct Radmin73Prepare final : mrfw::IRadminExec {
+    TargetNode& t;unsigned calls=0;bool output=false;
+    explicit Radmin73Prepare(TargetNode& target):t(target){}
+    mrfw::RadminExecResult run(const char*,size_t,const mrfw::CommandContext& c,mrfw::IRadminTranscriptSink& sink) override {
+        ++calls;
+        CHECK(t.node.radmin_prepare_action(c.acl_slot,c.request_id,2,0,7006)==RemoteTerminal::scheduled);
+        if(output) {const uint8_t b='X';sink.append(&b,1);}
+        return {mrfw::DispatchOutcome::scheduled,mrfw::RefuseReason::none};
+    }
+};
+}
+TEST_CASE("§radmin-73/Node queued terminal owns clock once; OUTPUT and failed real sends never do") {
+    TargetNode t;t.provision(2);t.learn_peer(7,t.ctrl[1]);Radmin73Prepare exec(t);exec.output=true;
+    const auto carrier=radmin_command_carrier();const auto request=t.auth_execute_request(1,0,carrier);
+    t.flight(7,0x701,t.ctrl[1].key_hash32,request,10000);mrfw::radmin_service_once(t,exec);
+    const auto& s=t.node.admin_session_state();const auto si=remote_session_seen_find(s,1,0);
+    CHECK(si<kRadminSeenSlots);if(si>=kRadminSeenSlots)return;const auto ti=s.seen[si].record.transcript_slot;
+    CHECK(ti<kRadminTranscriptSlots);if(ti>=kRadminTranscriptSlots)return;CHECK(s.action.phase==RemoteActionPhase::prepared);
+    const auto frozen=s.action;
+    CHECK(t.node.radmin_send_frame()==RadminSend::queued);t.pump_tx(7);
+    CHECK(s.action.phase==RemoteActionPhase::prepared);CHECK(s.action.activate_at_ms==0);
+    CHECK(s.transcripts[ti].next_seq_to_send==1);
+    {
+        TargetNode::EpochMismatch fault(t,1); // labelled synthetic seal refusal, no production fault hook
+        const auto queued=t.node.test_tx_queue_n();const auto aired=t.hal.tx_frames.size();
+        CHECK(t.node.radmin_send_frame()==RadminSend::refused);
+        CHECK(s.response_seal_failure==1);CHECK(s.response_enqueue_failure==0);
+        CHECK(s.transcripts[ti].next_seq_to_send==1);CHECK(memcmp(&s.action,&frozen,sizeof frozen)==0);
+        CHECK(t.node.test_tx_queue_n()==queued);CHECK(t.hal.tx_frames.size()==aired);
+    }
+    auto& writable=const_cast<RemoteSessionState&>(s);
+    const auto source=writable.seen[si].record.source_hash;
+    writable.seen[si].record.source_hash=0; // labelled synthetic checked-sender refusal after real OUTPUT
+    CHECK(t.node.radmin_send_frame()==RadminSend::refused);
+    CHECK(s.response_enqueue_failure==1);CHECK(s.response_seal_failure==1);
+    CHECK(s.transcripts[ti].next_seq_to_send==1);CHECK(memcmp(&s.action,&frozen,sizeof frozen)==0);
+    writable.seen[si].record.source_hash=source;
+    const auto owned_at=t.hal.now();CHECK(t.node.radmin_send_frame()==RadminSend::queued);
+    CHECK(s.action.phase==RemoteActionPhase::armed);CHECK(s.action.activate_at_ms==owned_at+7006);
+    CHECK(s.transcripts[ti].next_seq_to_send==2);t.pump_tx(7);
+    const auto terminal=t.last_rpc_body(DATA_TYPE_REMOTE_RESP);CHECK(terminal.size()==kRemoteOverheadAuthResponse+5);
+    const auto deadline=s.action.activate_at_ms;
+    t.flight(7,0x702,t.ctrl[1].key_hash32,request,t.hal.now()+1000);
+    CHECK(s.transcripts[ti].next_seq_to_send==0);CHECK(exec.calls==1);
+    CHECK(t.node.radmin_send_frame()==RadminSend::queued);t.pump_tx(7);
+    CHECK(t.node.radmin_send_frame()==RadminSend::queued);t.pump_tx(7);
+    CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP)==terminal);CHECK(s.action.activate_at_ms==deadline);
+    t.hal._now=deadline-1;t.node.on_timer(Node::test_last_allocated_timer_id());CHECK(s.action.phase==RemoteActionPhase::armed);
+    CHECK(t.hal.arms.back()==std::pair<uint32_t,uint32_t>{Node::test_last_allocated_timer_id(),1});
+    DeferredActionRecord transfer{};CHECK_FALSE(t.node.radmin_take_action(transfer));
+    t.hal._now=deadline;t.node.on_timer(Node::test_last_allocated_timer_id());CHECK(s.action.phase==RemoteActionPhase::due);
+    CHECK(t.hal.cancels.back()==Node::test_last_allocated_timer_id()); // no due-row zero-delay livelock
+    CHECK(t.node.radmin_take_action(transfer));CHECK(transfer.request_id==0);CHECK(transfer.source_hash==source);
+    CHECK(transfer.trigger==RemoteActionTrigger::deadline);CHECK(transfer.authority==kRadminRoleOwner);
+    CHECK_FALSE(t.node.radmin_take_action(transfer));const DeferredActionRecord zero{};CHECK(memcmp(&transfer,&zero,sizeof zero)==0);
+    CHECK(exec.calls==1);
+}
+TEST_CASE("§radmin-73/Node parked scheduled ownership arms with zero counter and wakes exactly at deadline") {
+    TargetNode t;t.provision(1);Radmin73Prepare exec(t);const auto carrier=radmin_command_carrier();
+    t.flight(7,0x711,t.ctrl[0].key_hash32,t.auth_execute_request(0,17,carrier),10000);
+    mrfw::radmin_service_once(t,exec);const auto now=t.hal.now();
+    CHECK(t.node.radmin_send_frame()==RadminSend::parked);
+    const auto& s=t.node.admin_session_state();CHECK(s.action.phase==RemoteActionPhase::armed);
+    CHECK(s.action.activate_at_ms==now+7006);CHECK(t.last_rpc_body(DATA_TYPE_REMOTE_RESP).empty());
+    CHECK(t.hal.arms.back()==std::pair<uint32_t,uint32_t>{Node::test_last_allocated_timer_id(),7006});
+    CHECK(s.response_enqueue_failure==0);CHECK(s.response_seal_failure==0);
+    t.hal._now=now+7006;t.node.radmin_service_expire();CHECK(s.action.phase==RemoteActionPhase::due);
+    DeferredActionRecord action{};CHECK(t.node.radmin_take_action(action));CHECK(action.kind==2);
+}
+TEST_CASE("§radmin-73/Node full TX paces unowned work and cannot starve an already owned promise") {
+    for(bool owned:{false,true}) {
+        TargetNode t;t.provision(1);t.learn_peer(7,t.ctrl[0]);Radmin73Prepare exec(t);
+        t.flight(7,0x721,t.ctrl[0].key_hash32,t.auth_execute_request(0,19,radmin_command_carrier()),10000);
+        mrfw::radmin_service_once(t,exec);if(owned){CHECK(t.node.radmin_send_frame()==RadminSend::queued);t.pump_tx(7);}
+        t.node.test_suspend_tx_drain(true);const uint8_t noise=0;
+        for(unsigned i=0;i<64&&!t.node.tx_queue_full();++i)
+            (void)t.node.test_do_send_typed(7,&noise,1,CryptIntent::off,0,DATA_TYPE_REMOTE_RESP);
+        CHECK(t.node.tx_queue_full());if(!t.node.tx_queue_full())return;const auto before=t.node.admin_session_state();
+        CHECK(t.node.radmin_send_frame()==RadminSend::none);
+        CHECK(memcmp(&before,&t.node.admin_session_state(),sizeof before)==0);
+        t.hal._now+=100000;DeferredActionRecord action{};CHECK(t.node.radmin_take_action(action)==owned);
+        CHECK(t.node.tx_queue_full());CHECK(exec.calls==1);
+        CHECK(t.node.radmin_counters().response_enqueue_failure==0);CHECK(t.node.radmin_counters().response_seal_failure==0);
+    }
+}
+
+TEST_CASE("§radmin-73/Node saturated deadline is a real wake and diagnostics use one scalar snapshot") {
+    TargetNode t;t.provision(1);Radmin73Prepare exec(t);
+    t.flight(7,0x731,t.ctrl[0].key_hash32,t.auth_execute_request(0,23,radmin_command_carrier()),10000);
+    mrfw::radmin_service_once(t,exec);t.hal._now=UINT64_MAX-5;
+    CHECK(t.node.radmin_send_frame()==RadminSend::parked);
+    const auto& state=t.node.admin_session_state();CHECK(state.action.activate_at_ms==UINT64_MAX);
+    CHECK(t.hal.arms.back()==std::pair<uint32_t,uint32_t>{Node::test_last_allocated_timer_id(),5});
+    const auto before=state;t.node.radmin_action_result(3,6);
+    const auto status=t.node.radmin_action_status();CHECK(status.remaining_ms==5);
+    CHECK(status.phase==RemoteActionPhase::armed);CHECK(status.request_id==23);
+    CHECK(status.last_kind==3);CHECK(status.last_outcome==6);
+    CHECK(memcmp(&state.action,&before.action,sizeof state.action)==0);
+    DeferredActionRecord out{};CHECK_FALSE(t.node.radmin_take_action(out));
+    t.hal._now=UINT64_MAX;const auto cancels=t.hal.cancels.size();CHECK(t.node.radmin_take_action(out));
+    CHECK(t.hal.cancels.size()==cancels+1);CHECK(t.hal.cancels.back()==Node::test_last_allocated_timer_id());
+    CHECK(out.activate_at_ms==UINT64_MAX);CHECK(out.trigger==RemoteActionTrigger::deadline);
+    CHECK_FALSE(t.node.radmin_take_action(out));
+}

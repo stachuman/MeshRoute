@@ -218,21 +218,21 @@ TEST_CASE("§radmin-5/L1 the original 2064-byte prefix and appended 7b-1 pool ha
     CHECK(sizeof(IngressOperationHeader) == 40);
     CHECK(sizeof(IngressBodySlot) == 236);
     CHECK(sizeof(OpenStagingSlot) == 32);
-    CHECK(sizeof(RemoteSessionState) == 8824);
+    CHECK(sizeof(RemoteSessionState) == 8904);
     CHECK(alignof(RemoteSessionState) == 8);
     // ★ THE ARITHMETIC CLOSES WITH NO REMAINDER — that is what makes the Node re-pin attributable.
     // Previously the eight prefix terms alone were the whole 2064-byte state.
     // 7b-1's 3848 included two tail bytes. Three 1658-byte captures + two counters reuse them.
-    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 6u + 3u * 1658u + 4u == sizeof(RemoteSessionState));
+    CHECK(64u + 340u + 4u + 80u + 896u + 80u + 472u + 128u + 1776u + 6u + 3u * 1658u + 4u + 32u + 40u + 2u + 6u == sizeof(RemoteSessionState));
     CHECK(offsetof(RemoteSessionState, acl)     == 64);
     CHECK(offsetof(RemoteSessionState, epoch)   == 408);
     CHECK(offsetof(RemoteSessionState, seen)    == 488);
     CHECK(offsetof(RemoteSessionState, ingress) == 1384);
     CHECK(offsetof(RemoteSessionState, body)    == 1464);
     CHECK(offsetof(RemoteSessionState, staging) == 1936);
-    CHECK(offsetof(RemoteSessionState, transcript_exhaustion) == 3840);
-    CHECK(offsetof(RemoteSessionState, response_enqueue_failure) == 3842);
-    CHECK(offsetof(RemoteSessionState, response_seal_failure) == 3844);
+    CHECK(offsetof(RemoteSessionState, transcript_exhaustion) == 3872);
+    CHECK(offsetof(RemoteSessionState, response_enqueue_failure) == 3874);
+    CHECK(offsetof(RemoteSessionState, response_seal_failure) == 3876);
 }
 
 TEST_CASE("§radmin-5/L2 N is 16 TOTAL seen entries SHARED across the ten slots — not 16 per slot") {
@@ -249,8 +249,8 @@ TEST_CASE("§radmin-5/L2 N is 16 TOTAL seen entries SHARED across the ten slots 
     CHECK(kRadminBootstrapSlot == 3);
     CHECK(kRadminAclSlots == kRemoteSlotSessionMax + 1);
     // Historical ceiling 2064 + 1824 covered only 7b-1. R-RA-35 adds exactly the independent open captures.
-    // Deferred-action rows still belong to 7b-3; this ceiling leaves no unapproved resident work buffer.
-    CHECK(sizeof(RemoteSessionState) == 3848u + 4976u);
+    // R-RA-40 adds 80 bytes for 7b-3; no unapproved resident work buffer.
+    CHECK(sizeof(RemoteSessionState) == 3848u + 4976u + 80u);
 }
 
 // =============================================================================================================
@@ -1272,4 +1272,32 @@ TEST_CASE("§radmin-7b2/refusal accounting changes exactly the named scalar and 
     ++expected.inbound_refusal; remote_session_receive(t.st, in, out);
     CHECK(out.verdict == RemoteAdmitVerdict::silent_auth_failed); CHECK_FALSE(out.has_reply);
     CHECK(std::memcmp(&expected, &t.st, sizeof expected) == 0);
+}
+
+TEST_CASE("§radmin-73/control armed or preparing promise is target-wide executing; unowned force remains same-slot") {
+    for(const auto phase:{RemoteActionPhase::preparing,RemoteActionPhase::prepared,RemoteActionPhase::armed,RemoteActionPhase::due})
+    for(uint8_t slot:{uint8_t(0),uint8_t(1)})
+    for(const auto opcode:{RemoteCmdOpcode::safe_rollover,RemoteCmdOpcode::force_rollover}) {
+        // A paused operator occupies general ingress, leaving control ingress available.
+        Target t;t.provision(2,phase!=RemoteActionPhase::preparing);const uint8_t line[]={'s','t','a','t','u','s'};
+        const auto request=t.request(0,static_cast<uint8_t>(RemoteCmdOpcode::auth_execute),1,line,11,same_layer_cmd());
+        CHECK(t.deliver(request,11).verdict==RemoteAdmitVerdict::admit);
+        const auto si=remote_session_seen_find(t.st,0,1);CHECK(si<kRadminSeenSlots);if(si>=kRadminSeenSlots)return;
+        CHECK(remote_transcript_reserve(t.st,si,206));CHECK(remote_action_reserve(t.st,0,1,2,0,7006)==RemoteTerminal::scheduled);
+        if(phase!=RemoteActionPhase::preparing)remote_transcript_complete(t.st,si,RemoteTerminal::scheduled);
+        if(phase==RemoteActionPhase::armed||phase==RemoteActionPhase::due)remote_action_owned(t.st,si,100);
+        if(phase==RemoteActionPhase::due)remote_action_expire(t.st,7106);
+        CHECK(t.st.action.phase==phase);
+        CHECK(t.deliver(t.request(slot,static_cast<uint8_t>(opcode),2,{},11,same_layer_cmd()),11).verdict==RemoteAdmitVerdict::control_admitted);
+        RadminControlView view{};CHECK(remote_control_next(t.st,view));uint8_t count=99;
+        const auto decision=remote_control_check(t.st,view,count);
+        if(phase!=RemoteActionPhase::prepared)CHECK(decision==RadminControlDecision::executing);
+        else if(slot==0&&opcode==RemoteCmdOpcode::safe_rollover)CHECK(decision==RadminControlDecision::busy);
+        else CHECK(decision==RadminControlDecision::ready);
+        const auto before=t.st;uint8_t bytes[34];size_t n=0;bool install=false;RemoteSessionInstall plan{};
+        CHECK(remote_control_prepare(t.st,view,999,bytes,n,plan,install)==RemoteStatus::ok);
+        CHECK(memcmp(&before,&t.st,sizeof before)==0);
+        if(install) {remote_session_install(t.st,plan);CHECK(t.st.action.phase==(slot==0?RemoteActionPhase::none:phase));}
+        else CHECK(t.st.action.phase==phase);
+    }
 }

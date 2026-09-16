@@ -110,6 +110,9 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    "radmin73action": "lib/core/remote_session.cpp",
+    "radmin73node": "lib/core/node.cpp",
+    "radmin73convert": "src/firmware_remote_actions.h",
     "actionadmit": "src/firmware_action_effects.h",  # 7b-3-P1: shared typed grammar/support
     "remoteactivation": "lib/core/remote_activation.h",  # Slice 7a: timing-budget authority
     "fwactivation": "src/firmware_remote_activation.h",  # Slice 7a: live effective-value policy
@@ -700,7 +703,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Slice 7b-3-0: executed 2909/174485 + 3 cases / 9976 assertions = 2912/184461.
 # Codec-only: 48489 -> 58465 assertions (old terminal case +6; three new cases +9970).
 # 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
-PIN_CASES, PIN_ASSERTS = 2916, 184587
+# 7b-3: final counts are re-derived from the complete native binary before the union.
+PIN_CASES, PIN_ASSERTS = 2931, 189998
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -11281,9 +11285,9 @@ MUTS_RADMIN7EXEC = [
  ("E07 remote context becomes local",
   "const CommandContext ctx{CommandTransport::remote,\n            v.role",
   "const CommandContext ctx{CommandTransport::usb,\n            v.role"),
- ("E08 disruptive remote handler called",
-  "if (radmin_disruptive_refused(policy, ctx)) {",
-  "if (false) {"),
+ ("E08 scheduled preparation loses its typed terminal (public-handler bypass is now action-probe R01)",
+  "case DispatchOutcome::scheduled: return RemoteTerminal::scheduled;",
+  "case DispatchOutcome::scheduled: return RemoteTerminal::internal_error;"),
  ("E09 unclassified collapses into refused",
   "r.refuse == RefuseReason::unclassified ? RemoteTerminal::unknown_command : RemoteTerminal::refused",
   "RemoteTerminal::refused"),
@@ -11357,6 +11361,14 @@ MUTS_RADMIN7RX = [
  ("R13 queued frame cursor stays",
   "remote_transcript_sent(_radmin_session, si);",
   ";"),
+ ("R14 checked terminal ownership is never recorded",
+  "remote_action_owned(_radmin_session, si, _hal.now());", ";"),
+ ("R15 clock starts before a failed seal",
+  "const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);",
+  "remote_action_owned(_radmin_session, si, _hal.now());\n    const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);"),
+ ("R16 saturated action deadline mistaken for no pending work",
+  "earliest == ~uint64_t{0} && _radmin_session.action.phase != RemoteActionPhase::armed",
+  "earliest == ~uint64_t{0}"),
 ]
 
 
@@ -11499,7 +11511,68 @@ MUTS_ACTIONADMIT = [
     ('A10 OTA backend replaced by reset', 'action_backend_admit(ActionKind::ota, support.ota)', 'action_backend_admit(ActionKind::ota, support.reboot)'),
 ]
 
-MUTS_BY_TARGET = {"actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+# 7b-3: core promise lifecycle and the firmware's opaque/typed boundary.
+# The retired executor blanket-refusal E08 is superseded by the real-TU action probe R01;
+# its native slot now guards the scheduled result that crosses that executor boundary.
+MUTS_RADMIN73ACTION = [
+ ("A01 slot identity dropped", "a.controller_slot = r.controller_slot;", "a.controller_slot = 0;"),
+ ("A02 request identity dropped", "a.request_id = r.request_id;", "a.request_id = 99;"),
+ ("A03 source identity dropped", "a.source_hash = r.source_hash;", "a.source_hash = 0;"),
+ ("A04 epoch identity dropped", "a.admin_epoch = r.admin_epoch;", "a.admin_epoch = 0;"),
+ ("A05 accepted authority lost", "a.authority = s.acl[slot].role;", "a.authority = kRadminRoleOperator;"),
+ ("A06 typed kind lost", "a.kind = kind;", "a.kind = 0;"),
+ ("A07 backend lost", "a.backend = backend;", "a.backend = 0;"),
+ ("A08 frozen delay changed", "a.activation_ms = activation_ms;", "a.activation_ms = activation_ms + 1;"),
+ ("A09 second promise overwrites the first", "if (s.action.phase != RemoteActionPhase::none) return RemoteTerminal::action_busy;", "if (false) return RemoteTerminal::action_busy;"),
+ ("A10 missing preparation still promises", "if (!prepared) result = RemoteTerminal::internal_error;", "if (!prepared) result = RemoteTerminal::scheduled;"),
+ ("A11 staging failure leaves owned action", "action_clear(s.action); // staging failure", "/* omitted */ // staging failure"),
+ ("A12 transcript detail lost", "h.activation_ms = s.action.activation_ms;", "h.activation_ms = 0;"),
+ ("A13 detail borrows reusable action storage", "h.activation_ms >> (8 * i)", "s.action.activation_ms >> (8 * i)"),
+ ("A14 scheduled detail uses wrong byte order", "h.activation_ms >> (8 * i)", "h.activation_ms >> (8 * (3 - i))"),
+ ("A15 scheduled terminal shrinks to one byte", "plain = scheduled;", "plain = std::span<const uint8_t>(scheduled,1);"),
+ ("A16 OUTPUT starts the clock", "h.next_seq_to_send != h.frames - 1", "false"),
+ ("A17 deadline origin is boot", "remote_session_deadline(now_ms, s.action.activation_ms)", "remote_session_deadline(0, s.action.activation_ms)"),
+ ("A18 replay refreshes deadline", "s.action.phase != RemoteActionPhase::prepared\n        || !action_matches", "(s.action.phase != RemoteActionPhase::prepared && s.action.phase != RemoteActionPhase::armed)\n        || !action_matches"),
+ ("A19 action arms during completion", "s.action.phase = RemoteActionPhase::prepared;", "s.action.phase = RemoteActionPhase::armed;"),
+ ("A20 exact deadline delayed", "now_ms >= s.action.activate_at_ms", "now_ms > s.action.activate_at_ms"),
+ ("A21 deadline trigger lies", "s.action.trigger = RemoteActionTrigger::deadline;", "s.action.trigger = RemoteActionTrigger::ack;"),
+ ("A22 armed action consumed early", "if (s.action.phase != RemoteActionPhase::due) return false;", "if (s.action.phase != RemoteActionPhase::due && s.action.phase != RemoteActionPhase::armed) return false;"),
+ ("A23 action executes again", "action_clear(s.action); // complete owned transfer", "/* omitted */ // complete owned transfer"),
+ ("A24 owned transfer is empty", "out = s.action;", "out = DeferredActionRecord{};"),
+ ("A25 wrong-source ACK consumes promise", "if (in.source.hash != s.action.source_hash) { out.verdict = RemoteAdmitVerdict::ack_unknown; return; }", ";"),
+ ("A26 premature ACK releases promise", "if (!action_owned(s.action)) { out.verdict = RemoteAdmitVerdict::ack_premature; return; }", ";"),
+ ("A27 ACK never makes action due", "s.action.trigger = RemoteActionTrigger::ack;", "s.action.phase = RemoteActionPhase::armed; s.action.trigger = RemoteActionTrigger::ack;"),
+ ("A28 ACK trigger called deadline", "s.action.trigger = RemoteActionTrigger::ack;", "s.action.trigger = RemoteActionTrigger::deadline;"),
+ ("A29 armed action lost on slot invalidation", "if (s.action.controller_slot == slot && !action_owned(s.action)) action_clear(s.action);", "if (s.action.controller_slot == slot) action_clear(s.action);"),
+ ("A30 armed action lost on root invalidation", "if (!action_owned(s.action)) action_clear(s.action);", "action_clear(s.action);"),
+ ("A31 unowned invalidation leaks action", "if (s.action.controller_slot == slot && !action_owned(s.action)) action_clear(s.action);", ";"),
+ ("A32 rollover ignores outstanding armed promise", "if (s.action.phase == RemoteActionPhase::preparing || action_owned(s.action))", "if (s.action.phase == RemoteActionPhase::preparing)"),
+ ("A33 earliest scan ignores action", "if (s.action.phase == RemoteActionPhase::armed && s.action.activate_at_ms < earliest)", "if (false)"),
+ ("A34 due row rearms at zero forever", "if (s.action.phase == RemoteActionPhase::armed && s.action.activate_at_ms < earliest)", "if ((s.action.phase == RemoteActionPhase::armed || s.action.phase == RemoteActionPhase::due) && s.action.activate_at_ms < earliest)"),
+ ("A35 status remaining time refreshes", "out.remaining_ms = s.action.activate_at_ms - now_ms;", "out.remaining_ms = s.action.activation_ms;"),
+]
+MUTS_RADMIN73NODE = [
+ ("N01 service does not mark due work", "(void)remote_session_expire(_radmin_session, now);", ";"),
+ ("N02 consumer clock is stale", "remote_action_take(_radmin_session, _hal.now(), out)", "remote_action_take(_radmin_session, 0, out)"),
+ ("N03 consumed promise leaves wake armed", "if (taken) radmin_expiry_arm();", ";"),
+ ("N04 status clock is stale", "remote_action_status(_radmin_session, _hal.now())", "remote_action_status(_radmin_session, 0)"),
+ ("N05 last outcome lost", "_radmin_session.last_activation_outcome = outcome;", "_radmin_session.last_activation_outcome = 0;"),
+]
+
+MUTS_RADMIN73CONVERT = [
+ ("C01 invalid enum bytes escape", "return byte <= static_cast<uint8_t>(last) ? byte : 0;", "return byte;"),
+ ("C02 invalid stored bytes become typed values", "return static_cast<E>(byte <= static_cast<uint8_t>(last) ? byte : 0);", "return static_cast<E>(byte);"),
+ ("C03 last enum wrongly rejected", "return byte <= static_cast<uint8_t>(last) ? byte : 0;", "return byte < static_cast<uint8_t>(last) ? byte : 0;"),
+ ("C04 invalid pair publishes partial plan", "return bytes.kind == kind && bytes.backend == backend ? plan : ActionPlan{};", "return plan;"),
+ ("C05 typed backend silently rewritten", "return bytes;", "return {bytes.kind,0};"),
+ ("C06 factory confirmation bypassed", 'return action_factory_reset_admit(line + n, len - n, support);', 'return action_factory_reset_admit("confirm", 7, support);'),
+ ("C07 sleep prefix grammar rewritten", 'return action_sleep_admit(line + n, len - n, support);', 'return action_sleep_admit("on", 2, support);'),
+ ("C08 crash debug admission bypassed", 'return action_crash_admit(line + n, len - n, debug, support);', 'return action_crash_admit(line + n, len - n, true, support);'),
+ ("C09 unsupported family prepares reboot", 'return {{}, ActionAdmissionStatus::unsupported}; // the 36', 'return action_reboot_admit(support); // the 36'),
+ ("C10 prep dispatch chooses reboot", 'return action_prep_restart_admit();', 'return action_reboot_admit(support);'),
+]
+
+MUTS_BY_TARGET = {"radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,

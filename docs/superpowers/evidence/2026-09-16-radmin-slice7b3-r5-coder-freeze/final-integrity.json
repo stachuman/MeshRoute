@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "label": "shared",
+      "cwd": "/home/staszek/MeshRoute",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "private",
+      "cwd": "/tmp/mr-codex-s7b3-0gt630zl/gate",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "simulator",
+      "cwd": "/home/staszek/lora-universal-simulator",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0
+    }
+  ],
+  "simulator_clean": true,
+  "input_contents_preserved": 1652,
+  "receipt_prefix_preserved": true
+}

@@ -8,6 +8,9 @@
 #include <csetjmp>
 #include <unistd.h>
 #include "device_ota.h"
+#ifndef ACTION_BASELINE
+#include "../probe_inbox_verbs/remote_exec_rows.h"
+#endif
 
 static std::vector<std::string> actions;
 static std::vector<mrfw::ActionOutcome> outcomes;
@@ -91,6 +94,9 @@ static void transcript(const std::string& label) {
 static bool local(const char* line) {
     return mrfw::dispatch(line,strlen(line),g_sink);
 }
+#ifndef ACTION_BASELINE
+#include "../probe_deferred_actions/remote_rows.h"
+#endif
 int main() {
     setvbuf(stdout,nullptr,_IONBF,0);
     signal(SIGALRM,action_alarm);
@@ -207,5 +213,10 @@ int main() {
     mrcon.service();CHECK_ACTION(Serial.n_out==0);
 #endif
     std::printf("ACTION CHECKS %u FAILED %d\n",probe_checks,g_fail);
+#ifndef ACTION_BASELINE
+    const unsigned radio_before=g_chk;
+    run_remote_actions();
+    std::printf("REMOTE ACTION CHECKS %u RADIO %u FAILED %d\n",remote_checks,g_chk-radio_before,g_fail);
+#endif
     return g_fail?1:0;
 }

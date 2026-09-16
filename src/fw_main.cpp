@@ -40,8 +40,9 @@
 #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
 #include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
 #include "firmware_config_parse.h"   // §cleanup 2026-07-14: pure config/provisioning parse primitives (native-tested)
-#include "fw_context.h"
-#include "firmware_action_effects.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
+#include "fw_context.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
+#include "firmware_action_effects.h"
+#include "firmware_remote_actions.h"
 using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
@@ -1442,6 +1443,9 @@ static void mesh_service_once() {
     mrfault::fault_scratch_alive((uint32_t)now);     // refresh the retained moment-of-death stamp (free; survives the reset)
 #endif
 
+#if MR_FEAT_RADMIN_ACCEPT
+    mrfw::remote_action_service_once(); // owed effects cannot starve behind TX, response draining or a local halt
+#endif
     // `prep-restart` halt: skip the WHOLE operating block (RX/timers/tx/beacon/push) while dormant. The WDT-feed above
     // + service_console/BLE below still run, so the deliberate halt is NOT a hang and the node stays console-responsive.
     if (!g_halted) {

@@ -10,6 +10,7 @@
 #include "firmware_command_authority.h"
 #include "firmware_remote_activation.h"
 #include "firmware_remote_executor.h"
+#include "firmware_remote_actions.h"
 #include "fw_context.h"        // g_node + the shared state
 #include "device_nv.h"         // mrnv::PeerBlob / load_peers / save_peers
 #include <cstdio>              // snprintf
@@ -281,7 +282,7 @@ struct RemoteExec final : IRadminExec {
         TranscriptPrint out(sink);
         const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, ctx);
         crypto_wipe(line, sizeof(line));
-        return {r.outcome, r.refuse};
+        return {r.outcome, r.refuse, r.action_busy};
     }
 };
 // ⛔ THE TYPED WRAPPERS, ⛔ never `read_slot`/`write_slot` directly: `mrnv::load_admin_id` is the ONE place the
@@ -984,6 +985,7 @@ static void dump_status(Print& out) {
     out.print(F(" radmin_transcript_exhaustion=")); out.print(radmin.transcript_exhaustion);
     out.print(F(" radmin_response_enqueue_failure=")); out.print(radmin.response_enqueue_failure);
     out.print(F(" radmin_response_seal_failure=")); out.print(radmin.response_seal_failure);
+    remote_action_print_status(out);
 #endif
     out.println();
 }
@@ -1667,7 +1669,7 @@ LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& 
     if (r.line_err != meshroute::console::LineErr::ok) {
         r.outcome = DispatchOutcome::refused;
         r.refuse = RefuseReason::bad_line;
-        if (ctx.authority != CommandAuthority::local) return r;  // no remote envelope before Slice 7b
+        if (ctx.authority != CommandAuthority::local) return r;  // the remote executor owns its typed terminal
         if (fmt == LineFormat::json) {
             r.state = LineExec::State::buffered;
             r.n = meshroute::console::write_err(reply, reply_cap, "bad_line", meshroute::console::line_err_name(r.line_err));
@@ -1683,10 +1685,21 @@ LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& 
     // Local output/transport policy is unchanged; only a remote context consults this metadata.
     if (ctx.authority != CommandAuthority::local) {
         const CommandPolicy* policy = command_policy_lookup(line, len);
-        if (!policy || !command_authority_admits(*policy, ctx, line, len) || radmin_disruptive_refused(policy, ctx)) {
+        if (!policy || !command_authority_admits(*policy, ctx, line, len)) {
             r.outcome = DispatchOutcome::refused;
             r.refuse = policy ? RefuseReason::authority : RefuseReason::unclassified;
             return r;
+        }
+        if (radmin_disruptive_request(policy, ctx)) {
+            r.outcome = DispatchOutcome::refused;
+            r.refuse = RefuseReason::authority;
+#if MR_FEAT_RADMIN_ACCEPT
+            const auto terminal = remote_action_prepare(line, len, *policy, ctx, g_remote_action_activation_ms, stream);
+            r.action_busy = terminal == meshroute::RemoteTerminal::action_busy;
+            if (terminal == meshroute::RemoteTerminal::scheduled) r.outcome = DispatchOutcome::scheduled;
+            else if (terminal == meshroute::RemoteTerminal::internal_error) r.outcome = DispatchOutcome::internal_failure;
+#endif
+            return r; // no public disruptive handler is called under a remote context
         }
     }
 

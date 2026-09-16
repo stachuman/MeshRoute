@@ -565,8 +565,9 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
                   'response_enqueue_failure', 'response_seal_failure')
         expected_status = 'const auto radmin = g_node.radmin_counters();' + ''.join(
             f'out.print(F(" radmin_{name}=")); out.print(radmin.{name});' for name in fields)
+        expected_status += 'remote_action_print_status(out);'
         observed_status = re.sub(r'//[^\n]*', '', status_binding)
-        add('S83', 'ACCEPT text status owns exactly one scalar snapshot and five ordered fields before newline',
+        add('S83', 'ACCEPT text status owns five ordered counters and one scalar action readout before newline',
             bool(status_binding) and re.sub(r'\s+', '', observed_status) == re.sub(r'\s+', '', expected_status)
             and status_body.rfind('out.println();') > status_body.find(status_binding), '')
         # ★★ §RADMIN SLICE 5: THE SEAM IS ACTUALLY BOUND. Design §6.5's live activation exists only if the two
@@ -701,6 +702,8 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     validation = 'r.line_err = meshroute::console::validate_command_line(line, len, ctx.line_max_bytes);'
     policy_guard = 'if (ctx.authority != CommandAuthority::local) {'
     policy_body = _body(seam, policy_guard) if policy_guard in seam else ''
+    authority_guard = 'if (!policy || !command_authority_admits(*policy, ctx, line, len))'
+    authority_body = _body(policy_body, authority_guard) if authority_guard in policy_body else ''
     add('S53', 'shared seam validation precedes remote policy and the router/parser fork',
         validation in seam and 0 <= seam.find(validation) < seam.find('command_policy_lookup(') < seam.find('dispatch(')
         and 'if (r.line_err != meshroute::console::LineErr::ok)' in seam, '')
@@ -710,9 +713,10 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         and 'if (r.line_err != meshroute::console::LineErr::ok) return r;' in panel, '')
     add('S55', 'only non-local authority consults the table and admission is not inverted',
         bool(policy_body) and policy_body.count('command_policy_lookup(') == seam.count('command_policy_lookup(') == 1
-        and 'if (!policy || !command_authority_admits(*policy, ctx, line, len) || radmin_disruptive_refused(policy, ctx))' in policy_body, '')
+        and 'if (!policy || !command_authority_admits(*policy, ctx, line, len))' in policy_body
+        and policy_body.find('command_authority_admits(') < policy_body.find('remote_action_prepare('), '')
     add('S56', 'remote refusals return typed results without writing a transport envelope',
-        bool(policy_body) and not re.search(r'\b(?:stream|reply)\b', policy_body)
+        bool(authority_body) and not re.search(r'\b(?:stream|reply)\b', authority_body)
         and 'return r;' in policy_body and 'RefuseReason::unclassified' in policy_body
         and 'if (ctx.authority != CommandAuthority::local) return r;' in seam
         and seam.find('if (ctx.authority != CommandAuthority::local) return r;') < seam.find('write_err('), '')
@@ -734,10 +738,18 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     add('S61', 'BLE validates immediately after the empty return, before every command arm, with bad_line',
         re.search(r'if \(len == 0\) return 0;\s*const LineErr e = validate_command_line\(line, len, mrble::kLineStorageBytes - 1\);\s*'
                   r'if \(e != LineErr::ok\) return write_err\(out, cap, "bad_line", line_err_name\(e\)\);', ble) is not None, '')
-    add('S62', 'typed outcome fields exist and scheduling/internal-failure have no producer yet',
+    disruptive_guard = 'if (radmin_disruptive_request(policy, ctx))'
+    disruptive_body = _body(policy_body, disruptive_guard) if disruptive_guard in policy_body else ''
+    local_completion = seam.replace(disruptive_body, '') if disruptive_body else seam
+    add('S62', 'typed scheduling/internal-failure come only from remote preparation; local completion stays completed',
         'DispatchOutcome' in hdr and 'RefuseReason' in hdr and 'line_err' in hdr
-        and seam.count('DispatchOutcome::completed') == 2 and seam.count('DispatchOutcome::refused') == 2
-        and 'DispatchOutcome::scheduled' not in seam and 'DispatchOutcome::internal_failure' not in seam, '')
+        and local_completion.count('DispatchOutcome::completed') == 2
+        and local_completion.count('DispatchOutcome::refused') == 2
+        and 'DispatchOutcome::scheduled' not in local_completion
+        and 'DispatchOutcome::internal_failure' not in local_completion
+        and 'remote_action_prepare(line, len, *policy, ctx, g_remote_action_activation_ms, stream)' in disruptive_body
+        and 'terminal == meshroute::RemoteTerminal::scheduled) r.outcome = DispatchOutcome::scheduled;' in disruptive_body
+        and 'terminal == meshroute::RemoteTerminal::internal_error) r.outcome = DispatchOutcome::internal_failure;' in disruptive_body, '')
     # Slice 7a: these firmware paths are structural coverage, NOT executed handler/boot claims.
     if config_cpp_path is not None:
         def body_or_empty(text, signature):

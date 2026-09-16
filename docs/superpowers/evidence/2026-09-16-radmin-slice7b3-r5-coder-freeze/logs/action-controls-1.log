@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 188, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 152, in main
+    original=(ROOT/path).read_text();assert original.count(old)==1,(label,original.count(old))
+                                            ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('R06 derived default replaced by fixed delay', 2)

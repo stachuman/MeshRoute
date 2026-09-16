@@ -70,13 +70,14 @@ static_assert(offsetof(OpenStagingSlot, request_id) == 0 && offsetof(OpenStaging
 //       pair 64 + ACL 340 + status 4 + epochs 80 + seen 896 + headers 80 + bodies 472 + staging 128.
 //     Slice 5 had no tail padding (2 064 % 8 == 0). 7b-1 appends 1776 bytes of pool,
 //     6 bytes of counters and 2 bytes of tail alignment; every original offset stays unchanged.
-static_assert(sizeof(TranscriptHeader) == 24 && alignof(TranscriptHeader) == 8, "TranscriptHeader layout");
+static_assert(sizeof(TranscriptHeader) == 32 && alignof(TranscriptHeader) == 8, "TranscriptHeader layout");
 static_assert(offsetof(TranscriptHeader, request_id) == 0 && offsetof(TranscriptHeader, bytes_total) == 8
               && offsetof(TranscriptHeader, first_chunk) == 12 && offsetof(TranscriptHeader, frames) == 14
               && offsetof(TranscriptHeader, next_seq_to_send) == 15 && offsetof(TranscriptHeader, controller_slot) == 16
               && offsetof(TranscriptHeader, seen_index) == 17 && offsetof(TranscriptHeader, terminal) == 18
               && offsetof(TranscriptHeader, state) == 19 && offsetof(TranscriptHeader, chunk_bytes) == 20
-              && offsetof(TranscriptHeader, truncated) == 22 && offsetof(TranscriptHeader, order) == 23,
+              && offsetof(TranscriptHeader, truncated) == 22 && offsetof(TranscriptHeader, order) == 23
+              && offsetof(TranscriptHeader, activation_ms) == 24 && offsetof(TranscriptHeader, reserved) == 28,
               "TranscriptHeader offsets");
 static_assert(sizeof(TranscriptChunk) == 210 && alignof(TranscriptChunk) == 2
               && offsetof(TranscriptChunk, len) == 206 && offsetof(TranscriptChunk, next) == 208,
@@ -87,7 +88,16 @@ static_assert(offsetof(OpenCapture, len) == 1648 && offsetof(OpenCapture, next_o
               && offsetof(OpenCapture, truncated) == 1655 && offsetof(OpenCapture, terminal) == 1656
               && offsetof(OpenCapture, next_seq) == 1657, "OpenCapture offsets");
 // The 4974 capture bytes + four counters bytes reuse the previous two tail-padding bytes: +4976.
-static_assert(sizeof(RemoteSessionState) == 8824 && alignof(RemoteSessionState) == 8,
+static_assert(sizeof(DeferredActionRecord) == 40 && alignof(DeferredActionRecord) == 8,
+              "R-RA-40: one complete 40-byte action, no borrowed state");
+static_assert(offsetof(DeferredActionRecord, request_id) == 0 && offsetof(DeferredActionRecord, admin_epoch) == 8
+              && offsetof(DeferredActionRecord, activate_at_ms) == 16 && offsetof(DeferredActionRecord, source_hash) == 24
+              && offsetof(DeferredActionRecord, activation_ms) == 28 && offsetof(DeferredActionRecord, controller_slot) == 32
+              && offsetof(DeferredActionRecord, authority) == 33 && offsetof(DeferredActionRecord, kind) == 34
+              && offsetof(DeferredActionRecord, backend) == 35 && offsetof(DeferredActionRecord, phase) == 36
+              && offsetof(DeferredActionRecord, trigger) == 37 && offsetof(DeferredActionRecord, reserved) == 38,
+              "DeferredActionRecord canonical offsets");
+static_assert(sizeof(RemoteSessionState) == 8904 && alignof(RemoteSessionState) == 8,
               "RemoteSessionState: re-derive the ACCEPT block and measure the Node re-pin");
 static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, admin_ed_pub) == 32
@@ -102,13 +112,17 @@ static_assert(offsetof(RemoteSessionState, admin_x_secret) == 0
               && offsetof(RemoteSessionState, body) == 1464
               && offsetof(RemoteSessionState, staging) == 1936
               && offsetof(RemoteSessionState, transcripts) == 2064
-              && offsetof(RemoteSessionState, chunks) == 2160
-              && offsetof(RemoteSessionState, transcript_exhaustion) == 3840
-              && offsetof(RemoteSessionState, response_enqueue_failure) == 3842
-              && offsetof(RemoteSessionState, response_seal_failure) == 3844
-              && offsetof(RemoteSessionState, open) == 3846
-              && offsetof(RemoteSessionState, inbound_refusal) == 8820
-              && offsetof(RemoteSessionState, open_rate_refusal) == 8822, "RemoteSessionState offsets");
+              && offsetof(RemoteSessionState, chunks) == 2192
+              && offsetof(RemoteSessionState, transcript_exhaustion) == 3872
+              && offsetof(RemoteSessionState, response_enqueue_failure) == 3874
+              && offsetof(RemoteSessionState, response_seal_failure) == 3876
+              && offsetof(RemoteSessionState, open) == 3878
+              && offsetof(RemoteSessionState, inbound_refusal) == 8852
+              && offsetof(RemoteSessionState, open_rate_refusal) == 8854
+              && offsetof(RemoteSessionState, action) == 8856
+              && offsetof(RemoteSessionState, last_activation_kind) == 8896
+              && offsetof(RemoteSessionState, last_activation_outcome) == 8897
+              && offsetof(RemoteSessionState, reserved_action) == 8898, "RemoteSessionState offsets");
 static_assert(sizeof(RemoteSessionState::acl) == 340 && sizeof(RemoteSessionState::epoch) == 80
               && sizeof(RemoteSessionState::seen) == 896 && sizeof(RemoteSessionState::ingress) == 80
               && sizeof(RemoteSessionState::body) == 472 && sizeof(RemoteSessionState::staging) == 128,
@@ -270,11 +284,26 @@ void transcript_release(RemoteSessionState& s, uint8_t si) {
     (void)chunk_free_list(s);
 }
 
+bool action_matches(const DeferredActionRecord& a, const SeenRequestRecord& r) {
+    return a.phase != RemoteActionPhase::none && a.controller_slot == r.controller_slot
+        && a.request_id == r.request_id && a.admin_epoch == r.admin_epoch && a.source_hash == r.source_hash;
+}
+
+bool action_owned(const DeferredActionRecord& a) {
+    return a.phase == RemoteActionPhase::armed || a.phase == RemoteActionPhase::due;
+}
+
+void action_clear(DeferredActionRecord& a) {
+    crypto_wipe(&a, sizeof a);
+    a = DeferredActionRecord{};
+}
+
 // ★★ INVALIDATE ONE SLOT — the ONLY thing that may clear an EXECUTED seen row. B369 separately permits
 //    expiry of never-executed admissions. An ACK and a full pool never clear replay tombstones (design §10:
 //    "session records are not silently evicted
 //    while their session key remains valid"). It runs AFTER durability, on the affected slot alone.
 void invalidate_slot(RemoteSessionState& s, uint8_t slot) {
+    if (s.action.controller_slot == slot && !action_owned(s.action)) action_clear(s.action);
     for (uint8_t i = 0; i < kRadminSeenSlots; ++i)
         if (s.seen[i].record.state != static_cast<uint8_t>(SeenState::free)
             && s.seen[i].record.controller_slot == slot) {
@@ -292,6 +321,7 @@ void invalidate_slot(RemoteSessionState& s, uint8_t slot) {
 }
 
 void invalidate_everything(RemoteSessionState& s) {
+    if (!action_owned(s.action)) action_clear(s.action);
     for (uint8_t i = 0; i < kRadminSeenSlots; ++i) transcript_release(s, i);
     crypto_wipe(s.seen, sizeof s.seen);
     for (uint8_t i = 0; i < kRadminSeenSlots; ++i) {
@@ -390,10 +420,13 @@ uint64_t remote_session_earliest_deadline(const RemoteSessionState& s) {
     for (uint8_t i = 0; i < kRadminStagingSlots; ++i)
         if (s.staging[i].kind != static_cast<uint8_t>(OpenStagingKind::free)
             && s.staging[i].expires_at_ms < earliest) earliest = s.staging[i].expires_at_ms;
+    if (s.action.phase == RemoteActionPhase::armed && s.action.activate_at_ms < earliest)
+        earliest = s.action.activate_at_ms;
     return earliest;
 }
 
 uint8_t remote_session_expire(RemoteSessionState& s, uint64_t now_ms) {
+    remote_action_expire(s, now_ms); // mark eligible only; never run hardware on a timer/RX stack
     uint8_t released = 0;
     // ★ `now >= expires_at` — the boundary EXPIRES. Just below it does not.
     for (uint8_t i = 0; i < kRadminIngressSlots; ++i)
@@ -543,6 +576,17 @@ void remote_transcript_complete(RemoteSessionState& s, uint8_t si, RemoteTermina
     if (ti == kRadminNoTranscript) return;
     auto& h = s.transcripts[ti];
     if (h.state != static_cast<uint8_t>(TranscriptState::capturing)) return;
+    const bool prepared = action_matches(s.action, s.seen[si].record)
+        && s.action.phase == RemoteActionPhase::preparing;
+    if (result == RemoteTerminal::scheduled) {
+        if (!prepared) result = RemoteTerminal::internal_error;
+        else {
+            h.activation_ms = s.action.activation_ms;
+            s.action.phase = RemoteActionPhase::prepared;
+        }
+    } else if (prepared) {
+        action_clear(s.action); // staging failure before completion never leaves a promise behind
+    }
     uint8_t output_frames = 0;
     for (uint16_t ci = h.first_chunk; ci < kRadminChunkSlots && output_frames < kRadminChunkSlots;
          ci = s.chunks[ci].next) {
@@ -583,7 +627,12 @@ RemoteStatus remote_transcript_encode(const RemoteSessionState& s, uint8_t si,
         || slot >= kRadminAclSlots || !row_occupied(s.acl[slot]) || s.epoch[slot] == 0
         || s.epoch[slot] != e.record.admin_epoch) return RemoteStatus::bad_pairing;
     const bool terminal = h.next_seq_to_send == h.frames - 1;
+    uint8_t scheduled[5] = {h.terminal, 0, 0, 0, 0};
     std::span<const uint8_t> plain(&h.terminal, 1);
+    if (terminal && h.terminal == static_cast<uint8_t>(RemoteTerminal::scheduled)) {
+        for (uint8_t i = 0; i < 4; ++i) scheduled[1 + i] = static_cast<uint8_t>(h.activation_ms >> (8 * i));
+        plain = scheduled;
+    }
     if (!terminal) {
         uint16_t ci = h.first_chunk;
         for (uint8_t seq = 0; seq < h.next_seq_to_send && ci < kRadminChunkSlots; ++seq) ci = s.chunks[ci].next;
@@ -615,6 +664,75 @@ void remote_transcript_sent(RemoteSessionState& s, uint8_t si) {
     auto& h = s.transcripts[ti];
     if (h.state == static_cast<uint8_t>(TranscriptState::ready) && h.next_seq_to_send < h.frames)
         ++h.next_seq_to_send;
+}
+
+RemoteTerminal remote_action_reserve(RemoteSessionState& s, uint8_t slot, uint64_t request_id,
+                                     uint8_t kind, uint8_t backend, uint32_t activation_ms) {
+    const uint8_t si = remote_session_seen_find(s, slot, request_id);
+    const uint8_t ti = transcript_index(s, si);
+    if (slot >= kRadminAclSlots || ti == kRadminNoTranscript || !remote_session_accepting(s)
+        || !row_occupied(s.acl[slot]) || s.epoch[slot] != s.seen[si].record.admin_epoch
+        || s.seen[si].record.state != static_cast<uint8_t>(SeenState::executing)
+        || s.transcripts[ti].state != static_cast<uint8_t>(TranscriptState::capturing)
+        || s.transcripts[ti].chunk_bytes < 5 || !kind || !activation_ms) return RemoteTerminal::internal_error;
+    if (s.action.phase != RemoteActionPhase::none) return RemoteTerminal::action_busy;
+    const auto& r = s.seen[si].record;
+    auto& a = s.action;
+    action_clear(a);
+    a.request_id = r.request_id;
+    a.admin_epoch = r.admin_epoch;
+    a.source_hash = r.source_hash;
+    a.controller_slot = r.controller_slot;
+    a.authority = s.acl[slot].role;
+    a.activation_ms = activation_ms;
+    a.kind = kind;
+    a.backend = backend;
+    a.phase = RemoteActionPhase::preparing;
+    return RemoteTerminal::scheduled;
+}
+
+void remote_action_owned(RemoteSessionState& s, uint8_t si, uint64_t now_ms) {
+    const uint8_t ti = transcript_index(s, si);
+    if (ti == kRadminNoTranscript || s.action.phase != RemoteActionPhase::prepared
+        || !action_matches(s.action, s.seen[si].record)) return;
+    const auto& h = s.transcripts[ti];
+    if (h.state != static_cast<uint8_t>(TranscriptState::ready) || !h.frames
+        || h.next_seq_to_send != h.frames - 1 || h.terminal != static_cast<uint8_t>(RemoteTerminal::scheduled)
+        || h.activation_ms != s.action.activation_ms) return;
+    s.action.activate_at_ms = remote_session_deadline(now_ms, s.action.activation_ms);
+    s.action.phase = RemoteActionPhase::armed;
+}
+
+void remote_action_expire(RemoteSessionState& s, uint64_t now_ms) {
+    if (s.action.phase == RemoteActionPhase::armed && now_ms >= s.action.activate_at_ms) {
+        s.action.phase = RemoteActionPhase::due;
+        s.action.trigger = RemoteActionTrigger::deadline;
+    }
+}
+
+bool remote_action_take(RemoteSessionState& s, uint64_t now_ms, DeferredActionRecord& out) {
+    action_clear(out);
+    remote_action_expire(s, now_ms);
+    if (s.action.phase != RemoteActionPhase::due) return false;
+    out = s.action;
+    action_clear(s.action); // complete owned transfer; consume before any firmware effect can run
+    return true;
+}
+
+RadminActionStatus remote_action_status(const RemoteSessionState& s, uint64_t now_ms) {
+    RadminActionStatus out{};
+    out.phase = s.action.phase;
+    out.last_kind = s.last_activation_kind;
+    out.last_outcome = s.last_activation_outcome;
+    if (s.action.phase != RemoteActionPhase::none) {
+        out.request_id = s.action.request_id;
+        out.controller_slot = s.action.controller_slot;
+        out.kind = s.action.kind;
+        out.activation_ms = s.action.activation_ms;
+        if (s.action.phase == RemoteActionPhase::armed && s.action.activate_at_ms > now_ms)
+            out.remaining_ms = s.action.activate_at_ms - now_ms;
+    }
+    return out;
 }
 
 // =========================================================================================================
@@ -890,6 +1008,8 @@ RadminControlDecision remote_control_check(const RemoteSessionState& s, const Ra
     if (!remote_control_next(s, live) || live.slot != view.slot || live.request_ctl != view.request_ctl
         || live.request_id != view.request_id || live.epoch != view.epoch || live.source_hash != view.source_hash
         || std::memcmp(&live.route, &view.route, sizeof live.route) != 0) return RadminControlDecision::stale;
+    if (s.action.phase == RemoteActionPhase::preparing || action_owned(s.action))
+        return RadminControlDecision::executing;
     for (const auto& e : s.seen)
         if (e.record.state == static_cast<uint8_t>(SeenState::executing)) return RadminControlDecision::executing;
     for (const auto& c : s.open)
@@ -1255,6 +1375,15 @@ void remote_session_receive(RemoteSessionState& s, const RemoteRxInput& in, Remo
         out.seen_index = si;
         if (si == kRadminNoSlot) { out.verdict = RemoteAdmitVerdict::ack_unknown; return; }
         auto& r = s.seen[si].record;
+        if (action_matches(s.action, r)) {
+            if (in.source.hash != s.action.source_hash) { out.verdict = RemoteAdmitVerdict::ack_unknown; return; }
+            if (!action_owned(s.action)) { out.verdict = RemoteAdmitVerdict::ack_premature; return; }
+            remote_action_expire(s, in.now_ms);
+            if (s.action.phase == RemoteActionPhase::armed) {
+                s.action.phase = RemoteActionPhase::due;
+                s.action.trigger = RemoteActionTrigger::ack;
+            }
+        }
         if (r.state == static_cast<uint8_t>(SeenState::completed)) {
             transcript_release(s, si);
             r.state = static_cast<uint8_t>(SeenState::acknowledged);

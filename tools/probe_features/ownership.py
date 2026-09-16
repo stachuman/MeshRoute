@@ -131,7 +131,10 @@ APPROVED_SITES = {
     # ★★ THE TWO ROLES ARE INTERLEAVED PER FILE AND THE MULTISET IS EXACT: swapping a CLIENT gate for an ACCEPT
     #    one (or the reverse) changes NO count but changes the multiset, and the check below compares the SORTED
     #    LIST rather than a length. That is the whole reason this census exists rather than a `grep -c`.
+    "src/firmware_remote_actions.h": ["#if MR_FEAT_RADMIN_ACCEPT"],
+    "src/firmware_remote_actions.cpp": ["#if MR_FEAT_RADMIN_ACCEPT"],
     CMDS_CPP: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # 7b-3 preparation in the common command seam
         "#if MR_FEAT_RADMIN_ACCEPT",   # the store/draw/sink bindings, the three entry points and the router arm
         "#if MR_FEAT_RADMIN_ACCEPT",   # 7b-2: scalar status snapshot and five ordered counters, no CLIENT surface
         "#if MR_FEAT_RADMIN_ACCEPT",   # the ONE dispatch forwarding arm
@@ -145,6 +148,7 @@ APPROVED_SITES = {
         "#if MR_FEAT_RADMIN_CLIENT",   # the controller boot wrapper's declaration. ⛔ NO `#else` stub either
     ],
     FW_MAIN: [
+        "#if MR_FEAT_RADMIN_ACCEPT",   # 7b-3 due-action service before the halt guard
         "#if MR_FEAT_RADMIN_ACCEPT",   # R-RA-29's BLE refusal, BEFORE the transport-neutral seam
         "#if MR_FEAT_RADMIN_ACCEPT",   # setup()'s boot report + §radmin-5's LIVE INSTALL, beside the legacy admin_load
         "#if MR_FEAT_RADMIN_ACCEPT",   # §radmin-7a: the post-init `> remote-activation` boot line (B363)
@@ -504,6 +508,13 @@ def run_checks(root: Path) -> list[tuple[str, bool, str]]:
 # ---------------------------------------------------------------------------------------------------------------
 # Each control: (id, description, relative file, exact find text, replacement, the check ids that MUST reject it).
 CONTROLS = [
+    ("W-S73-ACTIONS-H", "action declarations moved to CLIENT", "src/firmware_remote_actions.h",
+     "#if MR_FEAT_RADMIN_ACCEPT", "#if MR_FEAT_RADMIN_CLIENT", ("O4j",)),
+    ("W-S73-ACTIONS-CPP", "action implementation moved to CLIENT", "src/firmware_remote_actions.cpp",
+     "#if MR_FEAT_RADMIN_ACCEPT", "#if MR_FEAT_RADMIN_CLIENT", ("O4i",)),
+    ("W-S73-ACTION-LOOP", "action main-loop call moved to CLIENT", FW_MAIN,
+     "#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::remote_action_service_once();",
+     "#if MR_FEAT_RADMIN_CLIENT\n    mrfw::remote_action_service_once();", ("O4k",)),
     ("W-UNKNOWN", "an UNAPPROVED production file starts naming the pair (a consumer nobody reviewed)",
      "src/firmware_remote.cpp", "// MeshRoute — src/firmware_remote.cpp",
      "// MeshRoute — src/firmware_remote.cpp\n#if MR_FEAT_RADMIN_ACCEPT\n#endif", ("O1",)),
@@ -559,12 +570,12 @@ CONTROLS = [
     ("W-S3-DROP-BLE", "§RADMIN slice 3: the ACCEPT gate around the R-RA-29 BLE REFUSAL is deleted, so a CLIENT "
                       "board acquires an unused target-family guard it was ruled not to carry",
      FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    if (mrfw::admin_verb_owns(line, len))",
-     "    if (mrfw::admin_verb_owns(line, len))", ("O4i",)),
+     "    if (mrfw::admin_verb_owns(line, len))", ("O4k",)),
     ("W-S3-WIDEN-BOOT", "§RADMIN slice 3: the boot-call gate is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` "
                         "(forbidden by R-RA-27 — the capability must not be aliased to the legacy switch)",
      FW_MAIN, "#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::admin_stores_boot_report_console();",
      "#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_stores_boot_report_console();",
-     ("O4i", "O5")),
+     ("O4k", "O5")),
     ("W-S3-INVERT-HELP", "§RADMIN slice 3: the help index's two names are compiled under the CLIENT capability — "
                          "the R-RA-8 inversion, which would advertise a target surface on a MOBILE build",
      # ⓘ REJECTED BY O4f ALONE, and that is the CORRECT answer rather than a weaker one: the file census (O1) is
@@ -590,12 +601,12 @@ CONTROLS = [
     ("W-S4-DROP-BLE", "§RADMIN slice 4: the CLIENT gate around the R-RA-30 BLE SPLIT is deleted, so an ACCEPT "
                       "board acquires a controller-family guard it was ruled not to carry",
      FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    if (mrfw::admin_client_ble_refuses(line, len))",
-     "    if (mrfw::admin_client_ble_refuses(line, len))", ("O4i",)),
+     "    if (mrfw::admin_client_ble_refuses(line, len))", ("O4k",)),
     ("W-S4-WIDEN-BOOT", "§RADMIN slice 4: the controller boot-call gate is legacy-widened with "
                         "`|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)",
      FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    mrfw::admin_client_stores_boot_report_console();",
      "#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_client_stores_boot_report_console();",
-     ("O4i", "O5")),
+     ("O4k", "O5")),
     ("W-S4-INVERT-HELP", "§RADMIN slice 4: the help index's two CONTROLLER names are compiled under the ACCEPT "
                          "capability — the R-RA-8 inversion, which would advertise a controller surface on a "
                          "GATEWAY build",
@@ -641,7 +652,7 @@ CONTROLS = [
                         "so an ACCEPT board keeps the legacy `rcmd` execution path this slice removed AND pays "
                         "its two statics again",
      FW_MAIN, "#if MR_FEAT_RADMIN_CLIENT\n    { static meshroute::Node::RemoteInbound ri;",
-     "    { static meshroute::Node::RemoteInbound ri;", ("O4i",)),
+     "    { static meshroute::Node::RemoteInbound ri;", ("O4k",)),
     ("W-S5-GATE-PURE-SESSION", "★ §RADMIN slice 5: the PURE SESSION IMPLEMENTATION acquires a capability macro — "
                                "the [[B255]] idiom's own violation, which would stop the native suite driving "
                                "the classifier, the crypto and the expiry at all",

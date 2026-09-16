@@ -1,0 +1,11 @@
+== BASELINE (pristine c591721 handlers, corrected path)
+rc=0
+b2-p1 117 checks 39 transcripts PASS
+b2-p0 117 checks 39 transcripts PASS
+ACTION PROBE PASS; output=/tmp/claude-1001/-home-staszek-MeshRoute/29a5e6f2-869e-46c1-aa18-9fb7b0d23189/scratchpad/p1gate/probe-baseline
+== TRANSCRIPT COMPARISON (paired by relative file path)
+b0-p1.log: baseline 39 final 39 IDENTICAL
+b1-p1.log: baseline 39 final 39 IDENTICAL
+b2-p0.log: baseline 39 final 39 IDENTICAL
+b2-p1.log: baseline 39 final 39 IDENTICAL
+SUMMARY: 4/4 transcript files byte-identical; lines baseline=156 final=156

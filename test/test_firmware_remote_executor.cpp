@@ -79,11 +79,12 @@ struct Target : IRadminTarget {
 };
 struct Exec : IRadminExec {
     unsigned calls = 0;
+    std::string expected = "status";
     CommandContext got{};
     RadminExecResult result{DispatchOutcome::completed, RefuseReason::none};
     RadminExecResult run(const char* p, size_t n, const CommandContext& ctx, IRadminTranscriptSink& sink) override {
         ++calls; got = ctx;
-        CHECK(std::string(p, n) == "status");
+        CHECK(std::string(p, n) == expected);
         sink.append(reinterpret_cast<const uint8_t*>("hello\n"), 6);
         return result;
     }
@@ -122,14 +123,15 @@ TEST_CASE("§radmin-7/exec one pending frame consumes the pass on every attempte
     CHECK(e.calls == 1);
     CHECK(t.order.front() == "expire"); CHECK(t.order[1] == "full"); CHECK(t.order[2] == "next");
 }
-TEST_CASE("§radmin-7/exec disruptive policy refuses before the fake can execute") {
+TEST_CASE("§radmin-7/exec disruptive requests reach the common preparation seam once") {
     for (const char* line : {"reboot", "factory_reset confirm", "regen"}) {
-        Target t; Exec e; t.line = line;
+        Target t; Exec e; t.line = line; e.expected = line;
+        e.result = {DispatchOutcome::refused, RefuseReason::authority};
         const auto* p = command_policy_lookup(t.line.data(), t.line.size());
         CHECK(p != nullptr); if (!p) continue;
         CHECK(p->disruptive); if (!p->disruptive) continue;
         radmin_service_once(t, e);
-        CHECK(e.calls == 0); CHECK(t.bytes.empty()); CHECK(t.terminal == RemoteTerminal::refused);
+        CHECK(e.calls == 1); CHECK(t.bytes == "hello\n"); CHECK(t.terminal == RemoteTerminal::refused);
     }
 }
 TEST_CASE("§radmin-7/exec typed terminal mapping does not scrape handler output") {
@@ -141,7 +143,7 @@ TEST_CASE("§radmin-7/exec typed terminal mapping does not scrape handler output
         Row{DispatchOutcome::refused, RefuseReason::authority, RemoteTerminal::refused},
         Row{DispatchOutcome::refused, RefuseReason::bad_line, RemoteTerminal::refused},
         Row{DispatchOutcome::internal_failure, RefuseReason::none, RemoteTerminal::internal_error},
-        Row{DispatchOutcome::scheduled, RefuseReason::none, RemoteTerminal::internal_error}}) {
+        Row{DispatchOutcome::scheduled, RefuseReason::none, RemoteTerminal::scheduled}}) {
         Target t; Exec e; e.result = {r.out, r.reason};
         radmin_service_once(t, e); CHECK(t.terminal == r.result); CHECK(e.calls == 1);
     }
@@ -193,4 +195,11 @@ TEST_CASE("§radmin-7b2/exec any attempted open frame consumes the pass and full
     radmin_service_once(t, exec);
     CHECK(exec.calls == 1); CHECK(t.open_pending); CHECK(exec.got.authority == CommandAuthority::remote_owner);
     CHECK(t.order == std::vector<std::string>{"expire", "full", "next", "reserve", "append", "complete"});
+}
+
+TEST_CASE("§radmin-7b3/exec typed conflict remains distinct from authority refusal") {
+    Target t;Exec e;e.result={DispatchOutcome::refused,RefuseReason::authority,true};
+    radmin_service_once(t,e);CHECK(t.terminal==RemoteTerminal::action_busy);CHECK(e.calls==1);
+    CHECK(radmin_terminal({DispatchOutcome::scheduled,RefuseReason::none,false})==RemoteTerminal::scheduled);
+    CHECK(radmin_terminal({DispatchOutcome::refused,RefuseReason::authority,false})==RemoteTerminal::refused);
 }

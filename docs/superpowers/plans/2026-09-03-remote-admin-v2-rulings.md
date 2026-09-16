@@ -976,3 +976,27 @@ state found necessary during source-validation returns to QA for measurement as 
 B389 stays OPEN until the 7b-3 implementation and independent gate prove the layout, the pins, the linked
 attribution and mobile invariance. This ruling does not touch B394/P1 (zero resident state) or the 36
 retained refusals (B395–B398).
+
+**QA completion note, 2026-09-16 — P1 gated; 7b-3 HOLD lifted; R-RA-37..40 unchanged:** the 7b-3-P1
+simple-action preparation (B394) has independent QA PASS at owner commit `7442e6f`: local behaviour proven
+byte-identical against the pristine handlers (156/156 transcripts, four backend variants), zero resident state,
+remote disruptive guards intact, union 826 RED / 1 known unusable. B394/B399/B400 closed; B401 (LOW comment
+drift) registered. The 7b-3 behaviour brief is next refreshed to revision 5 at `7442e6f`, naming the real
+`firmware_action_effects.h` API; implementation then proceeds under R-RA-37/38/39 and the R-RA-40 allocation
+(+80 B, Node 230976/157344, mobile unchanged). [Independent gate](../evidence/2026-09-15-radmin-slice7b3-p1-qa-gate.md).
+
+### R-RA-41 (owner, 2026-09-16) — remote provisioning is NOT a v2 requirement; B395–B398 closed
+
+**Owner, verbatim:** *"Remote provisioning not required - close B395-B398"*
+
+**Settled:** the 36 disruptive policy rows that R-RA-39 kept as retained remote refusals — the 22 disruptive
+`cfg set` keys and `gateway` (B395), `join`/its alias, `create` and its six argument rows, `leave` (B396),
+`team`/`team new` (B397) and `regen` (B398) — are **refused remotely by design, permanently**. No validate/apply
+preparation slice, no prepared-transaction service and no later deferred-action support is planned for them;
+the four follow-up findings are CLOSED as *not required*, not as implemented. Their authority classification in
+`firmware_command_authority.h` is unchanged (still operator/owner + disruptive); the remote executor and the common
+seam keep producing the retained, immutable typed **`refused`** with zero effects for every one of those rows,
+and 7b-3's gate still proves that for all 36 (revision 5 §2.2/§6). Local USB/BLE forms are untouched. The
+disruptive remote-admin arc is therefore **complete with 7b-3**: reboot, prep-restart, OTA entry, factory reset,
+sleep and crashtest are the deferred actions; everything else disruptive is a designed refusal. A future owner
+ruling can reopen any family; it would start from a fresh brief, not from these rows.

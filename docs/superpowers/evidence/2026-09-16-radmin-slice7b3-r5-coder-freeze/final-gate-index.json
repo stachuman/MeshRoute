@@ -1,0 +1,98 @@
+{
+  "base": "7442e6f570abdcd74ceed20d4c0cb9e2855d0719",
+  "brief_sha256": "f1d38f8673a411fff3d4f2d6c280daf96b015b86d13c97b882b6ce33094621c8",
+  "native": [
+    "logs/native-base-build.log",
+    "logs/native-base.log",
+    "logs/native-8-build.log",
+    "logs/native-8.log",
+    "base-native-results.json",
+    "link2-results.json",
+    "native-case-additions.json"
+  ],
+  "simulator_corpus": [
+    "simulator-compile-provenance.json",
+    "base-corpus-results.json",
+    "corpus-results.json",
+    "logs/corpus-canonical-compare.log",
+    "corpus-byte-comparison.json",
+    "corpus.tar.xz"
+  ],
+  "reference": [
+    "logs/reference.log",
+    "logs/reference-corrupt.log",
+    "reference-corrupt.cpp",
+    "reference-corrupt-result.json"
+  ],
+  "abi": [
+    "logs/chain-abi.log",
+    "logs/chain-abi-b278.log"
+  ],
+  "console": [
+    "logs/chain4-console_sink.log",
+    "logs/chain4-console_sink-no-neg.log"
+  ],
+  "other_standing_probes": [
+    "logs/chain5-inbox_verbs.log",
+    "logs/chain5-inbox_verbs-no-neg.log",
+    "logs/chain5-firmware_ui.log",
+    "logs/chain5-firmware_ui-no-neg.log",
+    "logs/chain5-custody_usb.log",
+    "logs/chain5-custody_usb-no-neg.log",
+    "logs/chain5-ble_line.log",
+    "logs/chain5-ble_line-no-neg.log",
+    "logs/chain5-features.log",
+    "logs/chain5-features-no-neg.log",
+    "logs/chain5-inbox-client.log"
+  ],
+  "real_actions": [
+    "logs/action-final3.log",
+    "logs/action-final3-no-neg.log",
+    "action-final-summary.json",
+    "action-final3/results.json",
+    "action-final3-no-neg/results.json",
+    "p1-and-wire-preservation.json"
+  ],
+  "tools_and_checkers": [
+    "chain6-results.json",
+    "logs/chain6-tools.log",
+    "logs/chain6-inventory-write.log",
+    "logs/chain6-inventory-bare.log",
+    "logs/chain6-inventory-check.log",
+    "logs/chain6-authority.log",
+    "logs/chain6-authority-controls.log",
+    "logs/chain6-a0.log",
+    "logs/chain6-literals.log",
+    "inventory-semantics.json",
+    "final-integrity.json"
+  ],
+  "boards_stack": [
+    "resources-final.json",
+    "elf-attribution2.json",
+    "measurements.tar.xz",
+    "logs/boards-final-2.log",
+    "logs/transient-types.log"
+  ],
+  "census": [
+    "logs/census-final.log"
+  ],
+  "mutations": [
+    "union2/summary.json",
+    "union2/selectors.json",
+    "union2/native-inputs.json",
+    "union2/results.json"
+  ],
+  "inputs": [
+    "implementation-inputs.json",
+    "inputs-at-freeze-before-receipt.json",
+    "permitted-preparation.json",
+    "frozen.patch",
+    "untracked-inputs.tar.xz"
+  ],
+  "historical_attempts": [
+    "union-interrupted/",
+    "action-attempts.tar.xz",
+    "logs/"
+  ],
+  "note": "Only selected final instruments count; failed/interrupted attempts are preserved. Independent QA and Part 57b remain pending."
+}

@@ -102,8 +102,9 @@ WARN=(-Wall -Wextra -Werror)
 #     DELETED, the boot call's gate legacy-WIDENED, the help names INVERTED onto the CLIENT capability, a
 #     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)
 PIN_CELLS=9
-PIN_CHECKS=120
-PIN_CONTROLS=59
+# 7b-3: 120 + two new source owners = 122; 59 + three owner-boundary controls = 62.
+PIN_CHECKS=122
+PIN_CONTROLS=62
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED

@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 190, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 172, in main
+    p=subprocess.run(['bash','-c',script,str(ROOT/'tools/probe_inbox_verbs/run.sh')],env=dict(os.environ,MR_PROBE_ARM='accept'),stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1194, in communicate
+    stdout = self.stdout.read()
+             ^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

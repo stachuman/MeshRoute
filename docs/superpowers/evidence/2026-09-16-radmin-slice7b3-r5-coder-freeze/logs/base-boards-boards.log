@@ -1,0 +1,14 @@
+PASS: deterministic board measurement env=gateway
+  RAM=203956 flash=568220 objects=285
+  stamp=Jan  1 2000 00:00:00 git=b206b206b206
+  payload_sha256=25d1714291578172eecea2504bb0452dc1859cfa598f34c0a96f4132e5c58b22
+  manifest=/tmp/mr-codex-s7b3-0gt630zl/gate/.pio-measure/s7b3-base/gateway/manifest.json
+  full_log=/tmp/mr-codex-s7b3-0gt630zl/gate/.pio-measure/s7b3-base/gateway/build.log
+PASS: deterministic board measurement env=heltec_mobile
+  RAM=207756 flash=1373576 objects=329
+  stamp=Jan  1 2000 00:00:00 git=b206b206b206
+  payload_sha256=6e473c5e5123747e66ade5e65c22217e4e3d6258304f896f83079463fb661f37
+  manifest=/tmp/mr-codex-s7b3-0gt630zl/gate/.pio-measure/s7b3-base/heltec_mobile/manifest.json
+  full_log=/tmp/mr-codex-s7b3-0gt630zl/gate/.pio-measure/s7b3-base/heltec_mobile/build.log
+PASS: ruled pair gateway, heltec_mobile jobs=1 wall=48.1s usable_cores=24
+  summary=/tmp/mr-codex-s7b3-0gt630zl/gate/.pio-measure/s7b3-base/pair.json

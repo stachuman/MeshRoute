@@ -1,0 +1,45 @@
+-- target sliceBnode: /tmp/mr-codex-s7b3-0gt630zl/gate/lib/core/node.cpp (8 entries)
+-- selection: IN FULL (all 8 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-gxg99ggi   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceBnode: /tmp/mr_mutation_run-gxg99ggi/w0/lib/core/node.cpp (3 of 8 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target sliceBnode: /tmp/mr_mutation_run-gxg99ggi/w2/lib/core/node.cpp (2 of 8 entries in this shard)
+  [w1] -- target sliceBnode: /tmp/mr_mutation_run-gxg99ggi/w1/lib/core/node.cpp (3 of 8 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w2]   ok   N03 ★★★ THE SUPPRESSION IS DISABLED FOR EVERY TYPE — the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (§6.2(5) undone) AND its own kind is never minted -> RED (7 assertion(s) failed, match count 1)
+  [w0]   ok   N01 ★★★ THE GRANT'S AIRED PUSH IS DELETED — §UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close -> RED (6 assertion(s) failed, match count 1)
+  [w1]   ok   N02 ★★★ THE CORRELATION IS DROPPED — the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen -> RED (4 assertion(s) failed, match count 1)
+  [w2]   ok   N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is §6.4 inverted -> RED (3 assertion(s) failed, match count 1)
+  [w2] source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)
+  [w2] shard 2: 2 RED / 0 unusable   (of 2 entries)
+  [w1]   ok   N05 ★★ THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED — the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1) -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   N04 ★★★ THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED — a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1) -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven post-admission carrier deaths stops reporting the grant at once: the §UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight -> RED (23 assertion(s) failed, match count 1)
+  [w1] source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)
+  [w1] shard 1: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape) -> RED (13 assertion(s) failed, match count 1)
+  [w0] source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)
+  [w0] shard 0: 3 RED / 0 unusable   (of 3 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceBnode: /tmp/mr-codex-s7b3-0gt630zl/gate/lib/core/node.cpp
+  ok   clean baseline 2931 / 189998 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   N01 ★★★ THE GRANT'S AIRED PUSH IS DELETED — §UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close -> RED (6 assertion(s) failed, match count 1)
+  ok   N02 ★★★ THE CORRELATION IS DROPPED — the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen -> RED (4 assertion(s) failed, match count 1)
+  ok   N03 ★★★ THE SUPPRESSION IS DISABLED FOR EVERY TYPE — the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (§6.2(5) undone) AND its own kind is never minted -> RED (7 assertion(s) failed, match count 1)
+  ok   N04 ★★★ THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED — a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1) -> RED (3 assertion(s) failed, match count 1)
+  ok   N05 ★★ THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED — the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1) -> RED (2 assertion(s) failed, match count 1)
+  ok   N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is §6.4 inverted -> RED (3 assertion(s) failed, match count 1)
+  ok   N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape) -> RED (13 assertion(s) failed, match count 1)
+  ok   N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven post-admission carrier deaths stops reporting the grant at once: the §UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight -> RED (23 assertion(s) failed, match count 1)
+  worker 0: 3/3 entries, 3 RED / 0 worthless, wall 20.6s, rc 0, source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)   /tmp/mr_mutation_run-gxg99ggi/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 20.6s, rc 0, source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)   /tmp/mr_mutation_run-gxg99ggi/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 15.4s, rc 0, source restored: md5 67e024dae6888fa7ff1386009840416d (MATCHES)   /tmp/mr_mutation_run-gxg99ggi/w2
+real tree untouched: all 58 target files byte-identical to launch (md5); no build ran in /tmp/mr-codex-s7b3-0gt630zl/gate
+timing: copy 3.8s + battery 20.7s = 24.5s total, 8 entries over 3 worker(s)
+mutations: 8 RED / 0 unusable

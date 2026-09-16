@@ -26,11 +26,16 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - D2 lib/core → the s18 md5 must reproduce the current `BASELINE.md` keystone (a `src/`-only change is inert by construction); a node.h reorder → `-Wreorder`-clean + `sizeof(Node)` assert + a per-board RAM diff (native alignment hides board padding)
 - D3 report outcomes honestly — failures with their output; if a step was skipped, say so
 - ★ D4 never `git commit` or offer to — leave green work uncommitted + report ready; the user commits + bench-verifies on metal
+- D5 pins consumed by strict source readers stay bare `NAME=<integer>`; put derivations above them and run full tools discovery after runner edits (B377/B387)
+- D6 comment-only returns still audit exact-source mutation/probe readers; re-run affected controls before inheriting gate attribution (B391)
 
 **[PROCESS] — task shape**
 - P1 present the exact code state *before* proposing (any check / redesign / explore)
 - P2 big or risky → design spec first (`docs/superpowers/specs/`), reviewed before code — then distil its durable agreements into a `MEMORY.md` line so they don't rot in a doc I won't reopen
 - P3 my role is yours to assign per task (QA-gate / spec / implement) — I won't drift into coding what the coder owns; when unsure, I ask
+- P4 briefs pin by SYMBOL (function / struct / constant name); a `file:line` is a hint — the coder relocates by symbol without a STOP; STOP-1 is for a semantic disagreement only (owner 2026-09-16). A brief is FROZEN from coder preflight PASS to the implementation freeze: a mid-slice ruling goes to the ledger + register, and the brief is refreshed only at a checkpoint (preflight STOP or freeze) with an explicit re-pin message naming the new hash and the delta (2026-09-16, after B402/R-RA-41 caused a STOP)
+- P5 status has TWO homes — the design's §19.1 row + the register (§0 + rows); `tracker.md` and `MEMORY.md` carry one-line pointers, never narrative; a brief = contract + fence + gate list, rulings by link, not verbatim (owner 2026-09-16)
+- P6 slice granularity — C1/C4 still split refactor↔feature and wire bumps; a producer-free codec change rides INSIDE its feature slice (KATs + reference gate it); slices sharing one product surface that cannot move the corpus are PAIRED (8a+8c); a `src`-only slice's independent gate = native + corpus + boards + touched batteries + affected probes (full union/census stay in the coder gate); `lib/core`/wire = full gate on both sides (owner 2026-09-16)
 
 **[MAINTAIN] — living documents, not one-off artefacts**
 - ★ M1 **`docs/2026-07-30-open-bug-register.md` is MAINTAINED, not archived** — every finding lands there with its

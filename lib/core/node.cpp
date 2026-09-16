@@ -130,7 +130,28 @@ bool Node::radmin_next_admitted(RadminIngressView& out) {
 void Node::radmin_service_expire() {
     // One service-entry snapshot, before control, authenticated or open work can run.
     const uint64_t now = _hal.now();
-    if (remote_session_expire(_radmin_session, now)) radmin_expiry_arm();
+    (void)remote_session_expire(_radmin_session, now);
+    radmin_expiry_arm(); // an action may become due without releasing an ingress/staging row
+}
+
+RemoteTerminal Node::radmin_prepare_action(uint8_t slot, uint64_t request_id,
+                                          uint8_t kind, uint8_t backend, uint32_t activation_ms) {
+    return remote_action_reserve(_radmin_session, slot, request_id, kind, backend, activation_ms);
+}
+
+bool Node::radmin_take_action(DeferredActionRecord& out) {
+    const bool taken = remote_action_take(_radmin_session, _hal.now(), out);
+    if (taken) radmin_expiry_arm();
+    return taken;
+}
+
+RadminActionStatus Node::radmin_action_status() const {
+    return remote_action_status(_radmin_session, _hal.now());
+}
+
+void Node::radmin_action_result(uint8_t kind, uint8_t outcome) {
+    _radmin_session.last_activation_kind = kind;
+    _radmin_session.last_activation_outcome = outcome;
 }
 
 bool Node::radmin_next_open(RadminOpenView& out) { return remote_open_next_admitted(_radmin_session, out); }

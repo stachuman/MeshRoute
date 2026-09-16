@@ -1,0 +1,9 @@
+REFUSED: 1 difference(s) between the two runs
+    lus_sha256
+
+manifest top keys ['baseline_path', 'baseline_sha256', 'engine', 'generated_by', 'host', 'inputs', 'inputs_stable', 'jobs', 'lus_path', 'lus_sha256', 'scenario_count', 'scenarios', 'schema', 'source', 'timing_ms', 'wall_clock_s']
+row example {'anchor_assertion_failures': 0, 'anchor_events': 69039, 'anchor_match': True, 'anchor_md5_prefix': 'e8f862b0', 'assertion_failures': 0, 'events': 69039, 'exit_status': 0, 'name': 's06_seattle_lifecycle', 'output_bytes': 10389705, 'output_md5': 'e8f862b0d632e39bc18e447e3b07d45d', 'output_sha256': '8752ead2e768a636151d1b18a70789911b45935fa0fc1aa3240598a91207360c', 'promoted': True, 'scenario_path': 'simulation/s06_seattle_lifecycle.json', 'scenario_sha256': '4a40e42d9f9d381a8091f14926b8c029805aed70e07326d89254b5696ca2ec2d'}
+streams 36
+ACTUAL STREAMS BYTE IDENTICAL 36
+s18 [{'path': 'streams/s18_meshroute.ndjson', 'bytes': 38698103, 'sha256': '27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54', 'md5': '32afbf11e43b4bf9d0bd470ad502ba0a'}]
+SEPARATE CORRUPTION REFUSED exit 1

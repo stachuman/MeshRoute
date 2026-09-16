@@ -1,0 +1,16 @@
+{
+  "initial_input_count": 1571,
+  "unchanged_inputs": 1570,
+  "changed_inputs": [
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3.md"
+  ],
+  "receipt_original_prefix_sha256": "70d267ed3804149456abf764c5b2c8f15e8c780a0229d0e43b6363698073090d",
+  "receipt_original_prefix_bytes": 6060,
+  "receipt_append_only": true,
+  "whitespace": {
+    "meshroute": 0,
+    "simulator": 0
+  },
+  "simulator_clean": true,
+  "production_changes": []
+}

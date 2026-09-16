@@ -1,0 +1,25 @@
+[
+  {
+    "name": "console_sink",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3-0gt630zl/gate",
+    "exit": 0,
+    "seconds": 88.87972304970026,
+    "sha256": "96bd451a24236ca571c58540e8c6d78f2cde41586bbf77e48eda02a705dd6c53"
+  },
+  {
+    "name": "console_sink-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-codex-s7b3-0gt630zl/gate",
+    "exit": 0,
+    "seconds": 20.3139122761786,
+    "sha256": "f5e6c59fdc6237b8fcf9edcd9921b8f46585c16c2d9199dca43b4880ca7b4859"
+  }
+]

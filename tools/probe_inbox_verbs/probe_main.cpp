@@ -288,6 +288,15 @@ ActionOutcome action_reboot_apply(ActionBackend, Print&, ActionObserver observer
     routed("reboot");
     return action_report(observer, outcome);
 }
+ActionOutcome action_ota_apply(ActionBackend, Print&, ActionObserver observer) {
+    routed("ota"); return action_report(observer, ActionOutcome::completed);
+}
+ActionOutcome action_prep_restart_apply(Print&, ActionObserver observer) {
+    routed("prep_restart"); return action_report(observer, ActionOutcome::completed);
+}
+ActionOutcome action_crash_apply(ActionPlan, Print&, Print&, ActionObserver observer) {
+    routed("crashtest"); return action_report(observer, ActionOutcome::started);
+}
 }
 void fw_reboot()                 { routed("reboot"); }
 void fw_ota()                    { routed("ota"); }
@@ -1904,15 +1913,17 @@ int main() {
             const bool admitted[3][9] = {{true,false,false,false,false,false,false,false,false},
                                          {true,true,true,false,false,false,false,false,false},
                                          {true,true,true,false,true,false,false,false,false}};
-            // 7b-1 supersedes Slice 6's owner admission of factory_reset: no disruptive handler runs
-            // under a remote context until 7b-3 can schedule it truthfully.
+            // This direct seam fixture has no admitted seen row/capturing transcript. On ACCEPT,
+            // an owner factory reset reaches preparation and fails internally without any effect.
             for (unsigned a = 0; a < 3; ++a) {
                 const CommandContext remote{CommandTransport::remote, static_cast<CommandAuthority>(a + 1), false, 42, remote_command_max_bytes};
                 for (unsigned i = 0; i < 9; ++i) {
                     auto& nv = mrprobe_nv(); const int writes = nv.writes;
                     const int stores = production_store_touches();
                     const auto result = call(lines[i], format, remote);
-                    CHK((result.outcome != DispatchOutcome::refused) == admitted[a][i],
+                    const bool missing_transcript = MR_FEAT_RADMIN_ACCEPT && a == 2 && i == 3;
+                    CHK(missing_transcript ? result.outcome == DispatchOutcome::internal_failure
+                        : (result.outcome != DispatchOutcome::refused) == admitted[a][i],
                         "Y6 remote authority %u admission for %s (format=%u)", a + 1, lines[i], unsigned(format));
                     if (!admitted[a][i]) {
                         CHK(g_sink.n == 0 && reply[0] == '\0' && result.n == 0 && g_command_calls == 0
@@ -1920,8 +1931,9 @@ int main() {
                             && result.refuse == (i == 8 ? RefuseReason::unclassified : RefuseReason::authority),
                             "Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes");
                     }
-                    CHK(result.outcome != DispatchOutcome::scheduled && result.outcome != DispatchOutcome::internal_failure,
-                        "Y8 scheduled/internal_failure have no producer in Slice 6");
+                    CHK(missing_transcript ? result.outcome == DispatchOutcome::internal_failure
+                        : result.outcome != DispatchOutcome::scheduled && result.outcome != DispatchOutcome::internal_failure,
+                        "Y8 only prepared admitted requests can schedule; a missing transcript fails internally");
                 }
                 std::string bad = "status"; bad.push_back('\0');
                 const auto result = call(bad, format, remote);

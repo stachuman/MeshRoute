@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/mr-s7b3-attribution.py", line 7, in <module>
+    with tarfile.open(fileobj=io.BytesIO(blob)) as tf:tf.extractall(original,filter='data')
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TarFile.extractall() got an unexpected keyword argument 'filter'

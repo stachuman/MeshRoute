@@ -1,0 +1,6 @@
+/tmp/mr-codex-s7b3-r5-preflight-hn0we2sp/core_only.cpp:3:42: error: field ‘plan’ has incomplete type ‘mrfw::ActionPlan’
+    3 | struct ProposedRecord { mrfw::ActionPlan plan; };
+      |                                          ^~~~
+/tmp/mr-codex-s7b3-r5-preflight-hn0we2sp/core_only.cpp:2:25: note: forward declaration of ‘struct mrfw::ActionPlan’
+    2 | namespace mrfw { struct ActionPlan; }
+      |                         ^~~~~~~~~~

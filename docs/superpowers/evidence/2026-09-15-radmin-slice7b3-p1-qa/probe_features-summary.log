@@ -1,0 +1,4 @@
+ownership controls: 40 verified / 0 unusable
+matrix: 9 configuration cells (pin 9), 120 checks against the REAL mr_features.h, 0 failed (pin 120)
+controls: 59 verified / 0 unusable (pin 59)
+PASS

@@ -1,0 +1,25 @@
+-- target devicenv: /tmp/mr-codex-s7b3-0gt630zl/gate/src/device_nv.h (42 entries)
+-- selection: IN FULL (all 42 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-_58jit3f   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target devicenv: /tmp/mr_mutation_run-_58jit3f/w0/src/device_nv.h (14 of 42 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target devicenv: /tmp/mr_mutation_run-_58jit3f/w2/src/device_nv.h (14 of 42 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target devicenv: /tmp/mr_mutation_run-_58jit3f/w1/src/device_nv.h (14 of 42 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2931 / 189998 / 0   (DERIVED from this tree)
+  [w1] 
+  [w1]   INTERRUPTED — restoring this shard's source now, before this exits
+  [w1]   RESTORED /tmp/mr_mutation_run-_58jit3f/w1/src/device_nv.h (SIGINT)
+  [w0] 
+  [w0]   INTERRUPTED — restoring this shard's source now, before this exits
+  [w0]   RESTORED /tmp/mr_mutation_run-_58jit3f/w0/src/device_nv.h (SIGINT)
+  [w2] 
+  [w2]   INTERRUPTED — restoring this shard's source now, before this exits
+  [w1] source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)
+  [w2]   RESTORED /tmp/mr_mutation_run-_58jit3f/w2/src/device_nv.h (SIGINT)
+  [w0] source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)
+  [w2] source restored: md5 eaf395c5d9caea43c256eaf84fbb9e8b (MATCHES)

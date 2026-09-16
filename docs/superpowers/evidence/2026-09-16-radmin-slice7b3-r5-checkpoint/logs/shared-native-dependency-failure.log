@@ -1,0 +1,56 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+Removing unused dependencies...
+FileNotFoundError: [Errno 2] No such file or directory: '/home/staszek/MeshRoute/.pio/libdeps/native/doctest':
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/main.py", line 173:
+    env.SConscript("$BUILD_SCRIPT")
+  File "/home/staszek/.platformio/packages/tool-scons/scons-local-4.8.1/SCons/Script/SConscript.py", line 620:
+    return _SConscript(self.fs, *files, **subst_kw)
+  File "/home/staszek/.platformio/packages/tool-scons/scons-local-4.8.1/SCons/Script/SConscript.py", line 280:
+    exec(compile(scriptdata, scriptname, 'exec'), call_stack[-1].globals)
+  File "/home/staszek/.platformio/platforms/native/builder/main.py", line 47:
+    target_bin = env.BuildProgram()
+  File "/home/staszek/.platformio/packages/tool-scons/scons-local-4.8.1/SCons/Util/envs.py", line 252:
+    return self.method(*nargs, **kwargs)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piobuild.py", line 63:
+    env.ProcessProjectDeps()
+  File "/home/staszek/.platformio/packages/tool-scons/scons-local-4.8.1/SCons/Util/envs.py", line 252:
+    return self.method(*nargs, **kwargs)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piobuild.py", line 153:
+    plb = env.ConfigureProjectLibBuilder()
+  File "/home/staszek/.platformio/packages/tool-scons/scons-local-4.8.1/SCons/Util/envs.py", line 252:
+    return self.method(*nargs, **kwargs)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 1210:
+    project.search_deps_recursive()
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 449:
+    self.depend_on(lb, search_files=lb_search_files)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 475:
+    lb.search_deps_recursive(search_files)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 449:
+    self.depend_on(lb, search_files=lb_search_files)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 475:
+    lb.search_deps_recursive(search_files)
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 439:
+    for inc in self.get_implicit_includes(search_files):
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 368:
+    [self.env.Dir(d) for d in lb.get_include_dirs()]
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 802:
+    include_dirs = super().get_include_dirs()
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 224:
+    include_dir = self.include_dir
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/builder/tools/piolib.py", line 797:
+    with fs.cd(self.path):
+  File "/home/staszek/.platformio/penv/lib/python3.11/site-packages/platformio/fs.py", line 37:
+    os.chdir(self.new_path)
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+--------------------- native:* [ERRORED] Took 0.59 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:00.585
+================== 1 test cases: 0 succeeded in 00:00:00.585 ==================

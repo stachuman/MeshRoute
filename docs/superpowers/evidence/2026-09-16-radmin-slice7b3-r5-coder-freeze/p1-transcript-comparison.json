@@ -1,0 +1,22 @@
+[
+  {
+    "name": "b0-p1",
+    "transcripts": 39,
+    "sha256": "b2da84282761a95ecc0839dd8ff78671106fedd19a14f2eef38121c2b41c9e01"
+  },
+  {
+    "name": "b1-p1",
+    "transcripts": 39,
+    "sha256": "62336daef03893be632d5bff7e2371e5ebc679aa4cb25452c9414e6187f2d9da"
+  },
+  {
+    "name": "b2-p1",
+    "transcripts": 39,
+    "sha256": "a117cb6eed1fffd200f0722e44237a0db31854991f1f018dd43f050e62af44ca"
+  },
+  {
+    "name": "b2-p0",
+    "transcripts": 39,
+    "sha256": "a117cb6eed1fffd200f0722e44237a0db31854991f1f018dd43f050e62af44ca"
+  }
+]

@@ -1,0 +1,356 @@
+{
+  "MEMORY.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "a5b12906eb40fd4ff0def0b712e9ff6f6ddc7d079f6c1a2efeb03de469daef09",
+    "size": 26032
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "7a82abad4d33a11f51619eecab5d28e5491d398d76c7d66c80200334aed590a5",
+    "size": 544868
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa-gate.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "dd39d0669fc7aeb8c34086886a18e77352d26835e081c4b9ee8b8215e3527b15",
+    "size": 7827
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/abi.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "87971bcb73d9737cb6bd88bcdf5655e38129849fee7aa1a035f6fd684e4b790a",
+    "size": 4324
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/authority.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066",
+    "size": 88
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/authority_selftest.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87",
+    "size": 707
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/board.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "14791e30ca49c542bc4972f951410b4cf165756c974179a663f286d2d063cd54",
+    "size": 914
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/census.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "1d2f581414e986bea5e898be9d9fddf494fba8171e826a0cf3db6de40b182ef9",
+    "size": 646
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/chain.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "83b2de208f949884398b2d00540eef6640891e4fc3a3b86f17fa5fe88ba319e9",
+    "size": 10327
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/chain.sh": {
+    "mode": "0o755",
+    "kind": "file",
+    "sha256": "166191659e2032c8c7a9924fb85ab62216a298e91f58b149fe9c1c4bc2e2d2b3",
+    "size": 4888
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/corpus.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "ee2e0229987f10cfc36049fc64f59769e5c204d10754795f25da2e637aec93ab",
+    "size": 3419
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/dtl.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "e6e5200a6623044c370ccd92ce4f8969634313772ed46f408871d3cd865665ce",
+    "size": 306
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equiv2.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "f31ac7ac8b464acf598b0e17ca11dfa81115e826ac9437dfe6cd9a3de39f7fa4",
+    "size": 571
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equiv2.sh": {
+    "mode": "0o755",
+    "kind": "file",
+    "sha256": "77f38da8e94f235b6242a2a8336def5f2247c42f908c4d191405ea977e34134e",
+    "size": 1409
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b0-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "548755bf675753369b3283d0e18451257e8293b70da4e96f49f335713d2c79e0",
+    "size": 10144
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b0-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "a5e00557eb99aec0fe6ca409048f324379899db3710ad59ed5a1308011aa1342",
+    "size": 30949
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b1-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "30ecbdc0201a508e030096e96eec42e43e2b952451dc926566dcc35f695aa8cb",
+    "size": 9413
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b1-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "390c106747e2cf2549f21bf9fa0da53b28fbd8d4ee0d5f2aa720ac59727e69d4",
+    "size": 32265
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b2-p0-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "b93b3e2ec0ab96277efe4f29423ff379eae005a93b2fae1e087333d1c52d0b9b",
+    "size": 9413
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b2-p0.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "9a33423b7a70fd7471fbb1932b3f0000b5df340a3123979db82c9c39f6ef4dfd",
+    "size": 31647
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b2-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "27b3f3431778cc2e494311240ff6fcfa4cf3d1ab1c4886e7ac52663ae74f752e",
+    "size": 9413
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/baseline/b2-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "9a33423b7a70fd7471fbb1932b3f0000b5df340a3123979db82c9c39f6ef4dfd",
+    "size": 31647
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b0-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "262829617a148f512d326f8502bba84fc35260949dfeb615e0ded4701cffab59",
+    "size": 9687
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b0-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "6c98585464abf9a83de866b753c8acaa6b7672446d61a6cfdf12c0b2492ecc28",
+    "size": 30949
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b1-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "7b2e9fd3a8ee75774db98af1224fb0dddf307503ae780c5bcac797360fde2747",
+    "size": 8928
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b1-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "24224634af6105f25f9883e9bd676255bd5583232307e7a6a87e4b770e39e22d",
+    "size": 32265
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b2-p0-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "9254339ac5baa74f8b1e01eb7340682e50abec8c6f7adc3d11e9f78026e18365",
+    "size": 8928
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b2-p0.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "95bb2126703890d0ddbc3b74814807e42fbff830dda1b4aa2e448b317630281d",
+    "size": 31647
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b2-p1-compile.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "40e0968bb0baa155fa7c78bce37e4e7c63d51c4f29d501c4c9108cb7f6934b49",
+    "size": 8928
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/final/b2-p1.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "95bb2126703890d0ddbc3b74814807e42fbff830dda1b4aa2e448b317630281d",
+    "size": 31647
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/equivalence/pristine-c591721-source-sha256.txt": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "ae10e1efe8f8afdd5ef6ef57709cb687196d965f2d6b8ca6c0be0a7029ed7f5d",
+    "size": 100
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/inv.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "31b1cea330d2165efcc192edf7745e00e81783a2cba9af4c608563b72a4ec0dd",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/inv_check.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "31b1cea330d2165efcc192edf7745e00e81783a2cba9af4c608563b72a4ec0dd",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/mut.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "a06e85b8793d411999d21e0378caedf617b060c85b6279689a91f6e2a6f34621",
+    "size": 17766
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/mut.sh": {
+    "mode": "0o755",
+    "kind": "file",
+    "sha256": "ba29e9e7c4c5917bc98cf95113a5c8a4c44afe564775972faaf44f47cc420e8b",
+    "size": 1503
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/mut_stage_hashes.txt": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "dff4dab8336a630e405447a89ca760a0c365eff33779bf8604412fcf84f9d07b",
+    "size": 215
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/mut_stage_hashes_after.txt": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "dff4dab8336a630e405447a89ca760a0c365eff33779bf8604412fcf84f9d07b",
+    "size": 215
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/native_prog.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "4368b10c7c998668b5c47ad5151c06fdf045e3d4f549b946f36eac5753223d19",
+    "size": 409
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_ble_line-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "d665d0f58262013881489f2a059e6104c79ecb68f566d53ccdb0707738e38f2d",
+    "size": 184
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_console_sink-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "09c37a271599beca2144f50c853d2e5dcd77a56a44908e6d751ba2d3a7c20dce",
+    "size": 167
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_custody_usb-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "4b9d82838a47375b1055a678634e8e2381faef34601bc313a47826143fc6a00d",
+    "size": 149
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_deferred_actions.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "df9b8b64003a92808877a2ffa0dfd30c1cf95731227ebdb7196380bbf59b9080",
+    "size": 238
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_features-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "2bb13385fc86bb690d15af4ff66aeca068b9c37ce60b8c8822f4e1e769d70d3b",
+    "size": 195
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_firmware_ui-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "63c738ad44c2f35b89fc6c9a92b58a9c0f7e9977ed50c923544718877d8255de",
+    "size": 127
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_inbox_verbs-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "05ce1e6ee59245081f89faab77c3d2a33480f71ff4044b8fa12011f39dcac5d9",
+    "size": 295
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/probe_inbox_verbs_client-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "6b1ec2b6e914daeab0a65a2091a5951ab9bfecfc63e12efcd2c0ab4d522dba0b",
+    "size": 406
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/reference.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "482329df62fe5014c7673dec7207f18ae312c1a731809e5f58a58673e60d78d6",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/rowabi.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9",
+    "size": 3564
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/union/all-53-battery-logs.tar.gz": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "23b6c105ff5546b61a74897149b39b430e076cfc48b944a40e15ba05f8bdcd69",
+    "size": 62683
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/union/mut_actionadmit.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "b6e21fbec78e8c25e8f844ff484c47204435f6f50e4af38016da5081535eea7e",
+    "size": 4339
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/union/mut_radmin5rx.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "565cc2455ede27090daeacbfe67f95c4ffff8a8493c1ace8b61cc6a2c0c20749",
+    "size": 8472
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/union/mut_sliceBmac.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "4133c048cabc2456df717e07a90017c39bc700ab8366258e385f8b3ae3e2c169",
+    "size": 4646
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/union/summary.json": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "d42bf5d0b7ed385eea02a75eb603b8e9e79e8e31767efa69224b8e6455de9507",
+    "size": 4619
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-p1-qa/unittest-summary.log": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "8a25c81996e3f5d8c76d81f5c1671d2c3ad982aa5db000baf830093ed09d7920",
+    "size": 29
+  },
+  "docs/superpowers/evidence/2026-09-15-radmin-slice7b3-reissue/brief-revision-4.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "4a7af9b19e723598470fa5b9b054403c63f7e88d44ffaffd7bb7aa717c31b397",
+    "size": 51156
+  },
+  "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "7533541801f62764dfa7d2e08824e0eb8e4755b0e89ca8d24dec5df899ff685e",
+    "size": 82397
+  },
+  "docs/superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "bfd0fd5dd06595328e925b328c3993a3c00a6dc2a229fe7637869e0a9e776410",
+    "size": 55633
+  },
+  "docs/superpowers/plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "06c66b180a6890f229acdf5200ebc5f4c3aacdaf6a7c987b6b8ea7eaaaf75f06",
+    "size": 16524
+  },
+  "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+    "mode": "0o644",
+    "kind": "file",
+    "sha256": "4d4ea8619182e46f93c6527e873e6cdeef40cb51ee675db31cfbc476e075d9bc",
+    "size": 214906
+  }
+}

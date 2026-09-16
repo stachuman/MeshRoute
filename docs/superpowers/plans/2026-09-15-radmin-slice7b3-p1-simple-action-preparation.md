@@ -1,7 +1,8 @@
 <!-- QA/Author: OpenAI Codex; production coder: separate Codex session -->
 # Slice 7b-3-P1 — simple-action preparation seams — 2026-09-15
 
-**Revision 3 — CODER GATE PASS; FROZEN FOR INDEPENDENT QA; B394 preparation, before 7b-3 behavior.** This is a
+**Revision 3 — INDEPENDENT QA PASS 2026-09-16 (Claude), owner commit `7442e6f` — see §6. B394/B399/B400 closed.**
+Historical status line: **Revision 3 — CODER GATE PASS; FROZEN FOR INDEPENDENT QA; B394 preparation, before 7b-3 behavior.** This is a
 behavior-preserving C1 refactor, not deferred execution. After source-validation passes, implement only this
 fence. No new owner policy decision or B389 state allocation is needed for this zero-resident-state slice.
 Base **`c591721c2e09bb4e7583f49e458da9e5155cf822`** plus the permitted preparation inventory in the P1
@@ -174,3 +175,16 @@ skips, full probes/reference/ABI/checkers/census, 826 RED plus known B342 across
 Node/resident RAM and measured flash/stack movement. B399/B400 are folded and await independent closure.
 This is the coder's result, not independent QA PASS. The complete uncommitted freeze is the next QA input;
 7b-3 behavior remains pending independent QA and the separate behavior brief refresh. No commit is a gate.
+
+## 6. Independent QA gate — PASS (2026-09-16)
+
+QA re-executed every §5 instrument on the committed tree `7442e6f` (freeze inventory matched): native
+**2916/184587/0**; reference 94/94; corpus **36/36** with the simulator inert (0 build actions, identical `lus`);
+ABI Node unchanged; six standing probes controlled + `--no-neg` + CLIENT arm; new deferred-actions probe
+**150/151/158/158 checks, 39 transcripts each, 19 controls RED**; tools **351 OK / 0 skipped**; inventory 204
+byte-identical; authority/A0/literals/whitespace; census at pins; board pair **gateway 203956 RAM (0) / 568220
+flash (−2368); mobile 207756 (0) / 1373576 (+584)**; union **53 batteries / 826 RED / 1 known unusable B342 /
+827 / 0 vacuous**. **Independent C1 proof:** pristine `c591721` handlers vs final, all four variants,
+**156/156 transcript lines byte-identical**. Not independently reproduced: the coder's symbol-level flash
+attribution and per-function stack frames. One LOW finding registered (B401, displaced include comment).
+Evidence: `../evidence/2026-09-15-radmin-slice7b3-p1-qa-gate.md` + `…-p1-qa/`.

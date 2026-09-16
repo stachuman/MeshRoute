@@ -1,0 +1,32 @@
+[
+  {
+    "path": "test/test_firmware_action_admission.cpp",
+    "base": 4,
+    "final": 6,
+    "added": 2
+  },
+  {
+    "path": "test/test_firmware_remote_executor.cpp",
+    "base": 9,
+    "final": 10,
+    "added": 1
+  },
+  {
+    "path": "test/test_node_remote_session.cpp",
+    "base": 24,
+    "final": 28,
+    "added": 4
+  },
+  {
+    "path": "test/test_remote_session.cpp",
+    "base": 39,
+    "final": 40,
+    "added": 1
+  },
+  {
+    "path": "test/test_remote_transcript.cpp",
+    "base": 12,
+    "final": 19,
+    "added": 7
+  }
+]

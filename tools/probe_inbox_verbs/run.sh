@@ -235,8 +235,11 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # 7b-1: old ACCEPT 370 / CLIENT 368; +2 Y7 refusals per arm (factory_reset is
 # disruptive even at owner), +8 shared R7-I rows. ACCEPT additionally +17 remote
 # view rows and +374 real-radio checks (eight commands, actual jitter/CTS/DATA/ACK).
-PIN_CHECKS_ACCEPT=1363 # 7b-2: 771 + 592 executed open/status/control checks (own real-radio arm)
-PIN_CHECKS_CLIENT=384 # 378 + local status dispatch and five absent target-field checks
+# 7b-2 ACCEPT: 771 + 592 = 1363. 7b-3's measured label census adds R7-A6 x6,
+# R7-A29/A30 and R7-A13..A16 x1 each, and removes one refusal-only R7-A20: +12 -1 = +11.
+# CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
+PIN_CHECKS_ACCEPT=1374
+PIN_CHECKS_CLIENT=384
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -267,7 +270,8 @@ md5_sources() {
       "$ROOT/src/firmware_remote_executor.h" "$ROOT/src/firmware_command_context.h" \
       "$ROOT/src/firmware_admin_verbs.h" "$ROOT/lib/core/remote_session.h" \
       "$ROOT/lib/core/remote_session.cpp" "$ROOT/lib/core/node.h" "$ROOT/lib/core/node.cpp" \
-      "$ROOT/lib/core/node_mac_rx.cpp" | md5sum | cut -d' ' -f1
+      "$ROOT/lib/core/node_mac_rx.cpp" "$ROOT/src/firmware_remote_actions.h" \
+      "$ROOT/src/firmware_remote_actions.cpp" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -312,13 +316,15 @@ build_support() {
 #   `$HERE/fakes` and `$ROOT/src`, so the copy wins for every consumer in the build.
 build_variant() {
   local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
+  local actions=${6:-"$ROOT/src/firmware_remote_actions.cpp"}
   local pre=()
   [ -n "$shadowdir" ] && pre=(-I"$shadowdir")
   : > "$OUT/build.log"
   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
+    && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$actions" -o "$OUT/v_actions.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$probe" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
-    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
+    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
 }
 
 rc=0

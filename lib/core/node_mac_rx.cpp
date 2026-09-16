@@ -2209,7 +2209,9 @@ RadminSend Node::radmin_send_frame()
                                                   e.record.controller_slot, /*bootstrap=*/false);
     crypto_wipe(body, sizeof(body));
     if (dsp.admit == SendDispatch::Admit::queued || dsp.admit == SendDispatch::Admit::parked) {
+        remote_action_owned(_radmin_session, si, _hal.now()); // first scheduled TERMINAL ownership only
         remote_transcript_sent(_radmin_session, si);
+        radmin_expiry_arm();
         return dsp.admit == SendDispatch::Admit::queued ? RadminSend::queued : RadminSend::parked;
     }
     if (_radmin_session.response_enqueue_failure != UINT16_MAX)
@@ -2224,7 +2226,10 @@ RadminSend Node::radmin_send_frame()
 void Node::radmin_expiry_arm()
 {
     const uint64_t earliest = remote_session_earliest_deadline(_radmin_session);
-    if (earliest == ~uint64_t{0}) { _hal.cancel(kRadminExpiryTimerId); return; }
+    // A saturated action deadline is still an active promise at UINT64_MAX, not the empty-scan sentinel.
+    if (earliest == ~uint64_t{0} && _radmin_session.action.phase != RemoteActionPhase::armed) {
+        _hal.cancel(kRadminExpiryTimerId); return;
+    }
     const uint64_t now = _hal.now();
     (void)_hal.after(earliest > now ? static_cast<uint32_t>(earliest - now) : 0, kRadminExpiryTimerId);
 }

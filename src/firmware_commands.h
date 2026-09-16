@@ -160,6 +160,7 @@ struct LineExec {
     State                        state     = State::unmatched;
     DispatchOutcome              outcome   = DispatchOutcome::unmatched;
     RefuseReason                 refuse    = RefuseReason::none;
+    bool                         action_busy = false; // typed conflict, never inferred from output text
     meshroute::console::LineErr   line_err  = meshroute::console::LineErr::ok;
     size_t                       n         = 0;                                  // valid only on `buffered`
     meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;   // the parser's verdict, for the

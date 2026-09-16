@@ -32,13 +32,14 @@ struct IRadminTranscriptSink {
 struct RadminExecResult {
     DispatchOutcome outcome = DispatchOutcome::internal_failure;
     RefuseReason refuse = RefuseReason::none;
+    bool action_busy = false;
 };
 struct IRadminExec {
     virtual ~IRadminExec() = default;
     virtual RadminExecResult run(const char*, size_t, const CommandContext&, IRadminTranscriptSink&) = 0;
 };
 
-inline bool radmin_disruptive_refused(const CommandPolicy* policy, const CommandContext& ctx) {
+inline bool radmin_disruptive_request(const CommandPolicy* policy, const CommandContext& ctx) {
     return ctx.transport == CommandTransport::remote && policy && policy->disruptive;
 }
 
@@ -48,8 +49,9 @@ inline meshroute::RemoteTerminal radmin_terminal(RadminExecResult r) {
     case DispatchOutcome::completed: return RemoteTerminal::completed;
     case DispatchOutcome::unmatched: return RemoteTerminal::unknown_command;
     case DispatchOutcome::refused:
+        if (r.action_busy) return RemoteTerminal::action_busy;
         return r.refuse == RefuseReason::unclassified ? RemoteTerminal::unknown_command : RemoteTerminal::refused;
-    case DispatchOutcome::scheduled: // MISSING: 7b-3 owns scheduling; no success producer in this slice.
+    case DispatchOutcome::scheduled: return RemoteTerminal::scheduled;
     case DispatchOutcome::internal_failure: return RemoteTerminal::internal_error;
     }
     return RemoteTerminal::internal_error;
@@ -83,12 +85,7 @@ inline void radmin_service_once(IRadminTarget& target, IRadminExec& exec) {
             v.role == kRadminRoleOwner ? CommandAuthority::remote_owner : CommandAuthority::remote_operator,
             false, v.request_id, console::remote_command_max_bytes, v.slot};
         const char* line = reinterpret_cast<const char*>(v.body.data());
-        const CommandPolicy* policy = command_policy_lookup(line, v.body.size());
-        if (radmin_disruptive_refused(policy, ctx)) {
-            // MISSING: 7b-3's scheduler. Never invoke the disruptive handler from this context.
-            target.transcript_complete(v.seen_index, RemoteTerminal::refused);
-            return;
-        }
+        // The common seam validates/authorizes once and prepares disruptive work without calling effects.
         const RadminExecResult result = exec.run(line, v.body.size(), ctx, sink);
         target.transcript_complete(v.seen_index, radmin_terminal(result));
         return;

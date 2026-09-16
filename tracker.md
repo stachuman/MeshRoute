@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-06**
+Last refreshed: **2026-09-16**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -34,50 +34,28 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   auto-OFF scenarios, finish S6 product integration and then evaluate narrowed B178 proactive roaming. B184 and
   B186b remain separate adjacent follow-ups.
 
--  **DESIGN PASS 2026-09-04** - `2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2;
-  implementation authority, with every §19 slice still requiring its own Quality-Agent-passed brief. The
-  pre-feature implementation is committed through 0c (`b942c37`). **Slice 1 software-complete / QA-passed
-  2026-09-06**, committed at `5d2c00e`: the capability scaffold is inert on both ruled boards and all 36
-  streams. B304's header half is closed (ini sibling remains); B305 is closed; B306 records the stale
-  `node_mac.cpp` citation. **Slice 1b software-complete / QA-passed 2026-09-06**, owner closure commit `cc35137`:
-  strict receive owners, no legacy widening; native 2615/111354/0, mutation union 99/99 RED, 36/36 byte-identical
-  streams after both simulator variants rebuilt, RAM unchanged and flash gateway +16 / heltec_mobile −8 fully
-  attributed. Evidence: `docs/superpowers/evidence/2026-09-06-radmin-slice1b.md`. B307 closed; B311 registers the
-  non-UTF-8 mutation-worker failure, and B286 carries the new disk-pressure measurement. B310 remains parked.
-  **Slice 2 software-complete / implementation QA PASS 2026-09-06, no fold-ins:** native 2640/115288/0,
-  independent reference 87/87, mutation union 66+5 = 71/71 RED, 0 unusable, 36/36 byte-identical anchored
-  streams. Both simulator archives compile the codec; the executable and both ruled board ELFs remain
-  byte-identical, with no runtime codec consumer. Six probes/ABI/inventory/tools312/census/checkers pass.
-  Evidence `docs/superpowers/evidence/2026-09-06-radmin-slice2.md` and code are committed at `f2735f7`;
-  Author closure is committed at `231e1be`. Simulator `8688884` contains the one-line source-list addition.
-  Measured dispatch bases were `9ea4947` / `fd3295d`; all delivered file hashes are unchanged.
-  B308/B309 closed; B312 codec half complete, real entropy adapter still open. B314 naming
-  hazard avoided/closed, B315 output-path validation open, B316 duplicate folded into open B286 with rsync
-  citation corrected to line 10114. B311/B313 remain open; B310 remains parked.
-  **Slice 3 preparation:** QA pre-check plus R-RA-29 are committed at `7299eb9`. The Author brief
-  `docs/superpowers/plans/2026-09-06-radmin-slice3-target-stores.md` is **DRAFT — sole QA HOLD fold-in applied,
-  changed sections awaiting confirmation**, pinned to
-  that existing base and unchanged simulator `8688884`. It fixes the fingerprint, target-only USB surface,
-  no-resident-state records/services, explicit invalid recovery and honest flash/RNG limits; no remote
-  execution. Part 55a is drafted, not run. B317 records self-heal erasure; B318 is closed by QA's ledger
-  corrections and accepted router/guard gate split. B319 tracks the explicitly fenced inventory ACCEPT
-  profile column, its fixtures and re-derived per-profile ownership counts. **Next:** QA confirms the
-  changed brief sections, owner Author-preparation
-  commit, Author explicit base repin, then QA dispatch. No implementation is claimed for Slice 3.
-  Existing hardware debts remain separate; no metal is added by 1/1b/2. Earlier 0c documentation residue
-  (B298 closure / Part 60 landing) is not discharged by the Slice 1/1b landings. B292 and B283 remain separate.
-  **Slice 4 advance draft, 2026-09-06:** owner reports Slice 3 running (the preparation status above is
-  historical). Pre-check plus R-RA-30 authorize drafting ahead, not implementation overlap. Brief
-  `docs/superpowers/plans/2026-09-06-radmin-slice4-controller-stores.md` is NON-DISPATCHABLE; base and
-  delivered anchors/pins wait for Slice 3 QA PASS and the owner's closure commit. Author §6.3–6.7
-  decisions cover the 64-byte row/2056-byte client scratch, admin-target pages, real mobile router arm,
-  literal CLIENT profile/census, exact regen warning and Parts 55b/56 (draft, not run). R-RA-30's
-  xiao_mobile capture is one-off, not an expanded ruled pair. B320 is closed by QA's in-place profile
-  correction. Preliminary gate otherwise PASS pending closure; sole B321 layering fold-in applied:
-  direct monocypher.h include and decoder-local crypto_wipe scope guard, no NV/team-keyring include
-  or guard relocation. B321's implementation remains open, including attributed flash cost. Next:
-  resolve closure checklist/base, then final QA re-gate. No dispatch authorization or software PASS.
-  
+- **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-16).**
+  Roles since 2026-09-07: Codex authors briefs and codes (two sessions), Claude second-reads and gates, the owner
+  rules and commits; commits are not blocking points (owner ruling 2026-09-15). Per-slice gate detail lives in
+  the design's §19.1 table, rulings R-RA-1..40 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
+  defects in the register (next free B403).
+  - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
+    3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
+    7b-2-0 codec (`564f460`); 7b-2 (`f993191`); 7b-3-0 `action_busy` codec (`ac5f9a5`); 7b-3-P1 simple-action
+    preparation (`7442e6f`).
+  - **In flight:** 7b-3 deferred actions — brief revision 5 at `7442e6f` (B402 folded), coder implementing under
+    R-RA-37/38/39/40: one promise per target, one 40-byte row, +80 B ACCEPT-only, Node 230976/157344, mobile
+    unchanged; 12 rows scheduled through the P1 seams, 36 rows retained as typed refusals.
+  - **Remaining slices (four cycles after 7b-3):** 8a+8c paired (controller state/crypto + local USB/BLE delivery;
+    owner P6 ruling 2026-09-16) → 8b the mobile carrier (needs [[B112]]) → 9 legacy protocol deletion + durable
+    protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
+    2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
+    remotely by design, and the disruptive arc completes with 7b-3.
+  - **Open owner items:** veto on the operator class of `cfg set remote_action_activation_ms`; metal Parts
+    54/55a/55b/56/57a/58/59/61/62/63 (57b reserved for 7b-3). Open register follow-ups from this arc: B312, B315,
+    B317, B323, B324, B326, B328–B330, B337, B342, B350, B351, B359, B364, B389/B390/B392 (ruled, close on
+    implementation/metal), B401.
+
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
   owner's one-time acceptance of B182's 757/1041 closes B153 without establishing a permanent floor. B163 is
@@ -96,23 +74,6 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 -  `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
-**Current landing 2026-09-07: Slice 4 software-complete, independent QA PASS; implementation/evidence
-committed in 19c10bf.** Earlier Slice 3/4 preparation-status paragraphs above are historical. Native
-2763/118344/0; mutation union 296 RED/0 unusable; six probes, tools 329, inventory 204; 36/36 anchored
-streams and unchanged s18/simulator. B321/B327 closed; B328/B329 coverage residue and B330 nRF52
-client flash cost remain open for separate follow-ups, not scope added to Slice 5. Parts 55b/56 and
-Part 59's client warning are software-bound but METAL-PENDING. Prior Slice 3 proposals are registered.
-
-**Slice 5 preliminary brief QA PASS, 2026-09-06, no fold-ins; closure fill-in 2026-09-07:** pre-check and R-RA-31 are available;
-`docs/superpowers/plans/2026-09-06-radmin-slice5-target-session.md` states Author decisions §6.3–§6.7.
-Slice 4 bindings are filled from 19c10bf; it is NON-DISPATCHABLE until the owner commits this landing/
-preparation set, the Author pins that hash, and QA gives its final brief gate. Bootstrap replies only;
-no execute/transcript/controller implementation. The
-2064-byte state candidate and global HAL timer cost must be measured; mobile Node stays fixed. S5-A1–A3
-are QA-accepted corrections, landed visibly in its ledger; they remain open until Slice 5 closure and
-are allocated in place as B331–B333 (aliases retained); next free B336 after HOME-A1/A2 = B334/B335. No new bench part
-or software completion is claimed. Earlier Slice 3/4 preparation-status paragraphs are historical.
-
 ## Bugs - suggested order
 
 **Separate design discussion, not a queue reprioritization (2026-09-06):**
@@ -127,13 +88,10 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) owner commits
-  the Slice 4 documentation landings and filled Slice 5 preparation; (3) Author pins the new hash, QA
-  final-gates the brief and dispatches on the main tree. No dirty-input exception, reused old base or overlapping
-  implementation. Existing bench debts remain separate; Slice 5 adds no new part.
-  Bench Part 58 closes
-  B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]] and [[B112]] remain
-  separately tracked and do not block Part 54.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin 7b-3
+  implementation → independent gate → 8a; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+  Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]]
+  and [[B112]] remain separately tracked and do not block Part 54.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 
@@ -175,16 +133,3 @@ sequence change.
 - `docs/2026-07-31-bench-test-script.md` — general firmware bench checklist.
 - `docs/2026-08-11-mobile-home-metal-test-guide.md` — mobile-home-specific hardware scenarios.
 - `docs/2026-07-30-open-bug-register.md` — continuous defect register.
-
-- **Remote-admin Slices 5 and 6 — software QA PASS (2026-09-07; QA now authors and gates, Codex codes):** Slice 5
-  committed `d226189` (target session/admission/on-air bootstrap; B341 fixed in-slice). Slice 6 (shared validator,
-  dispatcher context/outcome, ruled authority table + three-artefact checker; B343–B348 preflight fold-ins)
-  QA-passed, uncommitted at report: native 2839/121831/0, `lus` unchanged, corpus 36/36, inventory 203 rows, union
-  114/0, boards RAM ±0. Register B336–B351 landed; next free B352; open follow-ups B337/B342/B350/B351; bench
-  residue Part 63. NEXT: owner commits Slice 6; Slice 7a/7b pre-check + brief.
-
-- **Remote-admin Slice 7a — software QA PASS (2026-09-08):** 7a-0 refactor committed `89071fb`; the feature
-  (NV v25 activation delay, budget authority, resolver, cfg key, read-outs, boot line) QA-passed, uncommitted at
-  report; eleven preflight/implementation findings folded in and closed (B352–B358, B360–B363); B354 fixed a
-  pre-existing unreachable `cfg set gw_announce_interval`; B364 (invite-test over-read) open; Part 57a landed;
-  owner veto on the new row's operator class still open. NEXT: owner commits 7a; 7b brief.
