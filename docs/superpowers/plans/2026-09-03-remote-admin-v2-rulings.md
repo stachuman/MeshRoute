@@ -1000,3 +1000,10 @@ and 7b-3's gate still proves that for all 36 (revision 5 §2.2/§6). Local USB/B
 disruptive remote-admin arc is therefore **complete with 7b-3**: reboot, prep-restart, OTA entry, factory reset,
 sleep and crashtest are the deferred actions; everything else disruptive is a designed refusal. A future owner
 ruling can reopen any family; it would start from a fresh brief, not from these rows.
+
+**QA completion note, 2026-09-16 — 7b-3 gated; R-RA-37/38/39/40/41 implemented:** 7b-3 deferred actions has
+independent QA PASS at owner commit `6086152`: the R-RA-40 allocation lands exactly (+80 B, Node 230976 native /
+157344 gateway, gateway linked RAM +80, mobile unchanged); one promise per target with typed `action_busy`
+(R-RA-37); remote `prep-restart` schedulable with its lockout (R-RA-38); the 36 rows refused by design
+(R-RA-39/41). B389/B390/B401 closed; B392 stays open for Part 57b metal (needs the 8b carrier) and the 8a
+warning. The disruptive remote-admin arc is complete. [Independent gate](../evidence/2026-09-16-radmin-slice7b3-qa-gate.md).

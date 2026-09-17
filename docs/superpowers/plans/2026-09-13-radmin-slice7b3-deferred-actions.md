@@ -1,7 +1,8 @@
 <!-- QA/Author: OpenAI Codex (revisions 1–4); revision 5 refresh: Claude (QA/Author); production coder: separate Codex session -->
 # Remote-admin v2 Slice 7b-3 — deferred actions and scheduled terminals
 
-**Revision 5 — 2026-09-16 (Claude): REFRESHED AT THE P1 COMMIT; READY FOR CODER SOURCE-VALIDATION AND
+**Revision 5 — IMPLEMENTED; INDEPENDENT QA PASS 2026-09-16 (Claude), owner commit `6086152` — see §9.**
+Historical status: **Revision 5 — 2026-09-16 (Claude): REFRESHED AT THE P1 COMMIT; READY FOR CODER SOURCE-VALIDATION AND
 IMPLEMENTATION. BEHAVIOUR HOLD LIFTED — no open owner decision. B402 (coder preflight, 2026-09-16) folded: §3.2 anchor and the §2.1/§5 carrier rule below.**
 Base **`7442e6f570abdcd74ceed20d4c0cb9e2855d0719`** (owner commit `P1`), clean tree, plus the permitted
 uncommitted QA documentation listed below. Simulator **`06746a97de5764415d6fcef10b97bca90569b9c7`**,
@@ -567,3 +568,18 @@ It is a local handler/hardware reference, not permission to leak the remote tran
 existing partial-erase warnings. Local `reboot` prints `> rebooting`; USB/BLE local service and hardware reset/
 power-cycle are distinct recovery mechanisms. Do not present the lockout observation as an automated gate or
 promise a remote recovery action after the halt. 8a inherits §2.5's ruled pre-submission warning. B395–B398 are closed as not required (R-RA-41); with this slice the disruptive remote-admin arc is complete.
+
+## 9. Independent QA gate — PASS (2026-09-16)
+
+QA re-executed every §7 instrument on the committed tree `6086152` (coder freeze inventory matched): native
+**2931/189998/0**; reference 94/94; simulator rebuilt (session/Node/MAC RX objects), corpus **36/36 anchors**,
+s18 `32afbf11`/269517/0, zero radmin events; ABI Node **230976/157344/117912** (R-RA-40 exact), 218 checks
+9/9 RED, B278 42/6; six standing probes controlled + `--no-neg` + CLIENT arm; extended deferred-actions probe
+P1 150/151/158/158, remote **416/518/534/464**, radio **3160/3485/3689/3695**, **40 controls RED**; tools
+**351/0 skipped**; inventory 204 byte-identical; authority/A0/literals/whitespace; census at pins with **+80 RAM
+in every ACCEPT cell and 0 in both mobile cells**; board pair **gateway 204036 RAM (+80) / 574752 flash (+6532),
+mobile 207756 (0) / 1373604 (+28)**; union **56 batteries / 879 RED / 1 known unusable B342 / 880 / 0 vacuous**,
+every worker baseline 2931/189998/0, staged sources restored. Production diff read in full against §§2–4 (see
+the QA evidence §1). Not independently reproduced: the coder's symbol-level flash attribution and per-function
+stack frames. B389/B390/B401 closed; B392 open for Part 57b metal and the 8a warning. Evidence:
+`../evidence/2026-09-16-radmin-slice7b3-qa-gate.md` + `…-slice7b3-qa/`.

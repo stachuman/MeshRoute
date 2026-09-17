@@ -42,11 +42,9 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
     3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
     7b-2-0 codec (`564f460`); 7b-2 (`f993191`); 7b-3-0 `action_busy` codec (`ac5f9a5`); 7b-3-P1 simple-action
-    preparation (`7442e6f`).
-  - **In flight:** 7b-3 deferred actions — brief revision 5 at `7442e6f` (B402 folded), coder implementing under
-    R-RA-37/38/39/40: one promise per target, one 40-byte row, +80 B ACCEPT-only, Node 230976/157344, mobile
-    unchanged; 12 rows scheduled through the P1 seams, 36 rows retained as typed refusals.
-  - **Remaining slices (four cycles after 7b-3):** 8a+8c paired (controller state/crypto + local USB/BLE delivery;
+    preparation (`7442e6f`); **7b-3 deferred actions (`6086152`, QA 2026-09-16) — the disruptive arc is complete.**
+  - **In flight:** nothing — next is the paired 8a+8c brief (QA/Author), then coder source-validation.
+  - **Remaining slices (four cycles):** 8a+8c paired (controller state/crypto + local USB/BLE delivery;
     owner P6 ruling 2026-09-16) → 8b the mobile carrier (needs [[B112]]) → 9 legacy protocol deletion + durable
     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused

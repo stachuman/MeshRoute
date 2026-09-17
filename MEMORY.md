@@ -3,8 +3,8 @@
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
   (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..40 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
-  queue pointer in `tracker.md`. As of 2026-09-16: everything through 7b-3-P1 is landed and committed (`7442e6f`);
-  7b-3 deferred actions is in flight on brief revision 5; then 8a+8c (paired), 8b, 9, 10.
+  queue pointer in `tracker.md`. As of 2026-09-16: everything through **7b-3** is landed, gated and committed
+  (`6086152`); the disruptive arc is complete (R-RA-41). Next: 8a+8c (paired), 8b, 9, 10.
 - **Remote-admin 7b-3 durable rulings:** R-RA-37 one outstanding disruptive promise per target, ONE row, typed TERMINAL
   `action_busy` 0x08 (codec landed `ac5f9a5`); R-RA-38 remote `prep-restart` stays schedulable, lockout documented
   (Part 57b, 8a warning); R-RA-39 named-family refusal fallback made permanent by R-RA-41 (36 rows refused remotely by design; B395–B398 closed as not required);

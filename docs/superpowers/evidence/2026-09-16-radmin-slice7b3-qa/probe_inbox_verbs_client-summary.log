@@ -1,0 +1,7 @@
+  ok   W5c ...BOTH wipes were still attempted — no short-circuit (dm=1 ch=1)
+  ok   X14 a whitespace-only line is `empty` on BOTH arms and emits NOTHING anywhere
+  ok   X15 an unknown line is `unmatched`+unknown_verb on BOTH arms, with NO bytes written by the seam
+PASS
+probe: 384 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 384)
+controls: 45 verified / 0 unusable (pin 45)
+PASS

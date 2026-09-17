@@ -4361,10 +4361,9 @@ floor/default the node prints (7006 / 14012 at SF8 / 125 kHz / CR5 with zero slo
 
 ## Part 57b — deferred actions / prep-restart lockout (7b-3 reservation)
 
-**RULED R-RA-38 / IMPLEMENTATION AND METAL PENDING — NOT RUNNABLE NOW.** This reserves only the hardware
-consequence; [7b-3 revision 4](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md) owns the
-software proofs. Remote prep-restart stays schedulable. Activate this check after software PASS and
-availability of the 8b controller/carrier metal path. Do not carve mesh RX/admin service out of the halt.
+**SOFTWARE-COMPLETE (7b-3 independent QA PASS 2026-09-16, owner commit `6086152`) / METAL PENDING — runnable once the
+8b controller carrier can drive a remote request.** [7b-3 revision 5](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md)
+owns the software proofs (host fakes for reset/DFU/OTA/erase/fault). Remote prep-restart is schedulable (R-RA-38). Do not carve mesh RX/admin service out of the halt.
 The preparatory P1 refactor adds no new metal behavior and does not make this bench runnable.
 
 Observe these exact local metadata formats before the hardware effect:

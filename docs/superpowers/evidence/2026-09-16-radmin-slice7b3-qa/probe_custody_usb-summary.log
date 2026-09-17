@@ -1,0 +1,4 @@
+probe: 27 ok, 0 failed
+probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)
+controls: 10 verified / 0 unusable (pin 10)
+PASS
