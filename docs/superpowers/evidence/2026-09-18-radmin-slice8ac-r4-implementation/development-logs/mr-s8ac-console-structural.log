@@ -1,0 +1,1 @@
+usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp> <firmware_help.h> [<device_nv.h> <firmware_config.cpp> [<console_json.cpp> <firmware_inbox.cpp> <firmware_command_context.h>]]

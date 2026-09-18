@@ -1,0 +1,12 @@
+# xiao_mobile one-off build (pio run -e xiao_mobile) — trimmed to the size/result lines; full 16 MB verbose log not retained
+Processing xiao_mobile (platform: nordicnrf52 @ 10.11.0; board: seeed-xiao-afruitnrf52-nrf52840; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+...
+RAM:   [=======   ]  75.0% (used 176604 bytes from 235520 bytes)
+Flash: [========= ]  85.9% (used 696940 bytes from 811008 bytes)
+======================== [SUCCESS] Took 188.37 seconds ========================
+xiao_mobile    SUCCESS   00:03:08.371
+-------------  --------  ------------
+xiao_mobile    SUCCESS   00:03:08.371
+========================= 1 succeeded in 00:03:08.371 =========================

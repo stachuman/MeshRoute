@@ -1,0 +1,19 @@
+-- target b161mac: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_mac.cpp (1 entries)
+-- selection: IN FULL (all 1 entries)
+-- workers: 1   [SERIAL REFERENCE PATH]
+-- scratch root: /tmp/mr_mutation_run-xmvl764t   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b161mac: /tmp/mr_mutation_run-xmvl764t/w0/lib/core/node_mac.cpp (1 of 1 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w0]   ok   M01 B161 flight_identity trusts PendingTx.origin instead of the origin exposed by the DATA inner -> RED (2 assertion(s) failed, match count 1)
+  [w0] source restored: md5 e8efd51b60c318659ce59be9f98da289 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target b161mac: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_mac.cpp
+  ok   clean baseline 2947 / 193734 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   M01 B161 flight_identity trusts PendingTx.origin instead of the origin exposed by the DATA inner -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 11.3s, rc 0, source restored: md5 e8efd51b60c318659ce59be9f98da289 (MATCHES)   /tmp/mr_mutation_run-xmvl764t/w0
+real tree untouched: all 61 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8ac-r4-b1edsao2/final-gate
+timing: copy 0.6s + battery 11.4s = 12.0s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable

@@ -126,3 +126,12 @@ to the freeze.** A ruling that lands mid-slice is recorded in the ledger and the
 refreshed at the next checkpoint (a STOP report or the freeze), and QA issues an explicit re-pin message: the new
 brief hash, the exact delta, and the statement that the implementation contract is or is not affected. Re-pin
 issued for revision 5 at `f1d38f86…`: delta = R-RA-41 wording in §0, §2.2 and §8 only; contract unchanged.
+
+**Addendum 2026-09-18 (QA fence error, recorded so it does not recur — B405/B406 → rule P7):** the 8a+8c brief's
+OUT list forbade simulator edits while the slice added a new `lib/core` translation unit; the simulator's explicit
+CMake source list must name every core TU, so the stock `lus` could not link the frozen tree. The coder respected
+the fence, disclosed the gap and gated its corpus through an archived build-only hook; QA added the one durable line
+at its gate and re-ran the corpus (byte-identical). Two days earlier B405 was the mirror case: a brief removed a
+symbol and fenced only three of its seven users. Rule P7: a brief that adds a `lib/core` TU fences the simulator
+source list in the same slice; a brief that removes a symbol greps every user across lib, src, test and tools and
+fences them all. A fence is complete when the frozen tree builds, links and gates with the STOCK simulator and tools.

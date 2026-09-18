@@ -1,0 +1,5 @@
+In file included from /tmp/mr-codex-s8ac-preflight-3agva4yb/layout/layout.cpp:1:
+/tmp/mr-codex-s8ac-preflight-3agva4yb/layout/controller-model.h:4:10: fatal error: radmin_0e_candidate_types.h: No such file or directory
+    4 | #include "radmin_0e_candidate_types.h"
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+compilation terminated.

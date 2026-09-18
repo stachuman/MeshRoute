@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+    "--freeze-check",
+    "--compare",
+    "/tmp/mr-s8ac-r4-b1edsao2/one-byte-corrupt-remote-codec.cpp"
+  ],
+  "exit": 1,
+  "array": "kRefBody_resp_terminal_auth_code09",
+  "byte_offset": 0,
+  "old_literal": "0x13",
+  "new_literal": "0x12",
+  "source_unchanged": true
+}

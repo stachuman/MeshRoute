@@ -615,3 +615,23 @@ TEST_CASE("radmin4/verbs: the regen warning is the frozen line and carries no ke
     CHECK(out.s.find("fp=") == std::string::npos);
     CHECK(out.s.size() < mrfw::kAdminClientLineMax);
 }
+
+#include "firmware_remote_client.h"
+TEST_CASE("8ac controller syntax XOR flags explicit confirmation bounded command and IDs") {
+    const char* good[]={"remote alpha -e -- status","remote alpha -e -a using=key9 -- reboot",
+        "remote alpha -a -e using=self -- reboot","remote alpha open -- routes","remote alpha -e rollover",
+        "remote alpha -e using=key4 rollover confirm","remote-retry 0123456789abcdef",
+        "remote-result show 0123456789abcdef","remote-ack 0123456789abcdef"};
+    for(const auto* line:good){mrfw::RemoteLocalCommand c{};CHECK(mrfw::remote_local_parse(line,strlen(line),c));CHECK_FALSE(mrfw::admin_client_ble_refuses(line,strlen(line)));}
+    const char* bad[]={"remote alpha -- status","remote alpha open -e -- status","remote alpha open -a -- status",
+        "remote alpha open using=self -- status","remote alpha open -- reboot","remote alpha -e --",
+        "remote alpha -e using=key10 -- status","remote alpha -e using=key1 using=key2 -- status",
+        "remote alpha -e rollover yes","remote alpha -e rollover confirm extra","remote alpha open rollover",
+        "remote-retry 0000000000000000","remote-ack 0123456789ABCDEF","remote-result 0123456789abcdef",
+        "remote-retry 0123456789abcdef extra","remote-result nope 0123456789abcdef","remote alpha -ae -- status"};
+    for(const auto* line:bad){mrfw::RemoteLocalCommand c{};CHECK_FALSE(mrfw::remote_local_parse(line,strlen(line),c));}
+    const std::string prefix="remote alpha -e -- ";mrfw::RemoteLocalCommand c{};
+    auto line=prefix+std::string(201,'x');CHECK(mrfw::remote_local_parse(line.data(),line.size(),c));
+    line+='x';CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
+    line=prefix+"status\nreboot";CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
+}

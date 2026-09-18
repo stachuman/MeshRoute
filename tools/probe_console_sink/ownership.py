@@ -83,14 +83,15 @@ class OwnershipError(RuntimeError):
 #    The parser stays SEVEN on every profile (`console_parse.cpp` carries no `#if` and this slice adds no parser
 #    command), and the intersection stays EMPTY: the two new forms are router-owned only.
 #    ⓘ Derived by running `--show` on this tree AFTER the inventory was regenerated, ⛔ never quoted from a brief.
+# 8ac adds four CLIENT-only router forms: remote, remote-ack, remote-result, remote-retry.
 PINS = {
     #  profile          router  parser
     "full_headless": (43, 7),
     "full_oled": (44, 7),
     "gateway": (41, 7),
     "gateway_oled": (42, 7),
-    "mobile": (40, 7),
-    "mobile_oled": (41, 7),
+    "mobile": (44, 7),
+    "mobile_oled": (45, 7),
 }
 
 

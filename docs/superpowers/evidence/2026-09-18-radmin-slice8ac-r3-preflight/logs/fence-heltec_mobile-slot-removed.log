@@ -1,0 +1,9 @@
+/tmp/mr-s8ac-r3-zgobkgs0/fence-proof/node_mac.cpp: In member function 'bool meshroute::Node::take_remote_inbound(RemoteInbound&)':
+/tmp/mr-s8ac-r3-zgobkgs0/fence-proof/node_mac.cpp:885:10: error: '_remote_inbound' was not declared in this scope; did you mean 'RemoteInbound'?
+  885 |     if (!_remote_inbound.active) return false;
+      |          ^~~~~~~~~~~~~~~
+      |          RemoteInbound
+/tmp/mr-s8ac-r3-zgobkgs0/fence-proof/node_mac.cpp:886:11: error: '_remote_inbound' was not declared in this scope; did you mean 'RemoteInbound'?
+  886 |     out = _remote_inbound;
+      |           ^~~~~~~~~~~~~~~
+      |           RemoteInbound

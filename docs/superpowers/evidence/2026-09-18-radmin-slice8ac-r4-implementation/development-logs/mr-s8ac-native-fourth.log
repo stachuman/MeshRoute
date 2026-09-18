@@ -1,0 +1,32 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+Removing unused dependencies...
+test/test_remote_client.cpp: In member function ‘virtual meshroute::RemoteClientSend {anonymous}::Carrier::submit_request(const meshroute::RemoteClientRoute&, meshroute::RemoteSource, const meshroute::RemoteCarrier&, std::span<const unsigned char>, bool)’:
+test/test_remote_client.cpp:24:9: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+   24 |         if(answer==RemoteClientSend::queued)requests.emplace_back(b.begin(),b.end());return answer;
+      |         ^~
+test/test_remote_client.cpp:24:86: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+   24 |         if(answer==RemoteClientSend::queued)requests.emplace_back(b.begin(),b.end());return answer;
+      |                                                                                      ^~~~~~
+test/test_remote_client.cpp: In member function ‘virtual meshroute::RemoteClientSend {anonymous}::Carrier::submit_ack(const meshroute::RemoteClientRoute&, meshroute::RemoteSource, const meshroute::RemoteCarrier&, std::span<const unsigned char>)’:
+test/test_remote_client.cpp:27:9: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+   27 |         if(answer==RemoteClientSend::queued)acks.emplace_back(b.begin(),b.end());return answer;
+      |         ^~
+test/test_remote_client.cpp:27:82: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+   27 |         if(answer==RemoteClientSend::queued)acks.emplace_back(b.begin(),b.end());return answer;
+      |                                                                                  ^~~~~~
+test/test_remote_client.cpp: In constructor ‘{anonymous}::Client::Client()’:
+test/test_remote_client.cpp:43:9: warning: this ‘for’ clause does not guard... [-Wmisleading-indentation]
+   43 |         for(unsigned i=0;i<32;++i)seed[i]=uint8_t(i+77);identity_from_seed(target,seed);
+      |         ^~~
+test/test_remote_client.cpp:43:57: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘for’
+   43 |         for(unsigned i=0;i<32;++i)seed[i]=uint8_t(i+77);identity_from_seed(target,seed);
+      |                                                         ^~~~~~~~~~~~~~~~~~
+Testing...
+--------------------- native:* [PASSED] Took 4.05 seconds ---------------------
+
+================== 0 test cases: 0 succeeded in 00:00:04.053 ==================

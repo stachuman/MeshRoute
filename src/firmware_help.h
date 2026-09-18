@@ -114,6 +114,12 @@ inline void render_index(Print& out) {
     out.println(F("rcmd"));
     out.println(F("reboot"));
     out.println(F("regen"));
+#if MR_FEAT_RADMIN_CLIENT
+    out.println(F("remote"));
+    out.println(F("remote-ack"));
+    out.println(F("remote-result"));
+    out.println(F("remote-retry"));
+#endif
     out.println(F("reqpubkey"));
     out.println(F("resolve"));
     out.println(F("route"));

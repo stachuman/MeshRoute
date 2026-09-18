@@ -534,7 +534,7 @@ class TestActionAdmissionSurfaces(unittest.TestCase):
             *(("crashtest", mode, "action_crash_admit", "serial,ble", "owner D")
               for mode in ("hang", "fault", "reboot")),
         })
-        self.assertEqual(len(rows), 204)
+        self.assertEqual(len(rows), 208)  # 8ac: four CLIENT controller forms.
 
     def test_each_new_caller_hop_must_exist(self):
         for rel, old, new in (
@@ -578,7 +578,7 @@ class TestActionAdmissionSurfaces(unittest.TestCase):
         rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
             '// bool parse_confirm_token() { return false; }\n'
             'const char* example = "bool parse_confirm_token() { }";\ninline bool parse_confirm_token(')
-        self.assertEqual(len(rows), 204)
+        self.assertEqual(len(rows), 208)  # 8ac: four CLIENT controller forms.
 
 
 class TestRealTree(unittest.TestCase):
@@ -837,7 +837,7 @@ class TestPrimaryProjection(unittest.TestCase):
         #   full-build figure above is UNCHANGED at 51 because the CLIENT axis is 0 on every ACCEPT profile — the
         #   mirror image of the slice-3 movement, and exactly the asymmetry that makes these two numbers a GATE
         #   test rather than a global-addition test.
-        self.assertEqual(48, len(mob))
+        self.assertEqual(52, len(mob))  # 8ac: four CLIENT-only controller forms.
         self.assertNotIn("acl", mob)
         self.assertNotIn("admin-id", mob)
         self.assertIn("admin-key", mob)
@@ -989,13 +989,17 @@ class TestRadminClientAxis(unittest.TestCase):
     def test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles(self):
         rows, _n, _v, _r = G.build_rows(REPO_ROOT)
         gated = [r for r in rows if r.gate == "MR_FEAT_RADMIN_CLIENT"]
-        self.assertEqual({"admin-key", "admin-target"}, {r.verb for r in gated},
-                         "the CLIENT-gated top-level rows are exactly the two controller-store families")
-        self.assertTrue(all(r.transports == "serial" for r in gated),
-                        "R-RA-30: a BARE family name is console-only — only list/show cross secured BLE")
+        stores = {"admin-key", "admin-target"}
+        controller = {"remote", "remote-retry", "remote-result", "remote-ack"}
+        self.assertEqual(stores | controller, {r.verb for r in gated},
+                         "R-RA-42 adds exactly four CLIENT controller forms")
+        self.assertTrue(all(r.transports == "serial" for r in gated if r.verb in stores),
+                        "R-RA-30: a BARE store family stays console-only — only list/show cross secured BLE")
+        self.assertTrue(all(r.transports == "serial,ble" for r in gated if r.verb in controller),
+                        "R-RA-42: every controller form is USB plus secured BLE")
         for name, want in self.RULED.items():
             names = set(G.primary_names(rows, G.PROFILES[name]))
-            for verb in ("admin-key", "admin-target"):
+            for verb in stores | controller:
                 if want:
                     self.assertIn(verb, names, f"{name}: a CLIENT build must advertise `{verb}`")
                 else:
@@ -1072,7 +1076,7 @@ class TestSlice6Normalization(unittest.TestCase):
 
     def test_real_normalization_and_discriminator_bindings(self):
         rows = G.build_rows(REPO_ROOT)[0]
-        self.assertEqual(204, len(rows))  # Slice 7a: one cfg key added to Slice 6's 203 normalized rows.
+        self.assertEqual(208, len(rows))  # 7a's 204 plus 8ac's four controller forms.
         refusals = [r for r in rows if "— refused" in r.subverb]
         self.assertEqual({("peers", "<args> — refused console_only"), ("joinprofile", "— refused gateway_build")},
                          {(r.verb, r.subverb) for r in refusals})

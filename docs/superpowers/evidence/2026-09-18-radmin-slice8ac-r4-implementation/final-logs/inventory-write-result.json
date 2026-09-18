@@ -1,0 +1,12 @@
+{
+  "name": "inventory-write",
+  "command": [
+    "python3",
+    "tools/gen_command_inventory.py",
+    "--write"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 2.2925704456865788,
+  "sha256": "a7db9e52493487005f83fb8ef3c029e995f59f41320ffabc96f15d5ac42077b6"
+}

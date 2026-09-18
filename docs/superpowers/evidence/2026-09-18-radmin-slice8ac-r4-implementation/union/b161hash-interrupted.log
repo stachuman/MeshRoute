@@ -1,0 +1,41 @@
+-- target b161hash: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_hashlocate.cpp (6 entries)
+-- selection: IN FULL (all 6 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-vgo0elig   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b161hash: /tmp/mr_mutation_run-vgo0elig/w0/lib/core/node_hashlocate.cpp (2 of 6 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b161hash: /tmp/mr_mutation_run-vgo0elig/w2/lib/core/node_hashlocate.cpp (2 of 6 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b161hash: /tmp/mr_mutation_run-vgo0elig/w1/lib/core/node_hashlocate.cpp (2 of 6 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w0]   ok   H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority -> RED (18 assertion(s) failed, match count 1)
+  [w2]   ok   H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope -> RED (134 assertion(s) failed, match count 1)
+  [w2]   ok   H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   H04 B161 type 13 omits both name_len and the name tail from the transmitted body -> RED (25 assertion(s) failed, match count 1)
+  [w0] source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)
+  [w0] shard 0: 2 RED / 0 unusable   (of 2 entries)
+  [w2] source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)
+  [w2] shard 2: 2 RED / 0 unusable   (of 2 entries)
+  [w1]   ok   H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)
+  [w1] shard 1: 2 RED / 0 unusable   (of 2 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target b161hash: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_hashlocate.cpp
+  ok   clean baseline 2947 / 193719 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority -> RED (18 assertion(s) failed, match count 1)
+  ok   H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope -> RED (134 assertion(s) failed, match count 1)
+  ok   H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO -> RED (2 assertion(s) failed, match count 1)
+  ok   H04 B161 type 13 omits both name_len and the name tail from the transmitted body -> RED (25 assertion(s) failed, match count 1)
+  ok   H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix -> RED (1 assertion(s) failed, match count 1)
+  ok   H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 17.5s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-vgo0elig/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 17.6s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-vgo0elig/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 17.5s, rc 0, source restored: md5 ffb88cb2cb558a1158d741e6bc9eb6e4 (MATCHES)   /tmp/mr_mutation_run-vgo0elig/w2
+real tree untouched: all 61 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8ac-r4-b1edsao2/final-gate
+timing: copy 2.0s + battery 17.7s = 19.7s total, 6 entries over 3 worker(s)
+mutations: 6 RED / 0 unusable

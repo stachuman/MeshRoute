@@ -145,6 +145,14 @@ PROBE_HEADERS = (
 PINNED: tuple[tuple[str, str], ...] = (
     # --- always compiled, every env ---
     ("meshroute::Node",        "1"),
+    ("meshroute::RemoteClientState", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientPending", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientSession", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientAssembly", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientRetained", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientChunk", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientAck", "MR_FEAT_RADMIN_CLIENT"),
+    ("meshroute::RemoteClientCounters", "MR_FEAT_RADMIN_CLIENT"),
     ("meshroute::DeferredActionRecord", "1"),
     ("meshroute::TranscriptHeader", "1"),
     ("meshroute::RemoteSessionState", "1"),
@@ -284,7 +292,15 @@ FIXTURE_SOURCE = (
 #      `tools/measure_board.py pair`, not this probe.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (230976, 8, True),   # R-RA-40: 230896 + 80; measured by this probe
+        "meshroute::Node":         (235248, 8, True),   # R-RA-45: controller block less legacy slot
+        "meshroute::RemoteClientState": (4512, 8, True),
+        "meshroute::RemoteClientPending": (352, 8, True),
+        "meshroute::RemoteClientSession": (144, 8, True),
+        "meshroute::RemoteClientAssembly": (32, 8, True),
+        "meshroute::RemoteClientRetained": (32, 8, True),
+        "meshroute::RemoteClientChunk": (210, 2, True),
+        "meshroute::RemoteClientAck": (88, 8, True),
+        "meshroute::RemoteClientCounters": (12, 2, True),
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),
@@ -308,7 +324,15 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         FIXTURE_NAME:              (24, 8, True),
     },
     "heltec_mobile": {
-        "meshroute::Node":         (117912, 8, True),
+        "meshroute::Node":         (122176, 8, True),
+        "meshroute::RemoteClientState": (4512, 8, True),
+        "meshroute::RemoteClientPending": (352, 8, True),
+        "meshroute::RemoteClientSession": (144, 8, True),
+        "meshroute::RemoteClientAssembly": (32, 8, True),
+        "meshroute::RemoteClientRetained": (32, 8, True),
+        "meshroute::RemoteClientChunk": (210, 2, True),
+        "meshroute::RemoteClientAck": (88, 8, True),
+        "meshroute::RemoteClientCounters": (12, 2, True),
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),
@@ -336,6 +360,14 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
         "meshroute::Node":         (157344, 8, True),   # R-RA-40: 157264 + 80; measured by this probe
+        "meshroute::RemoteClientState": (4512, 8, False),
+        "meshroute::RemoteClientPending": (352, 8, False),
+        "meshroute::RemoteClientSession": (144, 8, False),
+        "meshroute::RemoteClientAssembly": (32, 8, False),
+        "meshroute::RemoteClientRetained": (32, 8, False),
+        "meshroute::RemoteClientChunk": (210, 2, False),
+        "meshroute::RemoteClientAck": (88, 8, False),
+        "meshroute::RemoteClientCounters": (12, 2, False),
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),

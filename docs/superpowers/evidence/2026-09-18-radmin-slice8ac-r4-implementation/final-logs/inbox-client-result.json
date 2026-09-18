@@ -1,0 +1,13 @@
+{
+  "name": "inbox-client",
+  "command": [
+    "env",
+    "MR_PROBE_ARM=client",
+    "bash",
+    "tools/probe_inbox_verbs/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 395.0158308185637,
+  "sha256": "cba7fa829e4b246e389ff7b35aa19aa9f60e824042d724e572bd62e071ab360f"
+}

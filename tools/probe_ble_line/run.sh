@@ -85,14 +85,16 @@ WARN=(-Wall -Wextra -Werror -Wno-volatile)
 #              · never-split-into-a-second-command · overflow recovery                         7
 #     11+3+4+4+5+4+2+7 = 40. ✓
 # PIN_CONTROLS = 8: the [[B237]] control-of-the-controls + N1..N7.
-PIN_CHECKS=40
-PIN_CONTROLS=8
+# 8ac: +8 direct-output byte identity and ATT bounds (2 lengths x 2 MTUs x 2 checks).
+# Seven checked entropy provider/failure checks.
+PIN_CHECKS=55
+PIN_CONTROLS=12
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED
 #    on a tree nothing had touched).
 md5_sources() {
-  cat "$HDR" "$HERE/probe_main.cpp" "$HERE/fakes/bluefruit.h" "$HERE/fakes/nrf.h" "$HERE/fakes/nrf_soc.h" \
+  cat "$HDR" "$ROOT/src/device_rng.h" "$HERE/probe_main.cpp" "$HERE/fakes/bluefruit.h" "$HERE/fakes/nrf.h" "$HERE/fakes/nrf_soc.h" \
       "$FAKES/Arduino.h" "$ROOT/lib/core/frame_codec.cpp" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
@@ -192,6 +194,22 @@ ctl_hdr() {
   verdict_of "$label" "$OUT/mutant.bin" "$OUT/hdr/device_ble.h"
 }
 
+# The checked entropy header is copied beside the copied transport header: quoted includes then resolve
+# to the mutated provider, never the live src/ sibling. Every control still compiles and executes the real code.
+ctl_rng() {
+  local label=$1 script=$2
+  mkdir -p "$OUT/rng"
+  cp "$HDR" "$OUT/rng/device_ble.h"
+  sed "$script" "$ROOT/src/device_rng.h" > "$OUT/rng/device_rng.h"
+  if cmp -s "$ROOT/src/device_rng.h" "$OUT/rng/device_rng.h"; then
+    n_bad=$((n_bad+1)); echo "  FAIL $label VACUOUS"; return
+  fi
+  if ! build_probe "$OUT/rng" "$OUT/rng/device_ble.h" "$OUT/rng.bin"; then
+    n_bad=$((n_bad+1)); echo "  FAIL $label does not compile"; head -8 "$OUT/build.log"; return
+  fi
+  verdict_of "$label" "$OUT/rng.bin" "$OUT/rng/device_ble.h"
+}
+
 if [ "${1:-}" != "--no-neg" ]; then
   echo
   echo "== negative controls (each MUST turn the probe RED) =="
@@ -244,6 +262,13 @@ if [ "${1:-}" != "--no-neg" ]; then
   #          nothing but a reboot recovers it.
   ctl_hdr 'N6 the intake state is not reset after a refusal (the console wedges)' \
       's|        g_overflow = false; g_pos = 0; return;|        return;|'
+
+  ctl_rng 'E8 failed pool reports success' 's|sd_rand_application_bytes_available_get(\&avail) != NRF_SUCCESS) return false;|sd_rand_application_bytes_available_get(\&avail) != NRF_SUCCESS) return true;|'
+  ctl_rng 'E9 failed vector reports success' 's|sd_rand_application_vector_get(out + got, take) != NRF_SUCCESS) return false;|sd_rand_application_vector_get(out + got, take) != NRF_SUCCESS) return true;|'
+  ctl_rng 'E10 stalled pool reports success' 's|return got == n;|return true;|'
+
+  ctl_hdr 'N8 direct reply bypasses the bounded writer' \
+      's|if (n) tx_line(g_out, n);|if (n) g_bleuart.write(reinterpret_cast<const uint8_t*>(g_out), n);|'
 
   # ---- N7: THE SOURCE-INTEGRITY PIN ITSELF. The CLEAN binary (compiled against the live header) is pointed at a
   #          DIFFERENT text. "Compile a copy, inspect the live tree" is the classic worthless probe, and A1 is the

@@ -1,0 +1,852 @@
+[
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_body_encode",
+    "lines": [
+      325
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_body_decode",
+    "lines": [
+      336
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_kdf_base",
+    "lines": [
+      292
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_kdf_session",
+    "lines": [
+      296
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_nonce",
+    "lines": [
+      303
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_aad",
+    "lines": [
+      308
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_body_cap",
+    "lines": [
+      137,
+      235,
+      314
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "remote_make_request_id",
+    "lines": [
+      20,
+      357
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "RemoteEntropyFn",
+    "lines": [
+      353,
+      357
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "RemoteKeys",
+    "lines": [
+      219,
+      327,
+      338
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "RemoteSource",
+    "lines": [
+      160,
+      166,
+      228,
+      305,
+      309,
+      327,
+      338
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "RemoteCarrier",
+    "lines": [
+      140,
+      238,
+      314,
+      317,
+      328,
+      339
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "RemoteDecoded",
+    "lines": [
+      265,
+      336
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "result_kind",
+    "lines": [
+      270
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "terminal",
+    "lines": [
+      12,
+      65,
+      89,
+      119,
+      120,
+      260,
+      271
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "result_detail",
+    "lines": [
+      255,
+      262,
+      273
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "admission",
+    "lines": [
+      11,
+      25,
+      69,
+      97,
+      125,
+      180,
+      196,
+      212,
+      213,
+      262,
+      302,
+      311
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_codec.h",
+    "symbol": "protocol_error",
+    "lines": [
+      68,
+      123,
+      124,
+      261,
+      272
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_session.cpp",
+    "symbol": "derive_base",
+    "lines": [
+      171,
+      643,
+      1053,
+      1128,
+      1202,
+      1342
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_session.cpp",
+    "symbol": "ed_pub_to_x25519",
+    "lines": [
+      10,
+      174
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_session.cpp",
+    "symbol": "remote_ecdh_shared",
+    "lines": [
+      150,
+      170,
+      179
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/remote_session.cpp",
+    "symbol": "remote_kdf_base",
+    "lines": [
+      183
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "PendingRequestCore",
+    "lines": [
+      83,
+      102,
+      109
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "PendingRequestInline",
+    "lines": [
+      101
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "SessionCacheEntry",
+    "lines": [
+      121
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "ResponseAssemblyHeader",
+    "lines": [
+      134
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "ResponseChunk",
+    "lines": [
+      63,
+      145,
+      146,
+      215
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "RetainedResultHeader",
+    "lines": [
+      153
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "AckDebtEntry",
+    "lines": [
+      166
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "kCandidateSealedRequestBytes",
+    "lines": [
+      60,
+      103,
+      114
+    ],
+    "present": true
+  },
+  {
+    "file": "test/radmin_0e_candidate_types.h",
+    "symbol": "kCandidateSealedAckBytes",
+    "lines": [
+      56,
+      170
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "rx_remote_resp_client",
+    "lines": [
+      1806
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "remote_inbound_stage",
+    "lines": [
+      1815
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "take_remote_inbound",
+    "lines": [
+      179
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "RemoteInbound",
+    "lines": [
+      160,
+      179,
+      3035,
+      4109
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "_remote_inbound",
+    "lines": [
+      172,
+      179,
+      3035,
+      3049,
+      4098,
+      4109
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "radmin_rx_owner",
+    "lines": [
+      198
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "rx_remote_cmd_accept",
+    "lines": [
+      1792
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "send_by_hash",
+    "lines": [
+      413,
+      445,
+      450,
+      1714,
+      1900,
+      1913,
+      2534,
+      2576,
+      3286,
+      3847
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "do_send",
+    "lines": [
+      101,
+      337,
+      1111,
+      1113,
+      1734,
+      1744,
+      2272,
+      2285,
+      2287,
+      2412,
+      3283
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "send_remote_cmd",
+    "lines": [
+      167
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "send_remote_response",
+    "lines": [
+      168
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node.h",
+    "symbol": "kRadminExpiryTimerId",
+    "lines": [
+      1084,
+      1618,
+      1796,
+      3066,
+      4109
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node_mac_rx.cpp",
+    "symbol": "Node::rx_remote_resp_client",
+    "lines": [
+      2289
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/node_mac_rx.cpp",
+    "symbol": "remote_inbound_stage",
+    "lines": [
+      1960,
+      1984,
+      2291
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_keyring.h",
+    "symbol": "MgmtKeyService",
+    "lines": [
+      200,
+      202
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_keyring.h",
+    "symbol": "IMgmtKeyUse",
+    "lines": [
+      134,
+      135,
+      202,
+      414
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_keyring.h",
+    "symbol": "SecretWipeGuard",
+    "lines": [
+      58,
+      170,
+      211,
+      216,
+      237,
+      253,
+      281,
+      296,
+      318,
+      323,
+      362,
+      370,
+      407
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_targets.h",
+    "symbol": "ITargetStore",
+    "lines": [
+      199,
+      200,
+      266,
+      451
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_targets.h",
+    "symbol": "TargetRow",
+    "lines": [
+      50,
+      56,
+      66,
+      72,
+      79,
+      104,
+      120,
+      175,
+      177,
+      189,
+      297,
+      307,
+      332,
+      336,
+      356,
+      358,
+      402,
+      403,
+      427
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_targets.h",
+    "symbol": "target_find_label",
+    "lines": [],
+    "present": false
+  },
+  {
+    "file": "src/firmware_admin_targets.h",
+    "symbol": "ITargetUse",
+    "lines": [
+      209,
+      210,
+      266,
+      452
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_identity.h",
+    "symbol": "admin_fp_hex",
+    "lines": [
+      103
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_client_verbs.h",
+    "symbol": "admin_client_ble_public",
+    "lines": [
+      161,
+      171
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_client_verbs.h",
+    "symbol": "admin_client_ble_refuses",
+    "lines": [
+      20,
+      170
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_client_verbs.h",
+    "symbol": "IClientRemoteDebt",
+    "lines": [
+      653,
+      654,
+      657
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_admin_client_verbs.h",
+    "symbol": "client_regen_admitted",
+    "lines": [
+      657
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "admin_client_router_arm",
+    "lines": [
+      534,
+      1625
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "DeviceClientRemoteDebt",
+    "lines": [
+      478,
+      1043
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "DeviceMgmtKeyUse",
+    "lines": [
+      468,
+      511,
+      544
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "DeviceTargetUse",
+    "lines": [
+      472,
+      521,
+      546
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "dump_status",
+    "lines": [
+      920,
+      1012,
+      1546,
+      1807
+    ],
+    "present": true
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "symbol": "exec_console_line",
+    "lines": [
+      283,
+      1665,
+      1864
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_rng.h",
+    "symbol": "mrrng",
+    "lines": [
+      12,
+      37,
+      85
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_rng.h",
+    "symbol": "sd_enabled",
+    "lines": [
+      12,
+      17,
+      27,
+      42,
+      48
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_rng.h",
+    "symbol": "sd_rand_application_vector_get",
+    "lines": [
+      13,
+      26,
+      57
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_rng.h",
+    "symbol": "esp_random",
+    "lines": [
+      4,
+      31,
+      71,
+      72,
+      76
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/core/hal.h",
+    "symbol": "rand_bytes",
+    "lines": [
+      183
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "dispatch_current_line",
+    "lines": [
+      136,
+      214,
+      303
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "g_out[256]",
+    "lines": [
+      205
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "kProductLineMaxBytes",
+    "lines": [
+      134,
+      136,
+      138,
+      140
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "BANDWIDTH_MAX",
+    "lines": [
+      236,
+      240
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "tx_line",
+    "lines": [
+      161,
+      168,
+      198,
+      239,
+      309
+    ],
+    "present": true
+  },
+  {
+    "file": "src/device_ble.h",
+    "symbol": "getMtu",
+    "lines": [
+      198,
+      315
+    ],
+    "present": true
+  },
+  {
+    "file": "src/fw_main.cpp",
+    "symbol": "take_remote_inbound",
+    "lines": [
+      1844,
+      1851
+    ],
+    "present": true
+  },
+  {
+    "file": "src/fw_main.cpp",
+    "symbol": "[rcmd %u]",
+    "lines": [],
+    "present": false
+  },
+  {
+    "file": "src/fw_main.cpp",
+    "symbol": "LineSink ls(ble_sink)",
+    "lines": [
+      635,
+      641,
+      644,
+      645,
+      646,
+      720
+    ],
+    "present": true
+  },
+  {
+    "file": "src/fw_main.cpp",
+    "symbol": "exec_console_line",
+    "lines": [
+      83,
+      688,
+      723,
+      1254
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/console/console_json.h",
+    "symbol": "write_event",
+    "lines": [
+      93
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/console/console_json.h",
+    "symbol": "write_err",
+    "lines": [
+      95
+    ],
+    "present": true
+  },
+  {
+    "file": "lib/console/console_json.h",
+    "symbol": "write_push",
+    "lines": [
+      77
+    ],
+    "present": true
+  },
+  {
+    "file": "src/console_sink.h",
+    "symbol": "dropped_lines",
+    "lines": [
+      132,
+      187
+    ],
+    "present": true
+  },
+  {
+    "file": "src/console_sink.h",
+    "symbol": "return n;",
+    "lines": [
+      95,
+      100,
+      183
+    ],
+    "present": true
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "symbol": "MR_PROFILE_MOBILE",
+    "lines": [
+      61,
+      66,
+      105
+    ],
+    "present": true
+  }
+]

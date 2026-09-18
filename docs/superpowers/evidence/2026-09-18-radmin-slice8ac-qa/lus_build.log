@@ -1,0 +1,65 @@
+[  2%] Built target meshroute_monocypher
+[  4%] Building CXX object CMakeFiles/meshroute_console.dir/home/staszek/MeshRoute/lib/console/console_json.cpp.o
+[ 17%] Built target lus_core
+[ 18%] Building CXX object CMakeFiles/meshroute_console.dir/orchestrator/runtime/ConsoleNames.cpp.o
+[ 21%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_beacon.cpp.o
+[ 21%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_routing.cpp.o
+[ 22%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node.cpp.o
+[ 24%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_mac.cpp.o
+[ 25%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node.cpp.o
+[ 27%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_beacon.cpp.o
+[ 28%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_routing.cpp.o
+[ 30%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_mac_rx.cpp.o
+[ 31%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_route_discovery.cpp.o
+[ 32%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_mac.cpp.o
+In member function ‘void meshroute::Node::set_window_anchors(uint8_t)’,
+    inlined from ‘bool meshroute::Node::on_init(const meshroute::NodeConfig&)’ at /home/staszek/MeshRoute/lib/core/node.cpp:666:27:
+/home/staszek/MeshRoute/lib/core/node.cpp:1159:28: warning: array subscript 1 is above array bounds of ‘meshroute::Node::LayerRuntime [1]’ [-Warray-bounds]
+ 1159 |     _layers[1 - active_leaf]._next_open_ms = now + to_boundary;    // the other opens at the ABSOLUTE grid boundary (slip-robust)
+      |     ~~~~~~~~~~~~~~~~~~~~~~~^
+In file included from /home/staszek/MeshRoute/lib/core/node.cpp:14:
+/home/staszek/MeshRoute/lib/core/node.h: In member function ‘bool meshroute::Node::on_init(const meshroute::NodeConfig&)’:
+/home/staszek/MeshRoute/lib/core/node.h:4027:19: note: while referencing ‘meshroute::Node::_layers’
+ 4027 |     LayerRuntime  _layers[MR_N_LAYERS];
+      |                   ^~~~~~~
+[ 34%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_query.cpp.o
+[ 35%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_channel.cpp.o
+[ 37%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_hashlocate.cpp.o
+[ 38%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_join.cpp.o
+[ 40%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_mac_rx.cpp.o
+[ 41%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_route_discovery.cpp.o
+[ 42%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_query.cpp.o
+[ 44%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_channel.cpp.o
+[ 45%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_mobile.cpp.o
+[ 47%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_budget.cpp.o
+[ 48%] Linking CXX static library libmeshroute_console.a
+[ 48%] Built target meshroute_console
+[ 50%] Building CXX object CMakeFiles/meshroute_core_normal.dir/home/staszek/MeshRoute/lib/core/node_cascade.cpp.o
+[ 51%] Building CXX object CMakeFiles/meshroute_core_normal.dir/orchestrator/runtime/NodeRuntimeWrapper.cpp.o
+[ 52%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_hashlocate.cpp.o
+[ 54%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_join.cpp.o
+[ 55%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_mobile.cpp.o
+[ 57%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_budget.cpp.o
+[ 58%] Building CXX object CMakeFiles/meshroute_core_gw.dir/home/staszek/MeshRoute/lib/core/node_cascade.cpp.o
+[ 60%] Building CXX object CMakeFiles/meshroute_core_gw.dir/orchestrator/runtime/NodeRuntimeWrapper.cpp.o
+[ 61%] Linking CXX static library libmeshroute_core_normal.a
+[ 72%] Built target meshroute_core_normal
+[ 74%] Linking CXX static library libmeshroute_core_gw.a
+[ 85%] Built target meshroute_core_gw
+[ 87%] Linking CXX executable lus
+/usr/bin/ld: ../libmeshroute_core_normal.a(node_mac_rx.cpp.o): in function `meshroute::Node::radmin_expiry_arm()':
+node_mac_rx.cpp:(.text+0x7e6b): undefined reference to `meshroute::remote_client_next_expiry(meshroute::RemoteClientState const&, unsigned int)'
+/usr/bin/ld: ../libmeshroute_core_normal.a(node_mac_rx.cpp.o): in function `meshroute::Node::radmin_expiry_fire()':
+node_mac_rx.cpp:(.text+0x887e): undefined reference to `meshroute::remote_client_expire(meshroute::RemoteClientState&, unsigned int)'
+/usr/bin/ld: ../libmeshroute_core_normal.a(node_mac_rx.cpp.o): in function `meshroute::Node::rx_remote_resp_client(meshroute::PostAck const&, meshroute::data_unicast_inner const*)':
+node_mac_rx.cpp:(.text+0x8952): undefined reference to `meshroute::remote_client_receive(meshroute::RemoteClientState&, unsigned char, std::span<unsigned char const, 18446744073709551615ul>, meshroute::RemoteSource, meshroute::RemoteCarrier const&, unsigned int)'
+/usr/bin/ld: ../libmeshroute_core_gw.a(node_mac_rx.cpp.o): in function `meshroute_gw::Node::radmin_expiry_arm()':
+node_mac_rx.cpp:(.text+0x7e6b): undefined reference to `meshroute_gw::remote_client_next_expiry(meshroute_gw::RemoteClientState const&, unsigned int)'
+/usr/bin/ld: ../libmeshroute_core_gw.a(node_mac_rx.cpp.o): in function `meshroute_gw::Node::radmin_expiry_fire()':
+node_mac_rx.cpp:(.text+0x887e): undefined reference to `meshroute_gw::remote_client_expire(meshroute_gw::RemoteClientState&, unsigned int)'
+/usr/bin/ld: ../libmeshroute_core_gw.a(node_mac_rx.cpp.o): in function `meshroute_gw::Node::rx_remote_resp_client(meshroute_gw::PostAck const&, meshroute_gw::data_unicast_inner const*)':
+node_mac_rx.cpp:(.text+0x8952): undefined reference to `meshroute_gw::remote_client_receive(meshroute_gw::RemoteClientState&, unsigned char, std::span<unsigned char const, 18446744073709551615ul>, meshroute_gw::RemoteSource, meshroute_gw::RemoteCarrier const&, unsigned int)'
+collect2: error: ld returned 1 exit status
+gmake[2]: *** [orchestrator/CMakeFiles/lus.dir/build.make:232: orchestrator/lus] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:258: orchestrator/CMakeFiles/lus.dir/all] Error 2
+gmake: *** [Makefile:91: all] Error 2

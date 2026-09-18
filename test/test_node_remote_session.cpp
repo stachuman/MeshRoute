@@ -10,9 +10,8 @@
 //     and DECODED with the controller's own key. ⛔ No production function is called directly to stand in for the
 //     receive path, and ⛔ no emitted frame is asserted by name alone.
 //
-// ⚠ THERE IS NO CONTROLLER IMPLEMENTATION IN THE TREE (Slice 8a owns it). The fixture derives the controller-side
-//   base key itself from the two identities, exactly as a controller will — so the two sides agree because they
-//   compute the same function of the same ordered inputs, not because they share a call.
+// The historical target fixtures derive their own controller key. The 8ac loopback at the end instead
+// drives the production controller state inside a second Node, including its real response intake.
 //
 // NB: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN (test_airtime.cpp provides main()); -fno-exceptions => CHECK only.
 #include "doctest.h"
@@ -1598,4 +1597,146 @@ TEST_CASE("§radmin-73/Node saturated deadline is a real wake and diagnostics us
     CHECK(t.hal.cancels.size()==cancels+1);CHECK(t.hal.cancels.back()==Node::test_last_allocated_timer_id());
     CHECK(out.activate_at_ms==UINT64_MAX);CHECK(out.trigger==RemoteActionTrigger::deadline);
     CHECK_FALSE(t.node.radmin_take_action(out));
+}
+
+namespace {
+// 8ac carrier binding is deliberately a loopback fixture: production board carrier remains unavailable.
+// Requests enter a real target Node through RTS/DATA; target MAC responses enter the real controller Node.
+struct ControllerLoopCarrier : IRadminCarrier {
+    std::vector<std::vector<uint8_t>> commands, acks;
+    bool tx_queue_full() const override { return false; }
+    RemoteClientSend submit_request(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
+                                    std::span<const uint8_t> b, bool) override {
+        commands.emplace_back(b.begin(), b.end()); return RemoteClientSend::queued;
+    }
+    RemoteClientSend submit_ack(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
+                                std::span<const uint8_t> b) override {
+        acks.emplace_back(b.begin(), b.end()); return RemoteClientSend::queued;
+    }
+};
+struct ControllerLoopSink : IRemoteLocalDelivery {
+    std::string text, result;
+    uint32_t detail=0;
+    bool connected(RemoteLocalTransport) const override { return true; }
+    bool output(RemoteLocalTransport, uint64_t, uint16_t& seq, std::span<const uint8_t> b) override {
+        text.append(reinterpret_cast<const char*>(b.data()),b.size()); ++seq; return true;
+    }
+    bool terminal(RemoteLocalTransport, uint64_t, const char* name, uint32_t d, bool) override {
+        result=name; detail=d; return true;
+    }
+    void retained(RemoteLocalTransport, uint64_t) override {}
+};
+bool controller_loop_entropy(void* ctx,uint8_t* out,size_t n) {
+    auto& counter=*static_cast<uint64_t*>(ctx);
+    ++counter; for (size_t i=0;i<n;++i) out[i]=static_cast<uint8_t>(counter>>(8*i));
+    return true;
+}
+}
+TEST_CASE("8ac two Node loopback owns response bytes and all terminal meanings through real MAC intake") {
+    const char* names[]={"completed","scheduled","unknown_command","refused","output_truncated",
+                         "internal_error","session_full","session_busy","action_busy"};
+    for (uint8_t code=0;code<15;++code) {
+        TargetNode target; target.provision(4);
+        const auto credential=target.ctrl[3];
+        const auto identity=make_identity(88); target.learn_peer(4,identity);
+        CHECK(std::memcmp(credential.ed_pub,identity.ed_pub,32)!=0); // key4 differs from the messaging identity
+        RsHal hal; Node controller{hal,4,identity.key_hash32}; NodeConfig cfg{};
+        cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<12); controller.on_init(cfg);
+        controller.set_crypto_identity(identity.x_secret,identity.ed_pub);
+        ControllerLoopCarrier carrier; ControllerLoopSink sink; uint64_t entropy=0x800;
+        RemoteClientRequest req{}; req.identity=&credential; req.target_pub=target.admin.ed_pub;
+        req.source_hash=identity.key_hash32; req.route.target_hash=target.self.key_hash32;
+        req.transport=RemoteLocalTransport::ble; req.credential_slot=4;
+        const uint8_t text[]={'s','t','a','t','u','s'};req.command=text;
+        const auto begin=remote_client_start(controller.remote_client(),req,0,controller_loop_entropy,&entropy,carrier);
+        CHECK(begin.error==RemoteClientError::none); CHECK(carrier.commands.size()==1);
+        if(carrier.commands.empty())return;
+        auto receive_reply=[&] {
+            const auto before=target.hal.tx_frames.size(); target.pump_tx(4);
+            bool found=false;
+            for(size_t j=before;j<target.hal.tx_frames.size();++j) {
+                const auto& frame=target.hal.tx_frames[j].bytes;
+                const auto d=parse_data(frame); if(!d || d->type!=DATA_TYPE_REMOTE_RESP)continue;
+                auto ui=parse_unicast_inner(data_inner(frame,*d),d->flags);
+                CHECK(ui.has_value()); if(!ui)continue;
+                CHECK(ui->source_hash==target.self.key_hash32); CHECK(d->dst==4);
+                std::array<uint8_t,16> rts{};
+                hal._now=target.hal._now+500;
+                const auto n=mk_rts(5,4,4,static_cast<uint8_t>(d->ctr&15),60,rts,5,d->ctr);
+                controller.on_recv(rts.data(),n,RxMeta{8,-80,0,5});hal._now+=100;
+                controller.on_recv(frame.data(),frame.size(),RxMeta{8,-80,0,5});controller.on_timer(9);
+                found=true;
+            }
+            CHECK(found);
+        };
+        target.flight(4,0x810,identity.key_hash32,carrier.commands.back(),1000);
+        receive_reply();
+        remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+        CHECK(carrier.commands.size()==2); if(carrier.commands.size()!=2)return;
+        // Labelled synthetic pressure/tombstone fixtures exercise real target decisions,
+        // wire encoding, target MAC TX, and controller MAC RX. No reply is forged here.
+        auto& state=const_cast<RemoteSessionState&>(target.node.admin_session_state());
+        if(code==9) {
+            state.ingress[kRadminIngressControl].state=static_cast<uint8_t>(IngressState::reserved);
+            state.ingress[kRadminIngressControl].expires_at_ms=UINT64_MAX;
+        }
+        if(code>=11) for(unsigned i=0;i<kRadminSeenSlots;++i) {
+            auto& r=state.seen[i].record;r.state=static_cast<uint8_t>(SeenState::acknowledged);
+            r.controller_slot=3;r.request_id=100+i;r.admin_epoch=state.epoch[3];r.transcript_slot=kRadminNoTranscript;
+        }
+        target.flight(4,0x811,identity.key_hash32,carrier.commands.back(),hal._now+1000);
+        if(code==9 || code>=11) {
+            receive_reply();
+            remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+            if(code==9) { CHECK(sink.result=="ingress_full");CHECK(carrier.commands.size()==2);continue; }
+            CHECK(carrier.commands.size()==3); // session_full led to exactly one SAFE_ROLLOVER
+            if(carrier.commands.size()!=3)continue;
+            CHECK((carrier.commands.back()[0]>>4)==static_cast<uint8_t>(RemoteCmdOpcode::safe_rollover));
+            if(code==12) { state.transcripts[0].state=static_cast<uint8_t>(TranscriptState::ready);state.transcripts[0].controller_slot=3; }
+            if(code==13) state.seen[0].record.state=static_cast<uint8_t>(SeenState::executing);
+            if(code==14) { target.hal.fixed_rng=true;target.hal.fixed_epoch=0; }
+            target.flight(4,0x813,identity.key_hash32,carrier.commands.back(),hal._now+1000);
+            RadminOpenExec exec;mrfw::radmin_service_once(target,exec);CHECK(exec.calls==0);receive_reply();
+            remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+            if(code>=12) {
+                CHECK(sink.result==(code==12?"session_busy":code==13?"executing":"preparation_failed"));
+                CHECK(carrier.commands.size()==3);CHECK(carrier.acks.empty());continue;
+            }
+            CHECK(carrier.commands.size()==4);if(carrier.commands.size()!=4)continue;
+            CHECK(controller.remote_client().pending[0].core.request_id!=begin.request_id);
+            target.flight(4,0x814,identity.key_hash32,carrier.commands.back(),hal._now+1000);
+            RadminIngressView fresh{};CHECK(target.node.radmin_next_admitted(fresh));
+            CHECK(fresh.request_id==controller.remote_client().pending[0].core.request_id);
+            CHECK(target.node.radmin_reserve_transcript(fresh.seen_index,kRadminChunkBytes));
+            target.node.radmin_transcript_complete(fresh.seen_index,RemoteTerminal::completed);
+            CHECK(target.node.radmin_send_frame()==RadminSend::queued);receive_reply();
+            remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+            CHECK(sink.result=="completed");CHECK(carrier.commands.size()==4);continue;
+        }
+        RadminIngressView admitted{};CHECK(target.node.radmin_next_admitted(admitted));
+        CHECK(admitted.slot==3);CHECK(admitted.request_id==begin.request_id);
+        if(code==10) {
+            state.seen[admitted.seen_index].record.state=static_cast<uint8_t>(SeenState::acknowledged);
+            state.ingress[kRadminIngressControl]={};
+            target.flight(4,0x815,identity.key_hash32,carrier.commands.back(),hal._now+1000);receive_reply();
+            remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+            CHECK(sink.result=="already_acknowledged");CHECK(carrier.acks.empty());continue;
+        }
+        size_t cap=0; CHECK(remote_body_cap(admitted.reply_carrier,cap)==RemoteStatus::ok);
+        CHECK(target.node.radmin_reserve_transcript(admitted.seen_index,static_cast<uint16_t>(cap-kRemoteOverheadAuthResponse)));
+        const uint8_t output[]={'o','w','n','e','d'};
+        target.node.radmin_transcript_append(admitted.seen_index,output,sizeof output);
+        if(code==1)CHECK(target.node.radmin_prepare_action(3,begin.request_id,2,0,7006)==RemoteTerminal::scheduled);
+        target.node.radmin_transcript_complete(admitted.seen_index,static_cast<RemoteTerminal>(code));
+        for(unsigned i=0;i<2;++i){CHECK(target.node.radmin_send_frame()==RadminSend::queued);receive_reply();}
+        CHECK(controller.remote_client().counters.auth_failure==0);
+        CHECK(controller.remote_client().counters.assembly_failure==0);
+        remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+        CHECK(sink.text=="owned");CHECK(sink.result==names[code]);if(code==1)CHECK(sink.detail==7006);CHECK(carrier.acks.empty());
+        CHECK(remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none);
+        remote_client_service(controller.remote_client(),static_cast<uint32_t>(hal._now),controller_loop_entropy,&entropy,carrier,sink);
+        CHECK(carrier.acks.size()==1);
+        if(!carrier.acks.empty())target.flight(4,0x812,identity.key_hash32,carrier.acks.back(),hal._now+1000);
+        CHECK(controller.remote_client().ack_debt[0].in_use==1); // submission is never receipt
+    }
 }

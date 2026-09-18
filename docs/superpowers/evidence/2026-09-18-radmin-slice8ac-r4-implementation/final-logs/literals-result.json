@@ -1,0 +1,11 @@
+{
+  "name": "literals",
+  "command": [
+    "python3",
+    "tools/check_data_type_literals.py"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 1.5785075426101685,
+  "sha256": "10e838339527aa451d4e4b3c40bce682f3d02fa17c3901104382c90a0006d8c0"
+}

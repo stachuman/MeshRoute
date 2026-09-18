@@ -1916,18 +1916,8 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
 //         legacy gate their bodies remain behaviour-identical" is SUPERSEDED for exactly this case. The bodies stay
 //         byte-identical WHERE AN OWNER EXISTS; ownership itself follows R-RA-8 strictly.
 //
-// ⓘ MARK DONE-VS-MISSING IN CODE (the pass-2 S3 obligations that this slice deliberately does NOT discharge):
-//     · MISSING/deferred by design — a mandatory `ui->has_source_hash`. The staging below does not require it and
-//       keys the reply on the 8-bit `pa.origin`. Correct for today's legacy `app_dm=false` senders (node_mac.cpp
-//       stamps them no SOURCE_HASH by construction); the v2 ACCEPT entry point owes the requirement (R-RA-13).
-//     · MISSING/deferred by design — 32-bit source identity. `_remote_inbound.from` is an 8-bit local id, which
-//       aliases across leaves; the v2 arm must key on `ui->source_hash` (Slices 5/7b).
-//     · MISSING/deferred by design — REFUSE, don't clamp. `if (n > inbox_max_body) n = inbox_max_body` is a silent
-//       clamp by shape (a no-op today: the legacy body can't exceed 241). A v2 body over the cap must be REFUSED
-//       (C2 fail-loud), not truncated. Not tightened here — that is a semantic change 1b is not authorized to make.
-//     · MISSING/deferred by design — ROLE-OWNED STORAGE. `_remote_inbound` is still ONE unconditional slot on every
-//       profile (node.h), so a client-only mobile still pays its ~246 B. R-RA-22's partitioned admission replaces
-//       it in Slice 5; R-RA-27 explicitly keeps the slot unconditional here (RAM delta must be zero in 1b).
+// Both endpoints now require SOURCE_HASH and use bounded role-owned state. The CLIENT replacement
+// counts and drops legacy responses; no old-format fallback or silent body clamp remains.
 // ⛔ AND THE ORDER IS LOAD-BEARING: this seam stays where the legacy arm stood — BEFORE the SEALED_RELAY and
 //   CRYPTED open steps — because a v2 request is RPC-encrypted INSIDE a plaintext-framed DM (design §8). Moving it
 //   past the open steps, or moving the fail-closed guard ahead of a forwarding role, is out of scope by ruling.
@@ -1943,36 +1933,7 @@ Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool acc
     return RadminRxOwner::none;   // every other type belongs to another handler — this decision never steals one
 }
 
-#if MR_FEAT_RADMIN_CLIENT
-// THE STAGING BODY — the legacy arm's statements, moved VERBATIM in Slice 1b (U1/U2: one conversion path for the
-// carrier, never a field-by-field rebuild). `is_response` is supplied by the OWNER instead of re-derived from
-// `pa.type`; the owner is selected by that same type, so the stored value is identical.
-// ⛔⛔ CORRECTED 2026-09-07 BY **SLICE 5**, the old guard kept visible: this was
-//    `#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT` and the comment above called it "THE SHARED STAGING
-//    BODY", because BOTH owners fed the one legacy slot. R-RA-27 handed the replacement to Slice 5 in as many
-//    words, and it has landed: the ACCEPT owner now runs the v2 admission below and stages NOTHING here. ⇒ the
-//    helper, the slot and `fw_main`'s drain are CLIENT-ONLY, and an ACCEPT product pays none of their RAM.
-// ⛔ THE THREE OTHER DEFERRED OBLIGATIONS in the header block above are discharged in `rx_remote_cmd_accept`,
-//    not here: this body still keys on the 8-bit `pa.origin`, still requires no `SOURCE_HASH` and still CLAMPS.
-//    That is correct for what remains of it — a CLIENT draining a legacy `rcmd` RESPONSE it itself issued — and
-//    Slice 8a replaces the whole of it with the controller's pending table. It is ⛔ NOT a fallback for the v2
-//    arm and nothing in the accept path may ever reach it.
-void Node::remote_inbound_stage(const PostAck& pa, const data_unicast_inner* ui, bool is_response)
-{
-    if (_remote_inbound.active) {
-        MR_EMIT("remote_inbound_drop_full", EF_I("from", pa.origin));
-        return;
-    }
-    const uint8_t* src = ui ? ui->body.data() : ((pa.inner_len > 1) ? pa.inner + 1 : nullptr);   // inner = [origin][body…]; body is ui->body (cleartext)
-    uint8_t n = ui ? static_cast<uint8_t>(ui->body.size()) : ((pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0);
-    if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;
-    _remote_inbound.active      = true;
-    _remote_inbound.is_response = is_response;
-    _remote_inbound.from        = pa.origin;
-    _remote_inbound.len         = n;
-    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;
-}
-#endif
+
 
 #if MR_FEAT_RADMIN_ACCEPT
 // ACCEPT-OWNED. (⛔ This marker line is LOAD-BEARING, not decoration: `tools/probe_features/ownership.py`'s
@@ -2220,32 +2181,6 @@ RadminSend Node::radmin_send_frame()
     return RadminSend::refused;
 }
 
-// §4.5 — the ONE shared earliest-deadline scan. `park_reflood_arm` / `e2e_ack_deadline_arm_timer` idiom (U1):
-// cancel when nothing pends, otherwise re-arm to the TRUE earliest remaining deadline. ⛔ Never a stale cached
-// minimum, and ⛔ never a per-class id.
-void Node::radmin_expiry_arm()
-{
-    const uint64_t earliest = remote_session_earliest_deadline(_radmin_session);
-    // A saturated action deadline is still an active promise at UINT64_MAX, not the empty-scan sentinel.
-    if (earliest == ~uint64_t{0} && _radmin_session.action.phase != RemoteActionPhase::armed) {
-        _hal.cancel(kRadminExpiryTimerId); return;
-    }
-    const uint64_t now = _hal.now();
-    (void)_hal.after(earliest > now ? static_cast<uint32_t>(earliest - now) : 0, kRadminExpiryTimerId);
-}
-
-void Node::radmin_expiry_fire()
-{
-    // ★ ONE HAL snapshot per scan — every row is judged against the SAME `now`, so two rows with the identical
-    //   deadline can never fall on opposite sides of it.
-    const uint64_t now = _hal.now();
-    const uint8_t released = remote_session_expire(_radmin_session, now);
-    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));
-    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is
-    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.
-    radmin_expiry_arm();
-}
-
 // THE ACCEPT ENTRY POINT. A v2 remote command addressed to us.
 void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
 {
@@ -2281,14 +2216,63 @@ void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
 }
 #endif
 
+#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT
+// One timer and one snapshot serve the bounded records of the compiled product profile.
+void Node::radmin_expiry_arm() {
+    const uint64_t now = _hal.now();
+    uint64_t earliest = ~uint64_t{0};
+    bool armed = false;
+#if MR_FEAT_RADMIN_ACCEPT
+    earliest = remote_session_earliest_deadline(_radmin_session);
+    armed = _radmin_session.action.phase == RemoteActionPhase::armed;
+#endif
 #if MR_FEAT_RADMIN_CLIENT
-// CLIENT-OWNED. A response to a command WE issued: staged for the main loop, which prints it. One in flight; a
-// second while one is pending drops with `remote_inbound_drop_full` (rcmd is human-paced).
-// ⓘ UNCHANGED BY SLICE 5, DELIBERATELY: this is now the SOLE user of the staging slot, and its copy/clamp/print
-//   behaviour is preserved BYTE FOR BYTE until Slice 8a's controller pending table replaces it.
-void Node::rx_remote_resp_client(const PostAck& pa, const data_unicast_inner* ui)
-{
-    remote_inbound_stage(pa, ui, /*is_response=*/true);
+    const auto left = remote_client_next_expiry(_remote_client, static_cast<uint32_t>(now));
+    if (left != UINT32_MAX) {
+        const uint64_t client_due = now + left;
+        if (client_due < earliest) earliest = client_due;
+    }
+#endif
+    if (earliest == ~uint64_t{0} && !armed) { _hal.cancel(kRadminExpiryTimerId); return; }
+    (void)_hal.after(earliest > now ? static_cast<uint32_t>(earliest - now) : 0, kRadminExpiryTimerId);
+}
+void Node::radmin_expiry_fire() {
+    const uint64_t now = _hal.now();
+#if MR_FEAT_RADMIN_ACCEPT
+    const uint8_t released = remote_session_expire(_radmin_session, now);
+    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));
+#endif
+#if MR_FEAT_RADMIN_CLIENT
+    remote_client_expire(_remote_client, static_cast<uint32_t>(now));
+#endif
+    radmin_expiry_arm();
+}
+#endif
+
+#if MR_FEAT_RADMIN_CLIENT
+// CLIENT-OWNED. Addressed responses enter only the captured controller request, never the app inbox.
+void Node::rx_remote_resp_client(const PostAck& pa, const data_unicast_inner* ui) {
+    const auto before = _remote_client.counters;
+    RemoteCarrier carrier{};
+    carrier.outer_data_type = pa.type;
+    if (ui) {
+        carrier.cross_layer = ui->has_cross_layer;
+        carrier.path_depth = ui->has_cross_layer ? ui->n_layers : 0;
+        carrier.path_cursor = ui->has_cross_layer ? ui->cur : 0;
+        carrier.dst_hash_on_wire = ui->has_dst_hash;
+        carrier.source_hash_on_wire = ui->has_source_hash;
+        carrier.outer_crypted = (pa.flags & DATA_FLAG_CRYPTED) != 0;
+    }
+    remote_client_receive(_remote_client, pa.type, ui ? ui->body : std::span<const uint8_t>{},
+                          {ui && ui->has_source_hash, ui ? ui->source_hash : 0}, carrier,
+                          static_cast<uint32_t>(_hal.now()));
+    if (_remote_client.counters.unmatched_response != before.unmatched_response)
+        MR_EMIT("radmin_client_drop", EF_S("reason", "unmatched_response"));
+    if (_remote_client.counters.auth_failure != before.auth_failure)
+        MR_EMIT("radmin_client_drop", EF_S("reason", "auth_failure"));
+    if (_remote_client.counters.assembly_failure != before.assembly_failure)
+        MR_EMIT("radmin_client_drop", EF_S("reason", "assembly_failure"));
+    radmin_expiry_arm();
 }
 #endif
 

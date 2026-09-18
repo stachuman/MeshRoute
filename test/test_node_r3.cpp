@@ -6408,7 +6408,7 @@ TEST_CASE("E2E ACK — origin records a durable receipt + a send_e2e_acked push 
 //    landed it, so a `REMOTE_CMD` reaching a target runs the v2 admission and ⛔ NEVER touches the legacy slot —
 //    which is itself `#if MR_FEAT_RADMIN_CLIENT` now. ⛔ The case is REWRITTEN, ⛔ not deleted: deleting it would
 //    quietly reduce the native count and erase the evidence that the old behaviour really is gone.
-TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); a REMOTE_RESP still does, and the drain clears it") {
+TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); legacy responses are counted and dropped by 8a") {
     TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCDu);   // we are the target of the command
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
@@ -6432,10 +6432,8 @@ TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); a REMOTE_RE
                                   /*flags=*/0, body2, 4, db2, /*type=*/DATA_TYPE_REMOTE_CMD), meta);
     node.on_timer(kPostAckTimerId);
 
-    Node::RemoteInbound ri;
     // ★★ THE SUPERSESSION, ASSERTED: NEITHER command staged. The legacy slot is untouched by the accept path, so
     //    there is nothing to drain — and ⛔ no `remote_inbound_drop_full` either, because nothing competed for it.
-    CHECK_FALSE(node.take_remote_inbound(ri));
     CHECK(hal.count("remote_inbound_drop_full") == 0);
     // ⛔ AND NOTHING LEAKED SIDEWAYS: the refused commands were not delivered, inbox'd or pushed instead.
     CHECK(hal.count("delivered") == 0);
@@ -6444,8 +6442,7 @@ TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); a REMOTE_RE
     CHECK(hal.count("radmin_rx_refused") == 2);
     CHECK(hal.count("radmin_rx") == 0);                      // it never reached the classifier
 
-    // ⓘ THE CLIENT HALF IS UNCHANGED, and it is asserted here so the supersession above cannot be read as
-    //   "the slot stopped working": a REMOTE_RESP still stages, still carries `is_response`, and still drains.
+    // 8a supersedes the client half: this legacy body has no pending request/SOURCE_HASH and is dropped.
     std::array<uint8_t,16> rb3{};
     hal._now = 5000; node.on_recv(rb3.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/11, /*plen=*/15, rb3, 0, /*origin=*/4, /*ctr=*/0x000B), meta);
     std::array<uint8_t,64> db3{};
@@ -6453,14 +6450,11 @@ TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); a REMOTE_RE
     hal._now = 6000; node.on_recv(db3.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x000B, /*origin=*/4,
                                   /*flags=*/0, rbody, 2, db3, /*type=*/DATA_TYPE_REMOTE_RESP), meta);
     node.on_timer(kPostAckTimerId);
-    CHECK(node.take_remote_inbound(ri));
-    CHECK(ri.is_response == true);
-    CHECK(ri.from == 4);
-    CHECK(ri.len == 2);
-    CHECK_FALSE(node.take_remote_inbound(ri));              // slot cleared after the drain
+    CHECK(node.remote_client().counters.unmatched_response == 1);
+    CHECK(remote_client_pending_count(node.remote_client()) == 0);
 }
 
-TEST_CASE("rcmd: a REMOTE_RESP DM stages as is_response=true; send_remote_cmd/response return the sent ctr") {
+TEST_CASE("8a: a legacy REMOTE_RESP is not staged; send_remote_cmd/response return the sent ctr") {
     TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCDu);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
@@ -6472,10 +6466,9 @@ TEST_CASE("rcmd: a REMOTE_RESP DM stages as is_response=true; send_remote_cmd/re
     hal._now = 2000; node.on_recv(db.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/7,
                                   /*flags=*/0, body, 8, db, /*type=*/DATA_TYPE_REMOTE_RESP), meta);
     node.on_timer(kPostAckTimerId);
-    Node::RemoteInbound ri;
-    CHECK(node.take_remote_inbound(ri));
-    CHECK(ri.is_response == true);                          // a RESPONSE, not a command
-    CHECK(ri.from == 7);
+    CHECK(node.remote_client().counters.unmatched_response == 1);
+    CHECK(remote_client_pending_count(node.remote_client()) == 0);
+    CHECK(hal.count("delivered") == 0);
     // send_* return the assigned ctr (origination ride; we just check they don't refuse the call)
     const uint8_t qb[4] = { 't','e','s','t' };
     (void)node.send_remote_cmd(5, qb, 4);
@@ -6606,8 +6599,7 @@ TEST_CASE("§radmin-1b/2 PRODUCTION ROUTING: a real REMOTE_CMD flight reaches th
     //    makes MANDATORY — so the frame is refused BEFORE the carrier is even described, and ⛔ nothing is staged.
     CHECK(r.hal.count("radmin_rx_refused") == 1);
     CHECK(r.hal.count("radmin_rx") == 0);
-    Node::RemoteInbound ri;
-    CHECK_FALSE(r.node.take_remote_inbound(ri));             // ⛔ the legacy slot is not the accept path's any more
+    CHECK(remote_client_pending_count(r.node.remote_client()) == 0);
 }
 
 TEST_CASE("§radmin-1b/3 PRODUCTION ROUTING: a real REMOTE_RESP flight reaches the CLIENT-owned entry point") {
@@ -6617,56 +6609,35 @@ TEST_CASE("§radmin-1b/3 PRODUCTION ROUTING: a real REMOTE_RESP flight reaches t
     CHECK(r.hal.count("delivered") == 0);
     CHECK_FALSE(r.any_inbox_record());
     CHECK_FALSE(r.any_msg_recv_push());
-    CHECK(r.hal.count("unsupported_internal") == 0);         // ★ OWNED here too (this host is {1,1})
-    Node::RemoteInbound ri;
-    CHECK(r.node.take_remote_inbound(ri));
-    CHECK(ri.is_response == true);                           // the CLIENT owner's marker — the ONE field that differs
-    CHECK(ri.from == 7);
-    CHECK(ri.len == 8);
-    CHECK(std::memcmp(ri.body, body, 8) == 0);
-    CHECK_FALSE(r.node.take_remote_inbound(ri));
+    CHECK(r.hal.count("unsupported_internal") == 0);         // Owned before the fail-closed guard
+    CHECK(r.node.remote_client().counters.unmatched_response == 1);
+    CHECK(r.hal.count("radmin_client_drop") == 1);
+    CHECK(remote_client_pending_count(r.node.remote_client()) == 0);
 }
 
-// ⛔⛔ RE-ANCHORED IN PLACE 2026-09-07 BY §remote-admin v2 SLICE 5, old shape kept visible: the empty-body arm
-//    below used `DATA_TYPE_REMOTE_CMD` and asserted `is_response == false`. The legacy slot is CLIENT-only now, so
-//    the boundary it measures is the CLIENT owner's — the arm is re-pointed at `REMOTE_RESP`, ⛔ not deleted, and
-//    the property it pins (an EMPTY body still occupies the slot; a 200-byte body is stored byte-for-byte) is
-//    unchanged. The refuse-not-clamp property the old note deferred to "Slice 5/7b" now lives on the v2 arm and
-//    is proven in `test/test_node_remote_session.cpp`, against the real `remote_body_cap`.
-TEST_CASE("§radmin-1b/4 staging BOUNDARIES: an empty body and a 200-byte body both stage byte-for-byte") {
-    {   // empty: `len = 0`, the slot is still ACTIVE (an empty response is a response), and the drain clears it.
+// 8a: framing ownership remains; legacy bytes no longer have a storage slot.
+TEST_CASE("§radmin-1b/4 superseded by 8a: empty and 200-byte unsolicited bodies drop without app leakage") {
+    {   // Empty response is rejected, with no hidden active slot.
         RemoteRx r;
         r.flight(/*origin=*/4, /*ctr=*/0x0003, DATA_TYPE_REMOTE_RESP, nullptr, 0, /*t=*/1000);
-        Node::RemoteInbound ri;
-        CHECK(r.node.take_remote_inbound(ri));
-        CHECK(ri.len == 0);
-        CHECK(ri.from == 4);
-        CHECK(ri.is_response == true);
-        CHECK_FALSE(r.node.take_remote_inbound(ri));
+        CHECK(r.node.remote_client().counters.unmatched_response == 1);
+        CHECK_FALSE(r.any_inbox_record());
+        CHECK_FALSE(r.any_msg_recv_push());
     }
-    {   // 200 bytes of a distinctive pattern — far above `mk_data_e2e`'s reach and well under the 241 clamp, which
-        // is why the clamp stays a documented no-op on THIS (client) path. ⓘ Refuse-not-clamp landed in Slice 5 on
-        // the ACCEPT arm; this legacy body keeps its clamp until Slice 8a replaces the whole path.
+    {   // The old 200-byte copy fixture now proves unsolicited payloads are never delivered.
         RemoteRx r;
         uint8_t big[200];
         for (int i = 0; i < 200; ++i) big[i] = static_cast<uint8_t>((i * 7 + 13) & 0xFF);
         r.flight(/*origin=*/9, /*ctr=*/0x0005, DATA_TYPE_REMOTE_RESP, big, 200, /*t=*/1000);
-        Node::RemoteInbound ri;
-        CHECK(r.node.take_remote_inbound(ri));
-        CHECK(ri.is_response == true);
-        CHECK(ri.from == 9);
-        CHECK(ri.len == 200);                                // ⛔ NOT truncated
-        CHECK(std::memcmp(ri.body, big, 200) == 0);          // ⛔ and byte-for-byte, not merely the right length
+        CHECK(r.node.remote_client().counters.unmatched_response == 1);
+        CHECK(remote_client_pending_count(r.node.remote_client()) == 0);
+        CHECK_FALSE(r.any_inbox_record());
+        CHECK_FALSE(r.any_msg_recv_push());
     }
 }
 
-// ⛔⛔ SUPERSEDED IN PLACE 2026-09-07 BY §remote-admin v2 SLICE 5, and the OLD TITLE names exactly what stopped
-//    being true: *"ONE slot, BOTH owners: a RESP arriving while a CMD is pending drops and the CMD survives"*.
-//    There is no cross-owner collision any more — the slot has ONE owner (CLIENT) and the accept path never
-//    touches it, which is the resource separation R-RA-22 asked for and the old case's own note anticipated
-//    ("Slice 5 partitions it"). ★ THE FULL-SLOT REFUSAL ITSELF IS STILL PROVEN, on the owner that still has one:
-//    two responses now collide, and the FIRST survives.
-TEST_CASE("§radmin-1b/5 the slot has ONE owner now: two RESPs collide (first survives) and an interleaved CMD never touches it") {
+// 8a: malformed/legacy responses cannot collide with a pending v2 request or a target command.
+TEST_CASE("§radmin-1b/5 superseded by 8a: two unsolicited RESPs drop independently; interleaved CMD stays ACCEPT-owned") {
     RemoteRx r;
     const uint8_t first[4] = { 'o','k','=','1' };
     r.flight(/*origin=*/2, /*ctr=*/0x0001, DATA_TYPE_REMOTE_RESP, first, 4, /*t=*/1000);
@@ -6679,16 +6650,11 @@ TEST_CASE("§radmin-1b/5 the slot has ONE owner now: two RESPs collide (first su
     CHECK(r.hal.count("radmin_rx_refused") == 1);             // it went to the v2 arm and was refused there
     const uint8_t second[3] = { 'o','k','!' };
     r.flight(/*origin=*/3, /*ctr=*/0x0002, DATA_TYPE_REMOTE_RESP, second, 3, /*t=*/5000);
-    CHECK(r.hal.count("remote_inbound_drop_full") == 1);      // ★ the SAME-OWNER collision still refuses, loudly
+    CHECK(r.node.remote_client().counters.unmatched_response == 2);
     CHECK(r.hal.count("delivered") == 0);                     // ⛔ and the dropped one was not delivered instead
     CHECK_FALSE(r.any_inbox_record());
-    Node::RemoteInbound ri;
-    CHECK(r.node.take_remote_inbound(ri));
-    CHECK(ri.is_response == true);                            // the FIRST response survived intact
-    CHECK(ri.from == 2);
-    CHECK(ri.len == 4);
-    CHECK(std::string(reinterpret_cast<const char*>(ri.body), ri.len) == "ok=1");
-    CHECK_FALSE(r.node.take_remote_inbound(ri));
+    CHECK_FALSE(r.any_msg_recv_push());
+    CHECK(remote_client_pending_count(r.node.remote_client()) == 0);
 }
 
 // ===================== L2c — DST_HASH verify-on-delivery + identity-preserving redirect =====================

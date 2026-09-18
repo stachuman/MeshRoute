@@ -1,0 +1,11 @@
+{
+  "name": "authority",
+  "command": [
+    "python3",
+    "tools/check_command_authority.py"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 0.06402173638343811,
+  "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+}

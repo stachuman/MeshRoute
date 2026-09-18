@@ -1,0 +1,482 @@
+.........§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  ok    P1 age is the derived difference
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  ok    P1 age exceeds the 300 s threshold
+  ok    N1 wrong node -> unbound
+  ok    N2 wrong dst -> unbound
+  ok    N3 wrong ctr -> unbound
+  ok    N4 origin after the receipt -> unbound
+  ok    N5 two origins -> ambiguous, never the nearest
+  ok    N6 no deleg_ack_put -> bound but NOT delegated
+  ok    N6b deleg_ack_put with a different return key -> NOT delegated
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+PASS: §B278 census selftest, 0 failure(s)
+§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  FAIL  P1 age is the derived difference: got 1, want 400000
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  FAIL  P1 age exceeds the 300 s threshold: got False, want True
+  FAIL  N1 wrong node -> unbound: got 'bound', want 'unbound'
+  FAIL  N2 wrong dst -> unbound: got 'bound', want 'unbound'
+  FAIL  N3 wrong ctr -> unbound: got 'bound', want 'unbound'
+  FAIL  N4 origin after the receipt -> unbound: got 'bound', want 'unbound'
+  FAIL  N5 two origins -> ambiguous, never the nearest: got 'bound', want 'ambiguous'
+  FAIL  N6 no deleg_ack_put -> bound but NOT delegated: got ('bound', True), want ('bound', False)
+  FAIL  N6b deleg_ack_put with a different return key -> NOT delegated: got True, want False
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+FAIL: §B278 census selftest, 9 failure(s)
+§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  ok    P1 age is the derived difference
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  ok    P1 age exceeds the 300 s threshold
+  ok    N1 wrong node -> unbound
+  ok    N2 wrong dst -> unbound
+  ok    N3 wrong ctr -> unbound
+  ok    N4 origin after the receipt -> unbound
+  ok    N5 two origins -> ambiguous, never the nearest
+  ok    N6 no deleg_ack_put -> bound but NOT delegated
+  ok    N6b deleg_ack_put with a different return key -> NOT delegated
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+....................F............................../usr/lib/python3.11/unittest/case.py:579: ResourceWarning: unclosed file <_io.TextIOWrapper name='/dev/null' mode='w' encoding='UTF-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.E.....EE...................E.......EE.....EE.E.....................E...............................................................................................................................................EF.FF.FF.......................................................
+======================================================================
+ERROR: test_comment_and_string_shadows_do_not_create_predicates (test_gen_command_inventory.TestActionAdmissionSurfaces.test_comment_and_string_shadows_do_not_create_predicates)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 578, in test_comment_and_string_shadows_do_not_create_predicates
+    rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 525, in modified_rows
+    return G.build_rows(root)[0]
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_predicate_enclosing_feature_gate_is_preserved (test_gen_command_inventory.TestActionAdmissionSurfaces.test_predicate_enclosing_feature_gate_is_preserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 554, in test_predicate_enclosing_feature_gate_is_preserved
+    rows = self.modified_rows(path, body, "#if MR_FEAT_TEST\n" + body + "\n#endif")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 525, in modified_rows
+    return G.build_rows(root)[0]
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_real_predicate_rows_have_original_policy_and_actual_owner (test_gen_command_inventory.TestActionAdmissionSurfaces.test_real_predicate_rows_have_original_policy_and_actual_owner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 528, in test_real_predicate_rows_have_original_policy_and_actual_owner
+    rows = G.build_rows(REPO_ROOT)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_tree_projects_the_manual_s_primary_names (test_gen_command_inventory.TestPrimaryProjection.test_the_real_tree_projects_the_manual_s_primary_names)
+The manual's primary-name count is REPRODUCED from source, never copied into it.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 830, in test_the_real_tree_projects_the_manual_s_primary_names
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles (test_gen_command_inventory.TestRadminAcceptAxis.test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles)
+The rows are the REAL recorded ones, and the two families appear iff the profile is an ACCEPT build.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 915, in test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show (test_gen_command_inventory.TestRadminClientAxis.test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show)
+The ruling's split is in the AUTHORITY TABLE, per row — not inferred from a name shape.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1006, in test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_override_never_widens_a_surface_it_was_not_spelled_on (test_gen_command_inventory.TestRadminClientAxis.test_the_override_never_widens_a_surface_it_was_not_spelled_on)
+A LITERAL table, ⛔ not a rule about the word `list`: the target family's `acl list` stays serial.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1025, in test_the_override_never_widens_a_surface_it_was_not_spelled_on
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles (test_gen_command_inventory.TestRadminClientAxis.test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 990, in test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: setUpClass (test_gen_command_inventory.TestRealTree)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 589, in setUpClass
+    cls.rows = G.build_rows(REPO_ROOT)[0]
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_real_normalization_and_discriminator_bindings (test_gen_command_inventory.TestSlice6Normalization.test_real_normalization_and_discriminator_bindings)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1074, in test_real_normalization_and_discriminator_bindings
+    rows = G.build_rows(REPO_ROOT)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: setUpClass (test_probe_console_sink.TestPrimaryProjectionOracle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 330, in setUpClass
+    cls.rows, _n, _v, _r = GEN.build_rows(ROOT)
+                           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+FAIL: test_three_real_artifacts_agree (test_check_command_authority.TestCommandAuthority.test_three_real_artifacts_agree)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_check_command_authority.py", line 16, in test_three_real_artifacts_agree
+    self.assertEqual([], C.check(*self.texts))
+AssertionError: Lists differ: [] != ["orphan production row: ('remote', '—')",[138 chars]—')"]
+
+Second list contains 4 additional elements.
+First extra element 0:
+"orphan production row: ('remote', '—')"
+
+- []
++ ["orphan production row: ('remote', '—')",
++  "orphan production row: ('remote-ack', '—')",
++  "orphan production row: ('remote-retry', '—')",
++  "orphan production row: ('remote-result', '—')"]
+
+======================================================================
+FAIL: test_every_profile_was_compared_against_the_source_projection (test_probe_console_sink.TestProbeRunner.test_every_profile_was_compared_against_the_source_projection)
+§0g: the oracle is the GENERATED INVENTORY, and every profile must actually have been compared to it.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 190, in test_every_profile_was_compared_against_the_source_projection
+    self.assertEqual(PIN_PROFILES, len(rows), "every profile must be compared against the inventory projection")
+AssertionError: 6 != 0 : every profile must be compared against the inventory projection
+
+======================================================================
+FAIL: test_no_control_was_unusable (test_probe_console_sink.TestProbeRunner.test_no_control_was_unusable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 204, in test_no_control_was_unusable
+    self.assertNotIn(bad, line, f"unusable control: {line.strip()}")
+AssertionError: 'CONTROL NOT APPLIED' unexpectedly found in '   !! CONTROL NOT APPLIED: anchor matched 0 times, expected 1' : unusable control: !! CONTROL NOT APPLIED: anchor matched 0 times, expected 1
+
+======================================================================
+FAIL: test_no_neg_is_visibly_probe_only_and_never_claims_pass (test_probe_console_sink.TestProbeRunner.test_no_neg_is_visibly_probe_only_and_never_claims_pass)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 273, in test_no_neg_is_visibly_probe_only_and_never_claims_pass
+    self.assertEqual(0, self.noneg.returncode)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_the_default_gate_passes (test_probe_console_sink.TestProbeRunner.test_the_default_gate_passes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 156, in test_the_default_gate_passes
+    self.assertEqual(0, self.full.returncode, self.full.stdout[-4000:] + self.full.stderr[-2000:])
+AssertionError: 0 != 1 : usal for the help family
+   -> structural S10+S11 now FAIL
+X4 remove the per-pass mrcon.service() from service_console
+   -> structural S9 now FAIL
+X12 route the boot identity formatter to a different sink
+   -> structural S21 now FAIL
+X5 leave the index unterminated (print instead of println on its last line)
+   -> structural S4 now FAIL
+X13 the serial adapter re-opens its own router/parser fork beside the seam call
+   -> structural S22 now FAIL
+X14 the BLE adapter keeps a residual direct dispatch() beside the seam call
+   -> structural S23 now FAIL
+X15 the BLE adapter drops the seam response flush
+   -> structural S23 now FAIL
+X16 the BLE adapter hands the seam its direct buffer where the stream belongs
+   -> structural S23 now FAIL
+X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)
+   !! CONTROL NOT APPLIED: anchor matched 0 times, expected 1
+X18 the seam writes to the global console instead of the sink it was handed
+   -> structural S25 now FAIL
+X19 LineExec carries the borrowed Command::body out of the call
+   -> structural S26 now FAIL
+X20 the text arm prints the send handle in decimal (the fake cannot tell)
+   -> structural S27 now FAIL
+X21 a retired topic-help claim becomes an ACTIVE present-tense comment again (cpp)
+   -> structural S28 now FAIL
+X22 the header claims again that the two callers are deliberately not retrofitted
+   -> structural S29 now FAIL
+S6-C1 seam validator call deleted
+   -> structural S53 now FAIL
+S6-C2 panel validator call deleted
+   -> structural S54 now FAIL
+S6-C3 admission inverted
+   -> structural S55 now FAIL
+S6-C4 local commands consult the table
+   -> structural S55 now FAIL
+S6-C5 remote refusal writes a local envelope
+   -> structural S56 now FAIL
+S6-C6 USB bad_line token drifts
+   -> structural S57 now FAIL
+S6-C7 context becomes optional
+   -> structural S58 now FAIL
+S6-C8 USB bound becomes a literal
+   -> structural S59 now FAIL
+S6-C9 BLE bound becomes a literal
+   -> structural S60 now FAIL
+S6-C10 BLE head validator deleted
+   -> structural S61 now FAIL
+S6-C11 BLE validator moved below the first command-owning arm
+   -> structural S61 now FAIL
+S6-C12 BLE refusal replaced with fall-through
+   -> structural S61 now FAIL
+S6-C13 a local completion incorrectly becomes scheduled
+   -> structural S62 now FAIL
+X6 B214 restore the old home-id-only authority and scanning label
+   -> structural S17+S24+S12+S15+S45 now FAIL (required S12)
+X6b B214 retain a dead state read but derive the switch authority from home id
+   -> structural S17+S24+S12+S45 now FAIL (required S12)
+X7 B214 make claiming report REGISTERED before confirmation
+   -> structural S17+S24+S14+S45 now FAIL (required S14)
+X8 B214 hide recovering behind a default arm
+   -> structural S17+S24+S13+S15+S45 now FAIL (required S13)
+X9 B214 silence attached-without-home instead of reporting inconsistency
+   -> structural S17+S24+S16+S45 now FAIL (required S16)
+X10 B214 hand-spell attachment labels instead of using attach_state_name
+   -> structural S17+S24+S15+S45 now FAIL (required S15)
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/probe_console_sink/negctl.py", line 476, in <module>
+    ROWS, _notes, _values, _retests = GEN.build_rows(GEN.REPO_ROOT)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership= ownership_controls=0 controls= unusable_controls=2
+   !! PIN ownership: MISSING — this run printed no value for it
+   !! PIN ownership_controls: ZERO — nothing was measured (expected 3)
+   !! PIN controls: MISSING — this run printed no value for it
+   !! PIN unusable_controls: observed 2, expected 0
+FAILED — see above
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+gen_command_inventory: REFUSED: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+
+======================================================================
+FAIL: test_the_derived_pins (test_probe_console_sink.TestProbeRunner.test_the_derived_pins)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_probe_console_sink.py", line 162, in test_the_derived_pins
+    self.assertIsNotNone(m, "the runner must print its derived pins")
+AssertionError: unexpectedly None : the runner must print its derived pins
+
+----------------------------------------------------------------------
+Ran 333 tests in 691.462s
+
+FAILED (failures=6, errors=11)
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+PASS: §B278 census selftest, 0 failure(s)
+RED: missing row -> missing ruled row: ('acl', '—')
+RED: duplicate row -> duplicate semantic authority row: ('acl', '—')
+RED: unclassified row -> unclassified or malformed authority table row: | `acl` | — | unclassified | no | [§G](../plans/2026-09-06-radmin-authority-classification-proposal.md#g-target-side-remote-admin-stores-slice-3--the-physical-class) |
+RED: table/header disagreement -> table/header disagreement: ('acl', '—')
+RED: orphan row -> orphan ruled row: ('orphan-probe', '—')
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_remote.cpp:47
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = ce5c599 (source=git)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = 6be9980 (source=git)
+git_rev.py: GIT_REV = e3a5fa0-dirty (source=git)
+git_rev.py: GIT_REV = e3a5fa0-dirty (source=git)
+git_rev.py: GIT_REV = b206b206b206 (source=override)

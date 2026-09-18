@@ -42,6 +42,52 @@ namespace mrrng {
 inline bool& sd_enabled() { static bool e = false; return e; }
 #endif
 
+// Request-ID entropy has a checked contract. Bounded polling reports a failed provider or a stalled
+// pool instead of fabricating bytes. Keep the legacy identity-seed fill below unchanged.
+inline bool fill_checked(uint8_t* out, size_t n) {
+    if (!out && n) return false;
+    constexpr uint32_t poll_limit = 1000000;
+#if defined(MRRNG_NRF52)
+    if (sd_enabled()) {
+        size_t got = 0;
+        for (uint32_t poll = 0; got < n && poll < poll_limit; ++poll) {
+            uint8_t avail = 0;
+            if (sd_rand_application_bytes_available_get(&avail) != NRF_SUCCESS) return false;
+            if (!avail) continue;
+            const auto left = n - got;
+            const uint8_t take = left < avail ? static_cast<uint8_t>(left) : avail;
+            if (sd_rand_application_vector_get(out + got, take) != NRF_SUCCESS) return false;
+            got += take;
+        }
+        return got == n;
+    }
+    NRF_RNG->CONFIG = RNG_CONFIG_DERCEN_Msk;
+    NRF_RNG->TASKS_START = 1;
+    bool ok = true;
+    for (size_t i = 0; i < n; ++i) {
+        NRF_RNG->EVENTS_VALRDY = 0;
+        uint32_t poll = 0;
+        while (!NRF_RNG->EVENTS_VALRDY && poll < poll_limit) ++poll;
+        if (!NRF_RNG->EVENTS_VALRDY) { ok = false; break; }
+        out[i] = static_cast<uint8_t>(NRF_RNG->VALUE);
+    }
+    NRF_RNG->TASKS_STOP = 1;
+    return ok;
+#elif defined(MRRNG_ESP32)
+    (void)poll_limit;
+    bootloader_random_enable();
+    for (size_t i = 0; i < n; i += 4) {
+        const uint32_t r = esp_random();
+        for (size_t j = 0; j < 4 && i + j < n; ++j) out[i+j] = static_cast<uint8_t>(r >> (8*j));
+    }
+    bootloader_random_disable();
+    return true; // ESP provider has no fallible status; every byte came directly from the enabled TRNG.
+#else
+    (void)poll_limit;
+    return n == 0; // no entropy provider on host/unknown targets
+#endif
+}
+
 // Fill `out[0..n)` with hardware-random bytes.
 inline void fill(uint8_t* out, size_t n) {
 #if defined(MRRNG_NRF52)

@@ -1,0 +1,5 @@
+off_curve_y=2 remote_ecdh_shared=0 target_derive_base=0 publishes_key=1
+off_curve_y=7 remote_ecdh_shared=0 target_derive_base=0 publishes_key=1
+off_curve_y=8 remote_ecdh_shared=0 target_derive_base=0 publishes_key=1
+off_curve_y=11 remote_ecdh_shared=0 target_derive_base=0 publishes_key=1
+preflight characterization: 46 checks, 0 failed

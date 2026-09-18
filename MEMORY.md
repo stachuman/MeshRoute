@@ -2,9 +2,16 @@
 
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
-  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..40 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
-  queue pointer in `tracker.md`. As of 2026-09-16: everything through **7b-3** is landed, gated and committed
-  (`6086152`); the disruptive arc is complete (R-RA-41). Next: 8a+8c (paired), 8b, 9, 10.
+  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..45 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+  queue pointer in `tracker.md`. As of 2026-09-18: everything through **7b-3** is committed (`6086152`); the disruptive
+  arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`** plus one
+  line in the simulator's CMake source list (B406) — owner commits both; remaining: 8b (needs B112), 9, 10.
+- **Remote-admin 8a+8c durable rulings:** R-RA-42 `remote`/`remote-retry`/`remote-result`/`remote-ack` are
+  `controller_local`, USB + secured BLE, table rows landed at the freeze; R-RA-43 B292 closed by the ONE bounded BLE
+  write (`tx_line` chunks, never truncates); R-RA-44 automatic retry timing belongs to 8b (8a = manual retry + one auto
+  safe rollover on `session_full`); R-RA-45 pointer-free controller block 4512 B, Node 235248 native / 122176 mobile /
+  157344 gateway unchanged (the control). Board carrier is a stub (`carrier_unavailable`) until 8b. Rule P7 (B405/B406):
+  a brief that adds a `lib/core` TU fences the simulator source list; a brief that removes a symbol fences every user.
 - **Remote-admin 7b-3 durable rulings:** R-RA-37 one outstanding disruptive promise per target, ONE row, typed TERMINAL
   `action_busy` 0x08 (codec landed `ac5f9a5`); R-RA-38 remote `prep-restart` stays schedulable, lockout documented
   (Part 57b, 8a warning); R-RA-39 named-family refusal fallback made permanent by R-RA-41 (36 rows refused remotely by design; B395–B398 closed as not required);

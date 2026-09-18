@@ -1,0 +1,16 @@
+-- target b20mac: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_mac.cpp (11 entries)
+-- selection: IN FULL (all 11 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-x3u2u5wn   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b20mac: /tmp/mr_mutation_run-x3u2u5wn/w0/lib/core/node_mac.cpp (4 of 11 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b20mac: /tmp/mr_mutation_run-x3u2u5wn/w1/lib/core/node_mac.cpp (4 of 11 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b20mac: /tmp/mr_mutation_run-x3u2u5wn/w2/lib/core/node_mac.cpp (3 of 11 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2947 / 193719 / 0   (DERIVED from this tree)
+  [w0]   ok   B01 ★★★ [[B20]] VERBATIM: the seal is sized by the BUFFER again (241, a 4-B-MAC constant) instead of the frame — the 215-216 band is admitted, queued, its RTS airs, and the DATA is dropped at TX time with nothing pushed -> RED (40 assertion(s) failed, match count 1)
+  [w1]   ok   B02 ★★ the carrier boundary is OFF BY ONE — exactly one body length (the cap+1) still disappears, which is the hardest shape to notice and the reason both sides of every cap are asserted -> RED (20 assertion(s) failed, match count 1)
+  [w2]   ok   B03 ★★★ THE TWO BOUNDS ARE RECONCILED THE WRONG WAY — the LAXER one wins, so the buffer's 241 re-admits what the carrier will drop. The brief's named failure: a laxer check re-admitting past the carrier cap -> RED (40 assertion(s) failed, match count 1)

@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-16**
+Last refreshed: **2026-09-18**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -34,25 +34,27 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   auto-OFF scenarios, finish S6 product integration and then evaluate narrowed B178 proactive roaming. B184 and
   B186b remain separate adjacent follow-ups.
 
-- **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-16).**
+- **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-18).**
   Roles since 2026-09-07: Codex authors briefs and codes (two sessions), Claude second-reads and gates, the owner
   rules and commits; commits are not blocking points (owner ruling 2026-09-15). Per-slice gate detail lives in
-  the design's §19.1 table, rulings R-RA-1..40 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
-  defects in the register (next free B403).
+  the design's §19.1 table, rulings R-RA-1..45 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
+  defects in the register (next free B408).
   - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
     3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
     7b-2-0 codec (`564f460`); 7b-2 (`f993191`); 7b-3-0 `action_busy` codec (`ac5f9a5`); 7b-3-P1 simple-action
     preparation (`7442e6f`); **7b-3 deferred actions (`6086152`, QA 2026-09-16) — the disruptive arc is complete.**
-  - **In flight:** nothing — next is the paired 8a+8c brief (QA/Author), then coder source-validation.
-  - **Remaining slices (four cycles):** 8a+8c paired (controller state/crypto + local USB/BLE delivery;
-    owner P6 ruling 2026-09-16) → 8b the mobile carrier (needs [[B112]]) → 9 legacy protocol deletion + durable
+  - **Gated, awaiting the owner's commit (both repos):** 8a+8c paired controller core + local USB/BLE delivery,
+    independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`, plus one simulator CMake source-list line (B406);
+    B292/B312 closed; Part 57d reserved.
+  - **In flight:** nothing — next is the 8b brief (the only product controller carrier), which needs [[B112]] first.
+  - **Remaining slices (three cycles):** 8b the mobile carrier (needs [[B112]]) → 9 legacy protocol deletion + durable
     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
     remotely by design, and the disruptive arc completes with 7b-3.
   - **Open owner items:** veto on the operator class of `cfg set remote_action_activation_ms`; metal Parts
-    54/55a/55b/56/57a/58/59/61/62/63 (57b reserved for 7b-3). Open register follow-ups from this arc: B312, B315,
-    B317, B323, B324, B326, B328–B330, B337, B342, B350, B351, B359, B364, B389/B390/B392 (ruled, close on
-    implementation/metal), B401.
+    54/55a/55b/56/57a/58/59/61/62/63 (57b and 57d reserved, both metal-pending on 8b). Open register follow-ups from
+    this arc: B315, B317, B323, B324, B326, B328–B330, B337, B342, B350, B351, B359, B364, B392 (Part 57b metal only),
+    B404 (parked).
 
 - 2026-08-08-hybrid-rts-flight-identity-design.md — core S1–S6 landed. B251's home-counter boundary and B161's
   canonical typed-answer origin passed combined QG and are closed. The final current-tree audit closes B157, and the
@@ -86,10 +88,9 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin 7b-3
-  implementation → independent gate → 8a; (3) the owner's metal backlog Parts 55a–63 as boards are free.
-  Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B292]]
-  and [[B112]] remain separately tracked and do not block Part 54.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits 8a+8c (MeshRoute + simulator), then the 8b brief once [[B112]] is fixed; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+  Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
+  remains separately tracked and do not block Part 54.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 

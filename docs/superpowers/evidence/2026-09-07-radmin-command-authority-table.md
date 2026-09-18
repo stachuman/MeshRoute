@@ -156,6 +156,10 @@ reboot/prep-restart alias cells retain their own provenance but have the same cl
 | `reboot` | — | operator | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
 | `reboot (alias: prep-restart)` | — | operator | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
 | `regen` | — | owner | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
+| `remote` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
+| `remote-ack` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
+| `remote-result` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
+| `remote-retry` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
 | `reqpubkey` | `-s` | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) |
 | `reqpubkey` | `-t` | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) |
 | `reqpubkey` | — | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) |

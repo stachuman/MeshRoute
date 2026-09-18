@@ -1,0 +1,307 @@
+[
+  {
+    "name": "tools",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": -15,
+    "seconds": 372.16133201494813,
+    "sha256": "f6660b75cabeb30a0ad19067a40e9482716e20347977f519b261c27205fed8f8"
+  },
+  {
+    "name": "inbox-client",
+    "command": [
+      "env",
+      "MR_PROBE_ARM=client",
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 395.0158308185637,
+    "sha256": "cba7fa829e4b246e389ff7b35aa19aa9f60e824042d724e572bd62e071ab360f"
+  },
+  {
+    "name": "custody_usb",
+    "command": [
+      "bash",
+      "tools/probe_custody_usb/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 30.687373735010624,
+    "sha256": "9151bad6c44483e8766357bc5c99b23286a875e73979c951f8c342ced8dd339d"
+  },
+  {
+    "name": "custody_usb-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_custody_usb/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 18.168889708817005,
+    "sha256": "c68fa1222a62e9e769f3173f211fe226bb9edaaf3b793562fbaa229beaa5275f"
+  },
+  {
+    "name": "ble_line",
+    "command": [
+      "bash",
+      "tools/probe_ble_line/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 12.939106855541468,
+    "sha256": "05a5bc28d0797fa1037dd4fc539c85a2cf4c67fd2a9e709d7e094a672c127026"
+  },
+  {
+    "name": "ble_line-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_ble_line/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 1.6409800834953785,
+    "sha256": "ef8a1ede325871472b8fb78304e1e3090df945e39afc1a2f0191119969905ce7"
+  },
+  {
+    "name": "firmware_ui",
+    "command": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 417.5345619060099,
+    "sha256": "c680905c9b4f2ceca5bc66c6fba897ea45786d7eb0bb24e2df4b0a796dd63426"
+  },
+  {
+    "name": "firmware_ui-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 51.04582513868809,
+    "sha256": "032141051ccaa3bbc5cd3d999ddb9f685ab2718fbbd6e0f8fa9b9451f3f512d5"
+  },
+  {
+    "name": "console_sink",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 79.35552104562521,
+    "sha256": "4ffc1e4ad91db6f1333ec4af2fd7d029f1fac0e08c767bf3a3ce5665013870fa"
+  },
+  {
+    "name": "console_sink-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 24.029109928756952,
+    "sha256": "386a0aab28a64a8c92e6e2f760ed66c60abe61137993893a3fb9efe47120ad2a"
+  },
+  {
+    "name": "abi",
+    "command": [
+      "python3",
+      "tools/probe_board_abi.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 24.48252595588565,
+    "sha256": "9a5920360ff9f501c26b0ac50efdf6465407d535a853f083cc70ed201cb38ad7"
+  },
+  {
+    "name": "abi-b278",
+    "command": [
+      "python3",
+      "tools/probe_b278_row_abi.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 14.991358015686274,
+    "sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9"
+  },
+  {
+    "name": "inventory-write",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--write"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 2.2925704456865788,
+    "sha256": "a7db9e52493487005f83fb8ef3c029e995f59f41320ffabc96f15d5ac42077b6"
+  },
+  {
+    "name": "inventory-bare",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 2.211506485939026,
+    "sha256": "b3eb9f044046b2b1537f52f9d1f5709ee78f05e5fe3690026387c55d530bb892"
+  },
+  {
+    "name": "inventory-check",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 2.2111540846526623,
+    "sha256": "b3eb9f044046b2b1537f52f9d1f5709ee78f05e5fe3690026387c55d530bb892"
+  },
+  {
+    "name": "authority",
+    "command": [
+      "python3",
+      "tools/check_command_authority.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 0.06402173638343811,
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "name": "authority-controls",
+    "command": [
+      "python3",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 0.7929075434803963,
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87"
+  },
+  {
+    "name": "a0",
+    "command": [
+      "python3",
+      "tools/check_a0_matrix.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 0.043288473039865494,
+    "sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f"
+  },
+  {
+    "name": "literals",
+    "command": [
+      "python3",
+      "tools/check_data_type_literals.py"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 1.5785075426101685,
+    "sha256": "10e838339527aa451d4e4b3c40bce682f3d02fa17c3901104382c90a0006d8c0"
+  },
+  {
+    "name": "whitespace",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 0.07924134656786919,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "features",
+    "command": [
+      "bash",
+      "tools/probe_features/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 70.35509369894862,
+    "sha256": "f2d899ea0ad0b1c8db1b85ace926944ce29c03521857a4d2a442dc2cbc331a0c"
+  },
+  {
+    "name": "features-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_features/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 3.74354599788785,
+    "sha256": "13f4fb98c20c8e5362d2fae37ef9424da9756c89c4b171fc90a6f939971e3aa3"
+  },
+  {
+    "name": "deferred_actions",
+    "command": [
+      "bash",
+      "tools/probe_deferred_actions/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 312.12080623209476,
+    "sha256": "0a7e8ef2705255455886270a33dc4ac148fa4b387444161f2108a7dfdd6a7e1f"
+  },
+  {
+    "name": "deferred_actions-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_deferred_actions/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 42.80031310394406,
+    "sha256": "191e067d7532af47891b7fc2a524cfff617ef1396057c74d14aaecf44cc66ccd"
+  },
+  {
+    "name": "inbox_verbs",
+    "command": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 781.435797598213,
+    "sha256": "e607b6994940c8a12861192ad908641af0ab615df22cf2c7d9a27de0782c4301"
+  },
+  {
+    "name": "inbox_verbs-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+    "exit": 0,
+    "seconds": 44.19542860984802,
+    "sha256": "daf48352f53fc557580d22b8a2be9678e14a860d685fd40b3b25d05347f967ae"
+  }
+]

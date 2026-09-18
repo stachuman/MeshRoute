@@ -1,0 +1,11 @@
+{
+  "name": "firmware_ui",
+  "command": [
+    "bash",
+    "tools/probe_firmware_ui/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 417.5345619060099,
+  "sha256": "c680905c9b4f2ceca5bc66c6fba897ea45786d7eb0bb24e2df4b0a796dd63426"
+}

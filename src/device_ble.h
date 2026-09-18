@@ -215,12 +215,12 @@ void dispatch_current_line() {
     g_line[g_pos] = '\0';
     if (g_overflow) {                                       // a line longer than the buffer -> fail loud, drop it
         static const char kTooLong[] = "{\"err\":\"line_too_long\"}\n";
-        g_bleuart.write(reinterpret_cast<const uint8_t*>(kTooLong), sizeof(kTooLong) - 1);
+        tx_line(kTooLong, sizeof(kTooLong) - 1);
         g_overflow = false; g_pos = 0; return;
     }
     if (g_dispatch && g_pos > 0) {
         const size_t n = g_dispatch(g_line, g_pos, g_out, sizeof g_out);
-        if (n) g_bleuart.write(reinterpret_cast<const uint8_t*>(g_out), n);
+        if (n) tx_line(g_out, n);
     }
     g_pos = 0;
 }

@@ -102,8 +102,8 @@ WARN=(-Wall -Wextra -Werror)
 #     DELETED, the boot call's gate legacy-WIDENED, the help names INVERTED onto the CLIENT capability, a
 #     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)
 PIN_CELLS=9
-# 7b-3: 120 + two new source owners = 122; 59 + three owner-boundary controls = 62.
-PIN_CHECKS=122
+# 8ac: 122 - node_mac.cpp retired staging owner = 121; all 62 controls retained/retargeted.
+PIN_CHECKS=121
 PIN_CONTROLS=62
 
 # ---- the tree must not move ------------------------------------------------------------------------------------

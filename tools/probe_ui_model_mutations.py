@@ -110,6 +110,9 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    'radmin8rng': 'src/device_rng.h',
+    'radmin8verbs': 'src/firmware_remote_client.h',
+    'radmin8client': 'lib/core/remote_client.cpp',
     "radmin73action": "lib/core/remote_session.cpp",
     "radmin73node": "lib/core/node.cpp",
     "radmin73convert": "src/firmware_remote_actions.h",
@@ -704,7 +707,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Codec-only: 48489 -> 58465 assertions (old terminal case +6; three new cases +9970).
 # 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
 # 7b-3: final counts are re-derived from the complete native binary before the union.
-PIN_CASES, PIN_ASSERTS = 2931, 189998
+# 8ac measured full native runner: 2947 cases, 193734 assertions, no skips.
+PIN_CASES, PIN_ASSERTS = 2947, 193734
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -8865,35 +8869,12 @@ MUTS_SLICEBRX = [
   "answers, custody notices and ordinary DMs are all routed into the remote staging slot",
   "    return RadminRxOwner::none;   // every other type belongs to another handler — this decision never steals one",
   "    return RadminRxOwner::command_accept;   // every other type belongs to another handler — this decision never steals one"),
- # ---- the SHARED STAGING BODY: 1b moved these statements, so each one needs its own falsifier on the new seam ----
- ("1b-09 ★★★ THE RESPONSE MARKER IS HARD-WIRED FALSE IN THE SHARED STAGING BODY — the ONE field that distinguishes "
-  "the two owners is lost, so fw_main would try to EXECUTE every reply it receives",
-  "    _remote_inbound.is_response = is_response;",
-  "    _remote_inbound.is_response = false;"),
- ("1b-10 ★★★ THE DROP-FULL GUARD IS DELETED FROM THE SHARED STAGING BODY — a second remote frame OVERWRITES the "
-  "pending one instead of being dropped, so the slot silently loses the first command and emits nothing",
-  "    if (_remote_inbound.active) {\n"
-  "        MR_EMIT(\"remote_inbound_drop_full\", EF_I(\"from\", pa.origin));\n"
-  "        return;\n"
-  "    }\n",
-  ""),
- ("1b-11 ★★★ THE STAGING LENGTH CLAMP IS TIGHTENED — a long remote body is silently TRUNCATED, which is the "
-  "clamp-instead-of-refuse shape the seam comment marks as deferred (it must stay a no-op until Slice 5/7b)",
-  "    if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;",
-  "    if (n > 8) n = 8;"),
- ("1b-12 ★★★ THE STAGED ORIGIN BECOMES `pa.dst` — the reply address is our OWN id, so a remote answer would be "
-  "addressed back to this node instead of to the peer that asked",
-  "    _remote_inbound.from        = pa.origin;",
-  "    _remote_inbound.from        = pa.dst;"),
- ("1b-13 ★★★ THE BODY COPY STOPS COPYING — the length and the flags are staged and the BYTES are not, so every "
-  "remote command/response arrives the right size and completely wrong (a length-shaped assertion cannot see it)",
-  # ⛔ THE REPLACEMENT BYTE IS PRINTABLE ASCII ON PURPOSE, and that is a MEASURED constraint rather than taste:
-  #   the first form of this entry wrote 0xFF, the staged body reached a doctest failure message as a raw byte, and
-  #   THIS RUNNER'S OWN `subprocess(..., text=True)` died on it — `UnicodeDecodeError: 'utf-8' codec can't decode
-  #   byte 0xff` — so the worker never reported and the entry came back MISSING instead of RED. A control whose
-  #   mutant cannot be REPORTED measures nothing. (The runner robustness half is registered separately.)
-  "    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;",
-  "    for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? static_cast<uint8_t>(0x3F) : 0;"),
+ # 8ac/B405: legacy staging controls are superseded by the equivalent pending-table consumer defects.
+ ('1b-09 controller response intake uses command domain', 'remote_client_receive(_remote_client, pa.type, ui ? ui->body : std::span<const uint8_t>{},', 'remote_client_receive(_remote_client, DATA_TYPE_REMOTE_CMD, ui ? ui->body : std::span<const uint8_t>{},'),
+ ('1b-10 admitted response overwrites the first pending record', '    const auto before = _remote_client.counters;', '    _remote_client.pending[0] = {};\n    const auto before = _remote_client.counters;'),
+ ('1b-11 response body is silently shortened', 'ui ? ui->body : std::span<const uint8_t>{},', 'ui ? ui->body.first(std::min(ui->body.size(),size_t{8})) : std::span<const uint8_t>{},'),
+ ('1b-12 response source is replaced by destination', '{ui && ui->has_source_hash, ui ? ui->source_hash : 0},', '{ui && ui->has_source_hash, pa.dst},'),
+ ('1b-13 response intake never publishes owned bytes', 'remote_client_receive(_remote_client, pa.type, ui ? ui->body : std::span<const uint8_t>{},', 'remote_client_receive(_remote_client, pa.type, std::span<const uint8_t>{},'),
 
  ("R04 ★★★ THE HELPER CALL IN `handle_nack`'s FULL-QUEUE GIVE-UP IS DELETED — a grant NACKed with no requeue room "
   "dies unreported. ⛔ A DIFFERENT SITE FROM `giveup_flight`, which is why it needs its own arm ([[B268]] blocker-1)",
@@ -11031,11 +11012,10 @@ MUTS_RADMIN5RX = [
   '    in.request_carrier.cross_layer         = ui.has_cross_layer;',
   '    in.request_carrier.cross_layer         = false;'),
  ('X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node',
-  '    radmin_expiry_arm();\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT',
-  '    ;\n}\n#endif\n\n#if MR_FEAT_RADMIN_CLIENT'),
- ('X10 ★★ the scan RE-ARMS BEFORE releasing instead of after, so it re-arms to the deadline that just fired — a zero-delay livelock, and the wheel is never cancelled on an emptied pool',
-  '    const uint64_t now = _hal.now();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n    // ⛔ RE-ARMED AGAINST WHAT REMAINS, after the release — never against the minimum that just fired. That is\n    //    what makes a zero-delay livelock impossible: a row at `now` is gone before the next earliest is taken.\n    radmin_expiry_arm();',
-  '    const uint64_t now = _hal.now();\n    radmin_expiry_arm();\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));'),
+  '    radmin_expiry_arm();\n}\n#endif\n\n#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT',
+  '    ;\n}\n#endif\n\n#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT'),
+ ('X10 expiry arms before releasing, leaving a stale zero deadline', '    const uint64_t now = _hal.now();\n#if MR_FEAT_RADMIN_ACCEPT\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n#endif\n#if MR_FEAT_RADMIN_CLIENT\n    remote_client_expire(_remote_client, static_cast<uint32_t>(now));\n#endif\n    radmin_expiry_arm();', '    const uint64_t now = _hal.now();\n    radmin_expiry_arm();\n#if MR_FEAT_RADMIN_ACCEPT\n    const uint8_t released = remote_session_expire(_radmin_session, now);\n    if (released) MR_EMIT("radmin_expired", EF_I("rows", released));\n#endif\n#if MR_FEAT_RADMIN_CLIENT\n    remote_client_expire(_remote_client, static_cast<uint32_t>(now));\n#endif'),
+
  # ⛔ THERE IS NO "FRESH `now` PER CLASS" ENTRY HERE, and the ABSENCE IS THE STRONGER STATEMENT. §4.5 requires
  #   ONE HAL snapshot per scan; that property is guaranteed BY CONSTRUCTION rather than by a check, because
  #   `remote_session_expire` is PURE and takes `now_ms` BY VALUE — there is no HAL inside `remote_session.cpp`
@@ -11367,7 +11347,7 @@ MUTS_RADMIN7RX = [
   "const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);",
   "remote_action_owned(_radmin_session, si, _hal.now());\n    const RemoteStatus encoded = remote_transcript_encode(_radmin_session, si, body, len);"),
  ("R16 saturated action deadline mistaken for no pending work",
-  "earliest == ~uint64_t{0} && _radmin_session.action.phase != RemoteActionPhase::armed",
+  "earliest == ~uint64_t{0} && !armed",
   "earliest == ~uint64_t{0}"),
 ]
 
@@ -11572,7 +11552,54 @@ MUTS_RADMIN73CONVERT = [
  ("C10 prep dispatch chooses reboot", 'return action_prep_restart_admit();', 'return action_reboot_admit(support);'),
 ]
 
-MUTS_BY_TARGET = {"radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+MUTS_RADMIN8CLIENT = [
+ ('C01 bootstrap cache ignores selected controller', 'equal_key(row.controller_pub, in.identity->ed_pub)', 'true'),
+ ('C02 entropy failure publishes an ID', 'if (remote_make_request_id(candidate, entropy, ctx) != RemoteStatus::ok)', 'if (false)'),
+ ('C03 zero and duplicate IDs admitted', 'if (!candidate || id_live(s, candidate))', 'if (false)'),
+ ('C04 wrong target source accepted', 'if (!p || sender.hash != p->core.route.target_hash)', 'if (!p)'),
+ ('C05 sequence check bypassed', 'd.msg.response_seq != a->next_seq', 'false'),
+ ('C06 auth failure uncounted', 'crypto_wipe(plaintext, sizeof plaintext); increment(s.counters.auth_failure);', 'crypto_wipe(plaintext, sizeof plaintext);'),
+ ('C07 terminal detail lost', 'a->result_detail = detail;', 'a->result_detail = 0;'),
+ ('C08 BLE result autoaccepted', 'if (transport == RemoteLocalTransport::usb &&', 'if (true &&'),
+ ('C09 incomplete local ACK accepted', 'if (r->in_use!=2 || !r->delivered)', 'if (false)'),
+ ('C10 ACK debt cleared on submission', 'd.next_retry_ms=now+kAckRetryMs;', 'd.in_use=0; d.next_retry_ms=now+kAckRetryMs;'),
+ ('C11 ACK debt not retried', 'd.next_retry_ms=now+kAckRetryMs;', 'd.next_retry_ms=now+kOutcomeMs;'),
+ ('C12 changed epoch permits replay', 'd.msg.admin_epoch != p->core.admin_epoch || d.msg.slot != p->core.acl_slot', 'false'),
+ ('C13 exact retry corrupts retained request', 'p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;', 'p->sealed[9]^=1; p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;'),
+ ('C14 pool contents are lost', 'std::memcpy(c.bytes, body.data() + off, c.len);', 'std::memset(c.bytes,0x3f,c.len);'),
+ ('C15 half-sized pool allocation', 'count < needed; ++i) if (!chunk_used(s, i))', 'count < needed; ++i) if (i<4 && !chunk_used(s, i))'),
+ ('C16 repeated automatic rollover', '&& !(p->core.flags & kRolled))', '&& true)'),
+ ('C17 automatic rollover keeps old request ID', 'p.core.request_id=id;', 'p.core.request_id=old_id;'),
+ ('C18 completed bytes not wiped', 'crypto_wipe(&p, sizeof p);', 'p.core.state=0;'),
+ ('C19 USB short write treated as acceptance', 'if (!ok) { increment(s.counters.local_result_pressure);', 'if (false) { increment(s.counters.local_result_pressure);'),
+ ('C20 local disconnect consumes result', 'if (!out.connected(transport)) { r->reoffer_from_zero=1; continue; }', 'if (!out.connected(transport)) { (void)accept_result(s,p,now); continue; }'),
+ ('C21 counter wraps', 'if (n != UINT16_MAX) ++n;', '++n;'),
+ ('C22 assembly pressure sends anyway', 'if (!a) { increment(s.counters.assembly_failure); return {RemoteClientError::assembly_full, 0}; }', 'if (!a) a=&s.assemblies[0];'),
+ ('C23 retained pressure overwrites BLE result', 'if (!r) { increment(s.counters.local_result_pressure); return {RemoteClientError::result_full, 0}; }', 'if (!r) r=&s.retained[0];'),
+ ('C24 radio-unavailable refusal leaves pending debt', 'release(s, *p); if (created) crypto_wipe(e, sizeof *e);', 'if (created) crypto_wipe(e, sizeof *e);'),
+ ('C25 explicit show keeps the original transport', 'p.core.local_transport = static_cast<uint8_t>(transport);', ';'),
+ ('C26 assembly fallback ignores disconnect reoffer', 'a->reserved |= 4;', ';'),
+ ('C27 disconnect forgets prior complete local acceptance', 'a->reserved |= 4;', 'a->reserved = 4;'),
+ ('C28 full ACK debt blocks rollover recovery', 'if (in.opcode == RemoteCmdOpcode::auth_execute && debt >= 8)', 'if (auth && debt >= 8)'),
+ ('C29 session controls accept an execution terminal', 'if (opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::auth_execute) &&\n        opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::open_execute))', 'if (false)'),
+]
+
+MUTS_RADMIN8VERBS = [
+ ('V01 XOR authorization bypassed', 'enc==open', 'false'),
+ ('V02 open silently accepts E2E ACK', '(c.ack || selected || c.opcode', '(false || selected || c.opcode'),
+ ('V03 open permits arbitrary command', 'if (!(admin_word_is(c.command,c.command_len,"status") || admin_word_is(c.command,c.command_len,"routes")))', 'if (false)'),
+ ('V04 missing force confirmation is accepted', '!admin_word_is(t,n,"confirm")', 'false'),
+ ('V05 invalid request ID accepts zero', 'if (!v) return false;', 'if (false) return false;'),
+ ('V06 command tail validator bypassed', 'meshroute::console::validate_command_line(c.command,c.command_len,meshroute::console::remote_command_max_bytes)!=meshroute::console::LineErr::ok', 'false'),
+ ('V07 result show keyword not required', '!admin_word_is(t,n,"show")', 'false'),
+ ('V08 extra local acknowledgement tail admitted', '!admin_tail_empty(line,len,i)) return false;\n        out=c;', 'false) return false;\n        out=c;'),
+]
+
+MUTS_RADMIN8RNG = [
+ ('E01 host without entropy provider claims success', 'return n == 0; // no entropy provider', 'return true; // no entropy provider'),
+]
+
+MUTS_BY_TARGET = {'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,

@@ -1,0 +1,108 @@
+--- prior-checkpoint/docs/superpowers/evidence/2026-09-17-radmin-slice8ac.md
++++ coder-r3/docs/superpowers/evidence/2026-09-17-radmin-slice8ac.md
+@@ -1,6 +1,8 @@
+ # Remote-admin 8a+8c — coder preflight and R1 allocation model — 2026-09-17
+ 
+-**STOP-1: B403, invalid-key conversion contract disagrees with the existing source. Implementation also
++**Latest checkpoint: revision 3, §5 below — R1 settled/re-measured; STOP-1 B405 (fence).**
++
++**Historical revision-1 STOP-1: B403, invalid-key conversion contract disagrees with the existing source. Implementation also
+ awaits the already-requested R1 allocation ruling.** R2/R3/R4 are settled by R-RA-42/43/44. No production,
+ test, tool, authority-table, inventory or brief edit; no implementation gate or independent QA PASS claimed.
+ 
+@@ -153,3 +155,95 @@
+ No reset, clean, commit, simulator edit or shared build/mutation run. QA can now resolve B403 and present R1's
+ concrete allocation for the owner; the next resume re-inventories those documentation inputs. No commit is
+ needed to continue once those contract conditions are settled.
++
++
++## 5. Revision 3 resume — R-RA-45 re-measured; STOP-1 B405 — 2026-09-18
++
++**R1 is settled. B403 is closed as contract precision; B404 stays parked.** The remaining STOP at this checkpoint
++is the §6 fence omission below, not allocation, point validation or a missing commit. No production edit or
++implementation freeze is claimed. [New input inventory, model and reproduction](2026-09-18-radmin-slice8ac-r3-preflight/README.md).
++
++### 5.1 Resume identity and preservation
++
++Revision 3 SHA-256 is **8b434921d3893e390fc77844f31c870b0e7ab597eeea85046cdda6981d882b13**; source base remains
++`6086152b97b5934971d231a345b9939d5f2db1e9`, actual HEAD remains the documentation-only successor
++`e3a5fa03eab11806b05094953a04e7c1524f221a`. The complete **2259-input** inventory includes the prior untracked
++coder receipt/evidence and all QA preparation. Since the prior checkpoint the changed original inputs are
++exactly the reissued brief plus the announced ledger/register/design/tracker; MEMORY and production/test/tool
++inputs remain unchanged. The six preparation files are retained with exact bytes and hashes. Simulator
++`06746a97de5764415d6fcef10b97bca90569b9c7` stays clean. **84/84** named source anchors are still present.
++
++R-RA-42/43/44/45 are read as settled. R-RA-45 replaces the stored USB pointer with a local-transport tag and
++an injected delivery-time binding; the model makes only that field removal. Revision 2 bytes were not supplied
++in this checkout, so the receipt pins the actual authorized revision 3 rather than claiming a byte comparison
++to the revision-2 hash prefix.
++
++### 5.2 R-RA-45 allocation first: exact re-measurement
++
++| Profile | Baseline Node | Pointer-free Node | Delta |
++|---|---:|---:|---:|
++| Native ACCEPT+CLIENT | 230976 | **235248** | **+4272** |
++| Xtensa heltec_mobile CLIENT | 117912 | **122176** | **+4264** |
++| ARM gateway ACCEPT | 157344 | **157344** | **0** |
++
++The complete controller block is **4512 bytes / align 8 on all three ABIs**, down 32 from the pointer-bearing
++4544-byte proposal. Each pending row is now **352** instead of 360 bytes. The four rows account for that entire
++−32; all other fields/capacities stay intact. Composition: `4×352 + 4×144 + 2×32 + 8×210 + 2×32 + 8×88 + 12`
++counter bytes + 4 final padding = **4512**. The retained type of the removed legacy slot is 245/1; its whole-Node
++credit remains 240 native /248 mobile because of surrounding alignment. All Node alignments remain 8.
++
++Twelve layout compilations (baseline/historical/counters-only/re-measured, three ABIs) succeed. Six private
++offset compilations additionally enforce **45 historical member-type checks +24 added member-width checks**
++each. Exact compiler arguments, offsets, objects' hashes and final summary are retained. Private headers use
++the measured replacement; production Node and its assertions are untouched.
++
++These are the values authorized by R-RA-45's formula. **Linked RAM and xiao_mobile flash have not yet been
++measured.** The eventual link attribution must still include removal of fw_main's separate static `ri`, new
++TU effects and any stack impact; no linked result is inferred by subtracting 245 from a RAM total.
++
++### 5.3 B405 — required legacy replacement crosses the written fence
++
++The brief expressly removes the client staging slot and drain, but §6 omits three files that still own that
++implementation and its mandatory gate:
++
++1. **`lib/core/node_mac.cpp::Node::take_remote_inbound` (:884–891).** Its CLIENT body directly reads and writes
++   `_remote_inbound`. A byte-identical copy of this production TU compiles on native, ARM and Xtensa with the
++   real baseline header. Against the R-RA-45 private replacement header, native and mobile both fail at :885
++   and :886 with **`'_remote_inbound' was not declared in this scope`**; gateway still compiles. This is six
++   compiler invocations with the predicted outcomes, not a inferred link problem or a line-number drift.
++2. **`test/test_node_r3.cpp` (:6411, :6463, :6596, :6613, :6636, :6669).** Six actual test bodies contain twelve
++   drain calls; five positively require legacy responses to stage/drain and one checks the ACCEPT refusal.
++   They need in-place supersession to CLIENT consumption/drop and no app/inbox/push leakage, retaining the
++   direction-ownership coverage. Leaving a false compatibility stub would still fail their positive assertions.
++   This is a static caller/expectation census, not an executed replacement suite.
++3. **`tools/probe_features/ownership.py` (`APPROVED_SITES`, O6c and the legacy slot/drain controls).** All **25**
++   checks returned by its unchanged `run_checks` pass on the baseline. A labelled private removal of only the
++   obsolete staging declaration/definition/call is rejected by **O6c: 0 guarded sites, want 3**. Its exact
++   `take_remote_inbound` and fw_main legacy-drain mutation anchors likewise require supersession. These
++   controls must follow the new owned consumer/state and continue rejecting absent/wrong/ungated consumers;
++   deleting or weakening ownership checks is not the proposed repair.
++
++**Required QA fold-in:** add those three narrowly scoped paths to §6 for the replacement and its existing
++proofs. Keep all carrier send functions in node_mac.cpp untouched. Include supersession of historical
++staging mutation entries **1b-09..1b-13** in the already-named mutation runner: after staging removal their
++old needles cannot remain live gate controls. Preserve/reforge their relevant ownership, pressure, binding
++and byte-integrity obligations on the v2 path; report retired semantics and configured-count changes honestly.
++No new owner policy/allocation ruling is needed. This source-dependent scope repair belongs at this preflight
++checkpoint; the coder has not edited the brief or crossed its fence.
++
++### 5.4 Checkpoint limits and iteration record
++
++No new native wrapper/binary run, corpus, reference, complete probe chain, board link, mutation union or
++implementation gate ran on this resume; the earlier receipt's figures remain historical. Fresh evidence here
++is the three-ABI layout, field/offset audit, six real-TU compile outcomes, source anchors and the source-reader
++refusal. The model is not implementation and the two deliberate compile failures are the evidence for B405.
++
++An initial inventory attempt tried to hash the directory symlink `spec/docs` as a file; it stopped before shared
++edits and was corrected to record the link target. An initial caller census counted a historical comment after
++the pure ownership test as a seventh case; stripping comments yields the six executable test bodies above.
++Those corrections do not supply any final implementation/gate count.
++
++Only this receipt, the new evidence directory and B405 register intake changed in the shared checkout.
++The brief, production, tests, tools, prior evidence and other QA preparation bytes are preserved. All work is
++uncommitted; no staging, reset, clean, simulator edit or shared mutation/build was performed. Resume after the
++QA fence fold-in, with this allocation already measured and R1 settled.

@@ -1,0 +1,10 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+Testing...
+--------------------- native:* [PASSED] Took 6.89 seconds ---------------------
+
+================== 0 test cases: 0 succeeded in 00:00:06.889 ==================

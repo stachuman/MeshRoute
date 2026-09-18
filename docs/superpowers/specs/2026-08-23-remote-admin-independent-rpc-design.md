@@ -15,7 +15,7 @@ was independently effective. The pre-comment 7b-2 union remains historical; its 
 The codec reviewer reproduced section/object/linked totals but not the coder's single-byte ELF attribution.
 
 **Current dispatch: [7b-3 revision 4](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), reissued at
-`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; next is the paired 8a+8c brief.** Twelve selected policy rows require separate
+`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; 8a+8c (paired) is INDEPENDENT QA PASS 2026-09-18, uncommitted at `e3a5fa0` (B292/B312 closed; one simulator source-list line to commit, B406); next is 8b, which needs B112.** Twelve selected policy rows require separate
 [7b-3-P1 preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), full gate/owner commit,
 then a refreshed behavior base. B394 corrects the earlier twelve-existing-seams summary: four reusable
 effects, eight needing extraction. QA records 36 exact R-RA-39 refusals/fenced follow-ups in brief §2.2
@@ -609,6 +609,11 @@ Intermediate relays see only encoded RPC bodies.
 Both paths must reject an invalid peer conversion or an all-zero/low-order X25519 shared result before the
 KDF. Failure is an authentication failure, never a usable all-zero base key and never a fallthrough to the
 open decoder.
+**Precision (B403, 2026-09-17):** at the shipped source "invalid conversion" is what the primitives can detect — an
+all-zero/low-order X25519 shared result (`remote_ecdh_shared`, `remote_kdf_base`) and the stores' encoding checks;
+the vendored `crypto_eddsa_to_x25519` performs no Edwards point validation and Monocypher exports no decompression.
+Only operator-installed or exactly ACL-matched keys reach the conversion and an off-curve encoding cannot
+authenticate, so this is not a bypass; install-time canonical/on-curve validation is parked as B404.
 
 After target boot, an authenticated bootstrap exchange returns a fresh random 64-bit `admin_epoch` for the
 selected key slot. Both ends derive:
@@ -2181,7 +2186,7 @@ The complete design does not provide:
      (R-RA-41). Remote OTA reports the locally reached backend. Codec 7b-3-0 `ac5f9a5`, preparation P1 `7442e6f`.
 
 8. **Mobile-delegated controller — two bounded slices (8a+8c paired by the owner's 2026-09-16 P6 ruling: one product surface, no corpus reach; 8b stays alone because it is the only carrier and waits on [[B112]]):**
-   - **8a (paired with 8c), controller state and crypto (host-visible, no carrier):** pending/session/result state, explicit
+   - **8a (paired with 8c) — ✅ INDEPENDENT QA PASS 2026-09-18 — controller state and crypto (host-visible, no carrier):** pending/session/result state, explicit
      credential selection, `/mrtargets` resolution, discovery cache, request sealing, response opening,
      exact-byte retry state, and pressure/refusal behaviour. No on-air RPC is enabled.
    - **8b, the only product controller carrier:** only after [[B112]] is fixed, connect the mobile client to
@@ -2189,7 +2194,7 @@ The complete design does not provide:
      `Plane::GLOBAL`; implement optional per-request `-a` (default off), packer-derived caps, request/response
      routing and B278 custody consumption. A custody report stays distinct from response/authentication and
      initiates no automatic retry. There is no static/gateway controller carrier.
-   - **8c (paired with 8a), local USB/BLE delivery:** before production output lands, extend
+   - **8c (paired with 8a) — ✅ INDEPENDENT QA PASS 2026-09-18 — local USB/BLE delivery:** before production output lands, extend
      `ios-companion/INBOX_SYNC_CONTRACT.md` and its executed gate; then add scoped USB output, structured BLE
      output/re-offer/local ACK, console-stage-drop refusal, and every local pressure/failure result. The
      companion receives plaintext only.
@@ -2238,7 +2243,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
 | 7b-3-P1 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-16**, owner commit `7442e6f`; B394/B399/B400 closed; [QA gate](../evidence/2026-09-15-radmin-slice7b3-p1-qa-gate.md) (156/156 pristine-vs-final transcripts identical, union 826/1/827, boards RAM unchanged); [simple-action preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), B394; shared typed admission/effects/sinks for twelve selected rows, local behavior unchanged and remote disruptive guards still refuse | Separate C1 refactor/full gate/owner commit; zero Node/resident RAM growth, real-source equivalence/control proof; then QA refreshes behavior base | none added by this behavior-preserving refactor |
 | 7b-3 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-16**, owner commit `6086152`; R-RA-37/38/39/40/41 all implemented; B389/B390/B401 closed, B392 open for metal; [QA gate](../evidence/2026-09-16-radmin-slice7b3-qa-gate.md): native 2931/189998/0, corpus 36/36, Node 230976/157344/117912, gateway RAM +80, union 879/1/880, extended action probe 40 controls RED | 36/36 unchanged; ruled pair measured | **Part 57b:** scheduled/activate/result lines, prep-restart lockout and local recovery on metal once the 8b carrier can drive a request |
 | 7b-3-F-config / F-provision / F-team / F-regen | **CLOSED — NOT REQUIRED (owner R-RA-41, 2026-09-16)**; B395–B398 closed; the 23/10/2/1 policy rows are refused remotely by design; no brief, gate or bench part follows | n/a | none |
-| 8a+8c (paired 2026-09-16, P6) | mobile controller state/crypto files + USB/BLE renderer/router and companion contract gate; one brief, one independent gate | no carrier, 36/36 unchanged; executed golden wiring gates for the local delivery half; ruled pair | **Part 57d:** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line (no metal for the 8a half) |
+| 8a+8c (paired 2026-09-16, P6) | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18**, uncommitted at `e3a5fa0` (base `6086152`; plus one simulator CMake source-list line, B406); [brief rev 4](../plans/2026-09-17-radmin-slice8ac-controller-and-local-delivery.md), [QA gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md): controller core `lib/core/remote_client.{h,cpp}` + `src/firmware_remote_client.{h,cpp}` (pending/session/assembly/result/ACK-debt state over the codec, `remote`/`remote-retry`/`remote-result`/`remote-ack`, checked entropy, carrier interface stubbed `carrier_unavailable` until 8b, legacy `RemoteInbound` slot removed) + local USB/BLE delivery (contract events, retain/re-offer/ACK, B292 bound at `tx_line`); R-RA-42/43/44/45 implemented; B292/B312/B403/B405/B406/B407 closed, B404 parked | native 2947/193734/0; corpus 36/36 byte-identical (zero radmin events); Node 235248/122176/157344 exact; gateway RAM/Node unchanged (the control), mobile RAM +4016 / flash +19228 attributed, xiao_mobile 176604/696940 reported; union 917/1/918 | **Part 57d (reserved, metal-pending on 8b):** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |
 | 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
 | 9 | protocol/command legacy owners named in §17 (NV fields excluded) | 36/36 unchanged; native fail-closed replacement and both probes; ruled pair | **Part 57e:** legacy help entry absent and the common dispatcher’s exact unknown-command refusal for `rcmd` |
 | 10 | main config/NV + `Node` legacy fields only | 36/36 unchanged; ABI/NV migration and ruled pair | **Part 57f:** boot migration line reports the new schema healthy, legacy fields absent, and all four replacement stores retained |

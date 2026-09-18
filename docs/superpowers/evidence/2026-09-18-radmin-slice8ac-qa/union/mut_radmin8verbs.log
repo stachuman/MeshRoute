@@ -1,0 +1,45 @@
+-- target radmin8verbs: /home/staszek/mr-s8ac-qa-stage/src/firmware_remote_client.h (8 entries)
+-- selection: IN FULL (all 8 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-i6kpy933   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8verbs: /tmp/mr_mutation_run-i6kpy933/w0/src/firmware_remote_client.h (3 of 8 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin8verbs: /tmp/mr_mutation_run-i6kpy933/w1/src/firmware_remote_client.h (3 of 8 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8verbs: /tmp/mr_mutation_run-i6kpy933/w2/src/firmware_remote_client.h (2 of 8 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w1]   ok   V02 open silently accepts E2E ACK -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V03 open permits arbitrary command -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   V01 XOR authorization bypassed -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   V05 invalid request ID accepts zero -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V06 command tail validator bypassed -> RED (2 assertion(s) failed, match count 1)
+  [w2] source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)
+  [w2] shard 2: 2 RED / 0 unusable   (of 2 entries)
+  [w0]   ok   V04 missing force confirmation is accepted -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   V08 extra local acknowledgement tail admitted -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)
+  [w1] shard 1: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   V07 result show keyword not required -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)
+  [w0] shard 0: 3 RED / 0 unusable   (of 3 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8verbs: /home/staszek/mr-s8ac-qa-stage/src/firmware_remote_client.h
+  ok   clean baseline 2947 / 193734 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   V01 XOR authorization bypassed -> RED (2 assertion(s) failed, match count 1)
+  ok   V02 open silently accepts E2E ACK -> RED (1 assertion(s) failed, match count 1)
+  ok   V03 open permits arbitrary command -> RED (1 assertion(s) failed, match count 1)
+  ok   V04 missing force confirmation is accepted -> RED (1 assertion(s) failed, match count 1)
+  ok   V05 invalid request ID accepts zero -> RED (1 assertion(s) failed, match count 1)
+  ok   V06 command tail validator bypassed -> RED (2 assertion(s) failed, match count 1)
+  ok   V07 result show keyword not required -> RED (1 assertion(s) failed, match count 1)
+  ok   V08 extra local acknowledgement tail admitted -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 3/3 entries, 3 RED / 0 worthless, wall 21.9s, rc 0, source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)   /tmp/mr_mutation_run-i6kpy933/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 21.8s, rc 0, source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)   /tmp/mr_mutation_run-i6kpy933/w1
+  worker 2: 2/2 entries, 2 RED / 0 worthless, wall 16.3s, rc 0, source restored: md5 50baa5f89f130f3dc1e4935241386a55 (MATCHES)   /tmp/mr_mutation_run-i6kpy933/w2
+real tree untouched: all 61 target files byte-identical to launch (md5); no build ran in /home/staszek/mr-s8ac-qa-stage
+timing: copy 2.3s + battery 22.0s = 24.3s total, 8 entries over 3 worker(s)
+mutations: 8 RED / 0 unusable

@@ -1837,42 +1837,11 @@ static void mesh_service_once() {
 #if MR_FEAT_RADMIN_ACCEPT
     mrfw::remote_executor_service_once();  // one main-loop unit, after RX/timers and before the sleep gate
 #endif
-    // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a
-    // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
-    // ⛔⛔ CLIENT-ONLY SINCE §remote-admin v2 SLICE 5, and the WHOLE block is gated rather than only its execute
-    //    arm — including the two statics (`ri`, ~245 B, and the sealed arm's `pt[241]`), which is why an ACCEPT
-    //    board's RAM delta is NOT just `sizeof(Node)`'s. On an ACCEPT product `Node::take_remote_inbound` is a
-    //    zero-state `false` stub and there is nothing to drain: the v2 admission owns `DATA_TYPE_REMOTE_CMD` end
-    //    to end (`rx_remote_cmd_accept`), and legacy target-side `rcmd` EXECUTION ends here. ⛔ NO FALLBACK.
-    // ⓘ ON A CLIENT PRODUCT EVERY BYTE OF THIS BLOCK IS PRESERVED: the response copy, the sealed/TLV/plain print
-    //   arms and the full-slot refusal are unchanged until Slice 8a's controller pending table replaces them.
 #if MR_FEAT_RADMIN_CLIENT
-    { static meshroute::Node::RemoteInbound ri;
-      if (g_node.take_remote_inbound(ri)) {
-          if (ri.is_response) {
-#if MR_FEAT_REMOTE_MGMT
-              if (ri.len >= 1 && ri.body[0] == REMOTE_FLAG_SEALED && g_admin_unlocked) {   // sealed ack/hint -> open with the admin key
-                  const uint32_t sh = g_node.key_hash_for_id(ri.from); uint8_t spk[32];
-                  meshroute::AdminCmd ac{}; static uint8_t pt[241];
-                  if (sh && g_node.peer_key_find(sh, spk) && meshroute::admin_cmd_open(ri.body + 1, ri.len - 1, spk, g_admin_id, ac, pt, sizeof pt)) {
-                      if (ac.cmd_len > 6 && !memcmp(ac.cmd, "floor=", 6)) {                // reject-hint: bump our tx counter past N; the command did NOT run
-                          char nb[16]; uint8_t k = (uint8_t)(ac.cmd_len - 6 < 15 ? ac.cmd_len - 6 : 15); memcpy(nb, ac.cmd + 6, k); nb[k] = '\0';
-                          uint32_t fl = (uint32_t)strtoul(nb, nullptr, 10); if (fl >= g_admin_tx_ctr) g_admin_tx_ctr = fl + 1;
-                          mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] not run — counter was stale, resynced to "));
-                          mrcon.print(g_admin_tx_ctr); mrcon.println(F("; re-issue the command to run it"));
-                      } else {                                                             // a real sealed response
-                          mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ac.cmd, ac.cmd_len); mrcon.println();
-                      }
-                  } else { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.println(F("] <sealed; open failed / no pubkey>")); }
-              } else if (ri.len >= 2 && ri.body[0] == 0x01 /*console_binary TLV ver*/) {   // an OPEN read's unsealed TLV -> not decodable on-device
-                  mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] <binary TLV, ")); mrcon.print(ri.len); mrcon.println(F(" B — decode with the host tool>"));
-              } else
+    { LineSink local_ble(ble_sink);
+      mrfw::remote_client_service_once(mrcon,&local_ble,mrble::connected());
+      local_ble.flush(); }
 #endif
-              { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ri.body, ri.len); mrcon.println(); }
-          }
-          else remote_exec(ri.from, ri.body, ri.len);
-      } }
-#endif   // MR_FEAT_RADMIN_CLIENT
     // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
     // the `ok …` response DM has aired first.
     if (g_remote_action && g_hal.now() >= g_remote_action_at) {

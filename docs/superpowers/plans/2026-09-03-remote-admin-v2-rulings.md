@@ -1007,3 +1007,78 @@ independent QA PASS at owner commit `6086152`: the R-RA-40 allocation lands exac
 (R-RA-37); remote `prep-restart` schedulable with its lockout (R-RA-38); the 36 rows refused by design
 (R-RA-39/41). B389/B390/B401 closed; B392 stays open for Part 57b metal (needs the 8b carrier) and the 8a
 warning. The disruptive remote-admin arc is complete. [Independent gate](../evidence/2026-09-16-radmin-slice7b3-qa-gate.md).
+
+### R-RA-42 (owner, 2026-09-17) — 8a+8c controller verbs enter the ruled authority table
+
+**Owner, verbatim (one line for R2/R3/R4 of the 8a+8c brief §8):**
+
+> R2 and R4 approved as recommended, R3 close B292 in 8c
+
+**Settled (R2 "as recommended"):** the ruled table (`docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md`)
+and `src/firmware_command_authority.h` gain `remote` (its `-e`/`open` execute forms and the `rollover` /
+`rollover confirm` control forms), `remote-retry`, `remote-result` and `remote-ack`, all class **`controller_local`**,
+non-disruptive, accepted over USB **and secured BLE** (design §14: the product controller topology is a mobile
+attached over USB or secured BLE; R-RA-30's BLE split keeps key generation/import/export/removal USB-only, and
+these verbs touch no seed). The ACCEPT inventory column must show them absent (structural absence gate,
+design §19.2). **Landing order:** QA writes the table rows at the coder's implementation freeze, in the same
+frozen input set as the header change, so `tools/check_command_authority.py` never sees the three artefacts
+disagree; the rows are ruled now, not when they are typed. Any further controller verb needs its own row and
+this ruling's veto window does not extend to it.
+
+### R-RA-43 (owner, 2026-09-17) — B292 is closed inside 8c by bounding the one BLE transport write
+
+**Owner:** *"R3 close B292 in 8c"* (same message as R-RA-42).
+
+**Settled:** `src/device_ble.h` `dispatch_current_line`'s single `g_bleuart.write(g_out, n)` becomes the one place
+that bounds outbound lines to the ATT payload (244 bytes, the file's own `BANDWIDTH_MAX` derivation): a reply
+longer than the payload is chunked at that write, never truncated, never sent as one oversized notification,
+and no second output path is added (U1). 8c's `remote_output`/`remote_terminal` events are additionally sized
+so that a single event fits the payload when possible. B292 closes at the 8a+8c independent gate with a
+control that shows a 245..256-byte reply arriving intact, plus a control that removing the bound makes RED.
+
+### R-RA-44 (owner, 2026-09-17) — automatic exact-retry timing belongs to 8b
+
+**Owner:** *"R4 approved as recommended"* (same message as R-RA-42).
+
+**Settled:** 8a ships the retry **state** (byte-exact retained sealed request, bootstrap-and-compare per design
+§13, manual `remote-retry <16hex>`) and exactly one automatic behaviour: on `session_full` a single SAFE_ROLLOVER
+followed by re-sealing the not-executed command under a fresh request ID. When and how often a request is
+re-sent automatically after silence is decided in 8b together with the carrier's timing, as a named derivation
+from existing constants (the R-RA-20/23 shape), never a literal. R1 (the controller-profile re-pins) remains
+pending the coder's measured layout; it is not ruled here.
+
+### R-RA-45 (owner, 2026-09-18) — 8a+8c controller-profile allocation and re-pins, approved as recommended
+
+**Owner, verbatim:** *"R1 approved as recommended - no sink pointer, re-measure"*
+
+**Settled:** the controller block keeps R-RA-22's row counts (4 `PendingRequestInline`, 4 `SessionCacheEntry`,
+2 `ResponseAssemblyHeader`, 8 `ResponseChunk`, 2 `RetainedResultHeader`, 8 `AckDebtEntry`) and the additions the
+coder's 2026-09-17 model justified — a separate discovery request ID, the captured routing hash and three-hop
+path, credential/book indexes, typed result domain/code plus u32 detail in the assembly and retained headers,
+frozen SOURCE_HASH/route/carrier/indexes in the ACK-debt rows, six saturating u16 counters — **minus the
+resident USB sink pointer**: a pending row stores only its `local_transport` tag, and the one production USB
+sink (`mrcon`) is resolved at delivery time through an injectable firmware seam (tests bind their sink there,
+never in a row). This is the same rule 7b-3 applied: no stored `Print`/service pointer in resident state.
+**Authorization by formula:** the coder re-measures the block on native, ARM and Xtensa with the pointer removed
+(expected: the 2026-09-17 figures of 4544 B / native 235280 / mobile 122208 less four pointer widths and their
+alignment); the re-measured block, the native and heltec_mobile `Node` re-pins and the linked mobile RAM growth
+are approved at those measured values, provided **gateway `Node` and RAM stay unchanged** (the control), the
+legacy `RemoteInbound` slot and the `fw_main` static `ri` are removed and attributed, and no owned state beyond
+the listed fields appears (STOP-1 otherwise). The one-off `xiao_mobile` flash is reported (R-RA-30 shape, B330
+context), not gated. With this, every 8a+8c ruling (R-RA-42/43/44/45) is settled; implementation may proceed.
+
+**QA completion note, 2026-09-18 — R-RA-45 re-measured:** with the sink pointer removed the coder measures the
+controller block at **4512 B**; Node **235248 native (+4272)**, **122176 heltec_mobile (+4264)**, **157344 gateway
+(unchanged)**. Under R-RA-45's formula these are the approved production pins; linked mobile RAM and the removal
+of `fw_main`'s static `ri` are attributed at the 8a+8c gate. B405 (fence omissions: `node_mac.cpp`,
+`test_node_r3.cpp`, `ownership.py`, plus `probe_board_abi.py`) is folded into brief revision 4; no ruling change.
+
+**QA completion note, 2026-09-18 — 8a+8c INDEPENDENT QA PASS (uncommitted at `e3a5fa0`):** R-RA-42 (four
+`controller_local` rows landed by QA at the freeze, checker PASS, inventory 208), R-RA-43 (B292 closed — the direct
+BLE reply goes through the one chunked `tx_line`; 245..256-byte D1 control), R-RA-44 (8a ships manual `remote-retry`
+and the single automatic safe rollover on `session_full`; timing left to 8b) and R-RA-45 (block 4512 B, Node
+235248 / 122176 / 157344 exact, gateway RAM unchanged, mobile RAM +4016 with the legacy `ri` removed) are all
+implemented as ruled. B312 closed (checked entropy bound). QA found and fixed its own fence omission **B406**: the
+simulator's CMake source list must name `lib/core/remote_client.cpp` — one uncommitted line in
+`lora-universal-simulator/CMakeLists.txt` for the owner to commit with the freeze (rule P7). Next: the 8b brief
+(needs B112). [Independent gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md).

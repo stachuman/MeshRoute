@@ -1452,10 +1452,10 @@ void Node::on_timer(uint32_t timer_id) {
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kParkRefloodTimerId:     park_reflood_fire();     break;   // §F-SL-1: bounded jittered H re-flood for still-parked sends
     case kE2eAckDeadlineTimerId:  e2e_ack_deadline_fire(); break;   // shelf item (i): -a sends whose DATA_TYPE_E2E_ACK never returned -> send_failed{e2e_ack_timeout}
-#if MR_FEAT_RADMIN_ACCEPT
-    // §remote-admin v2 SLICE 5 (R-RA-22 / design §15): the ONE shared remote-admin earliest-deadline scan — the
+#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT
+    // §remote-admin v2 (R-RA-22 / design §15): the ONE shared remote-admin earliest-deadline scan — the
     // authenticated ingress reservations AND the open/bootstrap staging rows, in ONE pass, on ONE id.
-    // ⛔ It is never armed on an unprovisioned node: nothing reserves a row until an authenticated request lands.
+    // Empty profiles leave it unarmed; both owned endpoints recompute it after state changes.
     case kRadminExpiryTimerId:    radmin_expiry_fire();   break;
 #endif
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved

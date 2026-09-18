@@ -1219,3 +1219,24 @@ TEST_CASE("§AB3 write_peer_name — the two id fields are additive and omit-whe
     n = write_peer_name(b, sizeof b, 9u, nullptr, 0, /*static_id=*/34, /*team_id=*/228);
     CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":9,\"static_id\":34,\"team_id\":228}\n");
 }
+
+TEST_CASE("8ac contract-first remote output and typed terminal event goldens") {
+    char b[245];
+    EventField out[] = {EF_S("id", "0123456789abcdef"), EF_I("seq", 0), EF_S("body", "up=42s")};
+    auto n = write_event(b, sizeof b, "remote_output", out, 3);
+    CHECK(std::string(b,n) == "{\"ev\":\"remote_output\",\"id\":\"0123456789abcdef\",\"seq\":0,\"body\":\"up=42s\"}\n");
+    EventField terminal[] = {EF_S("id", "0123456789abcdef"), EF_S("result", "scheduled"), EF_I("activation_ms",12345)};
+    n = write_event(b,sizeof b,"remote_terminal",terminal,3);
+    CHECK(std::string(b,n) == "{\"ev\":\"remote_terminal\",\"id\":\"0123456789abcdef\",\"result\":\"scheduled\",\"activation_ms\":12345}\n");
+    terminal[1]=EF_S("result","completed");
+    n=write_event(b,sizeof b,"remote_terminal",terminal,2);
+    CHECK(std::string(b,n) == "{\"ev\":\"remote_terminal\",\"id\":\"0123456789abcdef\",\"result\":\"completed\"}\n");
+    terminal[1]=EF_S("result","session_busy"); terminal[2]=EF_I("detail",2);
+    n=write_event(b,sizeof b,"remote_terminal",terminal,3);
+    CHECK(std::string(b,n) == "{\"ev\":\"remote_terminal\",\"id\":\"0123456789abcdef\",\"result\":\"session_busy\",\"detail\":2}\n");
+    out[2]=EF_S("body","\"\\\n\t");
+    n=write_event(b,sizeof b,"remote_output",out,3);
+    CHECK(std::string(b,n) == "{\"ev\":\"remote_output\",\"id\":\"0123456789abcdef\",\"seq\":0,\"body\":\"\\\"\\\\\\n\\t\"}\n");
+    CHECK(n <= 244);
+    CHECK(write_event(b,10,"remote_output",out,3)==0);
+}

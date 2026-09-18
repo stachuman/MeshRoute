@@ -4380,3 +4380,24 @@ onto USB/BLE. These observations do not prove radio delivery; native tests canno
 8a must display before submission, without a new confirmation token:
 
 > prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted.
+
+## Part 57d — controller local delivery: NDJSON re-offer/ACK and the USB result or refusal line (8a+8c reservation)
+
+**SOFTWARE-COMPLETE (8a+8c independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`) / METAL PENDING — runnable once
+the 8b carrier can deliver a real result to the mobile.** Until 8b every board `remote <target> …` refuses with the
+USB line `> remote err carrier_unavailable` (BLE: `{"err":"remote","msg":"carrier_unavailable"}`) and transmits
+nothing; that refusal is a host-proven software fact, not a bench result. Host proofs (native, the BLE-line probe's
+245..256-byte D1 control, the contract goldens) own everything below except real notifications and reconnects.
+
+With a real result (8b): over USB expect `> remote <id16> out <body>` per output line, then
+`> remote <id16> <result>`, or `> remote <id16> scheduled activation_ms=<n>`, or `> remote <id16> <result> detail=<n>`.
+Over secured BLE expect one NDJSON event per notification, each ≤ 244 bytes:
+`{"ev":"remote_output","id":"<id16>","seq":<n>,"body":"…"}` then
+`{"ev":"remote_terminal","id":"<id16>","result":"<name>"[,"activation_ms":<n>|,"detail":<n>]}`.
+Disconnect before acknowledging and reconnect: the node re-offers `{"ev":"remote_retained","id":"<id16>"}` (USB:
+`> remote <id16> retained`); `remote-ack <id16>` answers `{"ack":"remote-ack","id":"<id16>"}` and the re-offer stops.
+Submit a `prep-restart` and confirm the warning is shown BEFORE admission, verbatim:
+`{"ev":"remote_warning","body":"prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted."}`
+(USB: the same sentence as a plain line). Finally send one `status` whose reply exceeds 244 bytes and confirm the
+companion receives it whole (B292: the reply is chunked at the one `tx_line` write, never truncated). Parts 55b/56
+unchanged; Part 57b (the lockout itself) stays a separate metal check.

@@ -41,8 +41,14 @@ FakeSerial        Serial;
 AdafruitBluefruit Bluefruit;
 static NRF_RNG_Type   g_rng_regs;
 NRF_RNG_Type* const   NRF_RNG = &g_rng_regs;
-uint32_t sd_rand_application_vector_get(uint8_t*, uint8_t)          { return NRF_SUCCESS; }
-uint32_t sd_rand_application_bytes_available_get(uint8_t* a)        { *a = 32; return NRF_SUCCESS; }
+static uint32_t rng_available_status=NRF_SUCCESS, rng_vector_status=NRF_SUCCESS;
+static uint8_t rng_available=3, rng_next=1;
+uint32_t sd_rand_application_vector_get(uint8_t* p, uint8_t n) {
+    if(rng_vector_status!=NRF_SUCCESS)return rng_vector_status;
+    for(uint8_t i=0;i<n;++i)p[i]=rng_next++;
+    return NRF_SUCCESS;
+}
+uint32_t sd_rand_application_bytes_available_get(uint8_t* a) { *a=rng_available; return rng_available_status; }
 
 namespace {
 
@@ -213,6 +219,7 @@ int main(int argc, char** argv) {
     // C. THE EXECUTED INTAKE. Everything below runs the real `service_rx()`/`dispatch_current_line()`.
     // =================================================================================================================
     const bool started = mrble::begin(/*mode=*/1, /*period_min=*/0, /*pin=*/123456u, "probe", &spy_dispatch);
+    mrble::g_conn_count=1; mrble::g_conn_handle=1; // connected transport fixture, required by tx_line
     check(started, "C1  the real mrble::begin() started the transport and installed the dispatch seam");
 
     const std::string L274 = line_send_layer_max();
@@ -318,6 +325,31 @@ int main(int argc, char** argv) {
     check(g_dispatched.size() == 1 && g_dispatched[0] == L274 && mrble::g_bleuart.tx_calls.size() == 1,
           "C26 after a refusal the intake resets: the next valid maximal line dispatches normally");
 
+    // B292: direct replies use the same bounded transport as streamed output. Inspect each write,
+    // as well as the aggregate, so a fake transport that accepts oversize writes cannot hide the defect.
+    for (uint16_t mtu : {uint16_t{23},uint16_t{247}}) {
+        Bluefruit.conn.mtu=mtu;
+        for (size_t n : {size_t{245},size_t{256}}) {
+            reset_bus(); g_reply=std::string(n-1,'R')+"\n"; feed("status\n",20);
+            check(mrble::g_bleuart.tx==g_reply,"D1 complete 245..256-byte direct reply survives");
+            bool bounded=true; for (const auto& write:mrble::g_bleuart.tx_calls) bounded &= write.size()<=size_t(mtu-3);
+            check(bounded && mrble::g_bleuart.tx_calls.size()>1,"D2 every notification respects negotiated ATT payload");
+        }
+    }
+    uint8_t entropy[8]{};
+    mrrng::sd_enabled()=true; rng_next=1;
+    check(mrrng::fill_checked(entropy,sizeof entropy),"E1 checked SoftDevice entropy accumulates partial pool reads");
+    bool bytes=true;for(unsigned i=0;i<8;++i)bytes &= entropy[i]==i+1;
+    check(bytes,"E2 all eight bytes come from the provider in order");
+    rng_available_status=1;
+    check(!mrrng::fill_checked(entropy,sizeof entropy),"E3 pool status failure refuses");rng_available_status=NRF_SUCCESS;
+    rng_vector_status=1;
+    check(!mrrng::fill_checked(entropy,sizeof entropy),"E4 vector status failure refuses");rng_vector_status=NRF_SUCCESS;
+    rng_available=0;
+    check(!mrrng::fill_checked(entropy,sizeof entropy),"E5 empty pool reaches bounded failure");rng_available=3;
+    mrrng::sd_enabled()=false;
+    check(!mrrng::fill_checked(entropy,sizeof entropy) && NRF_RNG->TASKS_STOP==1,"E6 stalled peripheral fails and is stopped");
+    check(!mrrng::fill_checked(nullptr,1),"E7 null nonempty destination refuses before hardware access");
     std::printf("\nprobe: %d checks against the REAL device_ble.h intake, %d failed\n", g_checks, g_fails);
     return g_fails == 0 ? 0 : 1;
 }

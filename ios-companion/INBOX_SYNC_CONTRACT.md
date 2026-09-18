@@ -1312,3 +1312,59 @@ an unreadable store refuses every mutation with `store` and **zero writes** unti
 ⛔ Editing a phrase never touches `/mrcfg` — no radio, identity, team or key configuration can be reprovisioned
 by this family. ⛔ There is no verb to read or set the catalog's generation directly; it moves only as a
 consequence of a successful durable mutation.
+
+## Remote administration — controller USB/BLE delivery (8a+8c)
+
+Commands use the local plaintext console: `remote <label> -e [using=self|keyN] [-a] -- <command>`,
+`remote <label> open -- status|routes`, `remote <label> -e [using=…] rollover [confirm]`,
+`remote-retry <id>`, `remote-result show <id>` and `remote-ack <id>`. IDs are exactly sixteen lowercase
+hexadecimal digits, most significant digit first, with no `0x` prefix. This text spelling does not change
+the wire codec's little-endian u64. Unknown/early local acknowledgements refuse.
+
+Secured BLE emits newline-delimited events through the existing event writer:
+
+```json
+{"ev":"remote_output","id":"0123456789abcdef","seq":0,"body":"up=42s"}
+{"ev":"remote_terminal","id":"0123456789abcdef","result":"completed"}
+{"ev":"remote_terminal","id":"0123456789abcdef","result":"scheduled","activation_ms":12345}
+{"ev":"remote_terminal","id":"0123456789abcdef","result":"session_busy","detail":2}
+```
+
+Each event is at most 244 bytes including newline; escaping is included in this bound. Long output is split
+into events with contiguous local `seq` values starting at zero. The BLE transport also chunks by the actual
+negotiated ATT payload, so a smaller negotiated MTU remains valid. These are plaintext output events; neither
+keys nor raw sealed RPC bodies cross this interface. Result names preserve terminal, admission, protocol-error
+and local-error meanings (`already_acknowledged` is not `completed`).
+
+The node retains the complete result until `remote-ack <id>` and replies using the existing acknowledgement
+convention: `{"ack":"remote-ack","id":"0123456789abcdef"}`. A disconnect is not an acknowledgement;
+after reconnect the node re-offers from local sequence zero, and `remote-result show <id>` explicitly re-offers
+on the caller's transport. Consumers must replace/reconcile a replay by request ID and sequence, not append it
+twice. A partial result cannot be acknowledged. `remote-retry` compares the authenticated current epoch before
+resending the retained request bytes; changed epochs report `unknown`, with no automatic execute resend.
+
+USB writes `> remote <id> out <body>` lines and a final `> remote <id> <result>` line, adding
+` activation_ms=<n>` for scheduled or ` detail=<n>` for a nonzero typed detail. Every byte must be accepted by
+the supplied sink and no console-stage drop may occur. Otherwise the result remains available and the node
+reports `> remote <id> retained`. USB acceptance triggers the target ACK; BLE requires its explicit local ACK.
+The ACK itself remains bounded retryable debt; submission does not prove target receipt.
+
+Before a prep-restart request the controller shows:
+
+> prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted.
+
+The board carrier is unavailable until 8b: a local `carrier_unavailable` refusal claims no transmission or
+remote execution. 8a+8c supplies controller state, framing and local delivery; custody and on-air forwarding
+remain separate carrier work.
+
+Controller local control replies use `{"ack":"remote","id":"0123456789abcdef"}` (or the
+control verb's name), and refusals use `{"err":"remote","msg":"carrier_unavailable"}`.
+A retained-result notice is `{"ev":"remote_retained","id":"0123456789abcdef"}`.
+The prep-restart warning is a `remote_warning` event with a `body` string containing the
+required warning verbatim, before admission. All events end in a newline.
+
+An automatic safe rollover after `session_full` replaces the original request ID with a fresh ID.
+Subsequent output, terminal, retained notices and local ACK use that fresh ID. Manual exact retry
+preserves its original ID and sealed bytes. An OPEN result never creates target ACK debt.
+The controller's board carrier is deliberately unavailable until 8b; this slice's real console
+admission therefore returns the typed `carrier_unavailable` refusal without putting bytes on air.

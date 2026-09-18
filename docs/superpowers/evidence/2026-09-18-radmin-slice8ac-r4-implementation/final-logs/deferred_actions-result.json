@@ -1,0 +1,11 @@
+{
+  "name": "deferred_actions",
+  "command": [
+    "bash",
+    "tools/probe_deferred_actions/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 312.12080623209476,
+  "sha256": "0a7e8ef2705255455886270a33dc4ac148fa4b387444161f2108a7dfdd6a7e1f"
+}

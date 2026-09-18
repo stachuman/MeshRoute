@@ -1,0 +1,9 @@
+/tmp/mr-s8ac-r3-zgobkgs0/layout/offsets.cpp:4:40: warning: 'offsetof' within non-standard-layout type 'meshroute::Node' is conditionally-supported [-Winvalid-offsetof]
+    4 | char mr_abi_off_cfg[__builtin_offsetof(meshroute::Node,_cfg)+1];
+      |                     ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~
+/tmp/mr-s8ac-r3-zgobkgs0/layout/offsets.cpp:5:52: warning: 'offsetof' within non-standard-layout type 'meshroute::Node' is conditionally-supported [-Winvalid-offsetof]
+    5 | char mr_abi_off_channel_counter[__builtin_offsetof(meshroute::Node,_channel_seal_ctr)+1];
+      |                                 ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/mr-s8ac-r3-zgobkgs0/layout/offsets.cpp:8:43: warning: 'offsetof' within non-standard-layout type 'meshroute::Node' is conditionally-supported [-Winvalid-offsetof]
+    8 | char mr_abi_off_client[__builtin_offsetof(meshroute::Node,_remote_client)+1];
+      |                        ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

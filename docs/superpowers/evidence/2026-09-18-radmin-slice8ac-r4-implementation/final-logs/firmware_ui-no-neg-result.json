@@ -1,0 +1,12 @@
+{
+  "name": "firmware_ui-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_firmware_ui/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 51.04582513868809,
+  "sha256": "032141051ccaa3bbc5cd3d999ddb9f685ab2718fbbd6e0f8fa9b9451f3f512d5"
+}

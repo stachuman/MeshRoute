@@ -1,0 +1,1 @@
+Final census strips // comments before counting actual drain calls. Initial seven-case census included a historical comment after the pure ownership test; six executable test bodies actually call the drain.

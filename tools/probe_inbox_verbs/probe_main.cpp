@@ -405,6 +405,7 @@ static bool route_ble(const char* line) {
 // 71 checks below compile and run EXACTLY as before; `run.sh`'s md5 tripwire covers this file either way.
 #ifndef MR0C_NO_MAIN
 #include "remote_exec_rows.h"
+#include "remote_client_rows.h"
 int main() {
     printf("== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==\n");
 
@@ -1981,6 +1982,9 @@ int main() {
     for (const char* name : {"radmin_inbound_refusal=", "radmin_open_rate_refusal=", "radmin_transcript_exhaustion=",
                              "radmin_response_enqueue_failure=", "radmin_response_seal_failure="})
         CHK(!client_status.has(name), "R72-S4 CLIENT status has no target field: %s", name);
+#endif
+#if MR_FEAT_RADMIN_CLIENT
+    remote_client_rows();
 #endif
     printf("checks: %d   failures: %d\n", g_chk, g_fail);
     printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");

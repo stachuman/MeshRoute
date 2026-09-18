@@ -239,7 +239,8 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # R7-A29/A30 and R7-A13..A16 x1 each, and removes one refusal-only R7-A20: +12 -1 = +11.
 # CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
 PIN_CHECKS_ACCEPT=1374
-PIN_CHECKS_CLIENT=384
+# 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.
+PIN_CHECKS_CLIENT=439
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -253,8 +254,10 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
-PIN_CONTROLS_ACCEPT=60  # 7b-2: 50 + five service/open links and five exact status-value controls.
-PIN_CONTROLS_CLIENT=45  # old 44 + B372; all previous controls retained.
+# 7b-2: 50 + five service/open links and five exact status-value controls.
+PIN_CONTROLS_ACCEPT=60
+# 8ac adds eleven real firmware decision controls to the previous 45.
+PIN_CONTROLS_CLIENT=64
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -271,7 +274,8 @@ md5_sources() {
       "$ROOT/src/firmware_admin_verbs.h" "$ROOT/lib/core/remote_session.h" \
       "$ROOT/lib/core/remote_session.cpp" "$ROOT/lib/core/node.h" "$ROOT/lib/core/node.cpp" \
       "$ROOT/lib/core/node_mac_rx.cpp" "$ROOT/src/firmware_remote_actions.h" \
-      "$ROOT/src/firmware_remote_actions.cpp" | md5sum | cut -d' ' -f1
+      "$ROOT/src/firmware_remote_actions.cpp" "$ROOT/src/firmware_remote_client.cpp" \
+      "$ROOT/src/firmware_remote_client.h" "$HERE/remote_client_rows.h" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -317,14 +321,16 @@ build_support() {
 build_variant() {
   local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
   local actions=${6:-"$ROOT/src/firmware_remote_actions.cpp"}
+  local client=${7:-"$ROOT/src/firmware_remote_client.cpp"}
   local pre=()
   [ -n "$shadowdir" ] && pre=(-I"$shadowdir")
   : > "$OUT/build.log"
   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$actions" -o "$OUT/v_actions.o" 2>>"$OUT/build.log" \
+    && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$client" -o "$OUT/v_client.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$probe" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
-    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
+    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT/v_client.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
 }
 
 rc=0
@@ -383,12 +389,16 @@ classify_control() {   # classify_control <exit-code> <fail-line-count> -> red |
 ctl() {
   local label=$1 which=$2 script=$3
   local router="$FW_CMDS" handler="$FW_INBOX" shadowdir="" probe="$HERE/probe_main.cpp"
+  local client="$ROOT/src/firmware_remote_client.cpp"
   shadow_hdr() {   # shadow_hdr <real-header> <basename> -> writes $OUT/shadow/<basename>, sets shadowdir
     rm -rf "$OUT/shadow"; mkdir -p "$OUT/shadow"
     sed "$script" "$1" > "$OUT/shadow/$2"; shadowdir="$OUT/shadow"
     cmp -s "$1" "$OUT/shadow/$2"
   }
   case "$which" in
+    client) sed "$script" "$client" > "$OUT/mutant_client.cpp"
+            cmp -s "$client" "$OUT/mutant_client.cpp" && { n_bad=$((n_bad+1)); echo "  FAIL $label VACUOUS"; return; }
+            client="$OUT/mutant_client.cpp" ;;
     router)  sed "$script" "$FW_CMDS"  > "$OUT/mutant_cmds.cpp";  router="$OUT/mutant_cmds.cpp"
              cmp -s "$FW_CMDS" "$router"  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     handler) sed "$script" "$FW_INBOX" > "$OUT/mutant_inbox.cpp"; handler="$OUT/mutant_inbox.cpp"
@@ -422,7 +432,7 @@ ctl() {
              router="$OUT/srcshadow/$(basename "$FW_CMDS")"
              handler="$OUT/srcshadow/$(basename "$FW_INBOX")" ;;
   esac
-  if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin" "$probe"; then
+  if ! build_variant "$router" "$handler" "$shadowdir" "$OUT/mutant.bin" "$probe" "" "$client"; then
     n_bad=$((n_bad+1))
     printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
@@ -677,7 +687,7 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ---- C20: A STREAMED ROUTER RESPONSE IS REPORTED AS BUFFERED. The BLE adapter would then return `ex.n` (0) and
   #          never flush — the bytes are in the sink, the transport is told nothing happened.
   ctl 'C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush)' router \
-      's|if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }|if (dispatch(line, len, stream)) { r.state = LineExec::State::buffered; r.outcome = DispatchOutcome::completed; return r; }|'
+      's|if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }|if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::buffered; r.outcome = DispatchOutcome::completed; return r; }|'
 
   # ---- C21: THE COMMAND IS EXECUTED TWICE on the text arm — two counters burned, two frames queued, one answer
   #          printed. The failure a byte-comparison alone cannot see, which is why the X rows measure the counter.
@@ -763,6 +773,36 @@ if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = accept ]; then
     s6_ctl "R72-C6 status $counter loses its measured value" "out.print(radmin.$counter);" \
       "s|out.print(radmin.$counter);|out.print(0);|"
   done
+fi
+
+if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = client ]; then
+  c8_ctl() {
+    local label=$1 which=$2 needle=$3 script=$4 source="$FW_CMDS"
+    [ "$which" = client ] && source="$ROOT/src/firmware_remote_client.cpp"
+    if ! python3 -c 'import pathlib,sys; n=pathlib.Path(sys.argv[1]).read_text().count(sys.argv[2]); print("    source match count",n); sys.exit(0 if n==1 else 1)' "$source" "$needle"; then
+      n_bad=$((n_bad+1)); echo "  FAIL $label source anchor not unique"; return
+    fi
+    ctl "$label" "$which" "$script"
+  }
+  c8_ctl 'C8-C1 short Print writes count as success' client 'written==n &&' 's|written==n \&\&|true \&\&|'
+  c8_ctl 'C8-C2 console stage drops count as success' client 'drops_(ctx_)==before' 's|drops_(ctx_)==before|true|'
+  c8_ctl 'C8-C3 JSON local sequences repeat zero' client 'EF_I("seq",seq)' 's|EF_I("seq",seq)|EF_I("seq",0)|'
+  c8_ctl 'C8-C4 selected identity switches to self' client 'identity_from_seed(identity,seed.seed);' 's|identity_from_seed(identity,seed.seed);|identity=svc.self;|'
+  c8_ctl 'C8-C5 expanded identity is not wiped' client 'SecretWipeGuard<Identity> guard{identity};' 's|SecretWipeGuard<Identity> guard{identity};||'
+  c8_ctl 'C8-C6 exported seed is not wiped' client 'SecretWipeGuard<MgmtKeySeed> wipe{seed};' 's|SecretWipeGuard<MgmtKeySeed> wipe{seed};||'
+  c8_ctl 'C8-C7 scheduled delay is omitted' client '(scheduled || detail)?snprintf' 's@(scheduled || detail)?snprintf@false?snprintf@'
+  c8_ctl 'C8-C8 UTF8 carry is discarded' client 'utf8_tail_len_=static_cast<uint8_t>(total-end);' 's|utf8_tail_len_=static_cast<uint8_t>(total-end);|utf8_tail_len_=0;|'
+  c8_ctl 'C8-C9 real router loses supplied transport' router 'const auto local=transport==CommandTransport::ble' 's|const auto local=transport==CommandTransport::ble|const auto local=false|'
+  c8_ctl 'C8-C10 actual regen binding ignores live rows' router 'return meshroute::remote_client_busy(g_node.remote_client());' 's|return meshroute::remote_client_busy(g_node.remote_client());|return false;|'
+  c8_ctl 'C8-C11 main-loop binding does not service controller' router 'meshroute::remote_client_service(g_node.remote_client(),static_cast<uint32_t>(g_hal.now()),' 's|    meshroute::remote_client_service(g_node.remote_client(),static_cast<uint32_t>(g_hal.now()),|    if (false) meshroute::remote_client_service(g_node.remote_client(),static_cast<uint32_t>(g_hal.now()),|'
+  c8_ctl 'C8-C12 real key use binding ignores captured rows' router 'return meshroute::remote_client_key_in_use(g_node.remote_client(), slot);' 's|return meshroute::remote_client_key_in_use(g_node.remote_client(), slot);|return false;|'
+  c8_ctl 'C8-C13 real target use binding ignores captured rows' router 'return meshroute::remote_client_target_in_use(g_node.remote_client(), slot);' 's|return meshroute::remote_client_target_in_use(g_node.remote_client(), slot);|return false;|'
+  c8_ctl 'C8-C14 status request_table_pressure value lost' client 'out.print(c.request_table_pressure);' 's|out.print(c.request_table_pressure);|out.print(0);|'
+  c8_ctl 'C8-C15 status assembly_failure value lost' client 'out.print(c.assembly_failure);' 's|out.print(c.assembly_failure);|out.print(0);|'
+  c8_ctl 'C8-C16 status unmatched_response value lost' client 'out.print(c.unmatched_response);' 's|out.print(c.unmatched_response);|out.print(0);|'
+  c8_ctl 'C8-C17 status auth_failure value lost' client 'out.print(c.auth_failure);' 's|out.print(c.auth_failure);|out.print(0);|'
+  c8_ctl 'C8-C18 status local_result_pressure value lost' client 'out.print(c.local_result_pressure);' 's|out.print(c.local_result_pressure);|out.print(0);|'
+  c8_ctl 'C8-C19 status radio_enqueue_failure value lost' client 'out.print(c.radio_enqueue_failure);' 's|out.print(c.radio_enqueue_failure);|out.print(0);|'
 fi
 
 MD5_AFTER=$(md5_sources)

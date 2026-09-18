@@ -208,14 +208,14 @@ HL_OLD = '''static void hl(const __FlashStringHelper* fs) {
     }
     if (Serial && Serial.availableForWrite() >= 2) Serial.write(reinterpret_cast<const uint8_t*>("\\r\\n"), 2);
 }
-bool dispatch(const char* line, size_t len, Print& out) {
+bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {
     hl(F("===== MeshRoute console ====="));'''
 
 SRC_CTL = [
     # ⓘ §0a re-aim: `dump_help()` is gone, so the bypass is reinstated in front of `dispatch()` instead. The
     #   control still asks the one question it always asked — does S1/S2 notice a direct-Serial help path?
     ('X1 reinstate the direct-Serial hl() help bypass', CMDS,
-     'bool dispatch(const char* line, size_t len, Print& out) {', HL_OLD, ('S1', 'S2')),
+     'bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {', HL_OLD, ('S1', 'S2')),
 
     ('X2 restore the global-writing print_sf_list(bitmap)', CMDS,
      'void print_sf_list(Print& out, uint16_t bitmap) {\n    bool first = true;\n'
@@ -290,7 +290,7 @@ SRC_CTL = [
     #          which is exactly why 0c could unify the two orders at all. A structural pin is therefore the only
     #          honest instrument for it, and this control is what proves the pin is not decorative.
     ('X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)', CMDS,
-     '    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }\n'
+     '    if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }\n'
      '\n'
      '    // (2) the command parser.',
      '    // (2) the command parser.', ('S24',)),
@@ -1135,7 +1135,7 @@ S4_CTL = [
     ('S-C44 ★★★ THE KEYRING BECOMES RESIDENT — ten master SEEDS move into .bss (design §6.2 reversed)',
      CMDS, 'static mrnv::TargetBlob s_targets;',
      'static mrnv::TargetBlob s_targets;\nstatic mrnv::MgmtKeyBlob s_keys;', 'S44'),
-    ('S-C45 the CLIENT bindings reach into Node state',
+    ('S-C45 the CLIENT bindings reach outside the approved Node controller seams',
      CMDS, '    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);',
      '    (void)g_node.node_id();\n    mrfw::admin_client_boot_report(keys, targets, s_targets, lines);', 'S45'),
     ('S-C46 ★★★ THE TWO SEEDS CROSS: load_mgmt_keys is re-pointed at the TARGET-side /mradmid slot',

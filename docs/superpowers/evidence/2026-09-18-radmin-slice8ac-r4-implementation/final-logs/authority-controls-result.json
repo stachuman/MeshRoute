@@ -1,0 +1,12 @@
+{
+  "name": "authority-controls",
+  "command": [
+    "python3",
+    "tools/check_command_authority.py",
+    "--selftest"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 0.7929075434803963,
+  "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87"
+}

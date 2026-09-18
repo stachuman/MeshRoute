@@ -1,0 +1,12 @@
+{
+  "name": "inventory-check",
+  "command": [
+    "python3",
+    "tools/gen_command_inventory.py",
+    "--check"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 2.2111540846526623,
+  "sha256": "b3eb9f044046b2b1537f52f9d1f5709ee78f05e5fe3690026387c55d530bb892"
+}

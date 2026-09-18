@@ -1,0 +1,11 @@
+{
+  "name": "inbox_verbs",
+  "command": [
+    "bash",
+    "tools/probe_inbox_verbs/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 781.435797598213,
+  "sha256": "e607b6994940c8a12861192ad908641af0ab615df22cf2c7d9a27de0782c4301"
+}

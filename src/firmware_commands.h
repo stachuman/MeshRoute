@@ -83,7 +83,8 @@ uint16_t      peer_store_restore();                  // setup(): re-install the 
 // router directly — both call `exec_console_line()` below, which owns the router-versus-parser fork once. The
 // export stays because the host probes (`tools/probe_inbox_verbs`) drive the router directly, which is how the
 // verb map is gated at all.
-bool dispatch(const char* line, size_t len, Print& out);            // the console verb-router
+bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport = CommandTransport::usb);            // the console verb-router
+void remote_client_service_once(Print& usb, Print* ble, bool ble_connected);
 void print_banner(Print& out);                                      // setup() + `version`
 extern const char kBuildStamp[];                                    // one device-image build timestamp authority
 extern const char kGitRevision[];                                   // one device-image Git-revision authority

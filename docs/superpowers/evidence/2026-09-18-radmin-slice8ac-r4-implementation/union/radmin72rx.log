@@ -1,0 +1,59 @@
+-- target radmin72rx: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_mac_rx.cpp (15 entries)
+-- selection: IN FULL (all 15 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-mreqd_dq   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin72rx: /tmp/mr_mutation_run-mreqd_dq/w0/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin72rx: /tmp/mr_mutation_run-mreqd_dq/w2/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin72rx: /tmp/mr_mutation_run-mreqd_dq/w1/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w2]   ok   P03 epoch changes before reply preparation -> RED (70 assertion(s) failed, match count 1)
+  [w0]   ok   P01 control ignores TX pressure -> RED (6 assertion(s) failed, match count 1)
+  [w1]   ok   P02 epoch draws retry after refusal -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   P06 control refusal leaves its reservation held -> RED (17 assertion(s) failed, match count 1)
+  [w1]   ok   P05 sent or lost rollover resurrects the old epoch -> RED (14 assertion(s) failed, match count 1)
+  [w0]   ok   P04 successful epoch installation is dropped -> RED (34 assertion(s) failed, match count 1)
+  [w2]   ok   P09 open sender ignores full TX -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   P08 bootstrap and fixed sender refusals are not counted -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   P07 control send refusal is not counted -> RED (2 assertion(s) failed, match count 1)
+  [w2]   ok   P12 open encoder failure resets a nonzero cursor -> RED (4 assertion(s) failed, match count 1)
+  [w1]   ok   P11 open encoder failure replaces frozen terminal -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   P10 open encoder failure consumes cursor -> RED (7 assertion(s) failed, match count 1)
+  [w2]   ok   P15 open sender refusal advances cursor -> RED (26 assertion(s) failed, match count 1)
+  [w2] source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)
+  [w2] shard 2: 5 RED / 0 unusable   (of 5 entries)
+  [w1]   ok   P14 parked open result is misclassified as refusal -> RED (4 assertion(s) failed, match count 1)
+  [w1] source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+  [w0]   ok   P13 open ownership success does not advance -> RED (59 assertion(s) failed, match count 1)
+  [w0] source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)
+  [w0] shard 0: 5 RED / 0 unusable   (of 5 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin72rx: /tmp/mr-s8ac-r4-b1edsao2/final-gate/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2947 / 193734 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   P01 control ignores TX pressure -> RED (6 assertion(s) failed, match count 1)
+  ok   P02 epoch draws retry after refusal -> RED (1 assertion(s) failed, match count 1)
+  ok   P03 epoch changes before reply preparation -> RED (70 assertion(s) failed, match count 1)
+  ok   P04 successful epoch installation is dropped -> RED (34 assertion(s) failed, match count 1)
+  ok   P05 sent or lost rollover resurrects the old epoch -> RED (14 assertion(s) failed, match count 1)
+  ok   P06 control refusal leaves its reservation held -> RED (17 assertion(s) failed, match count 1)
+  ok   P07 control send refusal is not counted -> RED (2 assertion(s) failed, match count 1)
+  ok   P08 bootstrap and fixed sender refusals are not counted -> RED (1 assertion(s) failed, match count 1)
+  ok   P09 open sender ignores full TX -> RED (2 assertion(s) failed, match count 1)
+  ok   P10 open encoder failure consumes cursor -> RED (7 assertion(s) failed, match count 1)
+  ok   P11 open encoder failure replaces frozen terminal -> RED (2 assertion(s) failed, match count 1)
+  ok   P12 open encoder failure resets a nonzero cursor -> RED (4 assertion(s) failed, match count 1)
+  ok   P13 open ownership success does not advance -> RED (59 assertion(s) failed, match count 1)
+  ok   P14 parked open result is misclassified as refusal -> RED (4 assertion(s) failed, match count 1)
+  ok   P15 open sender refusal advances cursor -> RED (26 assertion(s) failed, match count 1)
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 31.1s, rc 0, source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)   /tmp/mr_mutation_run-mreqd_dq/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 31.0s, rc 0, source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)   /tmp/mr_mutation_run-mreqd_dq/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 30.4s, rc 0, source restored: md5 11aadce87dab0e6d4172a12abcaccc75 (MATCHES)   /tmp/mr_mutation_run-mreqd_dq/w2
+real tree untouched: all 61 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8ac-r4-b1edsao2/final-gate
+timing: copy 1.9s + battery 31.2s = 33.1s total, 15 entries over 3 worker(s)
+mutations: 15 RED / 0 unusable

@@ -1,0 +1,16 @@
+# 8a+8c coder preflight evidence — 2026-09-17
+
+This is the STOP-1 B403/R1 allocation checkpoint, not an implementation freeze or QA PASS.
+See [the receipt](../2026-09-17-radmin-slice8ac.md).
+
+- `state.json`, `inputs.json`, `preparation-inputs.json`: exact commit identities and all 2147 starting inputs, including the six uncommitted QA files. `preparation-files/` retains those six original bytes; `preparation.patch` is the tracked delta from the brief base, and `base-to-head-files.json` identifies the 44 documentation-only committed paths.
+- `source-anchors.json`: 84 located symbols. The initial two scanner-name mistakes are retained separately and do not supply the final result.
+- `logs/`, `native-results.json`: actual commands/results. Final native 2931/189998/0, reference 94, ABI 218/9 RED; no full gate.
+- `layout/controller-model.h`, `layout/layout.cpp`, `layout/measurements.json`: compile-only historical/counters-only/proposed state on all three toolchains. `layout/summary.json` gives the final 4544-byte proposal and Node results. `layout/offsets.cpp` and `offsets.json` retain the field checks, whole-Node offsets and exact commands. The generated Node shadows are private models, not production edits.
+- `layout-attempt1/`, `layout-attempt2/`, initial offset records and corresponding logs: discarded include-path/generation/placement attempts, retained for attribution. Use only `layout/summary.json` for the reported proposal.
+- `conversion/proof.cpp`: labelled synthetic C++ characterization including the actual unchanged `remote_session.cpp` and calling its real `derive_base`. `commands.json` records compile/link/run; `logs/conversion-run.log` is the 46-check result. `independent-point-check.json` records the separate finite-field calculation for the four off-curve points.
+- `scripts/`: exact investigation drivers. They use the private-root pointer `/tmp/mr-codex-s8ac-preflight-active`; the preparation script creates a full snapshot including dirty and untracked inputs. The layout driver obtains each profile's PlatformIO compiler/defines. These scripts generate evidence only; review their absolute workspace paths before reusing them elsewhere. The baseline reference command was `/home/staszek/mr-slice2-ref/bin/python docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py --freeze-check --compare test/test_remote_codec.cpp --selftest` in that snapshot.
+- `private-binary-inputs.json`: hashes of the generated layout objects, proof binary and actual native link inputs. These binaries and the built snapshot remain at `/tmp/mr-codex-s8ac-preflight-3agva4yb`; they are not copied into the repository. The retained sources, compiler commands, base identity and preparation bytes permit rebuilding them.
+- `register-intake.patch`: this coder's exact delta from the incoming QA register. `preservation.json` checks every original input and the brief/simulator pins after that sole declared register edit. `SHA256SUMS` covers all persisted artifacts except itself.
+
+Reproduction requires the repository at the recorded source identity, the recorded preparation inputs, installed PlatformIO toolchains and the reference environment. No simulator source edit is needed. The model's `-fno-access-control` is used only for compile-only private offset inspection; production flags and pins are unchanged.

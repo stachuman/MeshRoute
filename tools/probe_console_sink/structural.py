@@ -185,7 +185,7 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     #    proves the FIRMWARE ACTUALLY CALLS IT — and calls it once, before every other verb, with no second parser
     #    left behind in the caller. Removing, duplicating or bypassing the call is a controlled mutation (negctl X11).
     try:
-        disp = _body(cmds, 'bool dispatch(const char* line, size_t len, Print& out)')
+        disp = _body(cmds, 'bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport)')
     except ValueError:
         disp = ''
     n_router = len(re.findall(r'\bhelp_command\s*\(\s*line\s*,\s*len\s*,\s*out\s*\)', disp))
@@ -321,7 +321,7 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     #    is BEHAVIOURALLY INVISIBLE — which is precisely why the 0c unification was safe, and precisely why no
     #    executed control can catch a reversal. ⇒ a structural pin is the honest instrument for it, and the
     #    permanent ownership gate is what keeps the licence for that order true.
-    seam_order_ok = bool(seam) and 0 <= seam.find('dispatch(line, len, stream)') < seam.find('parse_command(')
+    seam_order_ok = bool(seam) and 0 <= seam.find('dispatch(line, len, stream, ctx.transport)') < seam.find('parse_command(')
     add('S24', 'the seam makes the router/parser fork exactly ONCE, ROUTER-FIRST, and executes per format arm',
         bool(seam) and seam_fork['dispatch'] == 1 and seam_fork['parse_command'] == 1
         and seam_fork['on_command'] == 2 and seam_order_ok,
@@ -656,9 +656,13 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         add('S44', '⛔ NO resident management keyring, service or seed exists — the SECRETS stay stack transients',
             not cresident, f'{len(cresident)} occurrence(s): {cresident[:3]}')
         cli_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_CLIENT(.*?)#endif', cmds, re.S)
-        add('S45', 'the CLIENT bindings touch NO Node state and no legacy single-admin symbol',
+        # 8ac binds only the approved controller block, its timer and existing correlation capacity.
+        # Preserve the no-other-Node/no-target-key boundary; S-C45's node_id injection must still fail.
+        allowed_client_node = r'\bg_node\.(?:remote_client|remote_client_arm|remote_client_correlation_free)\(\)'
+        add('S45', 'CLIENT bindings reach only the approved controller seams and no legacy single-admin symbol',
             len(cli_blocks) >= 1
-            and all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b', b)
+            and all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b',
+                                  re.sub(allowed_client_node, '', b))
                     for b in cli_blocks), f'{len(cli_blocks)} CLIENT block(s)')
 
         # ---- the typed wrappers address the CORRECT slots (design §6.4's no-crossing rule, as source) --------

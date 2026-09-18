@@ -1,0 +1,8 @@
+0db8331f594c2f24  lib/core/remote_client.h
+d2bee314fea1c86a  lib/core/remote_client.cpp
+c9ddba40f9dc3cd0  lib/core/node_mac_rx.cpp
+bd5a90101202ccec  src/firmware_remote_client.h
+33355f49c6385772  src/firmware_remote_client.cpp
+97943d3fb69d283d  src/firmware_commands.cpp
+a6a5471f3c812033  src/device_rng.h
+0000c338649a631f  tools/probe_ui_model_mutations.py

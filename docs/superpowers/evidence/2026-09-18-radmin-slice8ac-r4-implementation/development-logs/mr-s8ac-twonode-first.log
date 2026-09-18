@@ -1,0 +1,280 @@
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+test/test_node_remote_session.cpp:1636:
+TEST CASE:  8ac two Node loopback owns response bytes and all terminal meanings through real MAC intake
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cfff41 )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cbd601 )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cd45eb )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cdf728 )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cd45fb )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cd460c )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cd461b )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8bf7e1e )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1678: ERROR: CHECK( target.node.radmin_reserve_transcript(admitted.seen_index,100) ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1682: ERROR: CHECK( target.node.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1669: ERROR: CHECK( found ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.text=="owned" ) is NOT correct!
+  values: CHECK(  == owned )
+
+test/test_node_remote_session.cpp:1686: ERROR: CHECK( sink.result==names[code] ) is NOT correct!
+  values: CHECK(  == 0x5c84b8cd4628 )
+
+test/test_node_remote_session.cpp:1687: ERROR: CHECK( remote_client_ack(controller.remote_client(),begin.request_id,static_cast<uint32_t>(hal._now))==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_session.cpp:1689: ERROR: CHECK( carrier.acks.size()==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_session.cpp:1691: ERROR: CHECK( controller.remote_client().ack_debt[0].in_use==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+===============================================================================
+[doctest] test cases:   1 |   0 passed |  1 failed | 2937 skipped
+[doctest] assertions: 279 | 189 passed | 90 failed |
+[doctest] Status: FAILURE!

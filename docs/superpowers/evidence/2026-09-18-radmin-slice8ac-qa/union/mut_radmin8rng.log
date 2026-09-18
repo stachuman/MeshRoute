@@ -1,0 +1,19 @@
+-- target radmin8rng: /home/staszek/mr-s8ac-qa-stage/src/device_rng.h (1 entries)
+-- selection: IN FULL (all 1 entries)
+-- workers: 1   [SERIAL REFERENCE PATH]
+-- scratch root: /tmp/mr_mutation_run-yyduieqh   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8rng: /tmp/mr_mutation_run-yyduieqh/w0/src/device_rng.h (1 of 1 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2947 / 193734 / 0   (DERIVED from this tree)
+  [w0]   ok   E01 host without entropy provider claims success -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 b770c11b4b4733b6f95fce93dde48e4a (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8rng: /home/staszek/mr-s8ac-qa-stage/src/device_rng.h
+  ok   clean baseline 2947 / 193734 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   E01 host without entropy provider claims success -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 10.6s, rc 0, source restored: md5 b770c11b4b4733b6f95fce93dde48e4a (MATCHES)   /tmp/mr_mutation_run-yyduieqh/w0
+real tree untouched: all 61 target files byte-identical to launch (md5); no build ran in /home/staszek/mr-s8ac-qa-stage
+timing: copy 0.7s + battery 10.6s = 11.4s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable

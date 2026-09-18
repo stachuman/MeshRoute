@@ -1,0 +1,20 @@
+{
+  "timestamp_utc": "2026-09-18T07:24:48.438548+00:00",
+  "source_base": "6086152b97b5934971d231a345b9939d5f2db1e9",
+  "head": "e3a5fa03eab11806b05094953a04e7c1524f221a",
+  "input_paths": 2743,
+  "inventory_sha256": "8cc2f377f49e7df9466d7e0f435bbffc2a8ca95e7924935b8195a4bf61f96887",
+  "inventory_excludes": [
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8ac-r4-implementation/freeze-inputs.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8ac-r4-implementation/freeze.json"
+  ],
+  "receipt": "docs/superpowers/evidence/2026-09-17-radmin-slice8ac.md",
+  "receipt_sha256": "3357033d6f716cd06838e18d9a2d6137f345572b4f3c8bfb2829a5dbe0576a00",
+  "qa_preparation_unchanged": true,
+  "simulator_head": "06746a97de5764415d6fcef10b97bca90569b9c7",
+  "simulator_clean": true,
+  "shared_authority_table_sha256": "b070fbb4b4db5a8da51377657924e3cce81da9e81ee43806384bcb39d911ab87",
+  "tested_candidate_authority_table_sha256": "c189c0558dae1b01ce4e810c06b5101937494d744699cf09ce4051c6833af6d6",
+  "candidate_table_patch": "r42-authority-transcription.patch",
+  "full_gate_summary_sha256": "5a52d18e862e1627e09f1bd866e01a0b8f8b8f9ad463e16a4acf6df95db16ff2"
+}

@@ -1,0 +1,125 @@
+E.....EE...................E.......EE.....EE.E.....................E
+======================================================================
+ERROR: test_comment_and_string_shadows_do_not_create_predicates (test_gen_command_inventory.TestActionAdmissionSurfaces.test_comment_and_string_shadows_do_not_create_predicates)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 578, in test_comment_and_string_shadows_do_not_create_predicates
+    rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 525, in modified_rows
+    return G.build_rows(root)[0]
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_predicate_enclosing_feature_gate_is_preserved (test_gen_command_inventory.TestActionAdmissionSurfaces.test_predicate_enclosing_feature_gate_is_preserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 554, in test_predicate_enclosing_feature_gate_is_preserved
+    rows = self.modified_rows(path, body, "#if MR_FEAT_TEST\n" + body + "\n#endif")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 525, in modified_rows
+    return G.build_rows(root)[0]
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_real_predicate_rows_have_original_policy_and_actual_owner (test_gen_command_inventory.TestActionAdmissionSurfaces.test_real_predicate_rows_have_original_policy_and_actual_owner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 528, in test_real_predicate_rows_have_original_policy_and_actual_owner
+    rows = G.build_rows(REPO_ROOT)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_tree_projects_the_manual_s_primary_names (test_gen_command_inventory.TestPrimaryProjection.test_the_real_tree_projects_the_manual_s_primary_names)
+The manual's primary-name count is REPRODUCED from source, never copied into it.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 830, in test_the_real_tree_projects_the_manual_s_primary_names
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles (test_gen_command_inventory.TestRadminAcceptAxis.test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles)
+The rows are the REAL recorded ones, and the two families appear iff the profile is an ACCEPT build.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 915, in test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show (test_gen_command_inventory.TestRadminClientAxis.test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show)
+The ruling's split is in the AUTHORITY TABLE, per row — not inferred from a name shape.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1010, in test_R_RA_30_is_recorded_PER_SUB_VERB_and_only_for_list_and_show
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_override_never_widens_a_surface_it_was_not_spelled_on (test_gen_command_inventory.TestRadminClientAxis.test_the_override_never_widens_a_surface_it_was_not_spelled_on)
+A LITERAL table, ⛔ not a rule about the word `list`: the target family's `acl list` stays serial.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1029, in test_the_override_never_widens_a_surface_it_was_not_spelled_on
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles (test_gen_command_inventory.TestRadminClientAxis.test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 990, in test_the_real_CLIENT_gated_rows_project_onto_exactly_the_two_mobile_profiles
+    rows, _n, _v, _r = G.build_rows(REPO_ROOT)
+                       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: setUpClass (test_gen_command_inventory.TestRealTree)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 589, in setUpClass
+    cls.rows = G.build_rows(REPO_ROOT)[0]
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+======================================================================
+ERROR: test_real_normalization_and_discriminator_bindings (test_gen_command_inventory.TestSlice6Normalization.test_real_normalization_and_discriminator_bindings)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/staszek/MeshRoute/tools/test_gen_command_inventory.py", line 1078, in test_real_normalization_and_discriminator_bindings
+    rows = G.build_rows(REPO_ROOT)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/staszek/MeshRoute/tools/gen_command_inventory.py", line 911, in build_rows
+    raise GeneratorError("unclassified inventory row: %r at %s" % (key, row.source))
+gen_command_inventory.GeneratorError: unclassified inventory row: ('remote', '—') at src/firmware_commands.cpp:1558
+
+----------------------------------------------------------------------
+Ran 67 tests in 22.660s
+
+FAILED (errors=10)

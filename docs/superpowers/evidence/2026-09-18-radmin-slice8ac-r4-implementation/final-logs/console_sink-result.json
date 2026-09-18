@@ -1,0 +1,11 @@
+{
+  "name": "console_sink",
+  "command": [
+    "bash",
+    "tools/probe_console_sink/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8ac-r4-b1edsao2/final-gate",
+  "exit": 0,
+  "seconds": 79.35552104562521,
+  "sha256": "4ffc1e4ad91db6f1333ec4af2fd7d029f1fac0e08c767bf3a3ce5665013870fa"
+}

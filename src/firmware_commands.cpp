@@ -11,6 +11,7 @@
 #include "firmware_remote_activation.h"
 #include "firmware_remote_executor.h"
 #include "firmware_remote_actions.h"
+#include "firmware_remote_client.h"
 #include "fw_context.h"        // g_node + the shared state
 #include "device_nv.h"         // mrnv::PeerBlob / load_peers / save_peers
 #include <cstdio>              // snprintf
@@ -461,23 +462,33 @@ struct DeviceMgmtKeySeed : mrfw::IAdminSeedSource {
         return !mrfw::admin_buf_all_zero(out, 32);
     }
 };
-// ★★ THE FUTURE-CALLER PREDICATES, BOUND TO **NO REFERENCES** — and that is a fact about Slice 4, not a stub with
-//    a shrug: Slice 8a is the FIRST producer of a session or a pending request, so today nothing can be in use.
-//    ⛔ It is a SEAM rather than a runtime flag or an overridable macro, so the day 8a lands there is exactly one
-//    place to bind and the service rules do not move.
+// Controller stores cannot invalidate an identity or route while a session, request or ACK owns it.
 struct DeviceMgmtKeyUse : mrfw::IMgmtKeyUse {
-    bool slot_in_use(uint8_t) const override { return false; }
-    bool any_in_use() const override         { return false; }
+    bool slot_in_use(uint8_t slot) const override { return meshroute::remote_client_key_in_use(g_node.remote_client(), slot); }
+    bool any_in_use() const override {
+        for (uint8_t i=0; i<10; ++i) if (slot_in_use(i)) return true;
+        return false;
+    }
 };
 struct DeviceTargetUse : mrfw::ITargetUse {
-    bool slot_in_use(uint8_t) const override { return false; }
-    bool any_in_use() const override         { return false; }
+    bool slot_in_use(uint8_t slot) const override { return meshroute::remote_client_target_in_use(g_node.remote_client(), slot); }
+    bool any_in_use() const override {
+        for (uint8_t i=0; i<32; ++i) if (slot_in_use(i)) return true;
+        return false;
+    }
 };
-// ★★ THE REGEN ADMISSION, BOUND TO **NO DEBT**, for the same reason: there is no source-bound request, assembly,
-//    retained result or response ACK in this slice to be outstanding.
 struct DeviceClientRemoteDebt : mrfw::IClientRemoteDebt {
-    bool busy() const override { return false; }
+    bool busy() const override { return meshroute::remote_client_busy(g_node.remote_client()); }
 };
+struct DeviceRemoteCarrier : meshroute::IRadminCarrier {
+    bool tx_queue_full() const override { return false; }
+    meshroute::RemoteClientSend submit_request(const meshroute::RemoteClientRoute&, meshroute::RemoteSource,
+        const meshroute::RemoteCarrier&, std::span<const uint8_t>, bool) override { return meshroute::RemoteClientSend::unavailable; }
+    meshroute::RemoteClientSend submit_ack(const meshroute::RemoteClientRoute&, meshroute::RemoteSource,
+        const meshroute::RemoteCarrier&, std::span<const uint8_t>) override { return meshroute::RemoteClientSend::unavailable; }
+};
+static bool client_entropy(void*, uint8_t* out, size_t n) { return mrrng::fill_checked(out,n); }
+static uint32_t client_console_drops(void*) { return mrcon.dropped_lines(); }
 // The `AdminPrintLines` shape (U3): the sink the caller was HANDED, ⛔ never `mrcon` and ⛔ never a global.
 // ⓘ The body carries its own trailing marker so `tools/probe_inbox_verbs`' [[B279]]-shaped control can target THIS
 //   adapter and not the byte-identical ACCEPT one above it.
@@ -503,6 +514,32 @@ struct AdminClientPrintLines : mrfw::IAdminLines {
 //      transient inside the service and is wiped on every exit. A resident copy of ten master seeds is exactly
 //      what design §6.2's "wipes transient expanded secret material" forbids.
 static mrnv::TargetBlob s_targets;
+
+static void handle_remote_client(const char* line, size_t len, Print& out, CommandTransport transport) {
+    DeviceMgmtKeyStore key_store;
+    DeviceMgmtKeySeed seed;
+    DeviceMgmtKeyUse key_use;
+    DeviceTargetStore target_store;
+    DeviceTargetUse target_use;
+    MgmtKeyService keys(key_store,seed,key_use,g_identity.ed_pub);
+    TargetService targets(target_store,target_use);
+    DeviceRemoteCarrier carrier;
+    const auto local=transport==CommandTransport::ble ? meshroute::RemoteLocalTransport::ble : meshroute::RemoteLocalTransport::usb;
+    RemoteClientDelivery delivery(out, local==meshroute::RemoteLocalTransport::ble ? &out : nullptr,
+                                  local==meshroute::RemoteLocalTransport::ble,client_console_drops);
+    RemoteClientServices services{g_node.remote_client(),g_identity,keys,targets,s_targets,carrier,
+        client_entropy,nullptr,static_cast<uint32_t>(g_hal.now()),g_node.remote_client_correlation_free(),1};
+    remote_client_command(services,line,len,local,out,delivery);
+    g_node.remote_client_arm();
+}
+void remote_client_service_once(Print& usb, Print* ble, bool ble_connected) {
+    DeviceRemoteCarrier carrier;
+    RemoteClientDelivery delivery(usb,ble,ble_connected,client_console_drops);
+    meshroute::remote_client_service(g_node.remote_client(),static_cast<uint32_t>(g_hal.now()),
+                                    client_entropy,nullptr,carrier,delivery);
+    g_node.remote_client_arm();
+}
+
 
 // `admin-key list|show|generate|import|export|remove|reset` — through the ONE dispatch.
 static void handle_admin_key(const char* args, size_t len, Print& out) {
@@ -986,6 +1023,9 @@ static void dump_status(Print& out) {
     out.print(F(" radmin_response_enqueue_failure=")); out.print(radmin.response_enqueue_failure);
     out.print(F(" radmin_response_seal_failure=")); out.print(radmin.response_seal_failure);
     remote_action_print_status(out);
+#endif
+#if MR_FEAT_RADMIN_CLIENT
+    remote_client_status(out,g_node.remote_client());
 #endif
     out.println();
 }
@@ -1513,7 +1553,15 @@ static void handle_teststatus(Print& out) {
 
 // handle_password moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment B; MR_FEAT_REMOTE_MGMT-gated); `using mrfw::handle_password` above.
 
-bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`
+bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {   // §command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`
+#if MR_FEAT_RADMIN_CLIENT
+    if (admin_primary_is(line,len,"remote")) { handle_remote_client(line,len,out,transport); return true; }
+    if (admin_primary_is(line,len,"remote-retry")) { handle_remote_client(line,len,out,transport); return true; }
+    if (admin_primary_is(line,len,"remote-result")) { handle_remote_client(line,len,out,transport); return true; }
+    if (admin_primary_is(line,len,"remote-ack")) { handle_remote_client(line,len,out,transport); return true; }
+#else
+    (void)transport;
+#endif
     if (help_command(line, len, out)) return true;   // §0a/[[B208]] + §0g — the ONE help router (firmware_help.h):
                                                     //   the bare primary-name index, or the bounded refusal for a
                                                     //   retired argument-bearing form. false = not a help line, so
@@ -1704,7 +1752,7 @@ LineExec exec_console_line(const char* line, size_t len, LineFormat fmt, Print& 
     }
 
     // (1) the console verb router — one offer, through the sink the caller supplied.
-    if (dispatch(line, len, stream)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }
+    if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }
 
     // (2) the command parser. ⓘ `cmd.body` borrows into `line`; everything that reads it runs below, inside this
     //     call, while the caller's buffer is still alive.
