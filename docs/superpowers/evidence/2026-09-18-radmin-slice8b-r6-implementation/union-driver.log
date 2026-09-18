@@ -1,0 +1,126 @@
+START a0rx
+START actionadmit
+START b134ack
+START b134inbox
+END b134ack 0
+START b134ram
+END a0rx 0
+START b134store
+END actionadmit 0
+START b159mac
+END b134inbox 0
+START b159map
+END b134ram 0
+START b159rx
+END b159mac 0
+START b161hash
+END b159map 0
+START b161mac
+END b159rx 0
+START b161rx
+END b161hash 0
+START b20codec
+END b161mac 0
+START b20mac
+END b161rx 0
+START b251hash
+END b134store 0
+START b251rx
+END b20codec 0
+START cmdauthority
+END b20mac 0
+START consoleline
+END b251rx 0
+START devicenv
+END cmdauthority 0
+START fwactivation
+END consoleline 0
+START grantadmit
+END b251hash 0
+START grantpark
+END grantadmit 0
+START macwait
+END fwactivation 0
+START radmin2codec
+END grantpark 0
+START radmin3acl
+END macwait 0
+START radmin3id
+END devicenv 0
+START radmin3verbs
+END radmin3acl 0
+START radmin5runtime
+END radmin2codec 0
+START radmin5rx
+END radmin3id 0
+START radmin5session
+END radmin3verbs 0
+START radmin72rx
+END radmin5runtime 0
+START radmin72session
+END radmin72rx 0
+START radmin73action
+END radmin5rx 0
+START radmin73convert
+END radmin5session 0
+START radmin73node
+END radmin73convert 0
+START radmin7exec
+END radmin73node 0
+START radmin7rx
+END radmin72session 0
+START radmin7transcript
+END radmin73action 0
+START radmin8brx
+END radmin7rx 0
+START radmin8client
+END radmin7exec 0
+START radmin8node
+END radmin7transcript 0
+START radmin8rng
+END radmin8node 0
+START radmin8verbs
+END radmin8rng 0
+START remoteactivation
+END radmin8brx 0
+START sliceAinbox
+END remoteactivation 0
+START sliceAjson
+END sliceAinbox 0
+START sliceBmac
+END radmin8client 0
+START sliceBnode
+END sliceAjson 0
+START sliceBrx
+END radmin8verbs 0
+START sliceCinbox
+END sliceBmac 1
+START sliceCpull
+END sliceBnode 0
+START sliceDack
+END sliceCpull 0
+START sliceDclear
+END sliceCinbox 0
+START sliceDstore
+END sliceDack 0
+START sliceDtoken
+END sliceBrx 0
+START sliceEnode
+END sliceDclear 0
+START sliceGinbox
+END sliceDstore 0
+START sliceGjson
+END sliceEnode 0
+START sliceGrx
+END sliceDtoken 0
+START teamgrant
+END sliceGinbox 0
+START teamkeyring
+END teamgrant 0
+END sliceGjson 0
+END sliceGrx 0
+END teamkeyring 0
+Traceback (most recent call last):
+  File "/tmp/mr-s8b-r6-union.py", line 20, in <module>
+    assert not [r for r in results if r['exit']],[(r['target'],r['exit']) for r in results if r['exit']]
+AssertionError: [('sliceBmac', 1)]

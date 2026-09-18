@@ -1,0 +1,19 @@
+-- target radmin8node: /home/staszek/mr-s8b-qa-stage/lib/core/node.h (1 entries)
+-- selection: IN FULL (all 1 entries)
+-- workers: 1   [SERIAL REFERENCE PATH]
+-- scratch root: /tmp/mr_mutation_run-e1ex12nq   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8node: /tmp/mr_mutation_run-e1ex12nq/w0/lib/core/node.h (1 of 1 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w0]   ok   N01 B408 counts home delegation ring instead of mobile E2E ring -> RED (22 assertion(s) failed, match count 1)
+  [w0] source restored: md5 d8355a1ae136e39924383a1ac06ea351 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8node: /home/staszek/mr-s8b-qa-stage/lib/core/node.h
+  ok   clean baseline 2970 / 195942 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  ok   N01 B408 counts home delegation ring instead of mobile E2E ring -> RED (22 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 26.4s, rc 0, source restored: md5 d8355a1ae136e39924383a1ac06ea351 (MATCHES)   /tmp/mr_mutation_run-e1ex12nq/w0
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/mr-s8b-qa-stage
+timing: copy 0.9s + battery 26.4s = 27.4s total, 1 entries over 1 worker(s)
+mutations: 1 RED / 0 unusable

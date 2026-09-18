@@ -1,0 +1,18 @@
+{
+  "name": "sim-configure",
+  "command": [
+    "cmake",
+    "-S",
+    "/home/staszek/lora-universal-simulator",
+    "-B",
+    "/tmp/mr-s8b-r4-_d7gpj1e/sim-final",
+    "-G",
+    "Ninja",
+    "-DMESHROUTE_DIR=/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+    "-DCMAKE_BUILD_TYPE=Release"
+  ],
+  "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+  "exit": 0,
+  "seconds": 0.9357245303690434,
+  "sha256": "2ba0222f3c953b7bddc68ba826f7aa3cf96cc637bd1f940e9b827d2beaa12087"
+}

@@ -1,0 +1,38 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+test/test_node_remote_carrier.cpp: In function ‘void DOCTEST_ANON_FUNC_35()’:
+test/test_node_remote_carrier.cpp:446:78: error: ‘const struct meshroute::CmdResult’ has no member named ‘value’
+  446 |         const auto result=c.mobile.on_command(command);const auto ctr=result.value;
+      |                                                                              ^~~~~
+In file included from test/test_node_remote_carrier.cpp:2:
+test/test_node_remote_carrier.cpp:447:22: error: ‘const struct meshroute::CmdResult’ has no member named ‘ok’
+  447 |         CHECK(result.ok);
+      |                      ^~
+.pio/libdeps/native/doctest/doctest/doctest.h:2143:32: note: in definition of macro ‘DOCTEST_WRAP_IN_TRY’
+ 2143 | #define DOCTEST_WRAP_IN_TRY(x) x;
+      |                                ^
+.pio/libdeps/native/doctest/doctest/doctest.h:2397:9: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_2’
+ 2397 |         DOCTEST_ASSERT_IMPLEMENT_2(assert_type, __VA_ARGS__);                                      \
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2441:28: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_1’
+ 2441 | #define DOCTEST_CHECK(...) DOCTEST_ASSERT_IMPLEMENT_1(DT_CHECK, __VA_ARGS__)
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2970:20: note: in expansion of macro ‘DOCTEST_CHECK’
+ 2970 | #define CHECK(...) DOCTEST_CHECK(__VA_ARGS__)
+      |                    ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:447:9: note: in expansion of macro ‘CHECK’
+  447 |         CHECK(result.ok);
+      |         ^~~~~
+*** [/tmp/mr-s8b-r6-nwy4hz9d/iter-native/native/test/test_node_remote_carrier.o] Error 1
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+--------------------- native:* [ERRORED] Took 2.00 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  -------------
+native         *       ERRORED   00:00:01.1000
+================== 1 test cases: 0 succeeded in 00:00:01.1000 ==================

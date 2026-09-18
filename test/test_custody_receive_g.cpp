@@ -57,150 +57,9 @@
 
 using namespace meshroute;
 
+#include "support/remote_carrier_chain.h"
+
 namespace {
-
-// Timer ids, mirrored TU-locally exactly as `test_custody_relay_f.cpp:46` does.
-constexpr uint32_t kRtsTimeoutTimerId   = 4;
-constexpr uint32_t kCtsToDataGapTimerId = 7;
-constexpr uint32_t kQueueWakeupTimerId  = 8;
-constexpr uint32_t kPostAckTimerId      = 9;
-constexpr uint32_t kRetryBackoffTimerId = 10;
-
-const RxMeta kRx{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
-
-struct GFrame { std::string label; std::vector<uint8_t> bytes; };
-
-class GHal : public mrtest::TestHalBase {
-public:
-    // ★ §B278 S3: the recorder gained the FIELDS beside the name — additively, so every pre-existing
-    //   `count(...)` reader is unchanged. S3's four events are pinned by field NAME, ORDER and integer TYPE,
-    //   and a recorder that kept only the event name could not say any of that.
-    struct EmitRec { std::string kind; std::vector<std::string> keys; std::vector<int> types;
-                     std::vector<int64_t> ivals; };
-    std::vector<std::string> emits;
-    std::vector<EmitRec>     emit_recs;
-    std::vector<GFrame>      tx_frames;
-    void emit(const char* kind, const EventField* f, size_t n) override {
-        emits.push_back(kind ? kind : "");
-        EmitRec r; r.kind = kind ? kind : "";
-        for (size_t i = 0; i < n; ++i) {
-            r.keys.push_back(f[i].key ? f[i].key : "");
-            r.types.push_back(static_cast<int>(f[i].type));
-            r.ivals.push_back(f[i].type == EventField::T::i64 ? f[i].i : -1);
-        }
-        emit_recs.push_back(r);
-    }
-    int  count(const char* k) const { int c = 0; for (const auto& e : emits) if (e == k) ++c; return c; }
-    const EmitRec* first_emit(const char* k) const {
-        for (const auto& r : emit_recs) if (r.kind == k) return &r;
-        return nullptr;
-    }
-    void clear_emits() { emits.clear(); emit_recs.clear(); }
-    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
-        tx_frames.push_back(GFrame{ p.label ? p.label : "", std::vector<uint8_t>(b, b + n) });
-        return TxResult::ok;
-    }
-    void rand_bytes(uint8_t* o, size_t n) override {
-        for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(0x5Au ^ (i * 17u));
-    }
-    size_t label_count(const char* label) const {
-        size_t c = 0; for (const auto& f : tx_frames) if (f.label == label) ++c; return c;
-    }
-    std::vector<uint8_t> last(const char* label) const {
-        for (auto it = tx_frames.rbegin(); it != tx_frames.rend(); ++it) if (it->label == label) return it->bytes;
-        return {};
-    }
-};
-
-NodeConfig g_cfg() {
-    NodeConfig cfg; cfg.n_layers = 1;
-    cfg.layers[0].layer_id = 1; cfg.layers[0].routing_sf = 8;
-    cfg.layers[0].allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
-    cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
-    // ⓘ A NONZERO leaf id, for `test_custody_relay_f.cpp`'s reason: `on_init` sets `layers[0].layer_id = leaf_id`
-    //   on a single-layer node, so leaving the default 0 would make §9.2's `reporter_layer` — and therefore
-    //   §13.15's whole falsifier — indistinguishable from an unwritten byte.
-    cfg.leaf_id = 2;
-    return cfg;
-}
-
-void drain(Node& n) { Push d{}; while (n.next_push(d)) {} }
-
-// ---- THE PAIR: node 2 (the REPORTER) -> node 1 (the FAILED ORIGIN, i.e. the only legitimate consumer) -------
-// Node 1's inbox is wired by default, because §7.3's whole point is the sequence the store assigns.
-struct GPair {
-    GHal h1, h2;
-    Node n1{h1, /*id=*/1, 0x11111111u};
-    Node n2{h2, /*id=*/2, 0x22222222u};
-    RamInboxStore dm1{protocol::inbox_dm_store_bytes}, ch1{protocol::inbox_chan_store_bytes};
-    uint64_t now = 100000;
-    // ★ §B278 S3: `n1_lineage` is APPENDED with a default, so every pre-existing construction is byte-identical.
-    //   A nonzero lineage with `config_epoch == 0` is the ONE production shape that makes `leaf_config_synced()`
-    //   false, i.e. the un-synced managed joiner whose `enqueue_data` refuses an `app_dm` origination SILENTLY —
-    //   the `SendDispatch::Admit::none` arm §B278 S3 must treat as a forward refusal (U1: the existing config
-    //   fields, not a new seam).
-    explicit GPair(bool wire_inbox = true, uint16_t n1_lineage = 0) {
-        const NodeConfig cfg = g_cfg();
-        NodeConfig cfg1 = cfg; cfg1.lineage_id = n1_lineage;
-        CHECK(n1.on_init(cfg1)); CHECK(n2.on_init(cfg));
-        if (wire_inbox) n1.inbox().on_init(&dm1, &ch1);   // ⛔ AFTER Node::on_init (node.h's contract)
-        n1.test_learn_route(/*dest=*/2, /*via=*/2, 1, 40, false);
-        n2.test_learn_route(/*dest=*/1, /*via=*/1, 1, 40, false);
-        h1._now = h2._now = now;
-        drain(n1); drain(n2);
-        h1.clear_emits(); h2.clear_emits();
-    }
-    void step() { h1._now = h2._now = ++now; }
-
-    // One COMPLETE hop 2 -> 1 over the real MAC. `fire_post_ack = false` leaves the `PostAck` PENDING, which is
-    // the window the §CUSTODY-G seam reads a REAL one out of.
-    bool hop_2_to_1(bool fire_post_ack = true) {
-        const std::vector<uint8_t> rts = h2.last("RTS");
-        if (rts.empty()) return false;
-        step(); n1.on_recv(rts.data(), rts.size(), kRx);
-        const std::vector<uint8_t> cts = h1.last("CTS");
-        if (cts.empty()) return false;
-        step(); n2.on_recv(cts.data(), cts.size(), kRx);
-        step(); n2.on_timer(kCtsToDataGapTimerId);
-        const std::vector<uint8_t> data = h2.last("DATA");
-        if (data.empty()) return false;
-        step(); n1.on_recv(data.data(), data.size(), kRx);
-        const std::vector<uint8_t> ack = h1.last("ACK");
-        if (!ack.empty()) { step(); n2.on_recv(ack.data(), ack.size(), kRx); }
-        if (fire_post_ack) { step(); n1.on_timer(kPostAckTimerId); }
-        return true;
-    }
-    // Originate a typed DATA at node 2 addressed to node 1 and fly it. Returns false if the chain stalled, so a
-    // fixture that silently stopped driving is a FAILURE and never a green pass.
-    bool send_typed(const uint8_t* body, uint8_t len, uint8_t type = DATA_TYPE_CUSTODY_FAILURE,
-                    uint32_t dst_hash = 0, bool fire_post_ack = true) {
-        if (n2.test_do_send_typed(/*dst=*/1, body, len, CryptIntent::off, dst_hash, type) == 0) return false;
-        return hop_2_to_1(fire_post_ack);
-    }
-    // The REVERSE direction, needed by exactly one arm: §13.1's falsifier requires the REPORTER's node id to be
-    // 1, because that is the byte a CRYPTED parse leaves in front of the record (see §CUSTODY-G/2.1).
-    bool hop_1_to_2(bool fire_post_ack = true) {
-        const std::vector<uint8_t> rts = h1.last("RTS");
-        if (rts.empty()) return false;
-        step(); n2.on_recv(rts.data(), rts.size(), kRx);
-        const std::vector<uint8_t> cts = h2.last("CTS");
-        if (cts.empty()) return false;
-        step(); n1.on_recv(cts.data(), cts.size(), kRx);
-        step(); n1.on_timer(kCtsToDataGapTimerId);
-        const std::vector<uint8_t> data = h1.last("DATA");
-        if (data.empty()) return false;
-        step(); n2.on_recv(data.data(), data.size(), kRx);
-        const std::vector<uint8_t> ack = h2.last("ACK");
-        if (!ack.empty()) { step(); n1.on_recv(ack.data(), ack.size(), kRx); }
-        if (fire_post_ack) { step(); n2.on_timer(kPostAckTimerId); }
-        return true;
-    }
-    bool send_typed_from_1(const uint8_t* body, uint8_t len, bool fire_post_ack = true) {
-        if (n1.test_do_send_typed(/*dst=*/2, body, len, CryptIntent::off, /*dst_hash=*/0,
-                                  DATA_TYPE_CUSTODY_FAILURE) == 0) return false;
-        return hop_1_to_2(fire_post_ack);
-    }
-};
 
 // ---- §9.2's record, as a VALUE, with every field distinct so no assertion can pass on a zero -----------------
 // ⛔ NOT the §9.2 GOLDEN BYTE VECTOR — that lives in `test_custody_relay_f.cpp` and is the wire authority. This
@@ -3510,4 +3369,57 @@ TEST_CASE("§B278-S4/14 consuming a translated record spawns no custody notice a
     CHECK(o.delivered == 0);
     // …and a record ABOUT an 0x81 is refused at this receiver too — the other half of never-about-itself.
     s4_expect_rejected_byte("about a notice", kOffFailedType, DATA_TYPE_CUSTODY_FAILURE);
+}
+
+#include "../src/firmware_remote_client.h"
+TEST_CASE("8b S4 transport A translated remote command remains durable while the observer only renders") {
+    constexpr uint32_t target=0xa1b2c3d4;
+    S4Chain c;
+    auto record=g_base_record(1,2);record.failed_type=DATA_TYPE_REMOTE_CMD;record.dst_hash32=target;
+    record.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,true);
+    uint8_t direct[custody_record_v1_len]{};const auto n=g_pack(record,direct);
+    CHECK(s3_seed(c.p.n1,kS3MobileHash,kS3CtrH,kS3CtrM,kKindKeyHash,target,kKindNodeId,kS3ReturnPeer,DATA_TYPE_REMOTE_CMD));
+    CHECK(c.p.send_typed(direct,n));CHECK(c.hop_to_m1());
+    Push push{};bool found=false;
+    while(c.m1.next_push(push))if(push.kind==PushKind::custody_failure){found=true;break;}
+    CHECK(found);if(!found)return;
+    const auto original=push;
+    auto& state=c.m1.remote_client();state={};auto& row=state.pending[0].core;
+    row.request_id=1;row.state=uint8_t(RemoteClientPhase::response_wait);
+    row.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;row.carrier_ctr=kS3CtrM;row.route.target_hash=target;
+    struct ObserverSink {
+        std::string text;RemoteLocalTransport transport{};
+        bool carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const mrfw::CarrierDetail* detail) {
+            CHECK(id==1);transport=t;char line[245]{};
+            const auto size=mrfw::remote_client_carrier_format(line,sizeof line,t,"0000000000000001",event,ctr,detail);
+            text.assign(line,size);return size!=0;
+        }
+    } sink;
+    StoreSink before{};c.m1.inbox().pull(0,0,store_cb,&before);
+    const auto held=state;char before_json[1700]{},after_json[1700]{};
+    const auto json_n=console::write_push(before_json,sizeof before_json,push);
+    mrfw::remote_client_observe_push(state,push,sink,[](void* p,uint32_t h){return static_cast<Node*>(p)->id_bind_find_by_hash(h);},&c.m1);
+    CHECK(sink.text.find("carrier custody_failure ctr=1911 origin=1 reporter=2 layer=2 reason=cascade_count")!=std::string::npos);
+    CHECK(sink.transport==RemoteLocalTransport::usb);CHECK(memcmp(&state,&held,sizeof state)==0);
+    CHECK(memcmp(&push,&original,sizeof push)==0);
+    CHECK(console::write_push(after_json,sizeof after_json,push)==json_n);CHECK(memcmp(before_json,after_json,json_n)==0);
+    StoreSink after{};c.m1.inbox().pull(0,0,store_cb,&after);
+    CHECK(before.custody==1);CHECK(after.custody==1);CHECK(before.recs.back().body==after.recs.back().body);
+    CHECK(after.recs.back().body==std::vector<uint8_t>(push.body,push.body+push.body_len));
+    for(unsigned mismatch=0;mismatch<4;++mismatch) {
+        state=held;push=original;sink.text.clear();
+        if(mismatch==0)++row.carrier_ctr;
+        if(mismatch==1)++row.route.target_hash;
+        if(mismatch==2)row.flags &= ~8;
+        if(mismatch==3) {
+            auto decoded=parse_custody_failure({push.body,push.body_len});CHECK(decoded.has_value());if(!decoded)return;
+            auto tail=parse_custody_translated_tail({push.body,push.body_len},*decoded);CHECK(tail.has_value());if(!tail)return;
+            decoded->failed_type=DATA_TYPE_REMOTE_RESP;
+            decoded->record_len=custody_record_v1_len;
+            decoded->notice_flags &= ~CUSTODY_FLAG_HOME_TRANSLATED;
+            push.body_len=pack_custody_failure_translated(*decoded,*tail,push.body);
+            CHECK(push.body_len==custody_record_translated_len);
+        }
+        mrfw::remote_client_observe_push(state,push,sink,[](void* p,uint32_t h){return static_cast<Node*>(p)->id_bind_find_by_hash(h);},&c.m1);CHECK(sink.text.empty());
+    }
 }

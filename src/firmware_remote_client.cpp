@@ -1,11 +1,15 @@
 #include "firmware_remote_client.h"
 #include <Arduino.h>
 #include "console_json.h"
+#include "node.h"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
 namespace mrfw {
 using namespace meshroute;
+int remote_client_bind_lookup(void* node, uint32_t hash) {
+    return static_cast<const Node*>(node)->id_bind_find_by_hash(hash);
+}
 void remote_id_format(char out[17],uint64_t id) {
     static constexpr char hex[]="0123456789abcdef";
     for (unsigned i=0;i<16;++i) out[i]=hex[(id>>((15-i)*4))&15];
@@ -82,6 +86,11 @@ void RemoteClientDelivery::retained(RemoteLocalTransport t,uint64_t id) {
         const int n=snprintf(line,sizeof line,"> remote %s retained\n",key); if (n>0) (void)write(t,line,static_cast<size_t>(n));
     }
 }
+bool RemoteClientDelivery::carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const CarrierDetail* detail) {
+    char key[17]; remote_id_format(key,id); char line[245];
+    const auto n=remote_client_carrier_format(line,sizeof line,t,key,event,ctr,detail);
+    return n && write(t,line,n);
+}
 namespace {
 void error(Print& out,RemoteLocalTransport t,const char* reason) {
     if (t==RemoteLocalTransport::ble) {
@@ -151,5 +160,6 @@ void remote_client_status(Print& out,const RemoteClientState& s) {
     out.print(F(" radmin_client_radio_enqueue_failure="));out.print(c.radio_enqueue_failure);
     out.print(F(" radmin_client_pending="));out.print(remote_client_pending_count(s));
     out.print(F(" radmin_client_retained="));out.print(remote_client_retained_count(s));
+    out.print(F(" radmin_client_ack_debt="));out.print(remote_client_ack_debt_count(s));
 }
 } // namespace mrfw

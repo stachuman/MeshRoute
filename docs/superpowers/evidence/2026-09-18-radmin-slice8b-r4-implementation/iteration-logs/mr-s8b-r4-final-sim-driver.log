@@ -1,0 +1,9 @@
+START sim-configure
+END sim-configure 0
+START sim-build
+END sim-build 0
+START corpus
+END corpus 0
+START corpus-validate
+END corpus-validate 0
+GATE GROUP COMPLETE sim

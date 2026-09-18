@@ -3,6 +3,10 @@
 #include "remote_client.h"
 #include "firmware_admin_client_verbs.h"
 #include "console_line.h"
+#include "frame_codec.h"
+#include "command.h"
+#include "console_json.h"
+#include <cstdio>
 class Print;
 namespace mrfw {
 enum class RemoteLocalVerb : uint8_t { execute, retry, show, ack };
@@ -69,6 +73,7 @@ inline bool remote_local_parse(const char* line,size_t len,RemoteLocalCommand& o
     }
     // -a/-e are the same lone tokens as console_parse::parse_send_tail, with independent meanings.
     if (!tail || enc==open || (open && (c.ack || selected || c.opcode!=meshroute::RemoteCmdOpcode::auth_execute))) return false;
+    if (c.ack && c.opcode!=meshroute::RemoteCmdOpcode::auth_execute) return false;
     if (c.opcode==meshroute::RemoteCmdOpcode::auth_execute) {
         if (!c.command_len || meshroute::console::validate_command_line(c.command,c.command_len,meshroute::console::remote_command_max_bytes)!=meshroute::console::LineErr::ok) return false;
         if (open) {
@@ -79,6 +84,26 @@ inline bool remote_local_parse(const char* line,size_t len,RemoteLocalCommand& o
     out=c; return true;
 }
 void remote_id_format(char out[17],uint64_t id);
+struct CarrierDetail {
+    uint8_t origin, reporter, layer;
+    const char* reason;
+};
+// Shared bounded formatter: native goldens and the device delivery use these exact bytes.
+inline size_t remote_client_carrier_format(char* line,size_t cap,meshroute::RemoteLocalTransport transport,
+                                         const char* key,const char* event,uint16_t ctr,const CarrierDetail* detail) {
+    using namespace meshroute;
+    if (transport==RemoteLocalTransport::ble) {
+        EventField f[]={EF_S("id",key),EF_S("event",event),EF_I("ctr",ctr),
+            EF_I("origin",detail?detail->origin:0),EF_I("reporter",detail?detail->reporter:0),
+            EF_I("layer",detail?detail->layer:0),EF_S("reason",detail?detail->reason:"")};
+        const auto n=console::write_event(line,cap,"remote_carrier",f,detail?7:3);
+        return n<=244?n:0;
+    }
+    const int n=detail?std::snprintf(line,cap,"> remote %s carrier %s ctr=%u origin=%u reporter=%u layer=%u reason=%s\n",
+        key,event,ctr,detail->origin,detail->reporter,detail->layer,detail->reason):
+        std::snprintf(line,cap,"> remote %s carrier %s ctr=%u\n",key,event,ctr);
+    return n>0 && static_cast<size_t>(n)<cap?static_cast<size_t>(n):0;
+}
 
 // Each object is a stack adapter. Drop accounting observes the complete write, including its newline.
 class RemoteClientDelivery final : public meshroute::IRemoteLocalDelivery {
@@ -90,12 +115,57 @@ public:
     bool output(meshroute::RemoteLocalTransport,uint64_t,uint16_t&,std::span<const uint8_t>) override;
     bool terminal(meshroute::RemoteLocalTransport,uint64_t,const char*,uint32_t,bool) override;
     void retained(meshroute::RemoteLocalTransport,uint64_t) override;
+    bool carrier(meshroute::RemoteLocalTransport,uint64_t,const char* event,uint16_t,const CarrierDetail*);
 private:
     bool write(meshroute::RemoteLocalTransport,const char*,size_t);
     uint8_t utf8_tail_[4]{}; // stack adapter only: carry a code point across transcript chunks
     uint8_t utf8_tail_len_ = 0;
     Print& usb_; Print* ble_; bool ble_up_; uint32_t (*drops_)(void*); void* ctx_;
 };
+// Call-scoped lookup: the observer retains neither the Node nor the callback.
+using RemoteClientBindLookup = int (*)(void*, uint32_t);
+int remote_client_bind_lookup(void* node, uint32_t hash);
+// ONE call per already-rendered push. Parse with the existing codec; retain neither event nor sink.
+template<class Delivery>
+inline void remote_client_observe_push(const meshroute::RemoteClientState& state, const meshroute::Push& pu, Delivery& delivery,
+                                       RemoteClientBindLookup lookup, void* node) {
+    using namespace meshroute;
+    uint64_t id = 0; uint32_t target_hash = 0; uint16_t ctr = pu.ctr; const char* event = nullptr;
+    CarrierDetail detail{}; const CarrierDetail* fields = nullptr;
+    if (pu.kind == PushKind::send_e2e_acked) {
+        id = remote_client_observe_ack(state, ctr, false, pu.dst, pu.sender_hash, &target_hash); event = "acked";
+    } else if (pu.kind == PushKind::send_failed && pu.reason == SendFailReason::e2e_ack_timeout) {
+        id = remote_client_observe_ack(state, ctr, true, pu.dst, pu.sender_hash, &target_hash); event = "ack_timeout";
+    } else if (pu.kind == PushKind::custody_failure) {
+        const std::span<const uint8_t> body{pu.body, pu.body_len};
+        const auto record = parse_custody_failure(body);
+        if (!record || !custody_record_is_translated(record->notice_flags)) return;
+        const auto tail = parse_custody_translated_tail(body, *record);
+        if (!tail) return;
+        ctr = tail->mobile_ctr;
+        id = remote_client_observe_custody(state, ctr, record->failed_type,
+            static_cast<uint8_t>(tail->target_kind), tail->target_value);
+        event = "custody_failure";
+        detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,
+                  console::custodyreason_name(record->terminal_reason)};
+        fields = &detail;
+    }
+    if (!id) return;
+    for (const auto& row : state.pending) if (row.core.request_id == id) {
+        if (pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count) {
+            const int bound = lookup(node, target_hash);
+            if (bound >= 0 && bound != pu.dst) return;
+        }
+        (void)delivery.carrier(static_cast<RemoteLocalTransport>(row.core.local_transport), id, event, ctr, fields);
+        return;
+    }
+}
+inline void remote_client_observe_push(const meshroute::RemoteClientState& state, const meshroute::Push& pu,
+                                      Print& usb, Print* ble, bool ble_connected,
+                                      RemoteClientBindLookup lookup, void* node) {
+    RemoteClientDelivery delivery(usb, ble, ble_connected);
+    remote_client_observe_push(state, pu, delivery, lookup, node);
+}
 struct RemoteClientServices {
     meshroute::RemoteClientState& state;
     const meshroute::Identity& self;

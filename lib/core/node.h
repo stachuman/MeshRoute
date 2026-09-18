@@ -42,6 +42,21 @@
 
 namespace MESHROUTE_NS {
 
+#if MR_FEAT_RADMIN_CLIENT
+class Node;
+// Stack-only binding to the mobile's existing checked DM carrier. Node owns no adapter.
+struct NodeRadminClientCarrier final : IRadminCarrier {
+    explicit NodeRadminClientCarrier(Node& node) : node_(node) {}
+    bool tx_queue_full() const override;
+    RemoteClientSend submit_request(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
+                                    std::span<const uint8_t>, bool e2e_ack) override;
+    RemoteClientSend submit_ack(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
+                                std::span<const uint8_t>) override;
+private:
+    Node& node_;
+};
+#endif
+
 struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
 struct SuspectEntry;   // frame_codec.h — fwd-decl for the §P4 suspect-gossip apply seam (apply_suspect_gossip)
@@ -166,9 +181,10 @@ public:
     void remote_client_arm() { radmin_expiry_arm(); }
     uint8_t remote_client_correlation_free() const {
         uint8_t free = 0;
-        for (const auto& row : _deleg_acks) free += row.state == DelegAckState::free;
+        for (const auto& row : _pending_e2e_acks) free += !row.used;
         return free;
     }
+    RemoteClientSend remote_client_submit(const RemoteClientRoute&, std::span<const uint8_t>, bool e2e_ack);
 #endif
 
     // ★★★ §remote-admin v2 SLICE 1b (2026-09-06, R-RA-27 item 2) — **WHICH CAPABILITY OWNS AN INCOMING REMOTE-ADMIN
@@ -1705,7 +1721,7 @@ private:
     uint32_t cache_want_pubkey_requester(const h_out& h);          // §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key (self-consistency + non-zero + the mobile/team id_bind gate), fire peer_key_cached. Returns the requester hash (0 = rejected). Used by the home proxy-answer branch + the mobile TX-free overhear cache.
     void    forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32], const char* name, uint8_t name_len);   // §S3 part2: 1-hop last-mile DATA_TYPE_MOBILE_KEY_FORWARD to a hosted mobile (dedup same-requester via _mobile_reg[].last_key_fwd_hash32)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr, bool via_home = false); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
     // §S2: decide + build the INTRO first-contact prefix [ed_pub 32][name_len 1][name] for a plaintext hash-addressed send to dst_hash. Returns the prefix length (33 + name_len), or 0 = no attach (send plain: no identity / sealed intent / already peer_confirmed / cfg off / would overflow the DM body cap — message delivery beats key bootstrap).
     uint8_t  intro_attach_prefix(uint32_t dst_hash, CryptIntent crypt, uint8_t body_len, uint8_t* pfx, uint8_t pfx_cap);
     // §id-hash S4a: `by_id` flips the query KEY SPACE — `query_key32` is then a node/team id ("who owns id N?"),

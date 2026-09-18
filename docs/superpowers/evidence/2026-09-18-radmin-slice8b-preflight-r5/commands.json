@@ -1,0 +1,77 @@
+[
+  {
+    "name": "console-default",
+    "cwd": "/tmp/mr-s8b-r5-mfhusrrg/snapshot",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "exit": 0,
+    "log": "b414-console.log"
+  },
+  {
+    "name": "console-no-neg",
+    "cwd": "/tmp/mr-s8b-r5-mfhusrrg/snapshot",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "exit": 0,
+    "log": "b414-console-no-neg.log"
+  },
+  {
+    "name": "tools-discovery",
+    "cwd": "/tmp/mr-s8b-r5-mfhusrrg/snapshot",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "log": "b414-tools.log",
+    "exit": 1,
+    "result": "351 tests, 4 simulator-path setup failures, 1 missing-ELF fixture skip"
+  },
+  {
+    "name": "tools-elf-check",
+    "cwd": "/tmp/mr-s8b-r5-mfhusrrg/snapshot",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "-v",
+      "test_measure_board.RuledPairTests.test_symbol_inventory_reads_a_real_elf_if_one_has_been_measured"
+    ],
+    "env": {
+      "PYTHONPATH": "tools"
+    },
+    "exit": 0,
+    "log": "b414-tools-elf.log"
+  },
+  {
+    "name": "tools-discovery-corrected",
+    "cwd": "/tmp/mr-s8b-r5-mfhusrrg/snapshot",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py",
+      "-v"
+    ],
+    "env": {
+      "MR_LUS_SRC": "/home/staszek/lora-universal-simulator"
+    },
+    "log": "b414-tools-corrected.log",
+    "exit": 0,
+    "result": "351 tests, zero failures, zero skips"
+  }
+]

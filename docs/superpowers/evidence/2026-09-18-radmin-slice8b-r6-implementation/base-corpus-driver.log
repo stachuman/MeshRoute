@@ -1,0 +1,8 @@
+START BASE configure
+END BASE configure
+START BASE build
+END BASE build
+START BASE corpus
+END BASE corpus
+START BASE validate
+END BASE validate

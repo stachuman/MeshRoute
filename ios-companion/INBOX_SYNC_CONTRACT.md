@@ -1368,3 +1368,23 @@ Subsequent output, terminal, retained notices and local ACK use that fresh ID. M
 preserves its original ID and sealed bytes. An OPEN result never creates target ACK debt.
 The controller's board carrier is deliberately unavailable until 8b; this slice's real console
 admission therefore returns the typed `carrier_unavailable` refusal without putting bytes on air.
+
+### Remote controller carrier observations (Slice 8b)
+
+A pending authenticated execute submitted with `-a` may produce these non-terminal observations on its original
+local transport. Existing USB text and the generic BLE push are emitted first, then the matching controller
+observation. The event does not authenticate or complete the RPC, trigger a retry, or change its retained result.
+Disconnected BLE observations are dropped; they are not retained/re-offered. Each NDJSON line is at most 244 bytes.
+
+```json
+{"ev":"remote_carrier","id":"0123456789abcdef","event":"acked","ctr":42}
+{"ev":"remote_carrier","id":"0123456789abcdef","event":"ack_timeout","ctr":42}
+{"ev":"remote_carrier","id":"0123456789abcdef","event":"custody_failure","ctr":42,"origin":1,"reporter":3,"layer":2,"reason":"cascade_age"}
+```
+
+USB equivalents are `> remote <id16> carrier acked ctr=<n>`, `... carrier ack_timeout ctr=<n>`, and
+`... carrier custody_failure ctr=<n> origin=<n> reporter=<n> layer=<n> reason=<name>`, each newline-terminated.
+`ctr` is the mobile wrapper counter; `origin` is the home's outward failed origin and `reporter` the original
+reporting relay. Custody is an unauthenticated observation, never proof that the destination missed the request.
+The reason name comes from the existing custody codec/console name table. Open requests, rollovers and response
+ACKs never request an E2E ACK; `-a` on either rollover form is refused as `bad_args`.

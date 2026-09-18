@@ -1,0 +1,1901 @@
+diff --git a/MEMORY.md b/MEMORY.md
+index 97d7e55..97ceaa9 100644
+--- a/MEMORY.md
++++ b/MEMORY.md
+@@ -2,10 +2,17 @@
+ 
+ - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
+   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
+-  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..45 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
++  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+   queue pointer in `tracker.md`. As of 2026-09-18: everything through **7b-3** is committed (`6086152`); the disruptive
+-  arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`** plus one
+-  line in the simulator's CMake source list (B406) — owner commits both; remaining: 8b (needs B112), 9, 10.
++  arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, owner commits `c07b77f` /
++  simulator `6585649`**; **8b brief rev 6 (2026-09-18, R-RA-46..49 settled; B409–B413 + B416 folded; B414 repaired, B415 parked) — coder
++  resumes the preserved partial implementation** (`docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md`); then 9, 10.
++- **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
++  local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
++  B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at
++  `hop_count ? gateway_send_giveup_ms (150 s) : e2e_ack_deadline_ms (60 s)`, then `unknown` at 300 s. R-RA-48 ACK debt
++  = cascade burst 5/10/20 s, then dormant (one re-attempt per new request to that target), wiped only by epoch change.
++  R-RA-49 the target E2E-ACKs a `-a` request only for admitted / replay / already-acknowledged verdicts (B278 §9.2).
+ - **Remote-admin 8a+8c durable rulings:** R-RA-42 `remote`/`remote-retry`/`remote-result`/`remote-ack` are
+   `controller_local`, USB + secured BLE, table rows landed at the freeze; R-RA-43 B292 closed by the ONE bounded BLE
+   write (`tx_line` chunks, never truncates); R-RA-44 automatic retry timing belongs to 8b (8a = manual retry + one auto
+diff --git a/docs/2026-07-30-open-bug-register.md b/docs/2026-07-30-open-bug-register.md
+index 4a76f2a..5f02c22 100644
+--- a/docs/2026-07-30-open-bug-register.md
++++ b/docs/2026-07-30-open-bug-register.md
+@@ -14,7 +14,9 @@ the archives.
+ 
+ ## 0. Current remote-admin dispatch — 2026-09-18
+ 
+-**Current dispatch — 8a+8c (paired) SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18, UNCOMMITTED at `e3a5fa0` (owner commits the MeshRoute freeze AND one line in the simulator repo — B406).** QA re-executed the whole chain on the frozen tree after landing the four R-RA-42 authority rows: native **2947/193734/0**, reference 94/94 (+ QA's rerun of the coder's hashlib/libsodium controller reference = the pinned base/session keys), corpus **36/36** (s18 `32afbf11`, zero radmin events, `lus` `60f42a1a` after the B406 source-list line), ABI Node **235248/122176/157344** (R-RA-45 exact, 290 checks), six probes + deferred-actions (40 controls RED) + BLE-line **55/12 with the 245..256-byte direct reply surviving** (B292), inbox CLIENT **439/64**, features 121/62, tools 351/0 skipped, inventory **208**, authority PASS, census pins with **ACCEPT RAM unchanged** and both mobile cells +4016, board pair **gateway 204036 RAM (0) / 574896 flash (+144); mobile 211772 (+4016) / 1392832 (+19228)**, xiao_mobile 176604/696940 reported, union **59 batteries / 917 RED / 1 known unusable B342 / 918 / 0 vacuous**. **B292, B312 CLOSED; B406 (QA's brief fence omitted the simulator source list — fixed by QA, rule P7) and B407 (the coder's pre-freeze self-review corrections) registered and closed; B392 open for Part 57b metal only (its 8a warning landed).** Part 57d reserved (metal-pending on 8b). [QA gate](superpowers/evidence/2026-09-18-radmin-slice8ac-qa-gate.md). **Next dispatch: the 8b brief (the mobile carrier; needs B112 first), then 9, 10.**
++**Next dispatch — the 8b brief (the mobile controller carrier), revision 6, 2026-09-18, `superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md`, SHA-256 `875c3160…`, base `c07b77f` (owner commit `8`) / simulator `6585649` — READY FOR CODER RESUME AND IMPLEMENTATION on the preserved partial candidate; nothing is HOLD.** Six coder findings are FOLDED and CLOSED: **B409** (core hooks had no path to a sink → pure core matchers + one emitter call at the `fw_main` push fanout), **B410** (`-a` leaked onto rollovers → execute-only everywhere), **B411** (observer placement vs BLE order → the one call sits AFTER the BLE fanout block), **B412** (send-time E2E-ring pressure → typed `RemoteClientSend::correlation_full`, the row waits), **B413** (a known target bypassed the wrapper → `send_by_hash` gains ONE trailing defaulted `via_home` parameter and ONE guard conjunct; the ACK matcher keys on counter plus kind-specific identity), **B416** (the rev-5 binding clause had no input path → the pure matcher returns the candidate's target hash and a firmware-side veto asks `Node::id_bind_find_by_hash` through a call-scoped function pointer + `&g_node` context handed in by the one `fw_main` call, the `RemoteEntropyFn` idiom; same-layer ACKs only; nothing stored). **B414** repaired by the coder (console-sink S45 recognises exactly the call-scoped `NodeRadminClientCarrier carrier(g_node)`; both probe modes PASS, S-C45 RED, tools discovery 351/0 skips) — closes at the independent gate. **B417** (the coder's own tools-discovery setup error, corrected) closed by the coder. **B415** parked (pre-existing E2E-ring wildcard ambiguity, not 8b's). B408 reproduced (30 checks); `carrier_ctr` measured to fit on all three ABIs (block 4512). ALL FOUR RULINGS SETTLED as recommended — R-RA-46 (B112 does not gate 8b), R-RA-47 (one automatic exact resend at `hop_count ? gateway_send_giveup_ms : e2e_ack_deadline_ms`, then `unknown` at 300 s), R-RA-48 (ACK debt = cascade burst 5/10/20 s, then dormant), R-RA-49 (E2E ACK only for admitted / replay / already-acknowledged verdicts). The coder's candidate at the B413 stop measured native **2966/195676/0**, corpus **36/36 anchors**, Node pins and RAM unchanged; the whole chain must run fresh at the freeze (the union including the repaired C39/C43/X09 controls). Coder evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §8–§9. Part 57c remains reserved.
++
++**8a+8c (paired) SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18, owner commits `c07b77f` (MeshRoute) and `6585649` (simulator, the B406 source-list line).** QA re-executed the whole chain on the frozen tree after landing the four R-RA-42 authority rows: native **2947/193734/0**, reference 94/94 (+ QA's rerun of the coder's hashlib/libsodium controller reference = the pinned base/session keys), corpus **36/36** (s18 `32afbf11`, zero radmin events, `lus` `60f42a1a` after the B406 source-list line), ABI Node **235248/122176/157344** (R-RA-45 exact, 290 checks), six probes + deferred-actions (40 controls RED) + BLE-line **55/12 with the 245..256-byte direct reply surviving** (B292), inbox CLIENT **439/64**, features 121/62, tools 351/0 skipped, inventory **208**, authority PASS, census pins with **ACCEPT RAM unchanged** and both mobile cells +4016, board pair **gateway 204036 RAM (0) / 574896 flash (+144); mobile 211772 (+4016) / 1392832 (+19228)**, xiao_mobile 176604/696940 reported, union **59 batteries / 917 RED / 1 known unusable B342 / 918 / 0 vacuous**. **B292, B312 CLOSED; B406 (QA's brief fence omitted the simulator source list — fixed by QA, rule P7) and B407 (the coder's pre-freeze self-review corrections) registered and closed; B392 open for Part 57b metal only (its 8a warning landed).** Part 57d reserved (metal-pending on 8b). [QA gate](superpowers/evidence/2026-09-18-radmin-slice8ac-qa-gate.md). Then 8b (brief above), 9, 10.
+ 
+ **Codec prerequisite fulfilled: 7b-3-0 independent QA PASS, owner commit `ac5f9a592065d08e7cc8c06ef395e79891d41b34`.**
+ Simulator `06746a9` stays clean/unchanged. The committed [QA gate](superpowers/evidence/2026-09-13-radmin-slice7b3-0-qa-gate.md)
+@@ -47,7 +49,7 @@ Fresh [revision-4 author pre-check](superpowers/plans/2026-09-15-radmin-slice7b3
+ native **2912/184461/0/0 skips**; freshly rebuilt simulator, **36/36 actual byte-identical streams**;
+ reference **94/94**, old 89 identical/five comparator controls; source-cardinality **52/817 all match once**;
+ complete model compiled on native/ARM/Xtensa. **No full implementation gate, mutation union or board link
+-ran this author turn.** No production fixes, simulator edits, staging or commits by QA. Next free at that time **B401** (the live marker is at the end of §0: **B408**).
++ran this author turn.** No production fixes, simulator edits, staging or commits by QA. Next free at that time **B401** (the live marker is at the end of §0: **B420**).
+ 
+ **Slice 7b-1 revision 6 is SOFTWARE-COMPLETE / INDEPENDENT QA PASS, committed by the owner at `1d4b3ad`.**
+ QA verified the complete frozen handoff, including uncommitted inputs, at `146569a` against original base
+@@ -91,7 +93,7 @@ remain intact; B313 and unrelated instrument/fixture limits keep their separate
+ **Historical 7b-2 next-step note is fulfilled by owner commit `f993191`; current codec/behavior dispatch
+ is above.** R-RA-37/38/39 remain recorded without alteration in the ledger. Controller/carrier open/control
+ round trips and on-air flood/recovery remain 8b's metal gate. No earlier software PASS grants 7b-3 behavior
+-implementation or a bench PASS. Next free finding: **B408**.
++implementation or a bench PASS. Next free finding: **B420**.
+ 
+ ## Recommended execution order
+ 
+@@ -176,7 +178,7 @@ Metal checks may run while independent implementation proceeds.
+ | B56 | OWNER CALL / CONTRACT | Decide how a stage-2 `reqpubkey` failure becomes app-visible. |
+ | B60 | OPEN / SPEC READY | Fix multi-gateway `send_layer` final-hash resolution after settling ACK policy. |
+ | B111 | OPEN | A queued DM with `ctr == 0` has no correlatable outcome kind. |
+-| B112 | OPEN / CORE / DOES NOT BLOCK B251 | A non-zero DM counter does not itself prove enqueue success: a `MOBILE_SEND` wrapper's first hop can still be ACKed before failed home re-origination. B251 prevents that failure from manufacturing correlation state or origin evidence; the broader first-hop-ACK contract remains separate. |
++| B112 | OPEN / CORE / DOES NOT BLOCK B251 / **DOES NOT GATE 8b (R-RA-46, 2026-09-18)** | A non-zero DM counter does not itself prove enqueue success: a `MOBILE_SEND` wrapper's first hop can still be ACKed before failed home re-origination. B251 prevents that failure from manufacturing correlation state or origin evidence; the broader first-hop-ACK contract remains separate. **R-RA-46:** the remote-admin controller carrier (8b) proceeds with this row open — at its one send site admission is already stated by `SendDispatch` / the truthful `delegate_send_layer` return, and the controller claims nothing beyond "wrapper stored locally"; the design's "only after B112 is fixed" is superseded. The owner-agreed separate core slice (2026-08-05, 25 `enqueue_data` sites) and the named characterization test remain this row's closure; 8b must not be described as closing it. |
+ | B153 | ✅ **CLOSED 2026-08-27 / ONE-TIME OWNER ACCEPTANCE** | The final current-tree audit demonstrates every technical condition: native 2240/96469/0; focused hybrid 47/10768/0; B161/B251 mutations 15+13 RED with 0 unusable; analyzer 194/194; corpus 36/36 at zero assertions, s18 exact `9868cad3`/269905/0, s22 8/8 and s27 15/15; physical identity, duplicate and airtime gates safe; warning census and the owner-approved two-board tail pass. Under B182 authority the accepted result is 757/1041 unique configured deliveries (raw 760), with s06 110/148, s07 84/207, s22 8/8 and s27 15/15. The owner accepts that result for this closure only; it is not a permanent absolute floor and the historical 732/733 figures remain non-authoritative. Future movement in overall delivery, those four decisive rows, airtime, duplicate delivery or the `1/11/44/3` residue census requires explicit attribution rather than automatic re-anchoring. B252 tracks classification of the 44 unresolved logical destinations without reopening B153. |
+ | B157 | ✅ **CLOSED 2026-08-27 / FINAL AUDIT PASS** | Exact identity and restored implicit-forward credit are both demonstrated on the corrected B251/B161 tree. The focused hybrid suite is 47/10768/0; B161's mutations make both implicit-forward narrowing and terminal-CTS low-byte collapse RED, and B251's stored-flight/mobile-counter controls are RED. The full corpus is 36/36 with s22 8/8, s27 15/15 and no assertion failures. Complete identity, endpoint, plane, domain, stored-flight and loop mismatches cannot earn credit. The historical deletion remains documented; no routing, jitter, NAV, DATA-dedup or B112 behavior changed for closure. |
+ | B158 | OPEN / REDESIGN | Design current MeshRoute-native retry jitter; do not copy obsolete Lua constants. |
+@@ -350,7 +352,7 @@ coverage by implication. Their authority is `docs/superpowers/evidence/2026-09-0
+ These are maintained findings, not coder dispatch authorization. Slice 3's evidence reserves B323–B326
+ (B322 was the superseded alias of B325); Slice 4 owns B327–B330. Those proposals are now registered below
+ with their individual dispositions. S5-A1–A3 become B331–B333; HOME-A1/A2 become B334/B335, aliases retained.
+-The next free finding is **B408**. B292/B312 are CLOSED and B406/B407 registered-and-closed (8a+8c independent QA 2026-09-18). B394/B399/B400 are CLOSED (P1 independent QA 2026-09-16); B395–B398 are CLOSED as not required (R-RA-41); B389/B390/B401 are CLOSED (7b-3 independent QA 2026-09-16); B392 stays open for metal/8a. B389 allocation is RULED (R-RA-40, +80 B; open until gated); B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
++The next free finding is **B420**. B292/B312 are CLOSED and B406/B407 registered-and-closed (8a+8c independent QA 2026-09-18); B408 is OPEN, owned by 8b. B394/B399/B400 are CLOSED (P1 independent QA 2026-09-16); B395–B398 are CLOSED as not required (R-RA-41); B389/B390/B401 are CLOSED (7b-3 independent QA 2026-09-16); B392 stays open for metal/8a. B389 allocation is RULED (R-RA-40, +80 B; open until gated); B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
+ Author does not edit QA's pre-check. All source observations below are at `a0ff994` (2026-09-06).
+ 
+ **QA review 2026-09-06:** preliminary Slice 5 brief PASS, no fold-ins. QA accepted S5-A1–S5-A3 and
+@@ -497,3 +499,21 @@ Exact pre-cleanup wording and evidence remains in the dated snapshot. This is a
+ | B405 (S8AC-R3-P1) | **CLOSED — FOLDED INTO 8a+8c BRIEF REVISION 4 (QA 2026-09-18)** | Revision 3 requires removal of the client legacy staging slot/drain, but §6 omits `lib/core/node_mac.cpp::take_remote_inbound`, `test/test_node_r3.cpp` and `tools/probe_features/ownership.py`. **Measured:** the unchanged production MAC TU compiles on all three ABIs with the baseline header; the pointer-free R-RA-45 replacement header produces the expected `_remote_inbound` undeclared errors on native/mobile, gateway passes. Six existing test bodies contain twelve drain calls (five require staging, one proves ACCEPT refusal). Baseline feature ownership has 25 passing checks; private legacy-helper removal fails O6c (0 sites, want 3). **CLOSE BY:** QA folds these three narrow paths into §6; replace the legacy drain and supersede its tests/readers in place while preserving ownership/no-app-leak/pressure/binding/byte-integrity proofs. Keep carrier send bodies untouched. Re-anchor or explicitly supersede 1b-09..1b-13 in the already-named mutation runner rather than leaving vacuous controls or deleting obligations. R1 is settled and re-measured (4512 B); no additional owner ruling. No production change. [Receipt §5 and reproduction](superpowers/evidence/2026-09-17-radmin-slice8ac.md). **Resolution:** revision 4 §6 adds `lib/core/node_mac.cpp` (`take_remote_inbound`, both arms), `test/test_node_r3.cpp` (six drain cases retargeted, none deleted without an equivalent assertion), `tools/probe_features/ownership.py` (census + `W-S5-INVERT-TAKE` retargeted to the new client consumer) and, found by QA, `tools/probe_board_abi.py` (legacy `RemoteInbound` entry). §5 records the R-RA-45 re-measured pins (block 4512 B; native 235248, mobile 122176, gateway unchanged). |
+ | B406 (S8AC-QA-1) | **CLOSED — FIXED BY QA AT THE 8a+8c GATE (2026-09-18); rule P7 added** | **The 8a+8c brief's fence forbade simulator edits, but the slice adds a new `lib/core` translation unit (`remote_client.cpp`) that the simulator's explicit CMake source list must name, so the stock `lus` could not link the frozen tree** (`undefined reference to meshroute::remote_client_*` from the recompiled `node.cpp`/`node_mac*.cpp` objects). The coder respected the fence, disclosed the gap in its receipt §6 and gated its own corpus with an archived build-only `target_sources` hook outside the simulator checkout (`superpowers/evidence/2026-09-18-radmin-slice8ac-r4-implementation/audit/sim-controller.cmake`); that hook is not a durable integration. Slices 2 and 5 carried their source-list line inside the slice; QA's fence omitted it — the same class as B405 (an incomplete fence), this time on the ADD side. **Resolution:** QA added the one line to `/home/staszek/lora-universal-simulator/CMakeLists.txt` (after `remote_session.cpp`, same shape as the Slice 2/5 lines), rebuilt `lus` (`d6b58ce4` → `60f42a1a`) and re-ran the corpus: **36/36 anchors, s18 `32afbf11`/269517/0, zero radmin events** — byte-identical as the brief predicted. The change is uncommitted in the simulator repo and needs the owner's commit together with the MeshRoute freeze. **Rule:** P7 in CLAUDE.md/AGENTS.md — a brief that adds a `lib/core` TU fences the simulator source list in the same slice; a brief that removes a symbol fences every user across lib/src/test/tools. [QA gate](superpowers/evidence/2026-09-18-radmin-slice8ac-qa-gate.md). |
+ | B407 (S8AC-C1) | **CLOSED IN-SLICE — coder self-review before the freeze (receipt §7.3), controls C25–C29 RED; registered by QA 2026-09-18** | Two recovery defects in the in-progress 8a+8c implementation, found and fixed by the coder before its freeze: (1) an explicit `remote-result show` did not adopt the caller's transport, and the assembly fallback lost the completed local acceptance instead of marking a reconnect re-offer separately (controls C25–C27); (2) a full eight-row ACK-debt table refused safe/force session controls, and session controls accepted execution-terminal responses — now only authenticated execution reserves transcript ACK debt and session controls reject execution-terminal responses (C28/C29, 26/24 failing assertions when reverted). No allocation or policy change; the five controls are part of the union QA reproduced (917 RED). Registered so the finding is not found twice (M1); nothing further to do. [Coder receipt §7.3](superpowers/evidence/2026-09-17-radmin-slice8ac.md). |
++| B408 (S8B-QA-1) | **OPEN — OWNED BY 8b (brief rev 1, 2026-09-18); found by QA while authoring the 8b brief at `c07b77f`** | **The controller's `-a` capacity bound reads the wrong ring.** `Node::remote_client_correlation_free()` (`lib/core/node.h`) counts free `_deleg_acks` rows — the HOME-side delegated-flight correlation ring, populated only by `deleg_ack_put` when a home re-originates for a hosted mobile. A client-only mobile never hosts, so on every product mobile the count is a constant 8 and `remote_client_start`'s `correlation_full` refusal (`remote_client.cpp`, `correlation >= in.correlation_free`) is unreachable (the pending table has four rows). The ring a mobile's `-a` send actually occupies is `_pending_e2e_acks` (`cap_pending_e2e_acks` = 8): `enqueue_data` arms it for a `MOBILE_SEND` wrapper (wildcard key, 300-s tier) and `delegate_send_layer` for the cross-layer wrapper — and a FULL ring at arm time is not refused there: it emits `e2e_ack_untracked_ring_full` and the send flies untracked (the console's `send`/`send_layer` verbs pre-refuse with `e2e_ack_ring_full()`, `node.cpp`; the controller does not). With a real carrier an `-a` request could therefore fly with no ACK/timeout tracking and its row would never report `acked` or `ack_timeout`. Inert in 8a+8c (the stub carrier sends nothing); design §15's "one of the mobile's eight shared delegated-correlation rows" names the wrong ring for the mobile side. **CLOSE BY (8b, brief §3/§4):** re-point `remote_client_correlation_free()` to the free `_pending_e2e_acks` rows and make the carrier pre-check `e2e_ack_ring_full()` before an `-a` submit (U1: the console's predicate); controls remove each half; design §15 wording corrected at the 8b landing. |
++
++| B409 (S8B-P1) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 3 (QA 2026-09-18)** | Revision-2 8b at `c07b77f` requires emit-free core hooks immediately before three existing push sites, immediate USB/BLE output through the request transport, and no observation state. There is no permitted delivery handoff: `RemoteClientDelivery` is stack-local in `firmware_commands.cpp`; `fw_main.cpp:1570` drains the pushes before the controller service at `:1842`, `node.cpp:2484` removes each row on dequeue, and the BLE sink is file-local. The brief excludes the push-drain glue and a new HAL/dequeue seam; storing a callback/sink/queue would exceed its state contract. **15 static source/fence checks**, not a runtime delivery proof. Also §4 prose requires both `failed_origin` and `original_reporter`, while its prescribed USB/BLE formats have no distinct reporter field. **CLOSE BY:** QA specifies and fences a concrete call-scoped delivery handoff (recommended: matcher/emitter at the existing push fanout, retaining the custody arm's single print call and unchanged pushes), reconciles source-hook placement, and completes both formats before goldens/emitter; coder implements and gates the real wiring. No new owner policy ruling proposed. Receipt: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §2. No production change. **Resolution (rev 3 §4/§6):** core gains two PURE matchers (`remote_client_observe_ack` / `remote_client_observe_custody`, returning the matched request ID or 0, no emit, no state beyond `carrier_ctr`); the emitter is `mrfw::remote_client_observe_push` in `src/firmware_remote_client.h` (compiled by the `radmin8verbs` battery and the inbox CLIENT probe), called exactly ONCE per drained push at `fw_main`'s existing fanout (after the `switch`, before the BLE fanout, under `#if MR_FEAT_RADMIN_CLIENT`, `pu` passed whole so U25 "no parser in fw_main" and U24 "delegates exactly once" stay true); it re-reads the custody record through the one codec `print_custody_failure` uses, emits through a call-scoped `RemoteClientDelivery::carrier` to the row's transport only, and retains nothing. Formats corrected: `ctr` on every observation, and custody carries `origin` (`failed_origin`) AND `reporter` (`original_reporter`) as distinct fields. `src/fw_main.cpp` (one call) joins the fence. |
++| B410 (S8B-P2) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 3 (QA 2026-09-18)** | Brief §3 falsely says existing `send_ready` passes `e2e_ack` only for execute. At `c07b77f`, `remote_client.cpp:175` checks only `request_ready && kAck`; both direct authenticated rollover opcodes use that phase, and start copies the supplied ACK flag at `:352`. Real parser/controller/codec characterization accepts `remote t -e -a rollover` and `remote t -e -a rollover confirm` and records `e2e_ack=true` for both (**36 checks / 0 failed**); both no-`-a` forms pass false. A private execute-opcode guard makes the two current-leak assertions RED (**36 / 2 expected failures**), with production untouched. Inert behind the current board stub; real binding would expose ACK-requesting rollover contrary to §3. **CLOSE BY:** QA corrects the source claim and folds execute-only ACK eligibility into send, B408 capacity/accounting and observation contracts while preserving accepted grammar; coder proves bootstrap, safe/force rollover and response ACKs remain flag-free, including supplied `-a`, then gates. No new owner policy ruling proposed. Receipt: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §3. **Resolution (rev 3 §1/§3/§7):** the false source claim is corrected in §1 (`send_ready` flags any `request_ready` row with `kAck`, and the rollover opcodes ride that phase); `-a` is execute-only in every half — `remote_local_parse` refuses `-a` on `rollover` / `rollover confirm` (same typed error as `open -a`), `remote_client_start` refuses `e2e_ack` on a non-execute opcode, `send_ready` derives the flag from `opcode(p) == auth_execute`, and the B408 accounting counts `kAck` only on execute rows; proofs require bootstrap, both rollovers and ACK submits to carry `e2e_ack == false` with `-a` supplied or not, each half with its own control. |
++
++| B411 (S8B-P3) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 4 (QA 2026-09-18)** | At `c07b77f`, revision 3 §1/§4/§7 places the observer after the push switch and BEFORE BLE fanout, while §4 also requires existing text/JSON first and then the controller line. Actual `fw_main.cpp` sends generic BLE JSON in that later fanout; actual `LineSink::write` flushes immediately on newline. A bounded characterization using the real event writer, push writer and sink sends `remote_carrier` before `e2e_acked` (**9 checks / 0 failed**); moving the synthetic observer event after the push reverses those lines and makes the BEFORE-order characterization RED (**9 / 3 expected failures**). This proves writer/sink ordering, not unimplemented observer wiring. **CLOSE BY:** align the contract, fence and structural proof on one order; recommended single call AFTER existing BLE fanout, still inside the drain and CLIENT guard, with necessary include/stack-adapter setup permitted. Preserve the custody arm's single call, all pushes, and zero resident observation state. No new owner policy ruling. Evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §6. **Resolution (rev 4 §1/§4/§6/§7):** the ONE observer call moves after the `if (mrble::connected()) { … }` fanout block, before the drain loop's closing brace, under `#if MR_FEAT_RADMIN_CLIENT`, with its call-scoped `LineSink` adapter as part of that glue site; the order is stated once — plain-text line (switch), generic JSON push (BLE fanout), then the controller line/event — and the structural/wiring proofs pin that placement (the before-fanout placement is RED). The rev-3 text carried both placements; QA's contradiction. |
++| B412 (S8B-P4) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 4 (QA 2026-09-18)** | Brief §3 step (3) says E2E-ring-full returns carrier `full` and the core reports `correlation_full`, but the interface is declared final with only queued/full/unavailable and `remote_client.cpp::send_ready` maps every full to `radio_enqueue_failed`. The initial admission capacity check does report `correlation_full`; it cannot classify pressure arising later, after bootstrap or before resend. Real-controller/codec characterization with synthetic carrier pressure: initial free=0 refuses correlation_full; warm-session carrier full returns radio_enqueue_failed and releases the row; after an authenticated bootstrap reply carrier full leaves request_ready, increments radio-enqueue-failure and emits no terminal (**2 cases / 22 assertions / 0 failed**). Not a real-Node late-ring-fill chain. **CLOSE BY:** distinguish initial from send-time pressure in the brief; either authorize a distinct typed carrier outcome plus service/retry handling, or explicitly limit correlation_full to initial admission and retain generic full mapping at submit. Do not infer ring-full from any ACK-requesting enqueue failure. The carrier must still refuse before enqueue when the E2E ring is full. R-RA-46..49 unchanged; no new policy ruling proposed. Evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §6. **Resolution (rev 4 §1/§3/§4/§7):** `RemoteClientSend` gains the typed `correlation_full` outcome (no resident byte, no wire); the carrier's E2E-ring pre-check returns it; `send_ready` maps it to `RemoteClientError::correlation_full` — at start it refuses and releases the row like the initial `correlation_free` check; in `remote_client_service` (after a bootstrap, before a resend) the row stays in its `*_ready` phase and is re-offered each pass, no counter, no terminal, no eviction, until the ring frees or the outcome deadline reports `unknown`. A plain `full` keeps its meaning (TX-queue refusal, `radio_enqueue_failed`, counter incremented); ring-full is never inferred from an ACK-requesting enqueue failure. The rev-3 §1 claim that the interface was final was QA's; one enum value is the amendment. |
++
++| B413 (S8B-I1) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 5 (QA 2026-09-18)** | Revision 4 requires all controller requests to use the mobile wrapper, stores only its u16 counter and prescribes an ACK matcher with no destination. Actual unchanged `Node::send_by_hash` (`node_hashlocate.cpp`, authoritative `id_bind_find_by_hash` branch) resolves a known target before its mobile wrapper branch; `Node::next_ctr` is per destination. Static beacons can install those authoritative bindings on a mobile (`node_beacon.cpp`, `!b.is_mobile` branch). On the partial candidate, a labelled synthetic two-row/opaque-body fixture through the real Node carrier queues direct `REMOTE_CMD` to targets 2 and 3, both counter 1; actual E2E timers expire at 60 s and the real firmware observer attributes both pushes to request 1. **1 case /26 assertions /0 failures**; changing only binding confidence to claimed forces the wrapper path and makes the characterization **RED (22 assertions /11 expected failures)**. This proves carrier allocation and observation misattribution, not authenticated target execution. The rev-4 preflight missed this earlier sender arm. **CLOSE BY:** QA aligns the same-layer contract, correlation proof and narrow sender fence (recommended: require the shared wrapper path even for an authoritative target binding, without rebuilding a carrier); coder implements and proves known/unknown targets plus two simultaneous targets before the full gate. `send_by_hash`/`do_send`/`enqueue_data` bodies are outside the current fence, so no out-of-fence fix was made. R-RA-46..49 unchanged; no commit prerequisite. Evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §8 and its `b413/` reproduction. **Resolution (rev 5 §1/§3/§4/§6/§7):** QA verified the arm order (`node_hashlocate.cpp`: TEAM, then the authoritative-binding direct `do_send`, then the registered-mobile wrapper), the per-destination `next_ctr`, the beacon-installed binding on a mobile, and a third consequence the coder did not list — the direct arm reserves no home-side `_deleg_acks` row, so `-a` custody feedback cannot exist on it. Fix: `Node::send_by_hash` gains ONE trailing defaulted parameter `bool via_home = false` and ONE added conjunct `!via_home &&` on the authoritative arm; the controller passes `true`, so every request leaves as `MOBILE_SEND` to the home (one counter space, the 300-s tier, the B278 row); every existing caller is byte-identical and the corpus proves it. The ACK matcher now takes the push's `dst` and `sender_hash` and keys on `(ctr, kind-specific identity)`: timeouts require `dst == 0` (the delegated entry's shape), cross-layer acks require the target hash, same-layer acks require `sender_hash == 0` plus binding consistency when known. The equal-counter residual with an operator's own direct `-a` DM to the same target is the ring's pre-existing wildcard ambiguity, registered as B415. Proof: known/unknown/claimed bindings × two simultaneous targets; the coder's reproducer with `via_home` forced false is the RED control. |
++| B414 (S8B-I2) | **IMPLEMENTED — SCOPED CODER PASS / INDEPENDENT QA PENDING (2026-09-18)** | Candidate `probe_console_sink` exits 1: S45's existing allow-list (`structural.py`, `allowed_client_node`) recognizes only `g_node.remote_client()`, `remote_client_arm()` and `remote_client_correlation_free()`, so the brief-required call-scoped `NodeRadminClientCarrier carrier(g_node)` is rejected. Other console pins report 6 profiles /720 checks /83 structural /149 controls /0 unusable; this is a failed gate, not PASS. **CLOSE BY:** narrowly recognize the authorized carrier construction without relaxing the forbidden arbitrary Node/legacy-admin boundary; retain S-C45's injected `node_id` RED control, run affected probe/default/--no-neg and full tools discovery. **Revision-5 repair:** S45 now permits exactly the named `meshroute::NodeRadminClientCarrier carrier(g_node);` construction alongside the three existing accessors. Fresh default probe PASS at all pins, `--no-neg` exits 0, and S-C45 injected `node_id` remains RED. No runner pin change. Full slice gate remains pending at B416; this is not an independent QA closure. Evidence: `superpowers/evidence/2026-09-18-radmin-slice8b-r4-implementation/final-logs/console_sink.log`. |
++| B415 (S8B-QA-2) | **PARKED / LOW / PRE-EXISTING — registered by QA 2026-09-18 while folding B413; not 8b's** | **The E2E pending-ack ring clears a wildcard entry on the counter alone.** `Node::e2e_ack_clear` (`lib/core/node_mac.cpp`) iterates `_pending_e2e_acks` in ring order and, for an entry armed with `key == 0` (every delegated `MOBILE_SEND` wrapper and every hosted-mobile last mile — `enqueue_data`'s `delegated` arm), treats a matching `ctr` as a hit regardless of the acker. Counters are allocated per destination (`Node::next_ctr(dst)`), so a delegated send (counter space = the home) and a direct `-a` send to a known target (counter space = that target) can hold the same numeric counter at once; whichever E2E ACK arrives first can then clear the OTHER entry, giving the direct send a false `e2e_ack_timeout` and the delegated one a false `send_e2e_acked` (or vice versa). Needs both flights outstanding with equal counters — rare, but structurally reachable on any registered mobile. Not created by 8b: the controller's observation matcher (brief rev 5 §4) keys on counter plus kind-specific identity and inherits exactly this residual, documented there; observations are diagnostic, never terminals. **CLOSE BY (its own core slice, owner-ruled):** give wildcard entries a second discriminator (e.g. the acked frame's `DST_HASH`/origin for the delegated case, or a per-mobile counter space for wrappers) and a control that two equal-counter flights resolve to their own entries; measure any `PendingE2eAck` growth on the three ABIs. Not dispatchable without a ruling. |
++
++| B416 (S8B-P5) | **CLOSED — FOLDED INTO 8b BRIEF REVISION 6 (QA 2026-09-18)** | Revision 5 §4 adds `push_dst`/`push_sender_hash` to the pure ACK matcher and requires `push_dst` to match the mobile's binding for `route.target_hash` when one exists. `RemoteClientState` has no Node/table/resolved ID; `RemoteClientRoute` contains only hash and layer path. The prescribed board call still hands only `g_node.remote_client(), pu` and sinks to the observer. The reusable const `Node::id_bind_find_by_hash` is public but no Node/lookup reaches this boundary. **16 static checks PASS**, not a runtime proof: fixed state/counter/ACK-dst/hash values require accept if the omitted binding is ID 2 and reject if it is ID 3. **CLOSE BY:** QA explicitly specifies/fences a call-scoped Node lookup and the binding veto placement (e.g. Node-aware firmware adapter after the pure matcher, or a revised matcher input); preserve one post-fanout call, zero added resident state and B415's separately parked residual. Coder must not omit the predicate or add a hidden core/global dependency. The `via_home` sender fold-in is otherwise source-consistent. No new owner ruling or commit needed. Production/tests preserved; only the independently authorized B414 instrument repair landed. Evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §9 and `2026-09-18-radmin-slice8b-preflight-r5/b416-source-audit.json`. **Resolution (rev 6 §4/§6/§7):** the predicate is kept — it is the one term that vetoes an operator's direct `-a` DM to a DIFFERENT known target carrying an equal counter (B415's same-target case it cannot help). Seam: the pure matcher `remote_client_observe_ack` gains a `uint32_t* target_hash_out` (the candidate's `route.target_hash`); the firmware observer applies the veto for same-layer ACKs only, asking the existing public const `Node::id_bind_find_by_hash` through a call-scoped function pointer `mrfw::remote_client_bind_lookup(void* node, uint32_t hash)` (defined in `src/firmware_remote_client.cpp`, which may include `node.h`) with `&g_node` as the opaque context, both passed by the one `fw_main` call — the `RemoteEntropyFn` / `client_console_drops` idiom; nothing stored, core never sees a Node. Proof row: the coder's counterexample (binding ID 2 accepts, ID 3 rejects), no-binding accepts, no veto on timeouts/cross-layer, veto removal RED. |
++
++| B417 (S8B-I3) | **CLOSED — CODER RUN-SETUP CORRECTED AND FULL DISCOVERY REPLAYED (2026-09-18)** | The revision-5 B414 tools-discovery run omitted `MR_LUS_SRC` in its isolated snapshot. The feature probe consequently looked for a nonexistent sibling simulator: **351 tests /4 failures /1 skip**. All four failures are in `test_probe_features.TheGateRuns`; the skip is the explicit measured-ELF parser fixture requirement. This is a coder invocation/setup error, not a product defect or evidence against the S45 repair. The failed log is retained. **Correction:** supply the actual unchanged `/home/staszek/lora-universal-simulator` path and a labelled, hash-verified prior candidate gateway ELF as the parser fixture; rerun full tools discovery fresh. The omitted ELF case passed independently; the complete corrected discovery then passed **351 tests /0 failures /0 skips**. No source workaround, counter re-pin or simulator edit. Full corrected result is recorded in the revision-5 receipt §9; the full implementation gate remains stopped at B416. |
++
++| B418 (S8B-I4) | **OPEN / TOOL — PRE-EXISTING SUPPLEMENTAL BOARD-UI WIRING DRIFT (2026-09-18)** | A supplemental `tools/probe_board_ui/run.sh` run on the 8b revision-6 candidate fails W49, W51 and W54: wiring **57/60**, structural **23/23**, all **176** wiring controls RED. A fresh `--no-neg` run on the preserved `c07b77f` production base reproduces the same three wiring failures and counts. These source readers no longer recognize the current shared dispatch/transport shape. This is outside the established six-probe remote-admin chain (console, inbox, firmware UI, custody, BLE-line, features; independently listed in the 8ac QA receipt), and is not evidence that 8b regressed UI behavior. No production or board-UI instrument fix is included in 8b's fence. **CLOSE BY:** source-validate/re-anchor those three wiring readers with their existing negative controls, then rerun the supplemental probe; do not weaken the OLED/dispatch requirements. Coder evidence: `superpowers/evidence/2026-09-18-radmin-slice8b.md` §11, revision-6 logs `board_ui.log` and `base-extra-board-ui.log`. |
++| B419 (S8B-I5) | **CLOSED — FULL UNION REPLAYED FROM ISOLATED INPUTS (2026-09-18)** | The first revision-6 union ran from the same complete snapshot used for active board measurements. Its `b134inbox` worker aborted during `rsync` with **exit 24 (files vanished)**: the runner excludes `.pio`, but copies the transient `.pio-measure` artifact tree. No mutant result is claimed from that aborted battery. The coder stopped this union, retained every interrupted log, created a second complete input-only copy (all **3,032 regular input files** byte-identical to the candidate snapshot, plus the four symlinks), and restarted **all 61 batteries / 984 configured controls from zero**. No production/tool workaround and no inherited completed-battery total. **Closure:** all 61 batteries completed fresh: **983 RED / one known unusable B342 / 984 configured / zero vacuous**; all 361 primary inputs match shared, gate and union copies. The only nonzero battery exit is the existing B342 survivor. Evidence: 8b receipt §11 and the revision-6 interrupted/final union directories. |
+diff --git a/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md b/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
+index 352c310..5f5a805 100644
+--- a/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
++++ b/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
+@@ -12,59 +12,59 @@ Total rows: **208**.
+ 
+ | verb | sub-verb | owning function | transports | feature gate | file:line | authority |
+ | --- | --- | --- | --- | --- | --- | --- |
+-| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:572` | controller_local |
+-| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:573` | controller_local |
++| `admin-key` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:566` | controller_local |
++| `admin-target` | — | `admin_client_router_arm` | serial | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:567` | controller_local |
+ | `acl` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:377` | owner |
+ | `admin-id` | — | `admin_router_arm` | serial | `MR_FEAT_RADMIN_ACCEPT` | `src/firmware_commands.cpp:376` | owner |
+-| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1627` | operator |
+-| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1626` | operator |
+-| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1684` | owner |
+-| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1582` | owner D |
+-| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1607` | operator D |
+-| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1629` | operator |
+-| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1681` | owner |
+-| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1595` | operator |
+-| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1598` | owner D |
+-| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1573` | operator |
+-| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1601` | operator D |
+-| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1678` | operator |
+-| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1603` | operator D |
+-| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1613` | operator D |
+-| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1606` | operator |
+-| `joinprofile` | `— refused gateway_build` | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1620` | operator |
+-| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1625` | operator D |
+-| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1596` | operator |
+-| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1688` | legacy |
+-| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1676` | operator |
+-| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1680` | operator |
+-| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1610` | operator |
+-| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1677` | operator |
+-| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1600` | owner D |
+-| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1686` | legacy |
+-| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1590` | operator |
+-| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1586` | operator |
+-| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1574` | operator D |
+-| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1679` | operator |
+-| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1575` | legacy |
+-| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1597` | operator D |
+-| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1599` | owner D |
+-| `remote` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1558` | controller_local |
+-| `remote-ack` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1561` | controller_local |
+-| `remote-result` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1560` | controller_local |
+-| `remote-retry` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1559` | controller_local |
+-| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1593` | operator |
+-| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1583` | open |
+-| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1628` | operator D |
+-| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1594` | open |
+-| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1608` | operator D |
+-| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1580` | operator |
+-| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1576` | operator |
+-| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1578` | operator |
+-| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1577` | operator |
+-| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1645` | operator |
+-| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1687` | legacy |
+-| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1572` | operator |
+-| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1675` | operator |
++| `cfg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1621` | operator |
++| `cfg set` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1620` | operator |
++| `clear_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1678` | owner |
++| `crashtest` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1576` | owner D |
++| `create` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1601` | operator D |
++| `debug` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1623` | operator |
++| `del_msg` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1675` | owner |
++| `duty` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1589` | operator |
++| `factory_reset` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1592` | owner D |
++| `faults` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1567` | operator |
++| `gateway` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1595` | operator D |
++| `hashof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1672` | operator |
++| `join` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1597` | operator D |
++| `join (alias: create)` | — | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1607` | operator D |
++| `joinprofile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1600` | operator |
++| `joinprofile` | `— refused gateway_build` | `dispatch` | serial,ble | `!(MR_N_LAYERS < 2)` | `src/firmware_commands.cpp:1614` | operator |
++| `leave` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1619` | operator D |
++| `limits` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1590` | operator |
++| `lock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1682` | legacy |
++| `lookup` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1670` | operator |
++| `mark_read` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1674` | operator |
++| `mobile` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2 && MR_FEAT_MOBILE` | `src/firmware_commands.cpp:1604` | operator |
++| `nameof` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1671` | operator |
++| `ota` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1594` | owner D |
++| `password` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1680` | legacy |
++| `peers` | `all` | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1584` | operator |
++| `peers` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1580` | operator |
++| `prep-restart` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1568` | operator D |
++| `pull_inbox` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1673` | operator |
++| `rcmd` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1569` | legacy |
++| `reboot` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1591` | operator D |
++| `regen` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1593` | owner D |
++| `remote` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1552` | controller_local |
++| `remote-ack` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1555` | controller_local |
++| `remote-result` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1554` | controller_local |
++| `remote-retry` | — | `dispatch` | serial,ble | `MR_FEAT_RADMIN_CLIENT` | `src/firmware_commands.cpp:1553` | controller_local |
++| `route` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1587` | operator |
++| `routes` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1577` | open |
++| `sleep` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1622` | operator D |
++| `status` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1588` | open |
++| `team` | — | `dispatch` | serial,ble | `MR_N_LAYERS < 2` | `src/firmware_commands.cpp:1602` | operator D |
++| `testch` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1574` | operator |
++| `testclear` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1570` | operator |
++| `testsend` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1572` | operator |
++| `teststatus` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1571` | operator |
++| `ui` | — | `dispatch` | serial,ble | `MR_FEAT_OLED` | `src/firmware_commands.cpp:1639` | operator |
++| `unlock` | — | `dispatch` | serial,ble | `MR_FEAT_REMOTE_MGMT` | `src/firmware_commands.cpp:1681` | legacy |
++| `version` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1566` | operator |
++| `whoami` | — | `dispatch` | serial,ble | — | `src/firmware_commands.cpp:1669` | operator |
+ | `help (alias: ?)` | — | `help_command` | serial | — | `src/firmware_help.h:171` | local_only · surface:local |
+ 
+ ## Surface 2 — sub-verb dispatchers
+@@ -98,12 +98,12 @@ Total rows: **208**.
+ | `admin-id` | `reset` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:279` | physical |
+ | `admin-id` | `rotate` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:273` | physical |
+ | `admin-id` | `show` | `admin_id_verb` | serial | — | `src/firmware_admin_verbs.h:261` | owner |
+-| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1172` | operator |
+-| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:634` | operator |
+-| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:647` | operator |
+-| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1496` | operator |
+-| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1497` | operator |
+-| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1498` | operator |
++| `debug` | `off (alias: 0)` | `handle_debug` | serial,ble | — | `src/firmware_commands.cpp:1166` | operator |
++| `route` | `add` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:628` | operator |
++| `route` | `del` | `handle_route_cmd` | serial,ble | — | `src/firmware_commands.cpp:641` | operator |
++| `testsend\|testch` | `-a` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1490` | operator |
++| `testsend\|testch` | `-e` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1491` | operator |
++| `testsend\|testch` | `-t` | `handle_testsched` | serial,ble | — | `src/firmware_commands.cpp:1492` | operator |
+ | `cfg set` | `active_fraction` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:406` | operator |
+ | `cfg set` | `beacon_ms` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:335` | operator |
+ | `cfg set` | `ble_mode` | `handle_cfg_set` | serial,ble | — | `src/firmware_config.cpp:494` | owner |
+@@ -205,25 +205,25 @@ Total rows: **208**.
+ | `send` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:264` | operator |
+ | `send_channel` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:265` | operator |
+ | `send_layer` | — | `parse_command` | serial,ble | — | `lib/console/console_parse.cpp:266` | operator |
+-| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:630` | operator · surface:transport |
+-| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:624` | operator · surface:transport |
+-| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:646` | owner · surface:transport |
+-| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:599` | operator · surface:transport |
+-| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:672` | local_only · surface:transport |
+-| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:603` | operator · surface:transport |
+-| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:645` | operator · surface:transport |
+-| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:733` | owner · surface:transport |
+-| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:735` | operator · surface:transport |
+-| `peers` | `<args> — refused console_only` | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:642` | operator · surface:transport |
+-| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:641` | operator · surface:transport |
+-| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:591` | operator D · surface:transport |
+-| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:644` | operator · surface:transport |
+-| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:595` | legacy · surface:transport |
+-| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:635` | open · surface:transport |
+-| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:616` | open · surface:transport |
+-| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:585` | operator · surface:transport |
+-| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:562` | operator · surface:transport |
+-| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1257` | owner · surface:transport |
++| `cfg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:631` | operator · surface:transport |
++| `cfg set` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:625` | operator · surface:transport |
++| `del_msg` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:647` | owner · surface:transport |
++| `duty` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:600` | operator · surface:transport |
++| `help (alias: ?)` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:673` | local_only · surface:transport |
++| `limits` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:604` | operator · surface:transport |
++| `mark_read` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:646` | operator · surface:transport |
++| `peerkey` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:734` | owner · surface:transport |
++| `peername` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:736` | operator · surface:transport |
++| `peers` | `<args> — refused console_only` | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:643` | operator · surface:transport |
++| `peers` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:642` | operator · surface:transport |
++| `prep-restart` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:592` | operator D · surface:transport |
++| `pull_inbox` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:645` | operator · surface:transport |
++| `rcmd` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:596` | legacy · surface:transport |
++| `routes` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:636` | open · surface:transport |
++| `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:617` | open · surface:transport |
++| `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:586` | operator · surface:transport |
++| `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:563` | operator · surface:transport |
++| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1258` | owner · surface:transport |
+ 
+ ## Legacy over-the-air remote-admin verbs (what v2 replaces)
+ 
+diff --git a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+index 32946d7..e3cff3a 100644
+--- a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
++++ b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+@@ -1082,3 +1082,71 @@ implemented as ruled. B312 closed (checked entropy bound). QA found and fixed it
+ simulator's CMake source list must name `lib/core/remote_client.cpp` — one uncommitted line in
+ `lora-universal-simulator/CMakeLists.txt` for the owner to commit with the freeze (rule P7). Next: the 8b brief
+ (needs B112). [Independent gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md).
++
++### R-RA-46 (owner, 2026-09-18) — B112 does not gate 8b; the controller claims only its local dispatch
++
++**Owner, verbatim (one line for R1–R4 of the 8b brief §8):**
++
++> R1-R4 approved as recommended, record them as R-RA-46..49
++
++**Settled (R1 "as recommended"):** Slice 8b proceeds with **B112 OPEN**. The design's "only after B112 is fixed"
++(§14.1, §19 item 8b) is superseded by this ruling. Reason: at the one site the controller uses, admission is already
++stated by the admitting layer — `SendDispatch` from `send_by_hash` (UI-16 N6b) and the truthful store return of
++`delegate_send_layer` — never by the minted counter. The controller therefore claims exactly "the wrapper is stored in
++this mobile's TX queue" and nothing more: it consults neither the hop ACK nor `send_aired`, consumes nothing from the
++home's uncorrelated `deleg_fail` one-shot (`send_failed{no_route}`, ctr 0), and treats only the authenticated response
++(or the `-a` carrier observations, labelled as such) as delivery evidence. Silence ends at the 300-s outcome bound as
++`unknown`, after the one automatic exact resend of R-RA-47. The stated residue: a request whose home re-origination
++was refused is indistinguishable from any other loss until then. B112 keeps its owner-agreed separate core slice
++(2026-08-05: the 25 `enqueue_data` sites) and its named characterization test; 8b must not be described as closing it.
++
++### R-RA-47 (owner, 2026-09-18) — one automatic exact resend of a silent request, at a named edge
++
++**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
++
++**Settled (R2 "as recommended"):** for every controller `*_wait` phase (bootstrap, response, compare, rollover) the
++core performs **exactly one** automatic resend of the exact outstanding bytes at
++
++```text
++remote_client_resend_ms(route) = route.hop_count ? gateway_send_giveup_ms   // 150 s — the cross-layer one-way doorstep hold
++                                                 : e2e_ack_deadline_ms      // 60 s  — the same-layer DM round trip (2 × send_defer_ttl_ms)
++```
++
++then waits silently until `outcome_deadline_ms` (`e2e_ack_deadline_xl_ms`, 300 s) and reports `unknown` (§13). The
++resend reuses `send_ready` (same `submit_request`, same `-a` flag, same bytes — §9's exact-byte invariant); it is safe
++because the target never time-evicts an executed fingerprint or transcript (§10), so a copy arriving after the first
++replays and never re-executes; a bootstrap is read-only; a rollover resent under a rotated epoch fails authentication
++silently and the compare path recovers. No resend after the deadline, none of changed bytes, none for a `complete`
++row, no second resend. The names are the two existing constants and the factor is one; a literal at the call site is
++RED (R-RA-20/23 shape). `RemoteClientPendingCore::next_retry_ms`/`retries` hold the state; the edge joins the one
++shared expiry scan (R-RA-22).
++
++### R-RA-48 (owner, 2026-09-18) — ACK-debt cadence: the MAC's requeue burst, then dormant
++
++**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
++
++**Settled (R3 "as recommended"):** attempt 0 of a sealed `RESPONSE_ACK` at local acceptance (existing). Retries
++follow the MAC's own requeue shape — `cascade_requeue_base_ms` doubling per attempt, capped at
++`cascade_requeue_backoff_cap_ms`, for at most `cascade_requeue_max` retries (5 s, 10 s, 20 s). After that the debt is
++**dormant**: retained per design §8.10 (wiped only by the authenticated epoch change in `epoch_update`), shown in
++`status` as `radmin_client_ack_debt=<n>`, and re-attempted exactly once each time a new request to the same target is
++started (it rides ahead of that request on the live session) — never as a periodic beacon. `RemoteClientAck::retries`
++holds the count; a `full`/`unavailable` submit consumes no attempt. This replaces 8a's placeholder
++(`kAckRetryMs = cascade_requeue_base_ms`, unbounded), which with a real carrier would have aired a wrapper every five
++seconds until the target's next epoch.
++
++### R-RA-49 (owner, 2026-09-18) — the target E2E-ACKs a `-a` request only after the admission boundary
++
++**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
++
++**Settled (R4 "as recommended"):** inside `rx_remote_cmd_accept` (ACCEPT), after `remote_session_receive` and
++`radmin_send_reply`, when the outer flight carries `DATA_FLAG_E2E_ACK_REQ` and the verdict shows the target took
++ownership of the request — **admitted to execute, transcript replay of an identical fingerprint, or the authenticated
++`already_acknowledged` protocol error** — the target sends the existing E2E ACK exactly as the generic post-ACK arm
++does (`CROSS_LAYER ? send_xl_ack(*ui, pa.ctr) : send_e2e_ack(origin, pa.ctr, source_hash)`, U1). Silent
++authentication failures and admission refusals (`session_full`, `ingress_full`, `session_busy`, `executing`,
++`preparation_failed`) send **no** E2E ACK: a refusal already has its RPC-level answer, and B278 §9.2 asks for the ACK
++only after the request has crossed its admission boundary; the mobile's `-a` row then ends at `e2e_ack_timeout`,
++which the controller reports as a carrier observation, never a terminal. Today no RPC request is ever E2E-acked (the
++owner switch returns before the generic arm); this is the first implementation, not a change of an existing
++behaviour. The home's `ctrH → ctrM` translation and last mile (B251/B278 S3) are unchanged.
+diff --git a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+index 412be64..e9a791c 100644
+--- a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
++++ b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+@@ -15,7 +15,7 @@ was independently effective. The pre-comment 7b-2 union remains historical; its
+ The codec reviewer reproduced section/object/linked totals but not the coder's single-byte ELF attribution.
+ 
+ **Current dispatch: [7b-3 revision 4](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), reissued at
+-`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; 8a+8c (paired) is INDEPENDENT QA PASS 2026-09-18, uncommitted at `e3a5fa0` (B292/B312 closed; one simulator source-list line to commit, B406); next is 8b, which needs B112.** Twelve selected policy rows require separate
++`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; 8a+8c (paired) is INDEPENDENT QA PASS 2026-09-18, owner commits `c07b77f` / simulator `6585649` (B292/B312 closed); the 8b brief (revision 6, 2026-09-18; B409–B413 and B416 folded) is ready for coder resume and implementation — R-RA-46..49 settle B112 (does not gate 8b), the resend edge, the ACK-debt cadence and the E2E-ACK verdicts.** Twelve selected policy rows require separate
+ [7b-3-P1 preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), full gate/owner commit,
+ then a refreshed behavior base. B394 corrects the earlier twelve-existing-seams summary: four reusable
+ effects, eight needing extraction. QA records 36 exact R-RA-39 refusals/fenced follow-ups in brief §2.2
+@@ -1702,8 +1702,13 @@ contract, and the whole of what a remote-admin consumer may rely on:
+ - it **may** support the UNCERTAIN/retry policy designed elsewhere in this document, but only under that
+   design's exact-byte and idempotence rules — **B278 itself never retries**; and
+ - ⛔ **[[B112]] remains OPEN and SEPARATE.** B278 does not resolve first-hop-ACK admission truthfulness and
+-  must never be described as doing so. B112 is a prerequisite of the first controller-carrier slice, because
+-  the mobile cannot report honest RPC admission while that first-hop ACK can overclaim it.
++  must never be described as doing so. ⚠ **RULED 2026-09-18 (R-RA-46), old claim kept visible:** this bullet used
++  to end *"B112 is a prerequisite of the first controller-carrier slice, because the mobile cannot report honest
++  RPC admission while that first-hop ACK can overclaim it."* The carrier slice (8b) proceeds with B112 open: at
++  its one send site admission is already stated by `SendDispatch` / the truthful `delegate_send_layer` return, the
++  controller claims exactly "wrapper stored in this mobile's TX queue", consults neither the hop ACK nor
++  `send_aired`, and reports silence as `unknown` at the 300-s bound after one exact resend (R-RA-47). B112's own
++  closure stays its separate core slice.
+ 
+ The v1 generator boundary is unchanged: custody is still generated only on static/global same-layer transit,
+ and team-plane / hosted-last-mile generation still requires a separate ruling.
+@@ -2189,7 +2194,7 @@ The complete design does not provide:
+    - **8a (paired with 8c) — ✅ INDEPENDENT QA PASS 2026-09-18 — controller state and crypto (host-visible, no carrier):** pending/session/result state, explicit
+      credential selection, `/mrtargets` resolution, discovery cache, request sealing, response opening,
+      exact-byte retry state, and pressure/refusal behaviour. No on-air RPC is enabled.
+-   - **8b, the only product controller carrier:** only after [[B112]] is fixed, connect the mobile client to
++   - **8b, the only product controller carrier** (brief revision 1, 2026-09-18, [`2026-09-18-radmin-slice8b-mobile-controller-carrier.md`](../plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md); **R-RA-46 (2026-09-18) supersedes the former "only after [[B112]] is fixed" gate that stood here:** 8b proceeds with B112 open, the controller claiming nothing beyond its own local `SendDispatch`; R-RA-47/48/49 fix the resend edge, the ACK-debt cadence and the E2E-ACK verdicts): connect the mobile client to
+      `send_by_hash` / `do_send` with `app_dm=true`, mandatory `SOURCE_HASH`, type `0xA0/0xA1` and
+      `Plane::GLOBAL`; implement optional per-request `-a` (default off), packer-derived caps, request/response
+      routing and B278 custody consumption. A custody report stays distinct from response/authentication and
+@@ -2244,7 +2249,7 @@ the implementation seams visible when that slice dispatches. The minimum map is:
+ | 7b-3 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-16**, owner commit `6086152`; R-RA-37/38/39/40/41 all implemented; B389/B390/B401 closed, B392 open for metal; [QA gate](../evidence/2026-09-16-radmin-slice7b3-qa-gate.md): native 2931/189998/0, corpus 36/36, Node 230976/157344/117912, gateway RAM +80, union 879/1/880, extended action probe 40 controls RED | 36/36 unchanged; ruled pair measured | **Part 57b:** scheduled/activate/result lines, prep-restart lockout and local recovery on metal once the 8b carrier can drive a request |
+ | 7b-3-F-config / F-provision / F-team / F-regen | **CLOSED — NOT REQUIRED (owner R-RA-41, 2026-09-16)**; B395–B398 closed; the 23/10/2/1 policy rows are refused remotely by design; no brief, gate or bench part follows | n/a | none |
+ | 8a+8c (paired 2026-09-16, P6) | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18**, uncommitted at `e3a5fa0` (base `6086152`; plus one simulator CMake source-list line, B406); [brief rev 4](../plans/2026-09-17-radmin-slice8ac-controller-and-local-delivery.md), [QA gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md): controller core `lib/core/remote_client.{h,cpp}` + `src/firmware_remote_client.{h,cpp}` (pending/session/assembly/result/ACK-debt state over the codec, `remote`/`remote-retry`/`remote-result`/`remote-ack`, checked entropy, carrier interface stubbed `carrier_unavailable` until 8b, legacy `RemoteInbound` slot removed) + local USB/BLE delivery (contract events, retain/re-offer/ACK, B292 bound at `tx_line`); R-RA-42/43/44/45 implemented; B292/B312/B403/B405/B406/B407 closed, B404 parked | native 2947/193734/0; corpus 36/36 byte-identical (zero radmin events); Node 235248/122176/157344 exact; gateway RAM/Node unchanged (the control), mobile RAM +4016 / flash +19228 attributed, xiao_mobile 176604/696940 reported; union 917/1/918 | **Part 57d (reserved, metal-pending on 8b):** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |
+-| 8b | `node_mac*` / hash-routing carrier and B278 consumer | zero A0/A1 corpus reach expected; any other DATA delta is STOP; ruled pair | **Part 57c:** real mobile→home→target request/result line with request ID; optional ACK/custody fields agree with the selected option |
++| 8b | **REVISION 6 BRIEF 2026-09-18 — R-RA-46/47/48/49 ruled; coder findings B409–B413 and B416 folded and closed, B414 repaired (closes at the gate), B415 pre-existing ring ambiguity parked — READY FOR CODER RESUME AND IMPLEMENTATION on the preserved partial candidate**, base `c07b77f` / simulator `6585649`; [brief](../plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md): Node-side `IRadminCarrier` on the real `send_by_hash(…, via_home=true)` / `delegate_send_layer` wrapper path (mirror of `radmin_send_response`; the wrapper is mandatory even for an authoritative binding — B413), `-a` end to end (target E2E ACK after admission in `rx_remote_cmd_accept`, B278 §9.2), the three carrier observations (E2E acked / ack timeout / translated custody → pure core matchers + one emitter call at the `fw_main` push fanout → non-terminal `remote_carrier` event, B409), R-RA-44 timings (one exact resend at a named edge; ACK-debt cascade then dormant), B408 fold; no codec/verb/resident-state change predicted | corpus predicted 36/36 byte-identical (no `0xA0/0xA1` in any scenario; emit-free hooks; `s07`/`s22` custody receipts unmoved), any DATA delta is STOP; ruled pair, gateway Node/RAM unchanged is the control; block 4512 with `carrier_ctr` in padding | **Part 57c:** real mobile→home→target request/result line with request ID; `-a` shows `carrier acked`; a pulled relay shows `carrier custody_failure`; Parts 54/57b/57d become runnable |
+ | 9 | protocol/command legacy owners named in §17 (NV fields excluded) | 36/36 unchanged; native fail-closed replacement and both probes; ruled pair | **Part 57e:** legacy help entry absent and the common dispatcher’s exact unknown-command refusal for `rcmd` |
+ | 10 | main config/NV + `Node` legacy fields only | 36/36 unchanged; ABI/NV migration and ruled pair | **Part 57f:** boot migration line reports the new schema healthy, legacy fields absent, and all four replacement stores retained |
+ 
+diff --git a/ios-companion/INBOX_SYNC_CONTRACT.md b/ios-companion/INBOX_SYNC_CONTRACT.md
+index d1b620e..3f19357 100644
+--- a/ios-companion/INBOX_SYNC_CONTRACT.md
++++ b/ios-companion/INBOX_SYNC_CONTRACT.md
+@@ -1368,3 +1368,23 @@ Subsequent output, terminal, retained notices and local ACK use that fresh ID. M
+ preserves its original ID and sealed bytes. An OPEN result never creates target ACK debt.
+ The controller's board carrier is deliberately unavailable until 8b; this slice's real console
+ admission therefore returns the typed `carrier_unavailable` refusal without putting bytes on air.
++
++### Remote controller carrier observations (Slice 8b)
++
++A pending authenticated execute submitted with `-a` may produce these non-terminal observations on its original
++local transport. Existing USB text and the generic BLE push are emitted first, then the matching controller
++observation. The event does not authenticate or complete the RPC, trigger a retry, or change its retained result.
++Disconnected BLE observations are dropped; they are not retained/re-offered. Each NDJSON line is at most 244 bytes.
++
++```json
++{"ev":"remote_carrier","id":"0123456789abcdef","event":"acked","ctr":42}
++{"ev":"remote_carrier","id":"0123456789abcdef","event":"ack_timeout","ctr":42}
++{"ev":"remote_carrier","id":"0123456789abcdef","event":"custody_failure","ctr":42,"origin":1,"reporter":3,"layer":2,"reason":"cascade_age"}
++```
++
++USB equivalents are `> remote <id16> carrier acked ctr=<n>`, `... carrier ack_timeout ctr=<n>`, and
++`... carrier custody_failure ctr=<n> origin=<n> reporter=<n> layer=<n> reason=<name>`, each newline-terminated.
++`ctr` is the mobile wrapper counter; `origin` is the home's outward failed origin and `reporter` the original
++reporting relay. Custody is an unauthenticated observation, never proof that the destination missed the request.
++The reason name comes from the existing custody codec/console name table. Open requests, rollovers and response
++ACKs never request an E2E ACK; `-a` on either rollover form is refused as `bad_args`.
+diff --git a/lib/core/node.h b/lib/core/node.h
+index d1c2a90..30e27f1 100644
+--- a/lib/core/node.h
++++ b/lib/core/node.h
+@@ -42,6 +42,21 @@
+ 
+ namespace MESHROUTE_NS {
+ 
++#if MR_FEAT_RADMIN_CLIENT
++class Node;
++// Stack-only binding to the mobile's existing checked DM carrier. Node owns no adapter.
++struct NodeRadminClientCarrier final : IRadminCarrier {
++    explicit NodeRadminClientCarrier(Node& node) : node_(node) {}
++    bool tx_queue_full() const override;
++    RemoteClientSend submit_request(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
++                                    std::span<const uint8_t>, bool e2e_ack) override;
++    RemoteClientSend submit_ack(const RemoteClientRoute&, RemoteSource, const RemoteCarrier&,
++                                std::span<const uint8_t>) override;
++private:
++    Node& node_;
++};
++#endif
++
+ struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
+ struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
+ struct SuspectEntry;   // frame_codec.h — fwd-decl for the §P4 suspect-gossip apply seam (apply_suspect_gossip)
+@@ -166,9 +181,10 @@ public:
+     void remote_client_arm() { radmin_expiry_arm(); }
+     uint8_t remote_client_correlation_free() const {
+         uint8_t free = 0;
+-        for (const auto& row : _deleg_acks) free += row.state == DelegAckState::free;
++        for (const auto& row : _pending_e2e_acks) free += !row.used;
+         return free;
+     }
++    RemoteClientSend remote_client_submit(const RemoteClientRoute&, std::span<const uint8_t>, bool e2e_ack);
+ #endif
+ 
+     // ★★★ §remote-admin v2 SLICE 1b (2026-09-06, R-RA-27 item 2) — **WHICH CAPABILITY OWNS AN INCOMING REMOTE-ADMIN
+@@ -1705,7 +1721,7 @@ private:
+     uint32_t cache_want_pubkey_requester(const h_out& h);          // §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key (self-consistency + non-zero + the mobile/team id_bind gate), fire peer_key_cached. Returns the requester hash (0 = rejected). Used by the home proxy-answer branch + the mobile TX-free overhear cache.
+     void    forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32], const char* name, uint8_t name_len);   // §S3 part2: 1-hop last-mile DATA_TYPE_MOBILE_KEY_FORWARD to a hosted mobile (dedup same-requester via _mobile_reg[].last_key_fwd_hash32)
+     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
+-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
++    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr, bool via_home = false); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
+     // §S2: decide + build the INTRO first-contact prefix [ed_pub 32][name_len 1][name] for a plaintext hash-addressed send to dst_hash. Returns the prefix length (33 + name_len), or 0 = no attach (send plain: no identity / sealed intent / already peer_confirmed / cfg off / would overflow the DM body cap — message delivery beats key bootstrap).
+     uint8_t  intro_attach_prefix(uint32_t dst_hash, CryptIntent crypt, uint8_t body_len, uint8_t* pfx, uint8_t pfx_cap);
+     // §id-hash S4a: `by_id` flips the query KEY SPACE — `query_key32` is then a node/team id ("who owns id N?"),
+diff --git a/lib/core/node_hashlocate.cpp b/lib/core/node_hashlocate.cpp
+index 73fa92d..8bb8e98 100644
+--- a/lib/core/node_hashlocate.cpp
++++ b/lib/core/node_hashlocate.cpp
+@@ -1607,7 +1607,7 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
+ //   such arm has already called `push_send_failed`. The cross-layer arm is deliberately among them: a TEAM_KEY_GRANT is
+ //   REFUSED inside `enqueue_cross_layer` (node_mac.cpp, §team-ch-key T-K3), and exposing that arm's own handle is
+ //   ruled a separate behaviour change by the `return 0` note at its site (C1).
+-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch) {
++uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch, bool via_home) {
+     // §S2 INTRO first-contact attach (D1): at ORIGINATION (type==0 = not a pre-built INTRO; reply_to_hash==0 = not a
+     // HOME re-originating for its mobile), a PLAINTEXT hash-addressed send rides as DATA_TYPE_INTRO carrying our
+     // pubkey iff intro_attach_prefix says so (no peer_confirmed(dst), a crypto identity exists, cfg on, plaintext,
+@@ -1711,7 +1711,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
+ #endif
+     IdBindConf conf = IdBindConf::claimed;
+     const int id = id_bind_find_by_hash(key_hash32, &conf);
+-    if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
++    if (!via_home && id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
+         const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane, out_dispatch);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
+         // §B278 S1b §4.3: RESOLVED-ID dispatch — a same-layer static outward DATA flight. This arm CARRIES custody.
+         (void)commit_deleg_ack(ch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(id),
+diff --git a/lib/core/node_mac_rx.cpp b/lib/core/node_mac_rx.cpp
+index 7c99a81..ed9f7f9 100644
+--- a/lib/core/node_mac_rx.cpp
++++ b/lib/core/node_mac_rx.cpp
+@@ -1935,6 +1935,43 @@ Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool acc
+ 
+ 
+ 
++
++#if MR_FEAT_RADMIN_CLIENT
++bool NodeRadminClientCarrier::tx_queue_full() const { return node_.tx_queue_full(); }
++RemoteClientSend NodeRadminClientCarrier::submit_request(const RemoteClientRoute& route, RemoteSource,
++    const RemoteCarrier&, std::span<const uint8_t> body, bool e2e_ack) {
++    return node_.remote_client_submit(route, body, e2e_ack);
++}
++RemoteClientSend NodeRadminClientCarrier::submit_ack(const RemoteClientRoute& route, RemoteSource,
++    const RemoteCarrier&, std::span<const uint8_t> body) {
++    return node_.remote_client_submit(route, body, false);
++}
++RemoteClientSend Node::remote_client_submit(const RemoteClientRoute& route, std::span<const uint8_t> body, bool e2e_ack) {
++    if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;
++    if (tx_queue_full()) return RemoteClientSend::full;
++    if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;
++    const uint8_t flags = e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0;
++    uint16_t ctr = 0;
++    if (route.hop_count) {
++        ctr = delegate_send_layer(route.target_hash, route.hops, route.hop_count, DATA_TYPE_REMOTE_CMD,
++                                  body.data(), static_cast<uint8_t>(body.size()), flags);
++        if (!ctr) return RemoteClientSend::unavailable;
++    } else {
++        SendDispatch dispatch{};
++        (void)send_by_hash(route.target_hash, body.data(), static_cast<uint8_t>(body.size()), flags,
++            CryptIntent::off, 0, 0, Plane::GLOBAL, DATA_TYPE_REMOTE_CMD, /*suppress_intro=*/true, &dispatch, /*via_home=*/true);
++        switch (dispatch.admit) {
++            case SendDispatch::Admit::queued: ctr = dispatch.ctr; break;
++            case SendDispatch::Admit::parked: // the registered-mobile arm precedes parking
++            case SendDispatch::Admit::refused: return RemoteClientSend::full;
++            case SendDispatch::Admit::none: return RemoteClientSend::unavailable;
++        }
++    }
++    remote_client_carrier_sent(_remote_client, body, ctr);
++    return RemoteClientSend::queued;
++}
++#endif
++
+ #if MR_FEAT_RADMIN_ACCEPT
+ // ACCEPT-OWNED. (⛔ This marker line is LOAD-BEARING, not decoration: `tools/probe_features/ownership.py`'s
+ // W-OWNER-CMD / W-WIDEN-ACCEPT controls anchor their one-match edit on exactly `#if MR_FEAT_RADMIN_ACCEPT`
+@@ -2208,6 +2245,13 @@ void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
+             EF_I("src_hash", static_cast<int64_t>(res.source_hash)),
+             EF_I("seen", res.seen_index), EF_I("ingress", res.ingress_index));
+     radmin_send_reply(res);      // only fully encoded bootstrap/admission/protocol replies reach the sender
++    // R-RA-49: carrier ownership only after the authenticated admission/replay boundary.
++    if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) &&
++        (res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript ||
++         res.verdict == RemoteAdmitVerdict::already_acknowledged)) {
++        if (pa.flags & DATA_FLAG_CROSS_LAYER) send_xl_ack(*ui, pa.ctr);
++        else send_e2e_ack(pa.origin, pa.ctr, ui->source_hash);
++    }
+     radmin_report_counters(counters_before);
+     // Recompute the earliest deadline from CURRENT rows after every classified intake, including refusals.
+     // Refusal accounting can change counters; open intake may also expire older staging/capture pairs before
+diff --git a/lib/core/remote_client.cpp b/lib/core/remote_client.cpp
+index 778701d..e612bbd 100644
+--- a/lib/core/remote_client.cpp
++++ b/lib/core/remote_client.cpp
+@@ -12,14 +12,28 @@ namespace {
+ constexpr uint8_t kOpcodeMask = 7, kAck = 8, kSealed = 16, kRolled = 32, kRediscovered = 64;
+ constexpr uint8_t kLocalResult = 4, kRolloverResult = 5;
+ constexpr uint32_t kOutcomeMs = protocol::e2e_ack_deadline_xl_ms;
+-// ACK debt may retry; R-RA-44 leaves silent EXECUTE retry timing to 8b.
+-constexpr uint32_t kAckRetryMs = protocol::cascade_requeue_base_ms;
++// R-RA-48: initial attempt plus the existing cascade's bounded retry burst.
++constexpr uint8_t kAckAttempts = protocol::cascade_requeue_max + 1;
+ using Phase = RemoteClientPhase;
+ void increment(uint16_t& n) { if (n != UINT16_MAX) ++n; }
+ bool live(const RemoteClientPending& p) { return p.core.state != static_cast<uint8_t>(Phase::empty); }
+ Phase phase(const RemoteClientPending& p) { return static_cast<Phase>(p.core.state); }
+-void phase(RemoteClientPending& p, Phase s) { p.core.state = static_cast<uint8_t>(s); }
++void phase(RemoteClientPending& p, Phase s) {
++    if (phase(p) != s) { p.core.retries = 0; p.core.next_retry_ms = 0; }
++    p.core.state = static_cast<uint8_t>(s);
++}
+ uint8_t opcode(const RemoteClientPending& p) { return p.core.flags & kOpcodeMask; }
++bool ack_requested(const RemoteClientPending& p) {
++    return opcode(p) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute) && (p.core.flags & kAck);
++}
++bool waiting(Phase p) {
++    return p == Phase::bootstrap_wait || p == Phase::response_wait || p == Phase::compare_wait || p == Phase::rollover_wait;
++}
++uint64_t wire_id(std::span<const uint8_t> body) {
++    if (body.size() < 9) return 0;
++    uint64_t id = 0; for (unsigned i = 0; i < 8; ++i) id |= uint64_t{body[1+i]} << (8*i);
++    return id;
++}
+ bool authenticated(const RemoteClientPending& p) { return opcode(p) != static_cast<uint8_t>(RemoteCmdOpcode::open_execute); }
+ bool equal_key(const uint8_t* a, const uint8_t* b) { return crypto_verify32(a, b) == 0; }
+ bool same_pair(const RemoteClientSession& e, const RemoteClientPending& p) {
+@@ -152,11 +166,10 @@ RemoteStatus seal_request(RemoteClientState& s, RemoteClientPending& p, std::spa
+     }
+     crypto_wipe(bytes, sizeof bytes); return st;
+ }
+-RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadminCarrier& carrier) {
++RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadminCarrier& carrier, uint32_t now) {
+     auto state = phase(p);
+     if (state != Phase::bootstrap_ready && state != Phase::compare_ready &&
+         state != Phase::rollover_ready && state != Phase::request_ready) return RemoteClientError::none;
+-    if (carrier.tx_queue_full()) { increment(s.counters.radio_enqueue_failure); return RemoteClientError::radio_enqueue_failed; }
+     uint8_t control[kRemoteOverheadBootstrapRequest]{}; size_t len = 0;
+     std::span<const uint8_t> bytes;
+     const auto leg = remote_client_carrier(p.core.route, DATA_TYPE_REMOTE_CMD, p.core.carrier);
+@@ -172,12 +185,19 @@ RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadm
+         bytes = {control, len};
+     }
+     const auto sent = carrier.submit_request(p.core.route, {true, p.core.source_hash}, leg, bytes,
+-                                            state == Phase::request_ready && (p.core.flags & kAck));
++                                            state == Phase::request_ready && ack_requested(p));
+     crypto_wipe(control, sizeof control);
++    if (sent == RemoteClientSend::correlation_full) return RemoteClientError::correlation_full;
+     if (sent != RemoteClientSend::queued) {
+         increment(s.counters.radio_enqueue_failure);
+         return sent == RemoteClientSend::unavailable ? RemoteClientError::carrier_unavailable : RemoteClientError::radio_enqueue_failed;
+     }
++    const auto retries = p.core.retries;
++    // An exact automatic execute replay starts its transcript at sequence zero as the target does.
++    if (retries && state == Phase::request_ready) if (auto* a = assembly(s, p.core.request_id)) {
++        free_chain(s, a->first_chunk); a->first_chunk = kRemoteClientNoChunk;
++        a->bytes_used = 0; a->next_seq = 0;
++    }
+     switch (state) {
+         case Phase::bootstrap_ready: phase(p, Phase::bootstrap_wait); break;
+         case Phase::compare_ready: phase(p, Phase::compare_wait); break;
+@@ -185,6 +205,8 @@ RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadm
+         case Phase::request_ready: phase(p, Phase::response_wait); break;
+         default: break; // state was checked above; every other phase sends nothing
+     }
++    p.core.retries = retries;
++    p.core.next_retry_ms = retries ? 0 : now + remote_client_resend_ms(p.core.route);
+     return RemoteClientError::none;
+ }
+ void epoch_update(RemoteClientState& s, RemoteClientPending& p, uint64_t epoch, uint8_t slot, uint32_t now) {
+@@ -197,6 +219,13 @@ void epoch_update(RemoteClientState& s, RemoteClientPending& p, uint64_t epoch,
+     e->admin_epoch = epoch; e->acl_slot = slot; e->last_used_ms = now; e->valid = 2;
+     (void)remote_kdf_session(e->session_key, e->base_key, epoch);
+ }
++RemoteClientSend send_ack(RemoteClientState& s, const RemoteClientAck& d, IRadminCarrier& carrier) {
++    if (carrier.tx_queue_full()) return RemoteClientSend::full;
++    const auto sent = carrier.submit_ack(d.route, {true, d.source_hash},
++        remote_client_carrier(d.route, DATA_TYPE_REMOTE_CMD, d.carrier), d.sealed_ack);
++    if (sent != RemoteClientSend::queued) increment(s.counters.radio_enqueue_failure);
++    return sent;
++}
+ bool result(RemoteClientState& s, RemoteClientPending& p, uint16_t& head, uint8_t& domain, uint8_t& code, uint32_t& detail) {
+     if (phase(p) != Phase::complete) return false;
+     if (auto* r = retained(s, p.core.request_id)) {
+@@ -305,7 +334,7 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
+     const bool auth = in.opcode != RemoteCmdOpcode::open_execute;
+     const bool execute = in.opcode == RemoteCmdOpcode::auth_execute || in.opcode == RemoteCmdOpcode::open_execute;
+     if (in.carrier > 1 || in.target_pub.size() != 32 || !in.route.target_hash || in.route.hop_count > 3 || (auth && !in.identity) ||
+-        (!auth && in.e2e_ack) || (!execute && in.opcode != RemoteCmdOpcode::safe_rollover && in.opcode != RemoteCmdOpcode::force_rollover))
++        (in.e2e_ack && in.opcode != RemoteCmdOpcode::auth_execute) || (!execute && in.opcode != RemoteCmdOpcode::safe_rollover && in.opcode != RemoteCmdOpcode::force_rollover))
+         return {RemoteClientError::bad_args, 0};
+     if (execute && (in.command.empty() || meshroute::console::validate_command_line(reinterpret_cast<const char*>(in.command.data()),
+         in.command.size(), meshroute::console::remote_command_max_bytes) != meshroute::console::LineErr::ok)) return {RemoteClientError::bad_args, 0};
+@@ -324,7 +353,7 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
+     }
+     size_t debt = 0; unsigned correlation = 0;
+     for (const auto& d : s.ack_debt) debt += d.in_use != 0;
+-    for (const auto& row : s.pending) if (live(row)) { debt += opcode(row) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute); correlation += !!(row.core.flags & kAck); }
++    for (const auto& row : s.pending) if (live(row)) { debt += opcode(row) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute); correlation += ack_requested(row); }
+     if (in.opcode == RemoteCmdOpcode::auth_execute && debt >= 8) { increment(s.counters.local_result_pressure); return {RemoteClientError::ack_debt_full, 0}; }
+     if (in.e2e_ack && correlation >= in.correlation_free) return {RemoteClientError::correlation_full, 0};
+     uint64_t id = 0; auto error = new_id(s, id, entropy, ctx);
+@@ -365,7 +394,13 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
+         if (auth) { p->core.admin_epoch = e->admin_epoch; p->core.acl_slot = e->acl_slot; }
+         if (seal_request(s, *p, in.command) != RemoteStatus::ok) error = RemoteClientError::bad_args;
+     }
+-    if (error == RemoteClientError::none) error = send_ready(s, *p, carrier);
++    if (error == RemoteClientError::none && e && e->valid == 2) {
++        // R-RA-48: dormant debt gets one opportunity ahead of each new request to this target.
++        // Failure preserves the dormant debt; it does not restart the periodic burst.
++        for (const auto& d : s.ack_debt) if (d.in_use && d.retries >= kAckAttempts && equal_key(d.target_admin_pub, in.target_pub.data()))
++            (void)send_ack(s, d, carrier);
++    }
++    if (error == RemoteClientError::none) error = send_ready(s, *p, carrier, now);
+     if (error != RemoteClientError::none) {
+         release(s, *p); if (created) crypto_wipe(e, sizeof *e);
+         return {error, 0};
+@@ -403,7 +438,7 @@ RemoteClientError remote_client_retry(RemoteClientState& s, uint64_t id, uint32_
+ void remote_client_receive(RemoteClientState& s, uint8_t type, std::span<const uint8_t> body,
+                            RemoteSource sender, const RemoteCarrier& carrier, uint32_t now) {
+     if (type != DATA_TYPE_REMOTE_RESP || body.size() < 9 || !sender.present) { increment(s.counters.unmatched_response); return; }
+-    uint64_t id = 0; for (unsigned i = 0; i < 8; ++i) id |= uint64_t{body[1+i]} << (8*i);
++    const uint64_t id = wire_id(body);
+     RemoteClientPending* p = nullptr;
+     for (auto& row : s.pending) if (live(row) && (row.core.request_id == id ||
+         ((phase(row) == Phase::bootstrap_wait || phase(row) == Phase::compare_wait || phase(row) == Phase::rollover_wait) && row.core.discovery_id == id))) { p = &row; break; }
+@@ -509,6 +544,16 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
+     remote_client_expire(s,now);
+     for (auto& p : s.pending) if (live(p)) {
+         auto state=phase(p);
++        if (waiting(state) && !p.core.retries && static_cast<int32_t>(now-p.core.next_retry_ms)>=0) {
++            switch (state) {
++                case Phase::bootstrap_wait: phase(p, Phase::bootstrap_ready); break;
++                case Phase::response_wait: phase(p, Phase::request_ready); break;
++                case Phase::compare_wait: phase(p, Phase::compare_ready); break;
++                case Phase::rollover_wait: phase(p, Phase::rollover_ready); break;
++                default: break; // waiting() admits only these four states
++            }
++            p.core.retries = 1; // one resend; pressure keeps this ready until checked admission
++        }
+         if ((state==Phase::compare_ready || state==Phase::rollover_ready) && !p.core.discovery_id) {
+             auto error=new_id(s,p.core.discovery_id,entropy,ctx);
+             if (error!=RemoteClientError::none) local_complete(s,p,error,now);
+@@ -525,7 +570,7 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
+                 if (seal_request(s,p,{p.sealed,p.core.sealed_len})!=RemoteStatus::ok) local_complete(s,p,RemoteClientError::authentication_failed,now);
+             }
+         }
+-        const auto error=send_ready(s,p,carrier);
++        const auto error=send_ready(s,p,carrier,now);
+         if (error==RemoteClientError::carrier_unavailable || error==RemoteClientError::authentication_failed) local_complete(s,p,error,now);
+         if (phase(p)!=Phase::complete) continue;
+         const auto transport=static_cast<RemoteLocalTransport>(p.core.local_transport);
+@@ -541,12 +586,13 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
+         (void)deliver(s,p,transport,now,out);
+     }
+     // Bounded round: one attempt per due debt; a full queue preserves every row and exact ACK byte.
+-    for (auto& d:s.ack_debt) if (d.in_use && static_cast<int32_t>(now-d.next_retry_ms)>=0) {
++    for (auto& d:s.ack_debt) if (d.in_use && d.retries < kAckAttempts && static_cast<int32_t>(now-d.next_retry_ms)>=0) {
+         if (carrier.tx_queue_full()) break;
+-        const auto sent=carrier.submit_ack(d.route,{true,d.source_hash},remote_client_carrier(d.route,DATA_TYPE_REMOTE_CMD,d.carrier),d.sealed_ack);
+-        if (sent!=RemoteClientSend::queued) increment(s.counters.radio_enqueue_failure);
+-        if (d.retries!=UINT8_MAX) ++d.retries;
+-        d.next_retry_ms=now+kAckRetryMs; // ownership is not target receipt; retain until authenticated epoch change
++        if (send_ack(s,d,carrier) != RemoteClientSend::queued) continue; // failed attempts consume no budget
++        ++d.retries;
++        const uint32_t delay = std::min(uint32_t{protocol::cascade_requeue_base_ms} << (d.retries-1),
++                                        uint32_t{protocol::cascade_requeue_backoff_cap_ms});
++        d.next_retry_ms = now + delay; // after the final retry this edge is dormant, not a beacon
+     }
+ }
+ RemoteClientError remote_client_show(RemoteClientState& s,uint64_t id,RemoteLocalTransport t,uint32_t now,IRemoteLocalDelivery& out) {
+@@ -570,6 +616,14 @@ uint32_t remote_client_next_expiry(const RemoteClientState& s,uint32_t now) {
+     uint32_t next=UINT32_MAX;
+     for (const auto& p:s.pending) if (live(p) && phase(p)!=Phase::complete) {
+         const int32_t left=static_cast<int32_t>(p.core.outcome_deadline_ms-now); next=std::min(next,left>0?static_cast<uint32_t>(left):0u);
++        if (waiting(phase(p)) && !p.core.retries) {
++            const int32_t retry = static_cast<int32_t>(p.core.next_retry_ms-now);
++            next=std::min(next,retry>0?static_cast<uint32_t>(retry):0u);
++        }
++    }
++    for (const auto& d:s.ack_debt) if (d.in_use && d.retries < kAckAttempts) {
++        const int32_t retry = static_cast<int32_t>(d.next_retry_ms-now);
++        next=std::min(next,retry>0?static_cast<uint32_t>(retry):0u);
+     }
+     for (const auto& e:s.sessions) if (e.valid && !session_busy(s,e)) {
+         bool debt=false; for (const auto& d:s.ack_debt) if (d.in_use && d.credential_slot==e.credential_slot && equal_key(d.target_admin_pub,e.target_admin_pub)) debt=true;
+@@ -597,6 +651,35 @@ bool remote_client_target_in_use(const RemoteClientState& s,uint8_t slot) {
+     return false;
+ }
+ uint8_t remote_client_pending_count(const RemoteClientState& s) { uint8_t n=0; for (const auto& p:s.pending) n+=live(p); return n; }
++uint8_t remote_client_ack_debt_count(const RemoteClientState& s) { uint8_t n=0; for (const auto& d:s.ack_debt) n+=d.in_use!=0; return n; }
++uint32_t remote_client_resend_ms(const RemoteClientRoute& route) {
++    return route.hop_count ? protocol::gateway_send_giveup_ms : protocol::e2e_ack_deadline_ms;
++}
++void remote_client_carrier_sent(RemoteClientState& s, std::span<const uint8_t> body, uint16_t ctr) {
++    const auto id = wire_id(body);
++    if (!id) return;
++    for (auto& p : s.pending) if (live(p) && (p.core.request_id == id || p.core.discovery_id == id)) {
++        p.core.carrier_ctr = ctr; return;
++    }
++}
++uint64_t remote_client_observe_ack(const RemoteClientState& s, uint16_t ctr, bool timed_out,
++                                   uint8_t push_dst, uint32_t push_sender_hash, uint32_t* target_hash_out) {
++    if (target_hash_out) *target_hash_out = 0;
++    if (!ctr || (timed_out && push_dst != 0)) return 0;
++    for (const auto& p : s.pending) if (live(p) && ack_requested(p) && p.core.carrier_ctr == ctr) {
++        if (!timed_out && push_sender_hash != (p.core.route.hop_count ? p.core.route.target_hash : 0)) continue;
++        if (target_hash_out) *target_hash_out = p.core.route.target_hash;
++        return p.core.request_id;
++    }
++    return 0;
++}
++uint64_t remote_client_observe_custody(const RemoteClientState& s, uint16_t ctr, uint8_t type,
++                                     uint8_t kind, uint32_t target) {
++    if (!ctr || type != DATA_TYPE_REMOTE_CMD || kind != static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash)) return 0;
++    for (const auto& p : s.pending) if (live(p) && ack_requested(p) && p.core.carrier_ctr == ctr && p.core.route.target_hash == target)
++        return p.core.request_id;
++    return 0;
++}
+ uint8_t remote_client_retained_count(const RemoteClientState& s) {
+     uint8_t n=0; for (const auto& r:s.retained) n+=r.in_use==2;
+     for (const auto& a:s.assemblies) n+=a.in_use && a.terminal_seen;
+diff --git a/lib/core/remote_client.h b/lib/core/remote_client.h
+index ca6e3e4..3c8dfa9 100644
+--- a/lib/core/remote_client.h
++++ b/lib/core/remote_client.h
+@@ -27,6 +27,7 @@ struct RemoteClientPendingCore {
+     RemoteClientRoute route;                         // immutable source-validation/carrier hints
+     uint8_t credential_slot;                  // self or key0..key9, never inferred from mutable UI
+     uint8_t target_book_slot;                 // existing in-use guards
++    uint16_t carrier_ctr;                     // admitted mobile wrapper; uses former tail padding (8b)
+ };
+ 
+ struct RemoteClientPending { RemoteClientPendingCore core; uint8_t sealed[kRemoteClientSealedBytes]; };
+@@ -103,6 +104,8 @@ struct RemoteClientState {
+     RemoteClientCounters counters;
+ };
+ static_assert(sizeof(RemoteClientState) == 4512 && alignof(RemoteClientState) == 8, "R-RA-45 controller allocation");
++static_assert(sizeof(RemoteClientPendingCore) == 120 && offsetof(RemoteClientPendingCore, carrier_ctr) == 118,
++              "8b carrier counter occupies existing padding on every ABI");
+ static_assert(sizeof(RemoteClientPending) == 352 && sizeof(RemoteClientSession) == 144);
+ static_assert(sizeof(RemoteClientAssembly) == 32 && sizeof(RemoteClientRetained) == 32);
+ static_assert(sizeof(RemoteClientChunk) == 210 && sizeof(RemoteClientAck) == 88);
+@@ -117,7 +120,7 @@ enum class RemoteClientError : uint8_t {
+     assembly_full, result_full, ack_debt_full, correlation_full, session_cache_full,
+     carrier_unavailable, radio_enqueue_failed, not_found, incomplete, unknown
+ };
+-enum class RemoteClientSend : uint8_t { queued, full, unavailable };
++enum class RemoteClientSend : uint8_t { queued, full, unavailable, correlation_full };
+ struct IRadminCarrier {
+     virtual ~IRadminCarrier() = default;
+     virtual bool tx_queue_full() const = 0;
+@@ -147,7 +150,7 @@ struct RemoteClientRequest {
+     RemoteCmdOpcode opcode = RemoteCmdOpcode::auth_execute;
+     bool e2e_ack = false;
+     uint8_t carrier = 0; // 0 ordinary RPC, 1 typed mobile wrapper; transient input only
+-    uint8_t correlation_free = 0; // existing delegated-ring availability, reservations counted in pending
++    uint8_t correlation_free = 0; // mobile E2E ring availability; execute reservations counted in pending
+ };
+ struct RemoteClientResult { RemoteClientError error; uint64_t request_id; };
+ [[nodiscard]] RemoteStatus remote_client_base(uint8_t out[32], const Identity&, const uint8_t target_pub[32]);
+@@ -169,5 +172,13 @@ void remote_client_expire(RemoteClientState&, uint32_t now);
+ [[nodiscard]] bool remote_client_target_in_use(const RemoteClientState&, uint8_t slot);
+ [[nodiscard]] uint8_t remote_client_pending_count(const RemoteClientState&);
+ [[nodiscard]] uint8_t remote_client_retained_count(const RemoteClientState&);
++[[nodiscard]] uint8_t remote_client_ack_debt_count(const RemoteClientState&);
++[[nodiscard]] uint32_t remote_client_resend_ms(const RemoteClientRoute&);
++// Called only after the carrier's checked local admission; never claims delivery beyond that boundary.
++void remote_client_carrier_sent(RemoteClientState&, std::span<const uint8_t> body, uint16_t ctr);
++[[nodiscard]] uint64_t remote_client_observe_ack(const RemoteClientState&, uint16_t ctr, bool timed_out,
++                                                  uint8_t push_dst, uint32_t push_sender_hash, uint32_t* target_hash_out);
++[[nodiscard]] uint64_t remote_client_observe_custody(const RemoteClientState&, uint16_t mobile_ctr,
++    uint8_t failed_type, uint8_t target_kind, uint32_t target_value);
+ [[nodiscard]] const char* remote_client_error_name(RemoteClientError);
+ } // namespace MESHROUTE_NS
+diff --git a/src/firmware_commands.cpp b/src/firmware_commands.cpp
+index dbc5f76..a90570c 100644
+--- a/src/firmware_commands.cpp
++++ b/src/firmware_commands.cpp
+@@ -480,13 +480,7 @@ struct DeviceTargetUse : mrfw::ITargetUse {
+ struct DeviceClientRemoteDebt : mrfw::IClientRemoteDebt {
+     bool busy() const override { return meshroute::remote_client_busy(g_node.remote_client()); }
+ };
+-struct DeviceRemoteCarrier : meshroute::IRadminCarrier {
+-    bool tx_queue_full() const override { return false; }
+-    meshroute::RemoteClientSend submit_request(const meshroute::RemoteClientRoute&, meshroute::RemoteSource,
+-        const meshroute::RemoteCarrier&, std::span<const uint8_t>, bool) override { return meshroute::RemoteClientSend::unavailable; }
+-    meshroute::RemoteClientSend submit_ack(const meshroute::RemoteClientRoute&, meshroute::RemoteSource,
+-        const meshroute::RemoteCarrier&, std::span<const uint8_t>) override { return meshroute::RemoteClientSend::unavailable; }
+-};
++
+ static bool client_entropy(void*, uint8_t* out, size_t n) { return mrrng::fill_checked(out,n); }
+ static uint32_t client_console_drops(void*) { return mrcon.dropped_lines(); }
+ // The `AdminPrintLines` shape (U3): the sink the caller was HANDED, ⛔ never `mrcon` and ⛔ never a global.
+@@ -523,7 +517,7 @@ static void handle_remote_client(const char* line, size_t len, Print& out, Comma
+     DeviceTargetUse target_use;
+     MgmtKeyService keys(key_store,seed,key_use,g_identity.ed_pub);
+     TargetService targets(target_store,target_use);
+-    DeviceRemoteCarrier carrier;
++    meshroute::NodeRadminClientCarrier carrier(g_node);
+     const auto local=transport==CommandTransport::ble ? meshroute::RemoteLocalTransport::ble : meshroute::RemoteLocalTransport::usb;
+     RemoteClientDelivery delivery(out, local==meshroute::RemoteLocalTransport::ble ? &out : nullptr,
+                                   local==meshroute::RemoteLocalTransport::ble,client_console_drops);
+@@ -533,7 +527,7 @@ static void handle_remote_client(const char* line, size_t len, Print& out, Comma
+     g_node.remote_client_arm();
+ }
+ void remote_client_service_once(Print& usb, Print* ble, bool ble_connected) {
+-    DeviceRemoteCarrier carrier;
++    meshroute::NodeRadminClientCarrier carrier(g_node);
+     RemoteClientDelivery delivery(usb,ble,ble_connected,client_console_drops);
+     meshroute::remote_client_service(g_node.remote_client(),static_cast<uint32_t>(g_hal.now()),
+                                     client_entropy,nullptr,carrier,delivery);
+diff --git a/src/firmware_remote_client.cpp b/src/firmware_remote_client.cpp
+index 1ab0ba6..59af986 100644
+--- a/src/firmware_remote_client.cpp
++++ b/src/firmware_remote_client.cpp
+@@ -1,11 +1,15 @@
+ #include "firmware_remote_client.h"
+ #include <Arduino.h>
+ #include "console_json.h"
++#include "node.h"
+ #include <cstdio>
+ #include <cstring>
+ #include <algorithm>
+ namespace mrfw {
+ using namespace meshroute;
++int remote_client_bind_lookup(void* node, uint32_t hash) {
++    return static_cast<const Node*>(node)->id_bind_find_by_hash(hash);
++}
+ void remote_id_format(char out[17],uint64_t id) {
+     static constexpr char hex[]="0123456789abcdef";
+     for (unsigned i=0;i<16;++i) out[i]=hex[(id>>((15-i)*4))&15];
+@@ -82,6 +86,11 @@ void RemoteClientDelivery::retained(RemoteLocalTransport t,uint64_t id) {
+         const int n=snprintf(line,sizeof line,"> remote %s retained\n",key); if (n>0) (void)write(t,line,static_cast<size_t>(n));
+     }
+ }
++bool RemoteClientDelivery::carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const CarrierDetail* detail) {
++    char key[17]; remote_id_format(key,id); char line[245];
++    const auto n=remote_client_carrier_format(line,sizeof line,t,key,event,ctr,detail);
++    return n && write(t,line,n);
++}
+ namespace {
+ void error(Print& out,RemoteLocalTransport t,const char* reason) {
+     if (t==RemoteLocalTransport::ble) {
+@@ -151,5 +160,6 @@ void remote_client_status(Print& out,const RemoteClientState& s) {
+     out.print(F(" radmin_client_radio_enqueue_failure="));out.print(c.radio_enqueue_failure);
+     out.print(F(" radmin_client_pending="));out.print(remote_client_pending_count(s));
+     out.print(F(" radmin_client_retained="));out.print(remote_client_retained_count(s));
++    out.print(F(" radmin_client_ack_debt="));out.print(remote_client_ack_debt_count(s));
+ }
+ } // namespace mrfw
+diff --git a/src/firmware_remote_client.h b/src/firmware_remote_client.h
+index a532c2d..9f38401 100644
+--- a/src/firmware_remote_client.h
++++ b/src/firmware_remote_client.h
+@@ -3,6 +3,10 @@
+ #include "remote_client.h"
+ #include "firmware_admin_client_verbs.h"
+ #include "console_line.h"
++#include "frame_codec.h"
++#include "command.h"
++#include "console_json.h"
++#include <cstdio>
+ class Print;
+ namespace mrfw {
+ enum class RemoteLocalVerb : uint8_t { execute, retry, show, ack };
+@@ -69,6 +73,7 @@ inline bool remote_local_parse(const char* line,size_t len,RemoteLocalCommand& o
+     }
+     // -a/-e are the same lone tokens as console_parse::parse_send_tail, with independent meanings.
+     if (!tail || enc==open || (open && (c.ack || selected || c.opcode!=meshroute::RemoteCmdOpcode::auth_execute))) return false;
++    if (c.ack && c.opcode!=meshroute::RemoteCmdOpcode::auth_execute) return false;
+     if (c.opcode==meshroute::RemoteCmdOpcode::auth_execute) {
+         if (!c.command_len || meshroute::console::validate_command_line(c.command,c.command_len,meshroute::console::remote_command_max_bytes)!=meshroute::console::LineErr::ok) return false;
+         if (open) {
+@@ -79,6 +84,26 @@ inline bool remote_local_parse(const char* line,size_t len,RemoteLocalCommand& o
+     out=c; return true;
+ }
+ void remote_id_format(char out[17],uint64_t id);
++struct CarrierDetail {
++    uint8_t origin, reporter, layer;
++    const char* reason;
++};
++// Shared bounded formatter: native goldens and the device delivery use these exact bytes.
++inline size_t remote_client_carrier_format(char* line,size_t cap,meshroute::RemoteLocalTransport transport,
++                                         const char* key,const char* event,uint16_t ctr,const CarrierDetail* detail) {
++    using namespace meshroute;
++    if (transport==RemoteLocalTransport::ble) {
++        EventField f[]={EF_S("id",key),EF_S("event",event),EF_I("ctr",ctr),
++            EF_I("origin",detail?detail->origin:0),EF_I("reporter",detail?detail->reporter:0),
++            EF_I("layer",detail?detail->layer:0),EF_S("reason",detail?detail->reason:"")};
++        const auto n=console::write_event(line,cap,"remote_carrier",f,detail?7:3);
++        return n<=244?n:0;
++    }
++    const int n=detail?std::snprintf(line,cap,"> remote %s carrier %s ctr=%u origin=%u reporter=%u layer=%u reason=%s\n",
++        key,event,ctr,detail->origin,detail->reporter,detail->layer,detail->reason):
++        std::snprintf(line,cap,"> remote %s carrier %s ctr=%u\n",key,event,ctr);
++    return n>0 && static_cast<size_t>(n)<cap?static_cast<size_t>(n):0;
++}
+ 
+ // Each object is a stack adapter. Drop accounting observes the complete write, including its newline.
+ class RemoteClientDelivery final : public meshroute::IRemoteLocalDelivery {
+@@ -90,12 +115,57 @@ public:
+     bool output(meshroute::RemoteLocalTransport,uint64_t,uint16_t&,std::span<const uint8_t>) override;
+     bool terminal(meshroute::RemoteLocalTransport,uint64_t,const char*,uint32_t,bool) override;
+     void retained(meshroute::RemoteLocalTransport,uint64_t) override;
++    bool carrier(meshroute::RemoteLocalTransport,uint64_t,const char* event,uint16_t,const CarrierDetail*);
+ private:
+     bool write(meshroute::RemoteLocalTransport,const char*,size_t);
+     uint8_t utf8_tail_[4]{}; // stack adapter only: carry a code point across transcript chunks
+     uint8_t utf8_tail_len_ = 0;
+     Print& usb_; Print* ble_; bool ble_up_; uint32_t (*drops_)(void*); void* ctx_;
+ };
++// Call-scoped lookup: the observer retains neither the Node nor the callback.
++using RemoteClientBindLookup = int (*)(void*, uint32_t);
++int remote_client_bind_lookup(void* node, uint32_t hash);
++// ONE call per already-rendered push. Parse with the existing codec; retain neither event nor sink.
++template<class Delivery>
++inline void remote_client_observe_push(const meshroute::RemoteClientState& state, const meshroute::Push& pu, Delivery& delivery,
++                                       RemoteClientBindLookup lookup, void* node) {
++    using namespace meshroute;
++    uint64_t id = 0; uint32_t target_hash = 0; uint16_t ctr = pu.ctr; const char* event = nullptr;
++    CarrierDetail detail{}; const CarrierDetail* fields = nullptr;
++    if (pu.kind == PushKind::send_e2e_acked) {
++        id = remote_client_observe_ack(state, ctr, false, pu.dst, pu.sender_hash, &target_hash); event = "acked";
++    } else if (pu.kind == PushKind::send_failed && pu.reason == SendFailReason::e2e_ack_timeout) {
++        id = remote_client_observe_ack(state, ctr, true, pu.dst, pu.sender_hash, &target_hash); event = "ack_timeout";
++    } else if (pu.kind == PushKind::custody_failure) {
++        const std::span<const uint8_t> body{pu.body, pu.body_len};
++        const auto record = parse_custody_failure(body);
++        if (!record || !custody_record_is_translated(record->notice_flags)) return;
++        const auto tail = parse_custody_translated_tail(body, *record);
++        if (!tail) return;
++        ctr = tail->mobile_ctr;
++        id = remote_client_observe_custody(state, ctr, record->failed_type,
++            static_cast<uint8_t>(tail->target_kind), tail->target_value);
++        event = "custody_failure";
++        detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,
++                  console::custodyreason_name(record->terminal_reason)};
++        fields = &detail;
++    }
++    if (!id) return;
++    for (const auto& row : state.pending) if (row.core.request_id == id) {
++        if (pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count) {
++            const int bound = lookup(node, target_hash);
++            if (bound >= 0 && bound != pu.dst) return;
++        }
++        (void)delivery.carrier(static_cast<RemoteLocalTransport>(row.core.local_transport), id, event, ctr, fields);
++        return;
++    }
++}
++inline void remote_client_observe_push(const meshroute::RemoteClientState& state, const meshroute::Push& pu,
++                                      Print& usb, Print* ble, bool ble_connected,
++                                      RemoteClientBindLookup lookup, void* node) {
++    RemoteClientDelivery delivery(usb, ble, ble_connected);
++    remote_client_observe_push(state, pu, delivery, lookup, node);
++}
+ struct RemoteClientServices {
+     meshroute::RemoteClientState& state;
+     const meshroute::Identity& self;
+diff --git a/src/fw_main.cpp b/src/fw_main.cpp
+index 1616228..c3725cf 100644
+--- a/src/fw_main.cpp
++++ b/src/fw_main.cpp
+@@ -51,6 +51,7 @@ using mrfw::team_fnv1a32;
+ #include "firmware_team_keyring.h"   // §UI-16 K1/K2 ([[B240]]): mrfw::KeyringRestore — the boot forward's five OUTCOMES (firmware_config.h declares the enum opaquely; the startup switch needs its enumerators)
+ #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
+ #include "firmware_custody_push.h"  // §B278 S4: the custody USB renderer (direct + translated) — lifted OUT of the push switch below so a host probe can EXECUTE it
++#include "firmware_remote_client.h"
+ using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
+ using mrfw::handle_mark_read;
+ using mrfw::handle_del_msg;           // §3.5 durable single-record delete
+@@ -1830,6 +1831,11 @@ static void mesh_service_once() {
+             else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid
+                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
+         }
++#if MR_FEAT_RADMIN_CLIENT
++        { LineSink local_ble(ble_sink);
++          mrfw::remote_client_observe_push(g_node.remote_client(), pu, mrcon, &local_ble, mrble::connected(), mrfw::remote_client_bind_lookup, &g_node);
++          local_ble.flush(); }
++#endif
+     }
+     mr_ui_tick((uint32_t)now);   // §featuresplit slice 4: periodic board-display refresh (no-op unless MR_FEAT_OLED; throttled inside)
+     // (was Serial.flush() — dropped Part 3: the Adafruit USB task drains the FIFO; a loop-body flush only risks a stall)
+diff --git a/test/test_console_json.cpp b/test/test_console_json.cpp
+index 4c5ef0d..649cda3 100644
+--- a/test/test_console_json.cpp
++++ b/test/test_console_json.cpp
+@@ -1240,3 +1240,19 @@ TEST_CASE("8ac contract-first remote output and typed terminal event goldens") {
+     CHECK(n <= 244);
+     CHECK(write_event(b,10,"remote_output",out,3)==0);
+ }
++
++TEST_CASE("8b contract-first carrier event goldens") {
++    char b[245];
++    for (const char* event : {"acked", "ack_timeout"}) {
++        EventField fields[] = {EF_S("id", "0123456789abcdef"), EF_S("event", event), EF_I("ctr", 42)};
++        auto n = write_event(b, sizeof b, "remote_carrier", fields, 3);
++        CHECK(std::string(b,n) == std::string("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"") + event + "\",\"ctr\":42}\n");
++        CHECK(n <= 244);
++    }
++    EventField f[] = {EF_S("id", "0123456789abcdef"), EF_S("event", "custody_failure"), EF_I("ctr",65535),
++        EF_I("origin",255), EF_I("reporter",254), EF_I("layer",253), EF_S("reason","cascade_age")};
++    auto n=write_event(b,sizeof b,"remote_carrier",f,7);
++    CHECK(std::string(b,n)=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":65535,\"origin\":255,\"reporter\":254,\"layer\":253,\"reason\":\"cascade_age\"}\n");
++    CHECK(n<=244);
++    CHECK(write_event(b,10,"remote_carrier",f,7)==0);
++}
+diff --git a/test/test_custody_receive_g.cpp b/test/test_custody_receive_g.cpp
+index ca5fb4a..6268d35 100644
+--- a/test/test_custody_receive_g.cpp
++++ b/test/test_custody_receive_g.cpp
+@@ -57,150 +57,9 @@
+ 
+ using namespace meshroute;
+ 
+-namespace {
+-
+-// Timer ids, mirrored TU-locally exactly as `test_custody_relay_f.cpp:46` does.
+-constexpr uint32_t kRtsTimeoutTimerId   = 4;
+-constexpr uint32_t kCtsToDataGapTimerId = 7;
+-constexpr uint32_t kQueueWakeupTimerId  = 8;
+-constexpr uint32_t kPostAckTimerId      = 9;
+-constexpr uint32_t kRetryBackoffTimerId = 10;
+-
+-const RxMeta kRx{10.0f, -75.0f, 0, static_cast<int8_t>(-1)};
+-
+-struct GFrame { std::string label; std::vector<uint8_t> bytes; };
+-
+-class GHal : public mrtest::TestHalBase {
+-public:
+-    // ★ §B278 S3: the recorder gained the FIELDS beside the name — additively, so every pre-existing
+-    //   `count(...)` reader is unchanged. S3's four events are pinned by field NAME, ORDER and integer TYPE,
+-    //   and a recorder that kept only the event name could not say any of that.
+-    struct EmitRec { std::string kind; std::vector<std::string> keys; std::vector<int> types;
+-                     std::vector<int64_t> ivals; };
+-    std::vector<std::string> emits;
+-    std::vector<EmitRec>     emit_recs;
+-    std::vector<GFrame>      tx_frames;
+-    void emit(const char* kind, const EventField* f, size_t n) override {
+-        emits.push_back(kind ? kind : "");
+-        EmitRec r; r.kind = kind ? kind : "";
+-        for (size_t i = 0; i < n; ++i) {
+-            r.keys.push_back(f[i].key ? f[i].key : "");
+-            r.types.push_back(static_cast<int>(f[i].type));
+-            r.ivals.push_back(f[i].type == EventField::T::i64 ? f[i].i : -1);
+-        }
+-        emit_recs.push_back(r);
+-    }
+-    int  count(const char* k) const { int c = 0; for (const auto& e : emits) if (e == k) ++c; return c; }
+-    const EmitRec* first_emit(const char* k) const {
+-        for (const auto& r : emit_recs) if (r.kind == k) return &r;
+-        return nullptr;
+-    }
+-    void clear_emits() { emits.clear(); emit_recs.clear(); }
+-    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
+-        tx_frames.push_back(GFrame{ p.label ? p.label : "", std::vector<uint8_t>(b, b + n) });
+-        return TxResult::ok;
+-    }
+-    void rand_bytes(uint8_t* o, size_t n) override {
+-        for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(0x5Au ^ (i * 17u));
+-    }
+-    size_t label_count(const char* label) const {
+-        size_t c = 0; for (const auto& f : tx_frames) if (f.label == label) ++c; return c;
+-    }
+-    std::vector<uint8_t> last(const char* label) const {
+-        for (auto it = tx_frames.rbegin(); it != tx_frames.rend(); ++it) if (it->label == label) return it->bytes;
+-        return {};
+-    }
+-};
++#include "support/remote_carrier_chain.h"
+ 
+-NodeConfig g_cfg() {
+-    NodeConfig cfg; cfg.n_layers = 1;
+-    cfg.layers[0].layer_id = 1; cfg.layers[0].routing_sf = 8;
+-    cfg.layers[0].allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+-    cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+-    // ⓘ A NONZERO leaf id, for `test_custody_relay_f.cpp`'s reason: `on_init` sets `layers[0].layer_id = leaf_id`
+-    //   on a single-layer node, so leaving the default 0 would make §9.2's `reporter_layer` — and therefore
+-    //   §13.15's whole falsifier — indistinguishable from an unwritten byte.
+-    cfg.leaf_id = 2;
+-    return cfg;
+-}
+-
+-void drain(Node& n) { Push d{}; while (n.next_push(d)) {} }
+-
+-// ---- THE PAIR: node 2 (the REPORTER) -> node 1 (the FAILED ORIGIN, i.e. the only legitimate consumer) -------
+-// Node 1's inbox is wired by default, because §7.3's whole point is the sequence the store assigns.
+-struct GPair {
+-    GHal h1, h2;
+-    Node n1{h1, /*id=*/1, 0x11111111u};
+-    Node n2{h2, /*id=*/2, 0x22222222u};
+-    RamInboxStore dm1{protocol::inbox_dm_store_bytes}, ch1{protocol::inbox_chan_store_bytes};
+-    uint64_t now = 100000;
+-    // ★ §B278 S3: `n1_lineage` is APPENDED with a default, so every pre-existing construction is byte-identical.
+-    //   A nonzero lineage with `config_epoch == 0` is the ONE production shape that makes `leaf_config_synced()`
+-    //   false, i.e. the un-synced managed joiner whose `enqueue_data` refuses an `app_dm` origination SILENTLY —
+-    //   the `SendDispatch::Admit::none` arm §B278 S3 must treat as a forward refusal (U1: the existing config
+-    //   fields, not a new seam).
+-    explicit GPair(bool wire_inbox = true, uint16_t n1_lineage = 0) {
+-        const NodeConfig cfg = g_cfg();
+-        NodeConfig cfg1 = cfg; cfg1.lineage_id = n1_lineage;
+-        CHECK(n1.on_init(cfg1)); CHECK(n2.on_init(cfg));
+-        if (wire_inbox) n1.inbox().on_init(&dm1, &ch1);   // ⛔ AFTER Node::on_init (node.h's contract)
+-        n1.test_learn_route(/*dest=*/2, /*via=*/2, 1, 40, false);
+-        n2.test_learn_route(/*dest=*/1, /*via=*/1, 1, 40, false);
+-        h1._now = h2._now = now;
+-        drain(n1); drain(n2);
+-        h1.clear_emits(); h2.clear_emits();
+-    }
+-    void step() { h1._now = h2._now = ++now; }
+-
+-    // One COMPLETE hop 2 -> 1 over the real MAC. `fire_post_ack = false` leaves the `PostAck` PENDING, which is
+-    // the window the §CUSTODY-G seam reads a REAL one out of.
+-    bool hop_2_to_1(bool fire_post_ack = true) {
+-        const std::vector<uint8_t> rts = h2.last("RTS");
+-        if (rts.empty()) return false;
+-        step(); n1.on_recv(rts.data(), rts.size(), kRx);
+-        const std::vector<uint8_t> cts = h1.last("CTS");
+-        if (cts.empty()) return false;
+-        step(); n2.on_recv(cts.data(), cts.size(), kRx);
+-        step(); n2.on_timer(kCtsToDataGapTimerId);
+-        const std::vector<uint8_t> data = h2.last("DATA");
+-        if (data.empty()) return false;
+-        step(); n1.on_recv(data.data(), data.size(), kRx);
+-        const std::vector<uint8_t> ack = h1.last("ACK");
+-        if (!ack.empty()) { step(); n2.on_recv(ack.data(), ack.size(), kRx); }
+-        if (fire_post_ack) { step(); n1.on_timer(kPostAckTimerId); }
+-        return true;
+-    }
+-    // Originate a typed DATA at node 2 addressed to node 1 and fly it. Returns false if the chain stalled, so a
+-    // fixture that silently stopped driving is a FAILURE and never a green pass.
+-    bool send_typed(const uint8_t* body, uint8_t len, uint8_t type = DATA_TYPE_CUSTODY_FAILURE,
+-                    uint32_t dst_hash = 0, bool fire_post_ack = true) {
+-        if (n2.test_do_send_typed(/*dst=*/1, body, len, CryptIntent::off, dst_hash, type) == 0) return false;
+-        return hop_2_to_1(fire_post_ack);
+-    }
+-    // The REVERSE direction, needed by exactly one arm: §13.1's falsifier requires the REPORTER's node id to be
+-    // 1, because that is the byte a CRYPTED parse leaves in front of the record (see §CUSTODY-G/2.1).
+-    bool hop_1_to_2(bool fire_post_ack = true) {
+-        const std::vector<uint8_t> rts = h1.last("RTS");
+-        if (rts.empty()) return false;
+-        step(); n2.on_recv(rts.data(), rts.size(), kRx);
+-        const std::vector<uint8_t> cts = h2.last("CTS");
+-        if (cts.empty()) return false;
+-        step(); n1.on_recv(cts.data(), cts.size(), kRx);
+-        step(); n1.on_timer(kCtsToDataGapTimerId);
+-        const std::vector<uint8_t> data = h1.last("DATA");
+-        if (data.empty()) return false;
+-        step(); n2.on_recv(data.data(), data.size(), kRx);
+-        const std::vector<uint8_t> ack = h2.last("ACK");
+-        if (!ack.empty()) { step(); n1.on_recv(ack.data(), ack.size(), kRx); }
+-        if (fire_post_ack) { step(); n2.on_timer(kPostAckTimerId); }
+-        return true;
+-    }
+-    bool send_typed_from_1(const uint8_t* body, uint8_t len, bool fire_post_ack = true) {
+-        if (n1.test_do_send_typed(/*dst=*/2, body, len, CryptIntent::off, /*dst_hash=*/0,
+-                                  DATA_TYPE_CUSTODY_FAILURE) == 0) return false;
+-        return hop_1_to_2(fire_post_ack);
+-    }
+-};
++namespace {
+ 
+ // ---- §9.2's record, as a VALUE, with every field distinct so no assertion can pass on a zero -----------------
+ // ⛔ NOT the §9.2 GOLDEN BYTE VECTOR — that lives in `test_custody_relay_f.cpp` and is the wire authority. This
+@@ -3511,3 +3370,56 @@ TEST_CASE("§B278-S4/14 consuming a translated record spawns no custody notice a
+     // …and a record ABOUT an 0x81 is refused at this receiver too — the other half of never-about-itself.
+     s4_expect_rejected_byte("about a notice", kOffFailedType, DATA_TYPE_CUSTODY_FAILURE);
+ }
++
++#include "../src/firmware_remote_client.h"
++TEST_CASE("8b S4 transport A translated remote command remains durable while the observer only renders") {
++    constexpr uint32_t target=0xa1b2c3d4;
++    S4Chain c;
++    auto record=g_base_record(1,2);record.failed_type=DATA_TYPE_REMOTE_CMD;record.dst_hash32=target;
++    record.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,true);
++    uint8_t direct[custody_record_v1_len]{};const auto n=g_pack(record,direct);
++    CHECK(s3_seed(c.p.n1,kS3MobileHash,kS3CtrH,kS3CtrM,kKindKeyHash,target,kKindNodeId,kS3ReturnPeer,DATA_TYPE_REMOTE_CMD));
++    CHECK(c.p.send_typed(direct,n));CHECK(c.hop_to_m1());
++    Push push{};bool found=false;
++    while(c.m1.next_push(push))if(push.kind==PushKind::custody_failure){found=true;break;}
++    CHECK(found);if(!found)return;
++    const auto original=push;
++    auto& state=c.m1.remote_client();state={};auto& row=state.pending[0].core;
++    row.request_id=1;row.state=uint8_t(RemoteClientPhase::response_wait);
++    row.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;row.carrier_ctr=kS3CtrM;row.route.target_hash=target;
++    struct ObserverSink {
++        std::string text;RemoteLocalTransport transport{};
++        bool carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const mrfw::CarrierDetail* detail) {
++            CHECK(id==1);transport=t;char line[245]{};
++            const auto size=mrfw::remote_client_carrier_format(line,sizeof line,t,"0000000000000001",event,ctr,detail);
++            text.assign(line,size);return size!=0;
++        }
++    } sink;
++    StoreSink before{};c.m1.inbox().pull(0,0,store_cb,&before);
++    const auto held=state;char before_json[1700]{},after_json[1700]{};
++    const auto json_n=console::write_push(before_json,sizeof before_json,push);
++    mrfw::remote_client_observe_push(state,push,sink,[](void* p,uint32_t h){return static_cast<Node*>(p)->id_bind_find_by_hash(h);},&c.m1);
++    CHECK(sink.text.find("carrier custody_failure ctr=1911 origin=1 reporter=2 layer=2 reason=cascade_count")!=std::string::npos);
++    CHECK(sink.transport==RemoteLocalTransport::usb);CHECK(memcmp(&state,&held,sizeof state)==0);
++    CHECK(memcmp(&push,&original,sizeof push)==0);
++    CHECK(console::write_push(after_json,sizeof after_json,push)==json_n);CHECK(memcmp(before_json,after_json,json_n)==0);
++    StoreSink after{};c.m1.inbox().pull(0,0,store_cb,&after);
++    CHECK(before.custody==1);CHECK(after.custody==1);CHECK(before.recs.back().body==after.recs.back().body);
++    CHECK(after.recs.back().body==std::vector<uint8_t>(push.body,push.body+push.body_len));
++    for(unsigned mismatch=0;mismatch<4;++mismatch) {
++        state=held;push=original;sink.text.clear();
++        if(mismatch==0)++row.carrier_ctr;
++        if(mismatch==1)++row.route.target_hash;
++        if(mismatch==2)row.flags &= ~8;
++        if(mismatch==3) {
++            auto decoded=parse_custody_failure({push.body,push.body_len});CHECK(decoded.has_value());if(!decoded)return;
++            auto tail=parse_custody_translated_tail({push.body,push.body_len},*decoded);CHECK(tail.has_value());if(!tail)return;
++            decoded->failed_type=DATA_TYPE_REMOTE_RESP;
++            decoded->record_len=custody_record_v1_len;
++            decoded->notice_flags &= ~CUSTODY_FLAG_HOME_TRANSLATED;
++            push.body_len=pack_custody_failure_translated(*decoded,*tail,push.body);
++            CHECK(push.body_len==custody_record_translated_len);
++        }
++        mrfw::remote_client_observe_push(state,push,sink,[](void* p,uint32_t h){return static_cast<Node*>(p)->id_bind_find_by_hash(h);},&c.m1);CHECK(sink.text.empty());
++    }
++}
+diff --git a/test/test_firmware_admin_client_verbs.cpp b/test/test_firmware_admin_client_verbs.cpp
+index b97ac1d..bd86fd8 100644
+--- a/test/test_firmware_admin_client_verbs.cpp
++++ b/test/test_firmware_admin_client_verbs.cpp
+@@ -626,7 +626,7 @@ TEST_CASE("8ac controller syntax XOR flags explicit confirmation bounded command
+     const char* bad[]={"remote alpha -- status","remote alpha open -e -- status","remote alpha open -a -- status",
+         "remote alpha open using=self -- status","remote alpha open -- reboot","remote alpha -e --",
+         "remote alpha -e using=key10 -- status","remote alpha -e using=key1 using=key2 -- status",
+-        "remote alpha -e rollover yes","remote alpha -e rollover confirm extra","remote alpha open rollover",
++        "remote alpha -e -a rollover","remote alpha -a -e rollover confirm","remote alpha -e rollover yes","remote alpha -e rollover confirm extra","remote alpha open rollover",
+         "remote-retry 0000000000000000","remote-ack 0123456789ABCDEF","remote-result 0123456789abcdef",
+         "remote-retry 0123456789abcdef extra","remote-result nope 0123456789abcdef","remote alpha -ae -- status"};
+     for(const auto* line:bad){mrfw::RemoteLocalCommand c{};CHECK_FALSE(mrfw::remote_local_parse(line,strlen(line),c));}
+@@ -635,3 +635,53 @@ TEST_CASE("8ac controller syntax XOR flags explicit confirmation bounded command
+     line+='x';CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
+     line=prefix+"status\nreboot";CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
+ }
++
++TEST_CASE("8b observer reads real custody codec and formats only the matching local transport") {
++    using namespace meshroute;
++    RemoteClientState s{};auto& p=s.pending[0].core;
++    p.request_id=0x0123456789abcdef;p.state=uint8_t(RemoteClientPhase::response_wait);
++    p.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;p.carrier_ctr=42;p.route.target_hash=0xabcdef12;
++    struct Sink {
++        std::string usb,ble;unsigned calls=0;
++        bool carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const mrfw::CarrierDetail* d) {
++            CHECK(id==0x0123456789abcdef);++calls;char line[245];
++            auto n=mrfw::remote_client_carrier_format(line,sizeof line,t,"0123456789abcdef",event,ctr,d);
++            CHECK(n>0);CHECK(n<=244);(t==RemoteLocalTransport::usb?usb:ble).append(line,n);return true;
++        }
++    } sink;
++    Push push{};push.kind=PushKind::send_e2e_acked;push.ctr=42;
++    // Labelled absent-binding adapter; real Node lookup is exercised by the CLIENT probe.
++    auto lookup=[](void*,uint32_t){return -1;};
++    const auto before=s;mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
++    CHECK(sink.usb=="> remote 0123456789abcdef carrier acked ctr=42\n");CHECK(sink.ble.empty());CHECK(memcmp(&before,&s,sizeof s)==0);
++    sink={};p.local_transport=uint8_t(RemoteLocalTransport::ble);push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;
++    mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.usb.empty());
++    CHECK(sink.ble=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"ack_timeout\",\"ctr\":42}\n");
++    sink={};push.reason=SendFailReason::no_route;mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.calls==0);
++    push.kind=PushKind::custody_failure;
++    CustodyFailureRecord r{};r.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,false);
++    r.terminal_reason=CustodyFailureReason::cascade_count;r.failed_origin=1;r.failed_dst=9;r.failed_ctr=99;
++    r.failed_type=DATA_TYPE_REMOTE_CMD;r.failed_plane=CustodyFailurePlane::static_same_layer;
++    r.reporter_layer=2;r.previous_hop=1;r.failed_next_hop=9;r.requeue_count=protocol::cascade_requeue_max;r.committed_hops=1;r.remaining_hops=4;
++    CustodyTranslatedTail tail{};tail.original_reporter=3;tail.target_kind=CustodyTranslatedTargetKind::key_hash;
++    tail.mobile_ctr=42;tail.target_value=p.route.target_hash;
++    auto pack=[&]{push.body_len=uint8_t(pack_custody_failure_translated(r,tail,push.body));CHECK(push.body_len==custody_record_translated_len);};pack();
++    const auto copy=push;sink={};mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
++    CHECK(sink.ble=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":42,\"origin\":1,\"reporter\":3,\"layer\":2,\"reason\":\"cascade_count\"}\n");
++    CHECK(sink.usb.empty());CHECK(memcmp(&push,&copy,sizeof push)==0);
++    sink={};p.local_transport=uint8_t(RemoteLocalTransport::usb);mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
++    CHECK(sink.usb=="> remote 0123456789abcdef carrier custody_failure ctr=42 origin=1 reporter=3 layer=2 reason=cascade_count\n");
++    for(unsigned bad=0;bad<7;++bad){
++        push=copy;auto saved=p;sink={};
++        if(bad==0)push.body_len=1;
++        if(bad==1){tail.mobile_ctr=43;pack();tail.mobile_ctr=42;}
++        if(bad==2){tail.target_value++;pack();tail.target_value--;}
++        if(bad==3){r.failed_type=DATA_TYPE_REMOTE_RESP;pack();r.failed_type=DATA_TYPE_REMOTE_CMD;}
++        if(bad==4)p.flags&=~8;
++        if(bad==5){tail.target_kind=CustodyTranslatedTargetKind::node_id;tail.target_value=9;pack();tail.target_kind=CustodyTranslatedTargetKind::key_hash;tail.target_value=p.route.target_hash;}
++        if(bad==6){push.body_len=uint8_t(pack_custody_failure(r,push.body));CHECK(push.body_len==custody_record_v1_len);}
++        mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.calls==0);p=saved;
++    }
++    char small[8];CHECK(mrfw::remote_client_carrier_format(small,sizeof small,RemoteLocalTransport::usb,"0123456789abcdef","acked",42,nullptr)==0);
++    CHECK(mrfw::remote_client_carrier_format(small,sizeof small,RemoteLocalTransport::ble,"0123456789abcdef","acked",42,nullptr)==0);
++}
+diff --git a/test/test_node_remote_session.cpp b/test/test_node_remote_session.cpp
+index 66ff13b..7324d70 100644
+--- a/test/test_node_remote_session.cpp
++++ b/test/test_node_remote_session.cpp
+@@ -122,8 +122,8 @@ size_t mk_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t pl
+ size_t mk_data_rpc(uint8_t dst, uint16_t ctr, uint8_t origin, uint32_t source_hash,
+                    std::span<const uint8_t> body, std::array<uint8_t, 300>& out, uint8_t type,
+                    const uint8_t* layer_ids = nullptr, uint8_t n_layers = 0, uint8_t cur = 0,
+-                   uint32_t dst_hash = 0) {
+-    uint8_t flags = DATA_FLAG_SOURCE_HASH;
++                   uint32_t dst_hash = 0, uint8_t extra_flags = 0) {
++    uint8_t flags = DATA_FLAG_SOURCE_HASH | extra_flags;
+     // ★ A CROSS-LAYER DM MUST CARRY `DST_HASH == the recipient's key` OR THE RECEIVER BRIDGES IT ONWARD
+     //   (node_mac_rx.cpp's Slice-4c.1 keystone). That is production behaviour this fixture must honour, not a
+     //   convenience: a cross-layer request without it never reaches ANY consumer, remote-admin included.
+@@ -267,7 +267,7 @@ struct TargetNode : mrfw::IRadminTarget {
+     void flight(uint8_t from_id, uint16_t ctr, uint32_t source_hash, std::span<const uint8_t> body,
+                 uint64_t t, uint8_t type = DATA_TYPE_REMOTE_CMD,
+                 const uint8_t* layer_ids = nullptr, uint8_t n_layers = 0, uint8_t cur = 0,
+-                uint32_t dst_hash = 0) {
++                uint32_t dst_hash = 0, uint8_t extra_flags = 0) {
+         RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+         std::array<uint8_t, 16> rb{};
+         hal._now = t;
+@@ -275,7 +275,7 @@ struct TargetNode : mrfw::IRadminTarget {
+                                        static_cast<uint8_t>(ctr & 0x0F), /*plen=*/60, rb, from_id, ctr), meta);
+         std::array<uint8_t, 300> db{};
+         const size_t dn = mk_data_rpc(/*dst=*/5, ctr, from_id, source_hash, body, db, type,
+-                                      layer_ids, n_layers, cur, dst_hash);
++                                      layer_ids, n_layers, cur, dst_hash, extra_flags);
+         CHECK(dn > 0);
+         hal._now = t + 100;
+         node.on_recv(db.data(), dn, meta);
+@@ -1600,7 +1600,7 @@ TEST_CASE("§radmin-73/Node saturated deadline is a real wake and diagnostics us
+ }
+ 
+ namespace {
+-// 8ac carrier binding is deliberately a loopback fixture: production board carrier remains unavailable.
++// 8ac's loopback remains a control beside 8b's real mobile/home carrier chain.
+ // Requests enter a real target Node through RTS/DATA; target MAC responses enter the real controller Node.
+ struct ControllerLoopCarrier : IRadminCarrier {
+     std::vector<std::vector<uint8_t>> commands, acks;
+@@ -1740,3 +1740,14 @@ TEST_CASE("8ac two Node loopback owns response bytes and all terminal meanings t
+         CHECK(controller.remote_client().ack_debt[0].in_use==1); // submission is never receipt
+     }
+ }
++
++TEST_CASE("8b authenticated cross-layer admission uses the existing reversed-path ACK sender") {
++    TargetNode t;t.provision(1);t.learn_peer(7,t.ctrl[0]);
++    const uint8_t path[]={1,0};auto carrier=radmin_command_carrier();
++    carrier.cross_layer=true;carrier.path_depth=2;carrier.path_cursor=1;carrier.dst_hash_on_wire=true;
++    const auto request=t.auth_execute_request(0,901,carrier);
++    t.flight(7,0x890,t.ctrl[0].key_hash32,request,10000,DATA_TYPE_REMOTE_CMD,path,2,1,t.self.key_hash32,DATA_FLAG_E2E_ACK_REQ);
++    RadminIngressView admitted{};CHECK(t.node.radmin_next_admitted(admitted));
++    CHECK(t.hal.count("xl_ack_no_gateway")==1);CHECK(t.hal.field("xl_ack_no_gateway","acked_ctr")==0x890);
++    CHECK(t.hal.field("xl_ack_no_gateway","target_leaf")==1);CHECK(t.hal.count("e2e_ack_tx")==0);
++}
+diff --git a/test/test_remote_client.cpp b/test/test_remote_client.cpp
+index 2eb5cae..13b0ae5 100644
+--- a/test/test_remote_client.cpp
++++ b/test/test_remote_client.cpp
+@@ -19,8 +19,11 @@ struct Entropy {
+ struct Carrier : IRadminCarrier {
+     bool full=false; RemoteClientSend answer=RemoteClientSend::queued;
+     std::vector<std::vector<uint8_t>> requests,acks;
++    std::vector<bool> request_ack;
+     bool tx_queue_full() const override {return full;}
+-    RemoteClientSend submit_request(const RemoteClientRoute&,RemoteSource,const RemoteCarrier&,std::span<const uint8_t> b,bool) override {
++    RemoteClientSend submit_request(const RemoteClientRoute&,RemoteSource,const RemoteCarrier&,std::span<const uint8_t> b,bool ack) override {
++        if(full)return RemoteClientSend::full;
++        request_ack.push_back(ack);
+         if(answer==RemoteClientSend::queued)requests.emplace_back(b.begin(),b.end());
+         return answer;
+     }
+@@ -264,3 +267,112 @@ TEST_CASE("8ac full ACK debt still permits explicit rollover recovery and contro
+         CHECK(c.start().error==RemoteClientError::none);
+     }
+ }
++
++TEST_CASE("8b execute-only ACK and typed pressure survive bootstrap independently of queue refusal") {
++    for(auto op:{RemoteCmdOpcode::open_execute,RemoteCmdOpcode::safe_rollover,RemoteCmdOpcode::force_rollover}) {
++        Client c;auto r=c.request();r.opcode=op;r.e2e_ack=true;
++        if(op!=RemoteCmdOpcode::open_execute)r.command={};
++        CHECK(remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier).error==RemoteClientError::bad_args);
++        CHECK(c.carrier.requests.empty());CHECK_FALSE(remote_client_busy(c.s));
++    }
++    for(auto answer:{RemoteClientSend::correlation_full,RemoteClientSend::full}) {
++        Client c;auto r=c.request();r.e2e_ack=true;
++        auto result=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);c.id=result.request_id;
++        CHECK(result.error==RemoteClientError::none);CHECK_FALSE(c.carrier.request_ack.back());
++        c.carrier.answer=answer;c.bootstrap();
++        CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::request_ready);
++        CHECK(c.carrier.request_ack.back());CHECK(c.carrier.requests.size()==1);CHECK(c.delivery.terminals==0);
++        CHECK(c.s.counters.radio_enqueue_failure==(answer==RemoteClientSend::full?1:0));
++        c.carrier.answer=RemoteClientSend::queued;c.pump();
++        CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::response_wait);CHECK(c.carrier.requests.size()==2);
++        CHECK(c.carrier.request_ack.back());
++    }
++    Client c;c.carrier.answer=RemoteClientSend::correlation_full;
++    CHECK(c.start().error==RemoteClientError::correlation_full);CHECK_FALSE(remote_client_busy(c.s));
++    CHECK(c.s.counters.radio_enqueue_failure==0);
++}
++TEST_CASE("8b exact resend once in every wait phase at same-layer and cross-layer derived edges") {
++    for(uint8_t hops:{0,1}) for(auto phase:{RemoteClientPhase::bootstrap_wait,RemoteClientPhase::response_wait,
++                                         RemoteClientPhase::compare_wait,RemoteClientPhase::rollover_wait}) {
++        Client c;c.route.hop_count=hops;c.route.hops[0]=2;CHECK(c.start().error==RemoteClientError::none);
++        if(phase!=RemoteClientPhase::bootstrap_wait)c.bootstrap();
++        if(phase==RemoteClientPhase::compare_wait){CHECK(remote_client_retry(c.s,c.id,c.now,Entropy::fill,&c.entropy)==RemoteClientError::none);c.pump();}
++        if(phase==RemoteClientPhase::rollover_wait){c.receive(c.wire(RemoteRespOpcode::admission_result,c.id,{},0,RemoteAdmission::session_full));c.pump();}
++        CHECK(RemoteClientPhase(c.p().core.state)==phase);
++        const auto last=c.carrier.requests.back();const auto count=c.carrier.requests.size();
++        const auto edge=hops?protocol::gateway_send_giveup_ms:protocol::e2e_ack_deadline_ms;
++        CHECK(c.p().core.next_retry_ms==c.now+edge);CHECK(remote_client_next_expiry(c.s,c.now)==edge);
++        c.now+=edge-2;c.pump();CHECK(c.carrier.requests.size()==count);
++        c.pump();CHECK(c.carrier.requests.size()==count+1);CHECK(c.carrier.requests.back()==last);
++        CHECK(RemoteClientPhase(c.p().core.state)==phase);CHECK(c.p().core.retries==1);
++        c.now=c.p().core.outcome_deadline_ms-2;c.pump();CHECK(c.carrier.requests.size()==count+1);
++        c.pump();CHECK(c.delivery.terminal_name=="unknown");CHECK(c.carrier.requests.size()==count+1);
++        c.now+=protocol::e2e_ack_deadline_xl_ms;c.pump();CHECK(c.carrier.requests.size()==count+1);
++    }
++}
++TEST_CASE("8b resend pressure retains exact bytes and deadline wins over a due resend") {
++    Client c;CHECK(c.start().error==RemoteClientError::none);c.bootstrap();const auto exact=c.carrier.requests.back();
++    c.output("partial");c.now=c.p().core.next_retry_ms;c.carrier.answer=RemoteClientSend::correlation_full;c.pump();
++    CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::request_ready);CHECK(c.s.counters.radio_enqueue_failure==0);
++    auto count=c.carrier.requests.size();c.pump();CHECK(c.carrier.requests.size()==count);
++    c.carrier.answer=RemoteClientSend::queued;c.pump();CHECK(c.carrier.requests.back()==exact);
++    c.output("whole");c.terminal(0,1);c.pump();CHECK(c.delivery.text=="whole");CHECK(c.s.counters.assembly_failure==0);
++    count=c.carrier.requests.size();c.now+=protocol::e2e_ack_deadline_xl_ms;c.pump();CHECK(c.carrier.requests.size()==count);
++    Client d;CHECK(d.start().error==RemoteClientError::none);d.now=d.p().core.outcome_deadline_ms;d.pump();
++    CHECK(d.carrier.requests.size()==1);CHECK(d.delivery.terminal_name=="unknown");
++}
++TEST_CASE("8b ACK debt burst becomes dormant and one new same-target request wakes it once") {
++    Client c;CHECK(c.start(RemoteLocalTransport::usb).error==RemoteClientError::none);c.bootstrap();c.terminal();c.pump();
++    CHECK(c.carrier.acks.size()==1);CHECK(remote_client_ack_debt_count(c.s)==1);const auto bytes=c.carrier.acks[0];
++    for(unsigned shift=0;shift<protocol::cascade_requeue_max;++shift) {
++        const auto edge=uint32_t{protocol::cascade_requeue_base_ms}<<shift;
++        CHECK(remote_client_next_expiry(c.s,c.now)==edge);
++        c.now+=edge-2;c.pump();CHECK(c.carrier.acks.size()==shift+1);
++        c.carrier.answer=RemoteClientSend::full;c.pump();CHECK(c.s.ack_debt[0].retries==shift+1);
++        c.carrier.answer=RemoteClientSend::unavailable;c.pump();CHECK(c.s.ack_debt[0].retries==shift+1);
++        c.carrier.answer=RemoteClientSend::queued;c.pump();CHECK(c.carrier.acks.size()==shift+2);CHECK(c.carrier.acks.back()==bytes);
++    }
++    CHECK(remote_client_next_expiry(c.s,c.now)==UINT32_MAX);
++    for(unsigned second=0;second<3600;++second){c.now+=1000;c.pump();}CHECK(c.carrier.acks.size()==4);
++    // A different cached target must not wake this target's dormant debt.
++    const auto saved=c.s;uint8_t other[32];memcpy(other,c.target.ed_pub,32);other[0]^=1;
++    memcpy(c.s.sessions[0].target_admin_pub,other,32);auto unrelated=c.request();unrelated.target_pub=other;
++    CHECK(remote_client_start(c.s,unrelated,c.now,Entropy::fill,&c.entropy,c.carrier).error==RemoteClientError::none);
++    CHECK(c.carrier.acks.size()==4);c.s=saved;
++    auto r=c.request();const auto next=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);
++    CHECK(next.error==RemoteClientError::none);CHECK(c.carrier.acks.size()==5);CHECK(c.carrier.acks.back()==bytes);
++    c.pump();CHECK(c.carrier.acks.size()==5);CHECK(c.s.ack_debt[0].retries==4);
++}
++TEST_CASE("8b carrier matchers bind live execute ACK rows without changing any state") {
++    Client c;auto r=c.request();r.e2e_ack=true;auto result=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);c.id=result.request_id;
++    CHECK(result.error==RemoteClientError::none);c.bootstrap();remote_client_carrier_sent(c.s,c.carrier.requests.back(),42);
++    CHECK(c.p().core.carrier_ctr==42);const auto before=c.s;
++    CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==c.id);CHECK(remote_client_observe_ack(c.s,42,true,0,0,nullptr)==c.id);
++    CHECK(remote_client_observe_ack(c.s,43,false,0,0,nullptr)==0);CHECK(remote_client_observe_ack(c.s,0,false,0,0,nullptr)==0);
++    const auto kind=static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash);
++    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash)==c.id);
++    CHECK(remote_client_observe_custody(c.s,43,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash)==0);
++    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_RESP,kind,c.route.target_hash)==0);
++    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,0,c.route.target_hash)==0);
++    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash+1)==0);
++    CHECK(memcmp(&before,&c.s,sizeof before)==0);
++    c.p().core.flags&=~8;CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
++    c.p().core.flags=uint8_t(RemoteCmdOpcode::safe_rollover)|8;CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
++    c.p().core.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;c.p().core.state=uint8_t(RemoteClientPhase::empty);
++    CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
++}
++
++TEST_CASE("8b ACK identity uses the producer-specific shape and returns the candidate target") {
++    RemoteClientState state{};auto& row=state.pending[0].core;
++    row.request_id=7;row.state=uint8_t(RemoteClientPhase::response_wait);row.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;
++    row.carrier_ctr=42;row.route.target_hash=0x12345678;uint32_t target=99;
++    CHECK(remote_client_observe_ack(state,42,false,2,0,&target)==7);CHECK(target==row.route.target_hash);
++    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash,&target)==0);CHECK(target==0);
++    CHECK(remote_client_observe_ack(state,42,true,2,0,&target)==0);CHECK(target==0);
++    CHECK(remote_client_observe_ack(state,42,true,0,0,&target)==7);CHECK(target==row.route.target_hash);
++    row.route.hop_count=1;
++    CHECK(remote_client_observe_ack(state,42,false,2,0,&target)==0);CHECK(target==0);
++    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash+1,&target)==0);CHECK(target==0);
++    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash,&target)==7);CHECK(target==row.route.target_hash);
++    CHECK(remote_client_observe_ack(state,42,true,0,0,&target)==7);CHECK(target==row.route.target_hash);
++}
+diff --git a/tools/probe_console_sink/structural.py b/tools/probe_console_sink/structural.py
+index bdd24a3..d16baa2 100644
+--- a/tools/probe_console_sink/structural.py
++++ b/tools/probe_console_sink/structural.py
+@@ -656,9 +656,10 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
+         add('S44', '⛔ NO resident management keyring, service or seed exists — the SECRETS stay stack transients',
+             not cresident, f'{len(cresident)} occurrence(s): {cresident[:3]}')
+         cli_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_CLIENT(.*?)#endif', cmds, re.S)
+-        # 8ac binds only the approved controller block, its timer and existing correlation capacity.
++        # 8b adds only the call-scoped carrier binding to 8ac's controller block, timer and capacity.
+         # Preserve the no-other-Node/no-target-key boundary; S-C45's node_id injection must still fail.
+-        allowed_client_node = r'\bg_node\.(?:remote_client|remote_client_arm|remote_client_correlation_free)\(\)'
++        allowed_client_node = (r'\bg_node\.(?:remote_client|remote_client_arm|remote_client_correlation_free)\(\)'
++                               r'|\bmeshroute::NodeRadminClientCarrier\s+carrier\(g_node\);')
+         add('S45', 'CLIENT bindings reach only the approved controller seams and no legacy single-admin symbol',
+             len(cli_blocks) >= 1
+             and all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b',
+diff --git a/tools/probe_custody_usb/run.sh b/tools/probe_custody_usb/run.sh
+index 182c528..7bf8839 100755
+--- a/tools/probe_custody_usb/run.sh
++++ b/tools/probe_custody_usb/run.sh
+@@ -52,6 +52,7 @@ trap 'rm -rf "$OUT"' EXIT
+ 
+ HELPER="$ROOT/src/firmware_custody_push.h"   # THE RENDERER — controls C2..C9 mutate this
+ FWMAIN="$ROOT/src/fw_main.cpp"               # THE SWITCH    — control C1 mutates this
++python3 "$HERE/observer_structure.py" "$FWMAIN" "${1:-}" || exit 1
+ FAKES="$ROOT/tools/probe_console_sink/fakes" # the ONE Arduino fake (U1: reused, never forked)
+ 
+ INCS=(-I"$FAKES" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/console" -I"$ROOT/lib/hal"
+diff --git a/tools/probe_features/ownership.py b/tools/probe_features/ownership.py
+index a982a65..0107706 100755
+--- a/tools/probe_features/ownership.py
++++ b/tools/probe_features/ownership.py
+@@ -97,13 +97,15 @@ APPROVED_SITES = {'lib/core/mr_features.h': ['# define MR_FEAT_RADMIN_CLIENT 1',
+                             '# if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT'],
+  'lib/core/node.cpp': ['#if MR_FEAT_RADMIN_ACCEPT', '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT'],
+  'lib/core/node.h': ['#if MR_FEAT_RADMIN_CLIENT',
++                     '#if MR_FEAT_RADMIN_CLIENT',
+                      '#if MR_FEAT_RADMIN_ACCEPT',
+                      '#if MR_FEAT_RADMIN_ACCEPT',
+                      '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT',
+                      '#if MR_FEAT_RADMIN_CLIENT',
+                      '#if MR_FEAT_RADMIN_CLIENT',
+                      '#if MR_FEAT_RADMIN_ACCEPT'],
+- 'lib/core/node_mac_rx.cpp': ['#if MR_FEAT_RADMIN_ACCEPT',
++ 'lib/core/node_mac_rx.cpp': ['#if MR_FEAT_RADMIN_CLIENT',
++                     '#if MR_FEAT_RADMIN_ACCEPT',
+                               '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT',
+                               '#if MR_FEAT_RADMIN_ACCEPT',
+                               '#if MR_FEAT_RADMIN_CLIENT',
+@@ -128,7 +130,8 @@ APPROVED_SITES = {'lib/core/mr_features.h': ['# define MR_FEAT_RADMIN_CLIENT 1',
+  'src/firmware_help.h': ['#if MR_FEAT_RADMIN_ACCEPT', '#if MR_FEAT_RADMIN_CLIENT', '#if MR_FEAT_RADMIN_CLIENT'],
+  'src/firmware_remote_actions.cpp': ['#if MR_FEAT_RADMIN_ACCEPT'],
+  'src/firmware_remote_actions.h': ['#if MR_FEAT_RADMIN_ACCEPT'],
+- 'src/fw_main.cpp': ['#if MR_FEAT_RADMIN_ACCEPT',
++ 'src/fw_main.cpp': ['#if MR_FEAT_RADMIN_CLIENT',
++                     '#if MR_FEAT_RADMIN_ACCEPT',
+                      '#if MR_FEAT_RADMIN_CLIENT',
+                      '#if MR_FEAT_RADMIN_ACCEPT',
+                      '#if MR_FEAT_RADMIN_CLIENT',
+diff --git a/tools/probe_inbox_verbs/remote_client_rows.h b/tools/probe_inbox_verbs/remote_client_rows.h
+index c0f74ac..304230a 100644
+--- a/tools/probe_inbox_verbs/remote_client_rows.h
++++ b/tools/probe_inbox_verbs/remote_client_rows.h
+@@ -129,5 +129,85 @@ static void remote_client_rows() {
+     CHK(!checked.output(RemoteLocalTransport::usb,1,seq,second) && staged.dropped_lines()!=0,
+         "C8-25 real console-stage drop is not local acceptance despite Print returning full count");
+ 
++    // 8b: real firmware observer and real Print/LineSink delivery. The pending record is explicitly synthetic.
++    auto& observed=g_node.remote_client();observed={};auto& op=observed.pending[0].core;
++    op.request_id=0x0123456789abcdef;op.state=uint8_t(RemoteClientPhase::response_wait);
++    op.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;op.carrier_ctr=42;op.route.target_hash=0xa1b2c3d4;
++    Push push{};push.kind=PushKind::send_e2e_acked;push.ctr=42;
++    CaptureSink usb_events,ble_events;
++    for(const auto transport:{RemoteLocalTransport::usb,RemoteLocalTransport::ble}) {
++        op.local_transport=uint8_t(transport);usb_events.reset();ble_events.reset();
++        mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
++        CHK(transport==RemoteLocalTransport::usb ?
++            usb_events.is("> remote 0123456789abcdef carrier acked ctr=42\n") && ble_events.n==0 :
++            ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"acked\",\"ctr\":42}\n") && usb_events.n==0,
++            "C8-B1 observer emits exact ACK only on the row transport");
++    }
++    usb_events.reset();ble_events.reset();const auto before_observation=observed;
++    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,false,mrfw::remote_client_bind_lookup,&g_node);
++    CHK(usb_events.n==0 && ble_events.n==0,"C8-B2 disconnected BLE observation drops");
++    CHK(std::memcmp(&observed,&before_observation,sizeof observed)==0,"C8-B3 no retained observation or lifecycle mutation");
++    push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;
++    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
++    CHK(ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"ack_timeout\",\"ctr\":42}\n") && usb_events.n==0,
++        "C8-B4 exact timeout event after reconnect, without replaying dropped ACK");
++    CustodyFailureRecord custody{};custody.failed_origin=1;custody.reporter_layer=2;
++    custody.failed_type=DATA_TYPE_REMOTE_CMD;custody.failed_dst=3;custody.failed_ctr=99;
++    custody.terminal_reason=CustodyFailureReason::cascade_count;
++    custody.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,true);
++    custody.dst_hash32=op.route.target_hash;custody.previous_hop=1;custody.failed_next_hop=3;
++    custody.requeue_count=protocol::cascade_requeue_max;custody.committed_hops=1;custody.remaining_hops=4;
++    CustodyTranslatedTail tail{};tail.original_reporter=3;tail.mobile_ctr=42;
++    tail.target_kind=CustodyTranslatedTargetKind::key_hash;tail.target_value=op.route.target_hash;
++    push.kind=PushKind::custody_failure;
++    push.body_len=pack_custody_failure_translated(custody,tail,push.body);
++    CHK(push.body_len==custody_record_translated_len,"C8-B7 real translated custody codec fixture");
++    usb_events.reset();ble_events.reset();
++    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
++    CHK(ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":42,\"origin\":1,\"reporter\":3,\"layer\":2,\"reason\":\"cascade_count\"}\n") && usb_events.n==0,
++        "C8-B8 exact custody BLE fields through real delivery");
++    op.local_transport=uint8_t(RemoteLocalTransport::usb);ble_events.reset();
++    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
++    CHK(usb_events.is("> remote 0123456789abcdef carrier custody_failure ctr=42 origin=1 reporter=3 layer=2 reason=cascade_count\n") && ble_events.n==0,
++        "C8-B9 exact custody USB fields through real delivery");
++    op.local_transport=uint8_t(RemoteLocalTransport::ble);
++    // Existing JSON writer and synchronous LineSink: generic detail precedes the controller event.
++    ble_reset();LineSink observer_ble(ble_capture);char generic[1700]{};
++    const auto generic_n=console::write_push(generic,sizeof generic,push);
++    const char* text="SEND FAILED\n";observer_ble.write(reinterpret_cast<const uint8_t*>(text),strlen(text));
++    ble_capture(generic,generic_n);
++    mrfw::remote_client_observe_push(observed,push,usb_events,&observer_ble,true,mrfw::remote_client_bind_lookup,&g_node);observer_ble.flush();
++    const auto event_pos=std::string(g_ble).find("remote_carrier");
++    CHK(std::string(g_ble).starts_with(std::string(text)+std::string(generic,generic_n)) && event_pos>=strlen(text)+generic_n,
++        "C8-B5 real writers deliver text then generic JSON then controller event");
++    // B416: synthetic pending/push, production observer + callback + real Node binding table.
++    push={};push.kind=PushKind::send_e2e_acked;push.ctr=42;push.dst=2;
++    const auto observe_binding=[&]{
++        ble_events.reset();
++        mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
++        return ble_events.n!=0;
++    };
++    auto learn_binding=[&](uint8_t id,uint32_t hash){
++        beacon_in b{};b.src=id;b.key_hash32=hash;b.leaf_id=g_node.config().leaf_id;
++        uint8_t wire[64]{};const auto n=pack_beacon(b,wire);
++        g_node.on_recv(wire,n,RxMeta{12,-70,0,static_cast<int8_t>(id)});
++        return mrfw::remote_client_bind_lookup(&g_node,hash)==id;
++    };
++    op.route.target_hash=0xe4160001;
++    CHK(mrfw::remote_client_bind_lookup(&g_node,op.route.target_hash)==-1,"C8-B10 real lookup reports absent binding");
++    CHK(observe_binding(),"C8-B11 no binding does not veto");
++    CHK(learn_binding(2,op.route.target_hash),"C8-B12 real binding installed at ID 2");
++    CHK(observe_binding(),"C8-B13 ID 2 accepts ACK from 2");
++    op.route.target_hash=0xe4160002;
++    CHK(learn_binding(3,op.route.target_hash),"C8-B14 different target installed at ID 3");
++    CHK(!observe_binding(),"C8-B15 ID 3 vetoes equal-counter ACK from 2");
++    push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;push.dst=0;
++    CHK(observe_binding(),"C8-B16 delegated timeout has no binding veto");
++    push.kind=PushKind::send_e2e_acked;push.dst=2;push.sender_hash=op.route.target_hash;op.route.hop_count=1;
++    CHK(observe_binding(),"C8-B17 matching XL hash has no binding veto");
++    observed.ack_debt[0].in_use=1;observed.ack_debt[0].retries=4;out.reset();mrfw::dispatch("status",6,out);
++    CHK(out.has("radmin_client_ack_debt=1"),"C8-B6 dormant debt visible through actual status binding");
++    observed={};
++
+ }
+ #endif
+diff --git a/tools/probe_inbox_verbs/run.sh b/tools/probe_inbox_verbs/run.sh
+index c80968c..7c47f86 100755
+--- a/tools/probe_inbox_verbs/run.sh
++++ b/tools/probe_inbox_verbs/run.sh
+@@ -240,7 +240,8 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
+ # CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
+ PIN_CHECKS_ACCEPT=1374
+ # 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.
+-PIN_CHECKS_CLIENT=439
++# 8b adds ten observer/transport checks and eight real-Node binding-veto checks.
++PIN_CHECKS_CLIENT=457
+ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
+ # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
+ #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
+@@ -257,7 +258,8 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
+ # 7b-2: 50 + five service/open links and five exact status-value controls.
+ PIN_CONTROLS_ACCEPT=60
+ # 8ac adds eleven real firmware decision controls to the previous 45.
+-PIN_CONTROLS_CLIENT=64
++# 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.
++PIN_CONTROLS_CLIENT=68
+ PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
+ 
+ # ---- the tree must not move -------------------------------------------------------------------------------------
+@@ -803,6 +805,11 @@ if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = client ]; then
+   c8_ctl 'C8-C17 status auth_failure value lost' client 'out.print(c.auth_failure);' 's|out.print(c.auth_failure);|out.print(0);|'
+   c8_ctl 'C8-C18 status local_result_pressure value lost' client 'out.print(c.local_result_pressure);' 's|out.print(c.local_result_pressure);|out.print(0);|'
+   c8_ctl 'C8-C19 status radio_enqueue_failure value lost' client 'out.print(c.radio_enqueue_failure);' 's|out.print(c.radio_enqueue_failure);|out.print(0);|'
++  c8_ctl 'C8-C22 real Node lookup ignores binding' client 'return static_cast<const Node*>(node)->id_bind_find_by_hash(hash);' 's|return static_cast<const Node\*>(node)->id_bind_find_by_hash(hash);|return -1;|'
++  c8_ctl 'C8-C20 dormant ACK debt status omitted' client 'out.print(remote_client_ack_debt_count(s));' 's|out.print(remote_client_ack_debt_count(s));|out.print(0);|'
++  c8_ctl 'C8-C21 observer bytes never reach delivery' client 'return n && write(t,line,n);' 's|return n \&\& write(t,line,n);|return n;|'
++  c8_ctl 'C8-C22 disconnected BLE receives observations' client '(ble_ && ble_up_)' 's|(ble_ \&\& ble_up_)|(ble_ != nullptr)|'
++
+ fi
+ 
+ MD5_AFTER=$(md5_sources)
+diff --git a/tools/probe_ui_model_mutations.py b/tools/probe_ui_model_mutations.py
+index ae19680..d0849bb 100755
+--- a/tools/probe_ui_model_mutations.py
++++ b/tools/probe_ui_model_mutations.py
+@@ -110,6 +110,8 @@ ROOT = str(Path(__file__).resolve().parents[1])
+ # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
+ #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
+ TARGET_SRC = {
++    'radmin8brx': 'lib/core/node_mac_rx.cpp',
++    'radmin8node': 'lib/core/node.h',
+     'radmin8rng': 'src/device_rng.h',
+     'radmin8verbs': 'src/firmware_remote_client.h',
+     'radmin8client': 'lib/core/remote_client.cpp',
+@@ -708,7 +710,9 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
+ # 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
+ # 7b-3: final counts are re-derived from the complete native binary before the union.
+ # 8ac measured full native runner: 2947 cases, 193734 assertions, no skips.
+-PIN_CASES, PIN_ASSERTS = 2947, 193734
++# 8b: 19 new cases and 1942 assertions over c07b77f, measured by the full native binary.
++# Revision 6: full native suite, 8b real-wrapper/binding/identity proofs included.
++PIN_CASES, PIN_ASSERTS = 2970, 195942
+ # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
+                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
+                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
+@@ -11562,8 +11566,8 @@ MUTS_RADMIN8CLIENT = [
+  ('C07 terminal detail lost', 'a->result_detail = detail;', 'a->result_detail = 0;'),
+  ('C08 BLE result autoaccepted', 'if (transport == RemoteLocalTransport::usb &&', 'if (true &&'),
+  ('C09 incomplete local ACK accepted', 'if (r->in_use!=2 || !r->delivered)', 'if (false)'),
+- ('C10 ACK debt cleared on submission', 'd.next_retry_ms=now+kAckRetryMs;', 'd.in_use=0; d.next_retry_ms=now+kAckRetryMs;'),
+- ('C11 ACK debt not retried', 'd.next_retry_ms=now+kAckRetryMs;', 'd.next_retry_ms=now+kOutcomeMs;'),
++ ('C10 ACK debt cleared on submission', 'd.next_retry_ms = now + delay;', 'd.in_use=0; d.next_retry_ms = now + delay;'),
++ ('C11 ACK debt not retried', 'd.next_retry_ms = now + delay;', 'd.next_retry_ms = now + kOutcomeMs;'),
+  ('C12 changed epoch permits replay', 'd.msg.admin_epoch != p->core.admin_epoch || d.msg.slot != p->core.acl_slot', 'false'),
+  ('C13 exact retry corrupts retained request', 'p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;', 'p->sealed[9]^=1; p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;'),
+  ('C14 pool contents are lost', 'std::memcpy(c.bytes, body.data() + off, c.len);', 'std::memset(c.bytes,0x3f,c.len);'),
+@@ -11582,6 +11586,35 @@ MUTS_RADMIN8CLIENT = [
+  ('C27 disconnect forgets prior complete local acceptance', 'a->reserved |= 4;', 'a->reserved = 4;'),
+  ('C28 full ACK debt blocks rollover recovery', 'if (in.opcode == RemoteCmdOpcode::auth_execute && debt >= 8)', 'if (auth && debt >= 8)'),
+  ('C29 session controls accept an execution terminal', 'if (opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::auth_execute) &&\n        opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::open_execute))', 'if (false)'),
++ ('C30 non-execute ACK admitted', '(in.e2e_ack && in.opcode != RemoteCmdOpcode::auth_execute)', 'false'),
++ ('C31 bootstrap requests ACK', 'state == Phase::request_ready && ack_requested(p)', 'ack_requested(p)'),
++ ('C32 initial correlation bound bypassed', 'if (in.e2e_ack && correlation >= in.correlation_free)', 'if (false)'),
++ ('C33 correlation pressure becomes radio failure', 'if (sent == RemoteClientSend::correlation_full) return RemoteClientError::correlation_full;', 'if (false) return RemoteClientError::correlation_full;'),
++ ('C34 resend uses reversed route tier', 'return route.hop_count ? protocol::gateway_send_giveup_ms : protocol::e2e_ack_deadline_ms;', 'return route.hop_count ? protocol::e2e_ack_deadline_ms : protocol::gateway_send_giveup_ms;'),
++ ('C35 automatic resend disabled', 'if (waiting(state) && !p.core.retries &&', 'if (false && !p.core.retries &&'),
++ ('C36 resend early', 'static_cast<int32_t>(now-p.core.next_retry_ms)>=0', 'static_cast<int32_t>(now-p.core.next_retry_ms)>=-1'),
++ ('C37 resend repeats', 'p.core.next_retry_ms = retries ? 0 : now + remote_client_resend_ms(p.core.route);', 'p.core.retries = 0; p.core.next_retry_ms = now + remote_client_resend_ms(p.core.route);'),
++ ('C38 expiry loses request retry edge', 'if (waiting(phase(p)) && !p.core.retries)', 'if (false)'),
++ ('C39 ACK burst never goes dormant', 'd.in_use && d.retries < kAckAttempts && static_cast<int32_t>(now-d.next_retry_ms)>=0', 'd.in_use && static_cast<int32_t>(now-d.next_retry_ms)>=0'),
++ ('C40 ACK budget consumed on failure', 'if (send_ack(s,d,carrier) != RemoteClientSend::queued) continue;', 'if (send_ack(s,d,carrier) != RemoteClientSend::queued) { ++d.retries; continue; }'),
++ ('C41 ACK delay stops doubling', 'uint32_t{protocol::cascade_requeue_base_ms} << (d.retries-1)', 'uint32_t{protocol::cascade_requeue_base_ms}'),
++ ('C42 dormant debt not kicked', '(void)send_ack(s, d, carrier);', ';'),
++ ('C43 unrelated target kicks dormant debt', 'd.retries >= kAckAttempts && equal_key(d.target_admin_pub, in.target_pub.data())', 'd.retries >= kAckAttempts'),
++ ('C44 submitted counter lost', 'p.core.carrier_ctr = ctr; return;', 'p.core.carrier_ctr = 0; return;'),
++ ('C45 ACK match ignores opt-in', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr)', 'live(p) && p.core.carrier_ctr == ctr)'),
++ ('C46 ACK match ignores counter', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr)', 'live(p) && ack_requested(p))'),
++ ('C47 custody permits reply type', 'type != DATA_TYPE_REMOTE_CMD', 'type != DATA_TYPE_REMOTE_RESP'),
++ ('C48 custody accepts node-id target', 'kind != static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash)', 'false'),
++ ('C49 custody ignores target', '&& p.core.route.target_hash == target)', '&& true)'),
++ ('C50 custody ignores opt-in', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr &&', 'live(p) && p.core.carrier_ctr == ctr &&'),
++ ('C51 custody ignores counter', 'p.core.carrier_ctr == ctr && p.core.route.target_hash', 'true && p.core.route.target_hash'),
++ ('C52 replay keeps partial assembly sequence', 'a->bytes_used = 0; a->next_seq = 0;', 'a->bytes_used = 0;'),
++
++ ('C53 direct timeout matches wrapper', '(timed_out && push_dst != 0)', 'false'),
++ ('C54 ACK identity ignored', 'if (!timed_out && push_sender_hash != (p.core.route.hop_count ? p.core.route.target_hash : 0)) continue;', 'if (false) continue;'),
++ ('C55 XL ACK treated as same layer', 'p.core.route.hop_count ? p.core.route.target_hash : 0', '0'),
++ ('C56 same-layer ACK needs XL hash', 'p.core.route.hop_count ? p.core.route.target_hash : 0', 'p.core.route.target_hash'),
++ ('C57 candidate target missing', 'if (target_hash_out) *target_hash_out = p.core.route.target_hash;', 'if (target_hash_out) *target_hash_out = 0;'),
+ ]
+ 
+ MUTS_RADMIN8VERBS = [
+@@ -11593,13 +11626,58 @@ MUTS_RADMIN8VERBS = [
+  ('V06 command tail validator bypassed', 'meshroute::console::validate_command_line(c.command,c.command_len,meshroute::console::remote_command_max_bytes)!=meshroute::console::LineErr::ok', 'false'),
+  ('V07 result show keyword not required', '!admin_word_is(t,n,"show")', 'false'),
+  ('V08 extra local acknowledgement tail admitted', '!admin_tail_empty(line,len,i)) return false;\n        out=c;', 'false) return false;\n        out=c;'),
++ ('V09 rollover allows ACK', 'if (c.ack && c.opcode!=meshroute::RemoteCmdOpcode::auth_execute) return false;', ';'),
++ ('V10 observer ACK ignored', 'if (pu.kind == PushKind::send_e2e_acked) {', 'if (false) {'),
++ ('V11 observer wrong failure kind', 'pu.reason == SendFailReason::e2e_ack_timeout', 'true'),
++ ('V12 custody observer removed', 'pu.kind == PushKind::custody_failure', 'false'),
++ ('V13 origin aliases reporter', 'detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,', 'detail = {tail->original_reporter, tail->original_reporter, record->reporter_layer,'),
++ ('V14 reporter aliases origin', 'detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,', 'detail = {record->failed_origin, record->failed_origin, record->reporter_layer,'),
++ ('V15 layer lost', 'tail->original_reporter, record->reporter_layer,', 'tail->original_reporter, uint8_t{0},'),
++ ('V16 custody matches outer ctr', 'ctr = tail->mobile_ctr;', 'ctr = pu.ctr;'),
++ ('V17 observer steals USB transport', 'static_cast<RemoteLocalTransport>(row.core.local_transport), id, event', 'RemoteLocalTransport::usb, id, event'),
++ ('V18 timeout called ACK', 'event = "ack_timeout";', 'event = "acked";'),
++ ('V19 custody fields omitted', 'detail?7:3', '3'),
++ ('V20 custody reason omitted', 'EF_S("reason",detail?detail->reason:"")', 'EF_S("reason","")'),
++ ('V21 USB counter lost', 'key,event,ctr);', 'key,event,0);'),
++ ('V22 custody detail wrong event', 'event = "custody_failure";', 'event = "acked";'),
++
++ ('V23 binding veto removed', 'if (bound >= 0 && bound != pu.dst) return;', 'if (false) return;'),
++ ('V24 absent binding vetoes', 'bound >= 0 && bound != pu.dst', 'bound != pu.dst'),
++ ('V25 timeout invokes binding veto', 'pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count', '!row.core.route.hop_count'),
++ ('V26 XL ACK invokes binding veto', 'pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count', 'pu.kind == PushKind::send_e2e_acked'),
++ ('V27 lookup argument lost', 'lookup(node, target_hash)', 'lookup(node, 0)'),
++]
++
++MUTS_RADMIN8BRX = [
++ ('X01 unregistered admission bypassed', 'if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;', 'if (false) return RemoteClientSend::unavailable;'),
++ ('X02 TX pressure misclassified', 'if (tx_queue_full()) return RemoteClientSend::full;', 'if (tx_queue_full()) return RemoteClientSend::correlation_full;'),
++ ('X03 correlation guard bypassed', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;', ';'),
++ ('X04 correlation pressure mislabeled full', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::full;'),
++ ('X05 no-home lower priority than TX full', 'if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;', 'if (tx_queue_full()) return RemoteClientSend::full; if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;'),
++ ('X06 request ACK flag omitted', 'const uint8_t flags = e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0;', 'const uint8_t flags = 0;'),
++ ('X07 returned counter never captured', 'remote_client_carrier_sent(_remote_client, body, ctr);', ';'),
++ ('X08 typed request becomes DM', 'Plane::GLOBAL, DATA_TYPE_REMOTE_CMD, /*suppress_intro=*/true, &dispatch', 'Plane::GLOBAL, 0, /*suppress_intro=*/true, &dispatch'),
++ ('X09 response ACK also asks for ACK', 'return node_.remote_client_submit(route, body, false);', 'return node_.remote_client_submit(route, body, true);'),
++ ('X10 target ACKs all verdicts', '(res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript ||\n         res.verdict == RemoteAdmitVerdict::already_acknowledged)', 'true'),
++ ('X11 target never ACKs admission', 'res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript', 'false || res.verdict == RemoteAdmitVerdict::replay_transcript'),
++ ('X12 target never ACKs replay', 'res.verdict == RemoteAdmitVerdict::replay_transcript ||\n         res.verdict', 'false ||\n         res.verdict'),
++ ('X13 target never ACKs tombstone', 'res.verdict == RemoteAdmitVerdict::already_acknowledged))', 'false))'),
++ ('X14 target ignores opt-in', 'if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) &&\n        (res.verdict', 'if (true &&\n        (res.verdict'),
++ ('X15 cross-layer carrier uses same-layer wrapper', 'if (route.hop_count) {\n        ctr = delegate_send_layer', 'if (false) {\n        ctr = delegate_send_layer'),
++ ('X16 target cross-layer ACK falls back to same layer', 'if (pa.flags & DATA_FLAG_CROSS_LAYER) send_xl_ack(*ui, pa.ctr);', 'if (false) send_xl_ack(*ui, pa.ctr);'),
++ ('X17 checked dispatch refusal becomes ownership', 'case SendDispatch::Admit::refused: return RemoteClientSend::full;', 'case SendDispatch::Admit::refused: break;'),
++
++ ('X18 B413 authoritative target bypasses wrapper', '&dispatch, /*via_home=*/true);', '&dispatch, /*via_home=*/false);'),
++]
++MUTS_RADMIN8NODE = [
++ ('N01 B408 counts home delegation ring instead of mobile E2E ring', 'for (const auto& row : _pending_e2e_acks) free += !row.used;', 'for (const auto& row : _deleg_acks) free += row.state == DelegAckState::free;'),
+ ]
+ 
+ MUTS_RADMIN8RNG = [
+  ('E01 host without entropy provider claims success', 'return n == 0; // no entropy provider', 'return true; // no entropy provider'),
+ ]
+ 
+-MUTS_BY_TARGET = {'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
++MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE, 'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
+                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
+                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,
+diff --git a/tracker.md b/tracker.md
+index 85c0d6b..47f522c 100644
+--- a/tracker.md
++++ b/tracker.md
+@@ -37,17 +37,21 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
+ - **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-18).**
+   Roles since 2026-09-07: Codex authors briefs and codes (two sessions), Claude second-reads and gates, the owner
+   rules and commits; commits are not blocking points (owner ruling 2026-09-15). Per-slice gate detail lives in
+-  the design's §19.1 table, rulings R-RA-1..45 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
++  the design's §19.1 table, rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
+   defects in the register (next free B408).
+   - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
+     3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
+     7b-2-0 codec (`564f460`); 7b-2 (`f993191`); 7b-3-0 `action_busy` codec (`ac5f9a5`); 7b-3-P1 simple-action
+     preparation (`7442e6f`); **7b-3 deferred actions (`6086152`, QA 2026-09-16) — the disruptive arc is complete.**
+-  - **Gated, awaiting the owner's commit (both repos):** 8a+8c paired controller core + local USB/BLE delivery,
+-    independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`, plus one simulator CMake source-list line (B406);
+-    B292/B312 closed; Part 57d reserved.
+-  - **In flight:** nothing — next is the 8b brief (the only product controller carrier), which needs [[B112]] first.
+-  - **Remaining slices (three cycles):** 8b the mobile carrier (needs [[B112]]) → 9 legacy protocol deletion + durable
++  - **8a+8c paired controller core + local USB/BLE delivery:** independent QA PASS 2026-09-18, owner commits
++    `c07b77f` (MeshRoute) and `6585649` (simulator source-list line, B406); B292/B312 closed; Part 57d reserved.
++  - **In flight:** the 8b brief (mobile controller carrier), revision 6 (2026-09-18, base `c07b77f`): R1–R4 RULED
++    as recommended (R-RA-46 B112 does not gate 8b; R-RA-47 one exact resend edge; R-RA-48 ACK-debt cascade then
++    dormant; R-RA-49 E2E-ACK after admission only); coder findings B409–B413 and B416 folded and closed (B413: a
++    known target bypassed the wrapper → `send_by_hash(…, via_home=true)`; B416: the binding veto gets a call-scoped
++    Node lookup seam); B414 repaired (closes at the gate); B415 pre-existing E2E-ring ambiguity parked — coder
++    resumes the preserved partial implementation. B408 registered, owned by 8b.
++  - **Remaining slices (three cycles):** 8b the mobile carrier (in flight) (needs [[B112]]) → 9 legacy protocol deletion + durable
+     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
+     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
+     remotely by design, and the disruptive arc completes with 7b-3.
+@@ -88,7 +92,7 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
+ no implementation dispatch or remote-admin
+ sequence change.
+ 
+-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits 8a+8c (MeshRoute + simulator), then the 8b brief once [[B112]] is fixed; (3) the owner's metal backlog Parts 55a–63 as boards are free.
++- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin 8b: coder source-validation → implementation → independent gate (R-RA-46..49 settled); (3) the owner's metal backlog Parts 55a–63 as boards are free.
+   Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
+   remains separately tracked and do not block Part 54.
+ 

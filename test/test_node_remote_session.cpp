@@ -122,8 +122,8 @@ size_t mk_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t pl
 size_t mk_data_rpc(uint8_t dst, uint16_t ctr, uint8_t origin, uint32_t source_hash,
                    std::span<const uint8_t> body, std::array<uint8_t, 300>& out, uint8_t type,
                    const uint8_t* layer_ids = nullptr, uint8_t n_layers = 0, uint8_t cur = 0,
-                   uint32_t dst_hash = 0) {
-    uint8_t flags = DATA_FLAG_SOURCE_HASH;
+                   uint32_t dst_hash = 0, uint8_t extra_flags = 0) {
+    uint8_t flags = DATA_FLAG_SOURCE_HASH | extra_flags;
     // ★ A CROSS-LAYER DM MUST CARRY `DST_HASH == the recipient's key` OR THE RECEIVER BRIDGES IT ONWARD
     //   (node_mac_rx.cpp's Slice-4c.1 keystone). That is production behaviour this fixture must honour, not a
     //   convenience: a cross-layer request without it never reaches ANY consumer, remote-admin included.
@@ -267,7 +267,7 @@ struct TargetNode : mrfw::IRadminTarget {
     void flight(uint8_t from_id, uint16_t ctr, uint32_t source_hash, std::span<const uint8_t> body,
                 uint64_t t, uint8_t type = DATA_TYPE_REMOTE_CMD,
                 const uint8_t* layer_ids = nullptr, uint8_t n_layers = 0, uint8_t cur = 0,
-                uint32_t dst_hash = 0) {
+                uint32_t dst_hash = 0, uint8_t extra_flags = 0) {
         RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
         std::array<uint8_t, 16> rb{};
         hal._now = t;
@@ -275,7 +275,7 @@ struct TargetNode : mrfw::IRadminTarget {
                                        static_cast<uint8_t>(ctr & 0x0F), /*plen=*/60, rb, from_id, ctr), meta);
         std::array<uint8_t, 300> db{};
         const size_t dn = mk_data_rpc(/*dst=*/5, ctr, from_id, source_hash, body, db, type,
-                                      layer_ids, n_layers, cur, dst_hash);
+                                      layer_ids, n_layers, cur, dst_hash, extra_flags);
         CHECK(dn > 0);
         hal._now = t + 100;
         node.on_recv(db.data(), dn, meta);
@@ -1600,7 +1600,7 @@ TEST_CASE("§radmin-73/Node saturated deadline is a real wake and diagnostics us
 }
 
 namespace {
-// 8ac carrier binding is deliberately a loopback fixture: production board carrier remains unavailable.
+// 8ac's loopback remains a control beside 8b's real mobile/home carrier chain.
 // Requests enter a real target Node through RTS/DATA; target MAC responses enter the real controller Node.
 struct ControllerLoopCarrier : IRadminCarrier {
     std::vector<std::vector<uint8_t>> commands, acks;
@@ -1739,4 +1739,15 @@ TEST_CASE("8ac two Node loopback owns response bytes and all terminal meanings t
         if(!carrier.acks.empty())target.flight(4,0x812,identity.key_hash32,carrier.acks.back(),hal._now+1000);
         CHECK(controller.remote_client().ack_debt[0].in_use==1); // submission is never receipt
     }
+}
+
+TEST_CASE("8b authenticated cross-layer admission uses the existing reversed-path ACK sender") {
+    TargetNode t;t.provision(1);t.learn_peer(7,t.ctrl[0]);
+    const uint8_t path[]={1,0};auto carrier=radmin_command_carrier();
+    carrier.cross_layer=true;carrier.path_depth=2;carrier.path_cursor=1;carrier.dst_hash_on_wire=true;
+    const auto request=t.auth_execute_request(0,901,carrier);
+    t.flight(7,0x890,t.ctrl[0].key_hash32,request,10000,DATA_TYPE_REMOTE_CMD,path,2,1,t.self.key_hash32,DATA_FLAG_E2E_ACK_REQ);
+    RadminIngressView admitted{};CHECK(t.node.radmin_next_admitted(admitted));
+    CHECK(t.hal.count("xl_ack_no_gateway")==1);CHECK(t.hal.field("xl_ack_no_gateway","acked_ctr")==0x890);
+    CHECK(t.hal.field("xl_ack_no_gateway","target_leaf")==1);CHECK(t.hal.count("e2e_ack_tx")==0);
 }

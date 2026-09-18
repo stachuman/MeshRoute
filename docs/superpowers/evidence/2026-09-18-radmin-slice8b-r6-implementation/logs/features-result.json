@@ -1,0 +1,11 @@
+{
+  "name": "features",
+  "command": [
+    "bash",
+    "tools/probe_features/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 98.76510463654995,
+  "sha256": "bba842064e347fd59c505c0df1a70646ea346c5faff30fcd143148e324121007"
+}

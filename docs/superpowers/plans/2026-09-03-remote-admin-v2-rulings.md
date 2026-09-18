@@ -1082,3 +1082,81 @@ implemented as ruled. B312 closed (checked entropy bound). QA found and fixed it
 simulator's CMake source list must name `lib/core/remote_client.cpp` — one uncommitted line in
 `lora-universal-simulator/CMakeLists.txt` for the owner to commit with the freeze (rule P7). Next: the 8b brief
 (needs B112). [Independent gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md).
+
+### R-RA-46 (owner, 2026-09-18) — B112 does not gate 8b; the controller claims only its local dispatch
+
+**Owner, verbatim (one line for R1–R4 of the 8b brief §8):**
+
+> R1-R4 approved as recommended, record them as R-RA-46..49
+
+**Settled (R1 "as recommended"):** Slice 8b proceeds with **B112 OPEN**. The design's "only after B112 is fixed"
+(§14.1, §19 item 8b) is superseded by this ruling. Reason: at the one site the controller uses, admission is already
+stated by the admitting layer — `SendDispatch` from `send_by_hash` (UI-16 N6b) and the truthful store return of
+`delegate_send_layer` — never by the minted counter. The controller therefore claims exactly "the wrapper is stored in
+this mobile's TX queue" and nothing more: it consults neither the hop ACK nor `send_aired`, consumes nothing from the
+home's uncorrelated `deleg_fail` one-shot (`send_failed{no_route}`, ctr 0), and treats only the authenticated response
+(or the `-a` carrier observations, labelled as such) as delivery evidence. Silence ends at the 300-s outcome bound as
+`unknown`, after the one automatic exact resend of R-RA-47. The stated residue: a request whose home re-origination
+was refused is indistinguishable from any other loss until then. B112 keeps its owner-agreed separate core slice
+(2026-08-05: the 25 `enqueue_data` sites) and its named characterization test; 8b must not be described as closing it.
+
+### R-RA-47 (owner, 2026-09-18) — one automatic exact resend of a silent request, at a named edge
+
+**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
+
+**Settled (R2 "as recommended"):** for every controller `*_wait` phase (bootstrap, response, compare, rollover) the
+core performs **exactly one** automatic resend of the exact outstanding bytes at
+
+```text
+remote_client_resend_ms(route) = route.hop_count ? gateway_send_giveup_ms   // 150 s — the cross-layer one-way doorstep hold
+                                                 : e2e_ack_deadline_ms      // 60 s  — the same-layer DM round trip (2 × send_defer_ttl_ms)
+```
+
+then waits silently until `outcome_deadline_ms` (`e2e_ack_deadline_xl_ms`, 300 s) and reports `unknown` (§13). The
+resend reuses `send_ready` (same `submit_request`, same `-a` flag, same bytes — §9's exact-byte invariant); it is safe
+because the target never time-evicts an executed fingerprint or transcript (§10), so a copy arriving after the first
+replays and never re-executes; a bootstrap is read-only; a rollover resent under a rotated epoch fails authentication
+silently and the compare path recovers. No resend after the deadline, none of changed bytes, none for a `complete`
+row, no second resend. The names are the two existing constants and the factor is one; a literal at the call site is
+RED (R-RA-20/23 shape). `RemoteClientPendingCore::next_retry_ms`/`retries` hold the state; the edge joins the one
+shared expiry scan (R-RA-22).
+
+### R-RA-48 (owner, 2026-09-18) — ACK-debt cadence: the MAC's requeue burst, then dormant
+
+**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
+
+**Settled (R3 "as recommended"):** attempt 0 of a sealed `RESPONSE_ACK` at local acceptance (existing). Retries
+follow the MAC's own requeue shape — `cascade_requeue_base_ms` doubling per attempt, capped at
+`cascade_requeue_backoff_cap_ms`, for at most `cascade_requeue_max` retries (5 s, 10 s, 20 s). After that the debt is
+**dormant**: retained per design §8.10 (wiped only by the authenticated epoch change in `epoch_update`), shown in
+`status` as `radmin_client_ack_debt=<n>`, and re-attempted exactly once each time a new request to the same target is
+started (it rides ahead of that request on the live session) — never as a periodic beacon. `RemoteClientAck::retries`
+holds the count; a `full`/`unavailable` submit consumes no attempt. This replaces 8a's placeholder
+(`kAckRetryMs = cascade_requeue_base_ms`, unbounded), which with a real carrier would have aired a wrapper every five
+seconds until the target's next epoch.
+
+### R-RA-49 (owner, 2026-09-18) — the target E2E-ACKs a `-a` request only after the admission boundary
+
+**Owner:** *"R1-R4 approved as recommended"* (same message as R-RA-46).
+
+**Settled (R4 "as recommended"):** inside `rx_remote_cmd_accept` (ACCEPT), after `remote_session_receive` and
+`radmin_send_reply`, when the outer flight carries `DATA_FLAG_E2E_ACK_REQ` and the verdict shows the target took
+ownership of the request — **admitted to execute, transcript replay of an identical fingerprint, or the authenticated
+`already_acknowledged` protocol error** — the target sends the existing E2E ACK exactly as the generic post-ACK arm
+does (`CROSS_LAYER ? send_xl_ack(*ui, pa.ctr) : send_e2e_ack(origin, pa.ctr, source_hash)`, U1). Silent
+authentication failures and admission refusals (`session_full`, `ingress_full`, `session_busy`, `executing`,
+`preparation_failed`) send **no** E2E ACK: a refusal already has its RPC-level answer, and B278 §9.2 asks for the ACK
+only after the request has crossed its admission boundary; the mobile's `-a` row then ends at `e2e_ack_timeout`,
+which the controller reports as a carrier observation, never a terminal. Today no RPC request is ever E2E-acked (the
+owner switch returns before the generic arm); this is the first implementation, not a change of an existing
+behaviour. The home's `ctrH → ctrM` translation and last mile (B251/B278 S3) are unchanged.
+
+**QA completion note, 2026-09-18 — 8b INDEPENDENT QA PASS (uncommitted at `c07b77f`):** R-RA-46 (the carrier is
+`send_by_hash(…, via_home=true)` / `delegate_send_layer`, admission stated by `SendDispatch`, the controller claims only
+"wrapper stored locally"; B112 stays open), R-RA-47 (`remote_client_resend_ms` = `hop_count ? gateway_send_giveup_ms :
+e2e_ack_deadline_ms`, one resend, then `unknown` at 300 s), R-RA-48 (ACK debt: `cascade_requeue_base_ms` doubling to
+`cascade_requeue_backoff_cap_ms` for `cascade_requeue_max` retries, then dormant with one re-attempt per new request to
+that target; `radmin_client_ack_debt` in `status`) and R-RA-49 (the target E2E-ACKs a `-a` request only for
+admit / replay / already-acknowledged verdicts) are implemented as ruled and reproduced by QA: native 2970/195942/0,
+corpus 36/36 byte-identical, Node and RAM unchanged, union 61/983/1/984. B408/B414 closed; B418 pre-existing.
+[Independent gate](../evidence/2026-09-18-radmin-slice8b-qa-gate.md). Next: Slice 9, then 10.

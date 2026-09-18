@@ -129,5 +129,85 @@ static void remote_client_rows() {
     CHK(!checked.output(RemoteLocalTransport::usb,1,seq,second) && staged.dropped_lines()!=0,
         "C8-25 real console-stage drop is not local acceptance despite Print returning full count");
 
+    // 8b: real firmware observer and real Print/LineSink delivery. The pending record is explicitly synthetic.
+    auto& observed=g_node.remote_client();observed={};auto& op=observed.pending[0].core;
+    op.request_id=0x0123456789abcdef;op.state=uint8_t(RemoteClientPhase::response_wait);
+    op.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;op.carrier_ctr=42;op.route.target_hash=0xa1b2c3d4;
+    Push push{};push.kind=PushKind::send_e2e_acked;push.ctr=42;
+    CaptureSink usb_events,ble_events;
+    for(const auto transport:{RemoteLocalTransport::usb,RemoteLocalTransport::ble}) {
+        op.local_transport=uint8_t(transport);usb_events.reset();ble_events.reset();
+        mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
+        CHK(transport==RemoteLocalTransport::usb ?
+            usb_events.is("> remote 0123456789abcdef carrier acked ctr=42\n") && ble_events.n==0 :
+            ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"acked\",\"ctr\":42}\n") && usb_events.n==0,
+            "C8-B1 observer emits exact ACK only on the row transport");
+    }
+    usb_events.reset();ble_events.reset();const auto before_observation=observed;
+    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,false,mrfw::remote_client_bind_lookup,&g_node);
+    CHK(usb_events.n==0 && ble_events.n==0,"C8-B2 disconnected BLE observation drops");
+    CHK(std::memcmp(&observed,&before_observation,sizeof observed)==0,"C8-B3 no retained observation or lifecycle mutation");
+    push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;
+    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
+    CHK(ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"ack_timeout\",\"ctr\":42}\n") && usb_events.n==0,
+        "C8-B4 exact timeout event after reconnect, without replaying dropped ACK");
+    CustodyFailureRecord custody{};custody.failed_origin=1;custody.reporter_layer=2;
+    custody.failed_type=DATA_TYPE_REMOTE_CMD;custody.failed_dst=3;custody.failed_ctr=99;
+    custody.terminal_reason=CustodyFailureReason::cascade_count;
+    custody.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,true);
+    custody.dst_hash32=op.route.target_hash;custody.previous_hop=1;custody.failed_next_hop=3;
+    custody.requeue_count=protocol::cascade_requeue_max;custody.committed_hops=1;custody.remaining_hops=4;
+    CustodyTranslatedTail tail{};tail.original_reporter=3;tail.mobile_ctr=42;
+    tail.target_kind=CustodyTranslatedTargetKind::key_hash;tail.target_value=op.route.target_hash;
+    push.kind=PushKind::custody_failure;
+    push.body_len=pack_custody_failure_translated(custody,tail,push.body);
+    CHK(push.body_len==custody_record_translated_len,"C8-B7 real translated custody codec fixture");
+    usb_events.reset();ble_events.reset();
+    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
+    CHK(ble_events.is("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":42,\"origin\":1,\"reporter\":3,\"layer\":2,\"reason\":\"cascade_count\"}\n") && usb_events.n==0,
+        "C8-B8 exact custody BLE fields through real delivery");
+    op.local_transport=uint8_t(RemoteLocalTransport::usb);ble_events.reset();
+    mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
+    CHK(usb_events.is("> remote 0123456789abcdef carrier custody_failure ctr=42 origin=1 reporter=3 layer=2 reason=cascade_count\n") && ble_events.n==0,
+        "C8-B9 exact custody USB fields through real delivery");
+    op.local_transport=uint8_t(RemoteLocalTransport::ble);
+    // Existing JSON writer and synchronous LineSink: generic detail precedes the controller event.
+    ble_reset();LineSink observer_ble(ble_capture);char generic[1700]{};
+    const auto generic_n=console::write_push(generic,sizeof generic,push);
+    const char* text="SEND FAILED\n";observer_ble.write(reinterpret_cast<const uint8_t*>(text),strlen(text));
+    ble_capture(generic,generic_n);
+    mrfw::remote_client_observe_push(observed,push,usb_events,&observer_ble,true,mrfw::remote_client_bind_lookup,&g_node);observer_ble.flush();
+    const auto event_pos=std::string(g_ble).find("remote_carrier");
+    CHK(std::string(g_ble).starts_with(std::string(text)+std::string(generic,generic_n)) && event_pos>=strlen(text)+generic_n,
+        "C8-B5 real writers deliver text then generic JSON then controller event");
+    // B416: synthetic pending/push, production observer + callback + real Node binding table.
+    push={};push.kind=PushKind::send_e2e_acked;push.ctr=42;push.dst=2;
+    const auto observe_binding=[&]{
+        ble_events.reset();
+        mrfw::remote_client_observe_push(observed,push,usb_events,&ble_events,true,mrfw::remote_client_bind_lookup,&g_node);
+        return ble_events.n!=0;
+    };
+    auto learn_binding=[&](uint8_t id,uint32_t hash){
+        beacon_in b{};b.src=id;b.key_hash32=hash;b.leaf_id=g_node.config().leaf_id;
+        uint8_t wire[64]{};const auto n=pack_beacon(b,wire);
+        g_node.on_recv(wire,n,RxMeta{12,-70,0,static_cast<int8_t>(id)});
+        return mrfw::remote_client_bind_lookup(&g_node,hash)==id;
+    };
+    op.route.target_hash=0xe4160001;
+    CHK(mrfw::remote_client_bind_lookup(&g_node,op.route.target_hash)==-1,"C8-B10 real lookup reports absent binding");
+    CHK(observe_binding(),"C8-B11 no binding does not veto");
+    CHK(learn_binding(2,op.route.target_hash),"C8-B12 real binding installed at ID 2");
+    CHK(observe_binding(),"C8-B13 ID 2 accepts ACK from 2");
+    op.route.target_hash=0xe4160002;
+    CHK(learn_binding(3,op.route.target_hash),"C8-B14 different target installed at ID 3");
+    CHK(!observe_binding(),"C8-B15 ID 3 vetoes equal-counter ACK from 2");
+    push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;push.dst=0;
+    CHK(observe_binding(),"C8-B16 delegated timeout has no binding veto");
+    push.kind=PushKind::send_e2e_acked;push.dst=2;push.sender_hash=op.route.target_hash;op.route.hop_count=1;
+    CHK(observe_binding(),"C8-B17 matching XL hash has no binding veto");
+    observed.ack_debt[0].in_use=1;observed.ack_debt[0].retries=4;out.reset();mrfw::dispatch("status",6,out);
+    CHK(out.has("radmin_client_ack_debt=1"),"C8-B6 dormant debt visible through actual status binding");
+    observed={};
+
 }
 #endif

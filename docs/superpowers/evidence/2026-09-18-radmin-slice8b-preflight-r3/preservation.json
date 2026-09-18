@@ -1,0 +1,42 @@
+{
+  "kind": "revision3 preflight preservation; not implementation freeze",
+  "initial_paths_preserved": 2846,
+  "initial_paths_unchanged": 2844,
+  "intentional_changes": {
+    "docs/2026-07-30-open-bug-register.md": {
+      "before": {
+        "mode": "0o644",
+        "sha256": "ff44a28fa6a6f9fdd132bb562efbb9c946db37b0638ce253651aab3b1e52e85e"
+      },
+      "after": {
+        "mode": "0o644",
+        "sha256": "6515bb57b41efffb74062215dd9209221c3f55823425f03e06105a23cb671dd7"
+      }
+    },
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b.md": {
+      "before": {
+        "mode": "0o644",
+        "sha256": "e343d7c5c7404ae9e087927228873029d24db4ea4a0b597b457454e864a79d6c"
+      },
+      "after": {
+        "mode": "0o644",
+        "sha256": "a327f7699a5ea9cab61577528a6f8544d68b89db2fe1b840cb7853ee48f6ae0e"
+      }
+    }
+  },
+  "primary_inputs_unchanged": 358,
+  "brief_sha256": "ed2be13f3ce8f652fe5b9e301643502eb24c63c3e766fc83a76b9b4a073b44f0",
+  "simulator_clean": true,
+  "git_diff_check": {
+    "meshroute": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "simulator": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  }
+}

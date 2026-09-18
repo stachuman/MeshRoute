@@ -1,0 +1,15 @@
+{
+  "name": "xiao-mobile",
+  "command": [
+    "pio",
+    "run",
+    "-e",
+    "xiao_mobile",
+    "-j",
+    "1"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 320.301268145442,
+  "sha256": "84864601a06f7b8846676a4a9079aad33194a934122dad59fbee03d16012d87c"
+}

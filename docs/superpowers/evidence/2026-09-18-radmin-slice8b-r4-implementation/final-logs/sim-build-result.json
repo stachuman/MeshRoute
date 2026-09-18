@@ -1,0 +1,17 @@
+{
+  "name": "sim-build",
+  "command": [
+    "cmake",
+    "--build",
+    "/tmp/mr-s8b-r4-_d7gpj1e/sim-final",
+    "--target",
+    "lus",
+    "--parallel",
+    "3",
+    "--verbose"
+  ],
+  "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+  "exit": 0,
+  "seconds": 98.7049390822649,
+  "sha256": "017b6b163841df33a556cbfe44ab7257874efd3959b6ba332d978539c9c4395e"
+}

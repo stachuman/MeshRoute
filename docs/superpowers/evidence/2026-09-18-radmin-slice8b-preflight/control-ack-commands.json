@@ -1,0 +1,28 @@
+{
+  "compile": [
+    "g++",
+    "-std=gnu++20",
+    "-DMESHROUTE_NATIVE=1",
+    "-DMR_N_LAYERS=2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/lib/core",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/lib/hal",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/lib/console",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/lib/monocypher/src",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/src",
+    "-I/tmp/mr-s8b-r2-ksqkjdbw/snapshot/test",
+    "/tmp/mr-s8b-r2-ksqkjdbw/control-ack-proof.cpp",
+    "-Wl,--gc-sections",
+    "-Wl,--start-group",
+    "/tmp/mr-s8b-r2-ksqkjdbw/snapshot/.pio/build/native/lib050/libmonocypher.a",
+    "/tmp/mr-s8b-r2-ksqkjdbw/snapshot/.pio/build/native/lib26d/libconsole.a",
+    "/tmp/mr-s8b-r2-ksqkjdbw/snapshot/.pio/build/native/lib7a2/libcore.a",
+    "/tmp/mr-s8b-r2-ksqkjdbw/snapshot/.pio/build/native/libe1f/libhal.a",
+    "-Wl,--end-group",
+    "-o",
+    "/tmp/mr-s8b-r2-ksqkjdbw/control-ack-proof"
+  ],
+  "compile_exit": 0,
+  "run_exit": 0
+}

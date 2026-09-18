@@ -1,0 +1,12 @@
+{
+  "name": "custody_usb-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_custody_usb/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+  "exit": 0,
+  "seconds": 61.883520904928446,
+  "sha256": "cbdb747d85f3be1650085815ec16249f7d3360012d8bd9a954e973ca50865326"
+}

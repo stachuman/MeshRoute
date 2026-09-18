@@ -1,0 +1,206 @@
+.........§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  ok    P1 age is the derived difference
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  ok    P1 age exceeds the 300 s threshold
+  ok    N1 wrong node -> unbound
+  ok    N2 wrong dst -> unbound
+  ok    N3 wrong ctr -> unbound
+  ok    N4 origin after the receipt -> unbound
+  ok    N5 two origins -> ambiguous, never the nearest
+  ok    N6 no deleg_ack_put -> bound but NOT delegated
+  ok    N6b deleg_ack_put with a different return key -> NOT delegated
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+PASS: §B278 census selftest, 0 failure(s)
+§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  FAIL  P1 age is the derived difference: got 1, want 400000
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  FAIL  P1 age exceeds the 300 s threshold: got False, want True
+  FAIL  N1 wrong node -> unbound: got 'bound', want 'unbound'
+  FAIL  N2 wrong dst -> unbound: got 'bound', want 'unbound'
+  FAIL  N3 wrong ctr -> unbound: got 'bound', want 'unbound'
+  FAIL  N4 origin after the receipt -> unbound: got 'bound', want 'unbound'
+  FAIL  N5 two origins -> ambiguous, never the nearest: got 'bound', want 'ambiguous'
+  FAIL  N6 no deleg_ack_put -> bound but NOT delegated: got ('bound', True), want ('bound', False)
+  FAIL  N6b deleg_ack_put with a different return key -> NOT delegated: got True, want False
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+FAIL: §B278 census selftest, 9 failure(s)
+§B278 census selftest
+  ok    the ruled bounds re-derive from lib/core/protocol_constants.h + node.h
+  ok    P1 one receipt
+  ok    P1 status bound
+  ok    P1 age is the derived difference
+  ok    P1 classified delegated (deleg_ack_put ctr_h==ctr and peer==dst)
+  ok    P1 age exceeds the 300 s threshold
+  ok    N1 wrong node -> unbound
+  ok    N2 wrong dst -> unbound
+  ok    N3 wrong ctr -> unbound
+  ok    N4 origin after the receipt -> unbound
+  ok    N5 two origins -> ambiguous, never the nearest
+  ok    N6 no deleg_ack_put -> bound but NOT delegated
+  ok    N6b deleg_ack_put with a different return key -> NOT delegated
+  ok    O1 eight direct puts modelled
+  ok    O1 max occupancy at 300 s == 8
+  ok    O1 max occupancy at 750 s == 8
+  ok    O2 at 300 s the two rows never coexist
+  ok    O2 at 750 s they do  (this is R2's whole cost)
+.................................................../usr/lib/python3.11/unittest/case.py:579: ResourceWarning: unclosed file <_io.TextIOWrapper name='/dev/null' mode='w' encoding='UTF-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...................................................................................................................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 351 tests in 702.678s
+
+OK
+  ok    O3 the ACK released exactly one row
+  ok    O3 the row's life ends at the ACK, not at the TTL
+  ok    O3 reserve+put collapse to ONE row, not two
+  ok    O3 the end is OBSERVED, so the row is not left open
+  ok    O3 the registration authority is no longer needed for the bind
+  ok    O3s an ACK whose ctr_h no row activated on -> unbound, row NOT freed
+  ok    O3s the row therefore lives to its TTL
+  ok    O3s an ACK naming another mobile's hash -> unbound, never paired by ctr alone
+  ok    O3a two rows sharing {mobile_hash, ctr_m, ctr_h} -> AMBIGUOUS, never the first match
+  ok    O3f a `mobile_reverse_ack` without `mobile_hash` REFUSES (a missing field is not a zero)
+  ok    O3f a `mobile_reverse_ack` without `ctr_h` REFUSES (a missing field is not a zero)
+  ok    O3f a `ctr_h` of False REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of 2.0 REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `ctr_h` of '9' REFUSES (bool subclasses int; only a type identity rejects it)
+  ok    O3f a `deleg_ack_reserved` without `target_kind` REFUSES (a pre-S1b stream is not this measurement)
+  ok    O4 reserved-never-activated counted
+  ok    O4 an unclosed row is reported as such, not folded into a bound
+  ok    O4 lo arm gives it no span
+  ok    O4 hi arm holds it to the TTL
+  ok    O5 the release closed the row exactly, with its cause
+  ok    O5 lo and hi now COINCIDE — the S0/S1a gap is closed
+  ok    O5 all seven release causes are accepted and counted separately
+  ok    O5s an orphan release is UNBOUND, never invented into a row
+  ok    O6 the expiry closed the row at the named edge, with its exact custody state
+  ok    O6s an orphan expiry is UNBOUND, never invented into a row
+  ok    O7 a forward event binds to EXACTLY ONE live active row and stamps it
+  ok    O7 a forwarded row is still closed by its later ACK
+  ok    O7s an orphan forward is UNBOUND, never invented into a row
+  ok    O7s a forward whose return peer disagrees does NOT bind (counter-only matching is refused)
+  ok    O7s an AMBIGUOUS forward (two live rows share the wire-visible identity) is UNBOUND
+  ok    O7s a forward missing `type` REFUSES the run
+  ok    O7s a forward missing `ctr_m` REFUSES the run
+  ok    O7s a boolean `ctr_h` REFUSES — only a type-IDENTITY test rejects it
+  ok    O8 an expiry reporting `forwarded` is ACCEPTED when a forward event bound to that row
+  ok    O8s an expiry CLAIMING `forwarded` with no forward event behind it is a FINDING
+  ok    S1 a mutated ACK bound REFUSES against the header (no stale bound is reported as current)
+
+PASS: §B278 census selftest, 0 failure(s)
+RED: missing row -> missing ruled row: ('acl', '—')
+RED: duplicate row -> duplicate semantic authority row: ('acl', '—')
+RED: unclassified row -> unclassified or malformed authority table row: | `acl` | — | unclassified | no | [§G](../plans/2026-09-06-radmin-authority-classification-proposal.md#g-target-side-remote-admin-stores-slice-3--the-physical-class) |
+RED: table/header disagreement -> table/header disagreement: ('acl', '—')
+RED: orphan row -> orphan ruled row: ('orphan-probe', '—')
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_remote.cpp:47
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = 2e150af (source=git)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = b206b206b206 (source=override)
+git_rev.py: GIT_REV = 2e150af (source=git)
+git_rev.py: GIT_REV = c07b77f-dirty (source=git)
+git_rev.py: GIT_REV = c07b77f-dirty (source=git)
+git_rev.py: GIT_REV = b206b206b206 (source=override)

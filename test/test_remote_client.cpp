@@ -19,8 +19,11 @@ struct Entropy {
 struct Carrier : IRadminCarrier {
     bool full=false; RemoteClientSend answer=RemoteClientSend::queued;
     std::vector<std::vector<uint8_t>> requests,acks;
+    std::vector<bool> request_ack;
     bool tx_queue_full() const override {return full;}
-    RemoteClientSend submit_request(const RemoteClientRoute&,RemoteSource,const RemoteCarrier&,std::span<const uint8_t> b,bool) override {
+    RemoteClientSend submit_request(const RemoteClientRoute&,RemoteSource,const RemoteCarrier&,std::span<const uint8_t> b,bool ack) override {
+        if(full)return RemoteClientSend::full;
+        request_ack.push_back(ack);
         if(answer==RemoteClientSend::queued)requests.emplace_back(b.begin(),b.end());
         return answer;
     }
@@ -263,4 +266,113 @@ TEST_CASE("8ac full ACK debt still permits explicit rollover recovery and contro
         CHECK(remote_client_ack(c.s,c.id,c.now)==RemoteClientError::none);
         CHECK(c.start().error==RemoteClientError::none);
     }
+}
+
+TEST_CASE("8b execute-only ACK and typed pressure survive bootstrap independently of queue refusal") {
+    for(auto op:{RemoteCmdOpcode::open_execute,RemoteCmdOpcode::safe_rollover,RemoteCmdOpcode::force_rollover}) {
+        Client c;auto r=c.request();r.opcode=op;r.e2e_ack=true;
+        if(op!=RemoteCmdOpcode::open_execute)r.command={};
+        CHECK(remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier).error==RemoteClientError::bad_args);
+        CHECK(c.carrier.requests.empty());CHECK_FALSE(remote_client_busy(c.s));
+    }
+    for(auto answer:{RemoteClientSend::correlation_full,RemoteClientSend::full}) {
+        Client c;auto r=c.request();r.e2e_ack=true;
+        auto result=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);c.id=result.request_id;
+        CHECK(result.error==RemoteClientError::none);CHECK_FALSE(c.carrier.request_ack.back());
+        c.carrier.answer=answer;c.bootstrap();
+        CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::request_ready);
+        CHECK(c.carrier.request_ack.back());CHECK(c.carrier.requests.size()==1);CHECK(c.delivery.terminals==0);
+        CHECK(c.s.counters.radio_enqueue_failure==(answer==RemoteClientSend::full?1:0));
+        c.carrier.answer=RemoteClientSend::queued;c.pump();
+        CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::response_wait);CHECK(c.carrier.requests.size()==2);
+        CHECK(c.carrier.request_ack.back());
+    }
+    Client c;c.carrier.answer=RemoteClientSend::correlation_full;
+    CHECK(c.start().error==RemoteClientError::correlation_full);CHECK_FALSE(remote_client_busy(c.s));
+    CHECK(c.s.counters.radio_enqueue_failure==0);
+}
+TEST_CASE("8b exact resend once in every wait phase at same-layer and cross-layer derived edges") {
+    for(uint8_t hops:{0,1}) for(auto phase:{RemoteClientPhase::bootstrap_wait,RemoteClientPhase::response_wait,
+                                         RemoteClientPhase::compare_wait,RemoteClientPhase::rollover_wait}) {
+        Client c;c.route.hop_count=hops;c.route.hops[0]=2;CHECK(c.start().error==RemoteClientError::none);
+        if(phase!=RemoteClientPhase::bootstrap_wait)c.bootstrap();
+        if(phase==RemoteClientPhase::compare_wait){CHECK(remote_client_retry(c.s,c.id,c.now,Entropy::fill,&c.entropy)==RemoteClientError::none);c.pump();}
+        if(phase==RemoteClientPhase::rollover_wait){c.receive(c.wire(RemoteRespOpcode::admission_result,c.id,{},0,RemoteAdmission::session_full));c.pump();}
+        CHECK(RemoteClientPhase(c.p().core.state)==phase);
+        const auto last=c.carrier.requests.back();const auto count=c.carrier.requests.size();
+        const auto edge=hops?protocol::gateway_send_giveup_ms:protocol::e2e_ack_deadline_ms;
+        CHECK(c.p().core.next_retry_ms==c.now+edge);CHECK(remote_client_next_expiry(c.s,c.now)==edge);
+        c.now+=edge-2;c.pump();CHECK(c.carrier.requests.size()==count);
+        c.pump();CHECK(c.carrier.requests.size()==count+1);CHECK(c.carrier.requests.back()==last);
+        CHECK(RemoteClientPhase(c.p().core.state)==phase);CHECK(c.p().core.retries==1);
+        c.now=c.p().core.outcome_deadline_ms-2;c.pump();CHECK(c.carrier.requests.size()==count+1);
+        c.pump();CHECK(c.delivery.terminal_name=="unknown");CHECK(c.carrier.requests.size()==count+1);
+        c.now+=protocol::e2e_ack_deadline_xl_ms;c.pump();CHECK(c.carrier.requests.size()==count+1);
+    }
+}
+TEST_CASE("8b resend pressure retains exact bytes and deadline wins over a due resend") {
+    Client c;CHECK(c.start().error==RemoteClientError::none);c.bootstrap();const auto exact=c.carrier.requests.back();
+    c.output("partial");c.now=c.p().core.next_retry_ms;c.carrier.answer=RemoteClientSend::correlation_full;c.pump();
+    CHECK(RemoteClientPhase(c.p().core.state)==RemoteClientPhase::request_ready);CHECK(c.s.counters.radio_enqueue_failure==0);
+    auto count=c.carrier.requests.size();c.pump();CHECK(c.carrier.requests.size()==count);
+    c.carrier.answer=RemoteClientSend::queued;c.pump();CHECK(c.carrier.requests.back()==exact);
+    c.output("whole");c.terminal(0,1);c.pump();CHECK(c.delivery.text=="whole");CHECK(c.s.counters.assembly_failure==0);
+    count=c.carrier.requests.size();c.now+=protocol::e2e_ack_deadline_xl_ms;c.pump();CHECK(c.carrier.requests.size()==count);
+    Client d;CHECK(d.start().error==RemoteClientError::none);d.now=d.p().core.outcome_deadline_ms;d.pump();
+    CHECK(d.carrier.requests.size()==1);CHECK(d.delivery.terminal_name=="unknown");
+}
+TEST_CASE("8b ACK debt burst becomes dormant and one new same-target request wakes it once") {
+    Client c;CHECK(c.start(RemoteLocalTransport::usb).error==RemoteClientError::none);c.bootstrap();c.terminal();c.pump();
+    CHECK(c.carrier.acks.size()==1);CHECK(remote_client_ack_debt_count(c.s)==1);const auto bytes=c.carrier.acks[0];
+    for(unsigned shift=0;shift<protocol::cascade_requeue_max;++shift) {
+        const auto edge=uint32_t{protocol::cascade_requeue_base_ms}<<shift;
+        CHECK(remote_client_next_expiry(c.s,c.now)==edge);
+        c.now+=edge-2;c.pump();CHECK(c.carrier.acks.size()==shift+1);
+        c.carrier.answer=RemoteClientSend::full;c.pump();CHECK(c.s.ack_debt[0].retries==shift+1);
+        c.carrier.answer=RemoteClientSend::unavailable;c.pump();CHECK(c.s.ack_debt[0].retries==shift+1);
+        c.carrier.answer=RemoteClientSend::queued;c.pump();CHECK(c.carrier.acks.size()==shift+2);CHECK(c.carrier.acks.back()==bytes);
+    }
+    CHECK(remote_client_next_expiry(c.s,c.now)==UINT32_MAX);
+    for(unsigned second=0;second<3600;++second){c.now+=1000;c.pump();}CHECK(c.carrier.acks.size()==4);
+    // A different cached target must not wake this target's dormant debt.
+    const auto saved=c.s;uint8_t other[32];memcpy(other,c.target.ed_pub,32);other[0]^=1;
+    memcpy(c.s.sessions[0].target_admin_pub,other,32);auto unrelated=c.request();unrelated.target_pub=other;
+    CHECK(remote_client_start(c.s,unrelated,c.now,Entropy::fill,&c.entropy,c.carrier).error==RemoteClientError::none);
+    CHECK(c.carrier.acks.size()==4);c.s=saved;
+    auto r=c.request();const auto next=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);
+    CHECK(next.error==RemoteClientError::none);CHECK(c.carrier.acks.size()==5);CHECK(c.carrier.acks.back()==bytes);
+    c.pump();CHECK(c.carrier.acks.size()==5);CHECK(c.s.ack_debt[0].retries==4);
+}
+TEST_CASE("8b carrier matchers bind live execute ACK rows without changing any state") {
+    Client c;auto r=c.request();r.e2e_ack=true;auto result=remote_client_start(c.s,r,c.now,Entropy::fill,&c.entropy,c.carrier);c.id=result.request_id;
+    CHECK(result.error==RemoteClientError::none);c.bootstrap();remote_client_carrier_sent(c.s,c.carrier.requests.back(),42);
+    CHECK(c.p().core.carrier_ctr==42);const auto before=c.s;
+    CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==c.id);CHECK(remote_client_observe_ack(c.s,42,true,0,0,nullptr)==c.id);
+    CHECK(remote_client_observe_ack(c.s,43,false,0,0,nullptr)==0);CHECK(remote_client_observe_ack(c.s,0,false,0,0,nullptr)==0);
+    const auto kind=static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash);
+    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash)==c.id);
+    CHECK(remote_client_observe_custody(c.s,43,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash)==0);
+    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_RESP,kind,c.route.target_hash)==0);
+    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,0,c.route.target_hash)==0);
+    CHECK(remote_client_observe_custody(c.s,42,DATA_TYPE_REMOTE_CMD,kind,c.route.target_hash+1)==0);
+    CHECK(memcmp(&before,&c.s,sizeof before)==0);
+    c.p().core.flags&=~8;CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
+    c.p().core.flags=uint8_t(RemoteCmdOpcode::safe_rollover)|8;CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
+    c.p().core.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;c.p().core.state=uint8_t(RemoteClientPhase::empty);
+    CHECK(remote_client_observe_ack(c.s,42,false,0,0,nullptr)==0);
+}
+
+TEST_CASE("8b ACK identity uses the producer-specific shape and returns the candidate target") {
+    RemoteClientState state{};auto& row=state.pending[0].core;
+    row.request_id=7;row.state=uint8_t(RemoteClientPhase::response_wait);row.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;
+    row.carrier_ctr=42;row.route.target_hash=0x12345678;uint32_t target=99;
+    CHECK(remote_client_observe_ack(state,42,false,2,0,&target)==7);CHECK(target==row.route.target_hash);
+    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash,&target)==0);CHECK(target==0);
+    CHECK(remote_client_observe_ack(state,42,true,2,0,&target)==0);CHECK(target==0);
+    CHECK(remote_client_observe_ack(state,42,true,0,0,&target)==7);CHECK(target==row.route.target_hash);
+    row.route.hop_count=1;
+    CHECK(remote_client_observe_ack(state,42,false,2,0,&target)==0);CHECK(target==0);
+    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash+1,&target)==0);CHECK(target==0);
+    CHECK(remote_client_observe_ack(state,42,false,2,row.route.target_hash,&target)==7);CHECK(target==row.route.target_hash);
+    CHECK(remote_client_observe_ack(state,42,true,0,0,&target)==7);CHECK(target==row.route.target_hash);
 }

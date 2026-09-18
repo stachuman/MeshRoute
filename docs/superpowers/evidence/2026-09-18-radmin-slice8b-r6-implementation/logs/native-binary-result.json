@@ -1,0 +1,10 @@
+{
+  "name": "native-binary",
+  "command": [
+    "/tmp/mr-s8b-r6-nwy4hz9d/native-build/native/program"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 0.9509930275380611,
+  "sha256": "27951f0c3236d2b7bcde2a5ef6e52cf06eb8f77987c4801cd8b116354b82e61c"
+}

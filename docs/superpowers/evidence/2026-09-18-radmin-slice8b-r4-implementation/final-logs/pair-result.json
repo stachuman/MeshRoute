@@ -1,0 +1,16 @@
+{
+  "name": "pair",
+  "command": [
+    "python3",
+    "tools/measure_board.py",
+    "pair",
+    "--output",
+    ".pio-measure/s8b-final",
+    "--jobs",
+    "1"
+  ],
+  "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+  "exit": 0,
+  "seconds": 49.75982350483537,
+  "sha256": "a9a07c80aee92f32b916ec33b429d609edd4ce916fc7ab39f93c36da722ee7a4"
+}

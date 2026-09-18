@@ -110,6 +110,8 @@ ROOT = str(Path(__file__).resolve().parents[1])
 # ⛔ THE TARGET IS RESOLVED HERE, ABOVE EVERYTHING KEYED ON `H`, and an unknown name is REFUSED rather than defaulted:
 #   silently measuring the wrong file is precisely the failure this tool exists to make impossible.
 TARGET_SRC = {
+    'radmin8brx': 'lib/core/node_mac_rx.cpp',
+    'radmin8node': 'lib/core/node.h',
     'radmin8rng': 'src/device_rng.h',
     'radmin8verbs': 'src/firmware_remote_client.h',
     'radmin8client': 'lib/core/remote_client.cpp',
@@ -708,7 +710,9 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # 7b-3-P1: baseline 2912/184461 +4 cases /126 assertions (38+40+41+7).
 # 7b-3: final counts are re-derived from the complete native binary before the union.
 # 8ac measured full native runner: 2947 cases, 193734 assertions, no skips.
-PIN_CASES, PIN_ASSERTS = 2947, 193734
+# 8b: 19 new cases and 1942 assertions over c07b77f, measured by the full native binary.
+# Revision 6: full native suite, 8b real-wrapper/binding/identity proofs included.
+PIN_CASES, PIN_ASSERTS = 2970, 195942
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -11562,8 +11566,8 @@ MUTS_RADMIN8CLIENT = [
  ('C07 terminal detail lost', 'a->result_detail = detail;', 'a->result_detail = 0;'),
  ('C08 BLE result autoaccepted', 'if (transport == RemoteLocalTransport::usb &&', 'if (true &&'),
  ('C09 incomplete local ACK accepted', 'if (r->in_use!=2 || !r->delivered)', 'if (false)'),
- ('C10 ACK debt cleared on submission', 'd.next_retry_ms=now+kAckRetryMs;', 'd.in_use=0; d.next_retry_ms=now+kAckRetryMs;'),
- ('C11 ACK debt not retried', 'd.next_retry_ms=now+kAckRetryMs;', 'd.next_retry_ms=now+kOutcomeMs;'),
+ ('C10 ACK debt cleared on submission', 'd.next_retry_ms = now + delay;', 'd.in_use=0; d.next_retry_ms = now + delay;'),
+ ('C11 ACK debt not retried', 'd.next_retry_ms = now + delay;', 'd.next_retry_ms = now + kOutcomeMs;'),
  ('C12 changed epoch permits replay', 'd.msg.admin_epoch != p->core.admin_epoch || d.msg.slot != p->core.acl_slot', 'false'),
  ('C13 exact retry corrupts retained request', 'p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;', 'p->sealed[9]^=1; p->core.discovery_id=discovery; p->core.outcome_deadline_ms=now+kOutcomeMs;'),
  ('C14 pool contents are lost', 'std::memcpy(c.bytes, body.data() + off, c.len);', 'std::memset(c.bytes,0x3f,c.len);'),
@@ -11582,6 +11586,35 @@ MUTS_RADMIN8CLIENT = [
  ('C27 disconnect forgets prior complete local acceptance', 'a->reserved |= 4;', 'a->reserved = 4;'),
  ('C28 full ACK debt blocks rollover recovery', 'if (in.opcode == RemoteCmdOpcode::auth_execute && debt >= 8)', 'if (auth && debt >= 8)'),
  ('C29 session controls accept an execution terminal', 'if (opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::auth_execute) &&\n        opcode(*p) != static_cast<uint8_t>(RemoteCmdOpcode::open_execute))', 'if (false)'),
+ ('C30 non-execute ACK admitted', '(in.e2e_ack && in.opcode != RemoteCmdOpcode::auth_execute)', 'false'),
+ ('C31 bootstrap requests ACK', 'state == Phase::request_ready && ack_requested(p)', 'ack_requested(p)'),
+ ('C32 initial correlation bound bypassed', 'if (in.e2e_ack && correlation >= in.correlation_free)', 'if (false)'),
+ ('C33 correlation pressure becomes radio failure', 'if (sent == RemoteClientSend::correlation_full) return RemoteClientError::correlation_full;', 'if (false) return RemoteClientError::correlation_full;'),
+ ('C34 resend uses reversed route tier', 'return route.hop_count ? protocol::gateway_send_giveup_ms : protocol::e2e_ack_deadline_ms;', 'return route.hop_count ? protocol::e2e_ack_deadline_ms : protocol::gateway_send_giveup_ms;'),
+ ('C35 automatic resend disabled', 'if (waiting(state) && !p.core.retries &&', 'if (false && !p.core.retries &&'),
+ ('C36 resend early', 'static_cast<int32_t>(now-p.core.next_retry_ms)>=0', 'static_cast<int32_t>(now-p.core.next_retry_ms)>=-1'),
+ ('C37 resend repeats', 'p.core.next_retry_ms = retries ? 0 : now + remote_client_resend_ms(p.core.route);', 'p.core.retries = 0; p.core.next_retry_ms = now + remote_client_resend_ms(p.core.route);'),
+ ('C38 expiry loses request retry edge', 'if (waiting(phase(p)) && !p.core.retries)', 'if (false)'),
+ ('C39 ACK burst never goes dormant', 'd.in_use && d.retries < kAckAttempts && static_cast<int32_t>(now-d.next_retry_ms)>=0', 'd.in_use && static_cast<int32_t>(now-d.next_retry_ms)>=0'),
+ ('C40 ACK budget consumed on failure', 'if (send_ack(s,d,carrier) != RemoteClientSend::queued) continue;', 'if (send_ack(s,d,carrier) != RemoteClientSend::queued) { ++d.retries; continue; }'),
+ ('C41 ACK delay stops doubling', 'uint32_t{protocol::cascade_requeue_base_ms} << (d.retries-1)', 'uint32_t{protocol::cascade_requeue_base_ms}'),
+ ('C42 dormant debt not kicked', '(void)send_ack(s, d, carrier);', ';'),
+ ('C43 unrelated target kicks dormant debt', 'd.retries >= kAckAttempts && equal_key(d.target_admin_pub, in.target_pub.data())', 'd.retries >= kAckAttempts'),
+ ('C44 submitted counter lost', 'p.core.carrier_ctr = ctr; return;', 'p.core.carrier_ctr = 0; return;'),
+ ('C45 ACK match ignores opt-in', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr)', 'live(p) && p.core.carrier_ctr == ctr)'),
+ ('C46 ACK match ignores counter', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr)', 'live(p) && ack_requested(p))'),
+ ('C47 custody permits reply type', 'type != DATA_TYPE_REMOTE_CMD', 'type != DATA_TYPE_REMOTE_RESP'),
+ ('C48 custody accepts node-id target', 'kind != static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash)', 'false'),
+ ('C49 custody ignores target', '&& p.core.route.target_hash == target)', '&& true)'),
+ ('C50 custody ignores opt-in', 'live(p) && ack_requested(p) && p.core.carrier_ctr == ctr &&', 'live(p) && p.core.carrier_ctr == ctr &&'),
+ ('C51 custody ignores counter', 'p.core.carrier_ctr == ctr && p.core.route.target_hash', 'true && p.core.route.target_hash'),
+ ('C52 replay keeps partial assembly sequence', 'a->bytes_used = 0; a->next_seq = 0;', 'a->bytes_used = 0;'),
+
+ ('C53 direct timeout matches wrapper', '(timed_out && push_dst != 0)', 'false'),
+ ('C54 ACK identity ignored', 'if (!timed_out && push_sender_hash != (p.core.route.hop_count ? p.core.route.target_hash : 0)) continue;', 'if (false) continue;'),
+ ('C55 XL ACK treated as same layer', 'p.core.route.hop_count ? p.core.route.target_hash : 0', '0'),
+ ('C56 same-layer ACK needs XL hash', 'p.core.route.hop_count ? p.core.route.target_hash : 0', 'p.core.route.target_hash'),
+ ('C57 candidate target missing', 'if (target_hash_out) *target_hash_out = p.core.route.target_hash;', 'if (target_hash_out) *target_hash_out = 0;'),
 ]
 
 MUTS_RADMIN8VERBS = [
@@ -11593,13 +11626,58 @@ MUTS_RADMIN8VERBS = [
  ('V06 command tail validator bypassed', 'meshroute::console::validate_command_line(c.command,c.command_len,meshroute::console::remote_command_max_bytes)!=meshroute::console::LineErr::ok', 'false'),
  ('V07 result show keyword not required', '!admin_word_is(t,n,"show")', 'false'),
  ('V08 extra local acknowledgement tail admitted', '!admin_tail_empty(line,len,i)) return false;\n        out=c;', 'false) return false;\n        out=c;'),
+ ('V09 rollover allows ACK', 'if (c.ack && c.opcode!=meshroute::RemoteCmdOpcode::auth_execute) return false;', ';'),
+ ('V10 observer ACK ignored', 'if (pu.kind == PushKind::send_e2e_acked) {', 'if (false) {'),
+ ('V11 observer wrong failure kind', 'pu.reason == SendFailReason::e2e_ack_timeout', 'true'),
+ ('V12 custody observer removed', 'pu.kind == PushKind::custody_failure', 'false'),
+ ('V13 origin aliases reporter', 'detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,', 'detail = {tail->original_reporter, tail->original_reporter, record->reporter_layer,'),
+ ('V14 reporter aliases origin', 'detail = {record->failed_origin, tail->original_reporter, record->reporter_layer,', 'detail = {record->failed_origin, record->failed_origin, record->reporter_layer,'),
+ ('V15 layer lost', 'tail->original_reporter, record->reporter_layer,', 'tail->original_reporter, uint8_t{0},'),
+ ('V16 custody matches outer ctr', 'ctr = tail->mobile_ctr;', 'ctr = pu.ctr;'),
+ ('V17 observer steals USB transport', 'static_cast<RemoteLocalTransport>(row.core.local_transport), id, event', 'RemoteLocalTransport::usb, id, event'),
+ ('V18 timeout called ACK', 'event = "ack_timeout";', 'event = "acked";'),
+ ('V19 custody fields omitted', 'detail?7:3', '3'),
+ ('V20 custody reason omitted', 'EF_S("reason",detail?detail->reason:"")', 'EF_S("reason","")'),
+ ('V21 USB counter lost', 'key,event,ctr);', 'key,event,0);'),
+ ('V22 custody detail wrong event', 'event = "custody_failure";', 'event = "acked";'),
+
+ ('V23 binding veto removed', 'if (bound >= 0 && bound != pu.dst) return;', 'if (false) return;'),
+ ('V24 absent binding vetoes', 'bound >= 0 && bound != pu.dst', 'bound != pu.dst'),
+ ('V25 timeout invokes binding veto', 'pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count', '!row.core.route.hop_count'),
+ ('V26 XL ACK invokes binding veto', 'pu.kind == PushKind::send_e2e_acked && !row.core.route.hop_count', 'pu.kind == PushKind::send_e2e_acked'),
+ ('V27 lookup argument lost', 'lookup(node, target_hash)', 'lookup(node, 0)'),
+]
+
+MUTS_RADMIN8BRX = [
+ ('X01 unregistered admission bypassed', 'if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;', 'if (false) return RemoteClientSend::unavailable;'),
+ ('X02 TX pressure misclassified', 'if (tx_queue_full()) return RemoteClientSend::full;', 'if (tx_queue_full()) return RemoteClientSend::correlation_full;'),
+ ('X03 correlation guard bypassed', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;', ';'),
+ ('X04 correlation pressure mislabeled full', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;', 'if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::full;'),
+ ('X05 no-home lower priority than TX full', 'if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;', 'if (tx_queue_full()) return RemoteClientSend::full; if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;'),
+ ('X06 request ACK flag omitted', 'const uint8_t flags = e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0;', 'const uint8_t flags = 0;'),
+ ('X07 returned counter never captured', 'remote_client_carrier_sent(_remote_client, body, ctr);', ';'),
+ ('X08 typed request becomes DM', 'Plane::GLOBAL, DATA_TYPE_REMOTE_CMD, /*suppress_intro=*/true, &dispatch', 'Plane::GLOBAL, 0, /*suppress_intro=*/true, &dispatch'),
+ ('X09 response ACK also asks for ACK', 'return node_.remote_client_submit(route, body, false);', 'return node_.remote_client_submit(route, body, true);'),
+ ('X10 target ACKs all verdicts', '(res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript ||\n         res.verdict == RemoteAdmitVerdict::already_acknowledged)', 'true'),
+ ('X11 target never ACKs admission', 'res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript', 'false || res.verdict == RemoteAdmitVerdict::replay_transcript'),
+ ('X12 target never ACKs replay', 'res.verdict == RemoteAdmitVerdict::replay_transcript ||\n         res.verdict', 'false ||\n         res.verdict'),
+ ('X13 target never ACKs tombstone', 'res.verdict == RemoteAdmitVerdict::already_acknowledged))', 'false))'),
+ ('X14 target ignores opt-in', 'if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) &&\n        (res.verdict', 'if (true &&\n        (res.verdict'),
+ ('X15 cross-layer carrier uses same-layer wrapper', 'if (route.hop_count) {\n        ctr = delegate_send_layer', 'if (false) {\n        ctr = delegate_send_layer'),
+ ('X16 target cross-layer ACK falls back to same layer', 'if (pa.flags & DATA_FLAG_CROSS_LAYER) send_xl_ack(*ui, pa.ctr);', 'if (false) send_xl_ack(*ui, pa.ctr);'),
+ ('X17 checked dispatch refusal becomes ownership', 'case SendDispatch::Admit::refused: return RemoteClientSend::full;', 'case SendDispatch::Admit::refused: break;'),
+
+ ('X18 B413 authoritative target bypasses wrapper', '&dispatch, /*via_home=*/true);', '&dispatch, /*via_home=*/false);'),
+]
+MUTS_RADMIN8NODE = [
+ ('N01 B408 counts home delegation ring instead of mobile E2E ring', 'for (const auto& row : _pending_e2e_acks) free += !row.used;', 'for (const auto& row : _deleg_acks) free += row.state == DelegAckState::free;'),
 ]
 
 MUTS_RADMIN8RNG = [
  ('E01 host without entropy provider claims success', 'return n == 0; // no entropy provider', 'return true; // no entropy provider'),
 ]
 
-MUTS_BY_TARGET = {'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
+MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE, 'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
                   "radmin7exec": MUTS_RADMIN7EXEC, "radmin7rx": MUTS_RADMIN7RX,

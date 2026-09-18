@@ -1,0 +1,13 @@
+-- target b20codec: /tmp/mr-s8b-r6-nwy4hz9d/final-gate/lib/core/frame_codec.h (5 entries)
+-- selection: IN FULL (all 5 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-42u_reha   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target b20codec: /tmp/mr_mutation_run-42u_reha/w1/lib/core/frame_codec.h (2 of 5 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target b20codec: /tmp/mr_mutation_run-42u_reha/w0/lib/core/frame_codec.h (2 of 5 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b20codec: /tmp/mr_mutation_run-42u_reha/w2/lib/core/frame_codec.h (1 of 5 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)

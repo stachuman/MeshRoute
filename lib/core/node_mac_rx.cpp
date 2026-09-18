@@ -1935,6 +1935,43 @@ Node::RadminRxOwner Node::radmin_rx_owner(uint8_t type, bool client_on, bool acc
 
 
 
+
+#if MR_FEAT_RADMIN_CLIENT
+bool NodeRadminClientCarrier::tx_queue_full() const { return node_.tx_queue_full(); }
+RemoteClientSend NodeRadminClientCarrier::submit_request(const RemoteClientRoute& route, RemoteSource,
+    const RemoteCarrier&, std::span<const uint8_t> body, bool e2e_ack) {
+    return node_.remote_client_submit(route, body, e2e_ack);
+}
+RemoteClientSend NodeRadminClientCarrier::submit_ack(const RemoteClientRoute& route, RemoteSource,
+    const RemoteCarrier&, std::span<const uint8_t> body) {
+    return node_.remote_client_submit(route, body, false);
+}
+RemoteClientSend Node::remote_client_submit(const RemoteClientRoute& route, std::span<const uint8_t> body, bool e2e_ack) {
+    if (!_cfg.is_mobile || !mobile_registered()) return RemoteClientSend::unavailable;
+    if (tx_queue_full()) return RemoteClientSend::full;
+    if (e2e_ack && e2e_ack_ring_full()) return RemoteClientSend::correlation_full;
+    const uint8_t flags = e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0;
+    uint16_t ctr = 0;
+    if (route.hop_count) {
+        ctr = delegate_send_layer(route.target_hash, route.hops, route.hop_count, DATA_TYPE_REMOTE_CMD,
+                                  body.data(), static_cast<uint8_t>(body.size()), flags);
+        if (!ctr) return RemoteClientSend::unavailable;
+    } else {
+        SendDispatch dispatch{};
+        (void)send_by_hash(route.target_hash, body.data(), static_cast<uint8_t>(body.size()), flags,
+            CryptIntent::off, 0, 0, Plane::GLOBAL, DATA_TYPE_REMOTE_CMD, /*suppress_intro=*/true, &dispatch, /*via_home=*/true);
+        switch (dispatch.admit) {
+            case SendDispatch::Admit::queued: ctr = dispatch.ctr; break;
+            case SendDispatch::Admit::parked: // the registered-mobile arm precedes parking
+            case SendDispatch::Admit::refused: return RemoteClientSend::full;
+            case SendDispatch::Admit::none: return RemoteClientSend::unavailable;
+        }
+    }
+    remote_client_carrier_sent(_remote_client, body, ctr);
+    return RemoteClientSend::queued;
+}
+#endif
+
 #if MR_FEAT_RADMIN_ACCEPT
 // ACCEPT-OWNED. (⛔ This marker line is LOAD-BEARING, not decoration: `tools/probe_features/ownership.py`'s
 // W-OWNER-CMD / W-WIDEN-ACCEPT controls anchor their one-match edit on exactly `#if MR_FEAT_RADMIN_ACCEPT`
@@ -2208,6 +2245,13 @@ void Node::rx_remote_cmd_accept(const PostAck& pa, const data_unicast_inner* ui)
             EF_I("src_hash", static_cast<int64_t>(res.source_hash)),
             EF_I("seen", res.seen_index), EF_I("ingress", res.ingress_index));
     radmin_send_reply(res);      // only fully encoded bootstrap/admission/protocol replies reach the sender
+    // R-RA-49: carrier ownership only after the authenticated admission/replay boundary.
+    if ((pa.flags & DATA_FLAG_E2E_ACK_REQ) &&
+        (res.verdict == RemoteAdmitVerdict::admit || res.verdict == RemoteAdmitVerdict::replay_transcript ||
+         res.verdict == RemoteAdmitVerdict::already_acknowledged)) {
+        if (pa.flags & DATA_FLAG_CROSS_LAYER) send_xl_ack(*ui, pa.ctr);
+        else send_e2e_ack(pa.origin, pa.ctr, ui->source_hash);
+    }
     radmin_report_counters(counters_before);
     // Recompute the earliest deadline from CURRENT rows after every classified intake, including refusals.
     // Refusal accounting can change counters; open intake may also expire older staging/capture pairs before

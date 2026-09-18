@@ -1,0 +1,11 @@
+{
+  "name": "a0",
+  "command": [
+    "python3",
+    "tools/check_a0_matrix.py"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 0.11218971386551857,
+  "sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f"
+}

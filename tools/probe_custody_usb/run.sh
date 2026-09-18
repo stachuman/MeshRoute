@@ -52,6 +52,7 @@ trap 'rm -rf "$OUT"' EXIT
 
 HELPER="$ROOT/src/firmware_custody_push.h"   # THE RENDERER — controls C2..C9 mutate this
 FWMAIN="$ROOT/src/fw_main.cpp"               # THE SWITCH    — control C1 mutates this
+python3 "$HERE/observer_structure.py" "$FWMAIN" "${1:-}" || exit 1
 FAKES="$ROOT/tools/probe_console_sink/fakes" # the ONE Arduino fake (U1: reused, never forked)
 
 INCS=(-I"$FAKES" -I"$ROOT/src" -I"$ROOT/lib/core" -I"$ROOT/lib/console" -I"$ROOT/lib/hal"

@@ -1,0 +1,18 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+Testing...
+test/test_node_remote_carrier.cpp:356: 8b B413 known unknown and claimed targets all use distinct home wrappers: CHECK( c.hop(c.mobile,c.hm,c.pair.n1,c.pair.h1,DATA_TYPE_MOBILE_SEND) ) is NOT correct!	[FAILED]
+test/test_node_remote_carrier.cpp:433: 8b B415 characterization direct operator ACK can clear an equal-counter wrapper: CHECK( c.hop(c.pair.n2,c.pair.h2,c.mobile,c.hm,DATA_TYPE_E2E_ACK) ) is NOT correct!	[FAILED]
+Program received signal SIGHUP (Hangup)
+--------------------- native:* [ERRORED] Took 5.82 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:05.816
+
+============= 3 test cases: 2 failed, 0 succeeded in 00:00:05.816 =============

@@ -1,0 +1,35 @@
+{
+  "verdict": "STOP-1 B416, scoped B414 repair only; no full chain or implementation freeze",
+  "base": "c07b77f50a16342d532618f760aad49e10208a5d",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "simulator_status": "",
+  "brief_sha256": "1501ab7ca6ba25265340fe7a9f399564a1afed7b4836c3502d0d85fd8ef7954a",
+  "admission_input_count": 3018,
+  "production_test_platformio_unchanged": 234,
+  "matching_shared_snapshot_primary_count": 361,
+  "snapshot_mismatches": [],
+  "changed_admission_paths": [
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b.md",
+    "tools/probe_console_sink/structural.py"
+  ],
+  "protected_preparation_inputs": {
+    "MEMORY.md": "fa76d033b38fbc87dd1ab549309d7dd4b00cb5970f36bbb79431225180e55c33",
+    "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": "cf12e1a1e162c3ef3ed83bec05224aa367c4501c088095c019d5c6c7f1e20840",
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": "f6a9afcd3933cf53e6e2f414fb145e18064cc7010ddec6046496c7c9a1c4af37",
+    "tracker.md": "d6fdb2400aa520a3918f070c6d107bbf5b5e9678cb423e900920ee449f81c1c6",
+    "docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md": "1501ab7ca6ba25265340fe7a9f399564a1afed7b4836c3502d0d85fd8ef7954a"
+  },
+  "instrument_sha256": "8d2cc83410667e4c6abc8ab0f2601ac5d7e12a8fc4dfe631f78aceccbd899441",
+  "whitespace": {
+    "meshroute": {
+      "exit": 0,
+      "output": ""
+    },
+    "simulator": {
+      "exit": 0,
+      "output": ""
+    }
+  },
+  "staged_paths": ""
+}

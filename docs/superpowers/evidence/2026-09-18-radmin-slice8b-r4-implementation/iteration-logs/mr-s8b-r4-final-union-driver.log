@@ -1,0 +1,31 @@
+START a0rx
+START actionadmit
+START b134ack
+START b134inbox
+START b134ram
+START b134store
+END a0rx 0
+END actionadmit 0
+END b134ack 0
+START b159mac
+START b159map
+END b134inbox 0
+END b134ram 0
+START b159rx
+START b161hash
+START b161mac
+START b161rx
+START b20codec
+START b20mac
+END b134store 0
+END b159mac 0
+END b159map 0
+END b159rx 0
+END b161hash 0
+END b161mac 0
+START b251hash
+END b161rx 0
+START b251rx
+END b20codec 0
+START cmdauthority
+END b20mac 0

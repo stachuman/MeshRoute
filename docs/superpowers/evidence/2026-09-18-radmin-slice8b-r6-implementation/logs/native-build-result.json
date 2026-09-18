@@ -1,0 +1,15 @@
+{
+  "name": "native-build",
+  "command": [
+    "env",
+    "PLATFORMIO_BUILD_DIR=/tmp/mr-s8b-r6-nwy4hz9d/native-build",
+    "pio",
+    "test",
+    "-e",
+    "native"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 47.841907635331154,
+  "sha256": "14943d384cd8c12034c9237d7a0ea8dcf49c1be096079a15d9fb096d161569d8"
+}

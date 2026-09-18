@@ -1,0 +1,49 @@
+-- target actionadmit: /tmp/mr-s8b-r6-nwy4hz9d/final-gate/src/firmware_action_effects.h (10 entries)
+-- selection: IN FULL (all 10 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-4rnzwr4z   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target actionadmit: /tmp/mr_mutation_run-4rnzwr4z/w0/src/firmware_action_effects.h (4 of 10 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target actionadmit: /tmp/mr_mutation_run-4rnzwr4z/w1/src/firmware_action_effects.h (3 of 10 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target actionadmit: /tmp/mr_mutation_run-4rnzwr4z/w2/src/firmware_action_effects.h (3 of 10 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w0]   ok   A01 absent backend accepted -> RED (7 assertion(s) failed, match count 1)
+  [w1]   ok   A02 confirmation bypassed -> RED (19 assertion(s) failed, match count 1)
+  [w2]   ok   A03 factory kind lost -> RED (7 assertion(s) failed, match count 1)
+  [w2]   ok   A06 debug admission bypassed -> RED (15 assertion(s) failed, match count 1)
+  [w0]   ok   A04 sleep prefix narrowed -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   A05 compiled-out sleep reported supported -> RED (8 assertion(s) failed, match count 1)
+  [w2]   ok   A09 crash reboot backend replaced by fault -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   A07 crash hang kind lost -> RED (2 assertion(s) failed, match count 1)
+  [w2] source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)
+  [w2] shard 2: 3 RED / 0 unusable   (of 3 entries)
+  [w1]   ok   A08 fault backend replaced by reset -> RED (3 assertion(s) failed, match count 1)
+  [w1] source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)
+  [w1] shard 1: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   A10 OTA backend replaced by reset -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)
+  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target actionadmit: /tmp/mr-s8b-r6-nwy4hz9d/final-gate/src/firmware_action_effects.h
+  ok   clean baseline 2970 / 195942 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   A01 absent backend accepted -> RED (7 assertion(s) failed, match count 1)
+  ok   A02 confirmation bypassed -> RED (19 assertion(s) failed, match count 1)
+  ok   A03 factory kind lost -> RED (7 assertion(s) failed, match count 1)
+  ok   A04 sleep prefix narrowed -> RED (3 assertion(s) failed, match count 1)
+  ok   A05 compiled-out sleep reported supported -> RED (8 assertion(s) failed, match count 1)
+  ok   A06 debug admission bypassed -> RED (15 assertion(s) failed, match count 1)
+  ok   A07 crash hang kind lost -> RED (2 assertion(s) failed, match count 1)
+  ok   A08 fault backend replaced by reset -> RED (3 assertion(s) failed, match count 1)
+  ok   A09 crash reboot backend replaced by fault -> RED (2 assertion(s) failed, match count 1)
+  ok   A10 OTA backend replaced by reset -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 108.9s, rc 0, source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)   /tmp/mr_mutation_run-4rnzwr4z/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 106.6s, rc 0, source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)   /tmp/mr_mutation_run-4rnzwr4z/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 104.3s, rc 0, source restored: md5 7f5eed4e695c7e4b975380fde2279d9c (MATCHES)   /tmp/mr_mutation_run-4rnzwr4z/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8b-r6-nwy4hz9d/final-gate
+timing: copy 2.6s + battery 109.0s = 111.7s total, 10 entries over 3 worker(s)
+mutations: 10 RED / 0 unusable

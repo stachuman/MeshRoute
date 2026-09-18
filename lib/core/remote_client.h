@@ -27,6 +27,7 @@ struct RemoteClientPendingCore {
     RemoteClientRoute route;                         // immutable source-validation/carrier hints
     uint8_t credential_slot;                  // self or key0..key9, never inferred from mutable UI
     uint8_t target_book_slot;                 // existing in-use guards
+    uint16_t carrier_ctr;                     // admitted mobile wrapper; uses former tail padding (8b)
 };
 
 struct RemoteClientPending { RemoteClientPendingCore core; uint8_t sealed[kRemoteClientSealedBytes]; };
@@ -103,6 +104,8 @@ struct RemoteClientState {
     RemoteClientCounters counters;
 };
 static_assert(sizeof(RemoteClientState) == 4512 && alignof(RemoteClientState) == 8, "R-RA-45 controller allocation");
+static_assert(sizeof(RemoteClientPendingCore) == 120 && offsetof(RemoteClientPendingCore, carrier_ctr) == 118,
+              "8b carrier counter occupies existing padding on every ABI");
 static_assert(sizeof(RemoteClientPending) == 352 && sizeof(RemoteClientSession) == 144);
 static_assert(sizeof(RemoteClientAssembly) == 32 && sizeof(RemoteClientRetained) == 32);
 static_assert(sizeof(RemoteClientChunk) == 210 && sizeof(RemoteClientAck) == 88);
@@ -117,7 +120,7 @@ enum class RemoteClientError : uint8_t {
     assembly_full, result_full, ack_debt_full, correlation_full, session_cache_full,
     carrier_unavailable, radio_enqueue_failed, not_found, incomplete, unknown
 };
-enum class RemoteClientSend : uint8_t { queued, full, unavailable };
+enum class RemoteClientSend : uint8_t { queued, full, unavailable, correlation_full };
 struct IRadminCarrier {
     virtual ~IRadminCarrier() = default;
     virtual bool tx_queue_full() const = 0;
@@ -147,7 +150,7 @@ struct RemoteClientRequest {
     RemoteCmdOpcode opcode = RemoteCmdOpcode::auth_execute;
     bool e2e_ack = false;
     uint8_t carrier = 0; // 0 ordinary RPC, 1 typed mobile wrapper; transient input only
-    uint8_t correlation_free = 0; // existing delegated-ring availability, reservations counted in pending
+    uint8_t correlation_free = 0; // mobile E2E ring availability; execute reservations counted in pending
 };
 struct RemoteClientResult { RemoteClientError error; uint64_t request_id; };
 [[nodiscard]] RemoteStatus remote_client_base(uint8_t out[32], const Identity&, const uint8_t target_pub[32]);
@@ -169,5 +172,13 @@ void remote_client_expire(RemoteClientState&, uint32_t now);
 [[nodiscard]] bool remote_client_target_in_use(const RemoteClientState&, uint8_t slot);
 [[nodiscard]] uint8_t remote_client_pending_count(const RemoteClientState&);
 [[nodiscard]] uint8_t remote_client_retained_count(const RemoteClientState&);
+[[nodiscard]] uint8_t remote_client_ack_debt_count(const RemoteClientState&);
+[[nodiscard]] uint32_t remote_client_resend_ms(const RemoteClientRoute&);
+// Called only after the carrier's checked local admission; never claims delivery beyond that boundary.
+void remote_client_carrier_sent(RemoteClientState&, std::span<const uint8_t> body, uint16_t ctr);
+[[nodiscard]] uint64_t remote_client_observe_ack(const RemoteClientState&, uint16_t ctr, bool timed_out,
+                                                  uint8_t push_dst, uint32_t push_sender_hash, uint32_t* target_hash_out);
+[[nodiscard]] uint64_t remote_client_observe_custody(const RemoteClientState&, uint16_t mobile_ctr,
+    uint8_t failed_type, uint8_t target_kind, uint32_t target_value);
 [[nodiscard]] const char* remote_client_error_name(RemoteClientError);
 } // namespace MESHROUTE_NS

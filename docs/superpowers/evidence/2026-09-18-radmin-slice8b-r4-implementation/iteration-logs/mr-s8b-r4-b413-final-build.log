@@ -1,0 +1,49 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+test/test_node_query.cpp: In lambda function:
+test/test_node_query.cpp:574:29: warning: unused parameter ‘hal’ [-Wunused-parameter]
+  574 |     auto hear = [](TestHal& hal, Node& node, uint8_t adv, bool adv_mobile, uint32_t adv_team) {
+      |                    ~~~~~~~~~^~~
+test/test_node_remote_session.cpp: In function ‘void DOCTEST_ANON_FUNC_42()’:
+test/test_node_remote_session.cpp:1334:21: warning: loop variable ‘pair’ creates a copy from type ‘const std::pair<unsigned char, long unsigned int>’ [-Wrange-loop-construct]
+ 1334 |     for (const auto pair : {std::pair<uint8_t,uint64_t>{0,1}, {1,2}, {2,3}, {0,4}}) {
+      |                     ^~~~
+test/test_node_remote_session.cpp:1334:21: note: use reference type to prevent copying
+ 1334 |     for (const auto pair : {std::pair<uint8_t,uint64_t>{0,1}, {1,2}, {2,3}, {0,4}}) {
+      |                     ^~~~
+      |                     &
+test/test_node_channel.cpp: In function ‘void hold_team_flood({anonymous}::TestHal&, meshroute::Node&, uint32_t, uint8_t, uint8_t)’:
+test/test_node_channel.cpp:1649:38: warning: unused parameter ‘hal’ [-Wunused-parameter]
+ 1649 | static void hold_team_flood(TestHal& hal, Node& n, uint32_t id, uint8_t up, uint8_t down) {
+      |                             ~~~~~~~~~^~~
+test/test_node_hashlocate.cpp: In function ‘void DOCTEST_ANON_FUNC_114()’:
+test/test_node_hashlocate.cpp:1599:23: warning: comparison of integer expressions of different signedness: ‘int’ and ‘const size_t’ {aka ‘const long unsigned int’} [-Wsign-compare]
+ 1599 |     for (int i = 0; i < DM_TAG_LEN; ++i) forged[4 + sizeof(pt) + i] = ftag[i];
+      |                     ~~^~~~~~~~~~~~
+test/test_node_join.cpp: In function ‘void {anonymous}::attach_and_report(meshroute::Node&, TestHal&, uint8_t, uint32_t, uint8_t, uint8_t, const meshroute::RxMeta&)’:
+test/test_node_join.cpp:5711:44: warning: unused parameter ‘hal’ [-Wunused-parameter]
+ 5711 | void attach_and_report(Node& mob, TestHal& hal, uint8_t home_id, uint32_t mob_hash, uint8_t local_id,
+      |                                   ~~~~~~~~~^~~
+test/test_dual_layer.cpp: In function ‘void DOCTEST_ANON_FUNC_364()’:
+test/test_dual_layer.cpp:5565:109: warning: conversion from ‘unsigned int’ to ‘uint16_t’ {aka ‘short unsigned int’} changes value from ‘3735928559’ to ‘48879’ [-Woverflow]
+ 5565 |     beacon_in bin{}; bin.leaf_id=4; bin.src=17; bin.key_hash32=0xB0B1u; bin.is_mobile=true; bin.config_hash=0xDEADBEEFu;
+      |                                                                                                             ^~~~~~~~~~~
+test/test_dual_layer.cpp:5596:121: warning: conversion from ‘unsigned int’ to ‘uint16_t’ {aka ‘short unsigned int’} changes value from ‘3735928559’ to ‘48879’ [-Woverflow]
+ 5596 |     beacon_in other{}; other.leaf_id=4; other.src=18; other.key_hash32=0xC0C0u; other.is_mobile=true; other.config_hash=0xDEADBEEFu;   // some OTHER mobile
+      |                                                                                                                         ^~~~~~~~~~~
+test/test_node_r3.cpp: In function ‘void e2e_learn_peer(meshroute::Node&, {anonymous}::TestHal&, const meshroute::Identity&)’:
+test/test_node_r3.cpp:8007:46: warning: unused parameter ‘hal’ [-Wunused-parameter]
+ 8007 | static void e2e_learn_peer(Node& A, TestHal& hal, const Identity& idB) {
+      |                                     ~~~~~~~~~^~~
+test/test_node_r3.cpp: In function ‘void DOCTEST_ANON_FUNC_519()’:
+test/test_node_r3.cpp:8393:12: warning: unused variable ‘meta’ [-Wunused-variable]
+ 8393 |     RxMeta meta{8.0f, -80.0f, 0, -1};
+      |            ^~~~
+Testing...
+--------------------- native:* [PASSED] Took 20.66 seconds ---------------------
+
+================== 0 test cases: 0 succeeded in 00:00:20.661 ==================

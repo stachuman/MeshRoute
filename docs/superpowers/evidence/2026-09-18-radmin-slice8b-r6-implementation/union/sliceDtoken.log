@@ -1,0 +1,27 @@
+-- target sliceDtoken: /tmp/mr-s8b-r6-nwy4hz9d/union-inputs/src/firmware_config_parse.h (2 entries)
+-- selection: IN FULL (all 2 entries)
+-- workers: 2
+-- scratch root: /tmp/mr_mutation_run-wizi15av   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceDtoken: /tmp/mr_mutation_run-wizi15av/w0/src/firmware_config_parse.h (1 of 2 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target sliceDtoken: /tmp/mr_mutation_run-wizi15av/w1/src/firmware_config_parse.h (1 of 2 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w1]   ok   D11 ★★★★ THE CONFIRM GATE IS DROPPED ENTIRELY — a bare `clear_inbox` (or any tail at all) clears the inbox with no confirmation -> RED (112 assertion(s) failed, match count 1)
+  [w1] source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+  [w0]   ok   D10 ★★★★ THE CONFIRM TOKEN IS MATCHED AS A PREFIX — `clear_inbox confirm extra` and `clear_inbox confirmation` both DESTROY the inbox -> RED (51 assertion(s) failed, match count 1)
+  [w0] source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceDtoken: /tmp/mr-s8b-r6-nwy4hz9d/union-inputs/src/firmware_config_parse.h
+  ok   clean baseline 2970 / 195942 / 0   (DERIVED per worker tree; 2 tree(s) agree)
+  ok   D10 ★★★★ THE CONFIRM TOKEN IS MATCHED AS A PREFIX — `clear_inbox confirm extra` and `clear_inbox confirmation` both DESTROY the inbox -> RED (51 assertion(s) failed, match count 1)
+  ok   D11 ★★★★ THE CONFIRM GATE IS DROPPED ENTIRELY — a bare `clear_inbox` (or any tail at all) clears the inbox with no confirmation -> RED (112 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 24.3s, rc 0, source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)   /tmp/mr_mutation_run-wizi15av/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 24.0s, rc 0, source restored: md5 668d664775bed49047d60e9bceb1d702 (MATCHES)   /tmp/mr_mutation_run-wizi15av/w1
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8b-r6-nwy4hz9d/union-inputs
+timing: copy 1.6s + battery 24.4s = 26.0s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable

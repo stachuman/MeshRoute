@@ -1,0 +1,23 @@
+START a0rx
+START actionadmit
+START b134ack
+START b134inbox
+END b134ack 0
+START b134ram
+END actionadmit 0
+START b134store
+END b134inbox 9
+START b159mac
+END a0rx 0
+START b159map
+END b134ram 0
+START b159rx
+END b159mac 0
+START b161hash
+END b159map 0
+START b161mac
+END b159rx 0
+START b161rx
+END b161mac 0
+START b20codec
+END b161hash 0

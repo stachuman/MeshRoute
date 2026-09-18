@@ -1,0 +1,62 @@
+START board_ui
+START inbox_verbs
+START firmware_ui
+START console_sink
+END board_ui 1
+START custody_usb
+END console_sink 0
+START console_sink-no-neg
+END custody_usb 0
+START custody_usb-no-neg
+END custody_usb-no-neg 0
+START ble_line
+END console_sink-no-neg 0
+START features
+END ble_line 0
+START ble_line-no-neg
+END ble_line-no-neg 0
+START deferred_actions
+END features 0
+START features-no-neg
+END features-no-neg 0
+START inbox-client
+END firmware_ui 0
+START firmware_ui-no-neg
+END deferred_actions 0
+START deferred_actions-no-neg
+END firmware_ui-no-neg 0
+START abi
+END abi 0
+START abi-b278
+END deferred_actions-no-neg 0
+START reference
+END reference 0
+START inventory-write
+END inventory-write 0
+START inventory-bare
+END abi-b278 0
+START native-build
+END inventory-bare 0
+START inventory-check
+END inventory-check 0
+START authority
+END authority 0
+START authority-controls
+END authority-controls 0
+START a0
+END a0 0
+START literals
+END literals 0
+START whitespace
+END whitespace 0
+END native-build 0
+START native-binary
+END native-binary 0
+END inbox-client 0
+END inbox_verbs 0
+START inbox_verbs-no-neg
+END inbox_verbs-no-neg 0
+Traceback (most recent call last):
+  File "/tmp/mr-s8b-r6-full-gate.py", line 42, in <module>
+    assert not [x for x in results if x['exit']],[(x['name'],x['exit']) for x in results if x['exit']]
+AssertionError: [('board_ui', 1)]

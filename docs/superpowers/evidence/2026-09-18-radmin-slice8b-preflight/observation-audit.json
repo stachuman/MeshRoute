@@ -1,0 +1,45 @@
+{
+  "kind": "source/fence audit, not an executable event-delivery proof",
+  "checks": [
+    "brief requires three source-site hooks before existing pushes",
+    "brief prohibits extra observation state",
+    "fw_main production glue is outside the fence",
+    "Node push dequeue implementation outside fence",
+    "HAL interface outside fence",
+    "push drain precedes controller delivery service",
+    "BLE adapter exists only in the later service scope",
+    "BLE sink is file-local",
+    "delivery adapters are call scoped in firmware bindings",
+    "pure delivery interface receives no source-site sink",
+    "next_push consumes the only queue copy",
+    "HAL has no existing remote delivery hook",
+    "contract requires both home origin and original reporter",
+    "literal USB format has no reporter field",
+    "literal BLE format has no reporter field"
+  ],
+  "count": 15,
+  "anchors": {
+    "src/fw_main.cpp": {
+      "symbol": "while (g_node.next_push(pu))",
+      "line": 1570,
+      "sha256": "989923987711bf5db49561cf5e0a179dacb9266c9de1eb82deb1bc51a8e98e62"
+    },
+    "src/firmware_commands.cpp": {
+      "symbol": "void remote_client_service_once(",
+      "line": 535,
+      "sha256": "97943d3fb69d283d4b219305925e4a107b87f12b90594e5782ff5544d400b63b"
+    },
+    "lib/core/node.cpp": {
+      "symbol": "bool Node::next_push(Push& out)",
+      "line": 2484,
+      "sha256": "f58fd1401cdacd2fe0ad0eeb51a9e13241396f0dc60033955fa78f5a2a30d0bd"
+    },
+    "lib/core/remote_client.cpp": {
+      "symbol": "RemoteClientError send_ready(",
+      "line": 155,
+      "sha256": "d2bee314fea1c86acc78d960884da154dd4d6bf30b1eb3218b799386a7b12fa3"
+    }
+  },
+  "usb_format": "`> remote <id16> carrier <acked|ack_timeout|custody_failure>[ origin=<n> layer=<n> reason=<name>]`",
+  "ble_format": "`{\"ev\":\"remote_carrier\",\"id\":\"<id16>\",\"event\":\"<name>\"[,\"origin\":<n>,\"layer\":<n>,\"reason\":\"<name>\"]}`"
+}

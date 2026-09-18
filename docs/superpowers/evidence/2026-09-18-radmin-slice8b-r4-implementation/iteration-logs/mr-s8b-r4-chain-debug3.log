@@ -1,0 +1,43 @@
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+test/test_node_remote_carrier.cpp:96:
+TEST CASE:  8b real mobile home target chain authenticates and returns transcript with response ACK
+
+test/test_node_remote_carrier.cpp:98: ERROR: CHECK( c.execute() ) is NOT correct!
+  values: CHECK( false )
+
+test/test_node_remote_carrier.cpp:99: ERROR: CHECK( c.pair.n2.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_carrier.cpp:68: ERROR: CHECK( d->type==type ) is NOT correct!
+  values: CHECK( 160 == 161 )
+
+test/test_node_remote_carrier.cpp:100: ERROR: CHECK( c.pair.n2.radmin_send_frame()==RadminSend::queued ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_carrier.cpp:68: ERROR: CHECK( d->type==type ) is NOT correct!
+  values: CHECK( 160 == 161 )
+
+test/test_node_remote_carrier.cpp:101: ERROR: CHECK( c.sink.text=="up=42s" ) is NOT correct!
+  values: CHECK(  == up=42s )
+
+test/test_node_remote_carrier.cpp:101: ERROR: CHECK( c.sink.result=="completed" ) is NOT correct!
+  values: CHECK(  == completed )
+
+test/test_node_remote_carrier.cpp:101: ERROR: CHECK( c.sink.terminals==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_carrier.cpp:102: ERROR: CHECK( remote_client_ack(c.mobile.remote_client(),c.id,c.hm._now)==RemoteClientError::none ) is NOT correct!
+  values: CHECK( 14 == 0 )
+
+test/test_node_remote_carrier.cpp:103: ERROR: CHECK( remote_client_ack_debt_count(c.mobile.remote_client())==1 ) is NOT correct!
+  values: CHECK( 0 == 1 )
+
+test/test_node_remote_carrier.cpp:104: ERROR: CHECK( c.pair.n2.admin_session_state().seen[0].record.state==uint8_t(SeenState::acknowledged) ) is NOT correct!
+  values: CHECK( 1 == 4 )
+
+===============================================================================
+[doctest] test cases:   2 |   1 passed |  1 failed | 2954 skipped
+[doctest] assertions: 128 | 117 passed | 11 failed |
+[doctest] Status: FAILURE!

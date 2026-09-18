@@ -1,0 +1,17 @@
+diff --git a/tools/probe_console_sink/structural.py b/tools/probe_console_sink/structural.py
+index bdd24a3..d16baa2 100644
+--- a/tools/probe_console_sink/structural.py
++++ b/tools/probe_console_sink/structural.py
+@@ -656,9 +656,10 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
+         add('S44', '⛔ NO resident management keyring, service or seed exists — the SECRETS stay stack transients',
+             not cresident, f'{len(cresident)} occurrence(s): {cresident[:3]}')
+         cli_blocks = re.findall(r'#if\s+MR_FEAT_RADMIN_CLIENT(.*?)#endif', cmds, re.S)
+-        # 8ac binds only the approved controller block, its timer and existing correlation capacity.
++        # 8b adds only the call-scoped carrier binding to 8ac's controller block, timer and capacity.
+         # Preserve the no-other-Node/no-target-key boundary; S-C45's node_id injection must still fail.
+-        allowed_client_node = r'\bg_node\.(?:remote_client|remote_client_arm|remote_client_correlation_free)\(\)'
++        allowed_client_node = (r'\bg_node\.(?:remote_client|remote_client_arm|remote_client_correlation_free)\(\)'
++                               r'|\bmeshroute::NodeRadminClientCarrier\s+carrier\(g_node\);')
+         add('S45', 'CLIENT bindings reach only the approved controller seams and no legacy single-admin symbol',
+             len(cli_blocks) >= 1
+             and all(not re.search(r'\bg_node\b|\badmin_load\b|\bg_admin_id\b|\bremote_exec\b',

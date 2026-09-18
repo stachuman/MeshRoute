@@ -1,0 +1,6 @@
+test_symbol_inventory_reads_a_real_elf_if_one_has_been_measured (test_measure_board.RuledPairTests.test_symbol_inventory_reads_a_real_elf_if_one_has_been_measured) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.022s
+
+OK

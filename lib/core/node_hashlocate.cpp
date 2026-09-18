@@ -1607,7 +1607,7 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 //   such arm has already called `push_send_failed`. The cross-layer arm is deliberately among them: a TEAM_KEY_GRANT is
 //   REFUSED inside `enqueue_cross_layer` (node_mac.cpp, §team-ch-key T-K3), and exposing that arm's own handle is
 //   ruled a separate behaviour change by the `return 0` note at its site (C1).
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch) {
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch, bool via_home) {
     // §S2 INTRO first-contact attach (D1): at ORIGINATION (type==0 = not a pre-built INTRO; reply_to_hash==0 = not a
     // HOME re-originating for its mobile), a PLAINTEXT hash-addressed send rides as DATA_TYPE_INTRO carrying our
     // pubkey iff intro_attach_prefix says so (no peer_confirmed(dst), a crypto identity exists, cfg on, plaintext,
@@ -1711,7 +1711,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 #endif
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
-    if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
+    if (!via_home && id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
         const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane, out_dispatch);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
         // §B278 S1b §4.3: RESOLVED-ID dispatch — a same-layer static outward DATA flight. This arm CARRIES custody.
         (void)commit_deleg_ack(ch, out_dispatch, DelegAckPeer::node_id, static_cast<uint8_t>(id),

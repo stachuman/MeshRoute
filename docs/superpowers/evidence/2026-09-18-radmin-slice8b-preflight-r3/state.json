@@ -1,0 +1,8 @@
+{
+  "base": "c07b77f50a16342d532618f760aad49e10208a5d",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "brief_sha256": "ed2be13f3ce8f652fe5b9e301643502eb24c63c3e766fc83a76b9b4a073b44f0",
+  "initial_paths": 2846,
+  "primary_inputs_unchanged": 358,
+  "compiled_source_snapshot": "/tmp/mr-s8b-r2-ksqkjdbw/snapshot"
+}

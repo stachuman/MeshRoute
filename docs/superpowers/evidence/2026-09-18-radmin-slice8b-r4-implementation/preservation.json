@@ -1,0 +1,95 @@
+{
+  "verdict": "STOP-1 B413; partial implementation, no freeze or full gate PASS",
+  "base": "c07b77f50a16342d532618f760aad49e10208a5d",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "simulator_status": "",
+  "brief_sha256": "f82429fe979c3a139ebb9905cab3652fdbf89ce4fce30563cd623e360a3940e4",
+  "candidate_input_count": 2870,
+  "primary_identity": {
+    "shared": {
+      "paths": 361,
+      "mismatches": []
+    },
+    "candidate_snapshot": {
+      "paths": 361,
+      "mismatches": []
+    },
+    "b413_snapshot": {
+      "paths": 361,
+      "mismatches": []
+    }
+  },
+  "preparation_inputs": {
+    "MEMORY.md": {
+      "initial": "ca8d80405cd8cbc0df254d2ace3fb0b8f573abfcb4a6e4fd9c233c46887d004b",
+      "current": "ca8d80405cd8cbc0df254d2ace3fb0b8f573abfcb4a6e4fd9c233c46887d004b",
+      "unchanged": true
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "initial": "72652a6d2d5b109101fd0b048298acf1a58ebce0261468992d014b7ef8d479ea",
+      "current": "b91aab2667e890b19b3baeb57704bf3a4768cf7be57ef7e2577cb51091320b00",
+      "unchanged": false
+    },
+    "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+      "initial": "cf12e1a1e162c3ef3ed83bec05224aa367c4501c088095c019d5c6c7f1e20840",
+      "current": "cf12e1a1e162c3ef3ed83bec05224aa367c4501c088095c019d5c6c7f1e20840",
+      "unchanged": true
+    },
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+      "initial": "6791f4f2c4aaf5f8e20ce2e87f42f5e41f6bd4cd042126841bae988b555b4575",
+      "current": "6791f4f2c4aaf5f8e20ce2e87f42f5e41f6bd4cd042126841bae988b555b4575",
+      "unchanged": true
+    },
+    "tracker.md": {
+      "initial": "d542bb68f5fde8be0aa0b77ae65b59efe24cf87ce4c2db6b4162469459844c2f",
+      "current": "d542bb68f5fde8be0aa0b77ae65b59efe24cf87ce4c2db6b4162469459844c2f",
+      "unchanged": true
+    },
+    "docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md": {
+      "initial": "f82429fe979c3a139ebb9905cab3652fdbf89ce4fce30563cd623e360a3940e4",
+      "current": "f82429fe979c3a139ebb9905cab3652fdbf89ce4fce30563cd623e360a3940e4",
+      "unchanged": true
+    }
+  },
+  "original_input_count": 2866,
+  "changed_original_paths": [
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b.md",
+    "ios-companion/INBOX_SYNC_CONTRACT.md",
+    "lib/core/node.h",
+    "lib/core/node_mac_rx.cpp",
+    "lib/core/remote_client.cpp",
+    "lib/core/remote_client.h",
+    "src/firmware_commands.cpp",
+    "src/firmware_remote_client.cpp",
+    "src/firmware_remote_client.h",
+    "src/fw_main.cpp",
+    "test/test_console_json.cpp",
+    "test/test_custody_receive_g.cpp",
+    "test/test_firmware_admin_client_verbs.cpp",
+    "test/test_node_remote_session.cpp",
+    "test/test_remote_client.cpp",
+    "tools/probe_custody_usb/run.sh",
+    "tools/probe_features/ownership.py",
+    "tools/probe_inbox_verbs/remote_client_rows.h",
+    "tools/probe_inbox_verbs/run.sh",
+    "tools/probe_ui_model_mutations.py"
+  ],
+  "unexpected_original_changes": [],
+  "whitespace": {
+    "MeshRoute": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "simulator": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "task_gate_processes_remaining": [],
+  "staged_paths": "",
+  "shared_status": "M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md\n M docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md\n M docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md\n M ios-companion/INBOX_SYNC_CONTRACT.md\n M lib/core/node.h\n M lib/core/node_mac_rx.cpp\n M lib/core/remote_client.cpp\n M lib/core/remote_client.h\n M src/firmware_commands.cpp\n M src/firmware_remote_client.cpp\n M src/firmware_remote_client.h\n M src/fw_main.cpp\n M test/test_console_json.cpp\n M test/test_custody_receive_g.cpp\n M test/test_firmware_admin_client_verbs.cpp\n M test/test_node_remote_session.cpp\n M test/test_remote_client.cpp\n M tools/probe_custody_usb/run.sh\n M tools/probe_features/ownership.py\n M tools/probe_inbox_verbs/remote_client_rows.h\n M tools/probe_inbox_verbs/run.sh\n M tools/probe_ui_model_mutations.py\n M tracker.md\n?? docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight-r3/\n?? docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/\n?? docs/superpowers/evidence/2026-09-18-radmin-slice8b-r4-implementation/\n?? docs/superpowers/evidence/2026-09-18-radmin-slice8b.md\n?? docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md\n?? test/support/remote_carrier_chain.h\n?? test/test_node_remote_carrier.cpp\n?? tools/probe_custody_usb/observer_structure.py"
+}

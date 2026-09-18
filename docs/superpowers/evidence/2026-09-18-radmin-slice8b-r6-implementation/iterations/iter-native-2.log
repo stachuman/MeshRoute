@@ -1,0 +1,36 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+test/test_node_remote_carrier.cpp: In function ‘void DOCTEST_ANON_FUNC_28()’:
+test/test_node_remote_carrier.cpp:399:83: error: ‘constexpr const uint32_t meshroute::Node::kE2eAckDeadlineTimerId’ is private within this context
+  399 |         c.hm._now=submitted+protocol::e2e_ack_deadline_ms;c.mobile.on_timer(Node::kE2eAckDeadlineTimerId);
+      |                                                                                   ^~~~~~~~~~~~~~~~~~~~~~
+In file included from test/test_node_remote_carrier.cpp:3:
+lib/core/node.h:1619:31: note: declared private here
+ 1619 |     static constexpr uint32_t kE2eAckDeadlineTimerId   = 90;  // shelf item (i): E2E-ack deadline scan (single one-shot, re-armed to the earliest pending -a send's deadline — park_reflood idiom)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:401:86: error: ‘constexpr const uint32_t meshroute::Node::kE2eAckDeadlineTimerId’ is private within this context
+  401 |         c.hm._now=submitted+protocol::e2e_ack_deadline_xl_ms;c.mobile.on_timer(Node::kE2eAckDeadlineTimerId);
+      |                                                                                      ^~~~~~~~~~~~~~~~~~~~~~
+lib/core/node.h:1619:31: note: declared private here
+ 1619 |     static constexpr uint32_t kE2eAckDeadlineTimerId   = 90;  // shelf item (i): E2E-ack deadline scan (single one-shot, re-armed to the earliest pending -a send's deadline — park_reflood idiom)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp: In function ‘void DOCTEST_ANON_FUNC_35()’:
+test/test_node_remote_carrier.cpp:442:45: error: ‘uint16_t meshroute::Node::send_by_hash(uint32_t, const uint8_t*, uint8_t, uint8_t, meshroute::CryptIntent, uint32_t, uint16_t, meshroute::Plane, uint8_t, bool, SendDispatch*, bool)’ is private within this context
+  442 |         const auto ctr=c.mobile.send_by_hash(row.route.target_hash,&dm,1,DATA_FLAG_E2E_ACK_REQ,CryptIntent::off,0,0,Plane::GLOBAL,0,true,&dispatch);
+      |                        ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+lib/core/node.h:1724:14: note: declared private here
+ 1724 |     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr, bool via_home = false); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
+      |              ^~~~~~~~~~~~
+*** [/tmp/mr-s8b-r6-nwy4hz9d/iter-native/native/test/test_node_remote_carrier.o] Error 1
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+--------------------- native:* [ERRORED] Took 2.04 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:02.035
+================== 1 test cases: 0 succeeded in 00:00:02.035 ==================

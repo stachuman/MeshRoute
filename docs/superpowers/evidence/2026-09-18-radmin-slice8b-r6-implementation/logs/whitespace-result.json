@@ -1,0 +1,12 @@
+{
+  "name": "whitespace",
+  "command": [
+    "git",
+    "diff",
+    "--check"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 0.25617219507694244,
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

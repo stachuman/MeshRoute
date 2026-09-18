@@ -1,0 +1,20 @@
+{
+  "base_matches": true,
+  "simulator_matches_clean": true,
+  "revision3_sha256": "ed2be13f3ce8f652fe5b9e301643502eb24c63c3e766fc83a76b9b4a073b44f0",
+  "B409_original_handoff_fenced": true,
+  "B410_execute_only_fix_explicitly_authorized": true,
+  "ordering_conflict": {
+    "brief_placement": "after switch and before BLE fanout",
+    "brief_order": "existing text/JSON first, then controller line",
+    "LineSink_flush": "on newline, immediately",
+    "source": "src/dispatch_sink.h:47"
+  },
+  "full_mapping_conflict": {
+    "carrier_result": "RemoteClientSend::full",
+    "current_consumer": "radio_enqueue_failed",
+    "initial_admission": "correlation_full",
+    "source": "lib/core/remote_client.cpp:178"
+  },
+  "scope": "read-only source validation and bounded characterizations; no implementation gate"
+}

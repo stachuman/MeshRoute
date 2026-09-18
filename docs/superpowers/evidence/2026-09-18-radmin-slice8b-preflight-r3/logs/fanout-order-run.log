@@ -1,0 +1,3 @@
+{"ev":"remote_carrier","id":"0000000000000064","event":"acked","ctr":42}
+{"ev":"e2e_acked","origin":2,"ctr":42,"sender_hash":0}
+fanout characterization: 9 checks / 0 failed

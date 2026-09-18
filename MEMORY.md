@@ -2,10 +2,17 @@
 
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
-  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..45 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
   queue pointer in `tracker.md`. As of 2026-09-18: everything through **7b-3** is committed (`6086152`); the disruptive
-  arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`** plus one
-  line in the simulator's CMake source list (B406) — owner commits both; remaining: 8b (needs B112), 9, 10.
+  arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, owner commits `c07b77f` /
+  simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, uncommitted at `c07b77f`**
+  (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); next: 9, then 10.
+- **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
+  local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
+  B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at
+  `hop_count ? gateway_send_giveup_ms (150 s) : e2e_ack_deadline_ms (60 s)`, then `unknown` at 300 s. R-RA-48 ACK debt
+  = cascade burst 5/10/20 s, then dormant (one re-attempt per new request to that target), wiped only by epoch change.
+  R-RA-49 the target E2E-ACKs a `-a` request only for admitted / replay / already-acknowledged verdicts (B278 §9.2).
 - **Remote-admin 8a+8c durable rulings:** R-RA-42 `remote`/`remote-retry`/`remote-result`/`remote-ack` are
   `controller_local`, USB + secured BLE, table rows landed at the freeze; R-RA-43 B292 closed by the ONE bounded BLE
   write (`tx_line` chunks, never truncates); R-RA-44 automatic retry timing belongs to 8b (8a = manual retry + one auto

@@ -1,0 +1,18 @@
+{
+  "name": "corpus",
+  "command": [
+    "python3",
+    "tools/run_corpus.py",
+    "--out",
+    "/tmp/mr-s8b-r4-_d7gpj1e/corpus-final",
+    "--lus",
+    "/tmp/mr-s8b-r4-_d7gpj1e/sim-final/orchestrator/lus",
+    "--jobs",
+    "3",
+    "--require-anchors"
+  ],
+  "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+  "exit": 0,
+  "seconds": 63.696498069912195,
+  "sha256": "63e5622f1c01e0f6ff13063e2b9113c69fb2aba5294964c22e4c26a8248335ac"
+}

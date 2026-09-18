@@ -1,0 +1,70 @@
+-- target radmin8brx: /tmp/mr-s8b-r4-_d7gpj1e/iter-gate/lib/core/node_mac_rx.cpp (15 entries)
+-- selection: IN FULL (all 15 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-_uqo_bf2   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8brx: /tmp/mr_mutation_run-_uqo_bf2/w0/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin8brx: /tmp/mr_mutation_run-_uqo_bf2/w1/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8brx: /tmp/mr_mutation_run-_uqo_bf2/w2/lib/core/node_mac_rx.cpp (5 of 15 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w0]   ok   X01 unregistered admission bypassed -> RED (3 assertion(s) failed, match count 1)
+  [w2]   ok   X03 correlation guard bypassed -> RED (10 assertion(s) failed, match count 1)
+  [w1]   ok   X02 TX pressure misclassified -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   X04 correlation pressure mislabeled full -> RED (3 assertion(s) failed, match count 1)
+  [w2]   ok   X06 request ACK flag omitted -> RED (35 assertion(s) failed, match count 1)
+  [w1]   ok   X05 no-home lower priority than TX full -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   X07 returned counter never captured -> RED (12 assertion(s) failed, match count 1)
+  [w2]   FAIL X09 response ACK also asks for ACK — the suite still PASSES; nothing measures this
+  [w1]   ok   X08 typed request becomes DM -> RED (263 assertion(s) failed, match count 1)
+  [w0]   ok   X10 target ACKs all verdicts -> RED (30 assertion(s) failed, match count 1)
+  [w2]   ok   X12 target never ACKs replay -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   X11 target never ACKs admission -> RED (13 assertion(s) failed, match count 1)
+  [w0]   ok   X13 target never ACKs tombstone -> RED (2 assertion(s) failed, match count 1)
+  [w0] source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)
+  [w0] shard 0: 5 RED / 0 unusable   (of 5 entries)
+  [w2]   ok   X15 cross-layer carrier uses same-layer wrapper -> RED (13 assertion(s) failed, match count 1)
+  [w2] source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)
+  [w2] shard 2: 4 RED / 1 unusable   (of 5 entries)
+  [w1]   ok   X14 target ignores opt-in -> RED (236 assertion(s) failed, match count 1)
+  [w1] source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8brx: /tmp/mr-s8b-r4-_d7gpj1e/iter-gate/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2962 / 195539 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2947 / 193734   (PIN_CASES, this file)
+  !!      derived  2962 / 195539   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 15 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   X01 unregistered admission bypassed -> RED (3 assertion(s) failed, match count 1)
+  ok   X02 TX pressure misclassified -> RED (2 assertion(s) failed, match count 1)
+  ok   X03 correlation guard bypassed -> RED (10 assertion(s) failed, match count 1)
+  ok   X04 correlation pressure mislabeled full -> RED (3 assertion(s) failed, match count 1)
+  ok   X05 no-home lower priority than TX full -> RED (1 assertion(s) failed, match count 1)
+  ok   X06 request ACK flag omitted -> RED (35 assertion(s) failed, match count 1)
+  ok   X07 returned counter never captured -> RED (12 assertion(s) failed, match count 1)
+  ok   X08 typed request becomes DM -> RED (263 assertion(s) failed, match count 1)
+  FAIL X09 response ACK also asks for ACK — the suite still PASSES; nothing measures this
+  ok   X10 target ACKs all verdicts -> RED (30 assertion(s) failed, match count 1)
+  ok   X11 target never ACKs admission -> RED (13 assertion(s) failed, match count 1)
+  ok   X12 target never ACKs replay -> RED (2 assertion(s) failed, match count 1)
+  ok   X13 target never ACKs tombstone -> RED (2 assertion(s) failed, match count 1)
+  ok   X14 target ignores opt-in -> RED (236 assertion(s) failed, match count 1)
+  ok   X15 cross-layer carrier uses same-layer wrapper -> RED (13 assertion(s) failed, match count 1)
+  worker 0: 5/5 entries, 5 RED / 0 worthless, wall 108.5s, rc 0, source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)   /tmp/mr_mutation_run-_uqo_bf2/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 112.4s, rc 0, source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)   /tmp/mr_mutation_run-_uqo_bf2/w1
+  worker 2: 5/5 entries, 4 RED / 1 worthless, wall 110.2s, rc 1, source restored: md5 fbc9cfcefc41f7f8f9234915e1ad2164 (MATCHES)   /tmp/mr_mutation_run-_uqo_bf2/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8b-r4-_d7gpj1e/iter-gate
+timing: copy 2.2s + battery 112.5s = 114.7s total, 15 entries over 3 worker(s)
+mutations: 14 RED / 1 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2947 / 193734, these trees run 2962 / 195539.
+  !!  The battery above RAN IN FULL (15 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

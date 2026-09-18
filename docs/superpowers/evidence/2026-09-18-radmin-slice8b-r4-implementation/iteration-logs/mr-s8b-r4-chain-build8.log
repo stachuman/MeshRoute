@@ -1,0 +1,39 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+In file included from test/test_node_remote_carrier.cpp:2:
+test/test_node_remote_carrier.cpp: In function ‘void DOCTEST_ANON_FUNC_16()’:
+test/test_node_remote_carrier.cpp:237:33: error: ‘uint16_t meshroute::Node::send_by_hash(uint32_t, const uint8_t*, uint8_t, uint8_t, meshroute::CryptIntent, uint32_t, uint16_t, meshroute::Plane, uint8_t, bool, SendDispatch*)’ is private within this context
+  237 |     CHECK(c.pair.n1.send_by_hash(CarrierChain::mobile_hash,ack,2,0,CryptIntent::off,0,0,Plane::GLOBAL,DATA_TYPE_E2E_ACK,true)!=0);
+      |           ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2143:32: note: in definition of macro ‘DOCTEST_WRAP_IN_TRY’
+ 2143 | #define DOCTEST_WRAP_IN_TRY(x) x;
+      |                                ^
+.pio/libdeps/native/doctest/doctest/doctest.h:2397:9: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_2’
+ 2397 |         DOCTEST_ASSERT_IMPLEMENT_2(assert_type, __VA_ARGS__);                                      \
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2441:28: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_1’
+ 2441 | #define DOCTEST_CHECK(...) DOCTEST_ASSERT_IMPLEMENT_1(DT_CHECK, __VA_ARGS__)
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2970:20: note: in expansion of macro ‘DOCTEST_CHECK’
+ 2970 | #define CHECK(...) DOCTEST_CHECK(__VA_ARGS__)
+      |                    ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:237:5: note: in expansion of macro ‘CHECK’
+  237 |     CHECK(c.pair.n1.send_by_hash(CarrierChain::mobile_hash,ack,2,0,CryptIntent::off,0,0,Plane::GLOBAL,DATA_TYPE_E2E_ACK,true)!=0);
+      |     ^~~~~
+In file included from test/test_node_remote_carrier.cpp:3:
+lib/core/node.h:1724:14: note: declared private here
+ 1724 |     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
+      |              ^~~~~~~~~~~~
+*** [.pio/build/native/test/test_node_remote_carrier.o] Error 1
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+--------------------- native:* [ERRORED] Took 1.87 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:01.868
+================== 1 test cases: 0 succeeded in 00:00:01.868 ==================

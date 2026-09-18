@@ -1,0 +1,99 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+test/test_node_remote_carrier.cpp: In constructor ‘{anonymous}::CarrierChain::CarrierChain(bool)’:
+test/test_node_remote_carrier.cpp:47:80: error: ‘RemoteRole’ has not been declared
+   47 |         memcpy(install.acl[0].ed_pub,controller.ed_pub,32);install.acl[0].role=RemoteRole::owner;
+      |                                                                                ^~~~~~~~~~
+test/test_node_remote_carrier.cpp:48:17: error: ‘class meshroute::Node’ has no member named ‘admin_install’
+   48 |         pair.n2.admin_install(install);CHECK(pair.n2.admin_session_state().epoch[0]!=0);
+      |                 ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp: In member function ‘bool {anonymous}::CarrierChain::outward()’:
+test/test_node_remote_carrier.cpp:73:9: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+   73 |         if(!pair.hop_1_to_2())return false;hm._now=pair.h1._now;
+      |         ^~
+test/test_node_remote_carrier.cpp:73:44: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+   73 |         if(!pair.hop_1_to_2())return false;hm._now=pair.h1._now;
+      |                                            ^~
+test/test_node_remote_carrier.cpp: In member function ‘bool {anonymous}::CarrierChain::inward(uint8_t)’:
+test/test_node_remote_carrier.cpp:79:9: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+   79 |         if(!pair.hop_2_to_1())return false;hm._now=pair.h1._now;
+      |         ^~
+test/test_node_remote_carrier.cpp:79:44: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+   79 |         if(!pair.hop_2_to_1())return false;hm._now=pair.h1._now;
+      |                                            ^~
+In file included from test/test_node_remote_carrier.cpp:2:
+test/test_node_remote_carrier.cpp: In member function ‘bool {anonymous}::CarrierChain::execute(meshroute::RemoteTerminal)’:
+test/test_node_remote_carrier.cpp:85:17: error: ‘struct meshroute::RadminIngressView’ has no member named ‘source_hash’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |                 ^~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2143:32: note: in definition of macro ‘DOCTEST_WRAP_IN_TRY’
+ 2143 | #define DOCTEST_WRAP_IN_TRY(x) x;
+      |                                ^
+.pio/libdeps/native/doctest/doctest/doctest.h:2397:9: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_2’
+ 2397 |         DOCTEST_ASSERT_IMPLEMENT_2(assert_type, __VA_ARGS__);                                      \
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2441:28: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_1’
+ 2441 | #define DOCTEST_CHECK(...) DOCTEST_ASSERT_IMPLEMENT_1(DT_CHECK, __VA_ARGS__)
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2970:20: note: in expansion of macro ‘DOCTEST_CHECK’
+ 2970 | #define CHECK(...) DOCTEST_CHECK(__VA_ARGS__)
+      |                    ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:85:9: note: in expansion of macro ‘CHECK’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |         ^~~~~
+test/test_node_remote_carrier.cpp:85:51: error: ‘struct meshroute::RadminIngressView’ has no member named ‘body_len’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |                                                   ^~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2143:32: note: in definition of macro ‘DOCTEST_WRAP_IN_TRY’
+ 2143 | #define DOCTEST_WRAP_IN_TRY(x) x;
+      |                                ^
+.pio/libdeps/native/doctest/doctest/doctest.h:2397:9: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_2’
+ 2397 |         DOCTEST_ASSERT_IMPLEMENT_2(assert_type, __VA_ARGS__);                                      \
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2441:28: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_1’
+ 2441 | #define DOCTEST_CHECK(...) DOCTEST_ASSERT_IMPLEMENT_1(DT_CHECK, __VA_ARGS__)
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2970:20: note: in expansion of macro ‘DOCTEST_CHECK’
+ 2970 | #define CHECK(...) DOCTEST_CHECK(__VA_ARGS__)
+      |                    ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:85:43: note: in expansion of macro ‘CHECK’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |                                           ^~~~~
+test/test_node_remote_carrier.cpp:85:79: error: cannot convert ‘std::span<const unsigned char>’ to ‘const void*’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |                                                                             ~~^~~~
+      |                                                                               |
+      |                                                                               std::span<const unsigned char>
+.pio/libdeps/native/doctest/doctest/doctest.h:2143:32: note: in definition of macro ‘DOCTEST_WRAP_IN_TRY’
+ 2143 | #define DOCTEST_WRAP_IN_TRY(x) x;
+      |                                ^
+.pio/libdeps/native/doctest/doctest/doctest.h:2397:9: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_2’
+ 2397 |         DOCTEST_ASSERT_IMPLEMENT_2(assert_type, __VA_ARGS__);                                      \
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2441:28: note: in expansion of macro ‘DOCTEST_ASSERT_IMPLEMENT_1’
+ 2441 | #define DOCTEST_CHECK(...) DOCTEST_ASSERT_IMPLEMENT_1(DT_CHECK, __VA_ARGS__)
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+.pio/libdeps/native/doctest/doctest/doctest.h:2970:20: note: in expansion of macro ‘DOCTEST_CHECK’
+ 2970 | #define CHECK(...) DOCTEST_CHECK(__VA_ARGS__)
+      |                    ^~~~~~~~~~~~~
+test/test_node_remote_carrier.cpp:85:64: note: in expansion of macro ‘CHECK’
+   85 |         CHECK(v.source_hash==mobile_hash);CHECK(v.body_len==6);CHECK(memcmp(v.body,"status",6)==0);++executions;
+      |                                                                ^~~~~
+In file included from /usr/include/c++/12/cstring:42,
+                 from test/test_node_remote_carrier.cpp:8:
+/usr/include/string.h:64:32: note:   initializing argument 1 of ‘int memcmp(const void*, const void*, size_t)’
+   64 | extern int memcmp (const void *__s1, const void *__s2, size_t __n)
+      |                    ~~~~~~~~~~~~^~~~
+*** [.pio/build/native/test/test_node_remote_carrier.o] Error 1
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+--------------------- native:* [ERRORED] Took 5.74 seconds ---------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:05.742
+================== 1 test cases: 0 succeeded in 00:00:05.742 ==================

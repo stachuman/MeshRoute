@@ -1,0 +1,7 @@
+remote t -e rollover -> submit_request(e2e_ack=false)
+FAIL existing control leaks supplied ack flag
+remote t -e -a rollover -> submit_request(e2e_ack=false)
+remote t -e rollover confirm -> submit_request(e2e_ack=false)
+FAIL existing control leaks supplied ack flag
+remote t -e -a rollover confirm -> submit_request(e2e_ack=false)
+control ACK characterization: 36 checks / 2 failed

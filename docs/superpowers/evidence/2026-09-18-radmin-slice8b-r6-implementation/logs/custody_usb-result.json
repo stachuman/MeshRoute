@@ -1,0 +1,11 @@
+{
+  "name": "custody_usb",
+  "command": [
+    "bash",
+    "tools/probe_custody_usb/run.sh"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 23.678764268755913,
+  "sha256": "8561ed832bf04131690e6420a6c55ad65a85286812426b10720d4c09334f9132"
+}

@@ -51,6 +51,7 @@ using mrfw::team_fnv1a32;
 #include "firmware_team_keyring.h"   // §UI-16 K1/K2 ([[B240]]): mrfw::KeyringRestore — the boot forward's five OUTCOMES (firmware_config.h declares the enum opaquely; the startup switch needs its enumerators)
 #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
 #include "firmware_custody_push.h"  // §B278 S4: the custody USB renderer (direct + translated) — lifted OUT of the push switch below so a host probe can EXECUTE it
+#include "firmware_remote_client.h"
 using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
 using mrfw::handle_mark_read;
 using mrfw::handle_del_msg;           // §3.5 durable single-record delete
@@ -1830,6 +1831,11 @@ static void mesh_service_once() {
             else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid
                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
         }
+#if MR_FEAT_RADMIN_CLIENT
+        { LineSink local_ble(ble_sink);
+          mrfw::remote_client_observe_push(g_node.remote_client(), pu, mrcon, &local_ble, mrble::connected(), mrfw::remote_client_bind_lookup, &g_node);
+          local_ble.flush(); }
+#endif
     }
     mr_ui_tick((uint32_t)now);   // §featuresplit slice 4: periodic board-display refresh (no-op unless MR_FEAT_OLED; throttled inside)
     // (was Serial.flush() — dropped Part 3: the Adafruit USB task drains the FIFO; a loop-body flush only risks a stall)

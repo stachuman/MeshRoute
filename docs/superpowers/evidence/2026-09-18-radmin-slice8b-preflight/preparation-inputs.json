@@ -1,0 +1,26 @@
+{
+  "MEMORY.md": {
+    "mode": "0o644",
+    "sha256": "5ac0273b6ecbf5fea5678eca82ff12fc0b716089ffc6535af982b3d25b86eec3"
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "mode": "0o644",
+    "sha256": "0157d6aeabf219c52680bc30abbc8eeb0212582fb1a6a178ebeeb1a3426f6713"
+  },
+  "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+    "mode": "0o644",
+    "sha256": "cf12e1a1e162c3ef3ed83bec05224aa367c4501c088095c019d5c6c7f1e20840"
+  },
+  "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+    "mode": "0o644",
+    "sha256": "ee40a4061e355af110925b8089fbaf1a40c58a1820d29ecc1e70e9a3d642d8c4"
+  },
+  "tracker.md": {
+    "mode": "0o644",
+    "sha256": "f824735b8b5b0515c176d62d34d19eafa5bef0f483b003337a63c4ccbba2e9de"
+  },
+  "docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md": {
+    "mode": "0o644",
+    "sha256": "fcad6fffbbd00d0e1485799213da9d74c09f5264619d161449205b0058f376fb"
+  }
+}

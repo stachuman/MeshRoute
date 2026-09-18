@@ -1,0 +1,4 @@
+/tmp/mr-s8b-r2-ksqkjdbw/control-ack-proof.cpp: In member function ‘virtual meshroute::RemoteClientSend C::submit_request(const meshroute::RemoteClientRoute&, meshroute::RemoteSource, const meshroute::RemoteCarrier&, std::span<const unsigned char>, bool)’:
+/tmp/mr-s8b-r2-ksqkjdbw/control-ack-proof.cpp:9:195: error: ‘DATA_TYPE_REMOTE_CMD’ was not declared in this scope
+    9 |  RemoteClientSend submit_request(const RemoteClientRoute&,RemoteSource,const RemoteCarrier&,std::span<const uint8_t> b,bool a)override{++calls;requested=a;RemoteLayout layout{};if(remote_layout(DATA_TYPE_REMOTE_CMD,b[0],layout)==RemoteStatus::ok)opcode=layout.opcode;return RemoteClientSend::queued;}
+      |                                                                                                                                                                                                   ^~~~~~~~~~~~~~~~~~~~

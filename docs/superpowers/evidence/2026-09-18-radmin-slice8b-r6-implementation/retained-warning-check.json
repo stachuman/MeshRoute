@@ -1,0 +1,44 @@
+{
+  "native": {
+    "log": "/tmp/mr-s8b-r6-nwy4hz9d/final-logs/native-build.log",
+    "node_reorder_warnings": 0,
+    "vendor_warnings": [],
+    "sha256": "14943d384cd8c12034c9237d7a0ea8dcf49c1be096079a15d9fb096d161569d8"
+  },
+  "xiao_mobile": {
+    "log": "/tmp/mr-s8b-r6-nwy4hz9d/final-logs/xiao-mobile.log",
+    "node_reorder_warnings": 0,
+    "vendor_warnings": [
+      ".pio/libdeps/xiao_mobile/CustomLFS/src/CustomLFS_QSPIFlash.h:173:8: warning: 'CustomLFS_QSPIFlash::_qspi_initialized' will be initialized after [-Wreorder]",
+      ".pio/libdeps/xiao_mobile/CustomLFS/src/CustomLFS_QSPIFlash.h:103:8: warning:   'bool CustomLFS_QSPIFlash::_quad_mode_enabled' [-Wreorder]",
+      ".pio/libdeps/xiao_mobile/CustomLFS/src/CustomLFS_QSPIFlash.cpp:262:1: warning:   when initialized here [-Wreorder]"
+    ],
+    "sha256": "84864601a06f7b8846676a4a9079aad33194a934122dad59fbee03d16012d87c"
+  },
+  "gateway": {
+    "log": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate/.pio-measure/s8b-final/gateway/build.log",
+    "node_reorder_warnings": 0,
+    "vendor_warnings": [
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:173:8: warning: 'CustomLFS_QSPIFlash::_qspi_initialized' will be initialized after [-Wreorder]",
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:103:8: warning:   'bool CustomLFS_QSPIFlash::_quad_mode_enabled' [-Wreorder]",
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.cpp:262:1: warning:   when initialized here [-Wreorder]"
+    ],
+    "sha256": "5e5d14593bb64e8dab02e7ae1a5d4203cdfac7635d0714ae7d522638fd859240"
+  },
+  "heltec_mobile": {
+    "log": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate/.pio-measure/s8b-final/heltec_mobile/build.log",
+    "node_reorder_warnings": 0,
+    "vendor_warnings": [],
+    "sha256": "231b1728f03b0e2c99632c6e4da3875d01a445a88997aed8685fc516c3452024"
+  },
+  "gateway_base": {
+    "log": "/tmp/mr-s8b-r4-_d7gpj1e/snapshot/.pio-measure/s8b-base/gateway/build.log",
+    "node_reorder_warnings": 0,
+    "vendor_warnings": [
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:173:8: warning: 'CustomLFS_QSPIFlash::_qspi_initialized' will be initialized after [-Wreorder]",
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.h:103:8: warning:   'bool CustomLFS_QSPIFlash::_quad_mode_enabled' [-Wreorder]",
+      ".pio-measure/env/gateway/libdeps/gateway/CustomLFS/src/CustomLFS_QSPIFlash.cpp:262:1: warning:   when initialized here [-Wreorder]"
+    ],
+    "sha256": "344e99cd8bc31f887f0ee1a207388592490b032c069bcf122507521a5f5da7eb"
+  }
+}

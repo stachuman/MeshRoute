@@ -1,0 +1,41 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in native environment
+--------------------------------------------------------------------------------
+Building...
+Library Manager: Installing doctest/doctest @ ^2.4.11
+Unpacking 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100%
+Library Manager: doctest@2.4.12 has been installed!
+Library Manager: Installing jgromes/RadioLib @ ^7.6.0
+Unpacking 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100%
+Library Manager: RadioLib@7.7.1 has been installed!
+test/test_b413_characterization.cpp: In function ‘void DOCTEST_ANON_FUNC_2()’:
+test/test_b413_characterization.cpp:10:25: error: cannot declare variable ‘hal’ to be of abstract type ‘mrtest::TestHalBase’
+   10 |     mrtest::TestHalBase hal;Node node(hal,200,0xc0ffee01);NodeConfig cfg{};cfg.is_mobile=true;cfg.leaf_id=2;
+      |                         ^~~
+In file included from test/test_b413_characterization.cpp:6:
+test/support/test_hal.h:36:7: note:   because the following virtual functions are pure within ‘mrtest::TestHalBase’:
+   36 | class TestHalBase : public MESHROUTE_NS::Hal {
+      |       ^~~~~~~~~~~
+In file included from lib/core/node.h:21,
+                 from test/test_b413_characterization.cpp:4:
+lib/core/hal.h:186:22: note:     ‘virtual void meshroute::Hal::emit(const char*, const meshroute::EventField*, size_t)’
+  186 |     virtual void     emit(const char* type, const EventField* fields, size_t n_fields) = 0;
+      |                      ^~~~
+*** [.pio/build/native/test/test_b413_characterization.o] Error 1
+test/test_dual_layer.cpp: In function ‘void DOCTEST_ANON_FUNC_364()’:
+test/test_dual_layer.cpp:5565:109: warning: conversion from ‘unsigned int’ to ‘uint16_t’ {aka ‘short unsigned int’} changes value from ‘3735928559’ to ‘48879’ [-Woverflow]
+ 5565 |     beacon_in bin{}; bin.leaf_id=4; bin.src=17; bin.key_hash32=0xB0B1u; bin.is_mobile=true; bin.config_hash=0xDEADBEEFu;
+      |                                                                                                             ^~~~~~~~~~~
+test/test_dual_layer.cpp:5596:121: warning: conversion from ‘unsigned int’ to ‘uint16_t’ {aka ‘short unsigned int’} changes value from ‘3735928559’ to ‘48879’ [-Woverflow]
+ 5596 |     beacon_in other{}; other.leaf_id=4; other.src=18; other.key_hash32=0xC0C0u; other.is_mobile=true; other.config_hash=0xDEADBEEFu;   // some OTHER mobile
+      |                                                                                                                         ^~~~~~~~~~~
+Building stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+-------------------- native:* [ERRORED] Took 39.90 seconds --------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+native         *       ERRORED   00:00:39.900
+================== 1 test cases: 0 succeeded in 00:00:39.900 ==================

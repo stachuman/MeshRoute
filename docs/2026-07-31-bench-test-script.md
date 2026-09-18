@@ -4361,8 +4361,8 @@ floor/default the node prints (7006 / 14012 at SF8 / 125 kHz / CR5 with zero slo
 
 ## Part 57b — deferred actions / prep-restart lockout (7b-3 reservation)
 
-**SOFTWARE-COMPLETE (7b-3 independent QA PASS 2026-09-16, owner commit `6086152`) / METAL PENDING — runnable once the
-8b controller carrier can drive a remote request.** [7b-3 revision 5](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md)
+**SOFTWARE-COMPLETE (7b-3 independent QA PASS 2026-09-16, owner commit `6086152`) / METAL PENDING — RUNNABLE since
+8b (independent QA PASS 2026-09-18): drive the request with Part 57c step 1.** [7b-3 revision 5](superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md)
 owns the software proofs (host fakes for reset/DFU/OTA/erase/fault). Remote prep-restart is schedulable (R-RA-38). Do not carve mesh RX/admin service out of the halt.
 The preparatory P1 refactor adds no new metal behavior and does not make this bench runnable.
 
@@ -4383,8 +4383,8 @@ onto USB/BLE. These observations do not prove radio delivery; native tests canno
 
 ## Part 57d — controller local delivery: NDJSON re-offer/ACK and the USB result or refusal line (8a+8c reservation)
 
-**SOFTWARE-COMPLETE (8a+8c independent QA PASS 2026-09-18, uncommitted at `e3a5fa0`) / METAL PENDING — runnable once
-the 8b carrier can deliver a real result to the mobile.** Until 8b every board `remote <target> …` refuses with the
+**SOFTWARE-COMPLETE (8a+8c independent QA PASS 2026-09-18, owner commit `c07b77f`) / METAL PENDING — RUNNABLE since
+8b (independent QA PASS 2026-09-18): the carrier delivers a real result; run after Part 57c step 1.** Until 8b every board `remote <target> …` refuses with the
 USB line `> remote err carrier_unavailable` (BLE: `{"err":"remote","msg":"carrier_unavailable"}`) and transmits
 nothing; that refusal is a host-proven software fact, not a bench result. Host proofs (native, the BLE-line probe's
 245..256-byte D1 control, the contract goldens) own everything below except real notifications and reconnects.
@@ -4401,3 +4401,31 @@ Submit a `prep-restart` and confirm the warning is shown BEFORE admission, verba
 (USB: the same sentence as a plain line). Finally send one `status` whose reply exceeds 244 bytes and confirm the
 companion receives it whole (B292: the reply is chunked at the one `tx_line` write, never truncated). Parts 55b/56
 unchanged; Part 57b (the lockout itself) stays a separate metal check.
+
+## Part 57c — the mobile controller carrier: real request/result round trip, `-a` and custody (8b)
+
+**SOFTWARE-COMPLETE (8b independent QA PASS 2026-09-18, uncommitted at `c07b77f`) / METAL PENDING.** The mobile is the
+only controller (design §14): a registered mobile attached over USB or secured BLE, its static home, optionally a relay,
+and a provisioned static target (`/mradmid` + `/mracl` holding the mobile's credential; `/mrtargets` on the mobile
+naming the target). Native proves the whole chain on host fakes; this part observes it on real radios.
+
+1. `remote <label> -e -- status` from the mobile. Expect `{"ack":"remote","id":"<id16>"}` (USB: the `> remote …`
+   acceptance), then within the session the plaintext `> remote <id16> out …` lines and `> remote <id16> completed`
+   (BLE: `remote_output` events then `remote_terminal`). The request must leave the mobile as a `MOBILE_SEND` wrapper
+   to the home (never a direct `REMOTE_CMD`), and the target's `status` must show the request under the mobile's
+   stable `SOURCE_HASH`. Repeat with a second target: two live requests never share a counter.
+2. `remote <label> -e -a -- status`: the same result plus exactly one `> remote <id16> carrier acked ctr=<n>`
+   (BLE `{"ev":"remote_carrier","id":…,"event":"acked","ctr":n}`) AFTER the target's generic `E2E-ACKED` line. Without
+   `-a` no carrier line ever appears. `remote <label> -e -a rollover` is refused (`bad_args`).
+3. Pull the target's power during a `-a` request routed through a relay: the relay's custody report reaches the mobile
+   as the existing custody line/push, followed by `> remote <id16> carrier custody_failure ctr=<n> origin=<home>
+   reporter=<relay> layer=<n> reason=<name>`; the request itself ends as `unknown` after the one automatic resend
+   (60 s same-layer / 150 s cross-layer) and the 300-s deadline — never as a terminal from the custody report.
+4. Silence: keep the target off from the start; observe exactly ONE resend at the derived edge, then `unknown` at 300 s,
+   and `remote-retry <id16>` afterwards resends the same sealed bytes.
+5. ACK debt: after a completed `-a`/`-e` request on BLE, `remote-ack <id16>`; with the home unreachable observe the
+   25-byte ACK wrapper at 5, 10 and 20 s and then silence (dormant; `status` shows `radmin_client_ack_debt=1`); the
+   next request to the same target carries one more attempt ahead of it.
+
+This part also makes **Part 57b** (prep-restart lockout) and **Part 57d** (local delivery) runnable; run them after
+step 1 passes. Part 54 (B278 custody on metal) is independent and precedes step 3.

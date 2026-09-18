@@ -1,0 +1,89 @@
+{
+  "kind": "preflight preservation, not implementation freeze",
+  "base": "c07b77f50a16342d532618f760aad49e10208a5d",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "simulator_status": "",
+  "initial_paths_preserved": 2797,
+  "unchanged_initial_paths": 2796,
+  "intentional_changes": {
+    "docs/2026-07-30-open-bug-register.md": {
+      "before": {
+        "mode": "0o644",
+        "sha256": "0157d6aeabf219c52680bc30abbc8eeb0212582fb1a6a178ebeeb1a3426f6713"
+      },
+      "after": {
+        "mode": "0o644",
+        "sha256": "9c8e8acd1c53af805aadb64859dd4a12bafa7083c3aedacbe6a07cd2fd538916"
+      }
+    }
+  },
+  "primary_inputs_unchanged": 358,
+  "preparation_inputs_unchanged": [
+    "MEMORY.md",
+    "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md",
+    "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md",
+    "tracker.md",
+    "docs/superpowers/plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md"
+  ],
+  "new_paths_at_audit": [
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/README.md",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/b408-commands.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/b408-proof.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/control-ack-commands.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/control-ack-negative.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/control-ack-proof.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/inputs.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/gateway-baseline.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/gateway-candidate.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/heltec_mobile-baseline.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/heltec_mobile-candidate.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/native-baseline.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/native-candidate.cpp",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/node.h",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/remote_client.h",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/layout/results.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/abi.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/b408-compile-attempt1-private-access.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/b408-compile.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/b408-run.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-attempt1-fixture-opcode.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-attempt2-fixture-include.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-compile.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-negative-compile.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-negative-run.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/control-ack-run.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-gateway-baseline.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-gateway-candidate.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-heltec_mobile-baseline.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-heltec_mobile-candidate.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-native-baseline.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/layout-native-candidate.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/native-binary.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/native-build.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/logs/reference.log",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-b408-proof.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-control-ack-negative.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-control-ack-proof.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-layout.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-observation-audit.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/mr-s8b-r2-prepare.py",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/observation-audit.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/preparation-inputs.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/preparation.patch",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/primary-inputs.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b-preflight/state.json",
+    "docs/superpowers/evidence/2026-09-18-radmin-slice8b.md"
+  ],
+  "git_diff_check": {
+    "meshroute": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "simulator": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  }
+}

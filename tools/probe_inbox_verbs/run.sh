@@ -240,7 +240,8 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
 PIN_CHECKS_ACCEPT=1374
 # 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.
-PIN_CHECKS_CLIENT=439
+# 8b adds ten observer/transport checks and eight real-Node binding-veto checks.
+PIN_CHECKS_CLIENT=457
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -257,7 +258,8 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 # 7b-2: 50 + five service/open links and five exact status-value controls.
 PIN_CONTROLS_ACCEPT=60
 # 8ac adds eleven real firmware decision controls to the previous 45.
-PIN_CONTROLS_CLIENT=64
+# 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.
+PIN_CONTROLS_CLIENT=68
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -803,6 +805,11 @@ if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = client ]; then
   c8_ctl 'C8-C17 status auth_failure value lost' client 'out.print(c.auth_failure);' 's|out.print(c.auth_failure);|out.print(0);|'
   c8_ctl 'C8-C18 status local_result_pressure value lost' client 'out.print(c.local_result_pressure);' 's|out.print(c.local_result_pressure);|out.print(0);|'
   c8_ctl 'C8-C19 status radio_enqueue_failure value lost' client 'out.print(c.radio_enqueue_failure);' 's|out.print(c.radio_enqueue_failure);|out.print(0);|'
+  c8_ctl 'C8-C22 real Node lookup ignores binding' client 'return static_cast<const Node*>(node)->id_bind_find_by_hash(hash);' 's|return static_cast<const Node\*>(node)->id_bind_find_by_hash(hash);|return -1;|'
+  c8_ctl 'C8-C20 dormant ACK debt status omitted' client 'out.print(remote_client_ack_debt_count(s));' 's|out.print(remote_client_ack_debt_count(s));|out.print(0);|'
+  c8_ctl 'C8-C21 observer bytes never reach delivery' client 'return n && write(t,line,n);' 's|return n \&\& write(t,line,n);|return n;|'
+  c8_ctl 'C8-C22 disconnected BLE receives observations' client '(ble_ && ble_up_)' 's|(ble_ \&\& ble_up_)|(ble_ != nullptr)|'
+
 fi
 
 MD5_AFTER=$(md5_sources)

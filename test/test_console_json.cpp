@@ -1240,3 +1240,19 @@ TEST_CASE("8ac contract-first remote output and typed terminal event goldens") {
     CHECK(n <= 244);
     CHECK(write_event(b,10,"remote_output",out,3)==0);
 }
+
+TEST_CASE("8b contract-first carrier event goldens") {
+    char b[245];
+    for (const char* event : {"acked", "ack_timeout"}) {
+        EventField fields[] = {EF_S("id", "0123456789abcdef"), EF_S("event", event), EF_I("ctr", 42)};
+        auto n = write_event(b, sizeof b, "remote_carrier", fields, 3);
+        CHECK(std::string(b,n) == std::string("{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"") + event + "\",\"ctr\":42}\n");
+        CHECK(n <= 244);
+    }
+    EventField f[] = {EF_S("id", "0123456789abcdef"), EF_S("event", "custody_failure"), EF_I("ctr",65535),
+        EF_I("origin",255), EF_I("reporter",254), EF_I("layer",253), EF_S("reason","cascade_age")};
+    auto n=write_event(b,sizeof b,"remote_carrier",f,7);
+    CHECK(std::string(b,n)=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":65535,\"origin\":255,\"reporter\":254,\"layer\":253,\"reason\":\"cascade_age\"}\n");
+    CHECK(n<=244);
+    CHECK(write_event(b,10,"remote_carrier",f,7)==0);
+}

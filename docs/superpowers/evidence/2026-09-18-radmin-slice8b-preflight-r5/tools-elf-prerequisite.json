@@ -1,0 +1,6 @@
+{
+  "source": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate/.pio-measure/s8b-final/gateway",
+  "copy": "/tmp/mr-s8b-r5-mfhusrrg/snapshot/.pio-measure/inherited-r4/gateway",
+  "elf_sha256": "843073883de22d585fee5972ec8fb79aa910c1ccfb8df16b7a0d4ce6095afeb8",
+  "role": "Existing unchanged-production candidate ELF for the tools parser selftest. Not a new board build or allocation claim."
+}

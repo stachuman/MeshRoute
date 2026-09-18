@@ -1,0 +1,53 @@
+-- target consoleline: /tmp/mr-s8b-r6-nwy4hz9d/union-inputs/lib/console/console_line.h (12 entries)
+-- selection: IN FULL (all 12 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-7_y8xu0q   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target consoleline: /tmp/mr_mutation_run-7_y8xu0q/w0/lib/console/console_line.h (4 of 12 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target consoleline: /tmp/mr_mutation_run-7_y8xu0q/w2/lib/console/console_line.h (4 of 12 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target consoleline: /tmp/mr_mutation_run-7_y8xu0q/w1/lib/console/console_line.h (4 of 12 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2970 / 195942 / 0   (DERIVED from this tree)
+  [w1]   ok   L02 length check bypassed -> RED (5 assertion(s) failed, match count 1)
+  [w2]   ok   L03 last byte is not scanned -> RED (4 assertion(s) failed, match count 1)
+  [w0]   ok   L01 inclusive cap becomes exclusive -> RED (778 assertion(s) failed, match count 1)
+  [w1]   ok   L05 NUL accepted -> RED (4 assertion(s) failed, match count 1)
+  [w0]   ok   L04 first byte is not scanned -> RED (6 assertion(s) failed, match count 1)
+  [w2]   ok   L06 CR accepted -> RED (4 assertion(s) failed, match count 1)
+  [w0]   ok   L07 LF accepted -> RED (5 assertion(s) failed, match count 1)
+  [w2]   ok   L09 remote command cap drifts above the live codec derivation -> RED (4 assertion(s) failed, match count 1)
+  [w1]   ok   L08 LF reason collapses to CR -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   L10 USB command bound drifts -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)
+  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)
+  [w2]   ok   L12 unknown reason silently means ok -> RED (1 assertion(s) failed, match count 1)
+  [w2] source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)
+  [w2] shard 2: 4 RED / 0 unusable   (of 4 entries)
+  [w1]   ok   L11 byte error incorrectly precedes length error -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)
+  [w1] shard 1: 4 RED / 0 unusable   (of 4 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target consoleline: /tmp/mr-s8b-r6-nwy4hz9d/union-inputs/lib/console/console_line.h
+  ok   clean baseline 2970 / 195942 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   L01 inclusive cap becomes exclusive -> RED (778 assertion(s) failed, match count 1)
+  ok   L02 length check bypassed -> RED (5 assertion(s) failed, match count 1)
+  ok   L03 last byte is not scanned -> RED (4 assertion(s) failed, match count 1)
+  ok   L04 first byte is not scanned -> RED (6 assertion(s) failed, match count 1)
+  ok   L05 NUL accepted -> RED (4 assertion(s) failed, match count 1)
+  ok   L06 CR accepted -> RED (4 assertion(s) failed, match count 1)
+  ok   L07 LF accepted -> RED (5 assertion(s) failed, match count 1)
+  ok   L08 LF reason collapses to CR -> RED (1 assertion(s) failed, match count 1)
+  ok   L09 remote command cap drifts above the live codec derivation -> RED (4 assertion(s) failed, match count 1)
+  ok   L10 USB command bound drifts -> RED (1 assertion(s) failed, match count 1)
+  ok   L11 byte error incorrectly precedes length error -> RED (1 assertion(s) failed, match count 1)
+  ok   L12 unknown reason silently means ok -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 84.5s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-7_y8xu0q/w0
+  worker 1: 4/4 entries, 4 RED / 0 worthless, wall 86.6s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-7_y8xu0q/w1
+  worker 2: 4/4 entries, 4 RED / 0 worthless, wall 86.5s, rc 0, source restored: md5 906e1a837b8ca667d191e55ac5bdd848 (MATCHES)   /tmp/mr_mutation_run-7_y8xu0q/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8b-r6-nwy4hz9d/union-inputs
+timing: copy 3.8s + battery 86.8s = 90.6s total, 12 entries over 3 worker(s)
+mutations: 12 RED / 0 unusable

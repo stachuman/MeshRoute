@@ -626,7 +626,7 @@ TEST_CASE("8ac controller syntax XOR flags explicit confirmation bounded command
     const char* bad[]={"remote alpha -- status","remote alpha open -e -- status","remote alpha open -a -- status",
         "remote alpha open using=self -- status","remote alpha open -- reboot","remote alpha -e --",
         "remote alpha -e using=key10 -- status","remote alpha -e using=key1 using=key2 -- status",
-        "remote alpha -e rollover yes","remote alpha -e rollover confirm extra","remote alpha open rollover",
+        "remote alpha -e -a rollover","remote alpha -a -e rollover confirm","remote alpha -e rollover yes","remote alpha -e rollover confirm extra","remote alpha open rollover",
         "remote-retry 0000000000000000","remote-ack 0123456789ABCDEF","remote-result 0123456789abcdef",
         "remote-retry 0123456789abcdef extra","remote-result nope 0123456789abcdef","remote alpha -ae -- status"};
     for(const auto* line:bad){mrfw::RemoteLocalCommand c{};CHECK_FALSE(mrfw::remote_local_parse(line,strlen(line),c));}
@@ -634,4 +634,54 @@ TEST_CASE("8ac controller syntax XOR flags explicit confirmation bounded command
     auto line=prefix+std::string(201,'x');CHECK(mrfw::remote_local_parse(line.data(),line.size(),c));
     line+='x';CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
     line=prefix+"status\nreboot";CHECK_FALSE(mrfw::remote_local_parse(line.data(),line.size(),c));
+}
+
+TEST_CASE("8b observer reads real custody codec and formats only the matching local transport") {
+    using namespace meshroute;
+    RemoteClientState s{};auto& p=s.pending[0].core;
+    p.request_id=0x0123456789abcdef;p.state=uint8_t(RemoteClientPhase::response_wait);
+    p.flags=uint8_t(RemoteCmdOpcode::auth_execute)|8;p.carrier_ctr=42;p.route.target_hash=0xabcdef12;
+    struct Sink {
+        std::string usb,ble;unsigned calls=0;
+        bool carrier(RemoteLocalTransport t,uint64_t id,const char* event,uint16_t ctr,const mrfw::CarrierDetail* d) {
+            CHECK(id==0x0123456789abcdef);++calls;char line[245];
+            auto n=mrfw::remote_client_carrier_format(line,sizeof line,t,"0123456789abcdef",event,ctr,d);
+            CHECK(n>0);CHECK(n<=244);(t==RemoteLocalTransport::usb?usb:ble).append(line,n);return true;
+        }
+    } sink;
+    Push push{};push.kind=PushKind::send_e2e_acked;push.ctr=42;
+    // Labelled absent-binding adapter; real Node lookup is exercised by the CLIENT probe.
+    auto lookup=[](void*,uint32_t){return -1;};
+    const auto before=s;mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
+    CHECK(sink.usb=="> remote 0123456789abcdef carrier acked ctr=42\n");CHECK(sink.ble.empty());CHECK(memcmp(&before,&s,sizeof s)==0);
+    sink={};p.local_transport=uint8_t(RemoteLocalTransport::ble);push.kind=PushKind::send_failed;push.reason=SendFailReason::e2e_ack_timeout;
+    mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.usb.empty());
+    CHECK(sink.ble=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"ack_timeout\",\"ctr\":42}\n");
+    sink={};push.reason=SendFailReason::no_route;mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.calls==0);
+    push.kind=PushKind::custody_failure;
+    CustodyFailureRecord r{};r.notice_flags=custody_notice_flags(CustodyRootStage::cts,true,false,false);
+    r.terminal_reason=CustodyFailureReason::cascade_count;r.failed_origin=1;r.failed_dst=9;r.failed_ctr=99;
+    r.failed_type=DATA_TYPE_REMOTE_CMD;r.failed_plane=CustodyFailurePlane::static_same_layer;
+    r.reporter_layer=2;r.previous_hop=1;r.failed_next_hop=9;r.requeue_count=protocol::cascade_requeue_max;r.committed_hops=1;r.remaining_hops=4;
+    CustodyTranslatedTail tail{};tail.original_reporter=3;tail.target_kind=CustodyTranslatedTargetKind::key_hash;
+    tail.mobile_ctr=42;tail.target_value=p.route.target_hash;
+    auto pack=[&]{push.body_len=uint8_t(pack_custody_failure_translated(r,tail,push.body));CHECK(push.body_len==custody_record_translated_len);};pack();
+    const auto copy=push;sink={};mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
+    CHECK(sink.ble=="{\"ev\":\"remote_carrier\",\"id\":\"0123456789abcdef\",\"event\":\"custody_failure\",\"ctr\":42,\"origin\":1,\"reporter\":3,\"layer\":2,\"reason\":\"cascade_count\"}\n");
+    CHECK(sink.usb.empty());CHECK(memcmp(&push,&copy,sizeof push)==0);
+    sink={};p.local_transport=uint8_t(RemoteLocalTransport::usb);mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);
+    CHECK(sink.usb=="> remote 0123456789abcdef carrier custody_failure ctr=42 origin=1 reporter=3 layer=2 reason=cascade_count\n");
+    for(unsigned bad=0;bad<7;++bad){
+        push=copy;auto saved=p;sink={};
+        if(bad==0)push.body_len=1;
+        if(bad==1){tail.mobile_ctr=43;pack();tail.mobile_ctr=42;}
+        if(bad==2){tail.target_value++;pack();tail.target_value--;}
+        if(bad==3){r.failed_type=DATA_TYPE_REMOTE_RESP;pack();r.failed_type=DATA_TYPE_REMOTE_CMD;}
+        if(bad==4)p.flags&=~8;
+        if(bad==5){tail.target_kind=CustodyTranslatedTargetKind::node_id;tail.target_value=9;pack();tail.target_kind=CustodyTranslatedTargetKind::key_hash;tail.target_value=p.route.target_hash;}
+        if(bad==6){push.body_len=uint8_t(pack_custody_failure(r,push.body));CHECK(push.body_len==custody_record_v1_len);}
+        mrfw::remote_client_observe_push(s,push,sink,lookup,nullptr);CHECK(sink.calls==0);p=saved;
+    }
+    char small[8];CHECK(mrfw::remote_client_carrier_format(small,sizeof small,RemoteLocalTransport::usb,"0123456789abcdef","acked",42,nullptr)==0);
+    CHECK(mrfw::remote_client_carrier_format(small,sizeof small,RemoteLocalTransport::ble,"0123456789abcdef","acked",42,nullptr)==0);
 }

@@ -1,0 +1,13 @@
+{
+  "name": "corpus-validate",
+  "command": [
+    "python3",
+    "tools/run_corpus.py",
+    "--validate",
+    "/tmp/mr-s8b-r6-nwy4hz9d/corpus-final"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 0.6825932562351227,
+  "sha256": "40a2c09739358656831a0705586a62bf1719bff9ca03b456295610e48d6d8201"
+}

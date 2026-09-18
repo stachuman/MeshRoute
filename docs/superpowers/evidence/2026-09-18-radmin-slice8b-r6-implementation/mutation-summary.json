@@ -1,0 +1,473 @@
+{
+  "batteries": 61,
+  "configured": 984,
+  "red": 983,
+  "known_unusable": [
+    {
+      "target": "sliceBmac",
+      "label": "M04",
+      "finding": "B342",
+      "kind": "compiled mutant survives, pre-existing carve-out"
+    }
+  ],
+  "vacuous": 0,
+  "controls": [
+    {
+      "target": "radmin8client",
+      "label": "C39",
+      "failed_assertions": 5,
+      "matches": 1,
+      "verdict": "RED"
+    },
+    {
+      "target": "radmin8client",
+      "label": "C43",
+      "failed_assertions": 3,
+      "matches": 1,
+      "verdict": "RED"
+    },
+    {
+      "target": "radmin8brx",
+      "label": "X09",
+      "failed_assertions": 2,
+      "matches": 1,
+      "verdict": "RED"
+    },
+    {
+      "target": "radmin8brx",
+      "label": "X18",
+      "failed_assertions": 17,
+      "matches": 1,
+      "verdict": "RED"
+    }
+  ],
+  "rows": [
+    {
+      "target": "a0rx",
+      "red": 7,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "8c742490bed37d8db125c0a572137dc1c4df1659f6f837774c041d839c20854f"
+    },
+    {
+      "target": "actionadmit",
+      "red": 10,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "e6ee14ed03b17b0586bede6f7c6ef168e2d4531b0e4737dc07e03ad72794cc5b"
+    },
+    {
+      "target": "b134ack",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "574ceedee0a69db8304b06701fab248f64829883b7d6ce1f0116791be8995d27"
+    },
+    {
+      "target": "b134inbox",
+      "red": 5,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "60f08c4c122f7154317c93f7f663d89d8bf77ca5d83700dca3a171ad0fa5458b"
+    },
+    {
+      "target": "b134ram",
+      "red": 3,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "67e0c4bbce3db7bc99153edff19012e90d8acd53874114f73307643a50a152cd"
+    },
+    {
+      "target": "b134store",
+      "red": 39,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "16362cb91dc094903ed023671f9529c9bef81f65087301c467d9dc7a55060b64"
+    },
+    {
+      "target": "b159mac",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "b83ab820e72727250a53a60e0afc800c80a6c87e559675176eeb6e45d07a66d5"
+    },
+    {
+      "target": "b159map",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "07ac61e8b8f89f991dee2c857f09e3f1d6ce8c61bc10f81daa012eee2293cdef"
+    },
+    {
+      "target": "b159rx",
+      "red": 3,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "ca93b0d6b9760943e8e16ebe7ddcf87ed5c1ff773a53187025708bfdd6a7989c"
+    },
+    {
+      "target": "b161hash",
+      "red": 6,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "a0a3502e34d34b2db238a3bf9cb2fac62b09f1daee371bd4f93d7b0ff2ffbe35"
+    },
+    {
+      "target": "b161mac",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "5b232d1ef57283da1289d536ce22ad1503a44b308c0fb6b6dcf2e41697f361e2"
+    },
+    {
+      "target": "b161rx",
+      "red": 8,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "87e983295e7235da8d81cd7a9910cc50932b8e8f7386469ae4cda561cf666560"
+    },
+    {
+      "target": "b20codec",
+      "red": 5,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "b882de1b8dfbf792f49b1853e83f33398f37c96b53523ca9bf551ac7289f5f8b"
+    },
+    {
+      "target": "b20mac",
+      "red": 11,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "97aa43e980992ca6fa6338eaef45621002555c79a6517f033a970d26821692f8"
+    },
+    {
+      "target": "b251hash",
+      "red": 55,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "6e1f5300363380a177f15d402179b68cae1d1321278d8af236a8af10a55ee4f6"
+    },
+    {
+      "target": "b251rx",
+      "red": 19,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "b4c4ed85418501e74afb101a9b56990669b86160adefdc2ec732f4ea69bddbe3"
+    },
+    {
+      "target": "cmdauthority",
+      "red": 16,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d8cc42c61866055d336cc95581077ba2039a42529a75958ecb9b70c58e822a96"
+    },
+    {
+      "target": "consoleline",
+      "red": 12,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "00f40cde90c00e1a2e173fb1f2065dafbd5fbb4544a0fac5d4552c8241aa008a"
+    },
+    {
+      "target": "devicenv",
+      "red": 42,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "4ede26ccacd2bb6c68efdb3fa21eecbe80917bef76e9d7aa68129763fe72593c"
+    },
+    {
+      "target": "fwactivation",
+      "red": 10,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "5671e7ded40053668dcbf1fd3445acdff9ac6479324a29b3d36ed1a89777e436"
+    },
+    {
+      "target": "grantadmit",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "85c17d9d8b8845c3c20b16bffe2b86af684d6953bca3c993f5ddce08f539c011"
+    },
+    {
+      "target": "grantpark",
+      "red": 3,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "5adb9b35e8fc504e2ec1650397d6cec213ca63de78b955967fdbf053710f9007"
+    },
+    {
+      "target": "macwait",
+      "red": 10,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "981bc46882c4322552b5bd535b7551473ee818e0bf414c430741797d16ba4fd6"
+    },
+    {
+      "target": "radmin2codec",
+      "red": 105,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "7d071a2e8eb900080a15b990ced4154b2aad68bf281c41d5749b10788b3812ba"
+    },
+    {
+      "target": "radmin3acl",
+      "red": 36,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "a04aa94bb0ae73450ce13b153de9eab7d2409fb1c8c5820a327cd68cb14c8471"
+    },
+    {
+      "target": "radmin3id",
+      "red": 23,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d27773d9f235423c75485a5c74f9a9589c91e4700da0be4376930423ca13718d"
+    },
+    {
+      "target": "radmin3verbs",
+      "red": 28,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d23733105a7cfdfac4b8ebcf7b2489f1b15a4a3a1c804fd96dc1c82d70f74146"
+    },
+    {
+      "target": "radmin5runtime",
+      "red": 16,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "dced346aacdcdc3cdd02f1a2f411c22b10c8e01b295481b103ff01fd87a63fde"
+    },
+    {
+      "target": "radmin5rx",
+      "red": 14,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "8663139614eea0bde62811fcac6d291456bba819a1a2206228e235bcba67fe72"
+    },
+    {
+      "target": "radmin5session",
+      "red": 25,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "f9efb2590031ab593cb7c231f1fa1600993441da99814162d08523086728ad14"
+    },
+    {
+      "target": "radmin72rx",
+      "red": 15,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "091d35d232b864a1ce68020b49b1c327b9e6838836def0dc39b156a143e398e9"
+    },
+    {
+      "target": "radmin72session",
+      "red": 36,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "f9618cfb6a3e8ae6a25b5652a296d443c02ecf62fc899cf0b5fa1ec4171de7f6"
+    },
+    {
+      "target": "radmin73action",
+      "red": 35,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "ab30e9f0de7dae53f0851a5030b88f866745136e75fe7f305a15bdc3923f9d9b"
+    },
+    {
+      "target": "radmin73convert",
+      "red": 10,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "b197d82020731eba5198c64308295a700f7736e7250641b522af545d63d52fd8"
+    },
+    {
+      "target": "radmin73node",
+      "red": 5,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "ac4e47bf14c815d7aaf9fd0960a8b62ed2ae779dd10241f50bff45a4dafe2ba0"
+    },
+    {
+      "target": "radmin7exec",
+      "red": 20,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "6332160df599d0208b15f72dae9fa9becc1e1c51ec8a17bcffce66e26958874e"
+    },
+    {
+      "target": "radmin7rx",
+      "red": 16,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "c8665fb4334d54d7721516c2a8c00d9934182eb000788101bda2f4623599acbf"
+    },
+    {
+      "target": "radmin7transcript",
+      "red": 20,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "de595aaefb9b9a306ab992cb5539b854ee2a15ca32045eb64ac8e34dcb89fcd4"
+    },
+    {
+      "target": "radmin8brx",
+      "red": 18,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "bb4b832e06c066ac35481718789defd01510309f4b98bf76d4782846de8e4260"
+    },
+    {
+      "target": "radmin8client",
+      "red": 57,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "a8d18329745ec865680e24689a04059c3f37733737d2a19b8bf81eb8cb8a848f"
+    },
+    {
+      "target": "radmin8node",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "dedec98c846c0a7d9b0225809956a78014b10d22b1cb27d0724f54042fc0cd31"
+    },
+    {
+      "target": "radmin8rng",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "a8eae56c20e387bc4825a711579aad902ee0ba465718692f7e438bacd411bf41"
+    },
+    {
+      "target": "radmin8verbs",
+      "red": 27,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "8d5305156f13ba4ea1b74750736205cf85201680072e82790d9ac99437b81c26"
+    },
+    {
+      "target": "remoteactivation",
+      "red": 22,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d12c733df80d04afa97b704913e5b6be98c3b88ce2a4ba5172d322072622c9d3"
+    },
+    {
+      "target": "sliceAinbox",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "90e0f6affcb2f8ac7c6919262e147b0a38d7d8a250d9d918ae83344778f4a18d"
+    },
+    {
+      "target": "sliceAjson",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "a9e7c65e309e9e2cedd47d499a88ffb899593a74d5d5041318a583987d8ba6ab"
+    },
+    {
+      "target": "sliceBmac",
+      "red": 3,
+      "unusable": 1,
+      "exit": 1,
+      "sha256": "685d6469f66ca91c1a4eb8b3551ad2850f82be4d6bb9bd692bf3fdd21e1517c4"
+    },
+    {
+      "target": "sliceBnode",
+      "red": 8,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "fe75f1a720b2e311b30759d8c75fcbdef74ae83cd2e4dd885e0b1214a4a6274c"
+    },
+    {
+      "target": "sliceBrx",
+      "red": 16,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "f7272c3c573e84fb407f251e32b4702828d73010703e02e1b78f2d871fda23ca"
+    },
+    {
+      "target": "sliceCinbox",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "8e0f34001bee2f11c933b778136664f1e7a7596332e8a9f5d9c29afcc118e307"
+    },
+    {
+      "target": "sliceCpull",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "e426536b73b8aa213366bcdc9fe3548d0282c774b7574c5abc809055d753fbdf"
+    },
+    {
+      "target": "sliceDack",
+      "red": 1,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "c56f34a8dc7b43b7770a65440aa79625418e7e2dbed3557ed5b04b8da4fe485e"
+    },
+    {
+      "target": "sliceDclear",
+      "red": 5,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "1e540b2007319784cd93125d9ee8e6cb43e7a38fed2572bae90ef9f64fb4d1c8"
+    },
+    {
+      "target": "sliceDstore",
+      "red": 3,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "3645bf400e422c43c43208705bea4092c24e31fc62e319d248322cf0ccef3187"
+    },
+    {
+      "target": "sliceDtoken",
+      "red": 2,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "5413b8eb3b55d30714e5d3ffcedfc00abd6c72d05890f1d9654a15ca5dda8942"
+    },
+    {
+      "target": "sliceEnode",
+      "red": 3,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "dade582e5160a05336ec23a2971d2fdbf7452529f2ed1ec565e0ffd43efdcde4"
+    },
+    {
+      "target": "sliceGinbox",
+      "red": 4,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "b0988a5f21d2b563a45ea67c116e53b7491ec914af103586c454cb36683f67ae"
+    },
+    {
+      "target": "sliceGjson",
+      "red": 16,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d639b7f899bbaa6d62f74201a97f7b9f803bbf7b4733914792ad363c063fe887"
+    },
+    {
+      "target": "sliceGrx",
+      "red": 42,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "d5592fd4f65b887f6ecc40f8f0e892db1b24fb7e040d09e9155c3d8730aa0322"
+    },
+    {
+      "target": "teamgrant",
+      "red": 4,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "0f1b4fc486e7f59686fbbc2cc710dba904ea32357e08dddd4a451ed240597021"
+    },
+    {
+      "target": "teamkeyring",
+      "red": 68,
+      "unusable": 0,
+      "exit": 0,
+      "sha256": "2aeb1421bf91aed43eccb322fadebe9d4a857ca33c4fae34f5e94cc645bd62d4"
+    }
+  ]
+}

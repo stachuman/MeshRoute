@@ -1,0 +1,84 @@
+-- target radmin8verbs: /tmp/mr-s8b-r4-_d7gpj1e/iter-gate/src/firmware_remote_client.h (22 entries)
+-- selection: IN FULL (all 22 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-y1t4tnuq   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target radmin8verbs: /tmp/mr_mutation_run-y1t4tnuq/w1/src/firmware_remote_client.h (7 of 22 entries in this shard)
+  [w0] -- target radmin8verbs: /tmp/mr_mutation_run-y1t4tnuq/w0/src/firmware_remote_client.h (8 of 22 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8verbs: /tmp/mr_mutation_run-y1t4tnuq/w2/src/firmware_remote_client.h (7 of 22 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2962 / 195539 / 0   (DERIVED from this tree)
+  [w1]   ok   V02 open silently accepts E2E ACK -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V03 open permits arbitrary command -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   V01 XOR authorization bypassed -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   V05 invalid request ID accepts zero -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   V04 missing force confirmation is accepted -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V06 command tail validator bypassed -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   V08 extra local acknowledgement tail admitted -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V09 rollover allows ACK -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   V07 result show keyword not required -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   V11 observer wrong failure kind -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V12 custody observer removed -> RED (3 assertion(s) failed, match count 1)
+  [w0]   ok   V10 observer ACK ignored -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   V15 layer lost -> RED (3 assertion(s) failed, match count 1)
+  [w0]   ok   V13 origin aliases reporter -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   V14 reporter aliases origin -> RED (3 assertion(s) failed, match count 1)
+  [w2]   ok   V18 timeout called ACK -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   V16 custody matches outer ctr -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   V17 observer steals USB transport -> RED (4 assertion(s) failed, match count 1)
+  [w1]   ok   V20 custody reason omitted -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)
+  [w1] shard 1: 7 RED / 0 unusable   (of 7 entries)
+  [w2]   ok   V21 USB counter lost -> RED (1 assertion(s) failed, match count 1)
+  [w2] source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)
+  [w2] shard 2: 7 RED / 0 unusable   (of 7 entries)
+  [w0]   ok   V19 custody fields omitted -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   V22 custody detail wrong event -> RED (3 assertion(s) failed, match count 1)
+  [w0] source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)
+  [w0] shard 0: 8 RED / 0 unusable   (of 8 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8verbs: /tmp/mr-s8b-r4-_d7gpj1e/iter-gate/src/firmware_remote_client.h
+  ok   clean baseline 2962 / 195539 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2947 / 193734   (PIN_CASES, this file)
+  !!      derived  2962 / 195539   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 22 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   V01 XOR authorization bypassed -> RED (2 assertion(s) failed, match count 1)
+  ok   V02 open silently accepts E2E ACK -> RED (1 assertion(s) failed, match count 1)
+  ok   V03 open permits arbitrary command -> RED (1 assertion(s) failed, match count 1)
+  ok   V04 missing force confirmation is accepted -> RED (1 assertion(s) failed, match count 1)
+  ok   V05 invalid request ID accepts zero -> RED (1 assertion(s) failed, match count 1)
+  ok   V06 command tail validator bypassed -> RED (2 assertion(s) failed, match count 1)
+  ok   V07 result show keyword not required -> RED (1 assertion(s) failed, match count 1)
+  ok   V08 extra local acknowledgement tail admitted -> RED (1 assertion(s) failed, match count 1)
+  ok   V09 rollover allows ACK -> RED (2 assertion(s) failed, match count 1)
+  ok   V10 observer ACK ignored -> RED (1 assertion(s) failed, match count 1)
+  ok   V11 observer wrong failure kind -> RED (1 assertion(s) failed, match count 1)
+  ok   V12 custody observer removed -> RED (3 assertion(s) failed, match count 1)
+  ok   V13 origin aliases reporter -> RED (3 assertion(s) failed, match count 1)
+  ok   V14 reporter aliases origin -> RED (3 assertion(s) failed, match count 1)
+  ok   V15 layer lost -> RED (3 assertion(s) failed, match count 1)
+  ok   V16 custody matches outer ctr -> RED (1 assertion(s) failed, match count 1)
+  ok   V17 observer steals USB transport -> RED (4 assertion(s) failed, match count 1)
+  ok   V18 timeout called ACK -> RED (1 assertion(s) failed, match count 1)
+  ok   V19 custody fields omitted -> RED (1 assertion(s) failed, match count 1)
+  ok   V20 custody reason omitted -> RED (1 assertion(s) failed, match count 1)
+  ok   V21 USB counter lost -> RED (1 assertion(s) failed, match count 1)
+  ok   V22 custody detail wrong event -> RED (3 assertion(s) failed, match count 1)
+  worker 0: 8/8 entries, 8 RED / 0 worthless, wall 131.6s, rc 0, source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)   /tmp/mr_mutation_run-y1t4tnuq/w0
+  worker 1: 7/7 entries, 7 RED / 0 worthless, wall 121.1s, rc 0, source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)   /tmp/mr_mutation_run-y1t4tnuq/w1
+  worker 2: 7/7 entries, 7 RED / 0 worthless, wall 121.0s, rc 0, source restored: md5 2633c481edff911de0d15487ddc6d9c0 (MATCHES)   /tmp/mr_mutation_run-y1t4tnuq/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s8b-r4-_d7gpj1e/iter-gate
+timing: copy 14.0s + battery 131.8s = 145.9s total, 22 entries over 3 worker(s)
+mutations: 22 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2947 / 193734, these trees run 2962 / 195539.
+  !!  The battery above RAN IN FULL (22 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

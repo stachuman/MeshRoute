@@ -1,0 +1,68 @@
+[
+  {
+    "name": "sim-configure",
+    "command": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-s8b-r4-_d7gpj1e/sim-final",
+      "-G",
+      "Ninja",
+      "-DMESHROUTE_DIR=/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+      "-DCMAKE_BUILD_TYPE=Release"
+    ],
+    "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+    "exit": 0,
+    "seconds": 0.9357245303690434,
+    "sha256": "2ba0222f3c953b7bddc68ba826f7aa3cf96cc637bd1f940e9b827d2beaa12087"
+  },
+  {
+    "name": "sim-build",
+    "command": [
+      "cmake",
+      "--build",
+      "/tmp/mr-s8b-r4-_d7gpj1e/sim-final",
+      "--target",
+      "lus",
+      "--parallel",
+      "3",
+      "--verbose"
+    ],
+    "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+    "exit": 0,
+    "seconds": 98.7049390822649,
+    "sha256": "017b6b163841df33a556cbfe44ab7257874efd3959b6ba332d978539c9c4395e"
+  },
+  {
+    "name": "corpus",
+    "command": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-s8b-r4-_d7gpj1e/corpus-final",
+      "--lus",
+      "/tmp/mr-s8b-r4-_d7gpj1e/sim-final/orchestrator/lus",
+      "--jobs",
+      "3",
+      "--require-anchors"
+    ],
+    "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+    "exit": 0,
+    "seconds": 63.696498069912195,
+    "sha256": "63e5622f1c01e0f6ff13063e2b9113c69fb2aba5294964c22e4c26a8248335ac"
+  },
+  {
+    "name": "corpus-validate",
+    "command": [
+      "python3",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-s8b-r4-_d7gpj1e/corpus-final"
+    ],
+    "cwd": "/tmp/mr-s8b-r4-_d7gpj1e/final-gate",
+    "exit": 0,
+    "seconds": 0.6660170704126358,
+    "sha256": "e65497e6cfd558bea696327b80029142d06fed658c6c63ebefc912718b2e87f4"
+  }
+]

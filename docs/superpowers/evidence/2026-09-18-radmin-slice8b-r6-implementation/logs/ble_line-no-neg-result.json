@@ -1,0 +1,12 @@
+{
+  "name": "ble_line-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_ble_line/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s8b-r6-nwy4hz9d/final-gate",
+  "exit": 0,
+  "seconds": 1.5137816965579987,
+  "sha256": "1781eb65fadcede39d655ec36b594ec5fc757e459f2dda51e271b1768a768289"
+}

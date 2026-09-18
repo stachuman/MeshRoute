@@ -1,0 +1,340 @@
+{
+  "baseline": false,
+  "source": "/home/staszek/MeshRoute",
+  "results": [
+    {
+      "name": "b0-p1",
+      "cpp_sha256": "d9ea37a30a6eaef683c6cde7591d6592543b2391463d3172d2738fe0f20f90e1",
+      "remote_checks": 416,
+      "radio_checks": 3160,
+      "checks": 150,
+      "transcripts": 39
+    },
+    {
+      "name": "b1-p1",
+      "cpp_sha256": "b69dceff8fd68483afe214deaea79b0951b67f3d08faec91f0b53d6c38b5450e",
+      "remote_checks": 518,
+      "radio_checks": 3485,
+      "checks": 151,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p1",
+      "cpp_sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+      "remote_checks": 534,
+      "radio_checks": 3689,
+      "checks": 158,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p0",
+      "cpp_sha256": "bfbe1c5fcb0b41d2b3e63dea33ce8132173335c94ba82bcf8762c4a7ea593312",
+      "remote_checks": 464,
+      "radio_checks": 3695,
+      "checks": 158,
+      "transcripts": 39
+    }
+  ],
+  "controls": [
+    {
+      "label": "C01 second inbox wipe skipped",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "4dbc5b10c0cb1ad0cd08d6a6b42bc66a98922432534859ea4d6f1e640018cf23"
+    },
+    {
+      "label": "C02 NV erase skipped",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "3aec6efce60c9e6d693bac67faf6605b0aa2f8bd38f3db4ab98600f137b4baef"
+    },
+    {
+      "label": "C03 inbox warning suppressed",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "2f8846581f3434d9598f487abd1f235b4e783284cff053ceb8133186568fdac5"
+    },
+    {
+      "label": "C04 local confirmation bypassed",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "ba5131aa4dce4e23a5060c6897753264cc59f05e650ff5e8b4a490b32871014f"
+    },
+    {
+      "label": "C05 sleep selection ignored",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "ba07b1e82872eec82c3ac732abe9f4d76bb37ed4b98fd9c9167272e3b48f5ced"
+    },
+    {
+      "label": "C06 factory reset sink escapes",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "9ec1f857dd4c7cdc2a8b59c965d7a503bef0ace0fd654bbaca4bea611487a12d"
+    },
+    {
+      "label": "C07 reset mark missing",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "0e6cf16c1479770013df701af0e0ef161e7c22e89724a3b83efa1f2be3787c8f"
+    },
+    {
+      "label": "C08 prep does not halt",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "105b66f960341490f4dd9dc4b2f206b604b940fef28b5c660374d137a7a7ff22"
+    },
+    {
+      "label": "C09 apply repeats mutable debug admission",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "5e6bfecd34e4bb54343ddc122b7ebe20a0cbeec2b5858ab78b30c3a424c2d5de"
+    },
+    {
+      "label": "C10 remote entry toggles active OTA off",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "d8f63e003ce6bcf3a480489ce23fc73a0bd54b1b638e35b1f3c4216d5eba2a72"
+    },
+    {
+      "label": "C11 startup sink escapes",
+      "path": "src/device_ota.cpp",
+      "matches": 1,
+      "source_sha256": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+      "mutant_sha256": "eac3edd1ad9efda00cab73199dff0a720b8b57d61b48bcf6d9abb63225b7d873"
+    },
+    {
+      "label": "C12 startup failure reported successful",
+      "path": "src/device_ota.cpp",
+      "matches": 1,
+      "source_sha256": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+      "mutant_sha256": "d6a0eb1a05838edfe9f20093de0b99da293c2448c77a0c57e053845161a96784"
+    },
+    {
+      "label": "C13 OTA reset hook omitted",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "f94ab578f521f132b8cad6db4f09a40905e4e57b5ad7a6060c6576a456079970"
+    },
+    {
+      "label": "C14 wrong nRF reset backend",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "24ef21bf5c21954991df860d0a92cc0b1dd71ec98479abaa51e6e055a4d25586"
+    },
+    {
+      "label": "C15 disabled power saving advertised",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "7f377e9222269bc21b5b6b5608dd2c6a7fc1fb4667cf15c9e088ab9365a400df"
+    },
+    {
+      "label": "C16 real hang loop removed",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "c68c59a06ec9f644bff003cf4efc688b98035e8b3dc9c08dddb2f5e6e0c38031"
+    },
+    {
+      "label": "C17 NV erase moved before inbox warning",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "b44515b048b58e93ff9bf54f2fff292462b0bf46d9308fc283f6017e0f37c450"
+    },
+    {
+      "label": "C18 crash flush removed",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "8ce13f2290821831ddea936094ecf52a5565b3f4043c6c4a3a9a4309440aa368"
+    },
+    {
+      "label": "C19 learned-state clear omitted",
+      "path": "src/fw_main.cpp",
+      "matches": 1,
+      "source_sha256": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+      "mutant_sha256": "ba51101c67300c2eb4a6daca454663c958caaa671c83081639cadfbb8759aecf"
+    },
+    {
+      "label": "R01 public reboot bypasses preparation",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "ab549aa063070fa47d12415ba5f29f0c09d146e5c782ff5dd4cdc5ef5a0b6375"
+    },
+    {
+      "label": "R02 OTA bypasses authority",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "6877a189e79a415cab6ddb460eb49f4a1d03dab6c1543109dfb9e4ca97414077"
+    },
+    {
+      "label": "R03 typed busy flag lost",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "7786be5620e75513e6eec67e55940a324bbccb10ca5119f57a67cf32bdfaa97f"
+    },
+    {
+      "label": "R04 scheduled mapped to completed",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "547023760c16b0f8477303e02151f14a72e52e3fc7a67f4168c2f7ed5a2ea2b8"
+    },
+    {
+      "label": "R05 admission failure ignored",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "4711c235c0b05d3cfe3dcb9da8e54ee913177ba700d0a7ecc9d6a3dc0fd74ef1"
+    },
+    {
+      "label": "R06 derived default replaced by fixed delay",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "8a1f52a161363a62b07551dc5c21576e51053d50de669baf8679e15c6aba02e2"
+    },
+    {
+      "label": "R07 invalid live timing accepted",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "e544f539acce89f3f3ea787073c9cfd9e3876ca7f1fd8c20d622017e8f51da42"
+    },
+    {
+      "label": "R08 wrong OTA output backend label",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "c4210e63750b55edb9771f0ce872755a7e22c76116503401b7a621f5c2d357bd"
+    },
+    {
+      "label": "R09 due consumer never applies",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "ecb33cf868395ec0fc3eb12e1e5d6c6711f4c1ec2439094f9ccd60d632813c82"
+    },
+    {
+      "label": "R10 sleep apply mode overwritten",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "5690308661dece4f74dda678beb4959e780fb35594e0f959efb3ea9169117d17"
+    },
+    {
+      "label": "R11 remote OTA calls local toggle",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "f7a5f47ea4eff2d0c11450e1ebf99d3c0995909f52d72a485aa080621dd7ec70"
+    },
+    {
+      "label": "R12 typed observer disconnected",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "77b2c42ba75c81d2c7d8a5362af97cb871c7cee843da9d4004af019c9ee01d72"
+    },
+    {
+      "label": "R13 diagnostic outcome dropped",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "772bbb451e0af3cc8b332e2273eb9b1847b914c8a9ef9d12950ff2bbff1fa274"
+    },
+    {
+      "label": "R14 diagnostic kind dropped",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "4792930939710c161ddd06f41955a27bb3d6333fc85e13e5f543569334d6df97"
+    },
+    {
+      "label": "R15 buffer sink forwards raw effect text",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "70c137dd837e3598725825ed41915c567464b362e675c03a24c30bdfae9219a4"
+    },
+    {
+      "label": "R16 transfer not wiped before effect",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "1ba65dcb71e07618ca3a09f706e106b184bbdb3e5f3ca7f8c913988a35b8b5a6"
+    },
+    {
+      "label": "R17 ACK trigger diagnostic lies",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "4a7631ebb267f232c633ccffd451d45faca3c0d0f040ca38407e5a5d25417790"
+    },
+    {
+      "label": "R18 status hides early-ACK due ownership",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "8c6ec4710c43733439926846b7224261bed7c3c674eaf542029ce5bc9b60ad77"
+    },
+    {
+      "label": "R19 zero request ID hidden",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "585643d909637a81f694a7f6c76a1b364fd020870a8641896ceb803cafe880d3"
+    },
+    {
+      "label": "R20 prepared status wrongly has countdown",
+      "path": "src/firmware_remote_actions.cpp",
+      "matches": 1,
+      "source_sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "mutant_sha256": "6add5fd294a19be5f349faff0d9a84049d39c80b636b78c0637a42c716431e0c"
+    },
+    {
+      "label": "R21 configured delay binding replaced by default",
+      "path": "src/firmware_commands.cpp",
+      "matches": 1,
+      "source_sha256": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+      "mutant_sha256": "c9f7223289680ae407f5e0182d85bac397a0d46e990f4dececc4e7c45726dc14"
+    }
+  ],
+  "source_preservation": {
+    "/home/staszek/MeshRoute/src/fw_main.cpp": "66f143fd695a9d926584ba7d73ac84c00edfc0e9fb96694ada519b0d43a5431f",
+    "/home/staszek/MeshRoute/src/firmware_commands.cpp": "f345655d9517bb508af8ab8b206851b2720d93d1eb74d3a6db74c266a147eb4e",
+    "/home/staszek/MeshRoute/src/device_ota.cpp": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+    "/home/staszek/MeshRoute/src/device_ota.h": "082873c9eab897eb2052c430ee99fbc1f554c065fdafa9109becef54ff4d39dd",
+    "/home/staszek/MeshRoute/src/firmware_action_effects.h": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd",
+    "/home/staszek/MeshRoute/tools/probe_inbox_verbs/probe_main.cpp": "a8f19f0a2e3d7634177b11e3721b8fc60f6518d6a0f58e9e8ecf85575664df70",
+    "/home/staszek/MeshRoute/tools/probe_inbox_verbs/fakes/Preferences.h": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+    "/home/staszek/MeshRoute/tools/probe_deferred_actions/run.py": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+    "/home/staszek/MeshRoute/tools/probe_deferred_actions/run.sh": "711be73a747053a419d4afbebc60e9fc8ffc2f7594e47c01aebb134f7bee2532",
+    "/home/staszek/MeshRoute/tools/probe_deferred_actions/probe.cpp": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+    "/home/staszek/MeshRoute/tools/probe_deferred_actions/controls.py": "7da153c37861dc6de1a50e97bb8dcbf924bf56eb4e293fa2f0c27101e2458ff1",
+    "/home/staszek/MeshRoute/tools/probe_deferred_actions/remote_rows.h": "e5a1ca04b62306853faafe6ebb72cf71b6ab7e90529d402d526702ab510a46ec",
+    "/home/staszek/MeshRoute/src/firmware_remote_actions.cpp": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+    "/home/staszek/MeshRoute/src/firmware_remote_actions.h": "5c74a418e9fdb9382d7e4fd07c0fd7084336cc9b3cb45b899f114f85adc6078f",
+    "/home/staszek/MeshRoute/tools/probe_inbox_verbs/remote_exec_rows.h": "e1b74d3789626aa1f2513073bf395cc801ca4b17e056ef01507eae983321c265"
+  },
+  "source_reader_controls": 4,
+  "placement_checks": 6,
+  "placement_controls": 6
+}

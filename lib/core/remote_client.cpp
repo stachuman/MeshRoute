@@ -12,14 +12,28 @@ namespace {
 constexpr uint8_t kOpcodeMask = 7, kAck = 8, kSealed = 16, kRolled = 32, kRediscovered = 64;
 constexpr uint8_t kLocalResult = 4, kRolloverResult = 5;
 constexpr uint32_t kOutcomeMs = protocol::e2e_ack_deadline_xl_ms;
-// ACK debt may retry; R-RA-44 leaves silent EXECUTE retry timing to 8b.
-constexpr uint32_t kAckRetryMs = protocol::cascade_requeue_base_ms;
+// R-RA-48: initial attempt plus the existing cascade's bounded retry burst.
+constexpr uint8_t kAckAttempts = protocol::cascade_requeue_max + 1;
 using Phase = RemoteClientPhase;
 void increment(uint16_t& n) { if (n != UINT16_MAX) ++n; }
 bool live(const RemoteClientPending& p) { return p.core.state != static_cast<uint8_t>(Phase::empty); }
 Phase phase(const RemoteClientPending& p) { return static_cast<Phase>(p.core.state); }
-void phase(RemoteClientPending& p, Phase s) { p.core.state = static_cast<uint8_t>(s); }
+void phase(RemoteClientPending& p, Phase s) {
+    if (phase(p) != s) { p.core.retries = 0; p.core.next_retry_ms = 0; }
+    p.core.state = static_cast<uint8_t>(s);
+}
 uint8_t opcode(const RemoteClientPending& p) { return p.core.flags & kOpcodeMask; }
+bool ack_requested(const RemoteClientPending& p) {
+    return opcode(p) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute) && (p.core.flags & kAck);
+}
+bool waiting(Phase p) {
+    return p == Phase::bootstrap_wait || p == Phase::response_wait || p == Phase::compare_wait || p == Phase::rollover_wait;
+}
+uint64_t wire_id(std::span<const uint8_t> body) {
+    if (body.size() < 9) return 0;
+    uint64_t id = 0; for (unsigned i = 0; i < 8; ++i) id |= uint64_t{body[1+i]} << (8*i);
+    return id;
+}
 bool authenticated(const RemoteClientPending& p) { return opcode(p) != static_cast<uint8_t>(RemoteCmdOpcode::open_execute); }
 bool equal_key(const uint8_t* a, const uint8_t* b) { return crypto_verify32(a, b) == 0; }
 bool same_pair(const RemoteClientSession& e, const RemoteClientPending& p) {
@@ -152,11 +166,10 @@ RemoteStatus seal_request(RemoteClientState& s, RemoteClientPending& p, std::spa
     }
     crypto_wipe(bytes, sizeof bytes); return st;
 }
-RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadminCarrier& carrier) {
+RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadminCarrier& carrier, uint32_t now) {
     auto state = phase(p);
     if (state != Phase::bootstrap_ready && state != Phase::compare_ready &&
         state != Phase::rollover_ready && state != Phase::request_ready) return RemoteClientError::none;
-    if (carrier.tx_queue_full()) { increment(s.counters.radio_enqueue_failure); return RemoteClientError::radio_enqueue_failed; }
     uint8_t control[kRemoteOverheadBootstrapRequest]{}; size_t len = 0;
     std::span<const uint8_t> bytes;
     const auto leg = remote_client_carrier(p.core.route, DATA_TYPE_REMOTE_CMD, p.core.carrier);
@@ -172,11 +185,18 @@ RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadm
         bytes = {control, len};
     }
     const auto sent = carrier.submit_request(p.core.route, {true, p.core.source_hash}, leg, bytes,
-                                            state == Phase::request_ready && (p.core.flags & kAck));
+                                            state == Phase::request_ready && ack_requested(p));
     crypto_wipe(control, sizeof control);
+    if (sent == RemoteClientSend::correlation_full) return RemoteClientError::correlation_full;
     if (sent != RemoteClientSend::queued) {
         increment(s.counters.radio_enqueue_failure);
         return sent == RemoteClientSend::unavailable ? RemoteClientError::carrier_unavailable : RemoteClientError::radio_enqueue_failed;
+    }
+    const auto retries = p.core.retries;
+    // An exact automatic execute replay starts its transcript at sequence zero as the target does.
+    if (retries && state == Phase::request_ready) if (auto* a = assembly(s, p.core.request_id)) {
+        free_chain(s, a->first_chunk); a->first_chunk = kRemoteClientNoChunk;
+        a->bytes_used = 0; a->next_seq = 0;
     }
     switch (state) {
         case Phase::bootstrap_ready: phase(p, Phase::bootstrap_wait); break;
@@ -185,6 +205,8 @@ RemoteClientError send_ready(RemoteClientState& s, RemoteClientPending& p, IRadm
         case Phase::request_ready: phase(p, Phase::response_wait); break;
         default: break; // state was checked above; every other phase sends nothing
     }
+    p.core.retries = retries;
+    p.core.next_retry_ms = retries ? 0 : now + remote_client_resend_ms(p.core.route);
     return RemoteClientError::none;
 }
 void epoch_update(RemoteClientState& s, RemoteClientPending& p, uint64_t epoch, uint8_t slot, uint32_t now) {
@@ -196,6 +218,13 @@ void epoch_update(RemoteClientState& s, RemoteClientPending& p, uint64_t epoch, 
     }
     e->admin_epoch = epoch; e->acl_slot = slot; e->last_used_ms = now; e->valid = 2;
     (void)remote_kdf_session(e->session_key, e->base_key, epoch);
+}
+RemoteClientSend send_ack(RemoteClientState& s, const RemoteClientAck& d, IRadminCarrier& carrier) {
+    if (carrier.tx_queue_full()) return RemoteClientSend::full;
+    const auto sent = carrier.submit_ack(d.route, {true, d.source_hash},
+        remote_client_carrier(d.route, DATA_TYPE_REMOTE_CMD, d.carrier), d.sealed_ack);
+    if (sent != RemoteClientSend::queued) increment(s.counters.radio_enqueue_failure);
+    return sent;
 }
 bool result(RemoteClientState& s, RemoteClientPending& p, uint16_t& head, uint8_t& domain, uint8_t& code, uint32_t& detail) {
     if (phase(p) != Phase::complete) return false;
@@ -305,7 +334,7 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
     const bool auth = in.opcode != RemoteCmdOpcode::open_execute;
     const bool execute = in.opcode == RemoteCmdOpcode::auth_execute || in.opcode == RemoteCmdOpcode::open_execute;
     if (in.carrier > 1 || in.target_pub.size() != 32 || !in.route.target_hash || in.route.hop_count > 3 || (auth && !in.identity) ||
-        (!auth && in.e2e_ack) || (!execute && in.opcode != RemoteCmdOpcode::safe_rollover && in.opcode != RemoteCmdOpcode::force_rollover))
+        (in.e2e_ack && in.opcode != RemoteCmdOpcode::auth_execute) || (!execute && in.opcode != RemoteCmdOpcode::safe_rollover && in.opcode != RemoteCmdOpcode::force_rollover))
         return {RemoteClientError::bad_args, 0};
     if (execute && (in.command.empty() || meshroute::console::validate_command_line(reinterpret_cast<const char*>(in.command.data()),
         in.command.size(), meshroute::console::remote_command_max_bytes) != meshroute::console::LineErr::ok)) return {RemoteClientError::bad_args, 0};
@@ -324,7 +353,7 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
     }
     size_t debt = 0; unsigned correlation = 0;
     for (const auto& d : s.ack_debt) debt += d.in_use != 0;
-    for (const auto& row : s.pending) if (live(row)) { debt += opcode(row) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute); correlation += !!(row.core.flags & kAck); }
+    for (const auto& row : s.pending) if (live(row)) { debt += opcode(row) == static_cast<uint8_t>(RemoteCmdOpcode::auth_execute); correlation += ack_requested(row); }
     if (in.opcode == RemoteCmdOpcode::auth_execute && debt >= 8) { increment(s.counters.local_result_pressure); return {RemoteClientError::ack_debt_full, 0}; }
     if (in.e2e_ack && correlation >= in.correlation_free) return {RemoteClientError::correlation_full, 0};
     uint64_t id = 0; auto error = new_id(s, id, entropy, ctx);
@@ -365,7 +394,13 @@ RemoteClientResult remote_client_start(RemoteClientState& s, const RemoteClientR
         if (auth) { p->core.admin_epoch = e->admin_epoch; p->core.acl_slot = e->acl_slot; }
         if (seal_request(s, *p, in.command) != RemoteStatus::ok) error = RemoteClientError::bad_args;
     }
-    if (error == RemoteClientError::none) error = send_ready(s, *p, carrier);
+    if (error == RemoteClientError::none && e && e->valid == 2) {
+        // R-RA-48: dormant debt gets one opportunity ahead of each new request to this target.
+        // Failure preserves the dormant debt; it does not restart the periodic burst.
+        for (const auto& d : s.ack_debt) if (d.in_use && d.retries >= kAckAttempts && equal_key(d.target_admin_pub, in.target_pub.data()))
+            (void)send_ack(s, d, carrier);
+    }
+    if (error == RemoteClientError::none) error = send_ready(s, *p, carrier, now);
     if (error != RemoteClientError::none) {
         release(s, *p); if (created) crypto_wipe(e, sizeof *e);
         return {error, 0};
@@ -403,7 +438,7 @@ RemoteClientError remote_client_retry(RemoteClientState& s, uint64_t id, uint32_
 void remote_client_receive(RemoteClientState& s, uint8_t type, std::span<const uint8_t> body,
                            RemoteSource sender, const RemoteCarrier& carrier, uint32_t now) {
     if (type != DATA_TYPE_REMOTE_RESP || body.size() < 9 || !sender.present) { increment(s.counters.unmatched_response); return; }
-    uint64_t id = 0; for (unsigned i = 0; i < 8; ++i) id |= uint64_t{body[1+i]} << (8*i);
+    const uint64_t id = wire_id(body);
     RemoteClientPending* p = nullptr;
     for (auto& row : s.pending) if (live(row) && (row.core.request_id == id ||
         ((phase(row) == Phase::bootstrap_wait || phase(row) == Phase::compare_wait || phase(row) == Phase::rollover_wait) && row.core.discovery_id == id))) { p = &row; break; }
@@ -509,6 +544,16 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
     remote_client_expire(s,now);
     for (auto& p : s.pending) if (live(p)) {
         auto state=phase(p);
+        if (waiting(state) && !p.core.retries && static_cast<int32_t>(now-p.core.next_retry_ms)>=0) {
+            switch (state) {
+                case Phase::bootstrap_wait: phase(p, Phase::bootstrap_ready); break;
+                case Phase::response_wait: phase(p, Phase::request_ready); break;
+                case Phase::compare_wait: phase(p, Phase::compare_ready); break;
+                case Phase::rollover_wait: phase(p, Phase::rollover_ready); break;
+                default: break; // waiting() admits only these four states
+            }
+            p.core.retries = 1; // one resend; pressure keeps this ready until checked admission
+        }
         if ((state==Phase::compare_ready || state==Phase::rollover_ready) && !p.core.discovery_id) {
             auto error=new_id(s,p.core.discovery_id,entropy,ctx);
             if (error!=RemoteClientError::none) local_complete(s,p,error,now);
@@ -525,7 +570,7 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
                 if (seal_request(s,p,{p.sealed,p.core.sealed_len})!=RemoteStatus::ok) local_complete(s,p,RemoteClientError::authentication_failed,now);
             }
         }
-        const auto error=send_ready(s,p,carrier);
+        const auto error=send_ready(s,p,carrier,now);
         if (error==RemoteClientError::carrier_unavailable || error==RemoteClientError::authentication_failed) local_complete(s,p,error,now);
         if (phase(p)!=Phase::complete) continue;
         const auto transport=static_cast<RemoteLocalTransport>(p.core.local_transport);
@@ -541,12 +586,13 @@ void remote_client_service(RemoteClientState& s, uint32_t now, RemoteEntropyFn e
         (void)deliver(s,p,transport,now,out);
     }
     // Bounded round: one attempt per due debt; a full queue preserves every row and exact ACK byte.
-    for (auto& d:s.ack_debt) if (d.in_use && static_cast<int32_t>(now-d.next_retry_ms)>=0) {
+    for (auto& d:s.ack_debt) if (d.in_use && d.retries < kAckAttempts && static_cast<int32_t>(now-d.next_retry_ms)>=0) {
         if (carrier.tx_queue_full()) break;
-        const auto sent=carrier.submit_ack(d.route,{true,d.source_hash},remote_client_carrier(d.route,DATA_TYPE_REMOTE_CMD,d.carrier),d.sealed_ack);
-        if (sent!=RemoteClientSend::queued) increment(s.counters.radio_enqueue_failure);
-        if (d.retries!=UINT8_MAX) ++d.retries;
-        d.next_retry_ms=now+kAckRetryMs; // ownership is not target receipt; retain until authenticated epoch change
+        if (send_ack(s,d,carrier) != RemoteClientSend::queued) continue; // failed attempts consume no budget
+        ++d.retries;
+        const uint32_t delay = std::min(uint32_t{protocol::cascade_requeue_base_ms} << (d.retries-1),
+                                        uint32_t{protocol::cascade_requeue_backoff_cap_ms});
+        d.next_retry_ms = now + delay; // after the final retry this edge is dormant, not a beacon
     }
 }
 RemoteClientError remote_client_show(RemoteClientState& s,uint64_t id,RemoteLocalTransport t,uint32_t now,IRemoteLocalDelivery& out) {
@@ -570,6 +616,14 @@ uint32_t remote_client_next_expiry(const RemoteClientState& s,uint32_t now) {
     uint32_t next=UINT32_MAX;
     for (const auto& p:s.pending) if (live(p) && phase(p)!=Phase::complete) {
         const int32_t left=static_cast<int32_t>(p.core.outcome_deadline_ms-now); next=std::min(next,left>0?static_cast<uint32_t>(left):0u);
+        if (waiting(phase(p)) && !p.core.retries) {
+            const int32_t retry = static_cast<int32_t>(p.core.next_retry_ms-now);
+            next=std::min(next,retry>0?static_cast<uint32_t>(retry):0u);
+        }
+    }
+    for (const auto& d:s.ack_debt) if (d.in_use && d.retries < kAckAttempts) {
+        const int32_t retry = static_cast<int32_t>(d.next_retry_ms-now);
+        next=std::min(next,retry>0?static_cast<uint32_t>(retry):0u);
     }
     for (const auto& e:s.sessions) if (e.valid && !session_busy(s,e)) {
         bool debt=false; for (const auto& d:s.ack_debt) if (d.in_use && d.credential_slot==e.credential_slot && equal_key(d.target_admin_pub,e.target_admin_pub)) debt=true;
@@ -597,6 +651,35 @@ bool remote_client_target_in_use(const RemoteClientState& s,uint8_t slot) {
     return false;
 }
 uint8_t remote_client_pending_count(const RemoteClientState& s) { uint8_t n=0; for (const auto& p:s.pending) n+=live(p); return n; }
+uint8_t remote_client_ack_debt_count(const RemoteClientState& s) { uint8_t n=0; for (const auto& d:s.ack_debt) n+=d.in_use!=0; return n; }
+uint32_t remote_client_resend_ms(const RemoteClientRoute& route) {
+    return route.hop_count ? protocol::gateway_send_giveup_ms : protocol::e2e_ack_deadline_ms;
+}
+void remote_client_carrier_sent(RemoteClientState& s, std::span<const uint8_t> body, uint16_t ctr) {
+    const auto id = wire_id(body);
+    if (!id) return;
+    for (auto& p : s.pending) if (live(p) && (p.core.request_id == id || p.core.discovery_id == id)) {
+        p.core.carrier_ctr = ctr; return;
+    }
+}
+uint64_t remote_client_observe_ack(const RemoteClientState& s, uint16_t ctr, bool timed_out,
+                                   uint8_t push_dst, uint32_t push_sender_hash, uint32_t* target_hash_out) {
+    if (target_hash_out) *target_hash_out = 0;
+    if (!ctr || (timed_out && push_dst != 0)) return 0;
+    for (const auto& p : s.pending) if (live(p) && ack_requested(p) && p.core.carrier_ctr == ctr) {
+        if (!timed_out && push_sender_hash != (p.core.route.hop_count ? p.core.route.target_hash : 0)) continue;
+        if (target_hash_out) *target_hash_out = p.core.route.target_hash;
+        return p.core.request_id;
+    }
+    return 0;
+}
+uint64_t remote_client_observe_custody(const RemoteClientState& s, uint16_t ctr, uint8_t type,
+                                     uint8_t kind, uint32_t target) {
+    if (!ctr || type != DATA_TYPE_REMOTE_CMD || kind != static_cast<uint8_t>(CustodyTranslatedTargetKind::key_hash)) return 0;
+    for (const auto& p : s.pending) if (live(p) && ack_requested(p) && p.core.carrier_ctr == ctr && p.core.route.target_hash == target)
+        return p.core.request_id;
+    return 0;
+}
 uint8_t remote_client_retained_count(const RemoteClientState& s) {
     uint8_t n=0; for (const auto& r:s.retained) n+=r.in_use==2;
     for (const auto& a:s.assemblies) n+=a.in_use && a.terminal_seen;
