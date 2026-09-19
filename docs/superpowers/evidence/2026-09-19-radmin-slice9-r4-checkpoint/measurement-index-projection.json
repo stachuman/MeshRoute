@@ -1,0 +1,38 @@
+[
+  {
+    "snapshot": "final-boards",
+    "external_index": "/tmp/mr-s9-r4-j37ybea_/final-boards-measurement.index",
+    "deleted": [
+      "lib/console/console_binary.cpp",
+      "lib/console/console_binary.h",
+      "lib/core/admin_auth.cpp",
+      "lib/core/admin_auth.h",
+      "src/firmware_remote.cpp",
+      "src/firmware_remote.h",
+      "test/test_admin_auth.cpp",
+      "test/test_console_binary.cpp"
+    ],
+    "original_index_sha256": "af17f6cbdd43b542880d04ab61b88612ac32d034ab2eafb8e1c7f3434f13589d",
+    "original_index_unchanged": true,
+    "live_inputs": 3500,
+    "index_sha256": "46d7db45842025e3dac4bdd0ee09873ff2404fd69231989a240da507661e7a58"
+  },
+  {
+    "snapshot": "final-gate",
+    "external_index": "/tmp/mr-s9-r4-j37ybea_/final-gate-measurement.index",
+    "deleted": [
+      "lib/console/console_binary.cpp",
+      "lib/console/console_binary.h",
+      "lib/core/admin_auth.cpp",
+      "lib/core/admin_auth.h",
+      "src/firmware_remote.cpp",
+      "src/firmware_remote.h",
+      "test/test_admin_auth.cpp",
+      "test/test_console_binary.cpp"
+    ],
+    "original_index_sha256": "a6bdc7665135d0afe620bac3c3456c48176362abbab261a627ef2c04a3213b29",
+    "original_index_unchanged": true,
+    "live_inputs": 3500,
+    "index_sha256": "e79eadc6df811a6fd5745791226c1ff3728e0cdb054d24bddf1e94373e691fa7"
+  }
+]

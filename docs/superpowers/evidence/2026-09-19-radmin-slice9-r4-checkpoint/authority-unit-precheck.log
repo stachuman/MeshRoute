@@ -1,0 +1,28 @@
+test_bare_mentions_do_not_replace_the_positional_table (test_check_command_authority.TestCommandAuthority.test_bare_mentions_do_not_replace_the_positional_table) ... ok
+test_disruptive_flag_disagreement_refuses (test_check_command_authority.TestCommandAuthority.test_disruptive_flag_disagreement_refuses) ... ok
+test_empty_production_initializer_refuses (test_check_command_authority.TestCommandAuthority.test_empty_production_initializer_refuses) ... ok
+test_empty_table_refuses (test_check_command_authority.TestCommandAuthority.test_empty_table_refuses) ... ok
+test_header_duplicate_refuses (test_check_command_authority.TestCommandAuthority.test_header_duplicate_refuses) ... ok
+test_legacy_surface_is_not_a_second_semantic_class (test_check_command_authority.TestCommandAuthority.test_legacy_surface_is_not_a_second_semantic_class) ... FAIL
+test_six_controls_reject_their_own_named_defect (test_check_command_authority.TestCommandAuthority.test_six_controls_reject_their_own_named_defect) ... ok
+test_three_real_artifacts_agree (test_check_command_authority.TestCommandAuthority.test_three_real_artifacts_agree) ... ok
+
+======================================================================
+FAIL: test_legacy_surface_is_not_a_second_semantic_class (test_check_command_authority.TestCommandAuthority.test_legacy_surface_is_not_a_second_semantic_class)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/test_check_command_authority.py", line 44, in test_legacy_surface_is_not_a_second_semantic_class
+    self.assertEqual({"open", "open · surface:transport", "open · surface:legacy"}, {r.authority for r in status})
+AssertionError: Items in the first set but not the second:
+'open · surface:legacy'
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.048s
+
+FAILED (failures=1)
+RED: missing row -> missing ruled row: ('acl', '—')
+RED: duplicate row -> duplicate semantic authority row: ('acl', '—')
+RED: unclassified row -> unclassified or malformed authority table row: | `acl` | — | unclassified | no | [§G](../plans/2026-09-06-radmin-authority-classification-proposal.md#g-target-side-remote-admin-stores-slice-3--the-physical-class) |
+RED: table/header disagreement -> table/header disagreement: ('acl', '—')
+RED: orphan row -> orphan ruled row: ('orphan-probe', '—')
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_help.h:161

@@ -247,8 +247,8 @@ mixed-firmware consequence. (`AUTHORITATIVE` remains folded into the H-answer co
 | `0x94` | `MOBILE_PUBKEY_PUSH` | **RETIRED 2026-07-18 (§S6)** — key custody rides the P-probe `HAS_PUBKEY` block; the handler is deleted. The code stays reserved (historically ordinal 12), do not reuse |
 | `0x95` | `MOBILE_H_ANSWER_PUBKEY` | standard plaintext-unicast `[origin 1]`, then mobile hash-bind `[target_layer][home][key_hash32][epoch]` (7 B) ‖ `ed_pub[32]` ‖ `[name_len 1][name 0..32]`; 41..73-B inner, 54..86-B complete DATA. Cache `peer_key(M)`+`mobile_home(M→home)`, **never** id_bind the local id |
 | `0x96` | `MOBILE_KEY_FORWARD` | `[requester_ed_pub 32][name_len u8][name ≤32]` — home→hosted-mobile 1-hop last-mile (addr_len=1, plaintext, no DST_HASH/SOURCE_HASH): a WANT_PUBKEY requester's key, so the mobile can open that requester's sealed DMs (§S3) |
-| `0xA0` | `REMOTE_CMD` | OTA remote-diagnostics: a console query keyword (plaintext inner) |
-| `0xA1` | `REMOTE_RESP` | OTA remote-diagnostics: the response text (plaintext inner) |
+| `0xA0` | `REMOTE_CMD` | Remote-admin v2 RPC body — see the REMOTE_CMD / REMOTE_RESP subsection |
+| `0xA1` | `REMOTE_RESP` | Remote-admin v2 RPC body — see the REMOTE_CMD / REMOTE_RESP subsection |
 | `0xA2` | `TEAM_KEY_GRANT` | sealed team-key transfer, explicitly consumed by the grant handler — **MUST travel sealed** (the sealed-only check is type-specific, not range-derived) — filled 2026-08-29, previously missing from this table |
 
 *(code `0x00` = the untyped DM — `APP=0` means no TYPE byte. Historical ordinals 1..19 appear only in fenced history.)*
@@ -301,6 +301,172 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque (4 B, or the 8-B nonce-seed under CRYPTED).
 
 ---
+
+#### REMOTE_CMD / REMOTE_RESP — remote-admin v2 RPC bodies
+
+The following offsets start at the RPC body, after the unicast inner prefixes and any mobile enclosed-TYPE
+byte. `REMOTE_CMD` is `0xA0`; `REMOTE_RESP` is `0xA1`. Integer fields are little-endian. `N` is the variable
+application-byte count; tags are 16 bytes. Source: `lib/core/remote_codec.h` (`kRemoteOverhead*`, result enums)
+and `remote_codec.cpp` (`remote_layout`, `write_header`, `remote_encode`, `remote_decode`).
+
+`ctl` bits **7..4** hold the opcode; bits **3..0** hold ACL slot **0..9**, or sentinel **F**. Slots A..E and
+opcodes 6..F are reserved in both directions. The legal twelve direction/opcode pairs are:
+
+| Opcode | CMD (`0xA0`) | Slot | RESP (`0xA1`) | Slot |
+| --- | --- | --- | --- | --- |
+| `0` | AUTH_EXECUTE | 0..9 | OUTPUT | 0..9 authenticated; F open |
+| `1` | OPEN_EXECUTE | F | TERMINAL | 0..9 authenticated; F open |
+| `2` | BOOTSTRAP | F | BOOTSTRAP | 0..9 |
+| `3` | RESPONSE_ACK | 0..9 | ROLLOVER_RESULT | 0..9 |
+| `4` | SAFE_ROLLOVER | 0..9 | PROTOCOL_ERROR | 0..9 authenticated; F open |
+| `5` | FORCE_ROLLOVER | 0..9 | ADMISSION_RESULT | 0..9 |
+
+**Authenticated execute — `kRemoteOverheadAuthExecute = 25`, total `25 + N`.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x0s` |
+| 1 | 8 | request_id |
+| 9 | N | encrypted command |
+| 9+N | 16 | tag |
+
+**Open execute — `kRemoteOverheadOpenExecute = 9`, total `9 + N`.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x1F` |
+| 1 | 8 | request_id |
+| 9 | N | plaintext command; no tag |
+
+**Bootstrap request — `kRemoteOverheadBootstrapRequest = 57`, exact length 57.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x2F` |
+| 1 | 8 | request_id |
+| 9 | 32 | controller Ed25519 public key (clear) |
+| 41 | 16 | tag; empty application plaintext |
+
+**Session control — `kRemoteOverheadSessionControl = 25`, exact length 25.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x3s` ACK, `0x4s` SAFE, or `0x5s` FORCE |
+| 1 | 8 | request_id |
+| 9 | 16 | tag; empty application plaintext |
+
+**Authenticated OUTPUT / TERMINAL / PROTOCOL_ERROR — `kRemoteOverheadAuthResponse = 26`, total `26 + N`.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x0s`, `0x1s`, or `0x4s` |
+| 1 | 8 | request_id |
+| 9 | 1 | response_seq |
+| 10 | N | encrypted application bytes |
+| 10+N | 16 | tag |
+
+**Open OUTPUT / TERMINAL / PROTOCOL_ERROR — `kRemoteOverheadOpenResponse = 10`, total `10 + N`.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x0F`, `0x1F`, or `0x4F` |
+| 1 | 8 | request_id |
+| 9 | 1 | response_seq |
+| 10 | N | plaintext application bytes; no tag |
+
+**Bootstrap response — `kRemoteOverheadBootstrapResponse = 33`, exact length 33.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x2s` |
+| 1 | 8 | request_id |
+| 9 | 8 | admin_epoch (clear) |
+| 17 | 16 | tag; empty application plaintext |
+
+**Rollover result — `kRemoteOverheadRolloverResult = 34`, exact length 34.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x3s` |
+| 1 | 8 | request_id |
+| 9 | 8 | admin_epoch (clear) |
+| 17 | 1 | abandoned_count (clear) |
+| 18 | 16 | tag; empty application plaintext |
+
+**TERMINAL application plaintext**, inside either response envelope:
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | result code |
+| 1 | N−1 | detail bytes, if any |
+
+| Code | Meaning | Code | Meaning | Code | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `00` | completed | `03` | refused | `06` | session_full |
+| `01` | scheduled | `04` | output_truncated | `07` | session_busy |
+| `02` | unknown_command | `05` | internal_error | `08` | action_busy |
+
+`09..FF` are unallocated. A scheduled terminal carries exactly `[01][activation_ms u32le]` as its five
+application bytes. The codec preserves terminal detail bytes after the result code. Authenticated
+PROTOCOL_ERROR has its own code domain: `00 = already_acknowledged`; it is not a TERMINAL code. Open
+PROTOCOL_ERROR has no result-code namespace allocated by this codec.
+
+**Admission result — `kRemoteOverheadAdmissionResult = 28`, exact length 28.**
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 1 | ctl = `0x5s` |
+| 1 | 8 | request_id |
+| 9 | 1 | request_ctl (clear; low nibble must equal s) |
+| 10 | 1 | admission_code (clear) |
+| 11 | 1 | admission_detail (clear) |
+| 12 | 16 | tag; empty application plaintext |
+
+| admission_code | Name | Legal request opcode | Detail |
+| --- | --- | --- | --- |
+| `00` | session_full | AUTH_EXECUTE | 0 |
+| `01` | ingress_full | AUTH_EXECUTE / SAFE / FORCE | 0 |
+| `02` | session_busy | SAFE | nonzero pending count |
+| `03` | executing | SAFE / FORCE | 0 |
+| `04` | preparation_failed | SAFE / FORCE | 0 |
+
+Other tuple combinations are invalid. These three clear bytes occur in both the authenticated header and
+nonce preimage; they are not TERMINAL plaintext.
+
+**Keys, AAD and nonce bytes.** Labels are literal ASCII without a trailing NUL:
+`MeshRoute remote-admin v2 base` (30 B), `MeshRoute remote-admin v2 session` (33 B), and
+`MeshRoute remote-admin v2 nonce` (31 B). With `H = BLAKE2b-512`, concatenation `‖`, and byte truncation:
+
+- `base_key = H(base_label ‖ ECDH_shared[32] ‖ controller_ed_pub[32] ‖ target_admin_ed_pub[32])[0:32]`.
+- `session_key = H(session_label ‖ base_key[32] ‖ admin_epoch_le64)[0:32]`.
+- `nonce = H(nonce_label ‖ selected_key[32] ‖ outer_type[1] ‖ ctl[1] ‖ request_id_le64 ‖ seq[1] ‖ controller_source_hash_le32 ‖ suffix)[0:24]`.
+- `AAD = outer_type[1] ‖ exact_clear_RPC_header ‖ controller_source_hash_le32`.
+
+The selected key is the base key for bootstrap request/response and rollover result; all other authenticated
+bodies select the session key. `seq` is the response sequence when that field is present, otherwise zero.
+`suffix` is `admin_epoch_le64` for bootstrap response and rollover result, or
+`request_ctl ‖ admission_code ‖ admission_detail` for admission result; it is empty in other domains.
+The clear header is precisely the bytes before application ciphertext/tag in the tables above. The AEAD is
+XChaCha20-Poly1305. Open bodies carry neither nonce nor tag. Outer mutable relay/next-hop fields are absent
+from AAD and nonce. Source: `remote_kdf_base`, `remote_kdf_session`, `remote_nonce`, `remote_aad`.
+
+**Carrier capacity (`remote_body_cap`, bytes of complete RPC body).** Every carrier has SOURCE_HASH. Four
+DST_HASH bytes are reserved even on a leg that omits that field. The exact bound is
+`min(241, data_inner_cap(flags, outer_type, 255)) − 9 − (cross_layer ? 2 + depth : 0) − (wrapper ? 1 : 0)`.
+For unencrypted outer DATA (RPC authentication is independent):
+
+| Carrier | Path depth | RPC-body cap |
+| --- | --- | --- |
+| Ordinary same-layer / hosted-mobile last mile | 0 | 232 |
+| MOBILE_SEND wrapper, same layer | 0 | 231 |
+| Ordinary cross-layer | 1 / 2 / 3 / 4 | 229 / 228 / 227 / 226 |
+| MOBILE_SEND wrapper, destination path | 1 / 2 / 3 | 228 / 227 / 226 |
+
+A wrapper's outer type is MOBILE_SEND and its enclosed byte is REMOTE_CMD or REMOTE_RESP. Wrapper destination
+depth 4 is invalid; the home adds its own layer. `cursor < depth`; same-layer depth/cursor are zero.
+Outer CRYPTED requires DST_HASH and uses the same formula with its smaller air bound. A variable application's
+cap is this body cap minus the relevant envelope overhead (`remote_application_cap`); fixed bodies have zero
+application capacity. Sources: `remote_body_cap`, `data_inner_cap`, `pack_unicast_inner`.
 
 ## ACK — acknowledgement · cmd 0x4 · 3 B
 

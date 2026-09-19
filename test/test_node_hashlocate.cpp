@@ -2694,7 +2694,7 @@ TEST_CASE("§AB3 view — it is a PURE READ: walking the book mutates no table a
 // ✔ §AB3's FINDING, FIXED by §idbind-loop (2026-07-31) and pinned in BOTH directions here. Node::key_hash_for_id
 // (node.h) used to loop a `uint8_t` counter against the 256-entry cap_id_bind, so `i < 256` was always true and **a
 // MISS never returned** — UB in a const, side-effect-free function, and on a device a hang (watchdog reset) at both of
-// its call sites (src/firmware_remote.cpp's `rcmd` seal, src/fw_main.cpp's sealed-rcmd-response open), both reachable
+// its former call sites (deleted in Slice 9: src/firmware_remote.cpp's `rcmd` seal, src/fw_main.cpp's sealed-rcmd-response open), both reachable
 // after `unlock`. The fix — `uint16_t i < _active->_id_bind_n` — closed a SECOND defect in the same bound: the old scan
 // covered the whole array, so it could answer out of the stale tail the compacting removers leave behind.
 // ★ The miss assertion below is the one §AB3 was forbidden to write (it spun the suite 16 minutes with no output). It

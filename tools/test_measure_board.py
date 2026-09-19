@@ -181,6 +181,7 @@ def qualification_manifest() -> dict:
             "git_head": "head",
             "git_status_sha256": "status",
             "file_count": 4,
+            "deleted_files": [],
             "tree_sha256": "source",
         },
         "paths": {
@@ -235,6 +236,7 @@ EXPECTED_QUALIFICATION_FIELDS = (
     "source.git_head",
     "source.git_status_sha256",
     "source.file_count",
+    "source.deleted_files",
     "source.tree_sha256",
     "paths.project_root",
     "paths.build_root",
@@ -318,6 +320,40 @@ def mutate_nested(value: dict, dotted: str) -> None:
 class MeasureBoardTests(unittest.TestCase):
     def test_source_identity_structure(self) -> None:
         self.assertEqual(probe_build_identity.check_source(), 13)
+        with temporary_repository() as repo, mock.patch.object(mb, "ROOT", repo):
+            tracked = repo / "tracked.cpp"
+            original = tracked.read_bytes()
+            before = mb.source_snapshot()
+            self.assertEqual(before["deleted_files"], [])
+            tracked.unlink()
+            deleted = mb.source_snapshot()
+            self.assertEqual(deleted["deleted_files"], ["tracked.cpp"])
+            self.assertEqual(deleted["file_count"], before["file_count"])
+            self.assertNotEqual(deleted["tree_sha256"], before["tree_sha256"])
+            self.assertEqual(mb.source_snapshot(), deleted)
+            tracked.write_bytes(b"")
+            self.assertNotEqual(mb.source_snapshot()["tree_sha256"], deleted["tree_sha256"])
+            tracked.write_bytes(original)
+            self.assertEqual(mb.source_snapshot()["tree_sha256"], before["tree_sha256"])
+
+            # Real Git lists the input; it then vanishes before the hasher reads it.
+            # Neither an untracked input nor a newly vanished tracked file has
+            # the previously captured ` D` authority. Both must fail loudly.
+            real_run = subprocess.run
+            for name in ("untracked.cpp", "tracked.cpp"):
+                with self.subTest(vanished=name):
+                    path = repo / name
+                    path.write_bytes(original)
+
+                    def disappear(args, **kwargs):
+                        result = real_run(args, **kwargs)
+                        if args[:3] == ["git", "ls-files", "-co"]:
+                            path.unlink()
+                        return result
+
+                    with mock.patch.object(mb.subprocess, "run", side_effect=disappear):
+                        with self.assertRaisesRegex(mb.MeasureError, "source input disappeared while hashing: " + name):
+                            mb.source_snapshot()
 
     def test_measurement_state_isolated_from_normal_pio(self) -> None:
         environment = mb.measurement_environment("gateway")

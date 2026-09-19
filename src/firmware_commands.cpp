@@ -18,7 +18,6 @@
 #include <cstring>             // memcpy
 #include <cstdlib>             // strtol/strtoul (route/testsched/lookup parsing)
 #include "firmware_config.h"   // dispatch re-fans-out to mrfw:: config verbs (gateway/join/create/team/mobile/leave/cfg_set)
-#include "firmware_remote.h"   // dispatch: rcmd + (MR_FEAT_REMOTE_MGMT) password/unlock/lock
 #include "firmware_inbox.h"    // dispatch/ble: pull_inbox / mark_read / del_msg
 #include "console_sink.h"      // mrcon (inline, ODR-merged). ⛔ V1 CORRECTION (§0b/[[B279]]): this note read
                               //   "do_regen + handlers print through it" — WITHDRAWN. `do_regen` and every
@@ -1462,7 +1461,7 @@ static void handle_whoami(Print& out) {
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
 // then serialized via write_limits() into s_inbox_jb (declared just above) — same pattern as the other JSON dumps. A
-// local-only read (no OTA change): NOT in the rcmd remote allow-list. Mirrors the BLE `limits` handler.
+// local read through the shared dispatcher; mirrors the BLE `limits` handler.
 static void dump_limits(Print& out) {
     const auto s = g_node.limits_snapshot();
     meshroute::console::LimitsFields L;
@@ -1545,7 +1544,6 @@ static void handle_teststatus(Print& out) {
     out.print(F(" state="));    out.println(state);
 }
 
-// handle_password moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment B; MR_FEAT_REMOTE_MGMT-gated); `using mrfw::handle_password` above.
 
 bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {   // §command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`
 #if MR_FEAT_RADMIN_CLIENT
@@ -1566,7 +1564,6 @@ bool dispatch(const char* line, size_t len, Print& out, CommandTransport transpo
     if (len == 7 && !strncmp(line, "version", 7))  { print_banner(out); return true; }
     if (len == 6 && !strncmp(line, "faults", 6))   { fw_faults_dump(out);  return true; }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) { fw_prep_restart(out); return true; }
-    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) { handle_rcmd(line + 4, out); return true; }
     if (len == 9 && !strncmp(line, "testclear", 9))    { g_sched.clear(); out.println(F("> testsched cleared")); return true; }
     if (len == 10 && !strncmp(line, "teststatus", 10)) { handle_teststatus(out); return true; }
     if ((len == 8 || (len > 8 && line[8] == ' ')) && !strncmp(line, "testsend", 8)) {   // strtok needs a mutable copy
@@ -1628,7 +1625,7 @@ bool dispatch(const char* line, size_t len, Print& out, CommandTransport transpo
     //    `MR_FEAT_OLED` the arm is ABSENT, so a `ui …` line falls through `dispatch()`'s `return false` to the
     //    caller's UNSUPPORTED-VERB answer — `> parse error` on USB (`fw_main.cpp` service_console) and
     //    `{"err":"parse","msg":"unknown_cmd"}` over BLE (ble_dispatch_line's write_err, console_json.cpp:414). That is
-    //    EXACTLY how `mobile ` behaves off `MR_FEAT_MOBILE` and `password`/`unlock`/`lock` off `MR_FEAT_REMOTE_MGMT`
+    //    EXACTLY how `mobile ` behaves off `MR_FEAT_MOBILE` and `password`/`unlock`/`lock` off `MR_FEAT_RADMIN_ACCEPT`
     //    — two precedents inside this very function — and `help` no longer advertises the family either, so the two
     //    surfaces agree. ⛔ LOUD, NEVER SILENT: the console names the refusal on both transports.
     // ⛔ THE `> err gateway_build (…)` SHAPE 15 LINES UP WAS CONSIDERED AND REJECTED: its lexeme names a
@@ -1676,11 +1673,6 @@ bool dispatch(const char* line, size_t len, Print& out, CommandTransport transpo
     // §CUSTODY-D: the inbox-only clear, on THIS one dispatch so serial and BLE both reach it. ⛔ Shadows nothing —
     // `joinprofile` is the only other 11-byte verb and does not match this text.
     if ((len == 11 || (len > 11 && line[11] == ' ')) && !strncmp(line, "clear_inbox", 11)) { handle_clear_inbox(line + 11, len - 11, out); return true; }
-#if MR_FEAT_REMOTE_MGMT
-    if (len > 9 && !strncmp(line, "password ", 9)) { handle_password(line + 9, out); return true; }   // §remote-mgmt: LOCAL-only admin credential set
-    if (len > 7 && !strncmp(line, "unlock ", 7))   { handle_unlock(line + 7, out);   return true; }   // admin-issue: derive the admin key into RAM
-    if (len == 4 && !strncmp(line, "lock", 4))     { handle_lock(out);               return true; }   // wipe the unlocked admin key
-#endif
     return false;
 }
 

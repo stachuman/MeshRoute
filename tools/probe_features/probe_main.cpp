@@ -39,7 +39,7 @@
 #endif
 // The ruled expectations. Absent ones are a runner defect, never a silently-skipped assertion (C2).
 #if !defined(EXP_TEAM) || !defined(EXP_MOBILE) || !defined(EXP_MOBILE_HOST) || !defined(EXP_GATEWAY) \
- || !defined(EXP_OLED) || !defined(EXP_REMOTE_MGMT) || !defined(EXP_RADMIN_CLIENT) || !defined(EXP_RADMIN_ACCEPT)
+ || !defined(EXP_OLED) || !defined(EXP_RADMIN_CLIENT) || !defined(EXP_RADMIN_ACCEPT)
 #  error "probe_features: the runner must supply all eight EXP_* expectations"
 #endif
 
@@ -107,7 +107,6 @@ int main(int argc, char** argv)
     check("MR_FEAT_MOBILE_HOST",   MR_FEAT_MOBILE_HOST,   EXP_MOBILE_HOST);
     check("MR_FEAT_GATEWAY",       MR_FEAT_GATEWAY,       EXP_GATEWAY);
     check("MR_FEAT_OLED",          MR_FEAT_OLED,          EXP_OLED);
-    check("MR_FEAT_REMOTE_MGMT",   MR_FEAT_REMOTE_MGMT,   EXP_REMOTE_MGMT);
 #ifndef PROBE_DROP_CHECK
     // ... and the two this slice adds. ⓘ PROBE_DROP_CHECK is the runner's OWN sabotage switch (MR_PROBE_DROP=check):
     //     dropping an assertion must move the check pin and FAIL the gate, which the wrapper executes.
@@ -115,10 +114,10 @@ int main(int argc, char** argv)
 #endif
     check("MR_FEAT_RADMIN_ACCEPT", MR_FEAT_RADMIN_ACCEPT, EXP_RADMIN_ACCEPT);
 
-    std::printf("   derived: %s TEAM=%d MOBILE=%d MOBILE_HOST=%d GATEWAY=%d OLED=%d REMOTE_MGMT=%d "
+    std::printf("   derived: %s TEAM=%d MOBILE=%d MOBILE_HOST=%d GATEWAY=%d OLED=%d "
                 "RADMIN_CLIENT=%d RADMIN_ACCEPT=%d\n",
                 PROBE_CELL, MR_FEAT_TEAM, MR_FEAT_MOBILE, MR_FEAT_MOBILE_HOST, MR_FEAT_GATEWAY,
-                MR_FEAT_OLED, MR_FEAT_REMOTE_MGMT, MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT);
+                MR_FEAT_OLED, MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT);
     std::printf("   cell %s: %d checks, %d failed\n", PROBE_CELL, g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

@@ -7,7 +7,7 @@
 
 namespace mrfw {
 
-enum class CommandClass : uint8_t { open, operator_, owner, physical, controller_local, legacy, local_only };
+enum class CommandClass : uint8_t { open, operator_, owner, physical, controller_local, local_only };
 struct CommandPolicy {
     const char* verb;
     const char* subverb;
@@ -134,7 +134,6 @@ inline constexpr CommandPolicy kCommandPolicy[] = {
     {"joinprofile", "set name", CommandClass::operator_, false},
     {"leave", "—", CommandClass::operator_, true},
     {"limits", "—", CommandClass::operator_, false},
-    {"lock", "—", CommandClass::legacy, false},
     {"lookup", "—", CommandClass::operator_, false},
     {"mark_read", "—", CommandClass::operator_, false},
     {"mobile", "—", CommandClass::operator_, false},
@@ -146,17 +145,13 @@ inline constexpr CommandPolicy kCommandPolicy[] = {
     {"mobile", "unregister", CommandClass::operator_, false},
     {"nameof", "—", CommandClass::operator_, false},
     {"ota", "—", CommandClass::owner, true},
-    {"password", "—", CommandClass::legacy, false},
-    {"password rotate", "—", CommandClass::legacy, false},
     {"peerkey", "—", CommandClass::owner, false},
     {"peername", "—", CommandClass::operator_, false},
     {"peers", "—", CommandClass::operator_, false},
     {"peers", "all", CommandClass::operator_, false},
     {"prep-restart", "—", CommandClass::operator_, true},
     {"pull_inbox", "—", CommandClass::operator_, false},
-    {"rcmd", "—", CommandClass::legacy, false},
     {"reboot", "—", CommandClass::operator_, true},
-    {"reboot (alias: prep-restart)", "—", CommandClass::operator_, true},
     {"regen", "—", CommandClass::owner, true},
     {"remote", "—", CommandClass::controller_local, false},
     {"remote-ack", "—", CommandClass::controller_local, false},
@@ -198,7 +193,6 @@ inline constexpr CommandPolicy kCommandPolicy[] = {
     {"ui", "preset reset", CommandClass::operator_, false},
     {"ui", "preset reset all", CommandClass::operator_, false},
     {"ui", "preset set", CommandClass::operator_, false},
-    {"unlock", "—", CommandClass::legacy, false},
     {"version", "—", CommandClass::operator_, false},
     {"whoami", "—", CommandClass::operator_, false},
 };

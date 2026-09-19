@@ -1808,7 +1808,7 @@ CmdResult Node::on_command(const Command& c) {
             // refusal spelled as a `ParseErr` would exist for typed console lines only and be MISSING for the other two
             // — the exact sim-vs-metal asymmetry §b22 had just finished closing in the other direction.
             // ⚠ V1, corrected while writing this: it is NOT true that "the companion's binary transport builds a Command
-            // directly". `lib/console/console_binary.*` is status/config/limits TLV only and carries no send verb at all;
+            // directly". The former binary status/config/limits TLV codec (deleted in Slice 9) carried no send verb;
             // the app sends by writing a console LINE over BLE-NUS into the same `dispatch()` the serial port uses
             // (§command-sink-consolidation). So the app DOES pass the parser — the argument rests on `testch` and the
             // sim, which is weaker than it first looked but still decisive.

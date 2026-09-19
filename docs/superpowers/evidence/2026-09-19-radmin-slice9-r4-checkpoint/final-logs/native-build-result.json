@@ -1,0 +1,15 @@
+{
+  "name": "native-build",
+  "command": [
+    "env",
+    "PLATFORMIO_BUILD_DIR=/tmp/mr-s9-r4-j37ybea_/native-build",
+    "pio",
+    "test",
+    "-e",
+    "native"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 39.025479815900326,
+  "sha256": "14d8c63e798429d9bf8e6b1fd7c6071cc16c8caa079dfe993f13b4b0aeb311f8"
+}

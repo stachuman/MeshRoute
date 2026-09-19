@@ -34,7 +34,7 @@
 // ★ EVERYTHING IS COMPILE-TIME. Availability is `#if`, never a runtime table of `const char*` — a table would put
 //   the whole list in RAM on every board to save an if-chain that costs nothing. Each gated name carries the EXACT
 //   condition its dispatch arm carries (`mobile` = `MR_N_LAYERS < 2 && MR_FEAT_MOBILE`, `team` = `MR_N_LAYERS < 2`,
-//   `password`/`unlock`/`lock` = `MR_FEAT_REMOTE_MGMT`, `ui` = `MR_FEAT_OLED`), so the index can never advertise a
+//   `remote` = `MR_FEAT_RADMIN_CLIENT`, `ui` = `MR_FEAT_OLED`), so the index can never advertise a
 //   family this build refuses, nor hide one it accepts. ⛔ The two `MR_HELP_HAS_*` macros of slice 0a are RETIRED:
 //   they existed to gate topic sections, and a second spelling of a handler's gate is one more thing to drift.
 //
@@ -93,9 +93,6 @@ inline void render_index(Print& out) {
     out.println(F("joinprofile"));
     out.println(F("leave"));
     out.println(F("limits"));
-#if MR_FEAT_REMOTE_MGMT
-    out.println(F("lock"));
-#endif   // MR_FEAT_REMOTE_MGMT
     out.println(F("lookup"));
     out.println(F("mark_read"));
 #if MR_N_LAYERS < 2 && MR_FEAT_MOBILE
@@ -103,15 +100,11 @@ inline void render_index(Print& out) {
 #endif   // MR_N_LAYERS < 2 && MR_FEAT_MOBILE
     out.println(F("nameof"));
     out.println(F("ota"));
-#if MR_FEAT_REMOTE_MGMT
-    out.println(F("password"));
-#endif   // MR_FEAT_REMOTE_MGMT
     out.println(F("peerkey"));
     out.println(F("peername"));
     out.println(F("peers"));
     out.println(F("prep-restart"));
     out.println(F("pull_inbox"));
-    out.println(F("rcmd"));
     out.println(F("reboot"));
     out.println(F("regen"));
 #if MR_FEAT_RADMIN_CLIENT
@@ -139,9 +132,6 @@ inline void render_index(Print& out) {
 #if MR_FEAT_OLED
     out.println(F("ui"));
 #endif   // MR_FEAT_OLED
-#if MR_FEAT_REMOTE_MGMT
-    out.println(F("unlock"));
-#endif   // MR_FEAT_REMOTE_MGMT
     out.println(F("version"));
     out.println(F("whoami"));
     manual_pointer(out);

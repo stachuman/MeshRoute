@@ -1,0 +1,22 @@
+[
+  {
+    "checkpoint": "a1e9b498a272e331765299fa70ede7fa6d350b75f5390aa6afe35f1650afc02f",
+    "path": "docs/2026-07-30-open-bug-register.md",
+    "tested": "878890392a809e2eca93f46b33cf2bfe87e4b6d18c5cc85db47b251ced1b0a18"
+  },
+  {
+    "checkpoint": "ec377cde6dd005171f2138b76a36d3b406436a01cd123298e8d81745c264bfd9",
+    "path": "docs/2026-07-31-bench-test-script.md",
+    "tested": "b28819574efb1f31f9d2b71f95b7ab7e6f47285cb9d70f1ffd056bfa06359daf"
+  },
+  {
+    "checkpoint": "33d5eb8b047fb7b488262860c371311cfa39021eedf676962175d77df965444d",
+    "path": "docs/superpowers/evidence/2026-09-18-radmin-slice9.md",
+    "tested": "c4b3a4de5f0b98508a6d8d5a7302a6fa9874809e56b5005c16a3708647280ba2"
+  },
+  {
+    "checkpoint": "674ebf2b814762ab9293affd3c8469b297e2b03fa205615e67983b3abe6dfc89",
+    "path": "tools/test_probe_features.py",
+    "tested": "f78ee1c6276d5dd40a7960881d821d655eef79a60275cae26ea023de653a7524"
+  }
+]

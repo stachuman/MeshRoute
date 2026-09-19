@@ -1,0 +1,32 @@
+PASS: candidate inventory 197; authority agrees after six semantic-row deletions
+RED with alias restored: orphan ruled row: ('reboot (alias: prep-restart)', '—')
+base:
+scheduled-policy-rows=12 refused-policy-rows=36
+reboot: operator=1 owner=0 disruptive=1
+prep-restart: operator=1 owner=0 disruptive=1
+ota: operator=0 owner=1 disruptive=1
+factory_reset confirm: operator=0 owner=1 disruptive=1
+sleep: operator=1 owner=0 disruptive=1
+sleep on: operator=1 owner=0 disruptive=1
+sleep off: operator=1 owner=0 disruptive=1
+sleep off...: operator=1 owner=0 disruptive=1
+sleep OFF: operator=1 owner=0 disruptive=1
+crashtest hang: operator=0 owner=1 disruptive=1
+crashtest fault-extra: operator=0 owner=1 disruptive=1
+crashtest reboot-extra: operator=0 owner=1 disruptive=1
+candidate:
+scheduled-policy-rows=11 refused-policy-rows=36
+reboot: operator=1 owner=0 disruptive=1
+prep-restart: operator=1 owner=0 disruptive=1
+ota: operator=0 owner=1 disruptive=1
+factory_reset confirm: operator=0 owner=1 disruptive=1
+sleep: operator=1 owner=0 disruptive=1
+sleep on: operator=1 owner=0 disruptive=1
+sleep off: operator=1 owner=0 disruptive=1
+sleep off...: operator=1 owner=0 disruptive=1
+sleep OFF: operator=1 owner=0 disruptive=1
+crashtest hang: operator=0 owner=1 disruptive=1
+crashtest fault-extra: operator=0 owner=1 disruptive=1
+crashtest reboot-extra: operator=0 owner=1 disruptive=1
+PASS: 12 exercised command spellings retain their lookup results; unchanged probe requires 12 policy rows
+STOP-1 B423: real probe census is 11, but its unfenced assertion requires 12

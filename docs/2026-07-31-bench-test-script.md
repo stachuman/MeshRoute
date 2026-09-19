@@ -756,17 +756,10 @@ lower, so a `heltec_v3` rerun is still owed.
 
 - [x] **9.9 — the `cfg` SF list appears in the response, not on another transport**
   - Do: `cfg` over USB; then local companion `cfg` if reachable.
-  - **R-RA-27 suspension, recorded 2026-09-06; effective on Slice 1b and later images until Slice 9's
-    replacement:** the former `rcmd <id> cfg`-style round-trip step from a static/gateway issuer is suspended.
-    That issuer still sends, but its CLIENT-disabled receive path no longer stages replies. The prior `[x]`
-    result is historical, not evidence that this round trip remains supported. Local USB/companion `cfg` and
-    the supplied-sink expectation below remain active. No new metal check is owed by 1b.
-  - **DRAFT Slice 5 extension (2026-09-06), effective only on its QA-passed implementation:** target-side
-    legacy `rcmd` execution is removed from the ACCEPT receive path in Slice 5; only v2 bootstrap replies
-    can be emitted by the new owner. CLIENT legacy response staging/printing remains until Slice 8a;
-    remaining legacy definitions/issuers and NV cleanup stay Slice 9/10 work. This extends the existing
-    suspension, adds no bench part, and is not evidence that Slice 5 has run or passed. Part 57c remains
-    the later complete controller/carrier observation.
+  - **REMOVED in Slice 9:** the former `rcmd <id> cfg` step and its R-RA-27 suspension are historical.
+    The old checked result did not prove support after Slice 1b; Slice 5 replaced target execution and 8a
+    replaced response handling. Slice 9 deletes the remaining issuer/protocol. Local USB/companion `cfg`
+    remains active; the v2 replacement round trip is Part 57c, with deletion checks in Part 57e.
   - Pass: `sf_list=6,7` (whatever the real list) is inside the `radio :` row of the response itself. ⛔ Fail if the SF
     list appears on the USB console while missing from a captured/remote response — that was the
     `print_sf_list(bitmap)` global-sink bypass.
@@ -4429,3 +4422,23 @@ naming the target). Native proves the whole chain on host fakes; this part obser
 
 This part also makes **Part 57b** (prep-restart lockout) and **Part 57d** (local delivery) runnable; run them after
 step 1 passes. Part 54 (B278 custody on metal) is independent and precedes step 3.
+
+
+## Part 57e — legacy remote-admin deletion (Slice 9)
+
+**SOFTWARE-COMPLETE (Slice 9 independent QA PASS 2026-09-19, uncommitted at `84edd3e`) / METAL PENDING — NOT RUN.** Run at the owner's bench,
+using one static/gateway ACCEPT board and one mobile CLIENT board. Host tests prove dispatcher fallthrough;
+this part checks the real USB/BLE handlers and compiled help, then confirms the existing radio round trip.
+
+1. On each board, USB `help` lists none of `rcmd`, `password`, `unlock` or `lock`. BLE `help` continues to
+   answer exactly `{"err":"help","msg":"console_only"}`; it must not stream the USB help text.
+2. On each board, submit `rcmd 1 status`, `password x`, `unlock x`, and `lock`, one at a time over USB.
+   Each answers exactly `> parse error`. Repeat over secured BLE: each answers exactly
+   `{"err":"parse","msg":"unknown_cmd"}`. No success-looking legacy reply or remote transmission follows.
+3. On the provisioned mobile/controller and ACCEPT target, run Part 57c step 1:
+   `remote <label> -e -- status`. Expect the normal `> remote <id16> out …` lines and
+   `> remote <id16> completed` (BLE: `remote_output`, then `remote_terminal` with `result:"completed"`).
+   Preserve Part 57c's wrapper/source-hash observations; this step does not replace that part's other checks.
+
+Record the two firmware identities, board models, transport transcripts and owner-reported result. The old
+`/mrcfg` admin fields and Node mirrors remain inert until Slice 10; no migration or flash-wipe check belongs here.

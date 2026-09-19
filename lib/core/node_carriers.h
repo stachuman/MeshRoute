@@ -153,9 +153,8 @@ struct NodeConfig {
     // — read it there before re-attempting the flip.
     // ★ CONSOLE SURFACE — DONE in T3 (was MISSING), mirroring dv_hop_cap's EXACTLY and no further: `cfg set
     // team_hop_cap` (firmware_config.cpp, same valid_hop_cap 1..16 domain, refuses loud, `persist = false` =
-    // LIVE-only so reboot reverts to protocol::team_hop_cap) + the three readouts beside dv_hop_cap's
-    // (firmware_commands.cpp dump_cfg, console_json.cpp write_cfg, console_binary.cpp enc_cfg via the APPENDED
-    // TAG_CFG_TEAM_HOP_CAP=0x1C) + the simulator's NodeRuntimeWrapper.cpp dispatch row.
+    // LIVE-only so reboot reverts to protocol::team_hop_cap) + the readouts beside dv_hop_cap's
+    // (firmware_commands.cpp dump_cfg, console_json.cpp write_cfg; legacy binary readout deleted in Slice 9) + the simulator's NodeRuntimeWrapper.cpp dispatch row.
     // ★ STILL MISSING, deliberately: no NV blob and no J-frame field (C4 — no wire change, nothing to reflash for).
     // dv_hop_cap's own console knob is likewise `persist = false`, so there is no NV blob to extend either. WHY NOT:
     // R4 fixes the team ceiling at 8 by design (3-10 members, stragglers to 8), unlike dv_hop_cap which is a

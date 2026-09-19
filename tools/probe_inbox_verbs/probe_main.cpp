@@ -243,7 +243,6 @@ meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
 static int production_store_touches() { return int(g_inbox_dm.count()) + int(g_inbox_ch.count()); }
 #endif
 
-uint8_t  g_remote_action = 0;   uint64_t g_remote_action_at = 0;
 uint32_t g_rx_count = 0, g_sleep_count = 0;
 uint32_t g_wake_gpio = 0, g_wake_ext1 = 0, g_wake_timer = 0;
 uint32_t g_wake_arm_busy = 0, g_wake_arm_fail = 0, g_wake_disarm_fail = 0, g_wake_sleep_fail = 0;
@@ -271,12 +270,8 @@ void handle_gateway(const char*, Print&)      { routed("gateway"); }
 void handle_join(const char*, Print&)         { routed("join"); }
 void handle_joinprofile(const char*, Print&)  { routed("joinprofile"); }
 void handle_leave(Print&)                     { routed("leave"); }
-void handle_lock(Print&)                      { routed("lock"); }
 void handle_mobile(const char*, Print&)       { routed("mobile"); }
-void handle_password(const char*, Print&)     { routed("password"); }
-void handle_rcmd(const char*, Print&)         { routed("rcmd"); }
 void handle_team(const char*, Print&)         { routed("team"); }
-void handle_unlock(const char*, Print&)       { routed("unlock"); }
 }  // namespace mrfw
 #ifndef MR_PROBE_ACTION_EFFECTS
 namespace mrfw {
@@ -900,15 +895,29 @@ int main() {
         ex = run_json("   ");
         CHK(empty_text && ex.state == St::empty && ex.n == 0 && g_ble_n == 0 && Serial.n_out == 0,
             "X14 a whitespace-only line is `empty` on BOTH arms and emits NOTHING anywhere");
-        ex = run_text("zzz_unknown_verb");
-        const bool unk_text = (ex.state == St::unmatched
-                               && ex.parse_err == meshroute::console::ParseErr::unknown_verb
-                               && Serial.n_out == 0 && g_ble_n == 0);
-        ex = run_json("zzz_unknown_verb");
-        CHK(unk_text && ex.state == St::unmatched
+        // Slice 9: the real seam refuses the whole removed family like any unknown command.
+        // These are the caller envelopes; S22/S23 separately pin their actual fw_main spelling.
+        bool unknown_family = true;
+        for (const char* line : {"zzz_unknown_verb", "rcmd 1 status", "password x", "unlock x", "lock"}) {
+            ex = run_text(line);
+            const bool text_refused = ex.state == St::unmatched
+                && ex.parse_err == meshroute::console::ParseErr::unknown_verb
+                && Serial.n_out == 0 && g_ble_n == 0;
+            if (text_refused) mrcon.println(F("> parse error"));
+            mrcon.service();
+            const bool text_exact = std::strcmp(Serial.out, "> parse error\r\n") == 0;
+            ex = run_json(line);
+            const bool json_refused = ex.state == St::unmatched
                 && ex.parse_err == meshroute::console::ParseErr::unknown_verb && ex.n == 0
-                && x_reply[0] == '\0' && g_ble_n == 0 && Serial.n_out == 0,
-            "X15 an unknown line is `unmatched`+unknown_verb on BOTH arms, with NO bytes written by the seam");
+                && x_reply[0] == '\0' && g_ble_n == 0 && Serial.n_out == 0;
+            if (json_refused) meshroute::console::write_err(x_reply, sizeof x_reply, "parse", "unknown_cmd");
+            const bool json_exact = std::strcmp(x_reply, "{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\n") == 0;
+            unknown_family = unknown_family && text_refused && text_exact && json_refused && json_exact;
+            std::printf("   retired-refusal %s: USB=%s BLE=%s\n", line,
+                        text_exact ? "> parse error" : "MISMATCH", x_reply);
+        }
+        CHK(unknown_family,
+            "X15 every unknown/removed verb is unmatched on both arms; exact USB/BLE caller envelopes");
         ex = run_json("send 5 unquoted");
         CHK(ex.state == St::unmatched && ex.parse_err == meshroute::console::ParseErr::bad_args
                 && ex.n == 0 && x_reply[0] == '\0',
@@ -1929,7 +1938,7 @@ int main() {
                     if (!admitted[a][i]) {
                         CHK(g_sink.n == 0 && reply[0] == '\0' && result.n == 0 && g_command_calls == 0
                             && g_routed[0] == '\0' && nv.writes == writes && production_store_touches() == stores
-                            && result.refuse == (i == 8 ? RefuseReason::unclassified : RefuseReason::authority),
+                            && result.refuse == (i >= 7 ? RefuseReason::unclassified : RefuseReason::authority),
                             "Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes");
                     }
                     CHK(missing_transcript ? result.outcome == DispatchOutcome::internal_failure

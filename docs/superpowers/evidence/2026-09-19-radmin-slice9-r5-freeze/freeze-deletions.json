@@ -1,0 +1,10 @@
+[
+  "lib/console/console_binary.cpp",
+  "lib/console/console_binary.h",
+  "lib/core/admin_auth.cpp",
+  "lib/core/admin_auth.h",
+  "src/firmware_remote.cpp",
+  "src/firmware_remote.h",
+  "test/test_admin_auth.cpp",
+  "test/test_console_binary.cpp"
+]

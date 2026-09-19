@@ -1,0 +1,82 @@
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:24,
+                 from /tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_commands.cpp:15:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h: In member function ‘virtual bool meshroute::Sx1262Radio::poll_rx(uint8_t*, size_t, size_t&, float&, float&)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h:342:42: warning: ‘++’ expression of ‘volatile’-qualified type is deprecated [-Wvolatile]
+  342 |         if (st != RADIOLIB_ERR_NONE) { ++g_rxbad_count; if (g_mr_trace_on) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); } return false; }   // count the CRC-storm event ALWAYS; the per-event print is GATED behind `debug on` (don't flood Serial when the radio is busiest)
+      |                                          ^~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:28:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h: In member function ‘bool mrinboxfs::PosixDirWalk::next(bool*, uint32_t*)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:179:24: warning: ‘int readdir_r(DIR*, dirent*, dirent**)’ is deprecated [-Wdeprecated-declarations]
+  179 |         if (::readdir_r(_d, &ent, &out) != 0) return false;   // ★ the error is REPORTED, not inferred
+      |             ~~~~~~~~~~~^~~~~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:113:
+/usr/include/dirent.h:185:12: note: declared here
+  185 | extern int readdir_r (DIR *__restrict __dirp,
+      |            ^~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:24,
+                 from /tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_inbox.cpp:9:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h: In member function ‘virtual bool meshroute::Sx1262Radio::poll_rx(uint8_t*, size_t, size_t&, float&, float&)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h:342:42: warning: ‘++’ expression of ‘volatile’-qualified type is deprecated [-Wvolatile]
+  342 |         if (st != RADIOLIB_ERR_NONE) { ++g_rxbad_count; if (g_mr_trace_on) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); } return false; }   // count the CRC-storm event ALWAYS; the per-event print is GATED behind `debug on` (don't flood Serial when the radio is busiest)
+      |                                          ^~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:28:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h: In member function ‘bool mrinboxfs::PosixDirWalk::next(bool*, uint32_t*)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:179:24: warning: ‘int readdir_r(DIR*, dirent*, dirent**)’ is deprecated [-Wdeprecated-declarations]
+  179 |         if (::readdir_r(_d, &ent, &out) != 0) return false;   // ★ the error is REPORTED, not inferred
+      |             ~~~~~~~~~~~^~~~~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:113:
+/usr/include/dirent.h:185:12: note: declared here
+  185 | extern int readdir_r (DIR *__restrict __dirp,
+      |            ^~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_inbox.cpp: In function ‘void mrfw::handle_mark_read(const char*, Print&)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_inbox.cpp:77:9: warning: this ‘if’ clause does not guard... [-Wmisleading-indentation]
+   77 |         if (n) out.write(eb, n); return;                  // fail loud on a bad kind
+      |         ^~
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_inbox.cpp:77:34: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘if’
+   77 |         if (n) out.write(eb, n); return;                  // fail loud on a bad kind
+      |                                  ^~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:24,
+                 from /tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:39,
+                 from /tmp/mr-action-probe-fubzgj45/R18/probe.cpp:6:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h: In member function ‘virtual bool meshroute::Sx1262Radio::poll_rx(uint8_t*, size_t, size_t&, float&, float&)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/lib/hal/device_radio.h:342:42: warning: ‘++’ expression of ‘volatile’-qualified type is deprecated [-Wvolatile]
+  342 |         if (st != RADIOLIB_ERR_NONE) { ++g_rxbad_count; if (g_mr_trace_on) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); } return false; }   // count the CRC-storm event ALWAYS; the per-event print is GATED behind `debug on` (don't flood Serial when the radio is busiest)
+      |                                          ^~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_context.h:28:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h: In member function ‘bool mrinboxfs::PosixDirWalk::next(bool*, uint32_t*)’:
+/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:179:24: warning: ‘int readdir_r(DIR*, dirent*, dirent**)’ is deprecated [-Wdeprecated-declarations]
+  179 |         if (::readdir_r(_d, &ent, &out) != 0) return false;   // ★ the error is REPORTED, not inferred
+      |             ~~~~~~~~~~~^~~~~~~~~~~~~~~~
+In file included from /tmp/mr-s9-r4-j37ybea_/final-gate/src/device_inbox_fs_esp32.h:113:
+/usr/include/dirent.h:185:12: note: declared here
+  185 | extern int readdir_r (DIR *__restrict __dirp,
+      |            ^~~~~~~~~
+In file included from /tmp/mr-action-probe-fubzgj45/R18/probe.cpp:14:
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/remote_exec_rows.h: At global scope:
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/remote_exec_rows.h:342:13: warning: ‘void radmin72_open_rows()’ defined but not used [-Wunused-function]
+  342 | static void radmin72_open_rows() {
+      |             ^~~~~~~~~~~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/remote_exec_rows.h:321:13: warning: ‘void radmin7_air_rows()’ defined but not used [-Wunused-function]
+  321 | static void radmin7_air_rows() {
+      |             ^~~~~~~~~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/remote_exec_rows.h:30:13: warning: ‘void radmin7_inbox_rows()’ defined but not used [-Wunused-function]
+   30 | static void radmin7_inbox_rows() {
+      |             ^~~~~~~~~~~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:387:13: warning: ‘bool route_ble(const char*)’ defined but not used [-Wunused-function]
+  387 | static bool route_ble(const char* line) {
+      |             ^~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:374:13: warning: ‘bool hash_field_is_8_upper_hex(const char*)’ defined but not used [-Wunused-function]
+  374 | static bool hash_field_is_8_upper_hex(const char* s) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:358:21: warning: ‘mrnv::IdBlob seed_id(const char*, uint16_t, uint8_t)’ defined but not used [-Wunused-function]
+  358 | static mrnv::IdBlob seed_id(const char* name, uint16_t name_len, uint8_t seed_byte) {
+      |                     ^~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:349:13: warning: ‘void expected_next_identity(uint8_t*, meshroute::Identity&)’ defined but not used [-Wunused-function]
+  349 | static void expected_next_identity(uint8_t seed_out[32], meshroute::Identity& id_out) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:326:13: warning: ‘bool route(const char*)’ defined but not used [-Wunused-function]
+  326 | static bool route(const char* line) { return mrfw::dispatch(line, std::strlen(line), g_sink); }
+      |             ^~~~~
+/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/../probe_inbox_verbs/probe_main.cpp:239:12: warning: ‘int production_store_touches()’ defined but not used [-Wunused-function]
+  239 | static int production_store_touches() { return g_pseg_dm.erases + g_pseg_ch.erases + g_pmeta_dm.saves + g_pmeta_ch.saves; }
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~

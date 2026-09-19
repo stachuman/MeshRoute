@@ -1,0 +1,12 @@
+{
+  "args": [
+    "env",
+    "PLATFORMIO_BUILD_DIR=/tmp/mr-s9-r4-j37ybea_/iteration1-native",
+    "pio",
+    "test",
+    "-e",
+    "native"
+  ],
+  "exit": 1,
+  "seconds": 26.815109252929688
+}

@@ -55,6 +55,7 @@ TEST_CASE("cmdauthority every ruled row and every alias resolves with and withou
 }
 
 TEST_CASE("cmdauthority owner and physical distinctions are semantic") {
+    for (const char* line : {"rcmd 1 status", "password x", "unlock x", "lock"}) CHECK(lookup(line) == nullptr);
     struct Example { const char* line; CommandClass cls; bool disruptive; };
     const Example examples[] = {
         {"cfg set e2e_dm 1", CommandClass::owner, false},
@@ -66,7 +67,7 @@ TEST_CASE("cmdauthority owner and physical distinctions are semantic") {
         {"acl reset confirm", CommandClass::physical, false}, {"admin-id show", CommandClass::owner, false},
         {"admin-id generate", CommandClass::physical, false},
         {"admin-key list", CommandClass::controller_local, false},
-        {"rcmd 1 status", CommandClass::legacy, false}, {"help", CommandClass::local_only, false},
+        {"help", CommandClass::local_only, false},
         {"team forgetkey confirm", CommandClass::owner, false},
     };
     for (const auto& example : examples) {
@@ -78,15 +79,15 @@ TEST_CASE("cmdauthority owner and physical distinctions are semantic") {
     }
 }
 
-TEST_CASE("cmdauthority seven classes by four authorities truth table") {
-    const bool expected[4][7] = {
-        {true, true, true, true, true, true, true},
-        {true, false, false, false, false, false, false},
-        {true, true, false, false, false, false, false},
-        {true, true, true, false, false, false, false},
+TEST_CASE("cmdauthority six classes by four authorities truth table") {
+    const bool expected[4][6] = {
+        {true, true, true, true, true, true},
+        {true, false, false, false, false, false},
+        {true, true, false, false, false, false},
+        {true, true, true, false, false, false},
     };
     for (unsigned authority = 0; authority < 4; ++authority) {
-        for (unsigned cls = 0; cls < 7; ++cls) {
+        for (unsigned cls = 0; cls < 6; ++cls) {
             const CommandPolicy row{"status", "—", static_cast<CommandClass>(cls), false};
             CHECK(command_authority_admits(row, context(static_cast<CommandAuthority>(authority)),
                                            "status", 6) == expected[authority][cls]);
@@ -135,7 +136,7 @@ TEST_CASE("cmdauthority disruptive set equals the independent ruled list") {
     std::set<std::string> expected = {
         "create", "create name", "create sf_list", "create duty", "create active_fraction",
         "create ch_min_ms", "create dm_min_ms", "join", "join (alias: create)", "leave", "gateway",
-        "team", "team new", "reboot", "prep-restart", "reboot (alias: prep-restart)", "sleep", "sleep off",
+        "team", "team new", "reboot", "prep-restart", "sleep", "sleep off",
         "regen", "factory_reset", "factory_reset confirm", "ota", "crashtest", "crashtest fault",
         "crashtest hang", "crashtest reboot",
     };

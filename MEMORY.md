@@ -2,11 +2,14 @@
 
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
-  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..50 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
   queue pointer in `tracker.md`. As of 2026-09-18: everything through **7b-3** is committed (`6086152`); the disruptive
   arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, owner commits `c07b77f` /
-  simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, uncommitted at `c07b77f`**
-  (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); next: 9, then 10.
+  simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, owner commit `84edd3e`**
+  (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); **Slice 9
+  (legacy deletion + durable protocol docs) is independent QA PASS 2026-09-19, uncommitted at `84edd3e`** (R-RA-50; the
+  legacy `rcmd`/password/unlock/lock protocol is gone; `frames.md`/`protocol.md` §15 document v2); next: Slice 10, the
+  standalone NV cleanup (R-RA-6) — the last slice of the arc.
 - **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
   local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
   B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at

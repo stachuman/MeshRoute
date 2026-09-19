@@ -1,0 +1,8 @@
+test_the_gate_evaluator_agrees_with_the_real_gates (slice9_console_tests.TestPrimaryProjectionOracle.test_the_gate_evaluator_agrees_with_the_real_gates) ... ok
+test_the_feature_gates_really_separate_the_profiles (slice9_console_tests.TestPrimaryProjectionOracle.test_the_feature_gates_really_separate_the_profiles)
+A projection identical on every profile would silently stop testing availability at all. ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.940s
+
+OK

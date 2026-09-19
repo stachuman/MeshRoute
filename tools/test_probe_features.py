@@ -24,7 +24,7 @@ elsewhere in this repository rather than assumed:
   ⇒ THE FIRST CONSUMER HAS LANDED, and the update was made exactly as that note instructed: `TheSliceOneFence`
   became `TheFirstConsumerFence`, and the zero-consumer grep became `tools/probe_features/ownership.py` — the
   EXACT file census, the exact site census inside each allowed file, the per-owner capability guard, the real
-  router's call and its argument ORDER, no `|| MR_FEAT_REMOTE_MGMT` widening, no `none` arm, no test-as-owner.
+  router's call and its argument ORDER, no `|| 1` widening, no `none` arm, no test-as-owner.
   ⛔ The census was not removed; removing it is what this note existed to forbid.
 
 RUN:  python3 -m unittest discover -s tools -p "test_*.py"
@@ -191,8 +191,8 @@ class TheFirstConsumerFence(unittest.TestCase):
         self.assertIn('[ "$own_rc" -eq 0 ]', text)          # its exit code SETS rc, it is not merely printed
 
     def test_the_two_pins_reconcile_with_what_the_contract_actually_emits(self) -> None:
-        """⛔ Derived, never retyped: the runner's pins must equal the pre-1b figures PLUS exactly what the
-        ownership instrument emits today. A contract that silently shed a check would move this."""
+        """The runner's pins equal the surviving pre-1b checks plus today's ownership instrument.
+        Slice 9 removes nine legacy-column checks and A3/A4/C3/C4 with their deleted diagnostic."""
         text = RUN.read_text(encoding="utf-8")
         pin_checks = int(re.search(r"(?m)^PIN_CHECKS=(\d+)$", text).group(1))
         pin_controls = int(re.search(r"(?m)^PIN_CONTROLS=(\d+)$", text).group(1))
@@ -200,10 +200,10 @@ class TheFirstConsumerFence(unittest.TestCase):
         n_own_checks = len(re.findall(r"(?m)^  (?:ok|FAIL) ", own.stdout))
         ctl = run_ownership("--controls")
         n_own_ctl = len(re.findall(r"(?m)^  ctl-(?:ok|BAD) ", ctl.stdout))
-        self.assertEqual(pin_checks - n_own_checks, 96,
-                         "pre-1b checks were 97 with S3; S3 is replaced, so 96 must remain beside the contract")
-        self.assertEqual(pin_controls - n_own_ctl, 19,
-                         "all 19 pre-1b controls must survive beside the ownership controls")
+        self.assertEqual(pin_checks - n_own_checks, 87,
+                         "pre-1b 97 minus replaced S3 minus nine retired legacy-column checks = 87")
+        self.assertEqual(pin_controls - n_own_ctl, 15,
+                         "pre-1b 19 minus retired A3/A4/C3/C4 = 15 beside the ownership controls")
 
     def test_the_retired_zero_consumer_pin_is_gone_and_visibly_replaced(self) -> None:
         """A retirement that leaves no trace is indistinguishable from a deletion to make a gate pass."""
@@ -267,23 +267,21 @@ class TheGateRuns(unittest.TestCase):
 
     def test_every_declared_control_class_actually_fired(self) -> None:
         out = self.gate.stdout
-        for prefix, minimum in (("A", 4), ("B", 6), ("C", 5), ("X", 4)):
+        for prefix, minimum in (("A", 2), ("B", 6), ("C", 3), ("X", 4)):
             fired = len(re.findall(rf"(?m)^  ok   {prefix}\d ", out))
             self.assertGreaterEqual(fired, minimum, f"class {prefix}: {fired} controls fired\n{out[-4000:]}")
 
     def test_the_refusals_are_attributed_to_the_headers_own_diagnostics(self) -> None:
         """⛔ A compile failure is the declared RED for class A ONLY because it is matched to a diagnostic
         EXTRACTED from the production header. If that extraction stopped working the controls would be blind."""
-        self.assertIn("3 distinct board-only #error diagnostics (extracted, not typed here)", self.gate.stdout)
+        self.assertIn("2 distinct board-only #error diagnostics (extracted, not typed here)", self.gate.stdout)
         self.assertRegex(self.gate.stdout, r"A1 .*-> REFUSED at `both`")
         self.assertRegex(self.gate.stdout, r"A2 .*-> REFUSED at `neither`")
-        self.assertRegex(self.gate.stdout, r"A3 .*-> REFUSED at `consistency`")
-        self.assertRegex(self.gate.stdout, r"A4 .*-> REFUSED at `consistency`")
 
     def test_the_simulator_gateway_keeps_both_endpoints_and_that_is_measured(self) -> None:
         """The one cell no profile-only reading of R-RA-17 would have got right."""
         self.assertIn("derived: host_lus_gateway TEAM=1 MOBILE=1 MOBILE_HOST=1 GATEWAY=1 OLED=0 "
-                      "REMOTE_MGMT=1 RADMIN_CLIENT=1 RADMIN_ACCEPT=1", self.gate.stdout)
+                      "RADMIN_CLIENT=1 RADMIN_ACCEPT=1", self.gate.stdout)
         self.assertRegex(self.gate.stdout, r"B3 .*-> RED on host_lus_gateway")
 
     def test_the_environment_mapping_is_derived_not_typed(self) -> None:
@@ -302,7 +300,7 @@ class TheGateRuns(unittest.TestCase):
         self.assertRegex(out, r"(?m)^  ctl-ok   W-SWAP -> REJECTED by ")
         # ⚠ RE-DERIVED 2026-09-06 BY §RADMIN SLICE 3, 19 -> 25, and the +6 is one control per NEW owner boundary:
         #   W-S3-DROP-DISPATCH (the router arm's ACCEPT gate deleted) · W-S3-DROP-BLE (the R-RA-29 refusal's gate
-        #   deleted) · W-S3-WIDEN-BOOT (the boot call legacy-widened with `|| MR_FEAT_REMOTE_MGMT`, R-RA-27) ·
+        #   deleted) · W-S3-WIDEN-BOOT (the boot call legacy-widened with `|| 1`, R-RA-27) ·
         #   W-S3-INVERT-HELP (the two help names compiled under the CLIENT capability, the R-RA-8 inversion) ·
         #   W-S3-DUP-DECL (a duplicate guard inside an allowed file) · W-S3-GATE-PURE (a PURE service header
         #   acquiring a capability macro, the [[B255]] idiom's own violation).

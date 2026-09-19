@@ -38,10 +38,11 @@ class TestCommandAuthority(unittest.TestCase):
         self.assertIn(row, header)
         self.assertTrue(any("duplicate" in s for s in C.check(table, header.replace(row, row + "\n" + row, 1), inventory)))
 
-    def test_legacy_surface_is_not_a_second_semantic_class(self):
+    def test_surviving_surfaces_share_one_semantic_class(self):
         rows = C.parse_inventory(self.texts[2])
+        self.assertFalse(any("surface:legacy" in r.authority for r in rows))
         status = [r for r in rows if r.verb == "status"]
-        self.assertEqual({"open", "open · surface:transport", "open · surface:legacy"}, {r.authority for r in status})
+        self.assertEqual({"open", "open · surface:transport"}, {r.authority for r in status})
 
     def test_disruptive_flag_disagreement_refuses(self):
         table, header, inventory = self.texts

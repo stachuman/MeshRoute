@@ -1,0 +1,26 @@
+[
+  {
+    "control": "deletion arm removed",
+    "source_match_count": 1,
+    "compiled": true,
+    "failed_tests": 0,
+    "error_tests": 1,
+    "output": "test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) ... ERROR\n\n======================================================================\nERROR: test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/test_measure_board.py\", line 329, in test_source_identity_structure\n    deleted = mb.source_snapshot()\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/measure_board.py\", line 32, in source_snapshot\n    and its hash is unchanged). Same-path A/Bs \u2014 every comparison this runner is used for \u2014 remain exact.\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/measure_board.py\", line 122, in require\n    raise MeasureError(message)\nmeasure_board.MeasureError: source input disappeared while hashing: tracked.cpp\n\n----------------------------------------------------------------------\nRan 1 test in 0.114s\n\nFAILED (errors=1)\n"
+  },
+  {
+    "control": "all absent paths accepted",
+    "source_match_count": 1,
+    "compiled": true,
+    "failed_tests": 2,
+    "error_tests": 0,
+    "output": "test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) ... \n  test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) (vanished='untracked.cpp') ... FAIL\n  test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) (vanished='tracked.cpp') ... FAIL\n\n======================================================================\nFAIL: test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) (vanished='untracked.cpp')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/test_measure_board.py\", line 355, in test_source_identity_structure\n    with self.assertRaisesRegex(mb.MeasureError, \"source input disappeared while hashing: \" + name):\nAssertionError: MeasureError not raised\n\n======================================================================\nFAIL: test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) (vanished='tracked.cpp')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/test_measure_board.py\", line 355, in test_source_identity_structure\n    with self.assertRaisesRegex(mb.MeasureError, \"source input disappeared while hashing: \" + name):\nAssertionError: MeasureError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.230s\n\nFAILED (failures=2)\n"
+  },
+  {
+    "control": "manifest deletion entry dropped",
+    "source_match_count": 1,
+    "compiled": true,
+    "failed_tests": 1,
+    "error_tests": 0,
+    "output": "test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure) ... FAIL\n\n======================================================================\nFAIL: test_source_identity_structure (test_measure_board.MeasureBoardTests.test_source_identity_structure)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/mr-s9-r5-6tusdqki/tools/tools/test_measure_board.py\", line 330, in test_source_identity_structure\n    self.assertEqual(deleted[\"deleted_files\"], [\"tracked.cpp\"])\nAssertionError: Lists differ: [] != ['tracked.cpp']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'tracked.cpp'\n\n- []\n+ ['tracked.cpp']\n\n----------------------------------------------------------------------\nRan 1 test in 0.159s\n\nFAILED (failures=1)\n"
+  }
+]

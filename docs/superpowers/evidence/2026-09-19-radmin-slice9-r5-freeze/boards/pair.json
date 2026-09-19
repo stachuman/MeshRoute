@@ -1,0 +1,15 @@
+{
+  "env_build_dirs": {
+    "gateway": "/tmp/mr-s9-r5-6tusdqki/boards/.pio-measure/env/gateway/build/gateway",
+    "heltec_mobile": "/tmp/mr-s9-r5-6tusdqki/boards/.pio-measure/env/heltec_mobile/build/heltec_mobile"
+  },
+  "environments": [
+    "gateway",
+    "heltec_mobile"
+  ],
+  "jobs": 1,
+  "ruling": "2026-08-30 owner ruling: D1's 'sequentially' is relaxed for this ruled pair, conditional on the proven isolation; any future env addition re-proves it.",
+  "schema": 1,
+  "usable_cores": 24,
+  "wall_clock_s": 47.161
+}

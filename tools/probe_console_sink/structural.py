@@ -294,7 +294,8 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     sc_fork = _fork_calls(sc)
     sc_sink = len(re.findall(r'\bexec_console_line\s*\([^;]*?\bmrcon\b', sc, re.S))
     add('S22', 'service_console is a ONE-CALL adapter: one seam call, no router/parser/Node fork of its own',
-        bool(sc) and n_seam_sc == 1 and sum(sc_fork.values()) == 0 and sc_sink == 1,
+        bool(sc) and n_seam_sc == 1 and sum(sc_fork.values()) == 0 and sc_sink == 1
+        and 'mrcon.println(F("> parse error"));' in sc,
         f'seam_calls={n_seam_sc} residual={sc_fork} passes_mrcon={sc_sink}')
 
     n_seam_ble = len(re.findall(r'\bexec_console_line\s*\(', ble))
@@ -307,7 +308,8 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
     ble_sink_arg = len(re.findall(r'\bexec_console_line\s*\([^;]*?\bls\b[^;]*?\bout\b[^;]*?\bcap\b', ble, re.S))
     add('S23', 'ble_dispatch_line is a ONE-CALL adapter: one seam call, its own sinks, exactly one seam flush',
         bool(ble) and n_seam_ble == 1 and sum(ble_fork.values()) == 0 and n_flush_after == 1
-        and ble_sink_arg == 1,
+        and ble_sink_arg == 1
+        and 'return write_err(out, cap, "parse", ex.parse_err == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");' in ble,
         f'seam_calls={n_seam_ble} residual={ble_fork} flush_after_seam={n_flush_after} '
         f'passes_linesink_and_reply={ble_sink_arg}')
 
@@ -526,7 +528,7 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         add('S33', 'no RESIDENT administration identity, ACL, service or static record buffer exists (design §6.2)',
             not resident, f'{len(resident)} occurrence(s): {resident[:3]}')
         # ⛔⛔ CORRECTED 2026-09-07 BY §RADMIN SLICE 5, AND THE OLD CLAIM IS KEPT VISIBLE. This check read
-        #    *"the ACCEPT bindings touch NO Node state and no legacy single-admin symbol"* and forbade `g_node`
+        #    *"the ACCEPT bindings touch NO Node state and no retired legacy single-admin symbol"* and forbade `g_node`
         #    outright, because Slice 3 deliberately installed nothing ("there is no live cache in this slice to
         #    install into"). Slice 5 IS that installation: design §6.5's live activation needs a core→Node link,
         #    and R-RA-31 ruled it. ⇒ the `g_node` half is replaced by a NARROWER and STRONGER rule, and the half

@@ -1,0 +1,11 @@
+{
+  "name": "board-ui",
+  "args": [
+    "bash",
+    "tools/probe_board_ui/run.sh",
+    "--no-neg"
+  ],
+  "exit": 1,
+  "seconds": 27.605067491531372,
+  "sha256": "41ced93f647b046c0832938b57e4bc3e487357e6031cc3d5971e5533bfffae82"
+}

@@ -6454,7 +6454,7 @@ TEST_CASE("rcmd: a REMOTE_CMD DM no longer stages (SLICE 5 owns it); legacy resp
     CHECK(remote_client_pending_count(node.remote_client()) == 0);
 }
 
-TEST_CASE("8a: a legacy REMOTE_RESP is not staged; send_remote_cmd/response return the sent ctr") {
+TEST_CASE("8a: a legacy REMOTE_RESP is not staged; typed transport stays available") {
     TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCDu);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
@@ -6469,10 +6469,15 @@ TEST_CASE("8a: a legacy REMOTE_RESP is not staged; send_remote_cmd/response retu
     CHECK(node.remote_client().counters.unmatched_response == 1);
     CHECK(remote_client_pending_count(node.remote_client()) == 0);
     CHECK(hal.count("delivered") == 0);
-    // send_* return the assigned ctr (origination ride; we just check they don't refuse the call)
+    // The existing typed-send seam reaches do_send -> enqueue_data with the selected internal type.
+    // Keep the receive guards above; these calls only prove that typed origination remains available.
+    node.test_suspend_tx_drain(true);
     const uint8_t qb[4] = { 't','e','s','t' };
-    (void)node.send_remote_cmd(5, qb, 4);
-    (void)node.send_remote_response(5, qb, 4);
+    CHECK(node.test_do_send_typed(5, qb, 4, CryptIntent::off, 0, DATA_TYPE_REMOTE_CMD) != 0);
+    CHECK(node.test_do_send_typed(5, qb, 4, CryptIntent::off, 0, DATA_TYPE_REMOTE_RESP) != 0);
+    CHECK(node.test_tx_queue_n() == 2);
+    CHECK(node.test_tx_type(0) == DATA_TYPE_REMOTE_CMD);
+    CHECK(node.test_tx_type(1) == DATA_TYPE_REMOTE_RESP);
 }
 
 // ===== §remote-admin v2 SLICE 1b — CAPABILITY-OWNED PRE-TAIL REMOTE RECEIVE (R-RA-8 / R-RA-19 / R-RA-27) =====

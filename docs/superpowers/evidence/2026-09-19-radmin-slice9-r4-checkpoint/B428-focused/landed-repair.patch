@@ -1,0 +1,28 @@
+--- a/tools/test_probe_features.py
++++ b/tools/test_probe_features.py
+@@ -191,8 +191,8 @@
+         self.assertIn('[ "$own_rc" -eq 0 ]', text)          # its exit code SETS rc, it is not merely printed
+ 
+     def test_the_two_pins_reconcile_with_what_the_contract_actually_emits(self) -> None:
+-        """⛔ Derived, never retyped: the runner's pins must equal the pre-1b figures PLUS exactly what the
+-        ownership instrument emits today. A contract that silently shed a check would move this."""
++        """The runner's pins equal the surviving pre-1b checks plus today's ownership instrument.
++        Slice 9 removes nine legacy-column checks and A3/A4/C3/C4 with their deleted diagnostic."""
+         text = RUN.read_text(encoding="utf-8")
+         pin_checks = int(re.search(r"(?m)^PIN_CHECKS=(\d+)$", text).group(1))
+         pin_controls = int(re.search(r"(?m)^PIN_CONTROLS=(\d+)$", text).group(1))
+@@ -200,10 +200,10 @@
+         n_own_checks = len(re.findall(r"(?m)^  (?:ok|FAIL) ", own.stdout))
+         ctl = run_ownership("--controls")
+         n_own_ctl = len(re.findall(r"(?m)^  ctl-(?:ok|BAD) ", ctl.stdout))
+-        self.assertEqual(pin_checks - n_own_checks, 96,
+-                         "pre-1b checks were 97 with S3; S3 is replaced, so 96 must remain beside the contract")
+-        self.assertEqual(pin_controls - n_own_ctl, 19,
+-                         "all 19 pre-1b controls must survive beside the ownership controls")
++        self.assertEqual(pin_checks - n_own_checks, 87,
++                         "pre-1b 97 minus replaced S3 minus nine retired legacy-column checks = 87")
++        self.assertEqual(pin_controls - n_own_ctl, 15,
++                         "pre-1b 19 minus retired A3/A4/C3/C4 = 15 beside the ownership controls")
+ 
+     def test_the_retired_zero_consumer_pin_is_gone_and_visibly_replaced(self) -> None:
+         """A retirement that leaves no trace is indistinguishable from a deletion to make a gate pass."""

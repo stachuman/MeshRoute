@@ -1,0 +1,10 @@
+START base-gateway_heltec
+END base-gateway_heltec 0 173
+START candidate-gateway_heltec
+END candidate-gateway_heltec 0 171
+START base-heltec_v4
+END base-heltec_v4 0 182
+START candidate-heltec_v4
+END candidate-heltec_v4 0 179
+gateway_heltec removed {'.pio/libdeps/gateway_heltec/RadioLib/src/RadioLib.h:LINE: warning: #warning "God mode active, I hope it was intentional. Buckle up, lads." [-Wcpp]': 1, "lib/hal/device_radio.h:LINE: warning: '++' expression of 'volatile'-qualified type is deprecated [-Wvolatile]": 1} added {}
+heltec_v4 removed {'.pio/libdeps/heltec_v4/RadioLib/src/RadioLib.h:LINE: warning: #warning "God mode active, I hope it was intentional. Buckle up, lads." [-Wcpp]': 1, '.pio/libdeps/heltec_v4/RadioLib/src/RadioLib.h:LINE: warning: #warning "Use of USB CDC for debug output is not recommended (might stop on first sleep). Use hardware UART instead." [-Wcpp]': 1, "lib/hal/device_radio.h:LINE: warning: '++' expression of 'volatile'-qualified type is deprecated [-Wvolatile]": 1} added {}

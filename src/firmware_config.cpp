@@ -35,7 +35,6 @@
 #include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16
-#include "admin_auth.h"              // meshroute::Identity, admin_key_from_password (handle_password)
 #include "console_json.h"            // §S3: write_mobile_status/_gw/_net/_gw_end/_err (companion JSON for `mobile status`/`gateways`)
 #include "device_rng.h"             // mrrng::fill (handle_create lineage mint)
 #include <Arduino.h>                 // Print, F()
@@ -88,7 +87,7 @@ static void seed_blob_from_live(mrnv::Blob& b);   // fwd decl — defined below 
 // config to defaults (the `cfg set mobile 1` -> reboot -> mobile=0 bug). seed_blob_from_live stamps too, but only
 // on the load-FAILED path; stamping here covers the load-SUCCEEDED path as well, which is what upgrades a loaded
 // older-version blob to kVersion so a reflash MIGRATES instead of resetting.
-// ⚠ The SAVE half is deliberately NOT wrapped: the seven call sites differ in failure handling (return / report and
+// ⚠ The SAVE half is deliberately NOT wrapped: the six call sites differ in failure handling (return / report and
 // carry on because the live state is already applied / commit a persistence tracker only on success / skip the save
 // entirely) and each prints a different user-visible string. Folding that into parameters would hide the very
 // differences that matter. Sites that ignore the save result at all are tagged `§nv-unchecked` where they live.
@@ -108,18 +107,17 @@ void nv_load_stamped(mrnv::Blob& b) {
 //    `ConfigService::note_external_write`, which compares ONLY the four covered fields (`ble_mode`, `e2e_dm`,
 //    `intro_attach`, `mobile_autoregister`) against the draft's baseline ⇒ a save that moved nothing covered raises
 //    NOTHING, and the repaint is edge-triggered so it cannot even ask for a redundant frame.
-// ★ THE SEVEN USER-INITIATED SITES (all notify; the `file:line` a reader needs is the verb's own save):
-//     handle_cfg_set · handle_gateway · handle_join · handle_create · handle_team · handle_leave · handle_password
+// ★ THE SIX USER-INITIATED SITES (all notify; the `file:line` a reader needs is the verb's own save):
+//     handle_cfg_set · handle_gateway · handle_join · handle_create · handle_team · handle_leave
 //   ⓘ MEASURED, not assumed, and it is why `leave` was the blocker: `handle_leave` does `b = mrnv::Blob{}` and
 //     restores only magic/version/freq/the radio defaults/beacon/duty/the three anti-spam knobs ⇒ it RESETS ALL FOUR
 //     covered fields to 0 — the largest covered-field change any verb makes. `handle_gateway`'s load-FAILURE seed
-//     writes `ble_mode` from the live global and leaves the other three at 0. The remaining four verbs assign none of
+//     writes `ble_mode` from the live global and leaves the other three at 0. The remaining three provisioning verbs assign none of
 //     the four and carry the loaded record's values through unchanged (which is exactly the case the self-limiting
 //     comparison above turns into a no-op).
 // ⛔ THE INTERNAL WRITERS STAY SILENT, and the reason is measured rather than stylistic: `fw_main.cpp`'s ctr-lease /
 //    join persist (it assigns node_id/claim_epoch/joined/channel_ctr/team_local_id), `fw_main.cpp`'s leaf-config
-//    adopt (lineage/epoch/sf_bitmap/duty/anti-spam/leaf_name) and `firmware_remote.cpp`'s admin counter-floor and
-//    pubkey-rotate writes (admin fields only) assign NONE of the four, and all four are load-IF-PRESENT or
+//    adopt (lineage/epoch/sf_bitmap/duty/anti-spam/leaf_name) assign NONE of the four; these are load-IF-PRESENT or
 //    load-or-seed so the covered bytes are carried through untouched. They are also not user-initiated and the lease
 //    fires on a TIMER: notifying there would put a flash read on a periodic path for a latch that can never move.
 // ⛔ THE INTERNAL WRITERS STAY SILENT — SECOND ENTRY, ADDED 2026-08-24 BY §UI-16 K3, AND IT IS RECORDED HERE RATHER
@@ -134,10 +132,10 @@ void nv_load_stamped(mrnv::Blob& b) {
 //        `mobile_autoregister`): it loads through the §nv-ritual and touches `team_ch_*` + `team_key_*` only, so the
 //        covered bytes are carried through untouched and the self-limiting comparison would raise NOTHING anyway.
 //    ⓘ K2's activation write is a DIFFERENT question with a different answer — it rides `handle_team`, which is
-//      user-initiated and IS one of the seven sites.
+//      user-initiated and IS one of the six sites.
 // ⛔ NO `MR_FEAT_OLED` MAY APPEAR IN THIS FILE. `lib/hal/mr_ui.h` supplies the inline no-op off the OLED profile,
 //    exactly as it does for `mr_ui_on_push`, so the config cluster never learns whether a panel exists.
-//    (`tools/probe_board_ui/`'s W13 is the check that keeps it true; W12/W14-W19 pin the seven placements.)
+//    (`tools/probe_board_ui/`'s W13 is the check that keeps it true; W12/W14-W18 pin the six placements.)
 
 // ================================================================== §UI-14 / [[B193]] — THE DEVICE BINDINGS
 // ★★★ WHAT B193 RECORDED AS OWED, DISCHARGED HERE. §UI-13 shipped `ICfgStore`/`ICfgLive` with NO hardware
@@ -2434,31 +2432,5 @@ void handle_leave(Print& out) {
     out.print(F("> left network (kept freq=")); out.print(keep_freq, 3); out.println(F(") — idle; `join` to re-provision (live)"));
 }
 
-#if MR_FEAT_REMOTE_MGMT
-// `password <passphrase>` — LOCAL-ONLY (a dispatch verb; NEVER accepted over the mesh — remote_exec has no such verb).
-// Derive the admin keypair (iterated-BLAKE2b -> identity_from_seed), pin admin_pubkey to NV, reset the replay floor,
-// then discard the derived keypair (the credential lives in the operator's head, not the node — spec §2/§8).
-void handle_password(const char* args, Print& out) {
-    while (*args == ' ') ++args;
-    size_t n = strlen(args);
-    while (n && (args[n-1]=='\r' || args[n-1]=='\n' || args[n-1]==' ')) --n;
-    if (n == 0) { out.println(F("> password err: usage `password <passphrase>` (local only)")); return; }
-    meshroute::Identity admin{};
-    out.println(F("> deriving admin key (a few seconds)..."));   // the KDF blocks; tell the operator it's not hung
-    meshroute::admin_key_from_password(args, n, admin, []{ fw_wdt_feed(); });   // feed the WDT during the multi-second stretch
-    g_node.admin_set_pubkey(admin.ed_pub);
-    mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual
-    for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = admin.ed_pub[i];
-    b.admin_provisioned = 1; b.admin_counter_floor = 0;      // fresh credential -> reset the replay floor
-    const bool saved = mrnv::save(b);
-    memset(&admin, 0, sizeof admin);                          // discard the derived keypair (best-effort local wipe) — ⛔ NOT moved by §notify-every-save: the wipe must happen on BOTH arms
-    if (!saved) { out.println(F("> password err: nv_save_failed")); return; }
-    mr_ui_on_config_saved();   // §notify-every-save — site 7 of 7, on the SUCCESS side of the verdict this site already captured (admin fields only, so the comparison is a no-op — the rule is the point)
-    out.print(F("> admin pubkey pinned (fp "));             // print only a 4-byte fingerprint, NEVER the pubkey/pw
-    const uint8_t* pk = g_node.admin_pubkey();
-    for (int i = 0; i < 4 && pk; ++i) { char hx[3]; snprintf(hx, sizeof hx, "%02X", pk[i]); out.print(hx); }
-    out.println(F(")"));
-}
-#endif
 
 }  // namespace mrfw

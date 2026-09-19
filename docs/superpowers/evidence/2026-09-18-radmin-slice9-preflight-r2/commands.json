@@ -1,0 +1,212 @@
+[
+  {
+    "label": "meshroute-head",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.002195596694946289,
+    "log": "meshroute-head.log",
+    "sha256": "a9966506b5d650424b5f9b3c024331e0d5995e06d18462731a0ff9df93434abd"
+  },
+  {
+    "label": "simulator-head",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "cwd": "/home/staszek/lora-universal-simulator",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.0023734569549560547,
+    "log": "simulator-head.log",
+    "sha256": "b17faeb7adcb1688301e8e81325b502dc3a5791772c3a9a6e4bfbf3ab7d2c483"
+  },
+  {
+    "label": "simulator-status",
+    "argv": [
+      "git",
+      "status",
+      "--short"
+    ],
+    "cwd": "/home/staszek/lora-universal-simulator",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.005025625228881836,
+    "log": "simulator-status.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "initial-status",
+    "argv": [
+      "git",
+      "status",
+      "--short"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.016946792602539062,
+    "log": "initial-status.log",
+    "sha256": "68ca758ac2ab0a99ddd638c3e0c601f596b9011252a3bd8264189b1d0676d605"
+  },
+  {
+    "label": "inventory-check",
+    "argv": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 1.9709627628326416,
+    "log": "inventory-check.log",
+    "sha256": "3866ab0201a16ae7338c8d5c2f455638ae1d52ac3d22bdec51141d236ac5b245"
+  },
+  {
+    "label": "authority",
+    "argv": [
+      "python3",
+      "tools/check_command_authority.py"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.048903465270996094,
+    "log": "authority.log",
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "label": "authority-controls",
+    "argv": [
+      "python3",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.0762324333190918,
+    "log": "authority-controls.log",
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87"
+  },
+  {
+    "label": "reference-base",
+    "argv": [
+      "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+      "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+      "--freeze-check",
+      "--compare",
+      "/home/staszek/MeshRoute/test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.19454216957092285,
+    "log": "reference-base.log",
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25"
+  },
+  {
+    "label": "reference-case-removal-survives",
+    "argv": [
+      "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+      "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+      "--freeze-check",
+      "--compare",
+      "/tmp/mr-slice9-r2-preflight-tr3k505n/test_remote_codec-case-removed.cpp",
+      "--selftest"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.19357037544250488,
+    "log": "reference-case-removal-survives.log",
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25"
+  },
+  {
+    "label": "capture-compile",
+    "argv": [
+      "g++",
+      "-std=c++20",
+      "-O2",
+      "-Ilib/core",
+      "-Ilib/monocypher/src",
+      "/tmp/mr-slice9-r2-preflight-tr3k505n/capture-legacy.cpp",
+      "lib/core/admin_auth.cpp",
+      "lib/core/identity.cpp",
+      "lib/core/dm_crypto.cpp",
+      "lib/monocypher/src/monocypher.c",
+      "-o",
+      "/tmp/mr-slice9-r2-preflight-tr3k505n/capture-legacy"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 1.5094029903411865,
+    "log": "capture-compile.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "capture-legacy",
+    "argv": [
+      "/tmp/mr-slice9-r2-preflight-tr3k505n/capture-legacy"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.0022301673889160156,
+    "log": "capture-legacy.log",
+    "sha256": "8821efbbf3b3c98f74474009a047135e16d77cca2607472b441162ec899d61e4"
+  },
+  {
+    "label": "reference-extra-legacy-refused",
+    "argv": [
+      "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+      "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+      "--freeze-check",
+      "--compare",
+      "/tmp/mr-slice9-r2-preflight-tr3k505n/test_remote_codec-extra-legacy-literal.cpp"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 1,
+    "expected": 1,
+    "seconds": 0.07933449745178223,
+    "log": "reference-extra-legacy-refused.log",
+    "sha256": "d7a467cde8d7d0fc6d5f00d3394200155c1fc578c27d14fa2df39e1d78825848"
+  },
+  {
+    "label": "meshroute-whitespace",
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.01680302619934082,
+    "log": "meshroute-whitespace.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "simulator-whitespace",
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/home/staszek/lora-universal-simulator",
+    "exit": 0,
+    "expected": 0,
+    "seconds": 0.0035631656646728516,
+    "log": "simulator-whitespace.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

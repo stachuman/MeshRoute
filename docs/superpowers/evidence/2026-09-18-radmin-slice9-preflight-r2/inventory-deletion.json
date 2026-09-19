@@ -1,0 +1,151 @@
+{
+  "base_rows": 208,
+  "removed_rows": 11,
+  "implied_remaining_rows": 197,
+  "brief_remaining_rows": 202,
+  "rows": [
+    {
+      "verb": "lock",
+      "subverb": "—",
+      "func": "dispatch",
+      "transports": "serial,ble",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_commands.cpp:1682",
+      "authority": "legacy",
+      "surface": "src/firmware_commands.cpp::dispatch",
+      "shapes": [
+        "S1"
+      ]
+    },
+    {
+      "verb": "password",
+      "subverb": "—",
+      "func": "dispatch",
+      "transports": "serial,ble",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_commands.cpp:1680",
+      "authority": "legacy",
+      "surface": "src/firmware_commands.cpp::dispatch",
+      "shapes": [
+        "S1"
+      ]
+    },
+    {
+      "verb": "rcmd",
+      "subverb": "—",
+      "func": "dispatch",
+      "transports": "serial,ble",
+      "gate": "—",
+      "source": "src/firmware_commands.cpp:1569",
+      "authority": "legacy",
+      "surface": "src/firmware_commands.cpp::dispatch",
+      "shapes": [
+        "S1"
+      ]
+    },
+    {
+      "verb": "unlock",
+      "subverb": "—",
+      "func": "dispatch",
+      "transports": "serial,ble",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_commands.cpp:1681",
+      "authority": "legacy",
+      "surface": "src/firmware_commands.cpp::dispatch",
+      "shapes": [
+        "S1"
+      ]
+    },
+    {
+      "verb": "duty",
+      "subverb": "—",
+      "func": "remote_encode",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:47",
+      "authority": "operator · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_encode",
+      "shapes": [
+        "S2"
+      ]
+    },
+    {
+      "verb": "limits",
+      "subverb": "—",
+      "func": "remote_encode",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:50",
+      "authority": "operator · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_encode",
+      "shapes": [
+        "S2"
+      ]
+    },
+    {
+      "verb": "routes",
+      "subverb": "—",
+      "func": "remote_encode",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:39",
+      "authority": "open · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_encode",
+      "shapes": [
+        "S2"
+      ]
+    },
+    {
+      "verb": "status",
+      "subverb": "—",
+      "func": "remote_encode",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:26",
+      "authority": "open · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_encode",
+      "shapes": [
+        "S2"
+      ]
+    },
+    {
+      "verb": "password rotate",
+      "subverb": "—",
+      "func": "remote_exec",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:125",
+      "authority": "legacy · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_exec",
+      "shapes": [
+        "S1"
+      ]
+    },
+    {
+      "verb": "reboot (alias: prep-restart)",
+      "subverb": "—",
+      "func": "remote_exec",
+      "transports": "radio(REMOTE_CMD)",
+      "gate": "MR_FEAT_REMOTE_MGMT",
+      "source": "src/firmware_remote.cpp:143",
+      "authority": "operator D · surface:legacy",
+      "surface": "src/firmware_remote.cpp::remote_exec",
+      "shapes": [
+        "S2"
+      ]
+    },
+    {
+      "verb": "rcmd",
+      "subverb": "—",
+      "func": "ble_dispatch_line",
+      "transports": "ble",
+      "gate": "—",
+      "source": "src/fw_main.cpp:596",
+      "authority": "legacy · surface:transport",
+      "surface": "src/fw_main.cpp::ble_dispatch_line",
+      "shapes": [
+        "S1"
+      ]
+    }
+  ]
+}

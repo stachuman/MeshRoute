@@ -862,15 +862,6 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_h
     (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
 }
 
-// OTA remote diagnostics (`rcmd`, 2026-06-24): a console-style query / its response, carried over a normal-routed,
-// link-ACKed DM (multi-hop). NOT an app DM (app_dm=false -> not a dm_delivery key, not inbox'd). fw_main owns the
-// command whitelist + execution; lib/core is the generic transport.
-uint16_t Node::send_remote_cmd(uint8_t dst, const uint8_t* body, uint8_t len) {
-    return enqueue_data(dst, body, len, /*flags=*/0, "rcmd_tx", /*app_dm=*/false, DATA_TYPE_REMOTE_CMD);
-}
-uint16_t Node::send_remote_response(uint8_t dst, const uint8_t* body, uint8_t len) {
-    return enqueue_data(dst, body, len, /*flags=*/0, "rcmd_resp_tx", /*app_dm=*/false, DATA_TYPE_REMOTE_RESP);
-}
 // §GapB (2026-07-18): the cross-layer E2E ack, UNIFIED onto the normal send machinery — "an E2E ack IS a normal DM
 // from receiver to sender, NO ack-specific addressing." The inbound DM `dm` preserved the full layer-path (§0.10), so
 // the recipient REVERSES it and sends type=E2E_ACK, body=acked_ctr, to (reversed path, dm.source_hash). A STATIC

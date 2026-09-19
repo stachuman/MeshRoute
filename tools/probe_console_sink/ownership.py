@@ -63,7 +63,7 @@ class OwnershipError(RuntimeError):
 #        full_oled     42  = 41 + `ui`                              (`MR_FEAT_OLED`)
 #        gateway       39  = 41 − `mobile` − `team`                 (`MR_N_LAYERS >= 2`)
 #        gateway_oled  40  = 39 + `ui`
-#        mobile        38  = 41 − `password` − `unlock` − `lock`    (`MR_FEAT_REMOTE_MGMT 0`)
+#        mobile        38  = 41 − `password` − `unlock` − `lock`    (`the retired target switch 0`)
 #        mobile_oled   39  = 38 + `ui`
 #      ⓘ `join`/`create`/`joinprofile` do NOT drop out on a gateway build: the `#else` arm keeps the same three
 #        spellings and answers `err gateway_build`, so the FORM is still router-owned there. That is the reason the
@@ -84,14 +84,16 @@ class OwnershipError(RuntimeError):
 #    command), and the intersection stays EMPTY: the two new forms are router-owned only.
 #    ⓘ Derived by running `--show` on this tree AFTER the inventory was regenerated, ⛔ never quoted from a brief.
 # 8ac adds four CLIENT-only router forms: remote, remote-ack, remote-result, remote-retry.
+# Slice 9 removes rcmd on all profiles and password/unlock/lock on ACCEPT profiles.
+# --show derives 39/40/37/38/43/44 router forms; the seven parser forms are unchanged.
 PINS = {
     #  profile          router  parser
-    "full_headless": (43, 7),
-    "full_oled": (44, 7),
-    "gateway": (41, 7),
-    "gateway_oled": (42, 7),
-    "mobile": (44, 7),
-    "mobile_oled": (45, 7),
+    "full_headless": (39, 7),
+    "full_oled": (40, 7),
+    "gateway": (37, 7),
+    "gateway_oled": (38, 7),
+    "mobile": (43, 7),
+    "mobile_oled": (44, 7),
 }
 
 

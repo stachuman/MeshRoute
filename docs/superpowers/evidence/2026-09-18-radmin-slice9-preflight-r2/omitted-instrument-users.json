@@ -1,0 +1,49 @@
+{
+  "console_tests": {
+    "base": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "projected_deletion": {
+      "tests": 2,
+      "failures": 1,
+      "errors": 1,
+      "skips": 0
+    }
+  },
+  "feature_tests": {
+    "file": "tools/test_probe_features.py",
+    "lines": [
+      270,
+      277,
+      280,
+      281,
+      285
+    ],
+    "facts": [
+      "requires at least five C controls",
+      "requires three board-only error diagnostics",
+      "requires A3/A4 consistency refusals",
+      "requires REMOTE_MGMT=1 in host_lus_gateway output"
+    ]
+  },
+  "board_ui": {
+    "file": "tools/probe_board_ui/run.sh",
+    "notification_pin": 7,
+    "base": {
+      "notifications": 7,
+      "direct_saves": 7
+    },
+    "projected_deletion": {
+      "notifications": 6,
+      "direct_saves": 6
+    },
+    "affected": [
+      "W19 password success/wipe sequence and its five controls",
+      "W20 shared writer census (also used by other nsite checks)"
+    ]
+  },
+  "scope": "In-memory projections only; no candidate production or tool file edited."
+}

@@ -1,0 +1,65 @@
+{
+  "gateway": {
+    "measurement_fields_equal_to_checkpoint": true,
+    "measurements": {
+      "flash_bytes": 572224,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 571236
+      },
+      "object_count": 285,
+      "ram_bytes": 203820,
+      "symbol_count": 6599,
+      "symbol_size_total": 752819,
+      "symbols_sha256": "3fb923a3bbbe33a6d9911af61427dbcd02a4510e5024045fdf57aed43cb80b21"
+    },
+    "payload_equal": true,
+    "checkpoint_payload": "4cc458610f566b5959632e13f432644d27fb01b01b6e5ec9fb8b216d0d7ee209",
+    "stock_payload": "4cc458610f566b5959632e13f432644d27fb01b01b6e5ec9fb8b216d0d7ee209",
+    "deleted_files": [
+      "lib/console/console_binary.cpp",
+      "lib/console/console_binary.h",
+      "lib/core/admin_auth.cpp",
+      "lib/core/admin_auth.h",
+      "src/firmware_remote.cpp",
+      "src/firmware_remote.h",
+      "test/test_admin_auth.cpp",
+      "test/test_console_binary.cpp"
+    ]
+  },
+  "heltec_mobile": {
+    "measurement_fields_equal_to_checkpoint": true,
+    "measurements": {
+      "flash_bytes": 1394520,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218004,
+        ".flash.text": 1072386,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211764,
+      "symbol_count": 13299,
+      "symbol_size_total": 1496094,
+      "symbols_sha256": "8c337fd54ee54a2ce601d1af9b80379a9da8777eac26deba20d2337650c5ff17"
+    },
+    "payload_equal": false,
+    "checkpoint_payload": "a662d62ca80ba484a5499c8739bc7913ddd007b8e6081365c9e256c126035810",
+    "stock_payload": "7df848b1a91b153604e2fccbceb59af611d7ce261679ce0b12d9cbaad4b07c83",
+    "deleted_files": [
+      "lib/console/console_binary.cpp",
+      "lib/console/console_binary.h",
+      "lib/core/admin_auth.cpp",
+      "lib/core/admin_auth.h",
+      "src/firmware_remote.cpp",
+      "src/firmware_remote.h",
+      "test/test_admin_auth.cpp",
+      "test/test_console_binary.cpp"
+    ]
+  }
+}

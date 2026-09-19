@@ -347,7 +347,6 @@ class TestPrimaryProjectionOracle(unittest.TestCase):
     def test_the_gate_evaluator_agrees_with_the_real_gates(self):
         self.assertTrue(GEN.eval_gate("MR_N_LAYERS < 2", GEN.PROFILES["mobile"]))
         self.assertFalse(GEN.eval_gate("MR_N_LAYERS < 2", GEN.PROFILES["gateway"]))
-        self.assertFalse(GEN.eval_gate("MR_FEAT_REMOTE_MGMT", GEN.PROFILES["mobile"]))
         self.assertTrue(GEN.eval_gate("MR_FEAT_OLED", GEN.PROFILES["full_oled"]))
 
     def test_the_feature_gates_really_separate_the_profiles(self):
@@ -359,7 +358,7 @@ class TestPrimaryProjectionOracle(unittest.TestCase):
         # ★ §RADMIN slice 3 (R-RA-8): `acl` and `admin-id` are ACCEPT-only, so a MOBILE build advertises neither.
         #   That asymmetry IS the product gate, and pinning it here is what makes the two mobile profiles'
         #   UNCHANGED router counts (38 / 39) a measurement rather than a coincidence.
-        self.assertEqual({"acl", "admin-id", "lock", "password", "unlock", "ui"}, full - mob)
+        self.assertEqual({"acl", "admin-id", "ui"}, full - mob)
 
     def test_the_punctuation_alias_is_not_a_second_command(self):
         names = GEN.primary_names(self.rows, GEN.PROFILES["full_headless"])

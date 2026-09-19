@@ -16,7 +16,6 @@ import gen_command_inventory as G
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = "src/firmware_command_authority.h"
-LEGACY_FAMILIES = {"rcmd", "password", "unlock", "lock", "password rotate"}
 
 
 def parse_header(text):
@@ -90,8 +89,6 @@ def check(table_text, header_text, inventory_text):
         expected = G.authority_cell(table[key], eligibility)
         if row.authority != expected:
             failures.append("authority/surface mark disagreement at " + row.source)
-        if table[key][0] == "legacy" and eligibility == "target" and row.verb not in LEGACY_FAMILIES:
-            failures.append("legacy class outside the ruled legacy families: " + row.verb)
     for key in table:
         if key not in used:
             failures.append("orphan ruled row: " + repr(key))
@@ -112,7 +109,7 @@ def selftest(texts):
         ("table/header disagreement", "table/header disagreement",
          (table, header.replace('"acl", "—", CommandClass::owner', '"acl", "—", CommandClass::operator_', 1), inventory)),
         ("orphan row", "orphan", (table + "| `orphan-probe` | — | owner | no | control |\n", header, inventory)),
-        ("surface mark dropped", "surface mark", (table, header, inventory.replace(" · surface:legacy", "", 1))),
+        ("surface mark dropped", "surface mark", (table, header, inventory.replace(" · surface:local", "", 1))),
     )
     failures = []
     with tempfile.TemporaryDirectory(prefix="mr-command-authority-") as tmp:

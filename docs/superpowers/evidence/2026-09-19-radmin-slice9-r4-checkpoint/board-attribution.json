@@ -1,0 +1,640 @@
+{
+  "gateway": {
+    "before": {
+      "flash_bytes": 575008,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 574020
+      },
+      "object_count": 288,
+      "ram_bytes": 204036,
+      "symbol_count": 6657,
+      "symbol_size_total": 755077,
+      "symbols_sha256": "dfc16373d4ceb265afbadbd44e4d69b4d775659b46a7eb8856ad6d27f78d7e37"
+    },
+    "after": {
+      "flash_bytes": 572224,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 571236
+      },
+      "object_count": 285,
+      "ram_bytes": 203820,
+      "symbol_count": 6599,
+      "symbol_size_total": 752819,
+      "symbols_sha256": "3fb923a3bbbe33a6d9911af61427dbcd02a4510e5024045fdf57aed43cb80b21"
+    },
+    "delta_ram": -216,
+    "delta_flash": -2784,
+    "loadable_section_deltas": {
+      ".data": 0,
+      ".ARM.exidx": 0,
+      ".text": -2784
+    },
+    "symbol_size_deltas_by_section": {
+      ".text": -2046,
+      ".bss": -212
+    },
+    "symbols": [
+      {
+        "name": "CSWTCH.154",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 56,
+        "delta": 56
+      },
+      {
+        "name": "CSWTCH.156",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 60,
+        "delta": 60
+      },
+      {
+        "name": "CSWTCH.157",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 56,
+        "after": 0,
+        "delta": -56
+      },
+      {
+        "name": "CSWTCH.159",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 60,
+        "after": 0,
+        "delta": -60
+      },
+      {
+        "name": "CSWTCH.500",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 36,
+        "delta": 36
+      },
+      {
+        "name": "CSWTCH.504",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 36,
+        "after": 0,
+        "delta": -36
+      },
+      {
+        "name": "CSWTCH.539",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 48,
+        "delta": 48
+      },
+      {
+        "name": "CSWTCH.543",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 48,
+        "after": 0,
+        "delta": -48
+      },
+      {
+        "name": "CSWTCH.637",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 28,
+        "delta": 28
+      },
+      {
+        "name": "CSWTCH.641",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 64,
+        "after": 36,
+        "delta": -28
+      },
+      {
+        "name": "CSWTCH.735",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 0,
+        "after": 20,
+        "delta": 20
+      },
+      {
+        "name": "CSWTCH.739",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 20,
+        "after": 0,
+        "delta": -20
+      },
+      {
+        "name": "_Z11fw_wdt_feedv",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 20,
+        "after": 0,
+        "delta": -20
+      },
+      {
+        "name": "_ZL17ble_dispatch_linePKcjPcj",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 2384,
+        "after": 2196,
+        "delta": -188
+      },
+      {
+        "name": "_ZL17mesh_service_oncev",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 7176,
+        "after": 6796,
+        "delta": -380
+      },
+      {
+        "name": "_ZN12mrcon_detail14GuardedConsole4pumpEv",
+        "kind": "FUNC",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 172,
+        "after": 0,
+        "delta": -172
+      },
+      {
+        "name": "_ZN12mrcon_detail14GuardedConsole5stageEh",
+        "kind": "FUNC",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 284,
+        "after": 320,
+        "delta": 36
+      },
+      {
+        "name": "_ZN4mrfw11handle_lockER5Print",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 44,
+        "after": 0,
+        "delta": -44
+      },
+      {
+        "name": "_ZN4mrfw11handle_rcmdEPKcR5Print",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 832,
+        "after": 0,
+        "delta": -832
+      },
+      {
+        "name": "_ZN4mrfw13handle_unlockEPKcR5Print",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 240,
+        "after": 0,
+        "delta": -240
+      },
+      {
+        "name": "_ZN4mrfw14kCommandPolicyE",
+        "kind": "OBJECT",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 2208,
+        "after": 2136,
+        "delta": -72
+      },
+      {
+        "name": "_ZN4mrfw15handle_passwordEPKcR5Print",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 528,
+        "after": 0,
+        "delta": -528
+      },
+      {
+        "name": "_ZN4mrfw8acl_verbERNS_10AclServiceERNS_14AdminIdServiceEPKcjRNS_11IAdminLinesE",
+        "kind": "FUNC",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 8300,
+        "after": 8384,
+        "delta": 84
+      },
+      {
+        "name": "_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 8540,
+        "after": 8228,
+        "delta": -312
+      },
+      {
+        "name": "_ZN9meshroute10ADMIN_SALTE",
+        "kind": "OBJECT",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 16,
+        "after": 0,
+        "delta": -16
+      },
+      {
+        "name": "_ZN9meshroute14admin_cmd_sealEPhjRKNS_8IdentityEPKhmmS5_hS5_t",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 234,
+        "after": 0,
+        "delta": -234
+      },
+      {
+        "name": "_ZN9meshroute19SegmentedInboxStore6appendEmPKht",
+        "kind": "FUNC",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 3740,
+        "after": 4872,
+        "delta": 1132
+      },
+      {
+        "name": "_ZN9meshroute23admin_key_from_passwordEPKcjRNS_8IdentityEPFvvE",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 132,
+        "after": 0,
+        "delta": -132
+      },
+      {
+        "name": "_ZN9meshroute4Node15send_remote_cmdEhPKhh",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 44,
+        "after": 0,
+        "delta": -44
+      },
+      {
+        "name": "_ZZN4mrfw11handle_rcmdEPKcR5PrintE9nonce_ctr",
+        "kind": "OBJECT",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 2,
+        "after": 0,
+        "delta": -2
+      },
+      {
+        "name": "_ZZN4mrfw13handle_unlockEPKcR5PrintENUlvE_4_FUNEv",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 4,
+        "after": 0,
+        "delta": -4
+      },
+      {
+        "name": "_ZZN4mrfw15handle_passwordEPKcR5PrintENUlvE_4_FUNEv",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 4,
+        "after": 0,
+        "delta": -4
+      },
+      {
+        "name": "crypto_blake2b_init",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 116,
+        "after": 0,
+        "delta": -116
+      },
+      {
+        "name": "crypto_blake2b_update",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 8,
+        "after": 0,
+        "delta": -8
+      },
+      {
+        "name": "g_admin_id",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 196,
+        "after": 0,
+        "delta": -196
+      },
+      {
+        "name": "g_admin_tx_ctr",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 4,
+        "after": 0,
+        "delta": -4
+      },
+      {
+        "name": "g_admin_unlocked",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 1,
+        "after": 0,
+        "delta": -1
+      },
+      {
+        "name": "g_remote_action",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 1,
+        "after": 0,
+        "delta": -1
+      },
+      {
+        "name": "g_remote_action_at",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".bss",
+        "before": 8,
+        "after": 0,
+        "delta": -8
+      },
+      {
+        "name": "sd_rand_application_bytes_available_get",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 16,
+        "after": 12,
+        "delta": -4
+      },
+      {
+        "name": "sd_rand_application_vector_get",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 16,
+        "after": 12,
+        "delta": -4
+      },
+      {
+        "name": "setup",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".text",
+        "before": 5192,
+        "after": 5248,
+        "delta": 56
+      }
+    ]
+  },
+  "heltec_mobile": {
+    "before": {
+      "flash_bytes": 1395276,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218276,
+        ".flash.text": 1072870,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 332,
+      "ram_bytes": 211772,
+      "symbol_count": 13305,
+      "symbol_size_total": 1496615,
+      "symbols_sha256": "d2688d42b0e9b72116db04e44933a5dca54cab5511c501241f1e2cd4dc72716e"
+    },
+    "after": {
+      "flash_bytes": 1394520,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218004,
+        ".flash.text": 1072386,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211764,
+      "symbol_count": 13299,
+      "symbol_size_total": 1496094,
+      "symbols_sha256": "8c337fd54ee54a2ce601d1af9b80379a9da8777eac26deba20d2337650c5ff17"
+    },
+    "delta_ram": -8,
+    "delta_flash": -756,
+    "loadable_section_deltas": {
+      ".dram0.data": 0,
+      ".rtc.text": 0,
+      ".flash.rodata": -272,
+      ".iram0.text": 0,
+      ".rtc.force_fast": 0,
+      ".iram0.vectors": 0,
+      ".flash.appdesc": 0,
+      ".flash.text": -484
+    },
+    "symbol_size_deltas_by_section": {
+      ".flash.text": -440,
+      ".flash.rodata": -72,
+      ".dram0.bss": -9
+    },
+    "symbols": [
+      {
+        "name": "_Z5setupv",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 2702,
+        "after": 2706,
+        "delta": 4
+      },
+      {
+        "name": "_Z9fw_rebootv",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 8,
+        "after": 26,
+        "delta": 18
+      },
+      {
+        "name": "_ZL17mesh_service_oncev",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 3964,
+        "after": 3892,
+        "delta": -72
+      },
+      {
+        "name": "_ZL9do_rebootv",
+        "kind": "FUNC",
+        "bind": "LOCAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 26,
+        "after": 0,
+        "delta": -26
+      },
+      {
+        "name": "_ZN4mrfw11handle_rcmdEPKcR5Print",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 268,
+        "after": 0,
+        "delta": -268
+      },
+      {
+        "name": "_ZN4mrfw14kCommandPolicyE",
+        "kind": "OBJECT",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".flash.rodata",
+        "before": 2208,
+        "after": 2136,
+        "delta": -72
+      },
+      {
+        "name": "_ZN4mrfw4help12render_indexER5Print",
+        "kind": "FUNC",
+        "bind": "WEAK",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 430,
+        "after": 422,
+        "delta": -8
+      },
+      {
+        "name": "_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 5610,
+        "after": 5574,
+        "delta": -36
+      },
+      {
+        "name": "_ZN9meshroute4Node15send_remote_cmdEhPKhh",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 49,
+        "after": 0,
+        "delta": -49
+      },
+      {
+        "name": "_ZN9meshroute4Node19enqueue_cross_layerEhmPKhhhS2_hhPthm",
+        "kind": "FUNC",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".flash.text",
+        "before": 413,
+        "after": 410,
+        "delta": -3
+      },
+      {
+        "name": "g_remote_action",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".dram0.bss",
+        "before": 1,
+        "after": 0,
+        "delta": -1
+      },
+      {
+        "name": "g_remote_action_at",
+        "kind": "OBJECT",
+        "bind": "GLOBAL",
+        "visibility": "DEFAULT",
+        "section": ".dram0.bss",
+        "before": 8,
+        "after": 0,
+        "delta": -8
+      }
+    ]
+  }
+}

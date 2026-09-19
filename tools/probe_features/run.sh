@@ -29,7 +29,7 @@
 #     isolation to prove it is the thing doing the refusing.
 #   • The SLICE-1b OWNERSHIP CONTRACT (`ownership.py`): which files name the pair, which sites inside them, which
 #     capability guards each owned symbol, that the real router calls the pure decision with the two macros in the
-#     declared order, and that nothing is legacy-widened with `MR_FEAT_REMOTE_MGMT` — each with its own control.
+#     declared order, and that nothing is unconditionally widened with `|| 1` — each with its own control.
 # ⛔ NOT MEASURED HERE: any runtime remote-admin BEHAVIOUR. This runner reads configuration and source; the RX drive
 #   is `test/test_node_r3.cpp` §radmin-1b/1..5 and the compile-out is the per-board preprocessing evidence.
 #   ⚠ CORRECTED 2026-09-06, old claim visible: this line read *"There is none in slice 1 — the pair has no consumer."*
@@ -103,8 +103,10 @@ WARN=(-Wall -Wextra -Werror)
 #     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)
 PIN_CELLS=9
 # 8ac: 122 - node_mac.cpp retired staging owner = 121; all 62 controls retained/retargeted.
-PIN_CHECKS=121
-PIN_CONTROLS=62
+# Slice 9 removes nine legacy-column checks; O5 now rejects unconditional widening.
+PIN_CHECKS=112
+# Slice 9 retires A3/A4/C3/C4 with the agreement diagnostic; W/Y controls are retained.
+PIN_CONTROLS=58
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION (the sibling probe's lesson: two `cat` lists drifted apart and produced a FALSE RED
@@ -143,7 +145,7 @@ echo "   compiler          : $CXX ($("$CXX" --version 2>/dev/null | head -1))"
 cat <<'CLASS'
 
 == control classification (declared up-front; nothing below may be reclassified after the fact) ==
-  class A — PRODUCTION COMPILE-TIME REFUSAL (A1..A4)
+  class A — PRODUCTION COMPILE-TIME REFUSAL (A1..A2; legacy A3/A4 retired)
       measured RED = the declared INVALID configuration fails to compile AT the intended mr_features.h diagnostic
                      (matched against text EXTRACTED from the production header), AND its legal sibling
                      configuration still compiles and runs green under the same mutant.
@@ -177,7 +179,7 @@ CLASS
 echo
 
 # ================================================================================================================
-# THE RULED MATRIX (R-RA-26). Expectation order: TEAM MOBILE MOBILE_HOST GATEWAY OLED REMOTE_MGMT CLIENT ACCEPT.
+# THE RULED MATRIX (R-RA-26). Expectation order: TEAM MOBILE MOBILE_HOST GATEWAY OLED CLIENT ACCEPT.
 # ⛔ These values are TRANSCRIBED FROM THE RULING, not read back from the header — that is the whole point.
 # ⓘ Each cell carries the FEATURE-RELEVANT projection of a real flag set. `envmap.py` E13 derives that the only
 #   MR_FEAT_* an environment ever sets is MR_FEAT_OLED, which is what makes the projection complete rather than
@@ -202,15 +204,15 @@ cell_defs() {
 }
 cell_exp() {
   case "$1" in
-    board_mobile_oled0)  echo "1 1 1 1 0 0 1 0" ;;
-    board_mobile_oled1)  echo "1 1 1 1 1 0 1 0" ;;
-    board_gateway_oled0) echo "0 0 1 1 0 1 0 1" ;;
-    board_gateway_oled1) echo "0 0 1 1 1 1 0 1" ;;
-    board_static_oled0)  echo "1 1 1 1 0 1 0 1" ;;
-    board_static_oled1)  echo "1 1 1 1 1 1 0 1" ;;
-    host_native)         echo "1 1 1 1 0 1 1 1" ;;
-    host_lus_normal)     echo "1 1 1 1 0 1 1 1" ;;
-    host_lus_gateway)    echo "1 1 1 1 0 1 1 1" ;;
+    board_mobile_oled0)  echo "1 1 1 1 0 1 0" ;;
+    board_mobile_oled1)  echo "1 1 1 1 1 1 0" ;;
+    board_gateway_oled0) echo "0 0 1 1 0 0 1" ;;
+    board_gateway_oled1) echo "0 0 1 1 1 0 1" ;;
+    board_static_oled0)  echo "1 1 1 1 0 0 1" ;;
+    board_static_oled1)  echo "1 1 1 1 1 0 1" ;;
+    host_native)         echo "1 1 1 1 0 1 1" ;;
+    host_lus_normal)     echo "1 1 1 1 0 1 1" ;;
+    host_lus_gateway)    echo "1 1 1 1 0 1 1" ;;
     *) return 1 ;;
   esac
 }
@@ -227,21 +229,20 @@ compile_cell() {
   "$CXX" "${STD[@]}" "${WARN[@]}" "${defs[@]}" "${drop[@]}" \
       -DPROBE_CELL="\"$cell\"" -DPROBE_HDR_HASH="$h" \
       -DEXP_TEAM="${e[0]}" -DEXP_MOBILE="${e[1]}" -DEXP_MOBILE_HOST="${e[2]}" -DEXP_GATEWAY="${e[3]}" \
-      -DEXP_OLED="${e[4]}" -DEXP_REMOTE_MGMT="${e[5]}" -DEXP_RADMIN_CLIENT="${e[6]}" -DEXP_RADMIN_ACCEPT="${e[7]}" \
+      -DEXP_OLED="${e[4]}" -DEXP_RADMIN_CLIENT="${e[5]}" -DEXP_RADMIN_ACCEPT="${e[6]}" \
       "${pre[@]}" -I"$ROOT/lib/core" "$HERE/probe_main.cpp" -o "$bin" 2>>"$OUT/build.log"
 }
 
 # ---- S1..S3: the runner's structural pins, and the DERIVED diagnostics the classifier matches on ---------------
 mapfile -t DIAGS < <(sed -n 's/^#    error "\(.*\)"$/\1/p' "$HDR")
-if [ "${#DIAGS[@]}" -eq 3 ] && [ "${DIAGS[0]}" != "${DIAGS[1]}" ] && [ "${DIAGS[1]}" != "${DIAGS[2]}" ] \
-   && [ "${DIAGS[0]}" != "${DIAGS[2]}" ]; then
-  say_ok "S1 the header declares exactly 3 distinct board-only #error diagnostics (extracted, not typed here)"
-  printf '       [1] %s\n       [2] %s\n       [3] %s\n' "${DIAGS[0]}" "${DIAGS[1]}" "${DIAGS[2]}"
+if [ "${#DIAGS[@]}" -eq 2 ] && [ "${DIAGS[0]}" != "${DIAGS[1]}" ]; then
+  say_ok "S1 the header declares exactly 2 distinct board-only #error diagnostics (extracted, not typed here)"
+  printf '       [1] %s\n       [2] %s\n' "${DIAGS[0]}" "${DIAGS[1]}"
 else
-  say_fail "S1 expected exactly 3 distinct '#    error' diagnostics in $HDR, found ${#DIAGS[@]}"
-  DIAGS=("__no_such_diagnostic_1__" "__no_such_diagnostic_2__" "__no_such_diagnostic_3__")
+  say_fail "S1 expected exactly 2 distinct '#    error' diagnostics in $HDR, found ${#DIAGS[@]}"
+  DIAGS=("__no_such_diagnostic_1__" "__no_such_diagnostic_2__")
 fi
-DIAG_BOTH=${DIAGS[0]}; DIAG_NEITHER=${DIAGS[1]}; DIAG_CONSISTENCY=${DIAGS[2]}
+DIAG_BOTH=${DIAGS[0]}; DIAG_NEITHER=${DIAGS[1]}
 
 if grep -q '^#ifndef MR_FEAT_RADMIN' "$HDR"; then
   say_fail "S2 the pair has an #ifndef override surface — R-RA-26 forbids dialling an invalid pair in from an env"
@@ -307,11 +308,10 @@ classify_refusal() {
   else printf 'refusal'
   fi
 }
-matched_diag() {   # -> both | neither | consistency | none
+matched_diag() {   # -> both | neither | none
   local log=$1
   grep -qF -- "$DIAG_BOTH"        "$log" && { printf 'both';        return; }
   grep -qF -- "$DIAG_NEITHER"     "$log" && { printf 'neither';     return; }
-  grep -qF -- "$DIAG_CONSISTENCY" "$log" && { printf 'consistency'; return; }
   printf 'none'
 }
 
@@ -415,20 +415,12 @@ if [ "${1:-}" != "--no-neg" ]; then
   echo "== class A — production compile-time refusals (a COMPILE FAILURE is the declared RED here, and ONLY here) =="
 
   mutate 'A1' A1 --find '#  define MR_FEAT_RADMIN_CLIENT 0' --replace '#  define MR_FEAT_RADMIN_CLIENT 1' --expect 1 &&
-  ctl_refusal 'A1 a BOARD with both endpoints enabled ({1,1}, ACCEPT==REMOTE_MGMT so only exclusivity can fire)' \
+  ctl_refusal 'A1 a BOARD with both endpoints enabled ({1,1}, only exclusivity can fire)' \
       A1 board_static_oled0 both board_mobile_oled0
 
   mutate 'A2' A2 --find '#  define MR_FEAT_RADMIN_CLIENT 1' --replace '#  define MR_FEAT_RADMIN_CLIENT 0' --expect 2 --nth 1 &&
-  ctl_refusal 'A2 a BOARD with neither endpoint ({0,0}, ACCEPT==REMOTE_MGMT so only exclusivity can fire)' \
+  ctl_refusal 'A2 a BOARD with neither endpoint ({0,0}, only exclusivity can fire)' \
       A2 board_mobile_oled0 neither board_static_oled0
-
-  mutate 'A3' A3 --find '#if defined(MR_PROFILE_MOBILE)' --replace '#if defined(ARDUINO)' --expect 2 --nth 2 &&
-  ctl_refusal 'A3 a STATIC board derived as {1,0} while the legacy switch says managed (exclusivity holds)' \
-      A3 board_static_oled0 consistency board_mobile_oled0
-
-  mutate 'A4' A4 --find '#if defined(MR_PROFILE_MOBILE)' --replace '#if defined(MR_PROFILE_GATEWAY)' --expect 2 --nth 2 &&
-  ctl_refusal 'A4 a MOBILE board derived as {0,1} while the legacy switch says unmanaged (exclusivity holds)' \
-      A4 board_mobile_oled0 consistency board_static_oled0
 
   echo
   echo "== class B — executable matrix mutations (the mutant BUILDS; the driver names the wrong value) =="
@@ -469,14 +461,6 @@ if [ "${1:-}" != "--no-neg" ]; then
   mutate 'C2' C2 --find '#  define MR_FEAT_RADMIN_CLIENT 1' --replace '#  define MR_FEAT_RADMIN_CLIENT 0' --expect 2 --nth 1 &&
   mutate 'C2' C2 --delete-block '#  if !MR_FEAT_RADMIN_CLIENT && !MR_FEAT_RADMIN_ACCEPT' '#  endif' --expect 1 &&
   ctl_guard_accepts 'C2 the neither-enabled #error is deleted' C2 board_mobile_oled0
-
-  mutate 'C3' C3 --find '#if defined(MR_PROFILE_MOBILE)' --replace '#if defined(ARDUINO)' --expect 2 --nth 2 &&
-  mutate 'C3' C3 --delete-block '#  if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT' '#  endif' --expect 1 &&
-  ctl_guard_accepts 'C3 the ACCEPT==REMOTE_MGMT #error is deleted (static direction)' C3 board_static_oled0
-
-  mutate 'C4' C4 --find '#if defined(MR_PROFILE_MOBILE)' --replace '#if defined(MR_PROFILE_GATEWAY)' --expect 2 --nth 2 &&
-  mutate 'C4' C4 --delete-block '#  if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT' '#  endif' --expect 1 &&
-  ctl_guard_accepts 'C4 the ACCEPT==REMOTE_MGMT #error is deleted (mobile direction)' C4 board_mobile_oled0
 
   mutate 'C5' C5 --find '#if defined(ARDUINO)' --replace '#if 1' --expect 1 &&
   ctl_refusal 'C5 the board-only fence is widened to the HOST — the legitimate {1,1} is now refused' \
@@ -519,13 +503,13 @@ if [ "${1:-}" != "--no-neg" ]; then
 
   # X4 — the classifier's own truth table, and the diagnostic attribution it rests on.
   if [ "$DROP" != control ]; then
-    printf '%s\n' "error: #error \"$DIAG_CONSISTENCY\"" > "$OUT/x4_real.log"
+    printf '%s\n' "error: #error \"$DIAG_BOTH\"" > "$OUT/x4_real.log"
     printf 'error: something else entirely\n'            > "$OUT/x4_other.log"
     if [ "$(classify_refusal 1 "$OUT/x4_real.log")"  = refusal  ] \
     && [ "$(classify_refusal 1 "$OUT/x4_other.log")" = unrelated ] \
     && [ "$(classify_refusal 0 "$OUT/x4_real.log")"  = accepted  ] \
     && [ "$(classify_refusal 139 "$OUT/x4_real.log")" = abnormal ] \
-    && [ "$(matched_diag "$OUT/x4_real.log")" = consistency ]; then
+    && [ "$(matched_diag "$OUT/x4_real.log")" = both ]; then
       n_ctl=$((n_ctl+1)); echo "  ok   X4 the classifier discriminates: 1+diag=refusal · 1+other=unrelated · 0=accepted · 139=abnormal"
     else
       n_bad=$((n_bad+1)); echo "  FAIL X4 the control classifier does not hold"

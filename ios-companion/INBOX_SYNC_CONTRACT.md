@@ -821,7 +821,7 @@ The anti-spam v2 knobs below are now **per-leaf config** (carried in the C confi
 ```
 cfg set active_fraction <0..1>   # channel-cap fairness divisor (default 0.125): how aggressively the per-origin channel cap shares the mesh's channel capacity C
 cfg set ch_min_ms <ms>           # channel burst floor (default 10000): min spacing between one origin's channel floods
-cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-keystroke — e2e-ack / rcmd are exempt
+cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-keystroke — E2E ACK is exempt; remote-admin v2 uses the normal app-DM carrier
 ```
 - All three are in the `config_hash`: changing one on a **mother** propagates to members (they re-pull + emit `config_adopted`); on an **unmanaged** node it's a local setting only.
 - They are the source of the `ch_min_ms` / `dm_min_ms` (and via the fraction, `ch_cap`) fields the **`limits`** query reports (above) — so the app's pacing tracks the leaf's actual floors, not the defaults.
@@ -921,26 +921,22 @@ The node replies on TXD with one JSON line:
 
 App needs stated; the wire/design shape is the node agent's call — please update this doc with the final shapes
 (the app builds decode-after-contract, never ahead of it). **Status: Ask 2 ✅ BUILT** (`loc_src:"team"` is live).
-**Ask 1 ⊂ Ask 3** — Ask 3 (2026-08-16) supersedes and sharpens it with the profile split and the measured
-foot-gun; read Ask 3 first, Ask 1 remains for the items it still carries (unlock/lock, verb coverage).
+**Asks 1 and 3 are historical and SUPERSEDED by remote-admin v2 (Slices 8a+8c/8b).** The current
+[controller contract](#remote-administration--controller-usbble-delivery-8a8c) and
+[carrier observations](#remote-controller-carrier-observations-slice-8b) below define the implemented surface.
 
-### Ask 1 — remote-admin app surface (P1-remote: configure a node THROUGH another node) — folded into Ask 3
-The authenticated `rcmd` spine exists (open reads cleartext; sealed writes behind `unlock`; binary-TLV responses).
-The app needs an app-consumable shape on the BLE side:
-1. **`rcmd` responses as JSON lines** the companion can decode (e.g. `{"ev":"rcmd_resp","from":<id>,"verb":"…","ok":…,…}`
-   — or a documented envelope), replacing the dead `[rcmd <from>]` console echo. Open reads (`status`/`routes`)
-   ideally reuse the existing `status`/`route` writers tagged with `from`.
-2. **`unlock <passphrase>` / `lock` over BLE with JSON acks** (+ an unlocked-state flag somewhere readable, e.g.
-   in `ready` or an ack), so the app can gate its remote-write UI.
-3. **An error model** the app can render: `no_admin_key` (target has none pinned) · `locked` (unlock first) ·
-   `stale` (replay-rejected) · timeout behaviour (silent? push?).
-4. Verb coverage for the P1 use cases: remote `cfg get/set`, `reboot`, `status`, `routes` (what else is cheap?).
+### Ask 1 — remote-admin app surface — SUPERSEDED in Slice 9
 
-### Ask 3 — the CONFIGURATOR path: let a mobile-attached phone configure another node (2026-08-16)
+The former request concerned the `rcmd`/password/unlock/lock protocol and binary TLV responses. Slice 9 deletes
+that protocol and those verbs. Use `remote`, credential slots and the target book; plaintext NDJSON results,
+retention and local ACKs follow the controller contract below. There is no unlocked-password state or legacy
+response event to consume.
 
-> ⚠ **This section is NEGOTIABLE and expected to move — on BOTH sides.** It states an app NEED and the product
-> flow behind it; the wire/design shape is the node agent's and the owner's call. Amend it freely, and when a
-> slice lands QA writes the as-built shape here (the app builds decode-after-contract, never ahead of it).
+### Ask 3 — the CONFIGURATOR path (2026-08-16) — historical, superseded by v2
+
+> Historical diagnosis and requests below describe the pre-v2 firmware. They are retained as the motivation,
+> not current capability or outstanding work. Mobile CLIENT / static-and-gateway ACCEPT, authenticated sessions
+> and the transport-scoped result contract are implemented; Slice 9 removes the old protocol.
 
 **Product context (owner, 2026-08-16 — this is *why*, and it is the part worth arguing with).** The companion is
 reshaping into **two contexts on one phone**: a **mobile companion** (messaging/team/position — attached to the
@@ -965,14 +961,10 @@ profile**. Consequences measured in-source:
   attached to a *mobile*; that is where the configurator flow begins. Without originate-from-mobile, Path B
   cannot exist at all.
 
-**2. Route the `rcmd` RESPONSE to the requesting transport, as JSON.**
-✅ *The plumbing already exists* — the command-sink consolidation gave the JSON handlers a `Print& out`
-(`mrcon` on USB, a `LineSink` over BLE — `src/fw_main.cpp:311-313`), which is how `status`/`routes`/`cfg`/`peers`
-reach the phone. ❌ **The `rcmd` response printer still hardcodes the USB console** — `mrcon.print(F("[rcmd "))…`
-as human text at `src/fw_main.cpp:1464-1474`. So the phone that issued the command never sees the answer.
-⇒ **The ask is small and mechanical: send that response through the same sink and emit it as JSON** — e.g.
-`{"ev":"rcmd_resp","from":<id>,…}`; open reads could reuse the existing `status`/`route` writers tagged with
-`from`. Shape is the node agent's call.
+**2. Transport-scoped responses — fulfilled by v2.** `firmware_remote_client.cpp` offers plaintext results
+on the requesting USB or secured BLE transport. USB uses `> remote <id> …`; BLE uses `remote_output` and
+`remote_terminal` NDJSON. Complete results remain retained until the local delivery/ACK contract is satisfied;
+a disconnect is not an acknowledgement. This replaces the old USB-only printer.
 
 **3. Challenge–response (the replay scheme) — still owed.**
 `src/firmware_remote.cpp:72-90` labels the current monotonic-counter scheme **known-broken by design, redesign
@@ -1035,7 +1027,12 @@ with the seal's own `too_large` rather than a transport error.
 
 These firmware→app events ride the same BLE TXD line, so the app's parser will see them; documented so it handles (or cleanly ignores) them. Not part of the inbox sync model.
 
-- **Remote management: `rcmd <dst> <verb>` (BLE) — now AUTHENTICATED (2026-07 remote-admin, `src/firmware_remote.cpp`).** Two tiers: **open reads** (`status`, `routes`) ride **cleartext** and any node answers; **every other verb (reboot / prep-restart / config / `password rotate …`) is SEALED** to the target's pinned admin key and requires the operator to **`unlock <passphrase>`** first (derives the admin key into RAM; `lock` wipes it). A sealed `rcmd` to a node with no admin key pinned is silently dropped; a stale replay is rejected with a counter-hint. Responses come back as **binary-TLV** sealed blobs (`REMOTE_FLAG_SEALED`), not the old console text. Gated out entirely on the mobile profile (`MR_FEAT_REMOTE_MGMT=0`). Ack shape/line refs above are pre-cleanup — the app should treat `rcmd` as fire-and-observe and not depend on the old `[rcmd <from>]` console echo. (Design: `docs/superpowers/specs/archive/2026-07-13-remote-management-auth-design.md`.) ⚠ **The monotonic-counter replay scheme described here is being REPLACED (ratified 2026-07-26): challenge–response** — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`. The companion becomes the primary remote-admin driver at v1; see "Planned for v1" below.
+- **Remote administration v2 (`remote`, mobile CLIENT only).** Open diagnostics and authenticated execute use
+  the target book and provisioned credential slots. USB/BLE receive plaintext, transport-scoped results via
+  `remote_output` / `remote_terminal`, with retained-result and explicit BLE `remote-ack` handling. See the
+  [controller contract](#remote-administration--controller-usbble-delivery-8a8c) and
+  [carrier observations](#remote-controller-carrier-observations-slice-8b). Slice 9 deletes `rcmd`, password,
+  unlock/lock, the counter-floor codec and binary TLV replies; those commands now return the ordinary unknown-verb error.
 - **`{"ev":"version",…}`** (`fw`/`built`/`git`/`board`/`reset`) — the BLE `version` query (`fw_main.cpp:1457`).
 - **`{"ev":"prep_restart","halted":true}`** — the BLE `prep-restart` ack (`fw_main.cpp:1463`).
 - **`{"ev":"hash_resolved","node":…,"auth":…,"hash":…}`** — the `resolve <hash>` diagnostic answer (`write_push`, `console_json.cpp:148`). Distinct from `peer_key_cached` (the pubkey-cache event).
@@ -1353,9 +1350,9 @@ Before a prep-restart request the controller shows:
 
 > prep-restart stops mesh radio and remote administration. Restart the target locally to restore access; remote reboot and rollover cannot recover it while halted.
 
-The board carrier is unavailable until 8b: a local `carrier_unavailable` refusal claims no transmission or
-remote execution. 8a+8c supplies controller state, framing and local delivery; custody and on-air forwarding
-remain separate carrier work.
+Slice 8b supplies the mobile-to-home wrapper carrier. Local submission acknowledges admission to the
+controller's own queue only; it does not claim radio delivery or remote execution. Custody observations below
+remain separate from authenticated RPC completion.
 
 Controller local control replies use `{"ack":"remote","id":"0123456789abcdef"}` (or the
 control verb's name), and refusals use `{"err":"remote","msg":"carrier_unavailable"}`.
@@ -1366,8 +1363,7 @@ required warning verbatim, before admission. All events end in a newline.
 An automatic safe rollover after `session_full` replaces the original request ID with a fresh ID.
 Subsequent output, terminal, retained notices and local ACK use that fresh ID. Manual exact retry
 preserves its original ID and sealed bytes. An OPEN result never creates target ACK debt.
-The controller's board carrier is deliberately unavailable until 8b; this slice's real console
-admission therefore returns the typed `carrier_unavailable` refusal without putting bytes on air.
+The earlier 8a+8c `carrier_unavailable` stub was replaced in 8b; a carrier refusal still claims no transmission.
 
 ### Remote controller carrier observations (Slice 8b)
 

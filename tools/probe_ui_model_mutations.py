@@ -712,7 +712,10 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # 8ac measured full native runner: 2947 cases, 193734 assertions, no skips.
 # 8b: 19 new cases and 1942 assertions over c07b77f, measured by the full native binary.
 # Revision 6: full native suite, 8b real-wrapper/binding/identity proofs included.
-PIN_CASES, PIN_ASSERTS = 2970, 195942
+# Slice 9: 2970/195942 - 20 retired cases /128 assertions (admin_auth 17, console_binary 111),
+# authority -45, frozen-sealer fixture -6, typed-send queue proof +5 = 2950/195768.
+# Both complete native binaries and per-file filtered runs measured this attribution.
+PIN_CASES, PIN_ASSERTS = 2950, 195768
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -8857,7 +8860,7 @@ MUTS_SLICEBRX = [
   "    if (type == DATA_TYPE_REMOTE_CMD)  return accept_on ? RadminRxOwner::command_accept  : RadminRxOwner::none;",
   "    if (type == DATA_TYPE_REMOTE_CMD)  return RadminRxOwner::command_accept;"),
  ("1b-06 ★★★ THE `client_on` TERM IS DROPPED — REMOTE_RESP becomes owned on EVERY configuration, which is the "
-  "`|| MR_FEAT_REMOTE_MGMT` legacy widening R-RA-27 item 1 forbids, reached by another route",
+  "unconditional ownership R-RA-27 item 1 forbids, reached by another route",
   "    if (type == DATA_TYPE_REMOTE_RESP) return client_on ? RadminRxOwner::response_client : RadminRxOwner::none;",
   "    if (type == DATA_TYPE_REMOTE_RESP) return RadminRxOwner::response_client;"),
  # ⛔ 1b-07 IS THE ONE WIRING DEFECT THAT **IS** VISIBLE IN A BOTH-ON BINARY, and that is the whole reason the two

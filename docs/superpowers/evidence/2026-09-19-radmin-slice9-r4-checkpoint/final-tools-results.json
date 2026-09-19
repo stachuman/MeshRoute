@@ -1,0 +1,20 @@
+[
+  {
+    "name": "tools",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-v",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 1,
+    "seconds": 926.4127999469638,
+    "sha256": "11c88f3443c04fefeda6d48ed7071b89fc3e4cb594cc7a8c0c5a99f4fcd8bc34"
+  }
+]

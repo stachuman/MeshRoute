@@ -1,0 +1,12 @@
+{
+  "name": "inbox_verbs-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_inbox_verbs/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 48.337768990546465,
+  "sha256": "057c9d55ce424bb62672cb41fa6c5c1c99ad50c24d740c5cacf685b51d4c5291"
+}

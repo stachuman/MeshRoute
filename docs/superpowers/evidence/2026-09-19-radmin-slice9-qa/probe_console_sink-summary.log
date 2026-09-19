@@ -1,0 +1,44 @@
+== §B95 console-sink probe + §0g bare help index ==
+   sink md5 = deaa723f   help md5 = 1f6c4160   inventory oracle = /home/staszek/MeshRoute/tools/gen_command_inventory.py
+== §0g help index ==  profile = full_oled  help md5 = 1f6c4160
+   index     445 B / 48 lines (47 names)   headroom 1603 B
+   refusal   106 B /  2 lines               headroom 1942 B
+   HELP-LARGEST (index) 445 B (stage 2048 B)
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   profile full_oled exit=0
+...
+   -> structural S77 now FAIL
+T2 second scope publisher outside seam
+   -> structural S77 now FAIL
+T3 scope never installs context
+   -> structural S78 now FAIL
+T4 scope fails to restore previous context
+   -> structural S78 now FAIL
+T5 main-loop service call missing
+   -> structural S79 now FAIL
+T6 executor precedes RX
+   -> structural S79 now FAIL
+T7 executor loses ACCEPT guard
+   -> structural S80 now FAIL
+T8 private filter hides diagnostics too
+   -> structural S81 now FAIL
+T9 remote mark guard removed
+   -> structural S82 now FAIL
+T10 remote delete guard removed
+   -> structural S82 now FAIL
+T11 status scalar label changes
+   -> structural S83 now FAIL
+T12 status reads secret-bearing state instead of scalar snapshot
+   -> structural S83 now FAIL
+T13 status counters lose ACCEPT gate
+   -> structural S83 now FAIL
+
+real sources verified UNCHANGED; 8 sink + 35 source + 23 help + 5 BLE + 22 radmin3 + 21 radmin4 controls run + 22 activation controls + 13 executor ownership controls (CONTROLS-TOTAL 149)
+
+PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls=149 unusable_controls=0
+PASS: probe + structural + controls all green
+=== --no-neg tail ===
+   ok   O-mobile_oled router/parser ownership is disjoint and complete   [router=44 parser=7 intersection=EMPTY union==projection=True]
+   ownership: 6 passed / 0 failed / 6 total
+
+PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg.

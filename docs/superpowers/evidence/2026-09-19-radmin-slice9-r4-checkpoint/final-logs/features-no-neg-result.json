@@ -1,0 +1,12 @@
+{
+  "name": "features-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_features/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 11.430848516523838,
+  "sha256": "8cc2690539833de9a9a6e1321ec638ee7ecc4d2346eddb0dc3289d53222de61e"
+}

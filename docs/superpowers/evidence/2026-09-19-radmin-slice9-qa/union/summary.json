@@ -1,0 +1,377 @@
+{
+ "a0rx": {
+  "red": 7,
+  "unusable": 0,
+  "configured": 7,
+  "vacuous": 0
+ },
+ "actionadmit": {
+  "red": 10,
+  "unusable": 0,
+  "configured": 10,
+  "vacuous": 0
+ },
+ "b134ack": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "b134inbox": {
+  "red": 5,
+  "unusable": 0,
+  "configured": 5,
+  "vacuous": 0
+ },
+ "b134ram": {
+  "red": 3,
+  "unusable": 0,
+  "configured": 3,
+  "vacuous": 0
+ },
+ "b134store": {
+  "red": 39,
+  "unusable": 0,
+  "configured": 39,
+  "vacuous": 0
+ },
+ "b159mac": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "b159map": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "b159rx": {
+  "red": 3,
+  "unusable": 0,
+  "configured": 3,
+  "vacuous": 0
+ },
+ "b161hash": {
+  "red": 6,
+  "unusable": 0,
+  "configured": 6,
+  "vacuous": 0
+ },
+ "b161mac": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "b161rx": {
+  "red": 8,
+  "unusable": 0,
+  "configured": 8,
+  "vacuous": 0
+ },
+ "b20codec": {
+  "red": 5,
+  "unusable": 0,
+  "configured": 5,
+  "vacuous": 0
+ },
+ "b20mac": {
+  "red": 11,
+  "unusable": 0,
+  "configured": 11,
+  "vacuous": 0
+ },
+ "b251hash": {
+  "red": 55,
+  "unusable": 0,
+  "configured": 55,
+  "vacuous": 0
+ },
+ "b251rx": {
+  "red": 19,
+  "unusable": 0,
+  "configured": 19,
+  "vacuous": 0
+ },
+ "cmdauthority": {
+  "red": 16,
+  "unusable": 0,
+  "configured": 16,
+  "vacuous": 0
+ },
+ "consoleline": {
+  "red": 12,
+  "unusable": 0,
+  "configured": 12,
+  "vacuous": 0
+ },
+ "devicenv": {
+  "red": 42,
+  "unusable": 0,
+  "configured": 42,
+  "vacuous": 0
+ },
+ "fwactivation": {
+  "red": 10,
+  "unusable": 0,
+  "configured": 10,
+  "vacuous": 0
+ },
+ "grantadmit": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "grantpark": {
+  "red": 3,
+  "unusable": 0,
+  "configured": 3,
+  "vacuous": 0
+ },
+ "macwait": {
+  "red": 10,
+  "unusable": 0,
+  "configured": 10,
+  "vacuous": 0
+ },
+ "radmin2codec": {
+  "red": 105,
+  "unusable": 0,
+  "configured": 105,
+  "vacuous": 0
+ },
+ "radmin3acl": {
+  "red": 36,
+  "unusable": 0,
+  "configured": 36,
+  "vacuous": 0
+ },
+ "radmin3id": {
+  "red": 23,
+  "unusable": 0,
+  "configured": 23,
+  "vacuous": 0
+ },
+ "radmin3verbs": {
+  "red": 28,
+  "unusable": 0,
+  "configured": 28,
+  "vacuous": 0
+ },
+ "radmin5runtime": {
+  "red": 16,
+  "unusable": 0,
+  "configured": 16,
+  "vacuous": 0
+ },
+ "radmin5rx": {
+  "red": 14,
+  "unusable": 0,
+  "configured": 14,
+  "vacuous": 0
+ },
+ "radmin5session": {
+  "red": 25,
+  "unusable": 0,
+  "configured": 25,
+  "vacuous": 0
+ },
+ "radmin72rx": {
+  "red": 15,
+  "unusable": 0,
+  "configured": 15,
+  "vacuous": 0
+ },
+ "radmin72session": {
+  "red": 36,
+  "unusable": 0,
+  "configured": 36,
+  "vacuous": 0
+ },
+ "radmin73action": {
+  "red": 35,
+  "unusable": 0,
+  "configured": 35,
+  "vacuous": 0
+ },
+ "radmin73convert": {
+  "red": 10,
+  "unusable": 0,
+  "configured": 10,
+  "vacuous": 0
+ },
+ "radmin73node": {
+  "red": 5,
+  "unusable": 0,
+  "configured": 5,
+  "vacuous": 0
+ },
+ "radmin7exec": {
+  "red": 20,
+  "unusable": 0,
+  "configured": 20,
+  "vacuous": 0
+ },
+ "radmin7rx": {
+  "red": 16,
+  "unusable": 0,
+  "configured": 16,
+  "vacuous": 0
+ },
+ "radmin7transcript": {
+  "red": 20,
+  "unusable": 0,
+  "configured": 20,
+  "vacuous": 0
+ },
+ "radmin8brx": {
+  "red": 18,
+  "unusable": 0,
+  "configured": 18,
+  "vacuous": 0
+ },
+ "radmin8client": {
+  "red": 57,
+  "unusable": 0,
+  "configured": 57,
+  "vacuous": 0
+ },
+ "radmin8node": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "radmin8rng": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "radmin8verbs": {
+  "red": 27,
+  "unusable": 0,
+  "configured": 27,
+  "vacuous": 0
+ },
+ "remoteactivation": {
+  "red": 22,
+  "unusable": 0,
+  "configured": 22,
+  "vacuous": 0
+ },
+ "sliceAinbox": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "sliceAjson": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "sliceBmac": {
+  "red": 3,
+  "unusable": 1,
+  "configured": 4,
+  "vacuous": 0
+ },
+ "sliceBnode": {
+  "red": 8,
+  "unusable": 0,
+  "configured": 8,
+  "vacuous": 0
+ },
+ "sliceBrx": {
+  "red": 16,
+  "unusable": 0,
+  "configured": 16,
+  "vacuous": 0
+ },
+ "sliceCinbox": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "sliceCpull": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "sliceDack": {
+  "red": 1,
+  "unusable": 0,
+  "configured": 1,
+  "vacuous": 0
+ },
+ "sliceDclear": {
+  "red": 5,
+  "unusable": 0,
+  "configured": 5,
+  "vacuous": 0
+ },
+ "sliceDstore": {
+  "red": 3,
+  "unusable": 0,
+  "configured": 3,
+  "vacuous": 0
+ },
+ "sliceDtoken": {
+  "red": 2,
+  "unusable": 0,
+  "configured": 2,
+  "vacuous": 0
+ },
+ "sliceEnode": {
+  "red": 3,
+  "unusable": 0,
+  "configured": 3,
+  "vacuous": 0
+ },
+ "sliceGinbox": {
+  "red": 4,
+  "unusable": 0,
+  "configured": 4,
+  "vacuous": 0
+ },
+ "sliceGjson": {
+  "red": 16,
+  "unusable": 0,
+  "configured": 16,
+  "vacuous": 0
+ },
+ "sliceGrx": {
+  "red": 42,
+  "unusable": 0,
+  "configured": 42,
+  "vacuous": 0
+ },
+ "teamgrant": {
+  "red": 4,
+  "unusable": 0,
+  "configured": 4,
+  "vacuous": 0
+ },
+ "teamkeyring": {
+  "red": 68,
+  "unusable": 0,
+  "configured": 68,
+  "vacuous": 0
+ },
+ "_total": {
+  "batteries": 61,
+  "red": 983,
+  "unusable": 1,
+  "configured": 984,
+  "worker_baselines": [
+   "2950 / 195768 / 0"
+  ]
+ }
+}

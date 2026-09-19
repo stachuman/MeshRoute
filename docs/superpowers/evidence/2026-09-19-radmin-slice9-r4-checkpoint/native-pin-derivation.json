@@ -1,0 +1,46 @@
+{
+  "base": {
+    "test_admin_auth.cpp": {
+      "cases": 4,
+      "assertions": 17
+    },
+    "test_console_binary.cpp": {
+      "cases": 16,
+      "assertions": 111
+    },
+    "test_command_authority.cpp": {
+      "cases": 8,
+      "assertions": 1284
+    },
+    "test_remote_codec.cpp": {
+      "cases": 33,
+      "assertions": 58465
+    },
+    "test_node_r3.cpp": {
+      "cases": 341,
+      "assertions": 6499
+    }
+  },
+  "candidate": {
+    "test_admin_auth.cpp": {
+      "cases": 0,
+      "assertions": 0
+    },
+    "test_console_binary.cpp": {
+      "cases": 0,
+      "assertions": 0
+    },
+    "test_command_authority.cpp": {
+      "cases": 8,
+      "assertions": 1239
+    },
+    "test_remote_codec.cpp": {
+      "cases": 33,
+      "assertions": 58459
+    },
+    "test_node_r3.cpp": {
+      "cases": 341,
+      "assertions": 6504
+    }
+  }
+}

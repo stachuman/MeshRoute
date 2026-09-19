@@ -76,7 +76,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 TRACKED_OUTPUT = "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md"
 AUTHORITY_TABLE = "docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md"
-AUTHORITY_CLASSES = frozenset(("open", "operator", "owner", "physical", "controller_local", "legacy", "local_only"))
+AUTHORITY_CLASSES = frozenset(("open", "operator", "owner", "physical", "controller_local", "local_only"))
 
 # The comparison helpers whose calls are command tests. `\b` matters: `strncpy(` must not read as `strncmp(`.
 CMP_FUNCS = ("strncmp", "strcmp", "tok_eq", "preset_word_is", "admin_primary_is", "admin_word_is")
@@ -94,7 +94,7 @@ class Surface:
 
     file: str
     func: str
-    kind: str            # "top" | "sub" | "caller" | "remote"
+    kind: str            # "top" | "sub" | "caller"
     transports: str      # the transport set the arms of this surface are reachable on
     parent: str = ""     # for kind == "sub": the top-level verb this surface belongs to
     reached_from: tuple = ()   # ((file, func, symbol), …) — call sites proving the wiring claim
@@ -221,10 +221,6 @@ SURFACES = (
             reached_from=(("src/firmware_commands.cpp", "exec_console_line", "parse_command"),
                           ("src/fw_main.cpp", "service_console", "exec_console_line"),
                           ("src/fw_main.cpp", "ble_dispatch_line", "exec_console_line"))),
-    # ---- the legacy over-the-air remote-admin verb set (what remote-admin v2 replaces) ---------------------
-    Surface("src/firmware_remote.cpp", "remote_encode", "remote", "radio(REMOTE_CMD)",
-            reached_from=(("src/firmware_remote.cpp", "remote_exec", "remote_encode"),)),
-    Surface("src/firmware_remote.cpp", "remote_exec", "remote", "radio(REMOTE_CMD)"),
 )
 
 # ★ THE OTHER HALF OF THE PIN. A comparison site in a function listed here is DELIBERATELY not a command row, and the
@@ -234,11 +230,6 @@ NON_COMMAND = {
         "the S3 comparison helper's own definition — it compares nothing but its argument",
     ("src/firmware_ui_preset_verbs.h", "preset_word_is"):
         "the S4 comparison helper's own definition",
-    ("src/firmware_remote.cpp", "remote_verb_open"):
-        "a POLICY predicate over verbs remote_encode already emits (spec §4: only status/routes are open); "
-        "emitting it again would duplicate one semantic arm",
-    ("src/firmware_remote.cpp", "admin_verb_gated"):
-        "the controller-side twin of remote_verb_open — the same policy question, the same two verbs, no new arm",
     ("src/firmware_admin_verbs.h", "admin_verb_owns"):
         "the BLE refusal's family predicate (R-RA-29) — it re-asks the SAME two family tokens `admin_router_arm` "
         "already owns, so emitting it again would duplicate one semantic arm; it is a TRANSPORT guard, not a "
@@ -262,7 +253,6 @@ SCAN_FILES = (
     "src/firmware_config_parse.h",
     "src/firmware_help.h",
     "src/firmware_config.cpp",
-    "src/firmware_remote.cpp",
     "src/fw_main.cpp",
     "src/firmware_ui_preset_verbs.h",
     "src/firmware_admin_verbs.h",
@@ -285,11 +275,6 @@ PREDICATE_ONLY = {"src/firmware_config_parse.h": ("parse_confirm_token",)}
 # ★★★ THE FIFTH AXIS, ADDED 2026-09-06 BY §RADMIN SLICE 3 ([[B319]]), AND ITS VALUES ARE **LITERAL RULED PRODUCT
 #     FACTS** — ⛔ NEVER COMPUTED, ALIASED OR INFERRED INSIDE THIS TOOL. R-RA-8 rules ACCEPT = the static + gateway
 #     products, so: full_oled 1 · full_headless 1 · gateway 1 · gateway_oled 1 · mobile 0 · mobile_oled 0.
-#   ⛔ IT IS NOT `MR_FEAT_REMOTE_MGMT` UNDER ANOTHER NAME, even though the two agree on every row today: they agree
-#      because `lib/core/mr_features.h` carries an `#error` that makes them agree UNTIL THE LEGACY SWITCH IS DELETED
-#      (Slice 10), and a tool that derived one from the other would silently stop measuring the day that `#error`
-#      goes. The typed literal keeps the two axes independently attackable, which is what
-#      `tools/test_gen_command_inventory.py`'s synthetic evaluator fixture demonstrates.
 #   ⛔ AND IT IS NOT `MR_FEAT_MOBILE` INVERTED EITHER: the two FULL static profiles set `MR_FEAT_MOBILE=1` AND
 #      ACCEPT=1, so that inference is simply false. This is exactly the shape [[B319]] was raised against.
 #   ⓘ `eval_gate`'s unknown-axis REFUSAL is preserved and is the reason this column had to be added at all: the
@@ -306,18 +291,18 @@ PREDICATE_ONLY = {"src/firmware_config_parse.h": ("parse_confirm_token",)}
 #   ⛔ AND IT IS NOT `MR_FEAT_MOBILE`: the two FULL static profiles set MR_FEAT_MOBILE=1 and CLIENT=0, so that
 #      inference is simply false — the exact shape [[B319]] was raised against, arrived at from the other side.
 PROFILES = {
-    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_REMOTE_MGMT  MR_FEAT_OLED  ACCEPT  CLIENT
-    "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
+    #  name                MR_N_LAYERS  MR_FEAT_MOBILE  MR_FEAT_OLED  ACCEPT  CLIENT
+    "full_oled":      dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_OLED=1,
                            MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
-    "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
+    "full_headless":  dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_OLED=0,
                            MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
-    "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=0,
+    "gateway":        dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_OLED=0,
                            MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
-    "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_REMOTE_MGMT=1, MR_FEAT_OLED=1,
+    "gateway_oled":   dict(MR_N_LAYERS=2, MR_FEAT_MOBILE=0, MR_FEAT_OLED=1,
                            MR_FEAT_RADMIN_ACCEPT=1, MR_FEAT_RADMIN_CLIENT=0),
-    "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=0,
+    "mobile":         dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_OLED=0,
                            MR_FEAT_RADMIN_ACCEPT=0, MR_FEAT_RADMIN_CLIENT=1),
-    "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_REMOTE_MGMT=0, MR_FEAT_OLED=1,
+    "mobile_oled":    dict(MR_N_LAYERS=1, MR_FEAT_MOBILE=1, MR_FEAT_OLED=1,
                            MR_FEAT_RADMIN_ACCEPT=0, MR_FEAT_RADMIN_CLIENT=1),
 }
 PROFILE_ENVS = {
@@ -759,8 +744,6 @@ def semantic_key(row):
 
 def surface_eligibility(surface):
     """Eligibility is a property of the already-pinned SURFACE, never a second semantic class."""
-    if surface.kind == "remote":
-        return "legacy"
     if surface.func == "help_command":
         return "local"
     if surface.kind == "caller" and surface.func != "parse_command":
@@ -925,7 +908,7 @@ def verify_rows(rows) -> None:
             if not val or not str(val).strip():
                 raise GeneratorError("row %r has no %s — every row must carry full provenance" % (r.source, name))
         if not re.fullmatch(r"(?:" + "|".join(sorted(AUTHORITY_CLASSES))
-                            + r")(?: D)?(?: · surface:(?:transport|local|legacy))?", r.authority):
+                            + r")(?: D)?(?: · surface:(?:transport|local))?", r.authority):
             raise GeneratorError("unclassified authority cell at %s: %r" % (r.source, r.authority))
         if not re.match(r"^[^:]+:[0-9]+$", r.source):
             raise GeneratorError("row %r has no file:line provenance" % r.source)
@@ -1056,8 +1039,7 @@ def render(rows, notes, values, retests) -> str:
     kinds = {s.kind: None for s in SURFACES}
     titles = {"top": "Surface 1 — top-level `dispatch()` verbs",
               "sub": "Surface 2 — sub-verb dispatchers",
-              "caller": "Surface 3 — caller-only arms around `dispatch()`",
-              "remote": "Legacy over-the-air remote-admin verbs (what v2 replaces)"}
+              "caller": "Surface 3 — caller-only arms around `dispatch()`"}
     out = []
     out.append("<!-- GENERATED BY tools/gen_command_inventory.py — DO NOT EDIT BY HAND. -->")
     out.append("<!-- Regenerate: python3 tools/gen_command_inventory.py --write ; verify: --check -->")

@@ -22,24 +22,14 @@
 #if defined(MR_PROFILE_GATEWAY)          // pure static relay + cross-layer bridge
 #  define MR_FEAT_TEAM 0                  // slice 1: the team plane is compiled out (frees ~45 KB of _rt_team ×2 layers)
 #  define MR_FEAT_MOBILE 0                // slice 2: the mobile-MEMBER (roaming endpoint) plane is compiled out (a gateway never registers to a host)
-   // NB: a gateway KEEPS MR_FEAT_REMOTE_MGMT (default 1) — a gateway is exactly the infra you can't reach physically (spec §10).
    // (MR_FEAT_MOBILE_HOST flips to 0 in slice 3, once its boundary exists)
-#endif
-
-// §remote-mgmt (spec 2026-07-13 §10): a MOBILE is a roaming personal endpoint managed LOCALLY, never a remotely-administered
-// relay — and the most physically-capturable node — so it sheds the whole remote-command + admin-auth subsystem. The mobile
-// ROLE is a distinct `*_mobile` env (`xiao_mobile`, `heltec_mobile`, `heltec_v4_mobile`,
-// `xiao_esp32s3_mobile`) that sets `-DMR_PROFILE_MOBILE`; the base boards + `production` (static) + the gateways do
-// NOT, so they KEEP remote-mgmt.
-#if defined(MR_PROFILE_MOBILE)
-#  define MR_FEAT_REMOTE_MGMT 0
 #endif
 
 // ---- remote-admin v2 endpoint capabilities: DERIVED, never defaulted (R-RA-8 / R-RA-17 / R-RA-26) ----
 // Exactly two endpoint roles exist and a BOARD is exactly one of them: MANAGING (it issues remote administration =
 // CLIENT) or MANAGED (it accepts it = ACCEPT). Transit is ordinary type-agnostic DATA forwarding and needs neither.
 //   MR_PROFILE_MOBILE                -> {CLIENT 1, ACCEPT 0}  a roaming personal endpoint is administered LOCALLY and
-//                                                             is the most physically-capturable node (see §remote-mgmt)
+//                                                             is the most physically-capturable node (R-RA-17)
 //   MR_PROFILE_GATEWAY               -> {CLIENT 0, ACCEPT 1}
 //   BOARD, no MR_PROFILE_MOBILE      -> {CLIENT 0, ACCEPT 1}  the five no-profile envs are STATIC PRODUCTS
 //   HOST (no ARDUINO: native + lus)  -> {CLIENT 1, ACCEPT 1}  ONE test process drives a controller and a target end to
@@ -83,16 +73,13 @@
 #ifndef MR_FEAT_OLED
 #  define MR_FEAT_OLED 0                  // board UI: OFF by default (opt-in per board); scaffold lands in slice 4
 #endif
-#ifndef MR_FEAT_REMOTE_MGMT
-#  define MR_FEAT_REMOTE_MGMT 1           // authenticated remote management (rcmd + admin auth): ON for static relays/gateways/full; MR_PROFILE_MOBILE=>0
-#endif
 
 // ---- dependency + sanity checks ----
 #if MR_FEAT_TEAM && !MR_FEAT_MOBILE
 #  error "MR_FEAT_TEAM requires MR_FEAT_MOBILE (a team member is is_mobile; the team plane reuses the mobile link-layer)"
 #endif
 
-// The three BOARD-ONLY endpoint rules. ⚠ Board-only is load-bearing: a HOST is deliberately {1,1} (R-RA-17), so
+// The two BOARD-ONLY endpoint rules. ⚠ Board-only is load-bearing: a HOST is deliberately {1,1} (R-RA-17), so
 // fencing these on defined(ARDUINO) is the rule, not an omission. Each check is separate so each fails on its own.
 #if defined(ARDUINO)
 #  if MR_FEAT_RADMIN_CLIENT && MR_FEAT_RADMIN_ACCEPT
@@ -100,11 +87,5 @@
 #  endif
 #  if !MR_FEAT_RADMIN_CLIENT && !MR_FEAT_RADMIN_ACCEPT
 #    error "board build is NEITHER remote-admin endpoint: MR_FEAT_RADMIN_CLIENT and MR_FEAT_RADMIN_ACCEPT are both 0 (R-RA-17: a board is either managed or managing)"
-#  endif
-// Until the legacy switch is deleted, "managed" must mean the same thing to both flags: a build that is remotely
-// manageable by one and not the other is the divergence this pins out. REJECT the disagreement — never silently
-// rewrite either flag to hide it.
-#  if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT
-#    error "board build disagrees with itself: MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT (they must agree until the legacy remote-mgmt switch is deleted)"
 #  endif
 #endif

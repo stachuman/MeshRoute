@@ -1,0 +1,53 @@
+[
+  {
+    "name": "pair",
+    "command": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--output",
+      ".pio-measure/s9-r5",
+      "--jobs",
+      "1"
+    ],
+    "cwd": "/tmp/mr-s9-r5-6tusdqki/boards",
+    "exit": 0,
+    "seconds": 50.511694457381964,
+    "sha256": "e6225278aca6187ee5c08a82fc0266e5d2887535d41d33704c6737796baf8aea",
+    "git_executable": "/usr/bin/git",
+    "GIT_INDEX_FILE": null
+  },
+  {
+    "name": "census",
+    "command": [
+      "bash",
+      "tools/warning_census.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r5-6tusdqki/boards",
+    "exit": 0,
+    "seconds": 162.66965219005942,
+    "sha256": "660d3de7a3e20306a4b8e65b358dd0cded1010702477a81525a2effe15f0bebf",
+    "git_executable": "/usr/bin/git",
+    "GIT_INDEX_FILE": null
+  },
+  {
+    "name": "tools",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-v",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "cwd": "/tmp/mr-s9-r5-6tusdqki/tools",
+    "exit": 0,
+    "seconds": 693.9360149614513,
+    "sha256": "776a4201e6e77c49941104634c472d8f2d8239d1e58f2d1fe0cb28c699da169e",
+    "git_executable": "/usr/bin/git",
+    "GIT_INDEX_FILE": null
+  }
+]

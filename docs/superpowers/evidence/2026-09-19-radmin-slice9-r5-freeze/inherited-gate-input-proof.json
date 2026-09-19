@@ -1,0 +1,16 @@
+{
+  "r4_full_chain_inputs": 361,
+  "changed_since_full_chain": [
+    "tools/measure_board.py",
+    "tools/test_check_command_authority.py",
+    "tools/test_measure_board.py",
+    "tools/test_probe_features.py",
+    "tools/warning_census.sh"
+  ],
+  "unchanged_records": 356,
+  "production_native_reference_corpus_probe_and_mutation_inputs": "unchanged; source snapshots and both reference hashes checked below",
+  "references": {
+    "docs/superpowers/evidence/2026-09-19-radmin-slice9-reference.py": "23ab8eb6fa64791b306ffd2ad26cc90a07cf4ef313ad746057250005d3b56f54",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py": "466d7d95d46405cc3c92b53250f7d264b8a0c0ccd7385d382e10eca30c58e402"
+  }
+}

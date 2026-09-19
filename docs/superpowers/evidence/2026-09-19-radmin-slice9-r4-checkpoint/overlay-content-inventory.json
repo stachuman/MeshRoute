@@ -1,0 +1,530 @@
+{
+  "MEMORY.md": {
+    "sha256": "5f003b3955776e4b36190c1847b91af9604ef4c35874313f84c9ece686a9c628",
+    "size": 17152
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "sha256": "a1e9b498a272e331765299fa70ede7fa6d350b75f5390aa6afe35f1650afc02f",
+    "size": 599441
+  },
+  "docs/2026-07-31-bench-test-script.md": {
+    "sha256": "ec377cde6dd005171f2138b76a36d3b406436a01cd123298e8d81745c264bfd9",
+    "size": 330715
+  },
+  "docs/frames.md": {
+    "sha256": "776d47ebd3bd5c63910f3944c395a666974c22bf9456c76658c218e10a58e05d",
+    "size": 78218
+  },
+  "docs/protocol.md": {
+    "sha256": "190b36a6cb0723ca71bf00018c794cf75c637b0a564773a1eae4a0bd95b2dc04",
+    "size": 85313
+  },
+  "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md": {
+    "sha256": "eb33458af3b08893c4eb7fe11be5fa609577b24c74f54a9cb21bb4d4891b0543",
+    "size": 27031
+  },
+  "docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md": {
+    "sha256": "717b53243239712746b4441caae5bd4161816a9d88c4e056a3c048ea6eef2104",
+    "size": 28456
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/artifact-index.json": {
+    "sha256": "6640228cc6ab993435f25a8d68d3fcb6e99c332fb90f6f6141ed75ca8a0b9db7",
+    "size": 3722
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/authority-controls.log": {
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87",
+    "size": 707
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/authority.log": {
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066",
+    "size": 88
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/brief-r2.md": {
+    "sha256": "bd538cae5e85b4bb92e2a3ae4fd118d1292f4363b090b8c327b6d22a7c4a1353",
+    "size": 24288
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-compile.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-legacy.cpp": {
+    "sha256": "561b5d3ffb0176d8091afbdf982dac1b949064fa45070756163e9c4a12ec4f91",
+    "size": 1039
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-legacy.log": {
+    "sha256": "8821efbbf3b3c98f74474009a047135e16d77cca2607472b441162ec899d61e4",
+    "size": 105
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/commands.json": {
+    "sha256": "987e50c8ff5bf90aeb0aa0b51552001504f2c35f5e08a7cc30926b2cd92115d9",
+    "size": 5894
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/initial-status.log": {
+    "sha256": "68ca758ac2ab0a99ddd638c3e0c601f596b9011252a3bd8264189b1d0676d605",
+    "size": 295
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/input-inventory.json": {
+    "sha256": "f50d00933a7759dd8625ff6f7d6937bc167025ff5ac83151c9cca3b3e4b2a1d1",
+    "size": 655635
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/inventory-check.log": {
+    "sha256": "3866ab0201a16ae7338c8d5c2f455638ae1d52ac3d22bdec51141d236ac5b245",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/inventory-deletion.json": {
+    "sha256": "de7251a240285a38c1b2d990918aea9744e9185806de47b60eba6762db8fec20",
+    "size": 3953
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/legacy-capture.json": {
+    "sha256": "2dc2e5199af3e4115f2fa40d9b5840bc73874abecd232977ac9b6ed3f4ba6ef1",
+    "size": 322
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/meshroute-head.log": {
+    "sha256": "a9966506b5d650424b5f9b3c024331e0d5995e06d18462731a0ff9df93434abd",
+    "size": 41
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/meshroute-whitespace.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-console-tests-base.log": {
+    "sha256": "8fb7fd0167d19a6dafc8c07982d4abcdc251dccc6f347f50e7717193f0856d5d",
+    "size": 509
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-console-tests-projected-deletion.log": {
+    "sha256": "9d18d73116fd44f8f37cdffe53c80cab5649c9abe9b05e5e7ba73d8082c86988",
+    "size": 2219
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-instrument-users.json": {
+    "sha256": "af57d9329bfd3fc97c422e31cf36ca4e9d35a3784046848837681c3467471bb2",
+    "size": 1091
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preparation-inputs.json": {
+    "sha256": "8a133dd28169d09c3502e958b2a7c3b812bdb7f922ce765afae39d85972f161b",
+    "size": 953
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preparation.patch": {
+    "sha256": "bbfc0c2ff21549c9a54cd415369603e72d2a192e7e6136bb7a3cf45e4ccf93b9",
+    "size": 22346
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preservation-final.json": {
+    "sha256": "5b99aa13e09c8a949b86fb8d4cb32e2ee5f84693f3d3d3aa6ae24e24cdcdd681",
+    "size": 564
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-base.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-boundary.json": {
+    "sha256": "b1fb11771be4d069b578c7dca31caa1e04404a6e571384c61a13666a59832810",
+    "size": 353
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-case-removal-survives.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-extra-legacy-refused.log": {
+    "sha256": "d7a467cde8d7d0fc6d5f00d3394200155c1fc578c27d14fa2df39e1d78825848",
+    "size": 2291
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reproduce.py": {
+    "sha256": "6846fe9301f67fe1ec9f03d831e73e17dfb3d6f5f89a26311fee19e9eceac884",
+    "size": 10321
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-head.log": {
+    "sha256": "b17faeb7adcb1688301e8e81325b502dc3a5791772c3a9a6e4bfbf3ab7d2c483",
+    "size": 41
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-status.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-whitespace.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9.md": {
+    "sha256": "33d5eb8b047fb7b488262860c371311cfa39021eedf676962175d77df965444d",
+    "size": 41038
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/artifact-sha256.json": {
+    "sha256": "1207a6e1117428f41adaeaae7f609d5aa2330ede23d530c0168e3181b13b05af",
+    "size": 5280
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/authority-checkpoint.log": {
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16",
+    "size": 704
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/b423-reproduction.log": {
+    "sha256": "5dd4bb207b0bb25783ece671167f5fdfbd8ae8afbfddd96704f40c616c9a1af0",
+    "size": 1560
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-corpus-manifest.json": {
+    "sha256": "df1be63f9fc1f97a8b6b4217ba543294efe7859a5805e44f1a0e5d604663570d",
+    "size": 28924
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-gateway-build.log": {
+    "sha256": "f9e5554adda5f2e2eab21ee277f74d3b4472b3f96b754e81933228278affab58",
+    "size": 16837305
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-gateway-manifest.json": {
+    "sha256": "6e79b62aba3448385e637bac6012b551b2042bf909621e16c72928c1f9023564",
+    "size": 5105
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-heltec_mobile-build.log": {
+    "sha256": "0097f16be8ea77a4459b935718b6fa24b6d324529fd8b2948911a6bd5c3e07f7",
+    "size": 69136
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-heltec_mobile-manifest.json": {
+    "sha256": "08d27fc4af8c506a534fcb3ca08f3fe0948f1e9c6510dfe009691a1f3a711eb1",
+    "size": 5705
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/board-ui.json": {
+    "sha256": "709cb43fac02c7fe87ad7a0dcb55e5ba2505567ee61c3c07d2369b5bfb526895",
+    "size": 230
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/board-ui.log": {
+    "sha256": "41ced93f647b046c0832938b57e4bc3e487357e6031cc3d5971e5533bfffae82",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/corpus.json": {
+    "sha256": "c1c2cef86e79ecac8a47bb28978a9f3f66fd3b901066751e74e503b00c50726c",
+    "size": 378
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/corpus.log": {
+    "sha256": "f527d2f656915c413839e9d9085128801e3bc8429824a5c6bdcc6188fa2227a6",
+    "size": 3351
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-binary.json": {
+    "sha256": "9128ab6e1562ff8aaf06c2f420a44e8f17cd93abb91ab97067faca0688ca5a7c",
+    "size": 229
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-binary.log": {
+    "sha256": "27951f0c3236d2b7bcde2a5ef6e52cf06eb8f77987c4801cd8b116354b82e61c",
+    "size": 409
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-build.json": {
+    "sha256": "06753ea08baa9cf3d05f14a9ca8b5f015db1d53788319b958894d1f15b6a4deb",
+    "size": 291
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-build.log": {
+    "sha256": "c002d8b1b2828cacb124902eab33560000f59e5167a504ff9a6d6541522ced49",
+    "size": 5738
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair-replay.json": {
+    "sha256": "cb12df0ef783281b8acce7dcd0bd186501282494919850b1c6bd5fb1cd87fac2",
+    "size": 196
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair-replay.log": {
+    "sha256": "df53cb0f24aba9309a022d1a68b342489be7d3dfff021caf2f984207fc044fb9",
+    "size": 949
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair.json": {
+    "sha256": "37cff8593f9f4d462c20721109fa9727d1e14928e398432d3e94b4c9f5a61d76",
+    "size": 286
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair.log": {
+    "sha256": "8ca7cd32b6535f5d964f579f14a6865da08819aea30c87aec4646bf1f3fc7bff",
+    "size": 47
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-build.json": {
+    "sha256": "ca641643df0aa595287edfdb1f131b7e4e5f22c705315d7857b9635f5e178b9b",
+    "size": 305
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-build.log": {
+    "sha256": "146dea9f7fa791bc2e67b8fc4e90c0a450b67d1c87bbae86276d0b951fa209b8",
+    "size": 55218
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-configure.json": {
+    "sha256": "d44198d9aff79c7a3af6bcdc8b6e812334173df8e6f5474abd70c756cd2c84ff",
+    "size": 399
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-configure.log": {
+    "sha256": "c2836254750a39054af9c0a457786fdf0771b6212105d2a95ba70be69c8d6f6e",
+    "size": 998
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-commands.json": {
+    "sha256": "7a8eb402b7974a527cf5b211c8240714c8b23e398875b46bd1b3292f835ce275",
+    "size": 761
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-inputs.json": {
+    "sha256": "6d62f649f29f71d9dee7d324243e408dd675e3a6ecedcfdfd62a0538352fd150",
+    "size": 744634
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-status.txt": {
+    "sha256": "e225f7de80571dedbe92971fb3171a484ad9d633340a07bd27bad2ad49942626",
+    "size": 9056
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/constexpr-reference-boundary.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/deferred-b0-p1-full.log": {
+    "sha256": "5e846c3c710cef773f038726e94b8d06ee4ea5211613f2e1642949fc6ee0150b",
+    "size": 181869
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/deferred-generated-build.sh": {
+    "sha256": "eae330356ec918d2aa496c99025e0f4a92dfbbaa37fcafdd4d2db8f4bcf62bb1",
+    "size": 30349
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/features-iteration1.log": {
+    "sha256": "a9ed7b6809e782ff9d31e9cef39ccf0ac1f1571145d169d8fc65cb71c0c0b1b6",
+    "size": 25004
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/initial-inputs.json": {
+    "sha256": "f49c77ea84879efa419f920ac62c3a13ed24540fa27073066453e70a0b6b577f",
+    "size": 661507
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/initial-status.txt": {
+    "sha256": "75bbd9c0766251df95166c8ba4441abcb3f9b94bfc794de55b712aa7c782cf0a",
+    "size": 2948
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/inventory-checkpoint.log": {
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration-preservation.json": {
+    "sha256": "71febdb2055f5507f9f48d8bd3f858af8bda62ba76739d026956494af43a0cb6",
+    "size": 14460
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-inputs.json": {
+    "sha256": "efb4cb35f2ff7837db117feaa4180d1d85f2ed6a0b8109bb4b938c39f980dabb",
+    "size": 661047
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/board_ui.json": {
+    "sha256": "b6d026835af399bc08f757ee2a13e2f6b1d1f1126b72c1fb718430181d97632a",
+    "size": 128
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/board_ui.log": {
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/console_sink.json": {
+    "sha256": "c48db8a57112b1839fabacdea47da150ecf09fa1d187ebc249dcfb0a8ff8a22f",
+    "size": 130
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/console_sink.log": {
+    "sha256": "a05d3e79d4a5dc093db2b3140e4d6ff7cc4d1cdd551fb00cdbeb5c000808bf24",
+    "size": 14997
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/deferred_actions.json": {
+    "sha256": "cedd131feac918c7a6371d1b165d0a9bb31c9a5cd7f354558939d8fca28b0d3b",
+    "size": 136
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/deferred_actions.log": {
+    "sha256": "decd5d4c3f56088692bc578bfd9bafa77523fb3469f95bc38eab57eaba327221",
+    "size": 8001
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/inbox_verbs.json": {
+    "sha256": "47de04d8e25b88109d06070461b67c85cfb199128ec03df578de22f39ca2c8d7",
+    "size": 130
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/inbox_verbs.log": {
+    "sha256": "efdda4f8df840a9290f17916eddcb69a554281e25c58c7893d136253e76bb557",
+    "size": 124575
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/native-build.json": {
+    "sha256": "0b9472dd14c39554fa564f9bcc4b63c5837519f68dd6a83fd6a9711548c19c40",
+    "size": 192
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/native-build.log": {
+    "sha256": "4faab76ba5b91f43bea6b538c206194f77c4296fe94025b15d44e855441a8950",
+    "size": 7593
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/ownership-iteration1.log": {
+    "sha256": "c48cc95146783f88c0e54b8abdc8d7b25b843ddb54b229fc6c6b5f9285c16189",
+    "size": 7269
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/preparation-inputs.json": {
+    "sha256": "3d48c16426c38514fb90aa1a95e2b9b84b29bd0f7ad2c4b72536c3f00aa07cc9",
+    "size": 6825
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/reference-iteration1.log": {
+    "sha256": "a74db8eea38852ea7d667d941530544295adf25fb8c01470bf2b0ca6c2918089",
+    "size": 3370
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/reproduce.py": {
+    "sha256": "c90e2e7d06500943238b7b0eb126800b01e8f635614c44bfb40f9fb922cc23f6",
+    "size": 4190
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/sim-status-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/sim-whitespace-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/v2-owner-preservation.json": {
+    "sha256": "da6eac2502360cf4185150dae5f5e45d0edc526a560b60f7c7bd66580f85e2e2",
+    "size": 753
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/whitespace-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-reference.py": {
+    "sha256": "23ab8eb6fa64791b306ffd2ad26cc90a07cf4ef313ad746057250005d3b56f54",
+    "size": 5123
+  },
+  "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+    "sha256": "1da510e8d3a9019f6d5ee59c1c5984971b4d730e96a19096aea30a7cdc8bfa59",
+    "size": 98074
+  },
+  "docs/superpowers/plans/2026-09-18-radmin-slice9-legacy-deletion-and-protocol-docs.md": {
+    "sha256": "6ae75dfc1b7da467413b35778604e1dd31c98188b3c3cbf9352af460193a7676",
+    "size": 31169
+  },
+  "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+    "sha256": "da52cfa60b0fcb0f8878a7e6007315cd39fb2c34e75e410cb58a95367a4009aa",
+    "size": 220823
+  },
+  "ios-companion/INBOX_SYNC_CONTRACT.md": {
+    "sha256": "d4632c089c10836d6fb402ee5daf7f549213637e1a7d197348707fd2dc5f2f2d",
+    "size": 131836
+  },
+  "lib/core/mr_features.h": {
+    "sha256": "b7cda916fa78c46c9fd68ad34f51bae7cd906ca8e8fffda6cf409aa9d9912c32",
+    "size": 6197
+  },
+  "lib/core/node.cpp": {
+    "sha256": "f33b971c89cfabd239022327da07d8549ba05fe98e16547a76d2df7bbf7b5317",
+    "size": 230357
+  },
+  "lib/core/node.h": {
+    "sha256": "6c47357b08bad6a2208caeec7b77b5813dc920b777920ac79072979864295826",
+    "size": 444873
+  },
+  "lib/core/node_carriers.h": {
+    "sha256": "6cb2bdccb862aa0f28294ade9798bca048412a103a66dc2d47bbbd267c0bb3bb",
+    "size": 62763
+  },
+  "lib/core/node_mac.cpp": {
+    "sha256": "8517502a36354ca82d792ba15c3406ac06e58b60b2339bba41858fe4996cd9a1",
+    "size": 222184
+  },
+  "lib/core/node_mac_rx.cpp": {
+    "sha256": "2c198c142ac40f6d50ecc50244d5d58a4c97a03a451bc47dea82c7d8cb94b961",
+    "size": 292057
+  },
+  "platformio.ini": {
+    "sha256": "722253904b11888dc79938cf352289e3c466090dc1d294a7c80ba946d0574390",
+    "size": 36280
+  },
+  "src/firmware_command_authority.h": {
+    "sha256": "5b3ab3fc15dd899a406607e6391c3283d0b119bad46bac97fe1c72f0674fa49f",
+    "size": 15118
+  },
+  "src/firmware_commands.cpp": {
+    "sha256": "761f3d43129e7c5b6d0e31b156abd963039aef85ebd7d0935382ab0705a2db15",
+    "size": 144462
+  },
+  "src/firmware_config.cpp": {
+    "sha256": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+    "size": 204712
+  },
+  "src/firmware_config.h": {
+    "sha256": "63fbc899277f7ce35d1442c744c23fb593d701f79f4464776dcdb5b4cbe96f2e",
+    "size": 18933
+  },
+  "src/firmware_help.h": {
+    "sha256": "5f552f88dfc9aeec03fbdc2486f407b9101814ae21e6364510a6c9048444c795",
+    "size": 9999
+  },
+  "src/fw_context.h": {
+    "sha256": "f9006f7da6292d2cc4e8b8b29311866502485104cd1a6cf2fac70ffe41a416de",
+    "size": 8517
+  },
+  "src/fw_main.cpp": {
+    "sha256": "8c23d04b48259322f3056d6476be3284ac0b003a902249fdf5227bd10055f3b7",
+    "size": 155335
+  },
+  "test/test_command_authority.cpp": {
+    "sha256": "403407f5ae1c3b4866ac8f3736ca600caeb186c32b1f86080090064d1aa7e1fc",
+    "size": 8226
+  },
+  "test/test_node_hashlocate.cpp": {
+    "sha256": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c",
+    "size": 319518
+  },
+  "test/test_node_r3.cpp": {
+    "sha256": "a6ee531c11c056d579ef566dd4746f7f00dbbe529e37329d9484ba892ae33454",
+    "size": 819679
+  },
+  "test/test_remote_codec.cpp": {
+    "sha256": "83b075c683a35a28d73fb40e2427aaf8c0b4543bf1f63601367e083e7e0cfb26",
+    "size": 482332
+  },
+  "tools/check_command_authority.py": {
+    "sha256": "2d44eef1452464c60029b01e551379be1a5ea91cccc5b7c50f6b4faabb9390bc",
+    "size": 6551
+  },
+  "tools/gen_command_inventory.py": {
+    "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "size": 67886
+  },
+  "tools/meshroute_lab.py": {
+    "sha256": "abef8d6d610b15cc8346b74657dfcb6aec4fc10942e02cd216710654b557fbf6",
+    "size": 14856
+  },
+  "tools/probe_board_ui/run.sh": {
+    "sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+    "size": 138728
+  },
+  "tools/probe_console_sink/ownership.py": {
+    "sha256": "8e6a024bdd0b130adc0f398198fa970642a20adc0b9b75d4859fb3d003cd12b8",
+    "size": 14393
+  },
+  "tools/probe_console_sink/probe_main.cpp": {
+    "sha256": "f087651e66daaaca4238042438d60371b79a4817d4659397fd96345efaaa9eb4",
+    "size": 35617
+  },
+  "tools/probe_console_sink/structural.py": {
+    "sha256": "3ba8d1b91c51c95730b682f1cf330c89ef19814db2e81e9a4cbb25895a104863",
+    "size": 65161
+  },
+  "tools/probe_deferred_actions/remote_rows.h": {
+    "sha256": "ed8be70fa39ec8202cff998f6ff3b91e9d63ee5dd407907685894913900d4292",
+    "size": 19208
+  },
+  "tools/probe_features/ownership.py": {
+    "sha256": "34cac90d523698cf243cb1dc7dc53d9d083125507eced71650d59b80cefefe36",
+    "size": 44679
+  },
+  "tools/probe_features/probe_main.cpp": {
+    "sha256": "efa9988c1246692f41a941a6a9b35ea749376ccfa837be11c9e29553f5c99695",
+    "size": 5858
+  },
+  "tools/probe_features/run.sh": {
+    "sha256": "2e68285e9a2d013f5294b5d5622145185849920f8ab05c102005f65ac4b8b2bc",
+    "size": 36336
+  },
+  "tools/probe_inbox_verbs/probe_main.cpp": {
+    "sha256": "e3521b57ec8f0493571c9598c44ae8cdd326831819854cbc04773206f61a8ec2",
+    "size": 133952
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+    "sha256": "cac897912d573bcdcf9a0226156971e23ee398098772eee8e4bc55e685bc39af",
+    "size": 8924
+  },
+  "tools/probe_ui_model_mutations.py": {
+    "sha256": "a70e5343bf8a9a78afcfe44a03aef6edc7d21cdf36bb5e9624a463b83b5a637e",
+    "size": 1084491
+  },
+  "tools/test_gen_command_inventory.py": {
+    "sha256": "f983496b7ccf61543df50e407d9a43d8f49f855bbcdd63625c543de861338d3d",
+    "size": 58407
+  },
+  "tools/test_probe_console_sink.py": {
+    "sha256": "4a3c3eae62dbdbe982f226c44777b974008abcf5920628ead907b8cdc2a90a1f",
+    "size": 24585
+  },
+  "tools/test_probe_features.py": {
+    "sha256": "674ebf2b814762ab9293affd3c8469b297e2b03fa205615e67983b3abe6dfc89",
+    "size": 24443
+  },
+  "tracker.md": {
+    "sha256": "7c6796a4102d8173edb101337c85236b2198d03d92f66adf69ac07f9ff12b7f7",
+    "size": 9631
+  }
+}

@@ -17,7 +17,7 @@ could drift from them; the only thing written down is the APPROVED CENSUS, which
   · O3  `node.h` names it only in declaration guards, never in an expression;
   · O4  the EXACT site census of the consuming TU, as normalized text — an extra site inside an ALLOWED file is
         rejected just as loudly as a new file;
-  · O5  NO LEGACY WIDENING: no directive anywhere combines a RADMIN capability with `MR_FEAT_REMOTE_MGMT` by
+  · O5  NO UNCONDITIONAL WIDENING: no directive anywhere combines a RADMIN capability with a true term by
         `||`/`&&`. The single `!=` agreement pin in `mr_features.h` is the one permitted co-occurrence (R-RA-26),
         and it is permitted BY NAME rather than by a loose pattern;
   · O6  each owned symbol is compiled under its OWN capability and never under the other one (accept ⇒ command,
@@ -94,15 +94,17 @@ APPROVED_SITES = {'lib/core/mr_features.h': ['# define MR_FEAT_RADMIN_CLIENT 1',
                             '# define MR_FEAT_RADMIN_ACCEPT 1',
                             '# if MR_FEAT_RADMIN_CLIENT && MR_FEAT_RADMIN_ACCEPT',
                             '# if !MR_FEAT_RADMIN_CLIENT && !MR_FEAT_RADMIN_ACCEPT',
-                            '# if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT'],
+],
  'lib/core/node.cpp': ['#if MR_FEAT_RADMIN_ACCEPT', '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT'],
- 'lib/core/node.h': ['#if MR_FEAT_RADMIN_CLIENT',
+ 'lib/core/node.h': ['#if MR_FEAT_RADMIN_ACCEPT',
+                     '#if MR_FEAT_RADMIN_CLIENT',
                      '#if MR_FEAT_RADMIN_CLIENT',
                      '#if MR_FEAT_RADMIN_ACCEPT',
                      '#if MR_FEAT_RADMIN_ACCEPT',
                      '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT',
                      '#if MR_FEAT_RADMIN_CLIENT',
                      '#if MR_FEAT_RADMIN_CLIENT',
+                     '#if MR_FEAT_RADMIN_ACCEPT',
                      '#if MR_FEAT_RADMIN_ACCEPT'],
  'lib/core/node_mac_rx.cpp': ['#if MR_FEAT_RADMIN_CLIENT',
                      '#if MR_FEAT_RADMIN_ACCEPT',
@@ -144,7 +146,6 @@ APPROVED_FILES = sorted(APPROVED_SITES)
 CHECK_SUFFIX = "abcdefghijklmnopqrstuvwxyz"
 assert len(APPROVED_FILES) <= len(CHECK_SUFFIX), "ownership.py: more approved files than check-id letters"
 # The ONE co-occurrence of a RADMIN capability with the legacy switch that is NOT a widening (R-RA-26).
-LEGACY_AGREEMENT_PIN = "# if MR_FEAT_RADMIN_ACCEPT != MR_FEAT_REMOTE_MGMT"
 DECISION_CALL = ("const RadminRxOwner radmin_owner = radmin_rx_owner(pa.type, "
                  "MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT);")
 DECISION_DECL = "static RadminRxOwner radmin_rx_owner(uint8_t type, bool client_on, bool accept_on);"
@@ -336,11 +337,10 @@ def run_checks(root: Path) -> list[tuple[str, bool, str]]:
             t = norm(l)
             if not t.startswith("#"):
                 continue
-            if "MR_FEAT_RADMIN" in t and "MR_FEAT_REMOTE_MGMT" in t and t != LEGACY_AGREEMENT_PIN:
+            if "MR_FEAT_RADMIN" in t and "|| 1" in t:
                 widened.append(f"{rel}:{i} {t}")
     if not widened:
-        ok("O5", "no directive widens a RADMIN capability with MR_FEAT_REMOTE_MGMT "
-                 "(the one `!=` agreement pin in mr_features.h is permitted BY NAME)")
+        ok("O5", "no directive unconditionally widens a RADMIN capability with || 1")
     else:
         bad("O5", "legacy widening found: " + " | ".join(widened))
 
@@ -490,9 +490,9 @@ CONTROLS = [('W-S73-ACTIONS-H',
   ('O4j',)),
  ('W-UNKNOWN',
   'an UNAPPROVED production file starts naming the pair (a consumer nobody reviewed)',
-  'src/firmware_remote.cpp',
-  '// MeshRoute — src/firmware_remote.cpp',
-  '// MeshRoute — src/firmware_remote.cpp\n#if MR_FEAT_RADMIN_ACCEPT\n#endif',
+  'src/firmware_config.cpp',
+  '// MeshRoute — src/firmware_config.cpp',
+  '// MeshRoute — src/firmware_config.cpp\n#if MR_FEAT_RADMIN_ACCEPT\n#endif',
   ('O1',)),
  ('W-EXTRA-SITE',
   'an EXTRA capability guard appears inside an ALLOWED file (a second, unreviewed consumer)',
@@ -533,16 +533,16 @@ CONTROLS = [('W-S73-ACTIONS-H',
   '#if MR_FEAT_RADMIN_ACCEPT\n// CLIENT-OWNED.',
   ('O4d', 'O6b')),
  ('W-WIDEN-ACCEPT',
-  'the ACCEPT owner is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27)',
+  'the ACCEPT owner is unconditionally widened with `|| 1` (forbidden by R-RA-27)',
   'lib/core/node_mac_rx.cpp',
   '#if MR_FEAT_RADMIN_ACCEPT\n// ACCEPT-OWNED.',
-  '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n// ACCEPT-OWNED.',
+  '#if MR_FEAT_RADMIN_ACCEPT || 1\n// ACCEPT-OWNED.',
   ('O4d', 'O5')),
  ('W-WIDEN-CLIENT',
-  'the CLIENT owner is legacy-widened with `|| MR_FEAT_REMOTE_MGMT`',
+  'the CLIENT owner is unconditionally widened with `|| 1`',
   'lib/core/node_mac_rx.cpp',
   '#if MR_FEAT_RADMIN_CLIENT\n// CLIENT-OWNED.',
-  '#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n// CLIENT-OWNED.',
+  '#if MR_FEAT_RADMIN_CLIENT || 1\n// CLIENT-OWNED.',
   ('O4d', 'O5')),
  ('W-NONE-ARM',
   'an early consume/return is added for the `none` decision — an unowned type would stop reaching the fail-closed '
@@ -587,11 +587,11 @@ CONTROLS = [('W-S73-ACTIONS-H',
   '#if 1\n    if (mrfw::admin_verb_owns(line, len))',
   ('O4j',)),
  ('W-S3-WIDEN-BOOT',
-  '§RADMIN slice 3: the boot-call gate is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` (forbidden by R-RA-27 — the '
+  '§RADMIN slice 3: the boot-call gate is unconditionally widened with `|| 1` (forbidden by R-RA-27 — the '
   'capability must not be aliased to the legacy switch)',
   'src/fw_main.cpp',
   '#if MR_FEAT_RADMIN_ACCEPT\n    mrfw::admin_stores_boot_report_console();',
-  '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_stores_boot_report_console();',
+  '#if MR_FEAT_RADMIN_ACCEPT || 1\n    mrfw::admin_stores_boot_report_console();',
   ('O4j', 'O5')),
  ('W-S3-INVERT-HELP',
   "§RADMIN slice 3: the help index's two names are compiled under the CLIENT capability — the R-RA-8 inversion, which "
@@ -629,11 +629,11 @@ CONTROLS = [('W-S73-ACTIONS-H',
   '#if 1\n    if (mrfw::admin_client_ble_refuses(line, len))',
   ('O4j',)),
  ('W-S4-WIDEN-BOOT',
-  '§RADMIN slice 4: the controller boot-call gate is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` (forbidden by '
+  '§RADMIN slice 4: the controller boot-call gate is unconditionally widened with `|| 1` (forbidden by '
   'R-RA-27)',
   'src/fw_main.cpp',
   '#if MR_FEAT_RADMIN_CLIENT\n    mrfw::admin_client_stores_boot_report_console();',
-  '#if MR_FEAT_RADMIN_CLIENT || MR_FEAT_REMOTE_MGMT\n    mrfw::admin_client_stores_boot_report_console();',
+  '#if MR_FEAT_RADMIN_CLIENT || 1\n    mrfw::admin_client_stores_boot_report_console();',
   ('O4j', 'O5')),
  ('W-S4-INVERT-HELP',
   "§RADMIN slice 4: the help index's two CONTROLLER names are compiled under the ACCEPT capability — the R-RA-8 "
@@ -670,11 +670,11 @@ CONTROLS = [('W-S73-ACTIONS-H',
   '#if MR_FEAT_RADMIN_ACCEPT\n    // R-RA-45: pointer-free controller block',
   ('O4c',)),
  ('W-S5-WIDEN-TIMER',
-  '§RADMIN slice 5: the ACCEPT gate on the shared EXPIRY TIMER case is legacy-widened with `|| MR_FEAT_REMOTE_MGMT` '
+  '§RADMIN slice 5: the ACCEPT gate on the shared EXPIRY TIMER case is unconditionally widened with `|| 1` '
   '(forbidden by R-RA-27)',
   'lib/core/node.cpp',
   '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_RADMIN_CLIENT\n    // §remote-admin v2 (R-RA-22 / design §15): the ONE shared',
-  '#if MR_FEAT_RADMIN_ACCEPT || MR_FEAT_REMOTE_MGMT\n    // §remote-admin v2 (R-RA-22 / design §15): the ONE shared',
+  '#if MR_FEAT_RADMIN_ACCEPT || 1\n    // §remote-admin v2 (R-RA-22 / design §15): the ONE shared',
   ('O4b', 'O5')),
  ('W-S5-INVERT-TAKE',
   '8ac pure-state receive consumer compiled under ACCEPT',

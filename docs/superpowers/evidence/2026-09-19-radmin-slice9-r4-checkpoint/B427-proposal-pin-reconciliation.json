@@ -1,0 +1,42 @@
+{
+  "review_only_not_landed": true,
+  "rerun_with_proposal": false,
+  "rows": {
+    "gateway_heltec": {
+      "actual": 171,
+      "old_pin": 173,
+      "switch": 0,
+      "proposed_pin": 171
+    },
+    "gateway_heltec_v4": {
+      "actual": 175,
+      "old_pin": 178,
+      "switch": 0,
+      "proposed_pin": 175
+    },
+    "heltec_mobile": {
+      "actual": 175,
+      "old_pin": 177,
+      "switch": 0,
+      "proposed_pin": 175
+    },
+    "heltec_v3": {
+      "actual": 175,
+      "old_pin": 177,
+      "switch": 0,
+      "proposed_pin": 175
+    },
+    "heltec_v4": {
+      "actual": 179,
+      "old_pin": 182,
+      "switch": 0,
+      "proposed_pin": 179
+    },
+    "heltec_v4_mobile": {
+      "actual": 179,
+      "old_pin": 182,
+      "switch": 0,
+      "proposed_pin": 179
+    }
+  }
+}

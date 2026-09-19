@@ -121,22 +121,18 @@ public:
     // seal/open FAILS LOUD (never silently falls back to cleartext). Backends derive these from the /mrid seed
     // (device) or the per-node scenario seed (sim).
     void set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[32]);
-    // §remote-mgmt (spec 2026-07-13): the pinned admin pubkey (trust anchor for gated rcmds) + the replay counter floor.
-    // RAM state; fw_main loads from / persists to the NV Blob (admin_pubkey/admin_counter_floor/admin_provisioned).
-#if MR_FEAT_REMOTE_MGMT
+    // Inert legacy admin mirrors retained until Slice 10's NV cleanup; no live authority reads these fields.
+    // Boot alone loads the NV Blob's admin_pubkey/admin_counter_floor/admin_provisioned; v2 uses its own stores.
+#if MR_FEAT_RADMIN_ACCEPT
     bool           admin_provisioned() const { return _admin_provisioned; }
     const uint8_t* admin_pubkey()      const { return _admin_provisioned ? _admin_pubkey : nullptr; }
     uint32_t       admin_counter_floor() const { return _admin_counter_floor; }
-    void admin_set_pubkey(const uint8_t ed_pub[32]) { for (int i=0;i<32;++i) _admin_pubkey[i]=ed_pub[i]; _admin_provisioned = true; }
     void admin_load(const uint8_t ed_pub[32], uint32_t floor, bool provisioned) { for (int i=0;i<32;++i) _admin_pubkey[i]=ed_pub[i]; _admin_counter_floor = floor; _admin_provisioned = provisioned; }
-    bool admin_counter_check_advance(uint32_t counter) { if (counter > _admin_counter_floor) { _admin_counter_floor = counter; return true; } return false; }
 #else
     bool           admin_provisioned() const { return false; }
     const uint8_t* admin_pubkey()      const { return nullptr; }
     uint32_t       admin_counter_floor() const { return 0; }
-    void admin_set_pubkey(const uint8_t*) {}
     void admin_load(const uint8_t*, uint32_t, bool) {}
-    bool admin_counter_check_advance(uint32_t) { return false; }
 #endif
     void on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta);  // bytes valid during call only
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
@@ -171,10 +167,8 @@ public:
     // is inert). The node records on its DM/channel deliver paths; a companion pulls incrementally.
     Inbox&    inbox() { return _inbox; }
 
-    // OTA remote diagnostics (`rcmd`, 2026-06-24): a console-style query / response carried over a DATA DM
-    // (DATA_TYPE_REMOTE_CMD / _RESP). lib/core is the GENERIC transport — fw_main owns the query whitelist + execution.
-    uint16_t send_remote_cmd     (uint8_t dst, const uint8_t* body, uint8_t len);   // -> a DATA_TYPE_REMOTE_CMD DM (rides routing/ACK)
-    uint16_t send_remote_response(uint8_t dst, const uint8_t* body, uint8_t len);   // -> a DATA_TYPE_REMOTE_RESP DM
+    // Remote-admin v2 controller state and checked request carrier (DATA_TYPE_REMOTE_CMD / _RESP).
+    // Firmware supplies the local command/output bindings; core owns sessions and transport admission.
 #if MR_FEAT_RADMIN_CLIENT
     RemoteClientState& remote_client() { return _remote_client; }
     const RemoteClientState& remote_client() const { return _remote_client; }
@@ -1792,7 +1786,7 @@ private:
     void    custody_failure_receive(const PostAck& pa, const data_unicast_inner* ui);
     // ★★★★ §remote-admin v2 SLICE 1b (2026-09-06) — **THE TWO CAPABILITY-OWNED PRE-TAIL REMOTE ENTRY POINTS.**
     //   R-RA-8/R-RA-27 item 1, STRICTLY: `REMOTE_CMD` is owned by ACCEPT and `REMOTE_RESP` by CLIENT, and
-    //   ⛔ `MR_FEAT_REMOTE_MGMT` WIDENS NEITHER. Each declaration, definition AND consuming call site is compiled
+    //   each declaration, definition AND consuming call site is compiled
     //   only under its own capability, so a static/gateway image carries no response consumer and a mobile image
     //   carries no command consumer; the un-owned type takes no arm and reaches the fail-closed internal guard.
     // ACCEPT consumes through the target session; CLIENT consumes through the controller pending table.
@@ -3024,7 +3018,7 @@ private:
     uint16_t _relay_seal_ctr = 0; // §S4 SEALED_RELAY: a dedicated per-node nonce ctr, CARRIED in the relay body (NOT the MAC frame ctr — that stays the delegating home's for dedup). Uniqueness rides the random seed8; this ctr is defense-in-depth (matches the same-layer seal's ctr role). Pre-incremented per relay seal.
 
     // ---- REMOTE-MGMT (Node-global) ----
-#if MR_FEAT_REMOTE_MGMT
+#if MR_FEAT_RADMIN_ACCEPT
     uint8_t  _admin_pubkey[32] = {};   // §remote-mgmt: pinned admin Ed25519 pubkey (trust anchor)
     uint32_t _admin_counter_floor = 0; // §remote-mgmt: replay floor (persisted, write-coalesced)
     bool     _admin_provisioned = false;

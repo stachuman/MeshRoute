@@ -1,0 +1,14 @@
+PRIVATE IN-MEMORY PROPOSAL ONLY; source file unchanged.
+test_bare_mentions_do_not_replace_the_positional_table (private_B426_proposal.TestCommandAuthority.test_bare_mentions_do_not_replace_the_positional_table) ... ok
+test_disruptive_flag_disagreement_refuses (private_B426_proposal.TestCommandAuthority.test_disruptive_flag_disagreement_refuses) ... ok
+test_empty_production_initializer_refuses (private_B426_proposal.TestCommandAuthority.test_empty_production_initializer_refuses) ... ok
+test_empty_table_refuses (private_B426_proposal.TestCommandAuthority.test_empty_table_refuses) ... ok
+test_header_duplicate_refuses (private_B426_proposal.TestCommandAuthority.test_header_duplicate_refuses) ... ok
+test_six_controls_reject_their_own_named_defect (private_B426_proposal.TestCommandAuthority.test_six_controls_reject_their_own_named_defect) ... ok
+test_surviving_surfaces_share_one_semantic_class (private_B426_proposal.TestCommandAuthority.test_surviving_surfaces_share_one_semantic_class) ... ok
+test_three_real_artifacts_agree (private_B426_proposal.TestCommandAuthority.test_three_real_artifacts_agree) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.174s
+
+OK

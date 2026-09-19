@@ -1,0 +1,17 @@
+{
+  "name": "sim-build",
+  "command": [
+    "cmake",
+    "--build",
+    "/tmp/mr-s9-r4-j37ybea_/sim-final",
+    "--target",
+    "lus",
+    "--parallel",
+    "3",
+    "--verbose"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 112.57192120328546,
+  "sha256": "775bfc2cee942e98c7a5a20e0789a8c353c489078129e814f747a6b1b0dd47d1"
+}

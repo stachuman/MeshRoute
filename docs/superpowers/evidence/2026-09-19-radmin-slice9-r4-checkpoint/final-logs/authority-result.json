@@ -1,0 +1,11 @@
+{
+  "name": "authority",
+  "command": [
+    "python3",
+    "tools/check_command_authority.py"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 0.4676033519208431,
+  "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+}

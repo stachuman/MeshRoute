@@ -8,8 +8,9 @@ rows transcribe as owner per brief §4.4 (B346). Bare family rows carry the fami
 override them. Alias and shared-verb cells retain the inventory's spelling, not extra policy rows.
 
 The two refusal discriminators (`peers <args> — refused console_only`, `joinprofile — refused gateway_build`)
-bind to their bare semantic rows; they are not executable subcommands. The gateway join/create and legacy
-reboot/prep-restart alias cells retain their own provenance but have the same class/flag as their spellings.
+bind to their bare semantic rows; they are not executable subcommands. The gateway join/create alias
+cell retains its provenance and the same class/flag as its spellings. Slice 9 removes the radio-only
+reboot/prep-restart metadata row; the ordinary `reboot` and `prep-restart` policies remain.
 
 ## Semantic policy
 
@@ -132,7 +133,6 @@ reboot/prep-restart alias cells retain their own provenance but have the same cl
 | `joinprofile` | `set name` | operator | no | [§C](../plans/2026-09-06-radmin-authority-classification-proposal.md#c-network-membership-and-roles) |
 | `leave` | — | operator | yes | [§C](../plans/2026-09-06-radmin-authority-classification-proposal.md#c-network-membership-and-roles) |
 | `limits` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
-| `lock` | — | legacy | no | [§H](../plans/2026-09-06-radmin-authority-classification-proposal.md#h-controller-side-slice-4-and-legacy--never-target-dispatchable) |
 | `lookup` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
 | `mark_read` | — | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) · R-RA-32 |
 | `mobile` | — | operator | no | [§C](../plans/2026-09-06-radmin-authority-classification-proposal.md#c-network-membership-and-roles) |
@@ -144,17 +144,13 @@ reboot/prep-restart alias cells retain their own provenance but have the same cl
 | `mobile` | `unregister` | operator | no | [§C](../plans/2026-09-06-radmin-authority-classification-proposal.md#c-network-membership-and-roles) |
 | `nameof` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
 | `ota` | — | owner | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
-| `password` | — | legacy | no | [§H](../plans/2026-09-06-radmin-authority-classification-proposal.md#h-controller-side-slice-4-and-legacy--never-target-dispatchable) |
-| `password rotate` | — | legacy | no | [§H](../plans/2026-09-06-radmin-authority-classification-proposal.md#h-controller-side-slice-4-and-legacy--never-target-dispatchable) |
 | `peerkey` | — | owner | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) |
 | `peername` | — | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) |
 | `peers` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
 | `peers` | `all` | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
 | `prep-restart` | — | operator | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
 | `pull_inbox` | — | operator | no | [§D](../plans/2026-09-06-radmin-authority-classification-proposal.md#d-messaging-and-address-book) · R-RA-32 |
-| `rcmd` | — | legacy | no | [§H](../plans/2026-09-06-radmin-authority-classification-proposal.md#h-controller-side-slice-4-and-legacy--never-target-dispatchable) |
 | `reboot` | — | operator | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
-| `reboot (alias: prep-restart)` | — | operator | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
 | `regen` | — | owner | yes | [§E](../plans/2026-09-06-radmin-authority-classification-proposal.md#e-disruptive-actions-fault-injection-ota) |
 | `remote` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
 | `remote-ack` | — | controller_local | no | [R-RA-42](../plans/2026-09-03-remote-admin-v2-rulings.md#r-ra-42-owner-2026-09-17--8a8c-controller-verbs-enter-the-ruled-authority-table) |
@@ -196,6 +192,5 @@ reboot/prep-restart alias cells retain their own provenance but have the same cl
 | `ui` | `preset reset` | operator | no | [§F](../plans/2026-09-06-radmin-authority-classification-proposal.md#f-the-oled-panel) |
 | `ui` | `preset reset all` | operator | no | [§F](../plans/2026-09-06-radmin-authority-classification-proposal.md#f-the-oled-panel) |
 | `ui` | `preset set` | operator | no | [§F](../plans/2026-09-06-radmin-authority-classification-proposal.md#f-the-oled-panel) |
-| `unlock` | — | legacy | no | [§H](../plans/2026-09-06-radmin-authority-classification-proposal.md#h-controller-side-slice-4-and-legacy--never-target-dispatchable) |
 | `version` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |
 | `whoami` | — | operator | no | [§A](../plans/2026-09-06-radmin-authority-classification-proposal.md#a-diagnostics-and-identity-readers) |

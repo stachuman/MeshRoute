@@ -79,13 +79,16 @@ cd "$(dirname "$0")/.." || exit 1
 #   on `gateway_heltec` is 174 -> 173, and the normalized warning multiset diff contains exactly that one removed
 #   line. Object counts and `-Wswitch == 0` are unchanged. V4 keeps its existing +5 native-USB diagnostics, so all
 #   six pins move by the same -1; this is warning removal, not a relaxed ceiling.
+# Slice 9 / B427: deleting firmware_remote.cpp removes one including TU: God-mode -Wcpp
+# and device_radio -Wvolatile on all six cells, plus native-USB -Wcpp on V4 (-2 / -3).
+# Fresh V3 and V4 warning-multiset A/B has exactly those removals and zero additions.
 declare -A EXPECT_WARN=(
-  [heltec_v3]=177
-  [heltec_mobile]=177
-  [gateway_heltec]=173
-  [heltec_v4]=182
-  [heltec_v4_mobile]=182
-  [gateway_heltec_v4]=178
+  [heltec_v3]=175
+  [heltec_mobile]=175
+  [gateway_heltec]=171
+  [heltec_v4]=179
+  [heltec_v4_mobile]=179
+  [gateway_heltec_v4]=175
 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it

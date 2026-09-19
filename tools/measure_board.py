@@ -184,6 +184,18 @@ class MeasurementLock:
 
 
 def source_snapshot() -> dict[str, Any]:
+    # Capture the deletion authority before walking inputs: a later disappearance
+    # must still fail. NUL records preserve literal whitespace/quotes in paths.
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd=ROOT
+    )
+    unstaged_deletions = set()
+    records = iter(status.split(b"\0"))
+    for record in records:
+        if record.startswith(b" D "):
+            unstaged_deletions.add(record[3:])
+        if b"R" in record[:2] or b"C" in record[:2]:
+            next(records, None)  # Rename/copy source path is not another status record.
     listed = subprocess.run(
         ["git", "ls-files", "-co", "--exclude-standard", "-z"],
         cwd=ROOT,
@@ -192,26 +204,29 @@ def source_snapshot() -> dict[str, Any]:
     ).stdout
     names = sorted(name for name in listed.split(b"\0") if name)
     digest = hashlib.sha256()
+    deleted_files = []
     for encoded in names:
         relative = Path(os.fsdecode(encoded))
         path = ROOT / relative
         if path.is_symlink():
             content_hash = hashlib.sha256(os.fsencode(os.readlink(path))).digest()
+        elif not path.exists() and encoded in unstaged_deletions:
+            content_hash = None
+            deleted_files.append(os.fsdecode(encoded))
         else:
             require(path.is_file(), f"source input disappeared while hashing: {relative}")
             content_hash = bytes.fromhex(sha256_file(path))
         digest.update(len(encoded).to_bytes(4, "big"))
         digest.update(encoded)
-        digest.update(content_hash)
+        # Presence is explicit; an absent input cannot hash as a live empty file.
+        digest.update(b"\0" if content_hash is None else b"\1" + content_hash)
 
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    status = subprocess.check_output(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=ROOT
-    )
     return {
         "git_head": head,
         "git_status_sha256": hashlib.sha256(status).hexdigest(),
         "file_count": len(names),
+        "deleted_files": deleted_files,
         "tree_sha256": digest.hexdigest(),
     }
 
@@ -783,6 +798,7 @@ QUALIFICATION_FIELDS = (
     "source.git_head",
     "source.git_status_sha256",
     "source.file_count",
+    "source.deleted_files",
     "source.tree_sha256",
     "paths.project_root",
     "paths.build_root",

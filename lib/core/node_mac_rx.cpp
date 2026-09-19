@@ -1911,7 +1911,7 @@ void Node::custody_failure_receive(const PostAck& pa, const data_unicast_inner* 
 //         `unsupported_internal`, no staging into the inert `remote_exec` stub any more. Externally identical:
 //         neither shape ever answered (R-RA-27 item 3);
 //       · a STATIC/GATEWAY build (accept-only) no longer receives `REMOTE_RESP` — the legacy USB `rcmd` issuer on
-//         those nodes stops seeing its replies until Slice 9 deletes that issuer. ⛔ Do NOT restore it with
+//         those nodes stopped seeing its replies; Slice 9 deletes that issuer. ⛔ Do NOT restore it with
 //         `|| MR_FEAT_REMOTE_MGMT`, a fallback owner or a firmware edit: the design's earlier sentence "under the
 //         legacy gate their bodies remain behaviour-identical" is SUPERSEDED for exactly this case. The bodies stay
 //         byte-identical WHERE AN OWNER EXISTS; ownership itself follows R-RA-8 strictly.
@@ -1989,7 +1989,7 @@ RemoteClientSend Node::remote_client_submit(const RemoteClientRoute& route, std:
 //     There is ⛔ NO FALLBACK: an absent `SOURCE_HASH`, an old-format body, a malformed `ctl` or a failed
 //     authentication is REFUSED here and is never retried through `admin_auth`/`remote_exec`. The bench's
 //     static/gateway `rcmd` round trip was already SUSPENDED at Slice 1b; Slice 5 is where the receive half is
-//     actually removed. Slice 9 deletes the remaining legacy issuer/definitions.
+//     actually removed. The remaining legacy issuer/definitions are deleted in Slice 9.
 //
 // ⛔ WHAT THIS ARM STILL DOES NOT DO (mark done-vs-missing IN CODE):
 //     · ⛔ NO EXECUTION and no dispatcher context — the verdict is what Slice 7b/6 act on.

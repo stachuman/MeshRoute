@@ -1,0 +1,17 @@
+{
+  "name": "sim-configure",
+  "args": [
+    "cmake",
+    "-S",
+    "/home/staszek/lora-universal-simulator",
+    "-B",
+    "/tmp/mr-s9-r3-mg75mxe0/sim-base",
+    "-G",
+    "Ninja",
+    "-DMESHROUTE_DIR=/tmp/mr-s9-r3-mg75mxe0/base",
+    "-DCMAKE_BUILD_TYPE=Release"
+  ],
+  "exit": 0,
+  "seconds": 0.42047905921936035,
+  "sha256": "c2836254750a39054af9c0a457786fdf0771b6212105d2a95ba70be69c8d6f6e"
+}

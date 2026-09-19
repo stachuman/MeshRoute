@@ -1,0 +1,27 @@
+[
+  {
+    "path": "docs/superpowers/evidence/2026-09-09-radmin-slice7b2-0-reference.py",
+    "sha256": "ca485257119e1fb01ede94d5679ec40ac52bad2dc8ee22faf643b1f709227d96",
+    "unchanged": true
+  },
+  {
+    "path": "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+    "sha256": "466d7d95d46405cc3c92b53250f7d264b8a0c0ccd7385d382e10eca30c58e402",
+    "unchanged": true
+  },
+  {
+    "path": "tools/test_check_command_authority.py",
+    "sha256": "99c8bc8cdeac03a81da909cabfc2b7f9bb257b0d125006a79105dc8d23690ae8",
+    "unchanged": true
+  },
+  {
+    "path": "tools/warning_census.sh",
+    "sha256": "0134b2b9df63c709de49c774bf4dc02d8d2521b344dd83a73a5821c6b13ea213",
+    "unchanged": true
+  },
+  {
+    "path": "docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md",
+    "sha256": "413ccbd7fc8fdd151ce4bb69e5da123745cb3fb3917826752f83ec2da5faa2fb",
+    "unchanged": true
+  }
+]

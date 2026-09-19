@@ -1160,3 +1160,23 @@ that target; `radmin_client_ack_debt` in `status`) and R-RA-49 (the target E2E-A
 admit / replay / already-acknowledged verdicts) are implemented as ruled and reproduced by QA: native 2970/195942/0,
 corpus 36/36 byte-identical, Node and RAM unchanged, union 61/983/1/984. B408/B414 closed; B418 pre-existing.
 [Independent gate](../evidence/2026-09-18-radmin-slice8b-qa-gate.md). Next: Slice 9, then 10.
+
+### R-RA-50 (owner, 2026-09-18) — Slice 9 deletes the lab harness's dead `rcmd` sub-command
+
+**Owner, verbatim:** *"R1 approved as recommended, record it as R-RA-50"*
+
+**Settled (Slice 9 brief §8 R1 "as recommended"):** `tools/meshroute_lab.py` loses `cmd_rcmd` and its sub-parser in
+Slice 9, together with the firmware verb it drives. The sub-command was already dead: it waits for the `[rcmd <from>]`
+USB reply that 8a removed with the legacy client staging, and the verb itself falls to the common dispatcher's
+unknown-verb refusal once Slice 9 lands. A lab helper for the v2 `remote` surface (target-book label, credential,
+the `> remote <id16> …` lines and `remote_carrier` observations) is a separate tooling item, to be scoped after
+Part 57c has run on metal; nothing in Slice 9 substitutes for it. With this every Slice 9 decision is settled by the
+design (§17, item 9) and R-RA-6/13/27; no allocation ruling is needed for a measured decrease.
+
+**QA completion note, 2026-09-19 — Slice 9 INDEPENDENT QA PASS (uncommitted at `84edd3e`):** every §17 replacement
+bullet except the NV/`Node` fields is executed — `rcmd`, `password`/`unlock`/`lock`, `remote_exec` and its TLV
+encoders, `send_remote_cmd/response`, the sealed-body codec and `MR_FEAT_REMOTE_MGMT` are gone with zero executable
+residue; R-RA-50's lab sub-command deletion is in; the durable docs (`frames.md` wire bodies verified against the
+codec, `protocol.md` §15) are landed. Reproduced by QA: native 2950/195768/0, corpus 36/36 byte-identical, Node
+unchanged, RAM/flash down on both boards, inventory 197, census re-pinned, union 61/983/1/984.
+[Independent gate](../evidence/2026-09-19-radmin-slice9-qa-gate.md). Next: Slice 10 (R-RA-6).

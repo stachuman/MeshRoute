@@ -1,0 +1,59 @@
+{
+  "baseline": false,
+  "source": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "results": [
+    {
+      "name": "b0-p1",
+      "cpp_sha256": "d9ea37a30a6eaef683c6cde7591d6592543b2391463d3172d2738fe0f20f90e1",
+      "remote_checks": 416,
+      "radio_checks": 3160,
+      "checks": 150,
+      "transcripts": 39
+    },
+    {
+      "name": "b1-p1",
+      "cpp_sha256": "b69dceff8fd68483afe214deaea79b0951b67f3d08faec91f0b53d6c38b5450e",
+      "remote_checks": 518,
+      "radio_checks": 3485,
+      "checks": 151,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p1",
+      "cpp_sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+      "remote_checks": 534,
+      "radio_checks": 3689,
+      "checks": 158,
+      "transcripts": 39
+    },
+    {
+      "name": "b2-p0",
+      "cpp_sha256": "bfbe1c5fcb0b41d2b3e63dea33ce8132173335c94ba82bcf8762c4a7ea593312",
+      "remote_checks": 464,
+      "radio_checks": 3695,
+      "checks": 158,
+      "transcripts": 39
+    }
+  ],
+  "controls": [],
+  "source_preservation": {
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/fw_main.cpp": "8c23d04b48259322f3056d6476be3284ac0b003a902249fdf5227bd10055f3b7",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_commands.cpp": "761f3d43129e7c5b6d0e31b156abd963039aef85ebd7d0935382ab0705a2db15",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_ota.cpp": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/device_ota.h": "082873c9eab897eb2052c430ee99fbc1f554c065fdafa9109becef54ff4d39dd",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_action_effects.h": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/probe_main.cpp": "e3521b57ec8f0493571c9598c44ae8cdd326831819854cbc04773206f61a8ec2",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/fakes/Preferences.h": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_deferred_actions/run.py": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_deferred_actions/run.sh": "711be73a747053a419d4afbebc60e9fc8ffc2f7594e47c01aebb134f7bee2532",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_deferred_actions/probe.cpp": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_deferred_actions/controls.py": "7da153c37861dc6de1a50e97bb8dcbf924bf56eb4e293fa2f0c27101e2458ff1",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_deferred_actions/remote_rows.h": "ed8be70fa39ec8202cff998f6ff3b91e9d63ee5dd407907685894913900d4292",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_remote_actions.cpp": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/src/firmware_remote_actions.h": "5c74a418e9fdb9382d7e4fd07c0fd7084336cc9b3cb45b899f114f85adc6078f",
+    "/tmp/mr-s9-r4-j37ybea_/final-gate/tools/probe_inbox_verbs/remote_exec_rows.h": "e1b74d3789626aa1f2513073bf395cc801ca4b17e056ef01507eae983321c265"
+  },
+  "source_reader_controls": 4,
+  "placement_checks": 6,
+  "placement_controls": 0
+}

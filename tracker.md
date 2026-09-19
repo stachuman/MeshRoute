@@ -37,7 +37,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 - **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-18).**
   Roles since 2026-09-07: Codex authors briefs and codes (two sessions), Claude second-reads and gates, the owner
   rules and commits; commits are not blocking points (owner ruling 2026-09-15). Per-slice gate detail lives in
-  the design's §19.1 table, rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
+  the design's §19.1 table, rulings R-RA-1..50 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
   defects in the register (next free B408).
   - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
     3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
@@ -45,11 +45,14 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
     preparation (`7442e6f`); **7b-3 deferred actions (`6086152`, QA 2026-09-16) — the disruptive arc is complete.**
   - **8a+8c paired controller core + local USB/BLE delivery:** independent QA PASS 2026-09-18, owner commits
     `c07b77f` (MeshRoute) and `6585649` (simulator source-list line, B406); B292/B312 closed; Part 57d reserved.
-  - **8b, the mobile controller carrier: independent QA PASS 2026-09-18, uncommitted at `c07b77f`** (brief revisions
+  - **8b, the mobile controller carrier: independent QA PASS 2026-09-18, owner commit `84edd3e`** (brief revisions
     1–6; R-RA-46..49; B408/B409–B414/B416 closed, B415 parked, B418 pre-existing tool drift); the remote-admin product
     path is software-complete end to end; bench Part 57c landed, Parts 57b/57d now runnable.
-  - **In flight:** nothing — next is the Slice 9 brief (legacy protocol deletion + durable protocol docs).
-  - **Remaining slices (two cycles):** 9 legacy protocol deletion + durable
+  - **Slice 9, legacy protocol deletion + the durable protocol docs: independent QA PASS 2026-09-19, uncommitted at
+    `84edd3e`** (brief revisions 1–5; R-RA-50; B420–B429 closed, B418 pre-existing tool drift); zero executable residue,
+    corpus byte-identical, Node unchanged, RAM/flash down; `frames.md`/`protocol.md` now document v2; Part 57e reserved.
+  - **In flight:** nothing — next is the Slice 10 brief (the standalone main-NV cleanup, R-RA-6).
+  - **Remaining slices (one cycle):** 9 (PASS) legacy protocol deletion + durable
     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
     remotely by design, and the disruptive arc completes with 7b-3.
@@ -90,7 +93,7 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits 8b, then the Slice 9 brief; metal Parts 57c/57b/57d are now runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits Slice 9, then the Slice 10 brief; metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
   Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
   remains separately tracked and do not block Part 54.
 

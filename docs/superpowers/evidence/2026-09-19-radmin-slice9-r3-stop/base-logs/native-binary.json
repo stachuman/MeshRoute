@@ -1,0 +1,9 @@
+{
+  "name": "native-binary",
+  "args": [
+    "/tmp/mr-s9-r3-mg75mxe0/base-native/native/program"
+  ],
+  "exit": 0,
+  "seconds": 0.8258049488067627,
+  "sha256": "27951f0c3236d2b7bcde2a5ef6e52cf06eb8f77987c4801cd8b116354b82e61c"
+}

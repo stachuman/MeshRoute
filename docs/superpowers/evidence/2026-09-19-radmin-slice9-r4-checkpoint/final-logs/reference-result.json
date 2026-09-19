@@ -1,0 +1,15 @@
+{
+  "name": "reference",
+  "command": [
+    "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+    "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+    "--freeze-check",
+    "--compare",
+    "test/test_remote_codec.cpp",
+    "--selftest"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 0.5295974798500538,
+  "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25"
+}

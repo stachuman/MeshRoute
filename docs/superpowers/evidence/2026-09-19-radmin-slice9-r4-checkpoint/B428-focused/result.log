@@ -1,0 +1,7 @@
+test_the_two_pins_reconcile_with_what_the_contract_actually_emits (b428_private_test.TheFirstConsumerFence.test_the_two_pins_reconcile_with_what_the_contract_actually_emits)
+The runner's pins equal the surviving pre-1b checks plus today's ownership instrument. ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 68.262s
+
+OK

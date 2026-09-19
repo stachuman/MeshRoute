@@ -540,7 +540,8 @@ CFG_CPP="$ROOT/src/firmware_config.cpp"
 #    only if that write's own SEQUENCE is present. Delete or rename it and `silent` drops to 0 and the balance fails
 #    LOUDLY — so a future reader cannot turn "one measured exemption" into "a constant somebody bumped".
 # ⛔ A SECOND SILENT WRITER OWES A BUMP **AND** ITS OWN W-CHECK (W47 below is this one's), never just a bigger number.
-CFG_NOTIFY_SITES=7                 # the seven USER-INITIATED verbs — bump this ONLY together with a new W-check
+# Slice 9: deleting handle_password removes one direct save and one notification (7/7 -> 6/6).
+CFG_NOTIFY_SITES=6
 CFG_STORE_SAVE='bool save(const mrnv::Blob& b) override { return mrnv::save(b); }'   # the ONE exempt save
 CFG_ROUTED_SITES=2                 # verbs whose /mrcfg write goes through ICfgStore::save, not mrnv::save
 CFG_ROUTED_CALL='prov_service().apply_team('        # §PROV-TX  — the team route that earns its credit
@@ -582,7 +583,7 @@ wchk_in "$CFG_CPP" "W13 the config path stays feature-neutral (no MR_FEAT_OLED a
 #     the first: `leave` RESETS ALL FOUR covered fields (`b = mrnv::Blob{}`) and persisted them while telling the panel
 #     nothing, which is the blocker this slice was dispatched on. All six live in `src/firmware_config.cpp`, which no
 #     host build compiles — the same reason W12 exists here rather than in a native case.
-# ★★ EACH CHECK CARRIES FOUR CONTROLS (W19 five), and they are the same four wrong answers every time, which is the
+# ★★ EACH RETAINED CHECK CARRIES FOUR CONTROLS, and they are the same four wrong answers every time, which is the
 #    point of a RULE: (a) the call deleted -> the blocker back; (b) a call added BEFORE the write -> notifies on a
 #    write that may then FAIL; (c) the failure branch's `return`/guard dropped -> notifies after a FAILED write;
 #    (d) a call added INSIDE the failure branch -> claims a change on a write that did not happen.
@@ -641,20 +642,10 @@ wchk_in "$CFG_CPP" "W18 handle_leave NOTIFIES after its successful /mrcfg write 
          's|    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }|    mr_ui_on_config_saved();\n    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }|' \
          's|(F("> leave err nv_save_failed")); return; }|(F("> leave err nv_save_failed")); }|' \
          's|{ out.println(F("> leave err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> leave err nv_save_failed")); return; }|'
-# ⚠ W19 CARRIES A FIFTH CONTROL, and it guards something that is NOT this slice's property: the `memset` that wipes
-#   the derived admin keypair sits BETWEEN the save and the guard, and it must run on BOTH arms. The sequence clause
-#   spans it, so a revert that removes or relocates the wipe turns this check red — deliberately, because "notify on
-#   the success side" was the ONLY thing this slice was allowed to change at this site.
-w19() { nsite "$1" 'const bool saved = mrnv::save(b); memset(&admin, 0, sizeof admin); if (!saved) { out.println(F("> password err: nv_save_failed")); return; } mr_ui_on_config_saved();'; }
-wchk_in "$CFG_CPP" "W19 handle_password NOTIFIES on the success side of its existing verdict, wipe untouched" \
-     w19 '/password err: nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
-         's|    const bool saved = mrnv::save(b);|    mr_ui_on_config_saved();\n    const bool saved = mrnv::save(b);|' \
-         's|    if (!saved) { out.println(F("> password err: nv_save_failed")); return; }||' \
-         's|{ out.println(F("> password err: nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> password err: nv_save_failed")); return; }|' \
-         's|    memset(&admin, 0, sizeof admin);|    ;|'
+# Slice 9 retires W19 and its five controls with the deleted password handler.
 # ================================================================================================ W20
 # ⛔⛔ W20 IS THE FUTURE-WRITER TRIPWIRE ITSELF, AND IT EXISTS BECAUSE THE FIRST VERSION OF IT WAS VACUOUS (QG round 2).
-#     W12-W19 each pin ONE site's placement; none of them — and, before this check, no clause anywhere — could see a
+#     W12-W18 each pin ONE site's placement; none of them — and, before this check, no clause anywhere — could see a
 #     NEW `/mrcfg` writer that never notified at all. The count was over `mr_ui_on_config_saved()` alone, so an eighth
 #     `mrnv::save(` with no notification left it at seven and the whole file stayed GREEN.
 # ★★★ CONTROL (a) IS THE WHOLE POINT OF THIS CHECK: it inserts an EIGHTH BARE SAVE — a new verb that forgot — and the
@@ -666,7 +657,7 @@ wchk_in "$CFG_CPP" "W19 handle_password NOTIFIES on the success side of its exis
 #   count drops to 0, which must fail LOUDLY rather than quietly mis-total.
 # ★ (d) is the converse arm of the balance: a save left in place with its notification removed.
 # ⚠ ITS ONE BLIND SPOT, STATED RATHER THAN IMPLIED: moving a verb's notification INTO the exempt store override would
-#   keep both totals balanced and W20 would pass. **W12-W19's per-site SEQUENCE clauses are what catch that** — W20
+#   keep both totals balanced and W20 would pass. **W12-W18's per-site SEQUENCE clauses are what catch that** — W20
 #   guards "no unnotified writer", they guard "each notification is at its own site, after its own successful save".
 #   ⛔ And the scope limit above still applies: a new verb in a DIFFERENT file is caught by neither.
 # ★ (e)/(f) ARE ONE CONTROL PER ROUTE — 2026-08-19, §UI-15 slice 1 added the second. Renaming EITHER transaction call

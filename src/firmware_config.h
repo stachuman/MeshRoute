@@ -14,7 +14,7 @@
 #pragma once
 #include <Arduino.h>     // Print
 #include "device_nv.h"   // mrnv::Blob
-#include "mr_features.h" // MR_FEAT_MOBILE / MR_FEAT_REMOTE_MGMT (guards below)
+#include "mr_features.h" // MR_FEAT_MOBILE (guards below)
 #include "node.h"        // §UI-16 N6: meshroute::Node::TeamKeyGrantTx / meshroute::Plane — the ONE type below that
                          // cannot be forward-declared (see `device_team_grant`); Arduino-free lib/core, guarded
 #include "firmware_config_service.h"   // §UI-14 / [[B193]]: mrfw::ICfgStore / ICfgLive — the two seams bound below
@@ -220,8 +220,5 @@ void handle_mobile(const char* args, Print& out);     // mobile register/gateway
 #endif
 void handle_leave(Print& out);                        // wipe to default (keep freq); go unprovisioned + idle
 
-#if MR_FEAT_REMOTE_MGMT
-void handle_password(const char* args, Print& out);   // LOCAL-only: derive + pin the admin credential
-#endif
 
 }  // namespace mrfw

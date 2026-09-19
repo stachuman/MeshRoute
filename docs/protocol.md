@@ -792,6 +792,84 @@ link, not a defect.
 - **Source:** `node_mobile.cpp` (`presence_probe_fire`, `presence_ingest_roster`, `presence_maybe_rehome`) · `node_join.cpp` (`presence_ingest_probe`, `presence_emit_roster`) · `frame_codec.cpp` (`pack/parse_p_*`)
 - **Spec:** `docs/superpowers/specs/2026-07-17-cross-layer-mobile-first-contact-design.md` §S6 · `2026-08-07-mobile-home-attachment-reliability-design.md` §4.1/§7 (§MH-S4) (wire = `frames.md` §P)
 
+
+## 15. Remote administration v2
+
+Remote administration is a bounded RPC carried by typed DATA; it is separate from messaging identity, user-DM
+history and carrier receipts. Wire layouts are in [frames.md](frames.md#remote_cmd--remote_resp--remote-admin-v2-rpc-bodies).
+Mobile builds own `MR_FEAT_RADMIN_CLIENT`; static/gateway builds own `MR_FEAT_RADMIN_ACCEPT`. Board builds permit
+exactly one capability; native/simulator builds may compile both. `Node::radmin_rx_owner` dispatches each owned
+DATA type before the generic internal-type guard; an unowned type fails closed. Sources: `mr_features.h`,
+`node_mac_rx.cpp`; [design §14](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#14-controller-companion-profile-and-carrier-split).
+
+**Provisioning and sessions.** The physical USB roots are controller credentials in `/mrmkeys`, target administration
+identity in `/mradmid`, its ACL in `/mracl`, and the controller target book in `/mrtargets`. Management keys are
+independent of `/mrid`. The `firmware_admin_*` services prepare fallible live changes before durable writes and
+commit them only after persistence succeeds. Bootstrap matches the full controller public key against the target
+ACL and authenticates under the ordered ECDH-derived base key; it returns the slot's current random epoch without
+rotating it. Requests then use its session key. `remote_session_receive` rejects invalid authentication silently;
+there is no fallback to open or to another credential. Epoch changes invalidate old requests; normal traffic does
+not advance an epoch. SAFE rollover requires no executing operation or unacknowledged transcript. Explicit confirmed
+FORCE can abandon retained outcomes and reports their count. `remote_client_receive` performs at most one automatic
+safe rollover on `session_full`, followed by a fresh-ID execute. Sources: `remote_codec.cpp`, `remote_session.cpp`,
+`remote_client.cpp`; [design §6](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#6-trust-and-provisioning)
+and [§7](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#7-compact-authenticated-session).
+
+**Admission, execution and replay.** `command_authority_admits` exposes only exact argument-free `status` and
+`routes` as open reads. Open admission is three requests total per target per five minutes, shared across all
+requesters, with bounded staging and per-source occupancy. Authenticated execute uses retained request fingerprints
+and bounded ingress/transcripts; an exact retry replays the immutable transcript from sequence zero rather than
+executing again. A send failure keeps the pending frame/cursor for the next eligible loop pass. Response ACK releases
+the transcript but preserves the replay tombstone. Sixteen seen records are shared across all slots. Admission
+notices (`session_full`, `ingress_full`, `session_busy`, `executing`, `preparation_failed`) have a separate authenticated
+wire domain; they are not replacement terminals. The terminal namespace includes `completed`, `scheduled`,
+`unknown_command`, `refused`, `output_truncated`, `internal_error`, `session_full`, `session_busy`, and `action_busy`.
+`remote_executor_service_once` in `firmware_commands.cpp` runs the common dispatcher with scoped output; the session
+encoder retains its output and terminal. Sources: `remote_session_receive`, `remote_transcript_*`, `remote_open_*`,
+`firmware_command_authority.h`; [design §10](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#10-execution-deduplication-and-replay),
+[§11](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#11-multi-dm-output-contract),
+[§12](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#12-common-dispatch-integration-and-authority-policy).
+
+**Disruptive promises.** Typed admission prepares reboot, prep-restart, OTA entry, confirmed factory reset, sleep
+on/off and the three crashtest modes; build support and current policy still apply. The historical twelve policy
+rows comprise eleven distinct rows plus the old radio-only reboot alias removed in Slice 9; every surviving
+spelling keeps its class. The other 36 disruptive policy rows remain refused remotely by design. One 40-byte action
+record serializes promises across all ACL slots; a conflict receives retained `action_busy`. `scheduled` carries a
+u32 activation budget derived/validated by `remote_activation_resolve`. `remote_action_owned` starts its clock only
+at first checked queued/parked send ownership. A matching response ACK can activate earlier; otherwise the deadline
+makes it due. `remote_action_take` clears ownership before `remote_action_service_once` calls the real typed effect
+on the main loop. Local physical intervention/power loss may pre-empt a promise. An unsendable armed promise can
+block later actions until same-slot force rollover or local recovery. Prep-restart halts mesh RX and remote
+administration until a local restart; the controller displays that warning before submission. Sources:
+`remote_session.cpp`, `firmware_remote_actions.cpp`, `firmware_remote_activation.h`;
+[design §13](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#13-disruptive-commands-and-reply-path-honesty).
+
+**Controller and carrier.** `remote_client_start` selects an explicit target-book entry and credential. Manual
+`remote-retry` preserves the sealed bytes and request ID after checking the current epoch; it never silently
+re-executes under a changed epoch. `remote_client_service` permits one automatic exact resend at
+`remote_client_resend_ms`: 60 s same-layer (`e2e_ack_deadline_ms`), 150 s cross-layer (`gateway_send_giveup_ms`),
+then `unknown` at the 300-s outcome horizon. Response-ACK debt has an initial attempt and three retry intervals
+5/10/20 s derived from the cascade constants; afterwards it is dormant until one further attempt with a new
+request to that target, and epoch change wipes it. Queue refusal consumes no retry budget. The
+`NodeRadminClientCarrier` / `Node::remote_client_submit` path uses a MOBILE_SEND wrapper to the home even on the
+same layer (`via_home=true`), mandatory SOURCE_HASH, checked local queue admission and the normal app-DM path.
+The wrapper lets the home own outward routing and translated return correlation. Optional `-a` applies only to
+authenticated execute: the target E2E-ACKs admitted/replayed/already-acknowledged requests. `acked`, `ack_timeout`
+and `custody_failure` are correlated carrier observations, never authenticated RPC outcomes or retry triggers.
+Sources: `remote_client.cpp`, `node_mac_rx.cpp`;
+[design §14](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#14-controller-companion-profile-and-carrier-split)
+and [§15](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#15-bounded-queues-and-backpressure).
+
+**Local delivery and replacement.** `firmware_remote_client.cpp` emits plaintext USB lines or bounded secured-BLE
+NDJSON on the requesting transport. A result remains available until complete USB sink acceptance or explicit
+BLE `remote-ack`; a disconnect is not an ACK. `remote-result show` re-offers it, and the one BLE transport write
+chunks rather than truncates. See the [companion contract](../ios-companion/INBOX_SYNC_CONTRACT.md#remote-administration--controller-usbble-delivery-8a8c)
+and [design §8.10](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#810-authenticated-response-acknowledgement-and-local-delivery).
+Slice 9 removes the old `rcmd`/password/unlock/lock flow, counter-floor authentication codec, TLV replies and old
+senders; those verbs now receive the ordinary unknown-command error. The three inert main-NV/Node admin mirrors
+and boot restore remain for Slice 10's separate NV cleanup. There is no wire-version change here;
+[design §17](superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md#17-replacement-compatibility-and-reuse).
+
 ---
 
 *Device-side concerns (console/`cfg`, NV blob, BLE companion, OTA, persistent inbox) are firmware integration, not

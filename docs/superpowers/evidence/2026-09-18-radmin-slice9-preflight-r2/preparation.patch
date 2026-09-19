@@ -1,0 +1,119 @@
+diff --git a/MEMORY.md b/MEMORY.md
+index b6f0406..96281c4 100644
+--- a/MEMORY.md
++++ b/MEMORY.md
+@@ -2,11 +2,13 @@
+ 
+ - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
+   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
+-  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
++  (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..50 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;
+   queue pointer in `tracker.md`. As of 2026-09-18: everything through **7b-3** is committed (`6086152`); the disruptive
+   arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, owner commits `c07b77f` /
+-  simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, uncommitted at `c07b77f`**
+-  (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); next: 9, then 10.
++  simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, owner commit `84edd3e`**
++  (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); **the Slice 9
++  brief (legacy deletion + durable protocol docs, rev 2, 2026-09-18; R-RA-50 ruled) is ready for coder source-validation
++  and implementation**; then 10.
+ - **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
+   local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
+   B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at
+diff --git a/docs/2026-07-30-open-bug-register.md b/docs/2026-07-30-open-bug-register.md
+index d2b9daf..116520e 100644
+--- a/docs/2026-07-30-open-bug-register.md
++++ b/docs/2026-07-30-open-bug-register.md
+@@ -14,7 +14,9 @@ the archives.
+ 
+ ## 0. Current remote-admin dispatch — 2026-09-18
+ 
+-**Current dispatch — 8b (the mobile controller carrier) SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18, UNCOMMITTED at `c07b77f` (owner commits the MeshRoute freeze; the simulator repo is unchanged).** QA re-executed the whole chain on the frozen tree (brief revision 6, `875c3160…`): native **2970/195942/0**, reference 94/94, stock simulator rebuilt and corpus **36/36 byte-identical** (s18 `32afbf11`, zero radmin events), ABI Node **235248/122176/157344** unchanged with the 4512-B block intact (`carrier_ctr` in the pending row's former padding), the six standing probes + deferred-actions all PASS in both modes (inbox CLIENT **457/68** now compiling the real carrier and observer), tools 351/0 skipped, inventory semantically unchanged (76 anchor-only moves), authority PASS, census pins with every RAM cell unchanged, board pair **gateway 204036 RAM (0) / 575008 flash (+112); mobile 211772 (0) / 1395276 (+2444)**, xiao_mobile 176604/700588, union **61 batteries / 983 RED / 1 known unusable B342 / 984 / 0 vacuous** with the B413 (`via_home` false) and B416 (V23–V27) controls fired. **B408 and B414 CLOSED; B392 open for Part 57b metal only (now RUNNABLE); B418 verified pre-existing on a scratch export of the base (open, tool, not 8b's); B415 parked.** R-RA-46..49 implemented as ruled. Coder findings B409–B413 and B416 were folded (brief revisions 3–6) and are closed. [QA gate](superpowers/evidence/2026-09-18-radmin-slice8b-qa-gate.md). **Bench Part 57c landed; Parts 57b/57d flipped to RUNNABLE. Next dispatch: the Slice 9 brief (legacy protocol deletion + durable protocol docs), then 10 (main-NV cleanup, standalone per R-RA-6).**
++**Next dispatch — the Slice 9 brief (legacy protocol deletion + the durable protocol docs), revision 2, 2026-09-18, `superpowers/plans/2026-09-18-radmin-slice9-legacy-deletion-and-protocol-docs.md`, SHA-256 `bd538cae…`, base `84edd3e` (owner commit `part 8` = the 8b freeze) / simulator `6585649` — READY FOR CODER SOURCE-VALIDATION AND IMPLEMENTATION; R1 RULED as recommended (R-RA-50: the lab harness's dead `rcmd` sub-command is deleted); nothing is HOLD.** It deletes `firmware_remote.{h,cpp}`, `admin_auth.{h,cpp}`, `console_binary.{h,cpp}`, the `send_remote_*` senders, the `password`/`unlock`/`lock` flow and the `MR_FEAT_REMOTE_MGMT` switch with every reader (five authority rows go from header, table and inventory in one freeze: 208 → 202 rows); the three legacy `Node` mirrors, the blob fields and the boot `admin_load` stay for Slice 10, re-gated on `MR_FEAT_RADMIN_ACCEPT` (identical truth table by the existing `#error`), so `sizeof(Node)` does not move; RAM and flash go DOWN on both boards; corpus predicted byte-identical; `docs/frames.md` gains the v2 wire bodies (verified against `remote_codec.h`), `docs/protocol.md` gains "§15 Remote administration v2"; bench Part 57e reserved (the four verbs answer the common dispatcher's exact unknown-verb refusal).
++
++**8b (the mobile controller carrier) SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18, owner commit `84edd3e` (`part 8`); the simulator repo is unchanged at `6585649`.** QA re-executed the whole chain on the frozen tree (brief revision 6, `875c3160…`): native **2970/195942/0**, reference 94/94, stock simulator rebuilt and corpus **36/36 byte-identical** (s18 `32afbf11`, zero radmin events), ABI Node **235248/122176/157344** unchanged with the 4512-B block intact (`carrier_ctr` in the pending row's former padding), the six standing probes + deferred-actions all PASS in both modes (inbox CLIENT **457/68** now compiling the real carrier and observer), tools 351/0 skipped, inventory semantically unchanged (76 anchor-only moves), authority PASS, census pins with every RAM cell unchanged, board pair **gateway 204036 RAM (0) / 575008 flash (+112); mobile 211772 (0) / 1395276 (+2444)**, xiao_mobile 176604/700588, union **61 batteries / 983 RED / 1 known unusable B342 / 984 / 0 vacuous** with the B413 (`via_home` false) and B416 (V23–V27) controls fired. **B408 and B414 CLOSED; B392 open for Part 57b metal only (now RUNNABLE); B418 verified pre-existing on a scratch export of the base (open, tool, not 8b's); B415 parked.** R-RA-46..49 implemented as ruled. Coder findings B409–B413 and B416 were folded (brief revisions 3–6) and are closed. [QA gate](superpowers/evidence/2026-09-18-radmin-slice8b-qa-gate.md). Bench Part 57c landed; Parts 57b/57d flipped to RUNNABLE. Then Slice 9 (brief above), then 10 (main-NV cleanup, standalone per R-RA-6).
+ 
+ **8a+8c (paired) SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18, owner commits `c07b77f` (MeshRoute) and `6585649` (simulator, the B406 source-list line).** QA re-executed the whole chain on the frozen tree after landing the four R-RA-42 authority rows: native **2947/193734/0**, reference 94/94 (+ QA's rerun of the coder's hashlib/libsodium controller reference = the pinned base/session keys), corpus **36/36** (s18 `32afbf11`, zero radmin events, `lus` `60f42a1a` after the B406 source-list line), ABI Node **235248/122176/157344** (R-RA-45 exact, 290 checks), six probes + deferred-actions (40 controls RED) + BLE-line **55/12 with the 245..256-byte direct reply surviving** (B292), inbox CLIENT **439/64**, features 121/62, tools 351/0 skipped, inventory **208**, authority PASS, census pins with **ACCEPT RAM unchanged** and both mobile cells +4016, board pair **gateway 204036 RAM (0) / 574896 flash (+144); mobile 211772 (+4016) / 1392832 (+19228)**, xiao_mobile 176604/696940 reported, union **59 batteries / 917 RED / 1 known unusable B342 / 918 / 0 vacuous**. **B292, B312 CLOSED; B406 (QA's brief fence omitted the simulator source list — fixed by QA, rule P7) and B407 (the coder's pre-freeze self-review corrections) registered and closed; B392 open for Part 57b metal only (its 8a warning landed).** Part 57d reserved (metal-pending on 8b). [QA gate](superpowers/evidence/2026-09-18-radmin-slice8ac-qa-gate.md). Then 8b (brief above), 9, 10.
+ 
+diff --git a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+index 38a8434..ec4d1b1 100644
+--- a/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
++++ b/docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
+@@ -1160,3 +1160,15 @@ that target; `radmin_client_ack_debt` in `status`) and R-RA-49 (the target E2E-A
+ admit / replay / already-acknowledged verdicts) are implemented as ruled and reproduced by QA: native 2970/195942/0,
+ corpus 36/36 byte-identical, Node and RAM unchanged, union 61/983/1/984. B408/B414 closed; B418 pre-existing.
+ [Independent gate](../evidence/2026-09-18-radmin-slice8b-qa-gate.md). Next: Slice 9, then 10.
++
++### R-RA-50 (owner, 2026-09-18) — Slice 9 deletes the lab harness's dead `rcmd` sub-command
++
++**Owner, verbatim:** *"R1 approved as recommended, record it as R-RA-50"*
++
++**Settled (Slice 9 brief §8 R1 "as recommended"):** `tools/meshroute_lab.py` loses `cmd_rcmd` and its sub-parser in
++Slice 9, together with the firmware verb it drives. The sub-command was already dead: it waits for the `[rcmd <from>]`
++USB reply that 8a removed with the legacy client staging, and the verb itself falls to the common dispatcher's
++unknown-verb refusal once Slice 9 lands. A lab helper for the v2 `remote` surface (target-book label, credential,
++the `> remote <id16> …` lines and `remote_carrier` observations) is a separate tooling item, to be scoped after
++Part 57c has run on metal; nothing in Slice 9 substitutes for it. With this every Slice 9 decision is settled by the
++design (§17, item 9) and R-RA-6/13/27; no allocation ruling is needed for a measured decrease.
+diff --git a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+index f39c956..2c04d67 100644
+--- a/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
++++ b/docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
+@@ -15,7 +15,7 @@ was independently effective. The pre-comment 7b-2 union remains historical; its
+ The codec reviewer reproduced section/object/linked totals but not the coder's single-byte ELF attribution.
+ 
+ **Current dispatch: [7b-3 revision 4](../plans/2026-09-13-radmin-slice7b3-deferred-actions.md), reissued at
+-`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; 8a+8c (paired) is INDEPENDENT QA PASS 2026-09-18, owner commits `c07b77f` / simulator `6585649` (B292/B312 closed); 8b (the mobile controller carrier) is INDEPENDENT QA PASS 2026-09-18, uncommitted at `c07b77f` — the product path is software-complete end to end; next are Slices 9 and 10 — R-RA-46..49 settle B112 (does not gate 8b), the resend edge, the ACK-debt cadence and the E2E-ACK verdicts.** Twelve selected policy rows require separate
++`ac5f9a5`; **P1 preparation is INDEPENDENT QA PASS 2026-09-16 at owner commit `7442e6f`; 7b-3 itself is INDEPENDENT QA PASS 2026-09-16 at owner commit `6086152` — the disruptive arc is complete; 8a+8c (paired) is INDEPENDENT QA PASS 2026-09-18, owner commits `c07b77f` / simulator `6585649` (B292/B312 closed); 8b (the mobile controller carrier) is INDEPENDENT QA PASS 2026-09-18, owner commit `84edd3e` — the product path is software-complete end to end; the Slice 9 brief (revision 2, 2026-09-18; R-RA-50 ruled) is ready for coder source-validation and implementation; then Slice 10 — R-RA-46..49 settle B112 (does not gate 8b), the resend edge, the ACK-debt cadence and the E2E-ACK verdicts.** Twelve selected policy rows require separate
+ [7b-3-P1 preparation](../plans/2026-09-15-radmin-slice7b3-p1-simple-action-preparation.md), full gate/owner commit,
+ then a refreshed behavior base. B394 corrects the earlier twelve-existing-seams summary: four reusable
+ effects, eight needing extraction. QA records 36 exact R-RA-39 refusals/fenced follow-ups in brief §2.2
+@@ -2249,8 +2249,8 @@ the implementation seams visible when that slice dispatches. The minimum map is:
+ | 7b-3 | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-16**, owner commit `6086152`; R-RA-37/38/39/40/41 all implemented; B389/B390/B401 closed, B392 open for metal; [QA gate](../evidence/2026-09-16-radmin-slice7b3-qa-gate.md): native 2931/189998/0, corpus 36/36, Node 230976/157344/117912, gateway RAM +80, union 879/1/880, extended action probe 40 controls RED | 36/36 unchanged; ruled pair measured | **Part 57b:** scheduled/activate/result lines, prep-restart lockout and local recovery on metal once the 8b carrier can drive a request |
+ | 7b-3-F-config / F-provision / F-team / F-regen | **CLOSED — NOT REQUIRED (owner R-RA-41, 2026-09-16)**; B395–B398 closed; the 23/10/2/1 policy rows are refused remotely by design; no brief, gate or bench part follows | n/a | none |
+ | 8a+8c (paired 2026-09-16, P6) | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18**, uncommitted at `e3a5fa0` (base `6086152`; plus one simulator CMake source-list line, B406); [brief rev 4](../plans/2026-09-17-radmin-slice8ac-controller-and-local-delivery.md), [QA gate](../evidence/2026-09-18-radmin-slice8ac-qa-gate.md): controller core `lib/core/remote_client.{h,cpp}` + `src/firmware_remote_client.{h,cpp}` (pending/session/assembly/result/ACK-debt state over the codec, `remote`/`remote-retry`/`remote-result`/`remote-ack`, checked entropy, carrier interface stubbed `carrier_unavailable` until 8b, legacy `RemoteInbound` slot removed) + local USB/BLE delivery (contract events, retain/re-offer/ACK, B292 bound at `tx_line`); R-RA-42/43/44/45 implemented; B292/B312/B403/B405/B406/B407 closed, B404 parked | native 2947/193734/0; corpus 36/36 byte-identical (zero radmin events); Node 235248/122176/157344 exact; gateway RAM/Node unchanged (the control), mobile RAM +4016 / flash +19228 attributed, xiao_mobile 176604/696940 reported; union 917/1/918 | **Part 57d (reserved, metal-pending on 8b):** exact contract NDJSON re-offer/ACK plus USB result or stage-drop line |
+-| 8b | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18**, uncommitted at `c07b77f` (simulator `6585649` unchanged); [brief rev 6](../plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md), [QA gate](../evidence/2026-09-18-radmin-slice8b-qa-gate.md): Node-side `IRadminCarrier` on the real `send_by_hash(…, via_home=true)` / `delegate_send_layer` wrapper path (mirror of `radmin_send_response`; the wrapper is mandatory even for an authoritative binding — B413); `-a` end to end (target E2E ACK after admission, R-RA-49); the three carrier observations (pure core matchers + one emitter call after the `fw_main` BLE fanout with a call-scoped binding-lookup seam → non-terminal `remote_carrier` event); R-RA-47 one resend edge; R-RA-48 ACK-debt cascade then dormant; typed `correlation_full`; B408/B409–B414/B416 closed, B415 parked, B418 pre-existing | native 2970/195942/0; corpus 36/36 byte-identical (zero radmin events); Node 235248/122176/157344 and the 4512-B block unchanged; gateway and mobile RAM unchanged (flash +112 / +2444), xiao_mobile 176604/700588; union 61/983/1/984 | **Part 57c** (landed): real mobile→home→target round trip, `-a` carrier acked, relay custody observation, one resend then `unknown`, ACK-debt cadence; Parts 57b/57d now runnable |
+-| 9 | protocol/command legacy owners named in §17 (NV fields excluded) | 36/36 unchanged; native fail-closed replacement and both probes; ruled pair | **Part 57e:** legacy help entry absent and the common dispatcher’s exact unknown-command refusal for `rcmd` |
++| 8b | **SOFTWARE-COMPLETE / INDEPENDENT QA PASS 2026-09-18**, owner commit `84edd3e` (simulator `6585649` unchanged); [brief rev 6](../plans/2026-09-18-radmin-slice8b-mobile-controller-carrier.md), [QA gate](../evidence/2026-09-18-radmin-slice8b-qa-gate.md): Node-side `IRadminCarrier` on the real `send_by_hash(…, via_home=true)` / `delegate_send_layer` wrapper path (mirror of `radmin_send_response`; the wrapper is mandatory even for an authoritative binding — B413); `-a` end to end (target E2E ACK after admission, R-RA-49); the three carrier observations (pure core matchers + one emitter call after the `fw_main` BLE fanout with a call-scoped binding-lookup seam → non-terminal `remote_carrier` event); R-RA-47 one resend edge; R-RA-48 ACK-debt cascade then dormant; typed `correlation_full`; B408/B409–B414/B416 closed, B415 parked, B418 pre-existing | native 2970/195942/0; corpus 36/36 byte-identical (zero radmin events); Node 235248/122176/157344 and the 4512-B block unchanged; gateway and mobile RAM unchanged (flash +112 / +2444), xiao_mobile 176604/700588; union 61/983/1/984 | **Part 57c** (landed): real mobile→home→target round trip, `-a` carrier acked, relay custody observation, one resend then `unknown`, ACK-debt cadence; Parts 57b/57d now runnable |
++| 9 | **REVISION 2 BRIEF 2026-09-18 — R-RA-50 ruled (lab harness `rcmd` sub-command deleted) — READY FOR CODER SOURCE-VALIDATION AND IMPLEMENTATION**, base `84edd3e` / simulator `6585649`; [brief](../plans/2026-09-18-radmin-slice9-legacy-deletion-and-protocol-docs.md): delete `firmware_remote.{h,cpp}`, `admin_auth.{h,cpp}`, `console_binary.{h,cpp}`, `send_remote_cmd/response`, the `password`/`unlock`/`lock` flow, `MR_FEAT_REMOTE_MGMT` and every reader; five authority rows leave header/table/inventory together (208 → 202); the legacy `Node` mirrors, blob fields and boot `admin_load` stay for Slice 10 re-gated on `MR_FEAT_RADMIN_ACCEPT`; `frames.md` v2 wire bodies + `protocol.md` §15 + help/contract/bench | 36/36 predicted byte-identical (zero legacy traffic); Node unchanged on all three ABIs (the control); RAM and flash DOWN on the ruled pair, attributed; inventory 202; native fail-closed refusal and both probes | **Part 57e (reserved):** `help` lists none of the four verbs; `rcmd 1 status` / `password x` / `unlock x` / `lock` answer exactly `> parse error` (USB) and `{"err":"parse","msg":"unknown_cmd"}` (BLE) on a static/gateway board and on a mobile; a v2 `remote` round trip still works |
+ | 10 | main config/NV + `Node` legacy fields only | 36/36 unchanged; ABI/NV migration and ruled pair | **Part 57f:** boot migration line reports the new schema healthy, legacy fields absent, and all four replacement stores retained |
+ 
+ ⚠ **CORRECTED 2026-09-04, prior gate claims kept visible:** the old 0a row said the ruled pair ran only “if
+diff --git a/tracker.md b/tracker.md
+index 7c7b779..0699c65 100644
+--- a/tracker.md
++++ b/tracker.md
+@@ -37,7 +37,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
+ - **`2026-08-23-remote-admin-independent-rpc-design.md` — remote admin v2, IN PROGRESS (status 2026-09-18).**
+   Roles since 2026-09-07: Codex authors briefs and codes (two sessions), Claude second-reads and gates, the owner
+   rules and commits; commits are not blocking points (owner ruling 2026-09-15). Per-slice gate detail lives in
+-  the design's §19.1 table, rulings R-RA-1..49 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
++  the design's §19.1 table, rulings R-RA-1..50 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`,
+   defects in the register (next free B408).
+   - **Landed, independently gated, committed:** pre-feature 0a/0g/0h/0b/0c/0d/0e/0f; 1, 1b (`cc35137`); 2 (`f2735f7`);
+     3 (`0e1eab5`); 4 (`19c10bf`); 5 (`d226189`); 6 (`eb6d46b`); 7a-0 + 7a (`89071fb`, `1548e01`); 7b-1 (`1d4b3ad`);
+@@ -45,11 +45,13 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
+     preparation (`7442e6f`); **7b-3 deferred actions (`6086152`, QA 2026-09-16) — the disruptive arc is complete.**
+   - **8a+8c paired controller core + local USB/BLE delivery:** independent QA PASS 2026-09-18, owner commits
+     `c07b77f` (MeshRoute) and `6585649` (simulator source-list line, B406); B292/B312 closed; Part 57d reserved.
+-  - **8b, the mobile controller carrier: independent QA PASS 2026-09-18, uncommitted at `c07b77f`** (brief revisions
++  - **8b, the mobile controller carrier: independent QA PASS 2026-09-18, owner commit `84edd3e`** (brief revisions
+     1–6; R-RA-46..49; B408/B409–B414/B416 closed, B415 parked, B418 pre-existing tool drift); the remote-admin product
+     path is software-complete end to end; bench Part 57c landed, Parts 57b/57d now runnable.
+-  - **In flight:** nothing — next is the Slice 9 brief (legacy protocol deletion + durable protocol docs).
+-  - **Remaining slices (two cycles):** 9 legacy protocol deletion + durable
++  - **In flight:** the Slice 9 brief (legacy protocol deletion + the durable protocol docs), revision 2 (2026-09-18,
++    base `84edd3e`): R1 RULED as recommended (R-RA-50, the lab harness's dead `rcmd` sub-command is deleted) —
++    ready for coder source-validation and implementation.
++  - **Remaining slices (two cycles):** 9 (in flight) legacy protocol deletion + durable
+     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
+     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
+     remotely by design, and the disruptive arc completes with 7b-3.
+@@ -90,7 +92,7 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
+ no implementation dispatch or remote-admin
+ sequence change.
+ 
+-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits 8b, then the Slice 9 brief; metal Parts 57c/57b/57d are now runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
++- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin Slice 9: coder source-validation → implementation → independent gate (R-RA-50 settled); metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+   Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
+   remains separately tracked and do not block Part 54.
+ 

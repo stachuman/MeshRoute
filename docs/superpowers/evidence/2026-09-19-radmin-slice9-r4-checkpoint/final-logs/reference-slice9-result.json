@@ -1,0 +1,15 @@
+{
+  "name": "reference-slice9",
+  "command": [
+    "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+    "docs/superpowers/evidence/2026-09-19-radmin-slice9-reference.py",
+    "--freeze-check",
+    "--compare",
+    "test/test_remote_codec.cpp",
+    "--selftest"
+  ],
+  "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+  "exit": 0,
+  "seconds": 0.6401434428989887,
+  "sha256": "a74db8eea38852ea7d667d941530544295adf25fb8c01470bf2b0ca6c2918089"
+}

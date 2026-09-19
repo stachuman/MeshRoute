@@ -1,0 +1,16 @@
+{
+  "name": "sim-build",
+  "args": [
+    "cmake",
+    "--build",
+    "/tmp/mr-s9-r3-mg75mxe0/sim-base",
+    "--target",
+    "lus",
+    "--parallel",
+    "3",
+    "--verbose"
+  ],
+  "exit": 0,
+  "seconds": 50.71043348312378,
+  "sha256": "146dea9f7fa791bc2e67b8fc4e90c0a450b67d1c87bbae86276d0b951fa209b8"
+}

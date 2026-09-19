@@ -8,8 +8,8 @@
 //
 // The 1:1 rule (auditable): every mutable file-scope global that fw_main.cpp used to declare `static` is now
 //   (a) `extern`-declared here, and (b) DEFINED once (non-static) in fw_main.cpp, guards matched.
-// Excluded on purpose: the three `static constexpr` compile-time constants (MESHROUTE_SYNC_WORD,
-// kChannelCtrLeaseMargin, REMOTE_FLAG_SEALED) stay in fw_main.cpp — they are constants, not shared state, and
+// Excluded on purpose: the `static constexpr` compile-time constants (MESHROUTE_SYNC_WORD,
+// kChannelCtrLeaseMargin) stay in fw_main.cpp — they are constants, not shared state, and
 // each moves WITH its cluster when that cluster is extracted.
 //
 // DEVICE-ONLY header (pulls RadioLib etc.) — included by fw_main.cpp and future device cluster TUs, never by
@@ -31,13 +31,11 @@
 #include "fault_log.h"            // mrfault::FaultLog / FaultRecord
 #include "sched_send.h"           // mrsched::Schedule
 
-// ---- persistent fault log + halt/remote-action/scheduled-send (fw_main.cpp block @61-75) ----
+// ---- persistent fault log + halt/scheduled-send (fw_main.cpp block @61-75) ----
 extern mrfault::FaultLog    g_fault_log;
 extern mrfault::FaultRecord g_last_reset;
 extern bool                 g_last_reset_valid;
 extern bool                 g_halted;              // `prep-restart`: loop stays DORMANT (WDT-fed) but serves the console
-extern uint8_t              g_remote_action;       // `rcmd` deferred recovery: 0=none 1=reboot 2=prep-restart
-extern uint64_t             g_remote_action_at;
 extern mrsched::Schedule    g_sched;               // firmware scheduled-send (testsend/testch) workload
 
 // ---- the device stack (defined in fw_main.cpp; ctor args live with the definition) ----
@@ -61,8 +59,7 @@ extern meshroute::Sx1262Radio  g_iradio;
 //   random epoch, the banner). Before [[B134]] those consumers keyed on MRINBOX_QSPI_READY directly, which
 //   silently meant "nRF52" as well as "durable" — two facts one macro could not keep separate once a second
 //   durable platform existed.
-// Both seam headers' member defs are `inline`, so they are safe to include across TUs (fw_main + firmware_remote
-// via here).
+// Both seam headers' member defs are `inline`, so they are safe to include across firmware TUs via here.
 #ifndef MR_RAM_INBOX_SLOTS
 #define MR_RAM_INBOX_SLOTS 32           // RAM inbox depth per store (~8.5 KB/store at 272-B slots) — arm 3 only
 #endif
@@ -110,26 +107,15 @@ extern bool     g_fs_reformatted;                               // mount_or_repa
 // ---- inbox NDJSON scratch (shared: pull_inbox records AND live loop() push lines; single-threaded) ----
 extern char s_inbox_jb[1700];
 
-// ---- §remote-mgmt admin-ISSUE side (operator device): transient, wiped on lock/reboot ----
-// Guarded to match the definitions (fw_main.cpp, #if MR_FEAT_REMOTE_MGMT). SHARED across the firmware_remote
-// cluster (rcmd/unlock/lock) AND fw_main's mesh_service_once (opens sealed ACK/hint replies) — hence extern, not
-// cluster-private. The definitions stay in fw_main.cpp; firmware_remote.cpp references them through here.
-#if MR_FEAT_REMOTE_MGMT
-extern meshroute::Identity g_admin_id;
-extern bool                g_admin_unlocked;
-extern uint32_t            g_admin_tx_ctr;
-#endif
-
 // ---- mesh loop task handle (nRF52 FreeRTOS only) ----
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
 extern TaskHandle_t g_mesh_task;
 #endif
 
 // ---- shared fw_main helpers (defined in fw_main.cpp; referenced across a cluster boundary) ----
-uint32_t loop_stack_free_bytes();   // nRF52 loop-task min free stack bytes (0 elsewhere) — used by dump_status AND firmware_remote's status TLV
-void     fw_wdt_feed();             // kick the watchdog (wraps mrfault::fault_wdt_feed; device_fault.h defines ISR vectors so it can't be pulled into a 2nd TU) — used during firmware_remote's multi-second admin-key KDF
+uint32_t loop_stack_free_bytes();   // nRF52 loop-task min free stack bytes (0 elsewhere) — used by dump_status
 
-// ---- firmware_commands seam wrappers (fw_wdt_feed pattern): the moved firmware_commands (dispatch etc.) reaches the
+// ---- firmware_commands seam wrappers (single-TU board glue): the moved firmware_commands (dispatch etc.) reaches the
 //      STAY-set board-glue through these. do_reboot/do_ota/dump_faults/handle_crashtest can't live in a 2nd TU
 //      (device_fault.h ISR-vector + MRFAULT_HW/MRFAULT_ESP32 MACRO trap — both #defined inside device_fault.h);
 //      handle_prep_restart is loop-coupled (writes the loop's g_halted latch). Defined in fw_main.cpp.

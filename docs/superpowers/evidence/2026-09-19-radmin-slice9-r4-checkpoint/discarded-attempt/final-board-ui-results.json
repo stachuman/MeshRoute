@@ -1,0 +1,14 @@
+[
+  {
+    "name": "board-ui",
+    "command": [
+      "bash",
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 1,
+    "seconds": 63.288138058036566,
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8"
+  }
+]

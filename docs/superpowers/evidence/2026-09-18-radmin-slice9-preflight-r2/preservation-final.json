@@ -1,0 +1,14 @@
+{
+  "initial_paths": 3423,
+  "initial_paths_preserved": 3422,
+  "changed_initial_paths": [
+    "docs/2026-07-30-open-bug-register.md"
+  ],
+  "primary_inputs_preserved": 361,
+  "brief_sha256": "bd538cae5e85b4bb92e2a3ae4fd118d1292f4363b090b8c327b6d22a7c4a1353",
+  "receipt_sha256": "5d4ecb1f3787b96673cbd323b50bf9a97fea52f461772656e444d6ec26564da2",
+  "register_sha256": "b56b39c70aeb568b6559ecb794201eaf0320cba4b89471ad85bb55f165aa608f",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "simulator_clean": true,
+  "whitespace_both_repos": "PASS"
+}

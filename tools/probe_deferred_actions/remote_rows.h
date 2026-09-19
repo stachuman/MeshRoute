@@ -111,7 +111,8 @@ static void run_remote_actions() {
         CHECK_REMOTE(g_node.admin_session_state().action.phase==RemoteActionPhase::none);
         CHECK_REMOTE(mrprobe_nv().writes==writes);
     }
-    CHECK_REMOTE(refused==36);CHECK_REMOTE(scheduled_scope==12);
+    // Slice 9 removes the radio-only reboot alias metadata row; all twelve examples above remain.
+    CHECK_REMOTE(refused==36);CHECK_REMOTE(scheduled_scope==11);
     // The real live binding supplies 7a's five states and both valid configured edges.
     for(unsigned mode=0;mode<6;++mode) {
         reset_action_fixture();RemoteActionRadioFixture f;remote_hooks();

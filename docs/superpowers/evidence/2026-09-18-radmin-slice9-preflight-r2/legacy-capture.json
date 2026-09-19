@@ -1,0 +1,8 @@
+{
+  "length": 40,
+  "body": "deadbeef010203040100e2136ffc9b0472121a6259e8bd6ba0af59505d903bccbcf3fb1f515069ea",
+  "sha256": "f8cf9ec1971840b136c72745bc692cb3727de6b2f10493c6d87a86a51fb38138",
+  "checks": 7,
+  "base": "84edd3ebfb08d807645d077269bace145ac2a2ab",
+  "fixture": "test/test_remote_codec.cpp §8 fixed inputs"
+}

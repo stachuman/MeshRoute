@@ -107,8 +107,8 @@ int main() {
     //   not compile (and omit ones it does), and the transcript would quietly measure the wrong surface. Found
     //   exactly that way: the arm is `full_headless`, not `full_oled`, because `MR_FEAT_OLED` is an explicit
     //   per-env `-D` and this probe's arm does not pass it.
-    printf("MR0C-PROFILE MR_N_LAYERS=%d MR_FEAT_MOBILE=%d MR_FEAT_REMOTE_MGMT=%d MR_FEAT_OLED=%d\n",
-           (int)MR_N_LAYERS, (int)MR_FEAT_MOBILE, (int)MR_FEAT_REMOTE_MGMT, (int)MR_FEAT_OLED);
+    printf("MR0C-PROFILE MR_N_LAYERS=%d MR_FEAT_MOBILE=%d MR_FEAT_OLED=%d\n",
+           (int)MR_N_LAYERS, (int)MR_FEAT_MOBILE, (int)MR_FEAT_OLED);
 
     for (const auto& row : MR0C_MATRIX) {
         const size_t len = std::strlen(row.line);

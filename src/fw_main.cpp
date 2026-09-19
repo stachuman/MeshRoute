@@ -46,7 +46,6 @@
 using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
-#include "firmware_remote.h"         // §cleanup 2026-07-14: remote-mgmt cluster moved out; REMOTE_FLAG_SEALED (used by mesh_service) lives here
 #include "firmware_config.h"         // §cleanup 2026-07-14: config/provisioning cluster
 #include "firmware_team_keyring.h"   // §UI-16 K1/K2 ([[B240]]): mrfw::KeyringRestore — the boot forward's five OUTCOMES (firmware_config.h declares the enum opaquely; the startup switch needs its enumerators)
 #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
@@ -96,8 +95,6 @@ using mrfw::handle_peers;             // §3 export: ble_dispatch_line `peers` (
 using mrfw::make_status_fields;       // §3 export: ble_dispatch_line `status`
 using mrfw::node_state_str;           // §3 export: ble_dispatch_line `status`
 using mrfw::make_cfg_extras;          // §3 export: ble_dispatch_line `cfg`
-using mrfw::remote_exec;             // keep call sites unchanged (mesh_service_once + dispatch)
-using mrfw::handle_rcmd;
 using mrfw::handle_cfg_set;          // dispatch verbs (moved to firmware_config); call sites unchanged
 using mrfw::handle_gateway;
 using mrfw::nv_load_stamped;         // §nv-ritual: the shared /mrcfg load-or-seed/stamp prologue (persist_cfg_if_needed)
@@ -110,17 +107,6 @@ using mrfw::handle_mobile;
 #endif
 #endif
 using mrfw::handle_leave;
-#if MR_FEAT_REMOTE_MGMT
-using mrfw::handle_password;
-#endif
-#if MR_FEAT_REMOTE_MGMT
-using mrfw::handle_unlock;
-using mrfw::handle_lock;
-#endif
-#if MR_FEAT_REMOTE_MGMT
-#include "admin_auth.h"      // §remote-mgmt: password KDF + sealed-command seal/open/verify
-#include "console_binary.h"  // §remote-mgmt: the binary TLV response encoders (enc_status/enc_routes/…)
-#endif
 #include "fault_log.h"       // persistent fault log — platform-neutral ring/decode/formatters (lib/core)
 #include "device_fault.h"    // nRF52 HW glue: retained scratch + 8 s watchdog + HardFault capture (empty on ESP32)
 #include "sched_send.h"      // firmware scheduled-send CORE (on-node test workload; pure logic, host-unit-tested)
@@ -139,10 +125,6 @@ bool                 g_last_reset_valid = false;
 // `prep-restart`: when true the loop SKIPS the operating block (RX/timers/tx/beacon/sleep) — the node is intentionally
 // DORMANT — but still feeds the WDT (not a hang) + services the console. RAM only, so a power-cycle clears it.
 bool                 g_halted = false;           // extern in fw_context.h
-
-// `rcmd` deferred recovery action: respond FIRST, then act ~3 s later so the response DM airs. 0=none, 1=reboot, 2=prep-restart.
-uint8_t              g_remote_action = 0;        // extern in fw_context.h
-uint64_t             g_remote_action_at = 0;
 
 // firmware scheduled-send (testsend/testch): the on-node test workload. RAM-only (transient); the loop tick fires
 // due entries through the real send path (queue-gated). Lost on reboot — acceptable (the durable inbox tells the story).
@@ -282,7 +264,6 @@ bool     g_fs_reformatted = false;   // Part 2: mount_or_repair() reformatted a 
 
 // device-console diagnostics (handle_route_cmd/dump_routes/print_sf_list/dump_cfg/board_name/print_banner) moved to firmware_commands.{h,cpp} (cleanup 2026-07-15); §3 exports via `using mrfw::…` above.
 
-void fw_wdt_feed() { mrfault::fault_wdt_feed(); }   // extern in fw_context.h — the WDT kick exposed for firmware_remote (device_fault.h's ISR vectors can't be pulled into a 2nd TU)
 
 // §cleanup 2026-07-15: firmware_commands seam wrappers (fw_context.h). The moved firmware_commands reaches these
 // STAY-set board-glue fns through here — do_reboot/do_ota/dump_faults/handle_crashtest carry the device_fault.h
@@ -521,26 +502,6 @@ static void handle_prep_restart(Print& out) {
     mrfw::action_prep_restart_apply(out);
 }
 
-// OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
-// one-DM body (≤ inbox_max_body, truncated with "…"); the two recovery WRITES respond FIRST then DEFER the action
-// ~3 s (so the response actually airs). Anything else -> `err: <q> not allowed`. spec 2026-06-24.
-// §remote-mgmt (cleanup 2026-07-14): REMOTE_FLAG_SEALED + remote_encode / remote_verb_open / remote_seal_resp /
-// remote_exec (+ the inert stub) moved to firmware_remote.{h,cpp}. REMOTE_FLAG_SEALED now lives in firmware_remote.h
-// (shared with mesh_service_once below); `using mrfw::remote_exec` (top) keeps the mesh_service call site unchanged.
-
-#if MR_FEAT_REMOTE_MGMT
-// §remote-mgmt admin-ISSUE side (operator device): `unlock <pw>` derives the admin key into RAM; a gated `rcmd` then
-// seals the command to the target. Transient — wiped on `lock`/reboot (the credential lives in the operator's head).
-meshroute::Identity g_admin_id{};          // all extern in fw_context.h
-bool     g_admin_unlocked = false;
-uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a target's reject-hint floor)
-// handle_unlock / handle_lock / admin_verb_gated moved to firmware_remote.{h,cpp} (cleanup 2026-07-14). g_admin_*
-// STAY defined here — mesh_service_once opens sealed replies with them (shared, not cluster-private); the
-// `using mrfw::handle_unlock/handle_lock` decls (top) keep the dispatch call sites unchanged.
-#endif
-
-// handle_rcmd (`rcmd <dst> <verb>` origin) moved to firmware_remote.{h,cpp} (cleanup 2026-07-14); `using mrfw::handle_rcmd` (top).
-
 // handle_testsched/handle_teststatus/dispatch/read_batt_mv/make_status_fields/node_state_str/handle_routes/make_cfg_extras moved to firmware_commands.{h,cpp} (cleanup 2026-07-15; dispatch reaches board-glue via fw_* wrappers). §3 exports via `using mrfw::…` above.
 
 // E2E §2 + §AB1: the /mrpeers PEER ADDRESS BOOK — mirror a live peer's key + NAME + CONFIDENCE into NV (whole-blob
@@ -592,10 +553,6 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 12 && !strncmp(line, "prep-restart", 12)) {  // clear routes+inbox, keep join, go dormant (companion/harness can issue it)
         handle_prep_restart(mrcon);
         return (size_t)snprintf(out, cap, "{\"ev\":\"prep_restart\",\"halted\":true}\n");
-    }
-    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) {   // issue an OTA remote query; the `[rcmd <from>]` reply lands on USB
-        handle_rcmd(line + 4, mrcon);
-        return (size_t)snprintf(out, cap, "{\"ev\":\"rcmd_sent\"}\n");
     }
     if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
         const auto ds = g_node.duty_status();
@@ -968,7 +925,7 @@ void setup() {
     g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
-    // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
+    // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (inert mirrors until Slice 10; no-op stub without ACCEPT).
     g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
     // §RADMIN slice 3 — the two TARGET STORES' READ-ONLY boot report, beside the legacy single-admin restore and
     // ⛔ sharing nothing with it (Slice 10 removes that one, in its own NV-version slice).
@@ -1848,12 +1805,6 @@ static void mesh_service_once() {
       mrfw::remote_client_service_once(mrcon,&local_ble,mrble::connected());
       local_ble.flush(); }
 #endif
-    // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
-    // the `ok …` response DM has aired first.
-    if (g_remote_action && g_hal.now() >= g_remote_action_at) {
-        const uint8_t act = g_remote_action; g_remote_action = 0;
-        if (act == 1) do_reboot(); else handle_prep_restart(mrcon);
-    }
     }  // end if (!g_halted) — the operating block
 
     // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable

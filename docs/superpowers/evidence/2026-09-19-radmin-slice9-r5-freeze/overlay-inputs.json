@@ -1,0 +1,2486 @@
+{
+  "MEMORY.md": {
+    "sha256": "26ab86ea4ca5c8ad3572c75f714a7709ff33de31b7a090c6a6f1472ad257a2f7",
+    "size": 17146
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "sha256": "acc9662cbe234aabb5608e5a268419a56a8bd002689cd27ad4bf9bc98d1e057b",
+    "size": 601091
+  },
+  "docs/2026-07-31-bench-test-script.md": {
+    "sha256": "ec377cde6dd005171f2138b76a36d3b406436a01cd123298e8d81745c264bfd9",
+    "size": 330715
+  },
+  "docs/frames.md": {
+    "sha256": "776d47ebd3bd5c63910f3944c395a666974c22bf9456c76658c218e10a58e05d",
+    "size": 78218
+  },
+  "docs/protocol.md": {
+    "sha256": "190b36a6cb0723ca71bf00018c794cf75c637b0a564773a1eae4a0bd95b2dc04",
+    "size": 85313
+  },
+  "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md": {
+    "sha256": "eb33458af3b08893c4eb7fe11be5fa609577b24c74f54a9cb21bb4d4891b0543",
+    "size": 27031
+  },
+  "docs/superpowers/evidence/2026-09-07-radmin-command-authority-table.md": {
+    "sha256": "717b53243239712746b4441caae5bd4161816a9d88c4e056a3c048ea6eef2104",
+    "size": 28456
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/artifact-index.json": {
+    "sha256": "6640228cc6ab993435f25a8d68d3fcb6e99c332fb90f6f6141ed75ca8a0b9db7",
+    "size": 3722
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/authority-controls.log": {
+    "sha256": "b20ec6094c61633cf15079368a4f5ed14ed9ff28ba3a44fe9aa1339547f94e87",
+    "size": 707
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/authority.log": {
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066",
+    "size": 88
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/brief-r2.md": {
+    "sha256": "bd538cae5e85b4bb92e2a3ae4fd118d1292f4363b090b8c327b6d22a7c4a1353",
+    "size": 24288
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-compile.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-legacy.cpp": {
+    "sha256": "561b5d3ffb0176d8091afbdf982dac1b949064fa45070756163e9c4a12ec4f91",
+    "size": 1039
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/capture-legacy.log": {
+    "sha256": "8821efbbf3b3c98f74474009a047135e16d77cca2607472b441162ec899d61e4",
+    "size": 105
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/commands.json": {
+    "sha256": "987e50c8ff5bf90aeb0aa0b51552001504f2c35f5e08a7cc30926b2cd92115d9",
+    "size": 5894
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/initial-status.log": {
+    "sha256": "68ca758ac2ab0a99ddd638c3e0c601f596b9011252a3bd8264189b1d0676d605",
+    "size": 295
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/input-inventory.json": {
+    "sha256": "f50d00933a7759dd8625ff6f7d6937bc167025ff5ac83151c9cca3b3e4b2a1d1",
+    "size": 655635
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/inventory-check.log": {
+    "sha256": "3866ab0201a16ae7338c8d5c2f455638ae1d52ac3d22bdec51141d236ac5b245",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/inventory-deletion.json": {
+    "sha256": "de7251a240285a38c1b2d990918aea9744e9185806de47b60eba6762db8fec20",
+    "size": 3953
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/legacy-capture.json": {
+    "sha256": "2dc2e5199af3e4115f2fa40d9b5840bc73874abecd232977ac9b6ed3f4ba6ef1",
+    "size": 322
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/meshroute-head.log": {
+    "sha256": "a9966506b5d650424b5f9b3c024331e0d5995e06d18462731a0ff9df93434abd",
+    "size": 41
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/meshroute-whitespace.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-console-tests-base.log": {
+    "sha256": "8fb7fd0167d19a6dafc8c07982d4abcdc251dccc6f347f50e7717193f0856d5d",
+    "size": 509
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-console-tests-projected-deletion.log": {
+    "sha256": "9d18d73116fd44f8f37cdffe53c80cab5649c9abe9b05e5e7ba73d8082c86988",
+    "size": 2219
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/omitted-instrument-users.json": {
+    "sha256": "af57d9329bfd3fc97c422e31cf36ca4e9d35a3784046848837681c3467471bb2",
+    "size": 1091
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preparation-inputs.json": {
+    "sha256": "8a133dd28169d09c3502e958b2a7c3b812bdb7f922ce765afae39d85972f161b",
+    "size": 953
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preparation.patch": {
+    "sha256": "bbfc0c2ff21549c9a54cd415369603e72d2a192e7e6136bb7a3cf45e4ccf93b9",
+    "size": 22346
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/preservation-final.json": {
+    "sha256": "5b99aa13e09c8a949b86fb8d4cb32e2ee5f84693f3d3d3aa6ae24e24cdcdd681",
+    "size": 564
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-base.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-boundary.json": {
+    "sha256": "b1fb11771be4d069b578c7dca31caa1e04404a6e571384c61a13666a59832810",
+    "size": 353
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-case-removal-survives.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reference-extra-legacy-refused.log": {
+    "sha256": "d7a467cde8d7d0fc6d5f00d3394200155c1fc578c27d14fa2df39e1d78825848",
+    "size": 2291
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/reproduce.py": {
+    "sha256": "6846fe9301f67fe1ec9f03d831e73e17dfb3d6f5f89a26311fee19e9eceac884",
+    "size": 10321
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-head.log": {
+    "sha256": "b17faeb7adcb1688301e8e81325b502dc3a5791772c3a9a6e4bfbf3ab7d2c483",
+    "size": 41
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-status.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9-preflight-r2/simulator-whitespace.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-18-radmin-slice9.md": {
+    "sha256": "1da21e714dcfb4807c4716bdfbedb252a322433cbb49ffa0e57d540b04a123a0",
+    "size": 49605
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/artifact-sha256.json": {
+    "sha256": "1207a6e1117428f41adaeaae7f609d5aa2330ede23d530c0168e3181b13b05af",
+    "size": 5280
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/authority-checkpoint.log": {
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16",
+    "size": 704
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/b423-reproduction.log": {
+    "sha256": "5dd4bb207b0bb25783ece671167f5fdfbd8ae8afbfddd96704f40c616c9a1af0",
+    "size": 1560
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-corpus-manifest.json": {
+    "sha256": "df1be63f9fc1f97a8b6b4217ba543294efe7859a5805e44f1a0e5d604663570d",
+    "size": 28924
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-gateway-build.log": {
+    "sha256": "f9e5554adda5f2e2eab21ee277f74d3b4472b3f96b754e81933228278affab58",
+    "size": 16837305
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-gateway-manifest.json": {
+    "sha256": "6e79b62aba3448385e637bac6012b551b2042bf909621e16c72928c1f9023564",
+    "size": 5105
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-heltec_mobile-build.log": {
+    "sha256": "0097f16be8ea77a4459b935718b6fa24b6d324529fd8b2948911a6bd5c3e07f7",
+    "size": 69136
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-heltec_mobile-manifest.json": {
+    "sha256": "08d27fc4af8c506a534fcb3ca08f3fe0948f1e9c6510dfe009691a1f3a711eb1",
+    "size": 5705
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/board-ui.json": {
+    "sha256": "709cb43fac02c7fe87ad7a0dcb55e5ba2505567ee61c3c07d2369b5bfb526895",
+    "size": 230
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/board-ui.log": {
+    "sha256": "41ced93f647b046c0832938b57e4bc3e487357e6031cc3d5971e5533bfffae82",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/corpus.json": {
+    "sha256": "c1c2cef86e79ecac8a47bb28978a9f3f66fd3b901066751e74e503b00c50726c",
+    "size": 378
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/corpus.log": {
+    "sha256": "f527d2f656915c413839e9d9085128801e3bc8429824a5c6bdcc6188fa2227a6",
+    "size": 3351
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-binary.json": {
+    "sha256": "9128ab6e1562ff8aaf06c2f420a44e8f17cd93abb91ab97067faca0688ca5a7c",
+    "size": 229
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-binary.log": {
+    "sha256": "27951f0c3236d2b7bcde2a5ef6e52cf06eb8f77987c4801cd8b116354b82e61c",
+    "size": 409
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-build.json": {
+    "sha256": "06753ea08baa9cf3d05f14a9ca8b5f015db1d53788319b958894d1f15b6a4deb",
+    "size": 291
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/native-build.log": {
+    "sha256": "c002d8b1b2828cacb124902eab33560000f59e5167a504ff9a6d6541522ced49",
+    "size": 5738
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair-replay.json": {
+    "sha256": "cb12df0ef783281b8acce7dcd0bd186501282494919850b1c6bd5fb1cd87fac2",
+    "size": 196
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair-replay.log": {
+    "sha256": "df53cb0f24aba9309a022d1a68b342489be7d3dfff021caf2f984207fc044fb9",
+    "size": 949
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair.json": {
+    "sha256": "37cff8593f9f4d462c20721109fa9727d1e14928e398432d3e94b4c9f5a61d76",
+    "size": 286
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/pair.log": {
+    "sha256": "8ca7cd32b6535f5d964f579f14a6865da08819aea30c87aec4646bf1f3fc7bff",
+    "size": 47
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-build.json": {
+    "sha256": "ca641643df0aa595287edfdb1f131b7e4e5f22c705315d7857b9635f5e178b9b",
+    "size": 305
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-build.log": {
+    "sha256": "146dea9f7fa791bc2e67b8fc4e90c0a450b67d1c87bbae86276d0b951fa209b8",
+    "size": 55218
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-configure.json": {
+    "sha256": "d44198d9aff79c7a3af6bcdc8b6e812334173df8e6f5474abd70c756cd2c84ff",
+    "size": 399
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/base-logs/sim-configure.log": {
+    "sha256": "c2836254750a39054af9c0a457786fdf0771b6212105d2a95ba70be69c8d6f6e",
+    "size": 998
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-commands.json": {
+    "sha256": "7a8eb402b7974a527cf5b211c8240714c8b23e398875b46bd1b3292f835ce275",
+    "size": 761
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-inputs.json": {
+    "sha256": "6d62f649f29f71d9dee7d324243e408dd675e3a6ecedcfdfd62a0538352fd150",
+    "size": 744634
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/checkpoint-status.txt": {
+    "sha256": "e225f7de80571dedbe92971fb3171a484ad9d633340a07bd27bad2ad49942626",
+    "size": 9056
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/constexpr-reference-boundary.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/deferred-b0-p1-full.log": {
+    "sha256": "5e846c3c710cef773f038726e94b8d06ee4ea5211613f2e1642949fc6ee0150b",
+    "size": 181869
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/deferred-generated-build.sh": {
+    "sha256": "eae330356ec918d2aa496c99025e0f4a92dfbbaa37fcafdd4d2db8f4bcf62bb1",
+    "size": 30349
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/features-iteration1.log": {
+    "sha256": "a9ed7b6809e782ff9d31e9cef39ccf0ac1f1571145d169d8fc65cb71c0c0b1b6",
+    "size": 25004
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/initial-inputs.json": {
+    "sha256": "f49c77ea84879efa419f920ac62c3a13ed24540fa27073066453e70a0b6b577f",
+    "size": 661507
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/initial-status.txt": {
+    "sha256": "75bbd9c0766251df95166c8ba4441abcb3f9b94bfc794de55b712aa7c782cf0a",
+    "size": 2948
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/inventory-checkpoint.log": {
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration-preservation.json": {
+    "sha256": "71febdb2055f5507f9f48d8bd3f858af8bda62ba76739d026956494af43a0cb6",
+    "size": 14460
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-inputs.json": {
+    "sha256": "efb4cb35f2ff7837db117feaa4180d1d85f2ed6a0b8109bb4b938c39f980dabb",
+    "size": 661047
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/board_ui.json": {
+    "sha256": "b6d026835af399bc08f757ee2a13e2f6b1d1f1126b72c1fb718430181d97632a",
+    "size": 128
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/board_ui.log": {
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/console_sink.json": {
+    "sha256": "c48db8a57112b1839fabacdea47da150ecf09fa1d187ebc249dcfb0a8ff8a22f",
+    "size": 130
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/console_sink.log": {
+    "sha256": "a05d3e79d4a5dc093db2b3140e4d6ff7cc4d1cdd551fb00cdbeb5c000808bf24",
+    "size": 14997
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/deferred_actions.json": {
+    "sha256": "cedd131feac918c7a6371d1b165d0a9bb31c9a5cd7f354558939d8fca28b0d3b",
+    "size": 136
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/deferred_actions.log": {
+    "sha256": "decd5d4c3f56088692bc578bfd9bafa77523fb3469f95bc38eab57eaba327221",
+    "size": 8001
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/inbox_verbs.json": {
+    "sha256": "47de04d8e25b88109d06070461b67c85cfb199128ec03df578de22f39ca2c8d7",
+    "size": 130
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/inbox_verbs.log": {
+    "sha256": "efdda4f8df840a9290f17916eddcb69a554281e25c58c7893d136253e76bb557",
+    "size": 124575
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/native-build.json": {
+    "sha256": "0b9472dd14c39554fa564f9bcc4b63c5837519f68dd6a83fd6a9711548c19c40",
+    "size": 192
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/iteration1-logs/native-build.log": {
+    "sha256": "4faab76ba5b91f43bea6b538c206194f77c4296fe94025b15d44e855441a8950",
+    "size": 7593
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/ownership-iteration1.log": {
+    "sha256": "c48cc95146783f88c0e54b8abdc8d7b25b843ddb54b229fc6c6b5f9285c16189",
+    "size": 7269
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/preparation-inputs.json": {
+    "sha256": "3d48c16426c38514fb90aa1a95e2b9b84b29bd0f7ad2c4b72536c3f00aa07cc9",
+    "size": 6825
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/reference-iteration1.log": {
+    "sha256": "a74db8eea38852ea7d667d941530544295adf25fb8c01470bf2b0ca6c2918089",
+    "size": 3370
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/reproduce.py": {
+    "sha256": "c90e2e7d06500943238b7b0eb126800b01e8f635614c44bfb40f9fb922cc23f6",
+    "size": 4190
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/sim-status-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/sim-whitespace-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/v2-owner-preservation.json": {
+    "sha256": "da6eac2502360cf4185150dae5f5e45d0edc526a560b60f7c7bd66580f85e2e2",
+    "size": 753
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r3-stop/whitespace-checkpoint.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B426-private-proposal.log": {
+    "sha256": "6c8b5d465e3327c01c0728694830f4c21637aaba3e2caebabd8d3439ae3fb220",
+    "size": 1216
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B426-private-proposal.patch": {
+    "sha256": "2eb7354bb96b1960250bd9b1bc81e23fc55dd9d3b91190973ac72ccdb0687cda",
+    "size": 913
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B427-private-proposal.patch": {
+    "sha256": "7708d2412f4f4fb84bf7c3fdaae0d453e38ccaeb466cc6a0514316f6968c7414",
+    "size": 2579
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B427-proposal-pin-reconciliation.json": {
+    "sha256": "da3c9edfa69d35fb2d35a60f987afc617ca7570724b5cab4d28395e75c4cd20a",
+    "size": 793
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B428-focused/landed-repair.patch": {
+    "sha256": "c2fbfc4be61f6659771c76ad3bd015bf7ab8d4833e4e04fb0af3d55fd276adef",
+    "size": 1965
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B428-focused/result.log": {
+    "sha256": "7215db9a01a1b227545cc5c0d0d36bae51949f76991b6b077333968297cd1db2",
+    "size": 366
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/B428-focused/run.py": {
+    "sha256": "407ca152c6a6a3d3821b8cd498cc1e83893a86518638c66dac9896c937b1f632",
+    "size": 25426
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/README.md": {
+    "sha256": "42815cbba73fe3ca3a1bc023ee5b41a61d833fc75a60b4712a65e0b9c3a675e7",
+    "size": 4035
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/absence-raw.log": {
+    "sha256": "24617ed7daf6708e119530a215bfd542b77c010cabdb0599b331caa1db5838ce",
+    "size": 28975
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/artifact-sha256.json": {
+    "sha256": "dd609be18f2e1529510b1fbe866e2f852a79aacabd6c6be3d02e2c58b3c162e2",
+    "size": 51234
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/authority-unit-precheck.log": {
+    "sha256": "c6e6a1f7f9060199ed2046f88fddf0d61d9ff05220340323585b01af8b736ff8",
+    "size": 2520
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/board-attribution.json": {
+    "sha256": "3fa47ab403db2723313206e4d8fe0a85d1cc3692dc9c887a18e936aabd338c0e",
+    "size": 15548
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/board-builds.tar.xz": {
+    "sha256": "b674632bebecab633d097d9e4721057a5e566b116199e3ec64063b8412fc5742",
+    "size": 14839356
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/board-ui-driver.log": {
+    "sha256": "cb02bd77e3d65ebdd78483bcf94358cee974215d84fa1f5c743875c3b4c0c870",
+    "size": 49
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards-driver.log": {
+    "sha256": "df80d49829670b66da71c26c90b47fc1b34d3002c0c895d51b33fcbb67f7bac1",
+    "size": 307
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/gateway/compiler-state.json": {
+    "sha256": "2c289db9a591d7f426527dd55cf63370f480bef3d1ebc455540dc8544ceaff8e",
+    "size": 1775
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/gateway/manifest.json": {
+    "sha256": "6e79b62aba3448385e637bac6012b551b2042bf909621e16c72928c1f9023564",
+    "size": 5105
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/gateway/sections.txt": {
+    "sha256": "48778b519bed530a1a90f0e39eb66f56dcb9b35fe0c6d01634d73af9dfdb7cca",
+    "size": 1398
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/gateway/symbols.txt": {
+    "sha256": "dfc16373d4ceb265afbadbd44e4d69b4d775659b46a7eb8856ad6d27f78d7e37",
+    "size": 290893
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/heltec_mobile/compiler-state.json": {
+    "sha256": "0c1791c26cc5b5b6e199a90df907dea42dfdcad80a0fb450685be85ca28b4ed7",
+    "size": 1835
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/heltec_mobile/manifest.json": {
+    "sha256": "08d27fc4af8c506a534fcb3ca08f3fe0948f1e9c6510dfe009691a1f3a711eb1",
+    "size": 5705
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/heltec_mobile/sections.txt": {
+    "sha256": "ca96b18a181073be8b1a9f6c29ca27ce27d584e778bf63fa205925b843a72300",
+    "size": 3673
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/heltec_mobile/symbols.txt": {
+    "sha256": "d2688d42b0e9b72116db04e44933a5dca54cab5511c501241f1e2cd4dc72716e",
+    "size": 764325
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/base/pair.json": {
+    "sha256": "4d69523f56780be9261fb9476a7574e4a1a0edab734189bb2e73a0b8f2b22534",
+    "size": 520
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/gateway/compiler-state.json": {
+    "sha256": "2c289db9a591d7f426527dd55cf63370f480bef3d1ebc455540dc8544ceaff8e",
+    "size": 1775
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/gateway/manifest.json": {
+    "sha256": "984106a606fa5e885ee278a9caaad37497251e2b010eb29aac0390bbae31556f",
+    "size": 5160
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/gateway/sections.txt": {
+    "sha256": "bfbc3251f35a5c16f416320740e93a87169a13ce655c5230b8f0123a3ee225a0",
+    "size": 1398
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/gateway/symbols.txt": {
+    "sha256": "3fb923a3bbbe33a6d9911af61427dbcd02a4510e5024045fdf57aed43cb80b21",
+    "size": 288366
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/heltec_mobile/compiler-state.json": {
+    "sha256": "0c1791c26cc5b5b6e199a90df907dea42dfdcad80a0fb450685be85ca28b4ed7",
+    "size": 1835
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/heltec_mobile/manifest.json": {
+    "sha256": "ce4307ad6b508f46cb83508c48c40557f465026cdee5f394d011cfbd763b7bec",
+    "size": 5760
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/heltec_mobile/sections.txt": {
+    "sha256": "9612f3650e4ce125494383b0df895ca713349882724bcc58eb6a6b50fd9ec4f9",
+    "size": 3673
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/heltec_mobile/symbols.txt": {
+    "sha256": "8c337fd54ee54a2ce601d1af9b80379a9da8777eac26deba20d2337650c5ff17",
+    "size": 763981
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/boards/candidate/pair.json": {
+    "sha256": "a91bd1f1e24f05064638f23ff6c313d261682eb81271beca7cb477879dcbdb77",
+    "size": 535
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/chain-driver.log": {
+    "sha256": "53686faaa66048a3a421b806dc2d02a7db306e37731f2e4d09cd2c38df126c1a",
+    "size": 1166
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/checkpoint-deletions.json": {
+    "sha256": "9d2b894a14afbf669ab670bd3afad11b15cdc092120f986e481aa793d5c99bdd",
+    "size": 249
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/checkpoint-inputs.json": {
+    "sha256": "f8d14b2938aca36a32fb1f93be768e4a05a153160fc05464512821270a4e0354",
+    "size": 804916
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/checkpoint-overlay.tar.xz": {
+    "sha256": "c0ef6d06502818fa772f5901c809386dfd9b28990f38f3cafc20cab98b3bee0e",
+    "size": 2302084
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/corpus-byte-comparison.json": {
+    "sha256": "6287282d5d276f82cc556527fc132197e7eb072713a90f2299ddd9bcc9a04498",
+    "size": 6769
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/corpus/base/manifest.json": {
+    "sha256": "df1be63f9fc1f97a8b6b4217ba543294efe7859a5805e44f1a0e5d604663570d",
+    "size": 28924
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/corpus/candidate/manifest.json": {
+    "sha256": "7e24ea2bb09db2e5b3df2a697cbfdad5c9206c245fd75970b38d0cb3668929a2",
+    "size": 28924
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b0-p1-compile.log": {
+    "sha256": "7aa328d76c80d5a69078e3f374fd80f3f40670adc1731d6300fccd481f47c8c6",
+    "size": 9258
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b0-p1.cpp": {
+    "sha256": "d9ea37a30a6eaef683c6cde7591d6592543b2391463d3172d2738fe0f20f90e1",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b0-p1.log": {
+    "sha256": "5a4dea5ed9236ec9f6fa5f1b39182acb39889556f115b1b25f83754e3c6b6e6e",
+    "size": 181823
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b1-p1-compile.log": {
+    "sha256": "8184ee12d755243cdc7811a3cc08349a4df94c4cf392d83a7dafbdf6f4d8c5b2",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b1-p1.cpp": {
+    "sha256": "b69dceff8fd68483afe214deaea79b0951b67f3d08faec91f0b53d6c38b5450e",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b1-p1.log": {
+    "sha256": "3187946c03dfc44cb2c9df035007e2521a4120b3965d1c9cd206d23a15bd7be3",
+    "size": 198751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p0-compile.log": {
+    "sha256": "a1bd5819e89d062eecdcd22081e9fb319cf4cc68cffe658074e44f45f0112ca2",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p0.cpp": {
+    "sha256": "bfbe1c5fcb0b41d2b3e63dea33ce8132173335c94ba82bcf8762c4a7ea593312",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p0.log": {
+    "sha256": "f72c46d33eb4d8945d2d23bea13f9a04d37fddfd197935653aa3c607039efed4",
+    "size": 208243
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p1-compile.log": {
+    "sha256": "908f4312b92d4151c9c251cc7fc1f6c6f9b7663d1080d77bd948881c19b90b2c",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p1.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/b2-p1.log": {
+    "sha256": "916ffef80ba8c8df9dcf85db77a8aba30649a86850c7fa158750666136d5badd",
+    "size": 207961
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/build.log": {
+    "sha256": "183253adef59f852349bb0921d6af0d314e618bafb0033ee6ce87c48fc79cc46",
+    "size": 796877
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/build.sh": {
+    "sha256": "ce17cc8ec3b569fccf10ae75e0402a5417557eac744c40ced1d6aabc5b7a5829",
+    "size": 30349
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions-no-neg/results.json": {
+    "sha256": "df36fc09369a34b5499a28b477687d34f940cb8b1c00e0d2932f8af6d6c1549a",
+    "size": 3250
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C01/compile.log": {
+    "sha256": "dd19faee1aedf643102e371b20171425fd5e9383c837e19c030517683da3b788",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C01/firmware_commands.cpp": {
+    "sha256": "ef07d2a92bd55c608e0d8f183d900beedc5c447b67d725122cf74e976b01218c",
+    "size": 144449
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C01/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C01/run.log": {
+    "sha256": "ac2b38f556ad2e48e53db740055469a972de42272add79da8e05b9c4888776a3",
+    "size": 206201
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C02/compile.log": {
+    "sha256": "9c90500d707ade8d07a3afd799f7b7002578115b672a6ae08185273c1948e928",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C02/firmware_commands.cpp": {
+    "sha256": "1120b1583a750809e93934817a122748b9a1bcf8a9dd186cd59c395033d8407b",
+    "size": 144445
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C02/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C02/run.log": {
+    "sha256": "1ca0ed915111fc18491c1b1c0da30e951e5dc38b92b37669f6a6eeae0dfce474",
+    "size": 208419
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C03/compile.log": {
+    "sha256": "b459d9804720a52eb12ff0226894763862f2a41c823beede3a994b6c1b7c947d",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C03/firmware_commands.cpp": {
+    "sha256": "8f8d2a03655aafee00faa6a529aa96ee758a83c4d4109d3515b43527ed9e1f76",
+    "size": 144451
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C03/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C03/run.log": {
+    "sha256": "ada30d152716acf383c76347b364f497e1409ee6925a03b3b30e14ec73cd92ce",
+    "size": 207651
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C04/compile.log": {
+    "sha256": "f5f626cafa11e2e2067706a98f4001b638c969f2dbc399b8655a6951dd650b1a",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C04/firmware_commands.cpp": {
+    "sha256": "fb28f837c22c1c7b1652256e25ea5142bd445c11dc714cb854d232583ef040d7",
+    "size": 144411
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C04/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C04/run.log": {
+    "sha256": "2b816ddcb8357073a112de9931f06557a72f0d292980c29ec6831fb5c6d1251f",
+    "size": 215031
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C05/compile.log": {
+    "sha256": "1e4e3fa5c9a803dc58beb70dc69582a99944681f17cf70b991b555b972d098bd",
+    "size": 9144
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C05/firmware_commands.cpp": {
+    "sha256": "b938dd1f04cf735aa4da759827300c2e841fc13ba5ce67beb1355f9656e673b1",
+    "size": 144463
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C05/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C05/run.log": {
+    "sha256": "dcd1c0f038654083c7817b752ddaf9e5c41c38015b15c322392bd297daf1b7c2",
+    "size": 208285
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C06/compile.log": {
+    "sha256": "5eb1298e05b5c6311d8c2420e634f4b48d05e924111ed15931126cd7d15decc2",
+    "size": 9261
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C06/firmware_commands.cpp": {
+    "sha256": "fc232ebd3a80172791d67ef71a16f94a094385019f64a9efbc31e97d15c5198c",
+    "size": 144457
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C06/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C06/run.log": {
+    "sha256": "56055868df6df2e09212f762f4678d7bce80e4133178b0e52057391707e7a056",
+    "size": 211103
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C07/compile.log": {
+    "sha256": "b2b5ad9468d8d73d92fcb4ec5cd1ce91b403221115155f8e91bade4c5e37dbbd",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C07/fw_main.cpp": {
+    "sha256": "3626781db2e2764b7cec110c43dcdff9f9d58b5deeb778abea4c697a0bf9ec02",
+    "size": 155261
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C07/probe.cpp": {
+    "sha256": "f1a431a332e43b2ac53a4c2bf529dae2df7dd1c67895347dc650e7e7c544a65c",
+    "size": 22702
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C07/run.log": {
+    "sha256": "58119a6ad2dfcc52a812e550bdfd238f0bb8db0f3dfb6eae17d847bea6660f4a",
+    "size": 198681
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C08/compile.log": {
+    "sha256": "ceb7a688af15dbd73605dfa6eeada9c8cece9463cb3e5e72c8d1dd0104b5477e",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C08/fw_main.cpp": {
+    "sha256": "6762b85f1ba7df9c0149ed04c45f036db7401885f04af81b3cc3bdd640397b15",
+    "size": 155335
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C08/probe.cpp": {
+    "sha256": "43c0c0d8dd7d70a9d9696a3ad48ccff11e06920d8a3a65d8474e4755a712aaf8",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C08/run.log": {
+    "sha256": "63ad7c6eb1460a2d02409f2c4bf7ccda34ef3939442440459bbfb49962dbf97e",
+    "size": 208623
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C09/compile.log": {
+    "sha256": "a720b0106a9ee247d8885bec2f8065a4d8b3387377b99c677a43d88be19ceeb4",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C09/fw_main.cpp": {
+    "sha256": "3fad5a1e56fe272025005362689bce8f0385fceaaad861bc10e523b4d880fa1c",
+    "size": 155433
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C09/probe.cpp": {
+    "sha256": "9bb0e6ed053e84832bfdd44dc6eeef4c448c99ed5415f9b4153b081a2d81a5f5",
+    "size": 22874
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C09/run.log": {
+    "sha256": "aa45199b1cd1628bf5efc6ed3cef8434c548647776acb9ba25de7befe03aad1f",
+    "size": 208187
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C10/compile.log": {
+    "sha256": "99d083e2c97aaa38f96ce9543b36a10910859a9a71982c300e6c9becfeb29336",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C10/fw_main.cpp": {
+    "sha256": "867f7267f8a81233ea2b19b4d4650d38cbaa3cc98d7b255faa3f46063e0effe3",
+    "size": 155445
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C10/probe.cpp": {
+    "sha256": "89fbd2166ba749a0623980380fb8e89679109c0ec3916c93eaf4b215e82d3597",
+    "size": 22886
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C10/run.log": {
+    "sha256": "bfc7347791b7c76caf0c50ada577fd6b0994c87709fed3e09dfae23e2b4cdadb",
+    "size": 208980
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C11/compile.log": {
+    "sha256": "d485326686afb05fca9c34bd78dadab1ca30b8765b180259ffe29ead3910722b",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C11/device_ota.cpp": {
+    "sha256": "eac3edd1ad9efda00cab73199dff0a720b8b57d61b48bcf6d9abb63225b7d873",
+    "size": 5505
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C11/probe.cpp": {
+    "sha256": "253809a1620ea038c783d6f782aa950b68c14bfe0fe2826f26367f684cdb6c82",
+    "size": 22778
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C11/run.log": {
+    "sha256": "b26911c1f6400e8fd7b80226afeb40d58c0faced6e22697fe7c7b4d8a35d3d63",
+    "size": 208623
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C12/compile.log": {
+    "sha256": "dafabf5e9da59f2329f2dde68ef3fa8cf8689fb11edaa44eca3d081c0ad5b531",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C12/device_ota.cpp": {
+    "sha256": "d6a0eb1a05838edfe9f20093de0b99da293c2448c77a0c57e053845161a96784",
+    "size": 5502
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C12/probe.cpp": {
+    "sha256": "d5036b57e74b4c746b59caf206f4e6520b5f5283477f53c713f2745f49d59494",
+    "size": 22775
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C12/run.log": {
+    "sha256": "618044578d9907486ea634b07b83b566962df7c1ffc53e43622fdc26f2eda7a6",
+    "size": 208333
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C13/compile.log": {
+    "sha256": "8d695112d82525c37cc60a87191b84f108569e13996eed12813f558965146b02",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C13/fw_main.cpp": {
+    "sha256": "d6908a8840389369e4a3fef0b4d0f25dd1d2f6dbd6952ddf6e141b717fb9dda1",
+    "size": 155293
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C13/probe.cpp": {
+    "sha256": "bbe52e270d0ae6d547fa79df8d076b6ed93474f5d5751428ac8961da2e207bff",
+    "size": 22734
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C13/run.log": {
+    "sha256": "ee3f83235d9053b6b46866c26fb8aee95dcbcd33918e4d85867499c6815369ad",
+    "size": 208014
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C14/compile.log": {
+    "sha256": "2f6f3b12c4f53a07598f3edbd94002067b4b172f4ca2150092deb24cad183f84",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C14/fw_main.cpp": {
+    "sha256": "6d3d176800bb71756c5ae282bc618f393e288aef76325b091a806b8b60bb8992",
+    "size": 155330
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C14/probe.cpp": {
+    "sha256": "e08c76da565135d2ed9eb54d98b134c0e962ae8563a49b456589b0e8bc32e690",
+    "size": 22771
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C14/run.log": {
+    "sha256": "bd9e2cd38eb58c0cbdbd2dd1c0c66d55d3891adcbf279d4ddfd4de1f35cd1e5a",
+    "size": 200439
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C15/compile.log": {
+    "sha256": "a9bae55e4cab77fa8290a329c761d91fe12696829d4f169cb9c7441cca3f4e08",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C15/fw_main.cpp": {
+    "sha256": "32b059df70fe27d11189835a57d707f557904269a06dbdc65fb3f978427f3cee",
+    "size": 155311
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C15/probe.cpp": {
+    "sha256": "eadd2b20ebe2b7e2ec75c8cc006bdef363f9d7e89df6874500a610a594db9634",
+    "size": 22752
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C15/run.log": {
+    "sha256": "fd17a32f9aebea5cde971b3a0b30826c47b1324da1b972c653a640c2243d96f4",
+    "size": 208194
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C16/compile.log": {
+    "sha256": "2552202775b6a3d51e5d7729c5542943dd0faa0f5459deab7c4271eba614987b",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C16/fw_main.cpp": {
+    "sha256": "e6f89329980cefaba84dd32d7cddd967564e675a12b990a9abcfd3ed2ea5d532",
+    "size": 155300
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C16/probe.cpp": {
+    "sha256": "6ce0d95199584eca54f8e4623896f5205d07c6d92446b6103683c221d061557a",
+    "size": 22741
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C16/run.log": {
+    "sha256": "3dcb03e900d7158d408efee9eac832ff1a68af8deb773f85b9ccbf01c73fca65",
+    "size": 208026
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C17/compile.log": {
+    "sha256": "e9318b213d6dc946fdb0016b560797d79ea3dc9c8949a5c77b319d8a933be06d",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C17/firmware_commands.cpp": {
+    "sha256": "05ecc6885292044b64355f71c981fbf025d15098cca32fb48d366c9e76601546",
+    "size": 144462
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C17/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C17/run.log": {
+    "sha256": "ffacf6daffd5dbd6a9127399858d6fceac29e68a0466072933a3ed0be5a769d6",
+    "size": 208165
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C18/compile.log": {
+    "sha256": "4d52ce1f980e5c9c33d0e537ecff31443f656cb1bba11e1b89df0fa67f3309fb",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C18/fw_main.cpp": {
+    "sha256": "d7f2220d2424a3493f429e0b10f511772a2a2f6fb8318edafbca83fd629fb04c",
+    "size": 155322
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C18/probe.cpp": {
+    "sha256": "52d754091eadc2df2e5c441d965dfc676f71724742ad1d1b128c560e53eed922",
+    "size": 22757
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C18/run.log": {
+    "sha256": "eae1bc3367f02ceef3d9d6b55146f657b80565d08dc69103fdbf268bd4407c59",
+    "size": 207982
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C19/compile.log": {
+    "sha256": "5805d99103c6123b9e7b619228e8db86e232cd34a557c27e2954760c6778b0e0",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C19/fw_main.cpp": {
+    "sha256": "5365b42e73f0d0c06606273037b7b79e2fa1d2533b1e47730d58a7e54263c014",
+    "size": 155339
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C19/probe.cpp": {
+    "sha256": "77188fb5face4d688a1072c3d04abd1d79d9648e6634aeb78ea2c0a39f3328f7",
+    "size": 22780
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/C19/run.log": {
+    "sha256": "631aee7f153588551e1f44236d1d44549986310788be1ceefde0d5727f882130",
+    "size": 208155
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R01/compile.log": {
+    "sha256": "11475db426c0b2b40fcb6419acbc7fa730ab40b5d3008bc20ebf573f79853df7",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R01/firmware_commands.cpp": {
+    "sha256": "11f3baf0e3a3eed139d18036ef2d8eea847ea57c401931cd93b6a428b2eabc6f",
+    "size": 144505
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R01/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R01/run.log": {
+    "sha256": "ecc3fb1b92898458004ffc2d0957bd9376b452cf6006a7bef073e28652e99548",
+    "size": 208650
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R02/compile.log": {
+    "sha256": "5e12c42ce1a3a372eaa24f624365cd6badd4ff535db85566e4e3ff177f5c1c48",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R02/firmware_commands.cpp": {
+    "sha256": "3ef881984f807eb72d405cc72a8d7f1b93351b1f1d3ecc002afc4dfa967a1e70",
+    "size": 144504
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R02/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R02/run.log": {
+    "sha256": "40c205cab07aa4a00b2d069f0e0e8c8be24f04214cf4b354ed21af06c9f59887",
+    "size": 208519
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R03/compile.log": {
+    "sha256": "937c181667ad438125dd5da8c35eaca1df64f1080c551e09e0841a4b5e0fb38a",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R03/firmware_commands.cpp": {
+    "sha256": "598d813207ad5aadbe17daf143d949f60d6388022c4aff3eb28084f4a9b3eca1",
+    "size": 144417
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R03/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R03/run.log": {
+    "sha256": "08ad5f4e1c608910b354a9ad7f9e0434bc62f285d9d560375a2ae9b7afd8a374",
+    "size": 207961
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R04/compile.log": {
+    "sha256": "bbc229e2363894c3da3107917799776cc8497a5798c7becfceb70ec7705453b1",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R04/firmware_commands.cpp": {
+    "sha256": "afe2db6fbe1011d58bb51e0b3d6c9bc3e30c18a83bb58b779b9485ea40ed9e29",
+    "size": 144462
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R04/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R04/run.log": {
+    "sha256": "fe583170bdca6f8451f036f71b139e6b738de7796f5ab076e2de8c5fc83b64a0",
+    "size": 220113
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R05/compile.log": {
+    "sha256": "701264eab6ba17458da3fa018f439323429a24de31ecc2c1e83a92e4ae7dcd42",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R05/firmware_remote_actions.cpp": {
+    "sha256": "4711c235c0b05d3cfe3dcb9da8e54ee913177ba700d0a7ecc9d6a3dc0fd74ef1",
+    "size": 6148
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R05/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R05/run.log": {
+    "sha256": "d340b1424082d7f8c2942c0f6cb704cdb74349a2348b18c1262467edf836f7c5",
+    "size": 207962
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R06/compile.log": {
+    "sha256": "86f593fc539463dda95fbf3c14180c476433371ede3bd1a6af5a30dec6ae4cdf",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R06/firmware_remote_actions.cpp": {
+    "sha256": "8a1f52a161363a62b07551dc5c21576e51053d50de669baf8679e15c6aba02e2",
+    "size": 6179
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R06/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R06/run.log": {
+    "sha256": "d166bf1637f9a835b67690a7585cd6f03834395c1bd4785b6371f25a466f41b0",
+    "size": 208179
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R07/compile.log": {
+    "sha256": "a25e22ab1e2c877e80d5283359346e52b7852bffdc90b4b0947cc9ca8a3088fd",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R07/firmware_remote_actions.cpp": {
+    "sha256": "e544f539acce89f3f3ea787073c9cfd9e3876ca7f1fd8c20d622017e8f51da42",
+    "size": 6103
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R07/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R07/run.log": {
+    "sha256": "9ddd001a61cbc9b4ac80feddd2c2c7505e6714d8e8c4d50bfb8a6dff90f10a4a",
+    "size": 208094
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R08/compile.log": {
+    "sha256": "928c011e31369a2b26ca2a357a4620443b0cd7205d97bb1a4380d35f82f745e9",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R08/firmware_remote_actions.cpp": {
+    "sha256": "c4210e63750b55edb9771f0ce872755a7e22c76116503401b7a621f5c2d357bd",
+    "size": 6190
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R08/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R08/run.log": {
+    "sha256": "a105354b8eccf3a19e90401db3bd2292ed40c3173ae541e9a3cb29f9f6d0394c",
+    "size": 208092
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R09/compile.log": {
+    "sha256": "cd1ad527b6746c768f4c12094dfe9399f08b47b622394df25ef7228e3829ab8a",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R09/firmware_remote_actions.cpp": {
+    "sha256": "ecb33cf868395ec0fc3eb12e1e5d6c6711f4c1ec2439094f9ccd60d632813c82",
+    "size": 6190
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R09/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R09/run.log": {
+    "sha256": "860edc017cce943b98b4fc1b85a045de37e7e3804dddeabd5b1902e4c73c66db",
+    "size": 214118
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R10/compile.log": {
+    "sha256": "fa79d8de2edc47fb1dc9d9c5e72ef339e5deaf6b03f41cc556d3d768bd6331e0",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R10/firmware_remote_actions.cpp": {
+    "sha256": "5690308661dece4f74dda678beb4959e780fb35594e0f959efb3ea9169117d17",
+    "size": 6202
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R10/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R10/run.log": {
+    "sha256": "e7275a2e95070d0cdfc89c06f8d8a9074b2ef9d855d6e5ac7b45a2527fc699e4",
+    "size": 208043
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R11/compile.log": {
+    "sha256": "aa54283baaf276f4024a59f6ba516df1b59eb7ec083fed7c30096742b3c5c6f8",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R11/firmware_commands.cpp": {
+    "sha256": "290f36d520bec47bc0d2614dae31f85b6e6aa343362253576258c01937f0199a",
+    "size": 144502
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R11/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R11/run.log": {
+    "sha256": "e97f2adcee6f3e5c85db053f97efb362ecfe109a53773bf7e1177148b9d10683",
+    "size": 207883
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R12/compile.log": {
+    "sha256": "a35963a6e259cce2591e2e96598fd57973ec5c3cc91696deff45f10bd3f20303",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R12/firmware_remote_actions.cpp": {
+    "sha256": "77b2c42ba75c81d2c7d8a5362af97cb871c7cee843da9d4004af019c9ee01d72",
+    "size": 6158
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R12/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R12/run.log": {
+    "sha256": "c7fe0d4938d67980f27ec3512e149fa9924c7676986ba282a3a0e1695069debb",
+    "size": 209443
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R13/compile.log": {
+    "sha256": "7a23f1024b95b4104bdfc0574277c946a87e8f1790e806ce3be68a98499539e6",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R13/firmware_remote_actions.cpp": {
+    "sha256": "772bbb451e0af3cc8b332e2273eb9b1847b914c8a9ef9d12950ff2bbff1fa274",
+    "size": 6188
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R13/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R13/run.log": {
+    "sha256": "7c3e729d06fcee4ca724883db8ba46d4b0295bb86a62dfd671bde8e973fd2273",
+    "size": 209554
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R14/compile.log": {
+    "sha256": "866e5c5e517e1995c011a9328cb348fe3c3782eb0e8a02ff407966b50d7d4801",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R14/firmware_remote_actions.cpp": {
+    "sha256": "4792930939710c161ddd06f41955a27bb3d6333fc85e13e5f543569334d6df97",
+    "size": 6183
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R14/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R14/run.log": {
+    "sha256": "382af68d7cf74c5009fcab6ddba0b75bcd5c5b9d6dac3711f2effa2e322b74b9",
+    "size": 208976
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R15/compile.log": {
+    "sha256": "80ec3e66110034a6126202710650143656f523c60e6b438962eaebc15da16f96",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R15/firmware_remote_actions.cpp": {
+    "sha256": "70c137dd837e3598725825ed41915c567464b362e675c03a24c30bdfae9219a4",
+    "size": 6208
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R15/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R15/run.log": {
+    "sha256": "d5f8e089d7234e309656b09524afbcc8fe061a27e76a2a953c5e298796aea772",
+    "size": 218947
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R16/compile.log": {
+    "sha256": "1b4480fdbb5234fe27c8adf4b39180800002c04742c56c3ec5572c43ab17ff75",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R16/firmware_remote_actions.cpp": {
+    "sha256": "1ba65dcb71e07618ca3a09f706e106b184bbdb3e5f3ca7f8c913988a35b8b5a6",
+    "size": 6182
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R16/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R16/run.log": {
+    "sha256": "67f5de9e768f212204dd3fef0dca92dafd76758b20fd6488dd5405ba3e84642a",
+    "size": 208002
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R17/compile.log": {
+    "sha256": "760aaa5c48b172d5912999d828b33caab14636dd4a328e4d7da735fd31e0dae6",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R17/firmware_remote_actions.cpp": {
+    "sha256": "4a7631ebb267f232c633ccffd451d45faca3c0d0f040ca38407e5a5d25417790",
+    "size": 6191
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R17/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R17/run.log": {
+    "sha256": "6debcf906624037438a5e67b0b3115e5d16ca5f6defb2aca1428012e9dee1de2",
+    "size": 209219
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R18/compile.log": {
+    "sha256": "3f1b24d55632273c6b2ed3954cf2f4ade880213495b74e7fb98cd3cc35a34d0a",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R18/firmware_remote_actions.cpp": {
+    "sha256": "8c6ec4710c43733439926846b7224261bed7c3c674eaf542029ce5bc9b60ad77",
+    "size": 6154
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R18/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R18/run.log": {
+    "sha256": "2d3b3f266f2664dea865b4235b5074a631bd0a1c535c44b41eee7a0fddb95fb7",
+    "size": 208087
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R19/compile.log": {
+    "sha256": "d68e7a6b3d01b0d0959af94397fc941b25cfc7316198c93f0ab2c10355954baa",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R19/firmware_remote_actions.cpp": {
+    "sha256": "585643d909637a81f694a7f6c76a1b364fd020870a8641896ceb803cafe880d3",
+    "size": 6174
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R19/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R19/run.log": {
+    "sha256": "05268a7ebff8a398fa06c917642b4e2d440728c5cae70cfb39e545c1ba8661c6",
+    "size": 208465
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R20/compile.log": {
+    "sha256": "6fe04eba3681a511287848ff60e8fc23bbfd1c6d454be2e47093c6292a66ff59",
+    "size": 8755
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R20/firmware_remote_actions.cpp": {
+    "sha256": "6add5fd294a19be5f349faff0d9a84049d39c80b636b78c0637a42c716431e0c",
+    "size": 6150
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R20/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R20/run.log": {
+    "sha256": "f727630d8f67931ac869adc8cacb18c5caa1929be3f305951c805208d092f27a",
+    "size": 208213
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R21/compile.log": {
+    "sha256": "0d3c43231cc756ccd85f6550d66432c5ae3510fcd402749c07cc6c73d08c83b6",
+    "size": 8751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R21/firmware_commands.cpp": {
+    "sha256": "a75dd255d7116ce5830f67726dc4196c8bd0af8115d88245d7506e2fe99b8f88",
+    "size": 144434
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R21/probe.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/R21/run.log": {
+    "sha256": "a6d41f549aeae61ac8234efadf648f5f275af693f14cfa4d7665a2dbb3779e7d",
+    "size": 209426
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b0-p1-compile.log": {
+    "sha256": "8b83ed75fda26c4693da70be805c63af00d59c87f1a41b3bf2904b9ae8c9a56b",
+    "size": 9258
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b0-p1.cpp": {
+    "sha256": "d9ea37a30a6eaef683c6cde7591d6592543b2391463d3172d2738fe0f20f90e1",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b0-p1.log": {
+    "sha256": "5a4dea5ed9236ec9f6fa5f1b39182acb39889556f115b1b25f83754e3c6b6e6e",
+    "size": 181823
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b1-p1-compile.log": {
+    "sha256": "c361d5936766104a7d10bd22f2bf50d01ad304a56870f2970e5a751e8b6d626a",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b1-p1.cpp": {
+    "sha256": "b69dceff8fd68483afe214deaea79b0951b67f3d08faec91f0b53d6c38b5450e",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b1-p1.log": {
+    "sha256": "3187946c03dfc44cb2c9df035007e2521a4120b3965d1c9cd206d23a15bd7be3",
+    "size": 198751
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p0-compile.log": {
+    "sha256": "9419b3a7944b467fe6a26049728321b6e772d888242acd6f9e15d8e3d35aca2b",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p0.cpp": {
+    "sha256": "bfbe1c5fcb0b41d2b3e63dea33ce8132173335c94ba82bcf8762c4a7ea593312",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p0.log": {
+    "sha256": "f72c46d33eb4d8945d2d23bea13f9a04d37fddfd197935653aa3c607039efed4",
+    "size": 208243
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p1-compile.log": {
+    "sha256": "42ad7fd4d6246cf460c1c62ffcd171abfb30d6dfef29dda0094912219c2e94c5",
+    "size": 8747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p1.cpp": {
+    "sha256": "866b7c4759374a22d240514fcda22ea251a6308987841f0e72c0f37089658516",
+    "size": 22776
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/b2-p1.log": {
+    "sha256": "916ffef80ba8c8df9dcf85db77a8aba30649a86850c7fa158750666136d5badd",
+    "size": 207961
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/build.log": {
+    "sha256": "b55ba9e60c656906d1bbdbc334517fbdc92098909af277ce1208ab6eb6ca00e2",
+    "size": 797517
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/build.sh": {
+    "sha256": "716cd4199b86e668b4f148c84814c6e2acb62f3f91827d6b2484ebd50d5fd953",
+    "size": 53877
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/deferred_actions/results.json": {
+    "sha256": "0f3d13efb687658e0898d477b047b630cceec06ca7e2f598eea141f2d18975b4",
+    "size": 15532
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/board-ui-driver.log": {
+    "sha256": "cb02bd77e3d65ebdd78483bcf94358cee974215d84fa1f5c743875c3b4c0c870",
+    "size": 49
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/boards-driver.log": {
+    "sha256": "59323d14b5a060f2d3da408551f5f94bee28235a05eb998e4f813ea590f8fd21",
+    "size": 243
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/chain-driver.log": {
+    "sha256": "af8c4463fd77261546ef7cb75ee65fceb322fa327719d10d1f1414cc90b5ad81",
+    "size": 324
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-board-ui-results.json": {
+    "sha256": "22e0e64ca671abe04cdec4595adc71a180e1b71dee0609c299467345b6ef46c8",
+    "size": 307
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-boards-inputs.json": {
+    "sha256": "cada6700b33fe14261e8e246d6ad16e69df91ff0e225af13e72e632e9ca8290b",
+    "size": 671646
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-boards-results.json": {
+    "sha256": "a3b8aef56ee660724c89ef8d65b597dbe0cdbdc67c5d7ee97a5b0c334d4c00cd",
+    "size": 374
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-gate-inputs.json": {
+    "sha256": "cada6700b33fe14261e8e246d6ad16e69df91ff0e225af13e72e632e9ca8290b",
+    "size": 671646
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/ble_line-no-neg-result.json": {
+    "sha256": "acc70cd132b7fb981ebea5b0c42d5cf5dbeca963566484a9c0e1b84e9db85fbd",
+    "size": 284
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/ble_line-no-neg.log": {
+    "sha256": "fc95c7272eb10606d80df7783363e8aa31d227746ad16749d68df7219cd81514",
+    "size": 5463
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/ble_line-result.json": {
+    "sha256": "dc1e3facc63138597db87bf1d0d257ec7885164d79a3b8834c62a974812fffa1",
+    "size": 263
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/ble_line.log": {
+    "sha256": "f5c6ff9bec4f5e71be26a961a2892ece894ad9bb6816b1805c3925df16883060",
+    "size": 6774
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/board-ui-result.json": {
+    "sha256": "13c7e4969d7bd52150a1d2506afe6e4b93d135572d79b9f9af64e1bdb1b46a7e",
+    "size": 279
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/board-ui.log": {
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/console_sink-no-neg-result.json": {
+    "sha256": "4740faa074f50a4e07e0a2a2790ff6faaa0b43971433a1141748787e2c10e12e",
+    "size": 294
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/console_sink-no-neg.log": {
+    "sha256": "a3d1463efd6b3f33ce3b8ddc4047ef28d2ffdbb4c47d24191a51cd7ddb790aa6",
+    "size": 14781
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/console_sink-result.json": {
+    "sha256": "19967135462511c93a6cbc7632ca737fab46be54ebdb147d3e52bfca714ecbe3",
+    "size": 271
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/console_sink.log": {
+    "sha256": "d73fd7cd8deedb702a6a5c7cf97678246025fd27c5d099164e97a378db7276ca",
+    "size": 36394
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/corpus-result.json": {
+    "sha256": "47b044eb8f0a19879fc9c5f6af32a82edd2663895a52f645f6617b963e21eb22",
+    "size": 429
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/corpus-validate-result.json": {
+    "sha256": "0527d70976d1898da412ee0a7a44f9efb2c422327b390b31a40d8f462a9eb785",
+    "size": 326
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/corpus-validate.log": {
+    "sha256": "2feef021862fd73a399da1a76f2ef4d34d68cc289fb7dda3af99a897ea6b5896",
+    "size": 120
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/corpus.log": {
+    "sha256": "c25be6078b44c686ac82ff194dca1a9c6986e06f474765989ac17604606951d3",
+    "size": 3353
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/custody_usb-no-neg-result.json": {
+    "sha256": "dbee9f729530696d1694b832a3583a8b35f7faea769d4e6907fa93a9382545bc",
+    "size": 292
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/custody_usb-no-neg.log": {
+    "sha256": "7651c0fdbd4144a743665f963bcb5cc47bfd81a78eae07a1ea227298cd665702",
+    "size": 2570
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/custody_usb-result.json": {
+    "sha256": "13fa76311564753a81412debcb76c332312bbc4111b180d6a9070ffd29794ced",
+    "size": 268
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/custody_usb.log": {
+    "sha256": "c9450aa2d7064fe746d3075531180ba75be7b71b48acda212d47215cde885de9",
+    "size": 3835
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/deferred_actions.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/features.log": {
+    "sha256": "321121a4dc4ef3f68e210282c4ed512f129eedde6720509009eb6bc434ab0bdc",
+    "size": 17523
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/firmware_ui.log": {
+    "sha256": "f18be86d4877cbe65155d6e04b46890099dd4b792755b5eb2eba9b5e33cc4f34",
+    "size": 6530
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/inbox_verbs.log": {
+    "sha256": "cc28c14d8530537026ede400dffa08c57ce61ca5730db00636c93c57ac26906f",
+    "size": 91452
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/initial-pair-result.json": {
+    "sha256": "e627ca75051e123d3d57a9206827731fcda86d060e4a99070b4f67e524d112e7",
+    "size": 339
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/initial-pair.log": {
+    "sha256": "bc1d41f8e4f756e436e710bc767e64a07083d6af5c8d5a6848efa6f10c9968d9",
+    "size": 78
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/pair-result.json": {
+    "sha256": "2318bc1c86be76b2b6922b653a55943728001688a93c4bf0571d3bc3d0532ce5",
+    "size": 338
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/pair.log": {
+    "sha256": "d835c03388cd1a28f660c628f1a518cfcf38bc37f05b98888315d457d48dd5b2",
+    "size": 60
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/sim-build-result.json": {
+    "sha256": "56e96a6a77069b31d87b355243500d9012d57304c5d83ebeba0d2117536c7cd7",
+    "size": 356
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/sim-build.log": {
+    "sha256": "775bfc2cee942e98c7a5a20e0789a8c353c489078129e814f747a6b1b0dd47d1",
+    "size": 57384
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/sim-configure-result.json": {
+    "sha256": "291caf5d2cc77ebb1d5d306ad0eba04258941cbdd3a517d60a3b51693810c18b",
+    "size": 455
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-logs/sim-configure.log": {
+    "sha256": "aa3d201b4511bdf54d1f6a14a6f9d7d1a3627930f58bdab0e391e911b2cc243f",
+    "size": 1005
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-sim-results.json": {
+    "sha256": "1beb0b18cacf1260a37c35c21cbb0b0a9653554c37a21b532659153d7ab34248",
+    "size": 1705
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/a0rx.log": {
+    "sha256": "d89daf6c68d1365217c92af58cdc0934ef18770b5c347ffae0ea421500aceeb5",
+    "size": 6355
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/actionadmit.log": {
+    "sha256": "7e2a463733d6095a0bb25270c3affe5154adc6fd09c8d7fdf9bd8355db04e06a",
+    "size": 4365
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b134ack.log": {
+    "sha256": "78772cb3048c8fd792bd71bc6be6450178dac0892a345db88a4af1401f6ab8d8",
+    "size": 2877
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b134inbox.log": {
+    "sha256": "a87161e009be634d78955a2333ce5e3c047936f17af6e6c137df08e256292b48",
+    "size": 5059
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b134ram.log": {
+    "sha256": "1b24d603da13479b4baaefa2bbf5ae8aaa7543e6409586b8f61da7963cae792c",
+    "size": 4041
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b134store.log": {
+    "sha256": "014247dfcf9052cbe0b499142f5651b18cb8864cdd1b1d837193a2b6b2e9234e",
+    "size": 5999
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b159mac.log": {
+    "sha256": "48574164e30d073deb8aff340b7a50bbe14addf88c27056ea846d9db05a83c64",
+    "size": 2564
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b159map.log": {
+    "sha256": "d274a6e367ae335ec6ab545cb1b7ee418806de448b1245a46e878ca163b6e285",
+    "size": 2544
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b159rx.log": {
+    "sha256": "4013231d3728218c6a8fdb7161edb6c013413cedd2513c2a043e94eaa2042baa",
+    "size": 3404
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b161hash.log": {
+    "sha256": "4afbf2a4c2ffb21e33407ff03415d8db7798c1d9015939b732e37b0786a9dbab",
+    "size": 1642
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/b161mac.log": {
+    "sha256": "6612c3f03dcfe930b3dc2bc1a9010f66b0ed64fab851cb7a62eefbb17b3c9d0b",
+    "size": 568
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/native-inputs.json": {
+    "sha256": "617d00519028a9b3958c5533602c22efc90534a09aaef9a39d40e5fffc836b26",
+    "size": 21899
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/results.json": {
+    "sha256": "f42e9c19a8a463cf5e788b33dc8f9246bae16465cbcfcee3b5c3c2d3d3b7d377",
+    "size": 2365
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/final-union/selectors.json": {
+    "sha256": "3c1817df1f77a1016eac9954888df4cbba280f467547e7d89b54b6da8b2fc903",
+    "size": 14330
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/initial-boards-driver.log": {
+    "sha256": "18532beeb9df852bc15a1117a901b8dec335d55df85739db500f9b6c36dbe468",
+    "size": 243
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/sim-driver.log": {
+    "sha256": "4d59a7dbf845b146cf599c247c471fadbc927be1515af1e4d02bde01c254e50d",
+    "size": 166
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/union-driver.log": {
+    "sha256": "8658951507ec7c2f7a530d321784eea3e6aada74b4183b11fa6d176c9e94e738",
+    "size": 273
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/discarded-attempt/union-inputs-inputs.json": {
+    "sha256": "cada6700b33fe14261e8e246d6ad16e69df91ff0e225af13e72e632e9ca8290b",
+    "size": 671646
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/measurement-git-wrapper.py": {
+    "sha256": "4c9ae40a7f27ad9abb8ec432c824e42c505b947e1c08a49f04075806c95442ad",
+    "size": 534
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-archive.py": {
+    "sha256": "9b881483dadf21ea17fc1f1bd2026076495913bc930ee80884b3176f7451a5a0",
+    "size": 2295
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-docs.py": {
+    "sha256": "4ae6eedb99580dc04d819c9c883511f4346ed23d3d54cfa4c0977525a020f23a",
+    "size": 7615
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-gate.py": {
+    "sha256": "4af902aa6b8db5018b80df7020a94591ba58f2d4e869280f52b55d2df9495671",
+    "size": 4412
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-index.py": {
+    "sha256": "5914de0d20a38c339a8439b986a07cb591ef7a127d8ec9c98f80820cbf709f37",
+    "size": 1932
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-result-audit.py": {
+    "sha256": "fab0e226c2693072e0d7f12b446e57a93077385fa687f40fa4e4358d1881796a",
+    "size": 2932
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-seal.py": {
+    "sha256": "ad17ab54c6d79893c5a80f1dd7daaf2fefe185f5547cbadfe7bfff45e2508892",
+    "size": 5068
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-source-audit.py": {
+    "sha256": "d8f128e2ec7855ec03e276ab89c9f610e186df2d93819915f2bbc3bc0396617c",
+    "size": 5544
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-union-audit.py": {
+    "sha256": "8c6335bb8923e2fc0c188e34b0552499ec9a5601ce65f61e097d1b23e2fbbcae",
+    "size": 2028
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-union.py": {
+    "sha256": "e504c17597ef65e53cf34cb8d51d682579d85df2f8471089574fef657882dcec",
+    "size": 1629
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-r4-warnings.py": {
+    "sha256": "eed350058ce10abd6fef69c336cbf58c7bf665fee0c26ee9b93ad653ad7ac565",
+    "size": 2176
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/drivers/mr-s9-snapshot.py": {
+    "sha256": "5194e6ce12c8fd4b86237ca3d238cb85758c78ca8a03ce3e5b5e6d057708eb98",
+    "size": 1079
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-board-ui-results.json": {
+    "sha256": "0d7fb0581438c31d724a0259cbe021037a55c707f1877a5daa255f47d641264f",
+    "size": 307
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-boards-inputs.json": {
+    "sha256": "86b6fad1d777f6b7707c1d4c8fef7b41cb22a18739bae6c854d6f0d59a6e5c75",
+    "size": 671645
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-boards-results.json": {
+    "sha256": "203ecc58331c4b2af5e028f56ee3d4ea4e5a968bf26059e7b07879ee8b65fd21",
+    "size": 977
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-chain-results.json": {
+    "sha256": "2e9ae2d5f741c5c94733f7f575cfd0f48c0f08e8994baaf0f9c7f09881bdb10d",
+    "size": 9177
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-gate-inputs.json": {
+    "sha256": "86b6fad1d777f6b7707c1d4c8fef7b41cb22a18739bae6c854d6f0d59a6e5c75",
+    "size": 671645
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-inventory-check.log": {
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+    "size": 176
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/a0-result.json": {
+    "sha256": "9c83274eab1515a32aad031b0c1d320da7292273e384b493f4e78f7509f23f24",
+    "size": 258
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/a0.log": {
+    "sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f",
+    "size": 258
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/abi-b278-result.json": {
+    "sha256": "d7b5ddfcd32e6620a45d62c09381a4c425d61fda31c1de7572528995ad30efac",
+    "size": 266
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/abi-b278.log": {
+    "sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9",
+    "size": 3564
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/abi-result.json": {
+    "sha256": "23d9b1857e53bc56c01d39a82e1d447e722ab2ebdd8fd20971cb24f07004fc1a",
+    "size": 257
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/abi.log": {
+    "sha256": "9a5920360ff9f501c26b0ac50efdf6465407d535a853f083cc70ed201cb38ad7",
+    "size": 5471
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/authority-controls-result.json": {
+    "sha256": "34dfc50424f43e224318c865a13e71089278b58039cc31b7d8cb4f1ee42b0697",
+    "size": 299
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/authority-controls.log": {
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16",
+    "size": 704
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/authority-result.json": {
+    "sha256": "874337b8ae71dd9914e4d1dd31cb597fa8a5f6fb36fb3c2c95aa3887ec5951f3",
+    "size": 272
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/authority.log": {
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066",
+    "size": 88
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/ble_line-no-neg-result.json": {
+    "sha256": "4cb5c8c4cae46d6832285d48d0ace0b2772bbd76070d820049db058cb5b4898e",
+    "size": 285
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/ble_line-no-neg.log": {
+    "sha256": "fc95c7272eb10606d80df7783363e8aa31d227746ad16749d68df7219cd81514",
+    "size": 5463
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/ble_line-result.json": {
+    "sha256": "d127ad9fbf047df1ee901496571b5dd511de6b0f1adeeda6d2f8514e1924e4d1",
+    "size": 263
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/ble_line.log": {
+    "sha256": "f5c6ff9bec4f5e71be26a961a2892ece894ad9bb6816b1805c3925df16883060",
+    "size": 6774
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/board-ui-result.json": {
+    "sha256": "358d5ae8e00ad2dfb30ff02edacd749e9b1c21676e55c61879ade380f3a78658",
+    "size": 279
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/board-ui.log": {
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/census-result.json": {
+    "sha256": "d8bab8f88195b0fbd08775a61e82d092d38570d8e43e36753c2a34980e11cbc7",
+    "size": 259
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/census.log": {
+    "sha256": "d262580bd104cc0d78af21750eb6dda10e4ebfbb5daea8723a3054e1ec2e588e",
+    "size": 850
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/console_sink-no-neg-result.json": {
+    "sha256": "495d585f2b1c8e21fbace589ec0db249161768a195b3e2b6657fc71f4cd9268d",
+    "size": 293
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/console_sink-no-neg.log": {
+    "sha256": "c8b8d2faf193a59046bd3abf1b0145294ae33ebb5a8b35d86aa7786c0f51d413",
+    "size": 14781
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/console_sink-result.json": {
+    "sha256": "28167f7c90936e31c6ef54c064a7e53a7fd87d14e62de101b6a56656dd817a2b",
+    "size": 268
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/console_sink.log": {
+    "sha256": "be33f39753c9c3dc13cbfe9851f9a24e68af5b57e0db10e0d439172583c0e4e1",
+    "size": 36394
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/corpus-result.json": {
+    "sha256": "2ed3dfd7b7b37d4bccaffa34e356f1deca4c25608ceaaf4e7999a9a4c52ac714",
+    "size": 429
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/corpus-validate-result.json": {
+    "sha256": "fd8b78e13c42728465bd7c4c62b51e96ab611044a35576cb28f71fc99f82a4c4",
+    "size": 326
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/corpus-validate.log": {
+    "sha256": "2feef021862fd73a399da1a76f2ef4d34d68cc289fb7dda3af99a897ea6b5896",
+    "size": 120
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/corpus.log": {
+    "sha256": "d93170e3cbceb230215f2204556538e52eccaf98f1839f95b692d25ac8762e52",
+    "size": 3352
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/custody_usb-no-neg-result.json": {
+    "sha256": "acb4ffc58fc7a4437391d16cc20a9e25020b4103700f0e1e73a823cc6557535b",
+    "size": 292
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/custody_usb-no-neg.log": {
+    "sha256": "7651c0fdbd4144a743665f963bcb5cc47bfd81a78eae07a1ea227298cd665702",
+    "size": 2570
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/custody_usb-result.json": {
+    "sha256": "4d24d8f1dfd6c977a7a2846f7768e9ce220592fe891d0d196086bb291b50763d",
+    "size": 268
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/custody_usb.log": {
+    "sha256": "c9450aa2d7064fe746d3075531180ba75be7b71b48acda212d47215cde885de9",
+    "size": 3835
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/deferred_actions-no-neg-result.json": {
+    "sha256": "e793beeb7cd5fc77878d4a0d12e926d5994b51630412f2e7e28332635ed29f23",
+    "size": 301
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/deferred_actions-no-neg.log": {
+    "sha256": "37587199376a1f6b70ff6818a86bb694943d7767cfe6bc2ef47fcb7923afe1f1",
+    "size": 204
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/deferred_actions-result.json": {
+    "sha256": "22368c559119fbcde92925c3d90714f61538dcb86e2b635b6a8eb7b0c81b88b5",
+    "size": 279
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/deferred_actions.log": {
+    "sha256": "c3db2c1ea10a767affba95872a2ef7767f1a9a41659484ef6a0890f91586bf42",
+    "size": 238
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/features-no-neg-result.json": {
+    "sha256": "e883febdec9b33a8a2e87c70752df1b9a1e64940417fe9125c64ae70b9cedfe4",
+    "size": 286
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/features-no-neg.log": {
+    "sha256": "8cc2690539833de9a9a6e1321ec638ee7ecc4d2346eddb0dc3289d53222de61e",
+    "size": 15155
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/features-result.json": {
+    "sha256": "f1a9d8144d480951038bbd43ede6a34dd7397536cde084b56aa0774b3e59fe5a",
+    "size": 262
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/features.log": {
+    "sha256": "be80be70e2b9f538dcb4e965dc0d9c8df3617dfbc5533d6e8f4ca5ccd52eb7b4",
+    "size": 25046
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/firmware_ui-no-neg-result.json": {
+    "sha256": "6dc4f216d31c7700169f3fd99ef42aede80963cf9a0121d9ce41893ae1d40a28",
+    "size": 291
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/firmware_ui-no-neg.log": {
+    "sha256": "032141051ccaa3bbc5cd3d999ddb9f685ab2718fbbd6e0f8fa9b9451f3f512d5",
+    "size": 2284
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/firmware_ui-result.json": {
+    "sha256": "738e7b21dce461e3bf0743fe5e0fccb84a4d50d6cafe15195143f2e0ecdd307d",
+    "size": 268
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/firmware_ui.log": {
+    "sha256": "c680905c9b4f2ceca5bc66c6fba897ea45786d7eb0bb24e2df4b0a796dd63426",
+    "size": 38314
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox-client-result.json": {
+    "sha256": "865f239d0d6f34ae2cc94206d5c486be5d0df431c741745c947564c84599dccc",
+    "size": 306
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox-client.log": {
+    "sha256": "5a46824183b081a906f20294b2e37565853da6a82713440836ca8e2ae5d21148",
+    "size": 49185
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox_verbs-no-neg-result.json": {
+    "sha256": "9b80f8c436a7e5d284b12a4dd6b8ceb0b4ee732d19327e2c10f607d5328818fb",
+    "size": 292
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox_verbs-no-neg.log": {
+    "sha256": "057c9d55ce424bb62672cb41fa6c5c1c99ad50c24d740c5cacf685b51d4c5291",
+    "size": 124575
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox_verbs-result.json": {
+    "sha256": "e8b845fe01181597b05576a538c7cf582a2ee2733de34afbd0f5e145e65c461d",
+    "size": 269
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inbox_verbs.log": {
+    "sha256": "6c1e70329c0eead57f7ec9148a9ef92d221257989703882da67ec79baf9d7d4e",
+    "size": 153747
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-bare-result.json": {
+    "sha256": "6bb5b417bc406048c18c0ec0b18df36524a7c5df1ebe66bab32174226986ad6a",
+    "size": 274
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-bare.log": {
+    "sha256": "70bb16c1ae2795f8dc07a15682b143e4626a3da12c607feceb5b5cca537f402e",
+    "size": 186
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-check-result.json": {
+    "sha256": "885d797a30f3646b97f3e682101dfeced58a6d635b3e847195790c739919b52a",
+    "size": 289
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-check.log": {
+    "sha256": "70bb16c1ae2795f8dc07a15682b143e4626a3da12c607feceb5b5cca537f402e",
+    "size": 186
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-write-result.json": {
+    "sha256": "8f31d8f09a725b4a228c37784a61a2de30249a8c5492cbf3c6c3a01e99b882aa",
+    "size": 290
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/inventory-write.log": {
+    "sha256": "0ae10882f651bb9e3fb0fd2faf0574dd406197f80af3c3f86f982fe646c40f45",
+    "size": 147
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/literals-result.json": {
+    "sha256": "37757c29b9425c80071d44306434525fc1bd813fb0341bb74c9ab3043639b79d",
+    "size": 271
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/literals.log": {
+    "sha256": "82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930",
+    "size": 306
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/native-binary-result.json": {
+    "sha256": "5772a0f390f61d3fc5afee06dac8fac26edc644a1cb87596361eeee94dee0ade",
+    "size": 279
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/native-binary.log": {
+    "sha256": "54f7ba6112ce4b3e064ae8ddf0260e18ebd93459a43bfb7a90e1d3c058645d6a",
+    "size": 409
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/native-build-result.json": {
+    "sha256": "b9cd6fbaa77f70931be3b3bba1d98ac03fda9c68ed9141e227684ec223ea8590",
+    "size": 342
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/native-build.log": {
+    "sha256": "14d8c63e798429d9bf8e6b1fd7c6071cc16c8caa079dfe993f13b4b0aeb311f8",
+    "size": 5450
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/pair-result.json": {
+    "sha256": "479626fa567ea2301e7c6d2dac8b32925c4b5dc958f9eda4f15240345510fc26",
+    "size": 338
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/pair.log": {
+    "sha256": "749aab2b26f184686aa388b82c9cfa0c0b0892919ca639e80098eb8332de52eb",
+    "size": 959
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/reference-result.json": {
+    "sha256": "f0adb7964960c0e078ee715d1a63a0ccb79e8d4ff0704cac90827ee3744fe79b",
+    "size": 440
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/reference-slice9-result.json": {
+    "sha256": "e4832789d07852c713e3cd34f1c85899b7906e9f891c70a2bcb2b82496b34703",
+    "size": 443
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/reference-slice9.log": {
+    "sha256": "a74db8eea38852ea7d667d941530544295adf25fb8c01470bf2b0ca6c2918089",
+    "size": 3370
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/reference.log": {
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25",
+    "size": 2794
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/sim-build-result.json": {
+    "sha256": "0e0ffa1860a012bcbf3a577640fe9a599afc7f314ca12e6e8c4440a0d8e62123",
+    "size": 355
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/sim-build.log": {
+    "sha256": "49f115a209f609a31479e2e7652188c93ad1261724808098c82e19ef282ae550",
+    "size": 57384
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/sim-configure-result.json": {
+    "sha256": "6cd253722320e40806c7d098c7334e27e8e412e567f8a9016101e55b42f8bc75",
+    "size": 454
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/sim-configure.log": {
+    "sha256": "aa3d201b4511bdf54d1f6a14a6f9d7d1a3627930f58bdab0e391e911b2cc243f",
+    "size": 1005
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/tools-result.json": {
+    "sha256": "76c312ddae6336eb05410ca4fb9ada41ad577a9380009dbb3069ee2831a497e2",
+    "size": 329
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/tools.log": {
+    "sha256": "11c88f3443c04fefeda6d48ed7071b89fc3e4cb594cc7a8c0c5a99f4fcd8bc34",
+    "size": 71988
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/whitespace-result.json": {
+    "sha256": "c9709ae0e8a8a9d07ecf657b87efc80f5b55e12c791db6f1fb2c368420492724",
+    "size": 256
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/whitespace.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/xiao-mobile-result.json": {
+    "sha256": "fb217c470f84950c0132eabe991fb49aa3bc80ba3e7569fea63a9834813a8fbe",
+    "size": 290
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-logs/xiao-mobile.log": {
+    "sha256": "3850a236fb91373336d6d2560b7131a4562f67b796499e96b22d3b8c8f3e4085",
+    "size": 15795875
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-sim-results.json": {
+    "sha256": "90d117cc666e05c7d7a9dd4d150aeb14b89a1d0740b3fc382f2c0b5fe5a6d73c",
+    "size": 1703
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-tools-results.json": {
+    "sha256": "28ad27633132d3390a1d62f11a5e4db5f4a1f39ba21e22448fcc4e26faaf926f",
+    "size": 369
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/a0rx.log": {
+    "sha256": "4a619c4624efda0f2d82acba354fc12159f14fd6adc108d05cbaffe18c8277ef",
+    "size": 6350
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/actionadmit.log": {
+    "sha256": "c48b17521b14c4bd7f4a5388e3c43b48a10e82e2d4e2030c531b05b8fea3a1cb",
+    "size": 4360
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b134ack.log": {
+    "sha256": "5b8fd38cdc5b4826246cba8e088db4870f113eb74b9b01b50da579fe3508de82",
+    "size": 2874
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b134inbox.log": {
+    "sha256": "1a586adcd7b095385dd498e96de42d7660c12ee457cd2bbfbdf1add3a61c0e5c",
+    "size": 5059
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b134ram.log": {
+    "sha256": "2f143d8daf70c5b5359f9aada6e185eac2ea0a474c169405c4b913e682784d69",
+    "size": 4041
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b134store.log": {
+    "sha256": "18f9b74e11054721ef90c03ad1d0277201b5e62b446d9b2df9fabc089e4a3196",
+    "size": 22817
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b159mac.log": {
+    "sha256": "e8550fc892850ba2453a5d37ab645ad87a13fb3ca93f58da1e78f954b9b2e310",
+    "size": 2564
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b159map.log": {
+    "sha256": "ca05773f30d3b58994a583654d118c7b595c232bc26af4887a7fe59a9ad14b5f",
+    "size": 2544
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b159rx.log": {
+    "sha256": "e772022d098cb7f183d614e081b4ee9f3e257ec3f520cec5f0a4c04507a11246",
+    "size": 3404
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b161hash.log": {
+    "sha256": "49ac122342ba6b5c22a5be0503bf60fe81fce242f3cfc4ff7f87b1f101283afe",
+    "size": 4339
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b161mac.log": {
+    "sha256": "d864400c54e1f173c8ecd17c2da5707e3e5190c52adda75d909023549b4b12c8",
+    "size": 1692
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b161rx.log": {
+    "sha256": "c3b0c13ed39d210f1cd593825a105c0fa6a7a8ca172256aa5a72693a21126a16",
+    "size": 4897
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b20codec.log": {
+    "sha256": "e7ccd660b342c868233d2141bef8601d562deacb6e09d99ccf27e9ada3e42860",
+    "size": 5078
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b20mac.log": {
+    "sha256": "03f54d909b33eee6e904db0e540d49b3c475e316cfa2b8263538a44e7002368f",
+    "size": 8369
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b251hash.log": {
+    "sha256": "b552eeb296be3c0d4488ef39ff31bfaf7ccc4a9cc828dfedb3fd25fcaef47e06",
+    "size": 22178
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/b251rx.log": {
+    "sha256": "38d57dbbdb1fa3af5730f36942f617ace220ba847d1da89f381033920c5f07c9",
+    "size": 8817
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/cmdauthority.log": {
+    "sha256": "04d39a0086ffd5def7ee9bc09678584c4eda63b2479ddc24ac9b918151e7cd02",
+    "size": 5774
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/consoleline.log": {
+    "sha256": "cd00d561eee7d8b10a60f154916d37905ec5f03bb3c002a9c7c81dbf4a819e80",
+    "size": 4703
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/devicenv.log": {
+    "sha256": "d365b61d9c8e85f46d3e4db2cb4345c55d687544c509cfa468820b190237b700",
+    "size": 15672
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/fwactivation.log": {
+    "sha256": "bdad22603a57ec91030efeabea80f040fedf298e2917f5d1188057c11c5ec8e2",
+    "size": 4388
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/grantadmit.log": {
+    "sha256": "bac40a80dc53261ddbacd570aba5b4783e73df9fd9af3971f664872e948beab6",
+    "size": 1841
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/grantpark.log": {
+    "sha256": "9945bd6d0c31eed6591edb078f7fcbbcf411c18e742bdf0cffc28a38ec973dc2",
+    "size": 4101
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/macwait.log": {
+    "sha256": "3358242938ceed26c2990ee4ca6ef5f0e5a2dfdaf6df28178d7d1d6325eea416",
+    "size": 4524
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/native-inputs.json": {
+    "sha256": "1f3ec784eb9bd703cac8b9639a6ff41e2b05a94fd440c36b5db5c012f23950ae",
+    "size": 21899
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin2codec.log": {
+    "sha256": "57788a58b8bbcdb0ea35f74b2af5130d65a4fdffc22501d33171441f9c59e67f",
+    "size": 33988
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin3acl.log": {
+    "sha256": "4c7f4f2c08d0370aceec77d6c63464015cfcfb7473d2aea02d6b8a9af4fb845b",
+    "size": 12863
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin3id.log": {
+    "sha256": "9ce255da2320f76681ed820210bfb1115d4beb067e1af82597e9d2adeef40274",
+    "size": 9410
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin3verbs.log": {
+    "sha256": "cd2cacd2b5fd89e710fd2a251df033f91541efcd526783792dcb4574092fa75f",
+    "size": 10405
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin5runtime.log": {
+    "sha256": "cf3cba1c43ddda9efb5361db8383a02e9287956997307a49edbcf98fa096aeda",
+    "size": 9450
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin5rx.log": {
+    "sha256": "cb6f34aafc9b38d60678085593086a1ba7cedc4e27316242476252f53310bab3",
+    "size": 8245
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin5session.log": {
+    "sha256": "acf466bae8ba4718c86c7ede3bc04ecd9310791a7167340c0633e7390f911dca",
+    "size": 13754
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin72rx.log": {
+    "sha256": "cc23d01a2afd46d83c9cbbd04997c1951804afe5c735d0078bbce0b9482f6efb",
+    "size": 5597
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin72session.log": {
+    "sha256": "8978d22cd05fb90eb6357de1e1039eebbe86594a871c07620646648d0edd1913",
+    "size": 10060
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin73action.log": {
+    "sha256": "4af5c2b0654a8a3dccdb446f442d5e4a7605ddd21ceaf1fa085e51a46d9eb91b",
+    "size": 8922
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin73convert.log": {
+    "sha256": "270fd6f8f549429437e553cfc4658e2e17ccceb183e03e5e62ee4c1f0ab7863e",
+    "size": 4490
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin73node.log": {
+    "sha256": "c626f31882ddaa563737dc3662bd938d164e17909ef903038cc33ee9386e2f95",
+    "size": 3407
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin7exec.log": {
+    "sha256": "ca4c051d84522a2dc456589b451ab7b8edf2adde1a9ec74d73eb111bb9b957a8",
+    "size": 6595
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin7rx.log": {
+    "sha256": "3984da07f119f0d561c49202908bef50a86c0ebd62ed6a60cce9b98285861462",
+    "size": 5575
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin7transcript.log": {
+    "sha256": "13686596a5eda8565e970939291e7d3e3c271e26eb25bf749f1644522303c82b",
+    "size": 6452
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin8brx.log": {
+    "sha256": "ab502c5cb0b2e80d9475afd4b4e6cf0e2a446e953331c510a4348c6a0d7d6aa3",
+    "size": 5928
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin8client.log": {
+    "sha256": "277ce7cae0a95efe261d3f826db311841b0eb5510de568802ff183c1b6acd231",
+    "size": 12985
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin8node.log": {
+    "sha256": "53893ea924b4a43287e80d96ff0ffde7ec6b669207ee03eb15f709410dc63c0d",
+    "size": 1622
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin8rng.log": {
+    "sha256": "41d142bf583e24becc14369d790003b132424983b0e63adca24f9f421ebaec84",
+    "size": 1590
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/radmin8verbs.log": {
+    "sha256": "b0e8cb16d99396966d786e1a536d3ab3341f54c4edab3f64b48a9876fd364558",
+    "size": 7292
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/remoteactivation.log": {
+    "sha256": "4c5dab89dddbc8bb8c514f1e3b50c896cb116633aaaa2995e20d243b537ff442",
+    "size": 6486
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/results.json": {
+    "sha256": "7ff057dbcaf1f81daf401c18794ba5c30685aa1ee0a369ad6cfd6562f545d18b",
+    "size": 18331
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/selectors.json": {
+    "sha256": "3e3712749ba6f5f8dc8ae1f1ffcc8266088eb51ebfd4cc2a551e7dc60777adbb",
+    "size": 14330
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceAinbox.log": {
+    "sha256": "a4dbf99693f609a78e6dede754f2b71610a8d63f976e162dc847f21225336fd9",
+    "size": 1857
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceAjson.log": {
+    "sha256": "3139ee02d92713be776f94cdb97c9d4d5d785de082230fc4aac1a134338e6c48",
+    "size": 1890
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceBmac.log": {
+    "sha256": "55168dfb13a2c529624a28168168002386a4bcee9e3fc3edd96ddbdd6d02c345",
+    "size": 4669
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceBnode.log": {
+    "sha256": "89d6bbdc59138ca3304c16a812a0e098641a12ce7e1bcb10f7bf42ad19d9c4ff",
+    "size": 7248
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceBrx.log": {
+    "sha256": "d0dfa96fc61804856c7ce01f213031ec6b07319e53375a8b62c59e3358a78604",
+    "size": 10254
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceCinbox.log": {
+    "sha256": "4ea5b03097cd7da9d5668f08faa6ee8823f40388203470f9480761c69c8fde79",
+    "size": 3032
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceCpull.log": {
+    "sha256": "14fffef28bd3fa588f2034d9ddea64a49aa48025b7b61e4f8b2b447a51a45f80",
+    "size": 2944
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceDack.log": {
+    "sha256": "28377dca8fdf38c07922125979d7620af0b69c5b8835c1e05f2474f8370e3111",
+    "size": 1923
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceDclear.log": {
+    "sha256": "047f5b56b422c26189114d1b5d8f350fa25d87690d9760b1724a03d13ee2f592",
+    "size": 4859
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceDstore.log": {
+    "sha256": "f82575a0523bcd4403045c1eea9380a73bfbcc7edee472ff5f6290596e9defc3",
+    "size": 4121
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceDtoken.log": {
+    "sha256": "66e907bd5c61a1404790963359f44ef820f06a418837e42a6c0605247871416d",
+    "size": 2784
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceEnode.log": {
+    "sha256": "f0d7bb3fd52a1abcd9b75db3031d9f7c05bb65d8b0db14faa906e1a7aa02fe1a",
+    "size": 4369
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceGinbox.log": {
+    "sha256": "009948ab713747124d4aff2ae2970188e1a7ce2de176bf0146f93958d166d3d4",
+    "size": 5215
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceGjson.log": {
+    "sha256": "57c4166a3464d9ec4258d43960fc4c6b8e6755c55ca94bf378b52c319d80de78",
+    "size": 14056
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/sliceGrx.log": {
+    "sha256": "d41dece1b2968cc3923099dbbf8eee363ca002825bcfa0705fc3a8bf6014d7e6",
+    "size": 30701
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/teamgrant.log": {
+    "sha256": "d206ccee697fe0dc3b2d2689133081abfa9627601e390671216b9754422609cb",
+    "size": 4593
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/final-union/teamkeyring.log": {
+    "sha256": "c620c9f50a6f6d4de6d1dbdef2f3f9ae6733e797c8c2d6e89357ed1c37842172",
+    "size": 33661
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/frozen-primary-inputs.json": {
+    "sha256": "46bb349a644bcddc1699d84aca8a03d494b46babd2fb1d3c542a729fb64e50d4",
+    "size": 50186
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/gate-summary.json": {
+    "sha256": "55d6e7aa57fbd71257c786837cae711026407a30016684ab786e8a62ded9f874",
+    "size": 8483
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/initial-final-boards-results.json": {
+    "sha256": "98568476f2a23fc45818eff2cfd294e57a2fa7762e04d9f4a3671309294611ea",
+    "size": 375
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-inputs.json": {
+    "sha256": "9e2a47e994802c2546d671f625a0e687315b75ca5e90e0b369b120b61ac2292c",
+    "size": 671646
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/board_ui.json": {
+    "sha256": "5a2febbe6f7295176dc417fe5bb662776520ccfba916cb5bdd97491b67ae43fc",
+    "size": 128
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/board_ui.log": {
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "size": 1851
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/console_sink.json": {
+    "sha256": "55aa9d601723baacae6070c0f47ae9c58c20760bd4c4f803925b34c9553b1568",
+    "size": 131
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/console_sink.log": {
+    "sha256": "a15f726a93a80287bc454e906e2dcf1f52718f45cf9572b9f2e96a3c9117f634",
+    "size": 14781
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/deferred_actions.json": {
+    "sha256": "7febfd1b7863a58a33778eb8ba0b53cab765827afa3d98984a8846cbd0bca10f",
+    "size": 136
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/deferred_actions.log": {
+    "sha256": "e41be0b4374d40e0268fb29cd61ff3e514e44e0e191c928ae8766a55efe4453e",
+    "size": 204
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/inbox_verbs.json": {
+    "sha256": "0af57c03da2121fdbfbcc001e28fac7b57b332ac800c8644e3266a2dc3a83cc3",
+    "size": 130
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/inbox_verbs.log": {
+    "sha256": "5b87481f36a48f9b86f046299ad935ea8506589c5e7cf079aac9583f92e98f20",
+    "size": 124575
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/native-build.json": {
+    "sha256": "b51ebc725b74a05739b6e6c3f68102878acf9cc245cb828c6c0582d0fb07f35b",
+    "size": 192
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/iteration1-logs/native-build.log": {
+    "sha256": "ad2e3fd7260d70dfc63efd56605359e3b30a27ffce2e7f9cbba5a2abb201f5a0",
+    "size": 6145
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/measurement-index-projection.json": {
+    "sha256": "b90507a18dd22a12f4112e46ed51392ea227e8c4e433a3d9087ebfc707f7e155",
+    "size": 1335
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/measurement-index-verification.json": {
+    "sha256": "47c04ab7707a547e39aea92576f132f3d75dddd92e2585104cc91ac17430b50e",
+    "size": 399
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/native-pin-derivation.json": {
+    "sha256": "c73fdb6821a9cae805c7636c0dbf13b03a7bc5b13bd54aed6c9c10ff6c6d3bfe",
+    "size": 850
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/native-repair-binary.log": {
+    "sha256": "54f7ba6112ce4b3e064ae8ddf0260e18ebd93459a43bfb7a90e1d3c058645d6a",
+    "size": 409
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/native-repair-build.log": {
+    "sha256": "fbbc4ef7a9c0ab36ef0d8b63eec09784af5712eec6ecbf01c0379f82c5696935",
+    "size": 382
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/overlay-content-inventory.json": {
+    "sha256": "f0216e0bc5e22aec32d9adca83faf1835e20f62dd0fb92c0435eaeb4966cf80b",
+    "size": 23443
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/post-gate-deltas.json": {
+    "sha256": "9a2d3aa106194bfe6db7a5032c4d8bc2210f3184debbeb637746d3ce4df8421a",
+    "size": 924
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/preparation-inputs.json": {
+    "sha256": "de1596ae900afd74578d79150b51c956b1229c6505d360ae1616b0e3cba79ae1",
+    "size": 671646
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/preparation-to-candidate-changes.json": {
+    "sha256": "074f8366643a8a0cce2329a00325ad8311af0f09bc44b416a90237769b34c677",
+    "size": 690
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/resume-changed-inputs.json": {
+    "sha256": "ee1e16c874f0a593c56a613bfd893064cb9aff04f6bbdb47470659fa233a1477",
+    "size": 244
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/resume-status.txt": {
+    "sha256": "991079049032f61cb1533d77fb2274babd0278ed640db3a032cfa73a352df977",
+    "size": 9224
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/sim-driver.log": {
+    "sha256": "4d59a7dbf845b146cf599c247c471fadbc927be1515af1e4d02bde01c254e50d",
+    "size": 166
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/source-audit.json": {
+    "sha256": "3f1fd2d0ea6a1de3df83e345044c3058352fd930e5c274b197dfeda6814689be",
+    "size": 4702
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/tools-driver.log": {
+    "sha256": "b7fe702b0f54616b94be2f55ea2b67391a4d5138a55935d893cd23c0bfcc4b59",
+    "size": 246
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/unchanged-reference-and-unfenced-inputs.json": {
+    "sha256": "38df765ad32b33cb0cb04e1f32701a527f2a7103fc1104d77e2f142d09a5af5a",
+    "size": 902
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/union-driver.log": {
+    "sha256": "a2f1a5e3a4cad7786122fb6ffd04e9fbe455be14391a2f6aeaaf1913127abb89",
+    "size": 2101
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/union-inputs-inputs.json": {
+    "sha256": "86b6fad1d777f6b7707c1d4c8fef7b41cb22a18739bae6c854d6f0d59a6e5c75",
+    "size": 671645
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/base-gateway_heltec.log": {
+    "sha256": "b361b283bb8327106d27303a8321c365b3941b178d515966f4168a5450fe4ffe",
+    "size": 62336
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/base-heltec_v4.log": {
+    "sha256": "adb701a709cf969190556e0c0331cf2def52a27ef0632284ddfed780a9424dc8",
+    "size": 64523
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/candidate-gateway_heltec.log": {
+    "sha256": "c047971ab443cb02aeefbb1cc2326fc05acf49c9c1ce35ad88519b60630036a8",
+    "size": 62515
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/candidate-heltec_v4.log": {
+    "sha256": "2acf0ff199214be2fc87503e94d3ade5bfadfd9b3b3ec64da0c4b12b51b84ee9",
+    "size": 64392
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/diff.json": {
+    "sha256": "ac41fe047667b29eb3c5f7e9d8af4f7326576caf4d421231bca3d15ef9f45005",
+    "size": 893
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-attribution/results.json": {
+    "sha256": "003a822618faf5da852fb2858089a814ac41d640e3df0eed1d9122ca963d502e",
+    "size": 7872
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-r4-checkpoint/warning-driver.log": {
+    "sha256": "fef333fd31245c8cacc7444472bfc6c79ba3420820ce679550f0d3d3bc7837e8",
+    "size": 1012
+  },
+  "docs/superpowers/evidence/2026-09-19-radmin-slice9-reference.py": {
+    "sha256": "23ab8eb6fa64791b306ffd2ad26cc90a07cf4ef313ad746057250005d3b56f54",
+    "size": 5123
+  },
+  "docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md": {
+    "sha256": "f14e9ea4391aa8ff6af58e3777e47f6aa55b41657821798a8df585173541851c",
+    "size": 139555
+  },
+  "docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md": {
+    "sha256": "1da510e8d3a9019f6d5ee59c1c5984971b4d730e96a19096aea30a7cdc8bfa59",
+    "size": 98074
+  },
+  "docs/superpowers/plans/2026-09-18-radmin-slice9-legacy-deletion-and-protocol-docs.md": {
+    "sha256": "6eb070f1ada27081e96d84564a0655a53e3b011f71a43a03109a1aebcb2a2b9e",
+    "size": 35847
+  },
+  "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+    "sha256": "3f5d69a864ce3997bf8c51b4e9ae41f9608a6dda4bf8dd96e469fd2ddf3c1d37",
+    "size": 220966
+  },
+  "ios-companion/INBOX_SYNC_CONTRACT.md": {
+    "sha256": "d4632c089c10836d6fb402ee5daf7f549213637e1a7d197348707fd2dc5f2f2d",
+    "size": 131836
+  },
+  "lib/core/mr_features.h": {
+    "sha256": "b7cda916fa78c46c9fd68ad34f51bae7cd906ca8e8fffda6cf409aa9d9912c32",
+    "size": 6197
+  },
+  "lib/core/node.cpp": {
+    "sha256": "f33b971c89cfabd239022327da07d8549ba05fe98e16547a76d2df7bbf7b5317",
+    "size": 230357
+  },
+  "lib/core/node.h": {
+    "sha256": "6c47357b08bad6a2208caeec7b77b5813dc920b777920ac79072979864295826",
+    "size": 444873
+  },
+  "lib/core/node_carriers.h": {
+    "sha256": "6cb2bdccb862aa0f28294ade9798bca048412a103a66dc2d47bbbd267c0bb3bb",
+    "size": 62763
+  },
+  "lib/core/node_mac.cpp": {
+    "sha256": "8517502a36354ca82d792ba15c3406ac06e58b60b2339bba41858fe4996cd9a1",
+    "size": 222184
+  },
+  "lib/core/node_mac_rx.cpp": {
+    "sha256": "2c198c142ac40f6d50ecc50244d5d58a4c97a03a451bc47dea82c7d8cb94b961",
+    "size": 292057
+  },
+  "platformio.ini": {
+    "sha256": "722253904b11888dc79938cf352289e3c466090dc1d294a7c80ba946d0574390",
+    "size": 36280
+  },
+  "src/firmware_command_authority.h": {
+    "sha256": "5b3ab3fc15dd899a406607e6391c3283d0b119bad46bac97fe1c72f0674fa49f",
+    "size": 15118
+  },
+  "src/firmware_commands.cpp": {
+    "sha256": "761f3d43129e7c5b6d0e31b156abd963039aef85ebd7d0935382ab0705a2db15",
+    "size": 144462
+  },
+  "src/firmware_config.cpp": {
+    "sha256": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+    "size": 204712
+  },
+  "src/firmware_config.h": {
+    "sha256": "63fbc899277f7ce35d1442c744c23fb593d701f79f4464776dcdb5b4cbe96f2e",
+    "size": 18933
+  },
+  "src/firmware_help.h": {
+    "sha256": "5f552f88dfc9aeec03fbdc2486f407b9101814ae21e6364510a6c9048444c795",
+    "size": 9999
+  },
+  "src/fw_context.h": {
+    "sha256": "f9006f7da6292d2cc4e8b8b29311866502485104cd1a6cf2fac70ffe41a416de",
+    "size": 8517
+  },
+  "src/fw_main.cpp": {
+    "sha256": "8c23d04b48259322f3056d6476be3284ac0b003a902249fdf5227bd10055f3b7",
+    "size": 155335
+  },
+  "test/test_command_authority.cpp": {
+    "sha256": "403407f5ae1c3b4866ac8f3736ca600caeb186c32b1f86080090064d1aa7e1fc",
+    "size": 8226
+  },
+  "test/test_node_hashlocate.cpp": {
+    "sha256": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c",
+    "size": 319518
+  },
+  "test/test_node_r3.cpp": {
+    "sha256": "a6ee531c11c056d579ef566dd4746f7f00dbbe529e37329d9484ba892ae33454",
+    "size": 819679
+  },
+  "test/test_remote_codec.cpp": {
+    "sha256": "83b075c683a35a28d73fb40e2427aaf8c0b4543bf1f63601367e083e7e0cfb26",
+    "size": 482332
+  },
+  "tools/check_command_authority.py": {
+    "sha256": "2d44eef1452464c60029b01e551379be1a5ea91cccc5b7c50f6b4faabb9390bc",
+    "size": 6551
+  },
+  "tools/gen_command_inventory.py": {
+    "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "size": 67886
+  },
+  "tools/measure_board.py": {
+    "sha256": "65ecc700dd25e6de961f21d7ad793c17d425fb989832f147945f12ae1f3d40ad",
+    "size": 42327
+  },
+  "tools/meshroute_lab.py": {
+    "sha256": "abef8d6d610b15cc8346b74657dfcb6aec4fc10942e02cd216710654b557fbf6",
+    "size": 14856
+  },
+  "tools/probe_board_ui/run.sh": {
+    "sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+    "size": 138728
+  },
+  "tools/probe_console_sink/ownership.py": {
+    "sha256": "8e6a024bdd0b130adc0f398198fa970642a20adc0b9b75d4859fb3d003cd12b8",
+    "size": 14393
+  },
+  "tools/probe_console_sink/probe_main.cpp": {
+    "sha256": "f087651e66daaaca4238042438d60371b79a4817d4659397fd96345efaaa9eb4",
+    "size": 35617
+  },
+  "tools/probe_console_sink/structural.py": {
+    "sha256": "3ba8d1b91c51c95730b682f1cf330c89ef19814db2e81e9a4cbb25895a104863",
+    "size": 65161
+  },
+  "tools/probe_deferred_actions/remote_rows.h": {
+    "sha256": "ed8be70fa39ec8202cff998f6ff3b91e9d63ee5dd407907685894913900d4292",
+    "size": 19208
+  },
+  "tools/probe_features/ownership.py": {
+    "sha256": "34cac90d523698cf243cb1dc7dc53d9d083125507eced71650d59b80cefefe36",
+    "size": 44679
+  },
+  "tools/probe_features/probe_main.cpp": {
+    "sha256": "efa9988c1246692f41a941a6a9b35ea749376ccfa837be11c9e29553f5c99695",
+    "size": 5858
+  },
+  "tools/probe_features/run.sh": {
+    "sha256": "2e68285e9a2d013f5294b5d5622145185849920f8ab05c102005f65ac4b8b2bc",
+    "size": 36336
+  },
+  "tools/probe_inbox_verbs/probe_main.cpp": {
+    "sha256": "e3521b57ec8f0493571c9598c44ae8cdd326831819854cbc04773206f61a8ec2",
+    "size": 133952
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+    "sha256": "cac897912d573bcdcf9a0226156971e23ee398098772eee8e4bc55e685bc39af",
+    "size": 8924
+  },
+  "tools/probe_ui_model_mutations.py": {
+    "sha256": "a70e5343bf8a9a78afcfe44a03aef6edc7d21cdf36bb5e9624a463b83b5a637e",
+    "size": 1084491
+  },
+  "tools/test_check_command_authority.py": {
+    "sha256": "06635b36e183323a7234d18fdee0708ca83f71f4336c7e9898509985d6b5ec34",
+    "size": 2456
+  },
+  "tools/test_gen_command_inventory.py": {
+    "sha256": "f983496b7ccf61543df50e407d9a43d8f49f855bbcdd63625c543de861338d3d",
+    "size": 58407
+  },
+  "tools/test_measure_board.py": {
+    "sha256": "e07d20d576778ce2cf3e9859bcdf733523c65a0312281a7c24b3961ec5eed8c9",
+    "size": 45750
+  },
+  "tools/test_probe_console_sink.py": {
+    "sha256": "4a3c3eae62dbdbe982f226c44777b974008abcf5920628ead907b8cdc2a90a1f",
+    "size": 24585
+  },
+  "tools/test_probe_features.py": {
+    "sha256": "674ebf2b814762ab9293affd3c8469b297e2b03fa205615e67983b3abe6dfc89",
+    "size": 24443
+  },
+  "tools/warning_census.sh": {
+    "sha256": "255e339c51d819e50e4f08e423f51195cd603a15a9e659375848e447ab538767",
+    "size": 10324
+  },
+  "tracker.md": {
+    "sha256": "2726bdfe33dbeec7eb835471b86ae6a447ebce306834fdef74d5e0e815937516",
+    "size": 9631
+  }
+}

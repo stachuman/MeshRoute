@@ -1,0 +1,345 @@
+[
+  {
+    "name": "inbox_verbs",
+    "command": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 1009.4706010147929,
+    "sha256": "6c1e70329c0eead57f7ec9148a9ef92d221257989703882da67ec79baf9d7d4e"
+  },
+  {
+    "name": "inbox_verbs-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 48.337768990546465,
+    "sha256": "057c9d55ce424bb62672cb41fa6c5c1c99ad50c24d740c5cacf685b51d4c5291"
+  },
+  {
+    "name": "firmware_ui",
+    "command": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 539.8585521280766,
+    "sha256": "c680905c9b4f2ceca5bc66c6fba897ea45786d7eb0bb24e2df4b0a796dd63426"
+  },
+  {
+    "name": "firmware_ui-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 72.59599214792252,
+    "sha256": "032141051ccaa3bbc5cd3d999ddb9f685ab2718fbbd6e0f8fa9b9451f3f512d5"
+  },
+  {
+    "name": "console_sink",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 86.351177893579,
+    "sha256": "be33f39753c9c3dc13cbfe9851f9a24e68af5b57e0db10e0d439172583c0e4e1"
+  },
+  {
+    "name": "console_sink-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 21.67781402170658,
+    "sha256": "c8b8d2faf193a59046bd3abf1b0145294ae33ebb5a8b35d86aa7786c0f51d413"
+  },
+  {
+    "name": "custody_usb",
+    "command": [
+      "bash",
+      "tools/probe_custody_usb/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 29.55293618515134,
+    "sha256": "c9450aa2d7064fe746d3075531180ba75be7b71b48acda212d47215cde885de9"
+  },
+  {
+    "name": "custody_usb-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_custody_usb/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 22.943547531962395,
+    "sha256": "7651c0fdbd4144a743665f963bcb5cc47bfd81a78eae07a1ea227298cd665702"
+  },
+  {
+    "name": "ble_line",
+    "command": [
+      "bash",
+      "tools/probe_ble_line/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 11.457525718957186,
+    "sha256": "f5c6ff9bec4f5e71be26a961a2892ece894ad9bb6816b1805c3925df16883060"
+  },
+  {
+    "name": "ble_line-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_ble_line/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 1.492077685892582,
+    "sha256": "fc95c7272eb10606d80df7783363e8aa31d227746ad16749d68df7219cd81514"
+  },
+  {
+    "name": "features",
+    "command": [
+      "bash",
+      "tools/probe_features/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 90.97234012559056,
+    "sha256": "be80be70e2b9f538dcb4e965dc0d9c8df3617dfbc5533d6e8f4ca5ccd52eb7b4"
+  },
+  {
+    "name": "features-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_features/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 11.430848516523838,
+    "sha256": "8cc2690539833de9a9a6e1321ec638ee7ecc4d2346eddb0dc3289d53222de61e"
+  },
+  {
+    "name": "deferred_actions",
+    "command": [
+      "bash",
+      "tools/probe_deferred_actions/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 475.66913909465075,
+    "sha256": "c3db2c1ea10a767affba95872a2ef7767f1a9a41659484ef6a0890f91586bf42"
+  },
+  {
+    "name": "deferred_actions-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_deferred_actions/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 69.92761899158359,
+    "sha256": "37587199376a1f6b70ff6818a86bb694943d7767cfe6bc2ef47fcb7923afe1f1"
+  },
+  {
+    "name": "inbox-client",
+    "command": [
+      "env",
+      "MR_PROBE_ARM=client",
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 566.491956397891,
+    "sha256": "5a46824183b081a906f20294b2e37565853da6a82713440836ca8e2ae5d21148"
+  },
+  {
+    "name": "abi",
+    "command": [
+      "python3",
+      "tools/probe_board_abi.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 36.12846755981445,
+    "sha256": "9a5920360ff9f501c26b0ac50efdf6465407d535a853f083cc70ed201cb38ad7"
+  },
+  {
+    "name": "abi-b278",
+    "command": [
+      "python3",
+      "tools/probe_b278_row_abi.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 33.386851005256176,
+    "sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9"
+  },
+  {
+    "name": "reference",
+    "command": [
+      "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+      "docs/superpowers/evidence/2026-09-13-radmin-slice7b3-0-reference.py",
+      "--freeze-check",
+      "--compare",
+      "test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.5295974798500538,
+    "sha256": "6788ef4e9931eb8bfa609d72274f57f81693119ef3adb821327ba8bd5cff8c25"
+  },
+  {
+    "name": "reference-slice9",
+    "command": [
+      "/tmp/mr-s8ac-r4-b1edsao2/reference-env/bin/python",
+      "docs/superpowers/evidence/2026-09-19-radmin-slice9-reference.py",
+      "--freeze-check",
+      "--compare",
+      "test/test_remote_codec.cpp",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.6401434428989887,
+    "sha256": "a74db8eea38852ea7d667d941530544295adf25fb8c01470bf2b0ca6c2918089"
+  },
+  {
+    "name": "inventory-write",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--write"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 4.161004386842251,
+    "sha256": "0ae10882f651bb9e3fb0fd2faf0574dd406197f80af3c3f86f982fe646c40f45"
+  },
+  {
+    "name": "inventory-bare",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 5.148947760462761,
+    "sha256": "70bb16c1ae2795f8dc07a15682b143e4626a3da12c607feceb5b5cca537f402e"
+  },
+  {
+    "name": "inventory-check",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 4.52164339646697,
+    "sha256": "70bb16c1ae2795f8dc07a15682b143e4626a3da12c607feceb5b5cca537f402e"
+  },
+  {
+    "name": "authority",
+    "command": [
+      "python3",
+      "tools/check_command_authority.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.4676033519208431,
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "name": "authority-controls",
+    "command": [
+      "python3",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.4096745029091835,
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16"
+  },
+  {
+    "name": "a0",
+    "command": [
+      "python3",
+      "tools/check_a0_matrix.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.18566571548581123,
+    "sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f"
+  },
+  {
+    "name": "literals",
+    "command": [
+      "python3",
+      "tools/check_data_type_literals.py"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 6.183540400117636,
+    "sha256": "82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930"
+  },
+  {
+    "name": "whitespace",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 0.1774475909769535,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "native-build",
+    "command": [
+      "env",
+      "PLATFORMIO_BUILD_DIR=/tmp/mr-s9-r4-j37ybea_/native-build",
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 39.025479815900326,
+    "sha256": "14d8c63e798429d9bf8e6b1fd7c6071cc16c8caa079dfe993f13b4b0aeb311f8"
+  },
+  {
+    "name": "native-binary",
+    "command": [
+      "/tmp/mr-s9-r4-j37ybea_/native-build/native/program"
+    ],
+    "cwd": "/tmp/mr-s9-r4-j37ybea_/final-gate",
+    "exit": 0,
+    "seconds": 1.0366460084915161,
+    "sha256": "54f7ba6112ce4b3e064ae8ddf0260e18ebd93459a43bfb7a90e1d3c058645d6a"
+  }
+]

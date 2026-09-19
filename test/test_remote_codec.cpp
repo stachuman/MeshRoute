@@ -33,7 +33,6 @@
 #include <type_traits>
 #include <vector>
 
-#include "admin_auth.h"          // the REAL legacy codec, for the legacy-rejection fixture
 #include "dm_crypto.h"
 #include "frame_codec.h"
 #include "identity.h"
@@ -6066,41 +6065,25 @@ TEST_CASE("§radmin-2/slots — every legal session slot decodes, on independent
 }
 
 // =========================================================================================================
-// §8 — THE LEGACY FRAME. A real `admin_cmd_seal` body still opens under the OLD decoder and is not accepted
-//      as a v2 authenticated request. ⛔ There is no legacy-prefix heuristic and no trial-open with legacy
-//      keys anywhere in the v2 codec: the legacy body simply is not a v2 body.
+// §8 — THE LEGACY FRAME. Frozen last output of the deleted legacy sealer at 84edd3e.
+// The capture source/command is in the Slice 9 receipt; the independent Slice-9 reference freezes these bytes.
+// No v2 open may fall back to this retired protocol.
 // =========================================================================================================
-TEST_CASE("§radmin-2/legacy — an admin_cmd_seal frame opens legacy and is never accepted as v2") {
-    uint8_t admin_seed[32], node_seed[32];
-    for (int i = 0; i < 32; ++i) { admin_seed[i] = static_cast<uint8_t>(0x11 + i); node_seed[i] = static_cast<uint8_t>(0x71 + i); }
-    Identity admin{}, node{};
-    identity_from_seed(admin, admin_seed);
-    identity_from_seed(node, node_seed);
-
-    const uint8_t cmd[6] = {'s','t','a','t','u','s'};
-    const uint8_t rand8[8] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04};
-    uint8_t frame[128];
-    const size_t flen = admin_cmd_seal(frame, sizeof frame, admin, node.ed_pub, node.key_hash32,
-                                       /*counter=*/7, cmd, sizeof cmd, rand8, /*nonce_ctr=*/1);
-    CHECK(flen > 0);
-
-    // (a) the OLD decoder still opens it — the fixture is real, not a made-up byte string
-    AdminCmd res{};
-    uint8_t pt[64] = {};
-    CHECK(admin_cmd_open(frame, flen, admin.ed_pub, node, res, pt, sizeof pt));
-    CHECK(res.node_key_hash == node.key_hash32);
-    CHECK(res.counter == 7);
-    CHECK(res.cmd_len == sizeof cmd);
-    CHECK_BYTES("legacy plaintext", res.cmd, cmd, sizeof cmd);
-
-    // (b) the v2 codec does not accept it, in EITHER direction and under EITHER credential
+TEST_CASE("§radmin-2/legacy — the frozen legacy frame is never accepted as v2") {
+    constexpr uint8_t kRefLegacySealed[40] = {
+        0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04, 0x01, 0x00,
+        0xe2, 0x13, 0x6f, 0xfc, 0x9b, 0x04, 0x72, 0x12, 0x1a, 0x62,
+        0x59, 0xe8, 0xbd, 0x6b, 0xa0, 0xaf, 0x59, 0x50, 0x5d, 0x90,
+        0x3b, 0xcc, 0xbc, 0xf3, 0xfb, 0x1f, 0x51, 0x50, 0x69, 0xea,
+    };
+    // The v2 codec does not accept it, in EITHER direction and under EITHER credential
     const Creds c = creds();
     const RemoteKeys keys = keys_of(c.base, c.session);
     uint8_t ptbuf[P::max_payload_bytes_hard_cap];
     for (uint8_t outer : {uint8_t(DATA_TYPE_REMOTE_CMD), uint8_t(DATA_TYPE_REMOTE_RESP)}) {
         RemoteDecoded got = sentinel_decoded();
         std::memset(ptbuf, 0x5A, sizeof ptbuf);
-        const RemoteStatus st = remote_body_decode(got, outer, std::span<const uint8_t>(frame, flen), keys, src_ok(),
+        const RemoteStatus st = remote_body_decode(got, outer, std::span<const uint8_t>(kRefLegacySealed, sizeof kRefLegacySealed), keys, src_ok(),
                                               carrier_same_layer(outer, true),
                                               std::span<uint8_t>(ptbuf, sizeof ptbuf));
         CHECK_MESSAGE(st != RemoteStatus::ok, "a legacy frame decoded as v2 under outer ", int(outer),
@@ -6110,7 +6093,7 @@ TEST_CASE("§radmin-2/legacy — an admin_cmd_seal frame opens legacy and is nev
     }
     // the legacy frame's first byte is `rand8[0]`, which has no `ctl` meaning: nothing in the v2 codec looks
     // for the legacy shape, and nothing retries a failed v2 open as legacy or as open.
-    CHECK(frame[0] == rand8[0]);
+    CHECK(kRefLegacySealed[0] == 0xDE);
 }
 
 // =========================================================================================================

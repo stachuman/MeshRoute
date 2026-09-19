@@ -196,7 +196,7 @@ static void run_loop(int passes, size_t per_pass) {
 //   availability row circular — flip one and both sides move together. These expressions restate the owner's 0g rule
 //   ("under the same feature gate as its dispatch arm") against the SAME macros the command handlers are gated on:
 //   the `mobile …` arm is `MR_N_LAYERS < 2 && MR_FEAT_MOBILE`, `team` is `MR_N_LAYERS < 2`, `password`/`unlock`/
-//   `lock` are `MR_FEAT_REMOTE_MGMT`, and `ui` is `MR_FEAT_OLED`.
+//   `lock` are now forbidden on every profile; `ui` is `MR_FEAT_OLED`.
 //   ⓘ THIS IS THE SPOT-CHECK HALF ONLY. The COMPLETE both-direction set equality is done outside this binary, by
 //   `run.sh` comparing the emitted name block against `tools/gen_command_inventory.py --primary <profile>` — an
 //   oracle derived by scanning the real dispatchers, never from this header.
@@ -204,9 +204,9 @@ struct GatedName { const char* name; bool available; };
 static const GatedName kGatedNames[] = {
     { "mobile",   (MR_N_LAYERS < 2) && (MR_FEAT_MOBILE != 0) },
     { "team",     MR_N_LAYERS < 2 },
-    { "lock",     MR_FEAT_REMOTE_MGMT != 0 },
-    { "password", MR_FEAT_REMOTE_MGMT != 0 },
-    { "unlock",   MR_FEAT_REMOTE_MGMT != 0 },
+    { "lock",     false },   // Slice 9: explicit negative help checks for deleted verbs
+    { "password", false },
+    { "unlock",   false },
     { "ui",       MR_FEAT_OLED != 0 },
 };
 // The one line of a help response that is not a command name. `run.sh` strips exactly this before comparing.

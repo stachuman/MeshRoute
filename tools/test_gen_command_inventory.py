@@ -534,7 +534,7 @@ class TestActionAdmissionSurfaces(unittest.TestCase):
             *(("crashtest", mode, "action_crash_admit", "serial,ble", "owner D")
               for mode in ("hang", "fault", "reboot")),
         })
-        self.assertEqual(len(rows), 208)  # 8ac: four CLIENT controller forms.
+        self.assertEqual(len(rows), 197)  # Slice 9: 208 minus eleven deleted source rows.
 
     def test_each_new_caller_hop_must_exist(self):
         for rel, old, new in (
@@ -578,7 +578,7 @@ class TestActionAdmissionSurfaces(unittest.TestCase):
         rows = self.modified_rows("src/firmware_config_parse.h", "bool parse_confirm_token(",
             '// bool parse_confirm_token() { return false; }\n'
             'const char* example = "bool parse_confirm_token() { }";\ninline bool parse_confirm_token(')
-        self.assertEqual(len(rows), 208)  # 8ac: four CLIENT controller forms.
+        self.assertEqual(len(rows), 197)  # Slice 9: 208 minus eleven deleted source rows.
 
 
 class TestRealTree(unittest.TestCase):
@@ -659,7 +659,7 @@ class TestRealTree(unittest.TestCase):
         for s in G.SURFACES:
             kinds.setdefault(s.kind, set()).add("%s::%s" % (s.file, s.func))
         seen = {r.surface for r in self.rows}
-        for kind in ("top", "sub", "caller", "remote"):
+        for kind in ("top", "sub", "caller"):
             self.assertTrue(kinds[kind] & seen, "no rows from any %s surface" % kind)
 
     def test_representative_real_rows(self):
@@ -682,14 +682,14 @@ class TestRealTree(unittest.TestCase):
         self.assertIn(("whoami", "—", "ble_dispatch_line", "ble"), cells)
         self.assertIn(("status", "—", "ble_dispatch_line", "ble"), cells)
         # the legacy over-the-air remote-admin set that v2 replaces
-        self.assertIn(("password rotate", "—", "remote_exec", "radio(REMOTE_CMD)"), cells)
-        self.assertIn(("reboot (alias: prep-restart)", "—", "remote_exec", "radio(REMOTE_CMD)"), cells)
+        self.assertFalse(any(row.transports == "radio(REMOTE_CMD)" for row in self.rows))
+        self.assertIn(("reboot", "—", "dispatch", "serial,ble"), cells)
 
     def test_feature_gates_are_recorded_with_their_exact_macro(self):
         gates = {}
         for r in self.rows:
             gates.setdefault(r.gate, []).append(r)
-        for macro in ("MR_FEAT_OLED", "MR_FEAT_REMOTE_MGMT", "MR_N_LAYERS < 2",
+        for macro in ("MR_FEAT_OLED", "MR_N_LAYERS < 2",
                       "!(MR_N_LAYERS < 2)", "MR_N_LAYERS < 2 && MR_FEAT_MOBILE"):
             self.assertIn(macro, gates, "no row carries the gate %r" % macro)
 
@@ -734,14 +734,14 @@ PROJ_ARMS = (
     '    return false;\n'
     '}\n'
     '\n'
-    'static size_t remote_encode(const char* verb, size_t n, uint8_t* enc) {\n'
+    'static size_t fixture_radio(const char* verb, size_t n, uint8_t* enc) {\n'
     '    if (n == 6 && !strncmp(verb, "reboot", 6)) { return enc_reboot(enc); }\n'
     '    return 0;\n'
     '}\n'
 )
 
 PROJ_SURFACES = FIX_SURFACES + (
-    G.Surface("src/firmware_commands.cpp", "remote_encode", "remote", "radio(REMOTE_CMD)"),
+    G.Surface("src/firmware_commands.cpp", "fixture_radio", "caller", "radio(REMOTE_CMD)"),
 )
 # MR_HELP_HAS_MOBILE is the FIXTURE help router's own gate; it is a profile axis HERE so the projection can be
 # exercised with that arm both compiled and compiled out.
@@ -828,7 +828,7 @@ class TestPrimaryProjection(unittest.TestCase):
           `TestRadminAcceptAxis` below pins per profile rather than leaving to this one number.
         """
         rows, _n, _v, _r = G.build_rows(REPO_ROOT)
-        self.assertEqual(51, len(G.primary_names(rows, G.PROFILES["full_oled"])))
+        self.assertEqual(47, len(G.primary_names(rows, G.PROFILES["full_oled"])))
         # ...and the CLIENT arm is the control: a single full-build number could not tell a product GATE from a
         # global addition. `mobile_oled` projects 46 = its 39 router-owned forms + the 7 parser-owned ones, and
         # ⛔ neither target-store family is among them (pinned by name in TestRadminAcceptAxis below).
@@ -837,7 +837,7 @@ class TestPrimaryProjection(unittest.TestCase):
         #   full-build figure above is UNCHANGED at 51 because the CLIENT axis is 0 on every ACCEPT profile — the
         #   mirror image of the slice-3 movement, and exactly the asymmetry that makes these two numbers a GATE
         #   test rather than a global-addition test.
-        self.assertEqual(52, len(mob))  # 8ac: four CLIENT-only controller forms.
+        self.assertEqual(51, len(mob))  # 8ac: four CLIENT-only controller forms.
         self.assertNotIn("acl", mob)
         self.assertNotIn("admin-id", mob)
         self.assertIn("admin-key", mob)
@@ -877,38 +877,13 @@ class TestRadminAcceptAxis(unittest.TestCase):
         with self.assertRaises(G.GeneratorError):
             G.eval_gate("MR_FEAT_SOMETHING_NOBODY_DECLARED", G.PROFILES["gateway"])
 
-    def test_the_axis_is_INDEPENDENT_of_the_legacy_switch(self):
-        """A SYNTHETIC evaluator fixture: the legacy value varies while ACCEPT is held fixed, and vice versa.
-
-        ⛔ NEITHER combination below is a newly legal BOARD profile — `lib/core/mr_features.h` carries an `#error`
-           that makes the two agree until Slice 10 deletes the legacy switch. The point is that the GENERATOR reads
-           two independent columns, so the day that `#error` goes the table keeps measuring instead of aliasing.
-        """
-        base = dict(G.PROFILES["gateway"])
-        for legacy in (0, 1):
-            m = dict(base, MR_FEAT_REMOTE_MGMT=legacy, MR_FEAT_RADMIN_ACCEPT=1)
-            self.assertTrue(G.eval_gate("MR_FEAT_RADMIN_ACCEPT", m))
-            self.assertEqual(bool(legacy), G.eval_gate("MR_FEAT_REMOTE_MGMT", m))
-        for legacy in (0, 1):
-            m = dict(base, MR_FEAT_REMOTE_MGMT=legacy, MR_FEAT_RADMIN_ACCEPT=0)
-            self.assertFalse(G.eval_gate("MR_FEAT_RADMIN_ACCEPT", m))
+# Slice 9 retires the two tests separating ACCEPT from the deleted legacy switch.
 
     def test_the_axis_is_NOT_derived_from_MR_FEAT_MOBILE(self):
         """The two FULL static profiles set MR_FEAT_MOBILE=1 AND ACCEPT=1 — so that inference is simply false."""
         for name in ("full_oled", "full_headless"):
             self.assertEqual(1, G.PROFILES[name]["MR_FEAT_MOBILE"])
             self.assertEqual(1, G.PROFILES[name]["MR_FEAT_RADMIN_ACCEPT"])
-
-    def test_the_generator_source_carries_no_derivation_of_the_axis(self):
-        """A literal typed column, ⛔ never computed inside the tool (that is [[B319]]'s whole point)."""
-        with open(os.path.join(REPO_ROOT, "tools", "gen_command_inventory.py"), encoding="utf-8") as fh:
-            text = fh.read()
-        table = text[text.index("PROFILES = {"):text.index("PROFILE_ENVS")]
-        for name, want in self.RULED.items():
-            self.assertIn("MR_FEAT_RADMIN_ACCEPT=%d" % want, table)
-        for forbidden in ("MR_FEAT_RADMIN_ACCEPT=MR_FEAT_REMOTE_MGMT", "MR_FEAT_RADMIN_ACCEPT = MR_FEAT",
-                          "not MR_FEAT_MOBILE"):
-            self.assertNotIn(forbidden, table)
 
     def test_the_real_ACCEPT_gated_rows_project_onto_exactly_the_four_accept_profiles(self):
         """The rows are the REAL recorded ones, and the two families appear iff the profile is an ACCEPT build."""
@@ -1076,7 +1051,7 @@ class TestSlice6Normalization(unittest.TestCase):
 
     def test_real_normalization_and_discriminator_bindings(self):
         rows = G.build_rows(REPO_ROOT)[0]
-        self.assertEqual(208, len(rows))  # 7a's 204 plus 8ac's four controller forms.
+        self.assertEqual(197, len(rows))  # Slice 9: 208 minus eleven deleted source rows.
         refusals = [r for r in rows if "— refused" in r.subverb]
         self.assertEqual({("peers", "<args> — refused console_only"), ("joinprofile", "— refused gateway_build")},
                          {(r.verb, r.subverb) for r in refusals})

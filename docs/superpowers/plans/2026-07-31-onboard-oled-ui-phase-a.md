@@ -244,6 +244,14 @@ pure headers, which **removes both new warnings** and unlocks the `probe_firmwar
 > `heltec_v3` / `heltec_mobile` / `gateway_heltec` / `heltec_v4` / `heltec_v4_mobile` /
 > `gateway_heltec_v4`. This is a warning removal, not a relaxed ceiling; `tools/warning_census.sh` was updated in the
 > same edit as this B87 record.
+> **Slice 9 / B427 — warning removal, 2026-09-19.** Deleting `firmware_remote.cpp` removes one including
+> translation unit: RadioLib God-mode `-Wcpp` and `device_radio.h` volatile-increment `-Wvolatile` on all
+> six cells, plus RadioLib native-USB `-Wcpp` on V4. Fresh V3 and V4 before/after multiset comparisons
+> contain exactly those removals and no additions; all cells retain zero `-Wswitch`. The six live pins
+> become **175 / 175 / 171 / 179 / 179 / 175** for `heltec_v3` / `heltec_mobile` / `gateway_heltec` /
+> `heltec_v4` / `heltec_v4_mobile` / `gateway_heltec_v4`. This paired re-pin retains exact equality,
+> including failure on a lower count. Evidence: Slice 9 revision-4 receipt §9.2 and warning-attribution logs.
+
 ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
 238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
 **no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).

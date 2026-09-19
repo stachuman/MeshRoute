@@ -1,0 +1,22 @@
+{
+  "MEMORY.md": {
+    "before": "5f003b3955776e4b36190c1847b91af9604ef4c35874313f84c9ece686a9c628",
+    "after": "26ab86ea4ca5c8ad3572c75f714a7709ff33de31b7a090c6a6f1472ad257a2f7"
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "before": "a1e9b498a272e331765299fa70ede7fa6d350b75f5390aa6afe35f1650afc02f",
+    "after": "b308ca1b4db95724554e4add9c638f9df1f606b0a3399f80de6366eef7e0fd3e"
+  },
+  "docs/superpowers/plans/2026-09-18-radmin-slice9-legacy-deletion-and-protocol-docs.md": {
+    "before": "6ae75dfc1b7da467413b35778604e1dd31c98188b3c3cbf9352af460193a7676",
+    "after": "6eb070f1ada27081e96d84564a0655a53e3b011f71a43a03109a1aebcb2a2b9e"
+  },
+  "docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md": {
+    "before": "da52cfa60b0fcb0f8878a7e6007315cd39fb2c34e75e410cb58a95367a4009aa",
+    "after": "3f5d69a864ce3997bf8c51b4e9ae41f9608a6dda4bf8dd96e469fd2ddf3c1d37"
+  },
+  "tracker.md": {
+    "before": "7c6796a4102d8173edb101337c85236b2198d03d92f66adf69ac07f9ff12b7f7",
+    "after": "2726bdfe33dbeec7eb835471b86ae6a447ebce306834fdef74d5e0e815937516"
+  }
+}
