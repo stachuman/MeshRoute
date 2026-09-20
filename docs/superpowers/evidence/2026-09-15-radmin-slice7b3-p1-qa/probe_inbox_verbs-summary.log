@@ -1,9 +1,0 @@
-PASS
-probe: 1363 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1363)
-controls: 60 verified / 0 unusable (pin 60)
-PASS
-PASS
-probe: 384 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 384)
-controls: 45 verified / 0 unusable (pin 45)
-PASS
-BOTH ARMS PASS

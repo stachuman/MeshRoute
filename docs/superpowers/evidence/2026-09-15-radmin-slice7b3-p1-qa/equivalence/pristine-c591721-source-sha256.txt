@@ -1,3 +1,0 @@
-baseline-src/src/device_ota.cpp
-baseline-src/src/firmware_commands.cpp
-baseline-src/src/fw_main.cpp

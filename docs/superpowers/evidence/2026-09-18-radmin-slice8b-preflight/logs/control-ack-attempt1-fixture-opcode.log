@@ -1,9 +1,0 @@
-FAIL actual sealed control opcode
-remote t -e rollover -> submit_request(e2e_ack=false)
-FAIL actual sealed control opcode
-remote t -e -a rollover -> submit_request(e2e_ack=true)
-FAIL actual sealed control opcode
-remote t -e rollover confirm -> submit_request(e2e_ack=false)
-FAIL actual sealed control opcode
-remote t -e -a rollover confirm -> submit_request(e2e_ack=true)
-control ACK characterization: 36 checks / 4 failed

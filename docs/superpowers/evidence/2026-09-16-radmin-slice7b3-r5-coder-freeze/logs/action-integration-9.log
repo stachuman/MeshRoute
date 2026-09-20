@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 188, in <module>
-    if __name__=='__main__':main()
-                            ^^^^^^
-  File "/tmp/mr-codex-s7b3-0gt630zl/gate/tools/probe_deferred_actions/run.py", line 180, in main
-    assert (row['remote_checks'],row['radio_checks'])==expected_remote,(row,expected_remote)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: ({'name': 'b0-p1', 'cpp_sha256': 'd9ea37a30a6eaef683c6cde7591d6592543b2391463d3172d2738fe0f20f90e1', 'remote_checks': 416, 'radio_checks': 3160}, (336, 2968))

@@ -1,9 +1,0 @@
-{
-  "args": [
-    "bash",
-    "tools/probe_inbox_verbs/run.sh",
-    "--no-neg"
-  ],
-  "exit": 0,
-  "seconds": 41.21959090232849
-}

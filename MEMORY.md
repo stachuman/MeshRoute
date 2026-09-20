@@ -1,5 +1,7 @@
 # MeshRoute durable decisions
 
+- **Evidence retention (2026-09-20):** receipts and reusable instruments stay in Git; new raw runs use ignored `artifacts/` or an explicit durable external archive. Historical run recovery and retention rules live in `docs/superpowers/evidence/README.md`; preserve flashed ELFs and uncommitted inputs before cleanup.
+
 - **Metal qualification (2026-09-20):** `docs/2026-09-20-metal-test-plan.md` is the sole current bench procedure/result authority; the 69-Part library and seven companions are archived with compatibility stubs and a complete disposition map. Owner-approved rig: two Heltec V3s, XIAO ESP32-S3, Heltec V4, XIAO nRF52/SX1262; an identified dirty snapshot is valid, commits are not blockers.
 
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table

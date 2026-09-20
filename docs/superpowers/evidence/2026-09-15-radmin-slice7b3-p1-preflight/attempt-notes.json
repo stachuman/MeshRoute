@@ -1,7 +1,0 @@
-[
-  {
-    "attempt": "Initial input inventory",
-    "result": "IsADirectoryError on tracked directory symlink spec/docs",
-    "correction": "Inventory records every tracked symlink by link text, including directory links; resolved file content is additionally hashed where applicable. No repository changes or gate run resulted from the failed attempt."
-  }
-]

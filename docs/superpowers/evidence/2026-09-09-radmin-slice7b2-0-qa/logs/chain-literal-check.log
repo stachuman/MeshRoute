@@ -1,3 +1,0 @@
-PASS — 215 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.
-       (roots: lib, src, test · comments and strings stripped, so historical notes are allowed)
-       semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals

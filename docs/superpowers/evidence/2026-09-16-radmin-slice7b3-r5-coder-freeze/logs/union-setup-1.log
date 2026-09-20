@@ -1,1 +1,0 @@
-Initial selector-script attempt failed before any battery ran: KeyError: _total. The historical summary contains a _total aggregate in addition to its 53 battery rows. Corrected parser excludes underscore metadata rows, retaining all 53 historical batteries.

@@ -1,9 +1,0 @@
-Collecting PyNaCl==1.5.0
-  Downloading PyNaCl-1.5.0-cp36-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_24_x86_64.whl (856 kB)
-     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 856.7/856.7 kB 7.3 MB/s eta 0:00:00
-Collecting cffi>=1.4.1
-  Using cached cffi-2.1.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (217 kB)
-Collecting pycparser
-  Using cached pycparser-3.0-py3-none-any.whl (48 kB)
-Installing collected packages: pycparser, cffi, PyNaCl
-Successfully installed PyNaCl-1.5.0 cffi-2.1.1 pycparser-3.0

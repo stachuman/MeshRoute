@@ -1,5 +1,0 @@
-47ca6053e56e4268  src/device_nv.h
-32cabbba4e56706a  src/firmware_config.h
-9472d8ab71e92e51  src/fw_main.cpp
-3b9971fbd4f82a3f  lib/core/node.h
-a70e5343bf8a9a78  tools/probe_ui_model_mutations.py

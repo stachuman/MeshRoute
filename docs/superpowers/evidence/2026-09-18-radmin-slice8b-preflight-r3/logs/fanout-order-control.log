@@ -1,6 +1,0 @@
-FAIL newline flush is synchronous before explicit flush
-FAIL pinned placement sends controller event FIRST
-FAIL existing JSON push follows controller event
-{"ev":"e2e_acked","origin":2,"ctr":42,"sender_hash":0}
-{"ev":"remote_carrier","id":"0000000000000064","event":"acked","ctr":42}
-fanout characterization: 9 checks / 3 failed

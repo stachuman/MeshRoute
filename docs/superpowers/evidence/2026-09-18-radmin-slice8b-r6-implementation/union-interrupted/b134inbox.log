@@ -1,6 +1,0 @@
--- target b134inbox: /tmp/mr-s8b-r6-nwy4hz9d/final-gate/lib/core/inbox.cpp (5 entries)
--- selection: IN FULL (all 5 entries)
--- workers: 3
--- scratch root: /tmp/mr_mutation_run-cd6ohiya   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
-  ABORT rsync of the working tree into /tmp/mr_mutation_run-cd6ohiya/w2 failed (rc 24):
-        rsync warning: some files vanished before they could be transferred (code 24) at main.c(1338) [sender=3.2.7]

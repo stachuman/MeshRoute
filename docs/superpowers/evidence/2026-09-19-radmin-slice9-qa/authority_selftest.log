@@ -1,7 +1,0 @@
-RED: missing row -> missing ruled row: ('acl', '—')
-RED: duplicate row -> duplicate semantic authority row: ('acl', '—')
-RED: unclassified row -> unclassified or malformed authority table row: | `acl` | — | unclassified | no | [§G](../plans/2026-09-06-radmin-authority-classification-proposal.md#g-target-side-remote-admin-stores-slice-3--the-physical-class) |
-RED: table/header disagreement -> table/header disagreement: ('acl', '—')
-RED: orphan row -> orphan ruled row: ('orphan-probe', '—')
-RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_help.h:161
-PASS: command authority — ruled table / production header / generated inventory agree; 6/6 selftests RED

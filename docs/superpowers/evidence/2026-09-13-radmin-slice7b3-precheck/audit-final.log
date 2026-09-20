@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/mr-qa-s7b3-author-8srh2_5f/author-audit.py", line 57, in <module>
-    for name,pattern,replacement in values[tables[t]]:assert text.count(pattern)==1,(t,name)
-                                                             ^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: ('radmin5rx', 'X09 ★★★ the shared expiry scan is never ARMED after a receive, so a reserved ingress row is held until the next unrelated fire — i.e. forever on an idle node')

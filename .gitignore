@@ -43,6 +43,17 @@ platformio.local.ini
 # Python cache (tools/)
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # MeshRoute lab harness run artifacts
 runs/
+
+# Raw gate output and recovered historical runs. Keep concise receipts and
+# reusable instruments in git; policy: docs/superpowers/evidence/README.md.
+/artifacts/
+/docs/superpowers/evidence/**/*.log
+/docs/superpowers/evidence/**/*.tar.gz
+/docs/superpowers/evidence/**/*.tar.xz
+/docs/superpowers/evidence/**/*.elf
+/docs/superpowers/evidence/**/*.bin
+/docs/superpowers/evidence/**/*.uf2

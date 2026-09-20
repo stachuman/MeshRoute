@@ -1,7 +1,0 @@
-[doctest] doctest version is "2.4.12"
-[doctest] run with "--help" for options
-[activation search] SF10 BW7800 CR8 preamble=16 slop=0 floor=155904 default=311808 ceiling=299999
-===============================================================================
-[doctest] test cases:   2883 |   2883 passed | 0 failed | 0 skipped
-[doctest] assertions: 127709 | 127709 passed | 0 failed |
-[doctest] Status: SUCCESS!

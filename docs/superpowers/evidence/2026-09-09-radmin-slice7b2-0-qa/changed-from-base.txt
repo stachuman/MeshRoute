@@ -1,8 +1,0 @@
-MEMORY.md
-docs/2026-07-30-open-bug-register.md
-docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md
-docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md
-lib/core/remote_codec.cpp
-lib/core/remote_codec.h
-test/test_remote_codec.cpp
-tools/probe_ui_model_mutations.py

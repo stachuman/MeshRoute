@@ -1,3 +1,0 @@
-positive: canonical low-order peers: 8; 264 checks / 0 failed
-false-success-control: canonical low-order peers: 8; 264 checks / 8 failed
-PASS: eight independently enumerated canonical peers; 264 checks; one compiled control RED; source unchanged

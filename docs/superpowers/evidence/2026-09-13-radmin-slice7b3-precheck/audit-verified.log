@@ -1,5 +1,0 @@
-mutation floor 52 815 {'remoteactivation': 'lib/core/remote_activation.h', 'fwactivation': 'src/firmware_remote_activation.h', 'macwait': 'lib/core/mac_wait_windows.h'}
-PASS: byte-identical corpora — both runs VALIDATED, 36/36 streams agree on md5, sha256, size, event count and assertion count
-  A: jobs=3 wall=52.515s    B: jobs=3 wall=52.33s
-
-AUDIT COMPLETE

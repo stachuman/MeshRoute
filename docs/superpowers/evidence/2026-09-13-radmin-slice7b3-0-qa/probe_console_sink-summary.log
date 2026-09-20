@@ -1,4 +1,0 @@
-== router/parser ownership controls (each MUST refuse) ==
-real sources verified UNCHANGED; 8 sink + 35 source + 23 help + 5 BLE + 22 radmin3 + 21 radmin4 controls run + 22 activation controls + 13 executor ownership controls (CONTROLS-TOTAL 149)
-PINS profiles=6 checks=720 structural=83 ble_guard=905 ownership=6 ownership_controls=3 controls=149 unusable_controls=0
-PASS: probe + structural + controls all green

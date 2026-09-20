@@ -1,6 +1,0 @@
-$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --where
-target     model   (239 entries)
-source     /home/staszek/MeshRoute/src/firmware_ui_model.h
-key        a7cf864a33422481
-backup dir /tmp/mr_ui7d_mutation_backup-a7cf864a33422481
-workers    8 (default 8 = min(usable cores 24 - 2, 8))

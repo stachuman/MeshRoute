@@ -1,9 +1,0 @@
-env                   objs      warn    expect  -Wswitch        RAM      Flash  verdict
-gateway_heltec         329       171       173         0     238932    1337876  FAIL: warnings 171 != pinned 173
-gateway_heltec_v4      330       175       178         0     239204    1335936  FAIL: warnings 175 != pinned 178
-heltec_mobile          329       175       177         0     211764    1394520  FAIL: warnings 175 != pinned 177
-heltec_v3              329       175       177         0     214148    1392156  FAIL: warnings 175 != pinned 177
-heltec_v4              330       179       182         0     214420    1390156  FAIL: warnings 179 != pinned 182
-heltec_v4_mobile       330       179       182         0     212036    1392568  FAIL: warnings 179 != pinned 182
-
-FAIL — see rows above; re-pin ONLY via a reviewed change to this table AND §B87

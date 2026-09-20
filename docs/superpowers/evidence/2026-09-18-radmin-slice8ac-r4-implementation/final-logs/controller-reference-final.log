@@ -1,1 +1,0 @@
-Independent hashlib/PyNaCl 1.5.0 vectors reproduce archived JSON; controller_pub, target_pub, base, session, and sealed body all match the executed native KAT literals.

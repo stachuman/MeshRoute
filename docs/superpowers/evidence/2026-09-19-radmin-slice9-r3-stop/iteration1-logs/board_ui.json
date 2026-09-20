@@ -1,9 +1,0 @@
-{
-  "args": [
-    "bash",
-    "tools/probe_board_ui/run.sh",
-    "--no-neg"
-  ],
-  "exit": 1,
-  "seconds": 18.530977249145508
-}

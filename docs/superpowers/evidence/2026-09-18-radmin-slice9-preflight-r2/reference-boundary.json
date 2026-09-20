@@ -1,6 +1,0 @@
-{
-  "base": "94/94, five comparator controls RED",
-  "entire_legacy_case_removed": "94/94, exit 0: deletion is invisible to the reference comparator",
-  "added_legacy_literal": "exit 1: EXTRA kRefLegacySealed",
-  "required_change": "fence a reference extension, update 94->95 total while retaining the original 94, and check case presence separately"
-}

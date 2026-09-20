@@ -1,8 +1,0 @@
-# xiao_mobile one-off build (pio run -e xiao_mobile) — trimmed to the size/result lines
-RAM:   [=======   ]  75.0% (used 176596 bytes from 235520 bytes)
-Flash: [========= ]  86.3% (used 699548 bytes from 811008 bytes)
-======================== [SUCCESS] Took 237.93 seconds ========================
-xiao_mobile    SUCCESS   00:03:57.934
--------------  --------  ------------
-xiao_mobile    SUCCESS   00:03:57.934
-========================= 1 succeeded in 00:03:57.934 =========================

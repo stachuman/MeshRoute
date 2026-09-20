@@ -1,7 +1,0 @@
-{
-  "display_log": "../sim-configure.log",
-  "raw_gzip": "sim-configure-original.log.gz",
-  "raw_sha256": "7430c8752c7c58c9012e837ab40bf2a0c6fad5a856f6374e817c0464c74275b9",
-  "display_sha256": "719fe748c9e6457f4be2957c4c42912de65c0b9408d26b688f433cdf3feb0ea8",
-  "change": "Remove only trailing spaces on two CMake output lines from the readable copy; retain exact original bytes compressed. Historical results.json SHA refers to those original uncompressed bytes."
-}

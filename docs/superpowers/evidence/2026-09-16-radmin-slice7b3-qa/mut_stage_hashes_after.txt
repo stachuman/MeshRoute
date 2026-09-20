@@ -1,9 +1,0 @@
-77effea7df813890  lib/core/remote_session.h
-4652dd9fc9ea6986  lib/core/remote_session.cpp
-af4256a52fa0cab0  lib/core/node_mac_rx.cpp
-5c74a418e9fdb938  src/firmware_remote_actions.h
-5d112359ee52dc99  src/firmware_remote_actions.cpp
-8eba7b3d40afcb04  src/firmware_remote_executor.h
-03771adc425f1eab  src/firmware_commands.cpp
-77877d4a7ac394dd  src/fw_main.cpp
-2b3d1ce8cf468f71  tools/probe_ui_model_mutations.py

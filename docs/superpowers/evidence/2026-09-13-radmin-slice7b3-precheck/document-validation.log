@@ -1,2 +1,0 @@
-Initial author quote checker refused the quoted STOP block because it had not removed Markdown > markers from the source document. Corrected only that normalization; no quoted content changed.
-Final checks: 8 verbatim design/ruling/STOP excerpts match source; 5 local link targets exist; source inventory has 180 policy rows /48 disruptive; all 1254 initial inputs present; 1247 unchanged and 7 named QA documents changed; no production/test/shared-tool/anchor edits; simulator all bytes/modes/links, HEAD and clean status unchanged; git diff --check PASS.

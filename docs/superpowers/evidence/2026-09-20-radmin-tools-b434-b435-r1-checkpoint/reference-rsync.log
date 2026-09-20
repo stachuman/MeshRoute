@@ -1,1 +1,0 @@
-$ rsync -a --exclude=.pio /dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage/ /dev/shm/mr-b434-b435-r1-rwlxb7cv/reference-stage/

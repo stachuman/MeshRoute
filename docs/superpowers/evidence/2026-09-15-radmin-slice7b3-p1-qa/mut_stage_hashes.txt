@@ -1,5 +1,0 @@
-b4f44d7448b62982  src/firmware_action_effects.h
-7263b45264ddffbe  src/firmware_commands.cpp
-9689b68f37792e77  src/fw_main.cpp
-2abd26a3f014addf  src/device_ota.cpp
-b62a6d0e6fd6406f  tools/probe_ui_model_mutations.py

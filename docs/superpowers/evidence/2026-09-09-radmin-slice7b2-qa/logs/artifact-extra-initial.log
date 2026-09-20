@@ -1,1 +1,0 @@
-Read-only analysis failed before output: zero-size linker symbols were omitted from pointer resolution; .data+424 points to __HeapBase/__end__, not a sized object. Include those exact addresses and rerun; original ELFs untouched.

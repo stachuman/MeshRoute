@@ -1,6 +1,0 @@
-START pair
-END pair 2
-Traceback (most recent call last):
-  File "/tmp/mr-s9-r4-gate.py", line 51, in <module>
-    assert not [x for x in results if x['exit']],[(x['name'],x['exit']) for x in results if x['exit']]
-AssertionError: [('pair', 2)]

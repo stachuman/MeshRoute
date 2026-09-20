@@ -1,9 +1,0 @@
-{
-  "args": [
-    "bash",
-    "tools/probe_console_sink/run.sh",
-    "--no-neg"
-  ],
-  "exit": 1,
-  "seconds": 23.4404239654541
-}

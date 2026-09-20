@@ -1,6 +1,0 @@
-b0-p1 150 checks 39 transcripts PASS
-b1-p1 151 checks 39 transcripts PASS
-b2-p1 158 checks 39 transcripts PASS
-b2-p0 158 checks 39 transcripts PASS
-19 controls compile/assertion RED
-ACTION PROBE PASS; output=/tmp/mr-action-probe-4d_f4xi_

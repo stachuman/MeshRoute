@@ -1,7 +1,0 @@
--- target b161mac: /tmp/mr-s9-r4-j37ybea_/union-inputs/lib/core/node_mac.cpp (1 entries)
--- selection: IN FULL (all 1 entries)
--- workers: 1   [SERIAL REFERENCE PATH]
--- scratch root: /tmp/mr_mutation_run-rsr4gz1n   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
-  [w0] -- target b161mac: /tmp/mr_mutation_run-rsr4gz1n/w0/lib/core/node_mac.cpp (1 of 1 entries in this shard)
-  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
-  [w0]   ok   clean baseline 2950 / 195768 / 0   (DERIVED from this tree)

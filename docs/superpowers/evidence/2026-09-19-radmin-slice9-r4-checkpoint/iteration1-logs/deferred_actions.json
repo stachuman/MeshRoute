@@ -1,9 +1,0 @@
-{
-  "args": [
-    "bash",
-    "tools/probe_deferred_actions/run.sh",
-    "--no-neg"
-  ],
-  "exit": 0,
-  "seconds": 37.223124980926514
-}
