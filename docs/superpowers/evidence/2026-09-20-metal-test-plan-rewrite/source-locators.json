@@ -1,0 +1,222 @@
+[
+  {
+    "path": "src/firmware_commands.cpp",
+    "needle": "static void dump_cfg",
+    "matches": [
+      {
+        "line": 739,
+        "text": "static void dump_cfg(Print& out) {"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_commands.cpp",
+    "needle": "REDIRECT->",
+    "matches": [
+      {
+        "line": 829,
+        "text": "if (rd) { out.print(F(\" REDIRECT->\")); out.print(rh); } else out.print(F(\" DIRECT\"));"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_config.cpp",
+    "needle": "home-service request cleared",
+    "matches": [
+      {
+        "line": 2341,
+        "text": "out.println(F(\"> mobile unregister: home-service request cleared — attachment dormant, timers cancelled (no wire message; the old home ages the row out)\"));"
+      }
+    ]
+  },
+  {
+    "path": "lib/core/node_mobile.cpp",
+    "needle": "return _presence_miss > 0",
+    "matches": [
+      {
+        "line": 772,
+        "text": "return _presence_miss > 0;                                     // §8.3 trigger 2 — ⛔ trigger 1 DEFERRED ([[B178]]), see above"
+      }
+    ]
+  },
+  {
+    "path": "src/fw_main.cpp",
+    "needle": "inbox     =",
+    "matches": [
+      {
+        "line": 1078,
+        "text": "mrcon.print(F(\"  inbox     = QSPI/LittleFS records + InternalFS meta (durable), epoch=\"));"
+      },
+      {
+        "line": 1080,
+        "text": "mrcon.print(F(\"  inbox     = LittleFS records + NVS meta (durable), epoch=\"));"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "needle": "TEAMMATE GONE, pick",
+    "matches": [
+      {
+        "line": 1456,
+        "text": "//   `TEAMMATE GONE, pick` refusal row still fits\"*). The literal is named ONCE and its width is asserted at"
+      },
+      {
+        "line": 1461,
+        "text": "static constexpr char kTeamGoneText[] = \"TEAMMATE GONE, pick\";"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "needle": "kBlankMs      =",
+    "matches": [
+      {
+        "line": 221,
+        "text": "inline constexpr uint32_t kBlankMs      = 15000;"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "needle": "kEmgHoldMs            =",
+    "matches": [
+      {
+        "line": 2164,
+        "text": "inline constexpr uint32_t kEmgHoldMs            = 30000;"
+      }
+    ]
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "needle": "RIDES the blank",
+    "matches": [
+      {
+        "line": 1996,
+        "text": "TEST_CASE(\"ui7-result: the result phase RIDES the blank, and the acknowledgement is what clears it\") {"
+      }
+    ]
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "needle": "modal RETAINED",
+    "matches": [
+      {
+        "line": 2487,
+        "text": "TEST_CASE(\"ui7d-modal: paging does NOT postpone the deadline — the panel blanks on time, modal RETAINED\") {"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "needle": "SAVED KEY FOUND",
+    "matches": [
+      {
+        "line": 1822,
+        "text": "// ★★★★ §UI-16 K5 — THE `SAVED KEY FOUND` OFFER. ⛔ NOTHING HERE DECIDES ANYTHING: the title is"
+      },
+      {
+        "line": 1831,
+        "text": "//   title           `SAVED KEY FOUND`                                   = 15"
+      }
+    ]
+  },
+  {
+    "path": "src/device_ble.h",
+    "needle": "const size_t   chunk =",
+    "matches": [
+      {
+        "line": 316,
+        "text": "const size_t   chunk = (mtu > 3) ? static_cast<size_t>(mtu - 3) : 20;"
+      }
+    ]
+  },
+  {
+    "path": "src/device_nv.h",
+    "needle": "kVersionMinLoad = 26",
+    "matches": [
+      {
+        "line": 132,
+        "text": "constexpr uint16_t kVersionMinLoad = 26;"
+      }
+    ]
+  },
+  {
+    "path": "src/device_nv.h",
+    "needle": "kVersion = 26",
+    "matches": [
+      {
+        "line": 136,
+        "text": "constexpr uint16_t kVersion = 26;            // v26: legacy admin fields removed. REPROVISION-ON-REFLASH: the record shrank, so both the size rule and the floor reject a v25 record. v25: R-RA-16 activation delay. REPROVISION-ON-REFLASH: the field consumed padding — the version floor, not the size, is the guard. v24: §UI-16 K2 — the team-key ACTIVE BINDING (team_key_team_id + team_key_active), so a retained /mrteams key is never reactivated by mere knowledge of the public team id. ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v23 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. ⛔ THIS IS AN **NV** VERSION, ⛔ NOT `wire_version`: no frame moves, no scenario re-anchors, and a new NV record (`/mrteams`) is not a wire change either. v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*"
+      }
+    ]
+  },
+  {
+    "path": "src/firmware_remote_client.h",
+    "needle": "RemoteLocalVerb::show &&",
+    "matches": [
+      {
+        "line": 47,
+        "text": "if (c.verb==RemoteLocalVerb::show && (!admin_next_token(line,len,i,t,n) || !admin_word_is(t,n,\"show\"))) return false;"
+      }
+    ]
+  },
+  {
+    "path": "test/test_node_join.cpp",
+    "needle": "5000000000ull",
+    "matches": [
+      {
+        "line": 4795,
+        "text": "hal._now += 5000000000ull;"
+      },
+      {
+        "line": 4797,
+        "text": "CHECK(age == 5000000000ull);                                     // ★★★ the full 64-bit age"
+      }
+    ]
+  },
+  {
+    "path": "test/test_console_json.cpp",
+    "needle": "5000000000",
+    "matches": [
+      {
+        "line": 686,
+        "text": "{ MobileStatusFields big = m; big.home_confirm_age_ms = 5000000000ull;"
+      },
+      {
+        "line": 688,
+        "text": "CHECK(std::string(b, nb).find(\"\\\"home_confirm_age_ms\\\":5000000000,\") != std::string::npos);"
+      }
+    ]
+  },
+  {
+    "path": "test/test_frame_codec.cpp",
+    "needle": "TERMINAL golden vectors",
+    "matches": [
+      {
+        "line": 290,
+        "text": "TEST_CASE(\"§hybrid-rts S1 CTS — TERMINAL golden vectors: 6 B plaintext / 7 B crypted, exact bytes\") {"
+      }
+    ]
+  },
+  {
+    "path": "test/test_device_nv.cpp",
+    "needle": "the name is MUTABLE",
+    "matches": [
+      {
+        "line": 296,
+        "text": "TEST_CASE(\"device_nv/AB1: the name is MUTABLE and refreshed; an EMPTY name keeps the stored label\") {"
+      }
+    ]
+  },
+  {
+    "path": "test/test_node_hashlocate.cpp",
+    "needle": "peer_name_set — renames",
+    "matches": [
+      {
+        "line": 1770,
+        "text": "TEST_CASE(\"§AB2 peer_name_set — renames a cached peer, refuses an unknown hash, clamps at the cap\") {"
+      }
+    ]
+  }
+]

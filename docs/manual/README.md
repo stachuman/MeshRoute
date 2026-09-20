@@ -36,7 +36,7 @@ Journey pages provide an end-to-end sequence and link to the canonical task inst
 | [Heltec OLED](08-heltec-oled.md) | Controls and implemented screens | Skeleton; UI-15 provisioning is implemented and metal-qualified |
 | [Configuration](09-configuration.md) | Settings, persistence, reset, and restart | Skeleton |
 | [Diagnostics and recovery](10-diagnostics.md) | Status, faults, recovery, and common errors | Skeleton |
-| [Command reference](command-reference.md) | Concise, source-verified command catalogue | Inventory refreshed 2026-08-31; detail pass pending |
+| [Command reference](command-reference.md) | Source-verified command catalogue, provisioning and remote-admin usage | Refreshed 2026-09-20 at `d11b5a9`; 53 primary names, remote-admin v2; older-family detail pass pending |
 
 ## Availability labels
 

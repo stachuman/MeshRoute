@@ -14,6 +14,8 @@ the archives.
 
 ## 0. Current remote-admin dispatch — 2026-09-18
 
+**Bench-documentation consolidation 2026-09-20 (B438):** current hardware procedures/results now live in [the metal test plan](2026-09-20-metal-test-plan.md); [the disposition map](2026-09-20-metal-test-triage.md) maps every former Part. Eight original records are preserved with compatibility stubs. This documentation landing grants no new hardware PASS and closes no metal finding; the remote-admin arc remains software-complete at `d11b5a9`.
+
 **Tool dispatch B434 + B435 (+ B436), the mutation harness — INDEPENDENT QA PASS 2026-09-20 (uncommitted on `e680271`: `tools/probe_ui_model_mutations.py` `61f1cd06…`, new `tools/test_mutation_unusable_reason.py` `f6ac8119…`; simulator unchanged).** Tool-only. QA read the diff in full (no mutation table, pattern, control or exit-code line moved), ran `--where`, `--selftest-unusable` (both labels, both retained files), full tools discovery **356 / OK / 0 skipped**, and the full union **61 / 983 RED / 1 known unusable B342 / 984 / 0 vacuous with 0 B217 banner lines, 163 worker baselines 2950/195770/0, stage unchanged, 31 min**. **B434, B435, B436 CLOSED.** [QA gate](superpowers/evidence/2026-09-20-radmin-tools-b434-b435-qa-gate.md). **The remote-admin v2 arc has NO software residue; only the owner's metal backlog remains (Parts 54 / 55a / 55b / 56 / 57a–57f / 58 / 59 / 61 / 62 / 63). No dispatch is pending.**
 
 **Coder STOP-1 2026-09-20 — B436; B434+B435 revision-1 implementation gate HOLD.** The frozen candidate implements the brief, but `pio test -e native` also runs the mutant: treating every nonzero command exit as a build failure changes the same real `radmin8node` N01 from **1 RED / 0 unusable** (base harness) to **0 RED / 1 unusable** (candidate). Direct mutant binary: **2950 / 195770 / 22 failed assertions**, exit **+1**. The union stopped at its off-floor condition; three active batteries were interrupted and 57 never started. Full tools discovery **356 OK / 0 skipped**; no full-union PASS. QA must fold the build-only command correction into the frozen brief before resume. Candidate, QA preparation and simulator preserved; no closure of B434/B435. [Coder checkpoint](superpowers/evidence/2026-09-20-radmin-tools-b434-b435.md).
@@ -372,7 +374,7 @@ coverage by implication. Their authority is `docs/superpowers/evidence/2026-09-0
 These are maintained findings, not coder dispatch authorization. Slice 3's evidence reserves B323–B326
 (B322 was the superseded alias of B325); Slice 4 owns B327–B330. Those proposals are now registered below
 with their individual dispositions. S5-A1–A3 become B331–B333; HOME-A1/A2 become B334/B335, aliases retained.
-The next free finding is **B437**. B292/B312 are CLOSED and B406/B407 registered-and-closed (8a+8c independent QA 2026-09-18); B408 is OPEN, owned by 8b. B394/B399/B400 are CLOSED (P1 independent QA 2026-09-16); B395–B398 are CLOSED as not required (R-RA-41); B389/B390/B401 are CLOSED (7b-3 independent QA 2026-09-16); B392 stays open for metal/8a. B389 allocation is RULED (R-RA-40, +80 B; open until gated); B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
+The next free finding is **B439**. B292/B312 are CLOSED and B406/B407 registered-and-closed (8a+8c independent QA 2026-09-18); B408 is OPEN, owned by 8b. B394/B399/B400 are CLOSED (P1 independent QA 2026-09-16); B395–B398 are CLOSED as not required (R-RA-41); B389/B390/B401 are CLOSED (7b-3 independent QA 2026-09-16); B392 stays open for metal/8a. B389 allocation is RULED (R-RA-40, +80 B; open until gated); B390/B392 policy is ruled with runtime/metal/controller obligations open; B391 is CLOSED (7b-3-0 independent QA 2026-09-15). B393 closes current ruling-propagation documentation only. B378/B379/B387/B388 remain closed; see §0 for the gate-attribution erratum.
 Author does not edit QA's pre-check. All source observations below are at `a0ff994` (2026-09-06).
 
 **QA review 2026-09-06:** preliminary Slice 5 brief PASS, no fold-ins. QA accepted S5-A1–S5-A3 and
@@ -499,6 +501,18 @@ do not authorize implementation or reprioritize the remote-admin queue. Design:
 | D2 | OPEN AUDIT | Audit plane-typed reads that can fall back to static table. |
 | O2 | PARKED | Fold `deleg_ack_put` de-duplication into B12. |
 | O4 | OPEN SECURITY DECISION | Decide protection for BLE `team exportkey` before broad provisioning exposure. |
+
+## Manual command-reference audit — 2026-09-20
+
+| ID | Status | Measurement and closure |
+| --- | --- | --- |
+| B437 (MAN-REFRESH) | **CLOSED — DOCUMENTATION SOURCE AUDIT 2026-09-20; no firmware/metal gate claim** | At `d11b5a9`, `docs/manual/command-reference.md` still advertised four removed verbs (`rcmd`, `password`, `unlock`, `lock`), claimed v2 execution was not implemented, omitted target identity/ACL syntax and the activation-delay key, and described live controller busy checks as future. It counted 49 primary names/52 key spellings; current help/handler extraction gives **53/53**. Refreshed against production parsers, stores, authority, client/session and action code: current provisioning, modes/roles, retry/unknown/ACK distinctions, deferred-action restrictions, team key-retention forms and BLE contracts. README and review notes aligned. Inventory **197 rows byte-identical**, authority checker **PASS / six negative self-tests RED**; manual primary-name/key coverage and relative links checked. Production, tests, tools, generated inventory and simulator untouched; remaining older-family detail and metal questions stay explicit in the manual. |
+
+## Bench-plan source audit — 2026-09-20
+
+| ID | Status | Measurement and closure |
+| --- | --- | --- |
+| B438 (BENCH-DRIFT) | **CLOSED — DOCUMENTATION RE-TRIAGE; no software or hardware gate claim** | The 4465-line/69-Part bench library plus companions distributed current status among stale summaries, checkboxes and prose. Source contradictions included ESP32 inbox volatility, unregister/autoregister behavior, hosted rows attributed to `status` instead of `cfg`, blank-time modal/result deletion, saved-key availability, stock OLED/BLE combinations and one-line-per-notification assumptions. Source-validated re-triage replaces these with [63 scenario procedures and one result table](2026-09-20-metal-test-plan.md), [12 scoped retirement-instrument groups and complete Part/guide mapping](2026-09-20-metal-test-triage.md). Eight originals (7243 lines) retain byte-exact evidence in the archive; old paths/section links remain. Physical flash/IRQ/pixels/transport/clock/stack checks and unavailable fixtures remain explicit; external MeshRouteKit 7.34 is **not** claimed verified or retired. Existing B178/B118 and metal findings stay open as before. [Validation receipt](superpowers/evidence/2026-09-20-metal-test-plan-rewrite.md). Concurrent B437/manual work preserved; no production, test, tool, simulator or index changes by this task. |
 
 ## Dispositions applied by this cleanup
 

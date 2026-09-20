@@ -1,0 +1,81 @@
+{
+  "base": "d11b5a90d151f71e1c0922fb0679521c3191ced1",
+  "documents": [
+    {
+      "original_path": "docs/2026-07-31-bench-test-script.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-07-31-bench-test-script.md",
+      "original_sha256": "e86544a52c8fb0bda288a4078e827a4d795c7b397eefb56745a053884aea1143",
+      "archive_sha256": "9aeeb47b598590f1df9f5575e0310d1c7a87d99d0d306a043e6e1289c6962b18",
+      "original_bytes": 332426,
+      "original_lines": 4465
+    },
+    {
+      "original_path": "docs/superpowers/plans/2026-08-18-metal-session-run-sheet.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-08-18-metal-session-run-sheet.md",
+      "original_sha256": "5d7ba4b61d59017c871fb3e28592c503a88c8b72902fa87c28d73c293b5d9e50",
+      "archive_sha256": "5d7ba4b61d59017c871fb3e28592c503a88c8b72902fa87c28d73c293b5d9e50",
+      "original_bytes": 17360,
+      "original_lines": 251
+    },
+    {
+      "original_path": "docs/superpowers/plans/2026-08-20-metal-session-walkthrough.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-08-20-metal-session-walkthrough.md",
+      "original_sha256": "5c3f1db7137eefc515faeba5b69bf1c10862d302c6e0d109b0d24cab588e06bf",
+      "archive_sha256": "5c3f1db7137eefc515faeba5b69bf1c10862d302c6e0d109b0d24cab588e06bf",
+      "original_bytes": 16157,
+      "original_lines": 216
+    },
+    {
+      "original_path": "docs/superpowers/plans/2026-09-03-b278-s5-closure-and-metal.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-09-03-b278-s5-closure-and-metal.md",
+      "original_sha256": "bc758c506090e11a3e5b79474ab31ba8c15add9707e311d47fb23bbe4d89d54b",
+      "archive_sha256": "bc758c506090e11a3e5b79474ab31ba8c15add9707e311d47fb23bbe4d89d54b",
+      "original_bytes": 16155,
+      "original_lines": 302
+    },
+    {
+      "original_path": "docs/2026-08-11-mobile-home-metal-test-guide.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-08-11-mobile-home-metal-test-guide.md",
+      "original_sha256": "bf52cdadaef3c251174094373490430a1907080b38419889632509a07983e54d",
+      "archive_sha256": "bf52cdadaef3c251174094373490430a1907080b38419889632509a07983e54d",
+      "original_bytes": 20604,
+      "original_lines": 589
+    },
+    {
+      "original_path": "docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-08-04-heltec-v3-oled-ui-bench-guide.md",
+      "original_sha256": "d4e49c41cdb959d2e9c9bc5c47f3aca9d99cbc81ffd9afa2400db465a9d464f3",
+      "archive_sha256": "d4e49c41cdb959d2e9c9bc5c47f3aca9d99cbc81ffd9afa2400db465a9d464f3",
+      "original_bytes": 81289,
+      "original_lines": 1228
+    },
+    {
+      "original_path": "docs/superpowers/plans/2026-08-20-inbox-recheck-walkthrough.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/2026-08-20-inbox-recheck-walkthrough.md",
+      "original_sha256": "9f241b232f6f5ebee5614b92b4c254f440bc79f8873e653fec7bc9bbd997deb6",
+      "archive_sha256": "9f241b232f6f5ebee5614b92b4c254f440bc79f8873e653fec7bc9bbd997deb6",
+      "original_bytes": 2023,
+      "original_lines": 23
+    },
+    {
+      "original_path": "docs/ble-bench-validation.md",
+      "archive_path": "docs/archive/2026-09-20-bench-records/ble-bench-validation.md",
+      "original_sha256": "5c3bc5e581650fcd22e36d9a37f66999cfb46c24eb1ff3973ef69ca07b17aeaf",
+      "archive_sha256": "5c3bc5e581650fcd22e36d9a37f66999cfb46c24eb1ff3973ef69ca07b17aeaf",
+      "original_bytes": 7641,
+      "original_lines": 169
+    }
+  ],
+  "link_relocations": [
+    {
+      "file": "docs/2026-07-31-bench-test-script.md",
+      "old": "superpowers/plans/2026-08-18-metal-session-run-sheet.md",
+      "new": "2026-08-18-metal-session-run-sheet.md"
+    },
+    {
+      "file": "docs/2026-07-31-bench-test-script.md",
+      "old": "superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md",
+      "new": "../../superpowers/plans/2026-09-13-radmin-slice7b3-deferred-actions.md"
+    }
+  ]
+}

@@ -95,9 +95,9 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: ARC SOFTWARE-COMPLETE (Slice 10 QA PASS 2026-09-20) — metal Parts 57b/57c/57d/57e/57f are runnable; the B434+B435 tool dispatch is QA PASS 2026-09-20 — no software residue; metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
-  Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
-  remains separately tracked and do not block Part 54.
+- **NEXT QUEUE:** owner metal qualification follows [the maintained plan](docs/2026-09-20-metal-test-plan.md): CUSTODY-02/03 retains B278's closure obligation; RADMIN and USB-BLE carry the completed remote-admin arc's physical residue. Current per-board results live only in that plan.
+  USB-BLE-01 (former Part 58) closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
+  remain separately tracked and do not block B278's metal qualification.
 
 - B35 — resolve channel self-skip plane correctness separately; it does not block the custody arc.
 
@@ -135,7 +135,5 @@ sequence change.
 
 ## Working references — not backlog items
 
-- `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` — current R1-R6 Heltec execution guide.
-- `docs/2026-07-31-bench-test-script.md` — general firmware bench checklist.
-- `docs/2026-08-11-mobile-home-metal-test-guide.md` — mobile-home-specific hardware scenarios.
+- `docs/2026-09-20-metal-test-plan.md` — current scenario procedures and the single hardware-result table; old Part/guide IDs map through `docs/2026-09-20-metal-test-triage.md` to preserved archives.
 - `docs/2026-07-30-open-bug-register.md` — continuous defect register.

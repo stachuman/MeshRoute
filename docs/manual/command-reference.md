@@ -1,22 +1,38 @@
 # Command Reference
 
-> Status: Inventory refreshed. Command names, canonical forms, availability, and state-effect classes were audited against the current production parsers, feature gates, and board profiles on 2026-08-31. Detailed argument rules, output examples, and error guidance remain to be reviewed.
+> Status: Source-audited 2026-09-20 at `d11b5a9`, including the completed remote-admin v2 implementation. Some older command families still need a detailed argument/output pass; see the remaining work below. Source verification is not a claim of hardware qualification.
 
-This page inventories the textual commands accepted by a MeshRoute node. It covers 49 primary command names plus `?`, the alias for `help`. Radio frame opcodes, OLED button actions, simulator-only operations, and host-tool subcommands are outside this inventory.
+This page inventories the textual commands accepted by a MeshRoute node. It covers 53 primary command names across all build profiles, plus `?`, the alias for `help`; no single board exposes every name. Radio frame opcodes, OLED button actions, simulator-only operations, and host-tool subcommands are outside this inventory.
 
 ## Access and availability
 
 - **Local** means the command is accepted through the local textual command dispatcher. That is USB when the build has `MR_CONSOLE=1`, and BLE on the XIAO nRF52840 when BLE is enabled.
 - The `production` build has no USB console because it sets `MR_CONSOLE=0`.
 - BLE refuses the whole `help`/`?` family and any argument-bearing `peers` form, including `peers all`.
-  Target administration (`admin-id`, `acl`) is USB-only. Controller administration (`admin-key`,
+  Local target administration (`admin-id`, `acl`) is USB-only; selected forms also admit an authenticated
+  remote owner, as listed below. Controller administration (`admin-key`,
   `admin-target`) permits only public list/show on secured BLE; all other forms are USB-only.
 - The `ui` family is compiled only into OLED builds. In the current build matrix those are ESP32 Heltec V3/V4 builds, where BLE is not implemented, so `ui preset` is available through USB only.
 - **Common** means all current device profiles, subject to having a local transport.
 - **Normal** means a single-layer, non-gateway build.
 - **Mobile role** means a normal build with the mobile feature compiled in and the node currently configured as mobile.
 - **Gateway** means a dual-layer gateway build.
-- **Remote management** is compiled out of the dedicated mobile profile.
+- **Remote target / ACCEPT** means a static or gateway build: it accepts remote requests but does not issue them.
+- **Remote controller / CLIENT** means a dedicated mobile build: it issues remote requests but ignores incoming remote commands. Heltec mobile can use its USB console without an iOS companion; secured BLE is another controller transport on the nRF52 mobile.
+- These endpoint capabilities are fixed by the build. `cfg set mobile` changes a runtime role, not the compiled remote endpoint.
+
+### Reading command forms
+
+`<...>` denotes a required value; `[...]` denotes an optional part; alternatives are separated by `|`.
+Do not type the angle brackets. Names, subcommands and flags are case-sensitive. Enter one command per
+line, not a multiline body: USB ignores CR and submits on LF. The shared validator refuses NUL, CR or
+LF remaining inside a dispatched command span. The local USB line bound is 1023 bytes,
+BLE accepts at most 274 command bytes, and the command after a remote `--` is at most 201 bytes.
+These are byte limits, not display-width or character limits; individual commands/carriers can be smaller.
+
+USB replies are not uniformly JSON. BLE also has both specialized NDJSON replies and streamed handler
+text; do not apply a single JSON parser to every command. The remote controller's BLE events are
+described [below](#output-results-and-acknowledgement).
 
 ## Effect classes
 
@@ -59,7 +75,64 @@ This page inventories the textual commands accepted by a MeshRoute node. It cove
 | `peername 0x<hash> "<name>"` | Local; Common | Session + Persistent | Renames a cached peer without replacing its key or confidence. |
 | `regen` | Local; Common | Persistent + Recovery | Replaces this node's ordinary messaging identity while retaining its configured name and short ID. Preserves the separate administration stores; CLIENT builds append the warning below. |
 
-## Controller administration stores (Slice 4)
+## Target administration identity and ACL
+
+Available on ACCEPT builds. The administration identity is separate from the ordinary messaging
+identity shown by `whoami`; `regen` does not rotate it. The ACL holds at most ten controller public keys
+in stable slots 0–9. Roles are exactly `operator` and `owner`.
+
+| Form | Access | Effect |
+| --- | --- | --- |
+| `admin-id show` | USB / remote owner | Prints the administration fingerprint and full public key, never its seed. |
+| `admin-id generate` | USB only | Creates and saves an administration identity only when none exists. |
+| `admin-id rotate confirm` | USB only | Replaces a valid administration identity, invalidating its sessions. Preserves ACL rows and the messaging identity. Every controller must pin the new target key. |
+| `admin-id reset confirm` | USB only | Replaces an invalid identity record with a new identity; refuses absent, valid or unreadable records. |
+| `acl list` | USB / remote owner | Lists occupied slots, roles, fingerprints and full public keys, then counts. Does not renumber holes. |
+| `acl add <operator\|owner> <64-hex-public-key>` | USB / remote owner | Adds a controller key to an empty slot. The first entry must be an owner and the target identity must be usable. |
+| `acl set <0..9> <operator\|owner>` | USB / remote owner | Changes an occupied slot's role. |
+| `acl remove <0..9> confirm` | USB / remote owner | Removes one grant and invalidates that controller's session/work. |
+| `acl reset confirm` | USB only | Recovers an invalid ACL to valid empty; grants nobody. Not a bulk-delete command for a valid ACL. |
+
+The last owner cannot be removed or demoted. A remote owner cannot remove or demote its own
+authenticating slot; local USB has no remote acting slot. Multiple owners are allowed. Duplicate and
+all-zero public keys refuse; full stores never evict an existing grant. An absent ACL lists as empty.
+
+Public listings use one fingerprint everywhere: the first eight bytes of BLAKE2b-512 over the 32-byte
+public key, rendered as 16 lowercase hex characters, alongside the full 64-hex public key. A routing
+hash is not this fingerprint and is not proof of identity.
+
+Typical refusal lines are `> admin-id err <reason>` and `> acl err <reason>`. Important reasons include
+`already_present`, `absent`, `store_invalid`, `store_io_failed`, `not_invalid`, `first_owner_required`,
+`last_owner`, `self_slot`, `duplicate_key`, `acl_full`, `nv_save_failed` and `runtime_unavailable`, as
+applicable to the operation. An IO failure refuses writes, including reset. A failed save does not
+guarantee that the previous flash bytes survived; re-read before deciding what to do next.
+
+The local BLE refusal for both target families is:
+
+```json
+{"err":"admin","msg":"console_only"}
+```
+
+### First-owner exchange over USB
+
+Use the physical USB connection to verify both full keys before granting access. Substitute the values
+read from the two devices; the placeholders below are not literal command arguments.
+
+1. On the target, run `admin-id show`; if absent, run `admin-id generate`. Record its administration
+   `pub=` and `fp=`. Run `whoami` separately to obtain its ordinary messaging routing hash.
+2. On the controller, run `admin-key show self`. Alternatively, generate an empty dedicated slot with
+   `admin-key generate key0` and use `admin-key show key0`.
+3. On the target, run `acl add owner <CONTROLLER-PUBLIC-KEY>`, then `acl list` to verify the grant.
+4. On the controller, run `admin-target add base <TARGET-ADMIN-PUBLIC-KEY> hash=<TARGET-ROUTING-HASH>`.
+   Add `layer=<destination-layer,...>` only for a cross-layer route. Check `admin-target show label=base`.
+5. With radio reachability established, run `remote base -e -- status`, or
+   `remote base -e using=key0 -- status` if the dedicated key was granted.
+
+After a target root rotation, its stored full key must be replaced through controller USB; `admin-target set`
+cannot change that immutable key. Verify the new key physically, then remove/re-add the target when it is
+not in use. The ordinary routing hash alone is insufficient to restore trust.
+
+## Controller administration stores
 
 Available only on CLIENT builds (the dedicated mobile profiles). These commands provision local trust;
 they do not issue remote requests. `self` is the ordinary messaging identity, not a dedicated seed slot.
@@ -103,10 +176,12 @@ After a successful CLIENT `regen`, the existing success/name line is followed on
 ```
 
 Reprovision old self grants through physical USB as needed. Dedicated seeds and target-book rows survive
-ordinary regeneration; factory reset erases them. The future busy-debt refusal is `> regen err remote_busy`,
-but Slice 4 has no live request/result producer. Seed import/export intentionally shares a principal;
-copies cannot be separately revoked through that one ACL entry. Hardware persistence/BLE residue remains
-Bench Parts 55b/56 and 59; independent Slice 4 software QA PASS does not claim those ran.
+ordinary regeneration; factory reset attempts to erase them. A CLIENT `regen` refuses with
+`> regen err remote_busy` while requests, response assemblies, retained results or response-ACK debt remain.
+Key removal and target edits/removal can refuse with `in_use` while a session, request or ACK debt owns
+that slot. Successful local result delivery is not proof that the target received its response ACK.
+Seed import/export intentionally shares a principal; copies cannot be separately revoked through that
+one ACL entry. Do not use factory reset as routine busy-state recovery: it destroys provisioned trust.
 
 ## Messaging
 
@@ -115,6 +190,20 @@ Bench Parts 55b/56 and 59; independent Slice 4 software QA PASS does not claim t
 | `send <id\|0xhash> "<text>" [-a] [-e] [-t] [-K] [-l]` | Local; Common | Air | Sends a direct message. Address form, plane, encryption, acknowledgement, introduction, and location gates require detailed treatment in the messaging chapter. |
 | `send_channel <0..255> "<text>" [-t] [-g] [-e] [-l]` | Local; Common | Air | Originates a channel post on the selected plane or planes. |
 | `send_layer <0xhash> <layer,...> "<text>" [-a] [-e] [-K]` | Local; Common | Air | Sends through an explicit cross-layer path. The parser recognizes `-l`, but execution refuses it because this carrier has no location form. |
+
+The body is one double-quoted string; flags may precede or follow it. There is no quoted-string escape
+syntax for embedding another `"`. For direct messages, `-a` requests an end-to-end acknowledgement,
+`-e` requests encryption (accepted with a hash target, not a decimal ID), `-t` selects the team plane,
+and `-K` suppresses the first-contact introduction. Without `-e`, the configured encryption policy applies;
+its absence is not an instruction to send plaintext. `-l` requests this node's location and refuses if
+the message cannot carry it securely.
+
+For `send_channel`, no plane flag means global, `-t` means team, `-g` means explicit global, and `-t -g`
+means both. Explicit `-e` requires team-only delivery; `-l` requires a sealed post. Channel posts do not
+accept `-a`. For example, `send_channel 1 "Return to base now" -t -e` sends a sealed team-channel post
+when the team/key/radio requirements are met. Acceptance alone is not proof every teammate received it.
+See [Messaging](06-messaging.md) for the workflow. The OLED preset's 17-byte limit below is not a general
+message limit; actual message capacity depends on carrier, encryption and attached metadata.
 
 ## Inbox
 
@@ -134,6 +223,14 @@ the same `pull_inbox` event — `delegated=true`, `target_kind=node_id|hash`, **
 own send was given; the `ctr=` field keeps meaning the home's counter). It still means only that a relay
 could not complete onward custody, and still is not proof the destination missed the message.
 The OLED's normal inbox view hides protocol-internal outcome records, but `pull_inbox` deliberately includes them.
+
+Over remote administration, `pull_inbox` hides private application DMs, for both operators and owners,
+but retains channel messages, delivery receipts and custody diagnostics. Both `mark_read dm ...` and
+`del_msg dm ...` refuse remotely with `remote_no_dm`, even when the selected record is a diagnostic,
+because those operations share the private-DM cursor/store. Channel operations remain subject to their
+normal authority (`mark_read`: operator; `del_msg`: owner). A remote owner can still run
+`clear_inbox confirm`, which clears both stores, including private DMs; inability to read them is not
+protection against an explicitly authorized erase.
 
 All current hardware boards use the durable `SegmentedInboxStore`: nRF52 stores records in QSPI with metadata in
 InternalFS, while ESP32 stores records in LittleFS with metadata in NVS. If either store cannot initialize, inbox
@@ -181,6 +278,12 @@ The `team` family is available on normal builds. Team membership, role projectio
 | `team 0` | Persistent + live + Recovery | Leaves the team. |
 | `team exportkey` | Read + Secret | Emits the current team public and private channel-key pair. |
 | `team grantkey <0xhash\|team-local-id> [name="<text>"] [-t]` | Air + Secret | Sends the team key to a verified peer in a sealed direct message. |
+| `team keys` | Read | Lists up to four retained team IDs and marks the active key; never prints key material. |
+| `team forgetkey <team-id> confirm` | Persistent + Recovery | Removes one inactive retained team key. Decimal or `0x`-prefixed ID; the active key is protected. |
+
+Leaving a team does not discard its retained key. When the four-key store is full, use `team keys`,
+explicitly forget an inactive key, then retry the create/join. Forgetting is not team-key rotation and
+does not revoke other members; restoring a forgotten content key requires a teammate's grant.
 
 ## OLED preset catalog
 
@@ -223,7 +326,9 @@ execution is refused on the panel as `PRESET CHANGED` rather than sending newly 
 
 ## Configuration keys
 
-`cfg set <key> <value>` is the sole generic configuration-write form. The live handler currently accepts 52 keys.
+`cfg set <key> <value>` is the sole generic configuration-write form. The live handler currently accepts
+53 key spellings, including the `control_sf` alias. These local apply timings do not imply remote permission;
+see [remote authority](#remote-authority-and-deferred-actions).
 
 | Keys                                                                                                                                                                                                                               | Apply timing    | Storage         | First classification                                                                                                                                    |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -231,6 +336,7 @@ execution is refused on the panel as `PRESET CHANGED` rather than sending newly 
 | `freq`, `routing_sf`, `control_sf`, `bw`, `cr`, `tx_power`                                                                                                                                                                         | Live            | Persistent      | Radio settings; `control_sf` is an accepted alias for `routing_sf`.                                                                                     |
 | `sf_list`, `lbt`, `beacon_ms`, `e2e_dm`, `intro_attach`                                                                                                                                                                            | Live            | Persistent      | MAC and message-policy settings.                                                                                                                        |
 | `gw_announce_pct`, `gw_announce_interval`, `gw_herd_slack`                                                                                                                                                                         | Live            | Persistent      | Gateway announcement policy.                                                                                                                            |
+| `remote_action_activation_ms` | Live, for newly prepared remote actions | Persistent | Zero selects a live-PHY-derived default; a nonzero value must satisfy the live floor and ceiling. See below. |
 | `active_fraction`, `ch_min_ms`, `dm_min_ms`, `leaf_name`                                                                                                                                                                           | Live            | Persistent      | Managed-network activity and rate settings.                                                                                                             |
 | `leaf_id`, `gateway_only`, `mobile`, `mobile_autoregister`                                                                                                                                                                         | Live            | Persistent      | Role and topology settings. Enabling `mobile_autoregister` may start a live registration session; disabling it does not end an already started session. |
 | `nav`, `intra_layer_relay`, `host_mobiles`, `nav_ignore`, `hop_cap`, `team_hop_cap`, `team_channel_crypt`                                                                                                                          | Live            | Not persisted   | Session-only routing, hosting, and team-channel policy.                                                                                                 |
@@ -239,6 +345,26 @@ execution is refused on the panel as `PRESET CHANGED` rather than sending newly 
 | `n_layers`, `layer0_id`, `window_period_ms`, `l0_window_ms`, `l0_window_offset_ms`, `l1_layer_id`, `l1_node_id`, `l1_routing_sf`, `l1_sf_list`, `l1_beacon_ms`, `l1_window_ms`, `l1_window_offset_ms`, `l1_freq`, `l1_bw`, `l1_cr` | Reboot required | Persistent      | Dual-layer gateway topology. The common parser accepts these keys; supported use outside gateway builds remains under review.                           |
 
 Detailed value ranges and refusal messages will be added during the configuration-reference pass.
+
+### Remote action activation delay
+
+`cfg set remote_action_activation_ms <decimal-ms>` accepts `0` for the derived default, or a value from
+the current PHY's reply-path budget through **299999 ms**, inclusive. The default is twice that budget;
+there is no universal fixed minimum. Changing PHY can make a previously saved value unusable. Values
+are never silently clamped, and an impossible PHY refuses even `0`. This setting is operator-class remotely.
+
+USB `cfg` reports:
+
+```text
+  radmin: activation_ms=<effective> state=<state> cfg=<stored> floor=<minimum> default=<derived> ceiling=299999
+```
+
+BLE `cfg` exposes `remote_action_activation_ms` (the effective value) and
+`remote_action_activation_state`. States are `default_derived`, `configured`, `below_floor`,
+`above_ceiling`, `impossible_phy`. Only the first two permit scheduling; the other three report an
+effective value of zero and refuse new deferred actions. A change does not retime an already prepared
+action. A BLE `cfg set` returns the fresh configuration object while the handler's textual success/error
+goes to USB; read the state/value back rather than treating receipt of that object as a successful write.
 
 ## Runtime control and recovery
 
@@ -253,39 +379,156 @@ Detailed value ranges and refusal messages will be added during the configuratio
 
 ## Remote management
 
-| Command or form | Access/build | Effect | First classification |
-| --- | --- | --- | --- |
-| `rcmd <destination-id> <remote-form>` | Local issuer; target requires Remote management | Air | Sends a bounded remote query or administration request by DM. |
-| `password <passphrase>` | Local; Remote-management builds | Persistent + Secret | Derives and pins the local node's admin public key. It is not a remotely executable form. |
-| `unlock <passphrase>` | Local; Remote-management builds | Session + Secret | Derives the operator admin identity into RAM for sealed remote commands. |
-| `lock` | Local; Remote-management builds | Session + Secret | Wipes the unlocked operator identity from RAM. |
+Remote-admin v2 is implemented. The old `rcmd`, `password`, `unlock` and `lock` commands are removed,
+not aliases. Provision a controller key and target-book entry as described above. These four command
+names are local to a CLIENT device, through USB or secured BLE; they cannot themselves be executed remotely.
 
-**Slice 1b limitation (R-RA-27; software QA-passed 2026-09-06):** static/gateway builds accept remote commands
-but no longer stage remote responses. Their legacy `rcmd` issuer still sends commands, but cannot print replies
-or receive counter-resynchronization hints. Mobiles ignore incoming remote commands at the existing fail-closed
-guard. These strict receive roles are intentional on undeployed test hardware, with no legacy-switch widening;
-the old static/gateway round-trip bench step is suspended until Slice 9 replaces the legacy path.
+### Issuing a request
 
-The target-side remote allow-list is narrower than the local dispatcher:
+| Form | Meaning |
+| --- | --- |
+| `remote <LABEL> -e [using=self\|using=keyN] [-a] -- <command>` | Authenticated, encrypted execution using an ACL-granted controller identity. Default credential is `self`. |
+| `remote <LABEL> open -- status` | Unauthenticated, cleartext status query. |
+| `remote <LABEL> open -- routes` | Unauthenticated, cleartext routing-table query. |
+| `remote <LABEL> -e [using=self\|using=keyN] rollover` | Requests a safe new session epoch for the selected controller slot, without discarding unacknowledged work. |
+| `remote <LABEL> -e [using=self\|using=keyN] rollover confirm` | Requests forced rollover: abandons outstanding work/results for that slot. Treat this as destructive session recovery. |
+| `remote-retry <request-id>` | Recovers an outstanding or unknown authenticated request using its existing identity and sealed bytes, after comparing the target session. Not a new execution command. |
+| `remote-result show <request-id>` | Re-emits a complete retained result on the requesting local transport, starting from the beginning. An incomplete result is not streamed as complete. |
+| `remote-ack <request-id>` | Accepts/releases a completely delivered local result. For an authenticated terminal, creates the target-response ACK obligation. |
 
-| Remote form inside `rcmd` | Authentication | Target effect |
-| --- | --- | --- |
-| `status` | Open, cleartext | Read |
-| `routes` | Open, cleartext | Read |
-| `duty` | Sealed | Read |
-| `limits` | Sealed | Read |
-| `reboot` | Sealed | Recovery after the response is sent |
-| `prep-restart` | Sealed | Recovery after the response is sent |
-| `password rotate <64-hex-new-admin-pubkey>` | Sealed with the old admin identity | Persistent + Secret |
+`LABEL` is a target-book label, not a node ID, routing hash or `fp=` selector. `keyN` is `key0`–`key9`.
+Every execute form requires **exactly one of `-e` or `open`**; missing or combined modes refuse, with no
+plaintext fallback. `using=...` and `-a` are forbidden with `open`; `-a` is also forbidden on rollover.
+Put wrapper options before `--`; everything after it is the target's command, unquoted as a whole.
+For example:
 
-Other text can be accepted by the issuing `rcmd` parser but is not executed by the target allow-list.
+```text
+remote base -e -- status
+remote base -e using=key0 -- acl list
+remote base -e -a -- cfg set beacon_ms 10000
+```
 
-The current sealed remote-management path still uses the old monotonic replay-counter protocol. Historically,
-a returned stale-counter hint let the issuer report that the command was not run, resynchronize from the returned
-floor, and ask the operator to issue it again. Static/gateway issuers can no longer receive that hint after 1b;
-do not assume retry resynchronization or a printed result. The proposed loss-independent open/operator/owner
-administration execution protocol is not yet implemented. Local v2 target ACL/identity provisioning and
-controller key/target stores exist after Slices 3/4; that does not make the legacy rcmd path a v2 issuer.
+`-a` asks for carrier-level end-to-end receipt diagnostics; it is independent of encryption and the
+remote execution result. A carrier `acked` event is not a terminal result and does not prove successful
+command effects. The target command is limited to 201 bytes with no embedded NUL/CR/LF. Open queries
+must be exactly argument-free `status` or `routes`; additional arguments or trailing spaces refuse.
+
+Open service has a **global quota of three admissions per target per rolling five minutes, shared by
+all requesters**, plus a per-source occupied/cooldown restriction. Changing the requester does not
+create another quota. Open requests have no authenticated transcript-recovery guarantee and can time
+out without a reply when capacity or rate admission refuses them.
+
+### Remote authority and deferred actions
+
+Local command availability is not remote permission. A remote command must exist in the target build
+and pass its authority check. Owners include operator privileges; no remote role grants physical or
+controller-local authority.
+
+| Authority / policy | Available forms |
+| --- | --- |
+| Open | Exact bare `status`, `routes` only. Authenticated operators/owners can also query them. |
+| Operator | Ordinary diagnostics, messaging, channel read-cursor updates, most non-disruptive configuration, route/join-profile controls and `team keys`. Subject to feature and argument checks. |
+| Owner additions | `acl list/add/set/remove`, `admin-id show`, `peerkey`, `del_msg` (channel only remotely), `clear_inbox confirm`, `team exportkey/grantkey/forgetkey`, and `cfg set e2e_dm`, `team_channel_crypt`, `ble_mode`, `ble_period`, `ble_pin`. |
+| Physical USB only | `admin-id generate/rotate/reset`, `acl reset`. Never admitted remotely. |
+| Controller-local / local-only | `admin-key`, `admin-target`, all four `remote*` commands, and `help`/`?`. Never admitted as target commands. |
+| Deferred operator actions | `reboot`, `prep-restart`, `sleep [on\|off]`, when supported by the target. |
+| Deferred owner actions | `ota`, `factory_reset confirm`, `crashtest hang\|fault\|reboot`; crash tests also require target-side `debug on` and the relevant hardware backend. |
+
+The following disruptive changes are **refused remotely even for an owner**: `join`, `create`, `leave`,
+`gateway`, team creation/membership changes, `regen`, and these `cfg set` keys:
+
+```text
+bw cr freq gateway_only host_mobiles l1_bw l1_cr l1_freq l1_layer_id l1_node_id
+l1_routing_sf l1_sf_list layer0_id leaf_id mobile mobile_autoregister n_layers
+node_id routing_sf control_sf sf_list tx_power
+```
+
+Use local provisioning for those operations. Non-disruptive family subcommands such as `team keys`
+remain available at their stated authority. Inbox privacy restrictions apply even to an owner.
+
+Deferred actions return `scheduled activation_ms=<delay>` rather than acting inside the command handler.
+The target arms the deadline on the scheduled terminal's first checked send admission, either queued
+or parked for later transmission; the action
+becomes due on its authenticated response ACK or on expiry of that delay. A queued reply is not proof
+the controller received it, so the action may still occur after a lost response. `scheduled` is a promise,
+not confirmation of the final hardware outcome. Only one deferred promise can be outstanding on a target;
+another eligible disruptive request gets `action_busy` and schedules nothing.
+Neither safe nor forced rollover interrupts an executing operation or an already armed/due action;
+those conditions return `executing`. Do not treat rollover as cancellation of a scheduled action.
+
+Remote `ota` ensures the selected updater is started (Wi-Fi on ESP32, BLE DFU on nRF52); unlike the local
+ESP32 toggle, repeating it is not an instruction to turn Wi-Fi OTA off. `factory_reset confirm` is destructive.
+Remote `prep-restart` halts mesh radio and remote administration. **Restart the target locally afterward**;
+neither remote reboot nor rollover can recover it while halted. The controller prints that warning before
+submitting a `prep-restart` request.
+
+### Output, results and acknowledgement
+
+A request ID is 16 lowercase hex digits, nonzero, without `0x`. Copy the ID from the output; examples
+below use `<id>` as a placeholder.
+
+| USB output | What it proves |
+| --- | --- |
+| `> remote <id> accepted` | Local controller admission, not target receipt/execution. |
+| `> remote <id> out <bytes>` | A chunk of the target handler's transcript, not necessarily a complete line. |
+| `> remote <id> <result>` | A terminal or local outcome, interpreted below; some include `detail=<n>`. |
+| `> remote <id> scheduled activation_ms=<n>` | A deferred-action promise with its chosen delay. |
+| `> remote <id> retained` | Local delivery did not complete; keep the ID and request the result again. |
+| `> remote <id> carrier <event> ctr=<n> ...` | Separate `acked`, `ack_timeout` or translated `custody_failure` diagnostics; not an execution result. |
+| `> remote err <reason>` | A local parse/store/resource/admission refusal. |
+
+`completed` means dispatch completed; **read the transcript as well**, since a handler may report a
+domain error in its text. `refused` means the request was not admitted to that operation;
+`unknown_command` means unclassified command. `output_truncated` means output was bounded, not that
+effects were rolled back. `internal_error` is not a success. `action_busy` creates no new action.
+`session_full`, `ingress_full`, `session_busy`, `executing` and `preparation_failed` are capacity/session
+outcomes, not successful execution. `already_acknowledged` means the target already released that
+transcript; an exact retry does not run the command again. `rollover_completed` reports a new session
+epoch, with a nonzero abandoned-work count in `detail` when applicable.
+
+An unanswered operation becomes **`unknown` after the 300-second outcome deadline**. It is not safe to
+interpret this as “not executed.” The controller makes at most one automatic exact resend per waiting
+stage, after 60 seconds for a same-layer route or 150 seconds for a cross-layer route. For explicit
+recovery, use `remote-retry <id>`, not a fresh `remote ...` line. It compares the authenticated session;
+if the epoch/slot changed, it keeps the outcome unknown instead of silently re-executing under a new
+session. Exact retries in the same session replay the immutable transcript or report its acknowledged
+state. The controller can attempt safe rollover when the target reports `session_full`; it does not
+automatically force rollover.
+
+USB normally accepts a known result after the entire output and terminal are written successfully,
+then releases the local copy; a later `remote-result show` may therefore return `not_found`. If the ACK-debt
+pool is full, release can refuse with `ack_debt_full` and the result remains retained. Unknown outcomes remain
+retained for explicit recovery or acceptance. Requests, results and recovery state are bounded RAM,
+not a durable command history across controller reboot.
+
+On secured BLE, the four verbs acknowledge with `{"ack":"<verb>","id":"<id>"}` where applicable,
+and local errors use `{"err":"remote","msg":"<reason>"}`. Result events are:
+
+| Event name | Fields / interpretation |
+| --- | --- |
+| `remote_output` | `id`, `seq`, `body`; concatenate bodies in order. `seq` is the local output-fragment sequence, not a radio frame sequence. |
+| `remote_terminal` | `id`, `result`, optionally `activation_ms` for scheduled or nonzero `detail` otherwise. |
+| `remote_retained` | `id`; delivery was incomplete. |
+| `remote_carrier` | `id`, `event`, `ctr`; custody reports also carry `origin`, `reporter`, `layer`, `reason`. |
+| `remote_warning` | `body`; currently the `prep-restart` lockout warning. |
+
+BLE retains a fully delivered result until `remote-ack <id>`; receiving `remote_terminal` alone does
+not release it. After reconnect, a retained result may be offered again from sequence zero. Use
+`remote-result show <id>` to request it explicitly (including from USB), and acknowledge only after
+consuming the whole result. An incomplete result refuses ACK with `incomplete`. A transcript containing
+NUL bytes cannot be delivered losslessly through the BLE text events and remains retained for USB.
+
+The target's RESPONSE_ACK is distinct from both the local `remote-ack` command and the optional `-a`
+carrier receipt. Its queued transmission is not proof of delivery: ACK debt is retained, with a bounded
+retry burst and later retry opportunities on new requests to that target. It can keep `regen`/store
+mutations busy. `remote-ack` of a delivered unknown result only releases local recovery state; it does
+not prove target execution or send an ACK for an unknown terminal.
+
+Common local refusals include `bad_args`, `unknown_target`, `ambiguous_target`, `store_invalid`,
+`store_io_failed`, `request_table_full`, `assembly_full`, `result_full`, `ack_debt_full`,
+`correlation_full`, `session_cache_full`, `carrier_unavailable`, `radio_enqueue_failed`, `not_found`
+and `incomplete`. Correct the named cause rather than repeatedly issuing a fresh request ID for a
+possibly completed action. For protocol-level details see [Protocol — remote administration](../protocol.md#15-remote-administration-v2).
 
 ## Bench and fault-injection controls
 
@@ -303,7 +546,7 @@ These commands are present in production command dispatch so the deployed image 
 
 ## Remaining detail pass
 
-Before this reference is marked complete, each inventory row still needs:
+Before this reference is marked complete, the older command families still need a uniform pass for:
 
 - exact argument constraints and defaults;
 - stable success output and important error output;
@@ -314,7 +557,15 @@ Before this reference is marked complete, each inventory row still needs:
 
 ## Audit basis
 
-The 2026-08-31 refresh followed the live command paths in `src/firmware_commands.cpp`,
-`src/firmware_config.cpp`, `src/firmware_inbox.cpp`, `src/firmware_remote.cpp`, `src/fw_main.cpp`, and
-`lib/console/console_parse.cpp`, together with the feature/build gates in `lib/core/mr_features.h`,
-`src/device_ble.h`, and `platformio.ini`.
+The 2026-09-20 refresh used the production tree at `d11b5a9`: the command/config/inbox routers,
+`firmware_admin_verbs.h`, `firmware_admin_client_verbs.h` and their stores, the remote controller,
+action and activation modules, `firmware_command_authority.h`, `fw_main.cpp`, the console parser and
+validator, and the core remote client/session/codec. Build/transport gates were checked in
+`mr_features.h`, `device_ble.h` and `platformio.ini`.
+
+The [generated command inventory](../superpowers/evidence/2026-09-04-radmin-command-inventory.md)
+contains 197 command/subcommand/surface rows; it is not a count of primary names. Its generator check
+and the authority-table checker (including six negative self-tests) pass against that tree. The manual
+covers all 53 primary names and all 53 configuration-key spellings. No firmware or hardware gate was
+rerun for this documentation-only refresh; [review notes](review-notes.md) retain the outstanding
+manual/metal questions.

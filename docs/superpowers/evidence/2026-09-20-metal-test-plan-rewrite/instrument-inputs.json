@@ -1,0 +1,334 @@
+{
+  "auto-01": [
+    {
+      "path": "test/test_firmware_config_parse.cpp",
+      "sha256": "57f39fa2c8019ab4af7ec3bb33f315f2e88c1a0721b5c35fdef952181285b9db"
+    },
+    {
+      "path": "test/test_console_parse.cpp",
+      "sha256": "3da6f303da6acc1357199ffd3001f2e0d63181dce174e2aa9a137a3313c289fe"
+    },
+    {
+      "path": "test/test_command_authority.cpp",
+      "sha256": "403407f5ae1c3b4866ac8f3736ca600caeb186c32b1f86080090064d1aa7e1fc"
+    }
+  ],
+  "auto-02": [
+    {
+      "path": "test/test_device_nv.cpp",
+      "sha256": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212"
+    },
+    {
+      "path": "test/test_node_hashlocate.cpp",
+      "sha256": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c"
+    },
+    {
+      "path": "test/test_console_json.cpp",
+      "sha256": "2caf27d0cf23b5c5fcf194b638fb0a59d98ef5f01f21365ba18809eeec3d330e"
+    }
+  ],
+  "auto-03": [
+    {
+      "path": "test/test_node_join.cpp",
+      "sha256": "b821cd621718ce5c4b985a796336a169140ce961e2049de5da7e7aa7c3881c77"
+    },
+    {
+      "path": "test/test_console_json.cpp",
+      "sha256": "2caf27d0cf23b5c5fcf194b638fb0a59d98ef5f01f21365ba18809eeec3d330e"
+    },
+    {
+      "path": "test/support/test_hal.h",
+      "sha256": "4885d152ddb33690c126456274895fb7e882830768c78c76b89f5ce35772b474"
+    }
+  ],
+  "auto-04": [
+    {
+      "path": "test/test_firmware_config_service.cpp",
+      "sha256": "a4ae64ec046d4a90b2a32cff018d8eb4ec26ff69486918b1aeb973a227d6907e"
+    },
+    {
+      "path": "test/test_firmware_provisioning_service.cpp",
+      "sha256": "296f0e9476dea992768734c162b9636b41b835d068fa5c55c8737463b4aefa59"
+    },
+    {
+      "path": "test/test_firmware_join_service.cpp",
+      "sha256": "6cb0105398ae24323e4ca01d75c77e83f66881910334b89b5c80f81e9675d85d"
+    },
+    {
+      "path": "test/test_firmware_join_profiles.cpp",
+      "sha256": "551d751bfaac8c819ada69dbec421f938a73bbe922b81a0a357e17e4058ee57d"
+    },
+    {
+      "path": "tools/probe_prov_tx/run.sh",
+      "sha256": "5f042f081ae9e3fb9bb588b0449a9ba16d70a5d6f13760dffbe10f97687520d6"
+    },
+    {
+      "path": "tools/probe_prov_tx/probe.py",
+      "sha256": "b17fb52e10576c0be1073a7bfe370c014311fa899603943a396b577593ad5f5f"
+    }
+  ],
+  "auto-05": [
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "sha256": "bb4650abf84dbd33156a62ffd3214d87ba64d1a9dbb352a6a13e43f9962a095f"
+    },
+    {
+      "path": "test/test_firmware_ui_input.cpp",
+      "sha256": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed"
+    },
+    {
+      "path": "test/test_firmware_ui_send.cpp",
+      "sha256": "b1287e803bf336297fa4ae850cf18e59e5048dc2de50ed888e57af5cb0a694fe"
+    },
+    {
+      "path": "test/test_firmware_ui_chrome.cpp",
+      "sha256": "6ab7d9307b249a1fb6eafbff1387e0e399062bb0f69fba09a3c2e866aea28e64"
+    },
+    {
+      "path": "test/test_firmware_ui_geo.cpp",
+      "sha256": "d7cdf5546bf3899f751c6a97feab634ea27b2bb80ca94406d2d773c4ff474dfb"
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "sha256": "b14780f646a4eaea8d51d1ab0bd916383c246c6f54a155179e4dfe999de2397d"
+    },
+    {
+      "path": "test/test_firmware_ui_nearby.cpp",
+      "sha256": "b80c776f239b2a025f88f38753260b8d8b1ee0e93c1683aacfe8102a31198b37"
+    },
+    {
+      "path": "test/test_firmware_ui_invite.cpp",
+      "sha256": "2a2f7c6fd67af6a2580404247557afea22a31bb3299454f4a7c13b80df5626a7"
+    },
+    {
+      "path": "test/test_firmware_ui_prov.cpp",
+      "sha256": "816ea9ea36be4d5117d353d9598896984883c52d1c01677d13d3852c73f130d1"
+    },
+    {
+      "path": "test/test_firmware_ui_join.cpp",
+      "sha256": "a93148e966ffd22ffbad94f692547e25042995734a4f57bae26be4e786a9e4ab"
+    },
+    {
+      "path": "test/test_firmware_ui_presets.cpp",
+      "sha256": "d0f321aec4b96db54feb4d0dcb74d2eccf7180db3da493068d713de5677f49dd"
+    },
+    {
+      "path": "test/test_firmware_ui_preset_verbs.cpp",
+      "sha256": "a720c95b488aefa9c3ea04f8d9a249a81b67a875746ff91013cd8f5ab56b5b64"
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "f51a3e931ff4096163e1c89f3ae85e4dcddca7cbd46cf9c765aec872d574eb36"
+    },
+    {
+      "path": "tools/probe_board_ui/run.sh",
+      "sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c"
+    }
+  ],
+  "auto-06": [
+    {
+      "path": "test/test_inbox.cpp",
+      "sha256": "589d05564c6d593e479a4f8b43502a13f6bac5a5462278fba4ab1f2318256830"
+    },
+    {
+      "path": "test/test_segmented_inbox_store.cpp",
+      "sha256": "676fd3e00a3963f66e531b5a813c3182b35120ae618d9fb8209a657244cc0b31"
+    },
+    {
+      "path": "test/test_device_inbox_fs_esp32.cpp",
+      "sha256": "4603d4e8e474b22e60c45b74c0b9c0de0ccdcd175e9227d0b3ff226f58ebfc40"
+    },
+    {
+      "path": "test/test_device_inbox_fs_nrf52.cpp",
+      "sha256": "fa514ffccc09921e91d7bc581a6e3ad30491b25f9c3d691fb48bd8f1dc5f8547"
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "sha256": "2d1411e94bf39770886dbb65a28de7dcbb9ef35bd2e65f4e4775c45a94e388f8"
+    }
+  ],
+  "auto-07": [
+    {
+      "path": "test/test_node_channel.cpp",
+      "sha256": "cd92f33dbd86bb9300581c4f8cce8cdf8b6934d594c1c63bd79456aae1cfb609"
+    },
+    {
+      "path": "test/test_node_r3.cpp",
+      "sha256": "a6ee531c11c056d579ef566dd4746f7f00dbbe529e37329d9484ba892ae33454"
+    },
+    {
+      "path": "test/test_dm_crypto.cpp",
+      "sha256": "f2811595c206720889eaaa402b7f07f937fb9a333ecd3bede0166c12eff767e4"
+    },
+    {
+      "path": "test/test_console_parse.cpp",
+      "sha256": "3da6f303da6acc1357199ffd3001f2e0d63181dce174e2aa9a137a3313c289fe"
+    },
+    {
+      "path": "test/test_node_hashlocate.cpp",
+      "sha256": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c"
+    },
+    {
+      "path": "test/test_dual_layer.cpp",
+      "sha256": "260890cbef5d1b2d8e5b76597ebaaae403bd5729129d98e11afb3ed574c58d77"
+    }
+  ],
+  "auto-08": [
+    {
+      "path": "test/test_frame_codec.cpp",
+      "sha256": "0928571dbe571730cf1f7ee94b59dd649e0c18dbb50944d43d6a8401744727e4"
+    },
+    {
+      "path": "test/test_node_r2.cpp",
+      "sha256": "20449d4d48cefcc265ad197f8e27680c2bd132ab5570c8b8dd4b1780a01e817a"
+    },
+    {
+      "path": "test/test_mac_wait_windows.cpp",
+      "sha256": "e95466beb6d2b3899beb884aa61a70a17b3d9f20273d4682c62e985e5e95d021"
+    },
+    {
+      "path": "test/test_airtime.cpp",
+      "sha256": "620aa85f5e935950153734985fb2b46c978307a07a3eb6e6f075ae22dcfbadd3"
+    },
+    {
+      "path": "tools/run_corpus.py",
+      "sha256": "2e267ba6d1bae2a280b166405494f4a18fda3160d37ab8e9cecbac53eba627ce"
+    }
+  ],
+  "auto-09": [
+    {
+      "path": "test/test_custody_relay_f.cpp",
+      "sha256": "f5e6017c9092b9e95ca37e7f3a12b954a4d3e3023afcb13b78fb93eae02667f6"
+    },
+    {
+      "path": "test/test_custody_receive_g.cpp",
+      "sha256": "a4500491cda862446afe153257d7c15c69e531fe4952ec73197a79043763fa4f"
+    },
+    {
+      "path": "test/test_custody_internal_b.cpp",
+      "sha256": "e97b78d74c10c484d36e62394c0e7a0416b87190c5fdaf66ac262e5fce12f495"
+    },
+    {
+      "path": "test/test_custody_internal_c.cpp",
+      "sha256": "44702ea7a8879d52bf2edbdfbda1694c336bbd71d0c4ab9ddf1b5a368cff4b40"
+    },
+    {
+      "path": "test/test_custody_internal_d.cpp",
+      "sha256": "635c8db28c1bc40c84f04633b4df88a5971a090baef1f912aea287dfb74eb22c"
+    },
+    {
+      "path": "test/test_node_e2e_ack.cpp",
+      "sha256": "b3da996b4d812249f29c93dba19059116f73809a5b27ece1dc381a6f00751af2"
+    },
+    {
+      "path": "tools/probe_custody_usb/run.sh",
+      "sha256": "03b47b0f98d3db0482f1112205faedffb47741f37c84c1bbf9f9c885c1871151"
+    }
+  ],
+  "auto-10": [
+    {
+      "path": "test/test_console_line.cpp",
+      "sha256": "e479ed253fa628fb917b2488eafafc6bd66896abc3406aa4d2bb42b0241f0d11"
+    },
+    {
+      "path": "tools/probe_ble_line/run.sh",
+      "sha256": "fb1a683312d381835528b3829806a2f26fe5ba837d2ebe0811ece9341a22b530"
+    },
+    {
+      "path": "tools/probe_console_sink/run.sh",
+      "sha256": "f543dbf1829bd09d2e672bdca1f32456b358cb0b5addc507a96f920061588b73"
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "sha256": "2d1411e94bf39770886dbb65a28de7dcbb9ef35bd2e65f4e4775c45a94e388f8"
+    },
+    {
+      "path": "tools/gen_command_inventory.py",
+      "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a"
+    },
+    {
+      "path": "tools/check_command_authority.py",
+      "sha256": "2d44eef1452464c60029b01e551379be1a5ea91cccc5b7c50f6b4faabb9390bc"
+    }
+  ],
+  "auto-11": [
+    {
+      "path": "test/test_firmware_admin_acl.cpp",
+      "sha256": "5392b109094f2fac41e1eb1eed1bf9617bc29346066fbf3b78e5bc4940dc2168"
+    },
+    {
+      "path": "test/test_firmware_admin_identity.cpp",
+      "sha256": "22c9885104949c255ca26dac30f3124da9bd58a56ab41b3a86d0ae071d296244"
+    },
+    {
+      "path": "test/test_firmware_admin_keyring.cpp",
+      "sha256": "5e1b4192128a390f1a4fc44c4c074e5a7e599560a8152e8c41621019695c1f83"
+    },
+    {
+      "path": "test/test_firmware_admin_targets.cpp",
+      "sha256": "e423aaeff6b57e04ca3cf531422442597aae5045a509fbd6266e6a71701440fb"
+    },
+    {
+      "path": "test/test_firmware_admin_verbs.cpp",
+      "sha256": "851142286a9f17d435af088e70500c7a72295d788ec55805310496ca2562784a"
+    },
+    {
+      "path": "test/test_firmware_admin_client_verbs.cpp",
+      "sha256": "bb9b525d4947aeb20e99e8b4d534008f18eccaa26c7c8bd43f151c0fd055821f"
+    },
+    {
+      "path": "test/test_firmware_admin_runtime.cpp",
+      "sha256": "c9d81d5e5ea3914cdbf0758b1f7d7edfec2964ab2d5708229651e773578ddb91"
+    },
+    {
+      "path": "test/test_remote_client.cpp",
+      "sha256": "39dba7b61b296dfad0c05b9953f6e672a144d2617162dc89f0a596ec974a43b0"
+    },
+    {
+      "path": "test/test_node_remote_carrier.cpp",
+      "sha256": "15e6370d084099b124eddc76ddfbe5907a0904bc0af9c8085964b76c4835a502"
+    },
+    {
+      "path": "test/test_node_remote_session.cpp",
+      "sha256": "0d39f0c1d335698cc3be40e06e83c00159df20251d57bb01e6b36cad10b628e3"
+    },
+    {
+      "path": "test/test_firmware_remote_executor.cpp",
+      "sha256": "afc844546eeca76f275c93e8dd917dae018e77484349b699ce2729c23a812066"
+    },
+    {
+      "path": "test/test_firmware_remote_activation.cpp",
+      "sha256": "2b1e449d6fc2501dfa58cfcc96733f0b3ae2f3164f6a2c9c4ed040af04eee20e"
+    },
+    {
+      "path": "tools/probe_deferred_actions/run.sh",
+      "sha256": "711be73a747053a419d4afbebc60e9fc8ffc2f7594e47c01aebb134f7bee2532"
+    }
+  ],
+  "auto-12": [
+    {
+      "path": "tools/probe_board_abi.py",
+      "sha256": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d"
+    },
+    {
+      "path": "tools/probe_b278_row_abi.py",
+      "sha256": "fadf54f87744f5842c802a3a645af4db109e8afb80660c7ca1fae483bd52153c"
+    },
+    {
+      "path": "tools/measure_board.py",
+      "sha256": "65ecc700dd25e6de961f21d7ad793c17d425fb989832f147945f12ae1f3d40ad"
+    },
+    {
+      "path": "tools/warning_census.sh",
+      "sha256": "255e339c51d819e50e4f08e423f51195cd603a15a9e659375848e447ab538767"
+    },
+    {
+      "path": "tools/probe_features/run.sh",
+      "sha256": "2e68285e9a2d013f5294b5d5622145185849920f8ab05c102005f65ac4b8b2bc"
+    },
+    {
+      "path": "tools/probe_device_radio/run.sh",
+      "sha256": "ae9fe0ea43c09dee9c0e5b2365b6097e9ce7cc7e5e5cf40d30f6d8b82ee83df8"
+    }
+  ]
+}

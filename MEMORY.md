@@ -1,5 +1,7 @@
 # MeshRoute durable decisions
 
+- **Metal qualification (2026-09-20):** `docs/2026-09-20-metal-test-plan.md` is the sole current bench procedure/result authority; the 69-Part library and seven companions are archived with compatibility stubs and a complete disposition map. Owner-approved rig: two Heltec V3s, XIAO ESP32-S3, Heltec V4, XIAO nRF52/SX1262; an identified dirty snapshot is valid, commits are not blockers.
+
 - **Remote-admin v2 — status lives in TWO homes only (owner P5 ruling 2026-09-16):** the design's §19.1 table
   (`docs/superpowers/specs/2026-08-23-remote-admin-independent-rpc-design.md`) and the register §0 + rows
   (`docs/2026-07-30-open-bug-register.md`); rulings R-RA-1..50 in `docs/superpowers/plans/2026-09-03-remote-admin-v2-rulings.md`;

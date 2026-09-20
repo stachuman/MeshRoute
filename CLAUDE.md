@@ -42,10 +42,10 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - ★ M1 **`docs/2026-07-30-open-bug-register.md` is MAINTAINED, not archived** — every finding lands there with its
   measurement, entries are closed in place (never deleted), and §0 is the dispatch contract a coder is handed. **A bug
   found and not registered is a bug found twice.**
-- ★ M2 **`docs/2026-07-31-bench-test-script.md` is MAINTAINED** — it holds only what **no automated gate can reach**
+- ★ M2 **`docs/2026-09-20-metal-test-plan.md` is MAINTAINED** — it holds only what **no automated gate can reach**
   (a different ABI, a file neither native nor the sim compiles, flash wear, real radio). **Every slice that adds a
   metal-only behaviour adds its check here**, with the exact expected console line. Keep it short; it is the residue,
-  not a re-test of the corpus.
+  not a re-test of the corpus. Current results live in its ONE table; archive old evidence and retire a check only against a verified instrument.
 - ★★ M3 **MeshRoute is NOT DEPLOYED — it runs only on the owner's test hardware. WIRE CHANGES ARE FREE.** Owner
   re-confirmed 2026-07-31 and 2026-08-01. ⇒ **never contort a design to fit a spare bit or dodge a `wire_version`
   bump** — that is exactly how the DATA flags byte (`0xFF`) and `q_opcode` (2 bits) both reached exhaustion. Pick the
