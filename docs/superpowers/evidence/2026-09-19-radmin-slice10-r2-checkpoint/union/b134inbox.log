@@ -1,0 +1,60 @@
+-- target b134inbox: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/inbox.cpp (5 entries)
+-- selection: IN FULL (all 5 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-73lwh0np   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b134inbox: /tmp/mr_mutation_run-73lwh0np/w0/lib/core/inbox.cpp (2 of 5 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b134inbox: /tmp/mr_mutation_run-73lwh0np/w1/lib/core/inbox.cpp (2 of 5 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b134inbox: /tmp/mr_mutation_run-73lwh0np/w2/lib/core/inbox.cpp (1 of 5 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target b134inbox: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/inbox.cpp
+  MISSING H01 ★★★ TOMBSTONE CAP IGNORED — erase() writes a marker past the bound pull()'s fixed pre-pass array can hold, so a deleted message becomes visible again: the one outcome §3.5 forbids — NO VERDICT (its worker did not report it)
+  MISSING H02 ★★ a REPEAT delete reports `erased` instead of not_found — the modal shows success and appends a second marker against the cap for a record that was already gone — NO VERDICT (its worker did not report it)
+  MISSING H03 ★★★ the verdict stops asking whether the append LANDED — a torn tombstone reports `erased` while the message is still in every future pull ('a success that isn't', across the NEW backend this time) — NO VERDICT (its worker did not report it)
+  MISSING H04 ★★★ BOTH mounts stop running: the `||` short-circuit is restored, so a DM failure means the CHANNEL store never attempts its mount and two corrupted keys report 5/0 — a diagnostic that UNDER-STATES the damage — NO VERDICT (its worker did not report it)
+  MISSING H05 ★★★ `mark_read` DISCARDS the store's verdict again — the verb above it then acks success for a cursor the store refused to persist, and an unwired inbox reports success too — NO VERDICT (its worker did not report it)
+  worker 0: 0/2 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-73lwh0np/w0
+  worker 1: 0/2 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-73lwh0np/w1
+  worker 2: 0/1 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-73lwh0np/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 8.5s + battery 11.9s = 20.4s total, 5 entries over 3 worker(s)
+mutations: 0 RED / 5 unusable (of which 5 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    5 selected entries came back with NO verdict: H01, H02, H03, H04, H05
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

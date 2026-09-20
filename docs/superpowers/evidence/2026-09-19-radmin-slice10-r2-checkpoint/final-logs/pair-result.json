@@ -1,0 +1,16 @@
+{
+  "name": "pair",
+  "command": [
+    "python3",
+    "tools/measure_board.py",
+    "pair",
+    "--output",
+    ".pio-measure/s10-final",
+    "--jobs",
+    "1"
+  ],
+  "cwd": "/tmp/mr-s10-r2-_iyw9vw8/final-boards",
+  "exit": 0,
+  "seconds": 127.72245054319501,
+  "sha256": "ef8d7f36ec0d63c5201b5788566f962c803cdcb4308d9bbc7db1836ee75a16a1"
+}

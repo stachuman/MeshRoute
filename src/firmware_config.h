@@ -33,6 +33,19 @@ namespace mrfw {
 // does not set keep whatever is there; the `{}` is what makes that residue deterministic.
 void nv_load_stamped(mrnv::Blob& b);
 
+// The schema outcome precedes the independent administration-store reports at boot.
+inline void nv_boot_report_console(Print& out, bool loaded) {
+    out.print(F("> nv: /mrcfg v"));
+    out.print(mrnv::kVersion);
+    if (loaded) {
+        out.println(F(" loaded"));
+    } else {
+        out.print(F(" not loaded (absent, or a pre-v"));
+        out.print(mrnv::kVersion);
+        out.println(F(" record refused): compile-time defaults until the next cfg set"));
+    }
+}
+
 // ★★★ §UI-14 / [[B193]] — THE DEVICE BINDINGS OF §UI-13's TWO SEAMS, and they live in THIS cluster rather than in the
 // OLED feature layer for two measured reasons, both of which are the whole content of B193:
 //   1. the store's `load()` must be the §nv-ritual `nv_load_stamped` DIRECTLY above — load-or-seed + version stamp —

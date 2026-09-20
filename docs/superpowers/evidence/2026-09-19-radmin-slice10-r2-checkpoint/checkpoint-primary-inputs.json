@@ -1,0 +1,1566 @@
+{
+  "lib/console/console_json.cpp": {
+    "sha256": "6eee176e19eb3ff10102a6537fa173653f9a18cda040816bc649c63e8a139109",
+    "size": 78058
+  },
+  "lib/console/console_json.h": {
+    "sha256": "1dfbd0e8c8536f251b709076a33ef054684efad002d152bc5e83dcc6af8f8f53",
+    "size": 36689
+  },
+  "lib/console/console_line.h": {
+    "sha256": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9",
+    "size": 1462
+  },
+  "lib/console/console_parse.cpp": {
+    "sha256": "3134d5406a69daf1f95439c10ff82be96e3c681ecb58cbf23716dcfeba593502",
+    "size": 26720
+  },
+  "lib/console/console_parse.h": {
+    "sha256": "d0e88e074293b7f10fd4027add457a38c3864d2bd75bb243e6443696a2b5c6b5",
+    "size": 1177
+  },
+  "lib/core/airtime.cpp": {
+    "sha256": "15cfc1c5d5a39a624ef289eb45ec638e0cfe0eda60a5952915ec1345d7c64578",
+    "size": 2158
+  },
+  "lib/core/airtime.h": {
+    "sha256": "f6a974c2cc47a78f187a03b62c4d6881c306f7433cc8beef638bd777a52990d9",
+    "size": 1732
+  },
+  "lib/core/command.h": {
+    "sha256": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+    "size": 47677
+  },
+  "lib/core/companion_policy.h": {
+    "sha256": "ff48f6b1d9d9061e2fdf51bcbc3f4f5ffb0a7e9f9aedc53c2471210f49644471",
+    "size": 3592
+  },
+  "lib/core/dm_crypto.cpp": {
+    "sha256": "8b1910ebbbe2d620c0168da3b46bb303dfcadd23fd57bda2b7f4daf9ed358033",
+    "size": 5074
+  },
+  "lib/core/dm_crypto.h": {
+    "sha256": "9ce1eaaf5e44d6f5124dbf5642b24e55d1f176ceed6816a896baef3d3533d1d8",
+    "size": 9151
+  },
+  "lib/core/fault_log.cpp": {
+    "sha256": "439f722e184d012e82586649224b8716d7ddc4575b2985fc1e207e6d44af68d3",
+    "size": 9416
+  },
+  "lib/core/fault_log.h": {
+    "sha256": "e903923cf9c806228b526743ac3917ecd2c00ae83ea9ec0c793e05b62873324f",
+    "size": 6649
+  },
+  "lib/core/fixed_inbox_store.h": {
+    "sha256": "de7f838adceec69890ee1909c09238faa7cb3a18495e9be1439367fe683e7732",
+    "size": 6261
+  },
+  "lib/core/frame_codec.cpp": {
+    "sha256": "2c1a6be34634da3e48d387d794b02cbc946f4e268a27075b9d9658b1a0558111",
+    "size": 97063
+  },
+  "lib/core/frame_codec.h": {
+    "sha256": "d9476c95127cbd58cb9fd3eb98dce94f67b07f0c952081ae5ea5892b42036a66",
+    "size": 133931
+  },
+  "lib/core/frame_trace.h": {
+    "sha256": "299665bb35cd2aa66fdac8bba6d1c0b4687b832cd89c62b6ed147eddb2c4fd7f",
+    "size": 15388
+  },
+  "lib/core/hal.h": {
+    "sha256": "87209828b826126fa58f2dd39d538a0b335cf01e6002ebab109bf1e5bff4b93f",
+    "size": 14285
+  },
+  "lib/core/identity.cpp": {
+    "sha256": "c422d56356850607f4f51169084efa9aa7ccc9721681675484969234d811a0e5",
+    "size": 3430
+  },
+  "lib/core/identity.h": {
+    "sha256": "71ce5c379bcc611e17d490e32c2656b8748a1f13e7a450958f43a1d0ae4ecd6b",
+    "size": 5837
+  },
+  "lib/core/inbox.cpp": {
+    "sha256": "d284fdfb31eff1c8e981e2a2b67d04fe97be39667ffcf0110ba23da53e13e77b",
+    "size": 20962
+  },
+  "lib/core/inbox.h": {
+    "sha256": "f8ddc798652ffc4fea6f92ddb75e500e791d450d5d19015a78ed1a58096dd19a",
+    "size": 31235
+  },
+  "lib/core/jittered_tx_stash.h": {
+    "sha256": "1bf8851350be8bccfb446d4efb6ae5e505d9dfa6ac6ae9b496e24ba8a145aafb",
+    "size": 6597
+  },
+  "lib/core/leaf_config.cpp": {
+    "sha256": "c0131774685967039240ead3c0d5f51acbaaf0de0b00f9e79130c11553291f14",
+    "size": 3782
+  },
+  "lib/core/leaf_config.h": {
+    "sha256": "089a4bd6ad0a61246536e81af1d07aea6862492a65a3c4de742de77a6408aab1",
+    "size": 5015
+  },
+  "lib/core/library.json": {
+    "sha256": "745459189808b89b60ff938d91bcaf23dd0c632cac06565d51c4250575fa3ee5",
+    "size": 394
+  },
+  "lib/core/mac_wait_windows.h": {
+    "sha256": "872cf244672dc6c02969a038f4374e4a44fdf05057c016f86d02ff3b3ffc41be",
+    "size": 1039
+  },
+  "lib/core/meshroute_wire.h": {
+    "sha256": "49fc4918cfe38b04304ca6e5780b2dbb1da9c5454e6068bdf26720bdd5f6fc4c",
+    "size": 3354
+  },
+  "lib/core/mr_features.h": {
+    "sha256": "b7cda916fa78c46c9fd68ad34f51bae7cd906ca8e8fffda6cf409aa9d9912c32",
+    "size": 6197
+  },
+  "lib/core/node.cpp": {
+    "sha256": "f33b971c89cfabd239022327da07d8549ba05fe98e16547a76d2df7bbf7b5317",
+    "size": 230357
+  },
+  "lib/core/node.h": {
+    "sha256": "3b9971fbd4f82a3f0d07c860488d5e63cf8f727fb3111f56c2dd585df4f20fad",
+    "size": 443685
+  },
+  "lib/core/node_beacon.cpp": {
+    "sha256": "cf169322375bb4f86c14f25cfddd05123962cfe4ca79933558220ed42683c0f8",
+    "size": 96991
+  },
+  "lib/core/node_budget.cpp": {
+    "sha256": "4b9a280573dce196230bdc03a2b033bdd943cf96a26ca197572d9e01756af807",
+    "size": 5247
+  },
+  "lib/core/node_carriers.h": {
+    "sha256": "6cb2bdccb862aa0f28294ade9798bca048412a103a66dc2d47bbbd267c0bb3bb",
+    "size": 62763
+  },
+  "lib/core/node_cascade.cpp": {
+    "sha256": "45757a06760d641fff6a80f4483a457ded9fe04010b4c1d6c4e74bb92ee79423",
+    "size": 78116
+  },
+  "lib/core/node_channel.cpp": {
+    "sha256": "22e97f392b71818ad838238eb3c0936b8b796d18f6a8a2c215f3748d8df7972e",
+    "size": 147168
+  },
+  "lib/core/node_hashlocate.cpp": {
+    "sha256": "30c4791cb002684ff911814c8761b4c534cef1d166c0a1a1b32a2d72e09bfe33",
+    "size": 240046
+  },
+  "lib/core/node_join.cpp": {
+    "sha256": "e73981f60e02d66a35b46a4113ef2371d57942c50cdfeeafd704ed3326c5cc74",
+    "size": 106644
+  },
+  "lib/core/node_mac.cpp": {
+    "sha256": "8517502a36354ca82d792ba15c3406ac06e58b60b2339bba41858fe4996cd9a1",
+    "size": 222184
+  },
+  "lib/core/node_mac_rx.cpp": {
+    "sha256": "2c198c142ac40f6d50ecc50244d5d58a4c97a03a451bc47dea82c7d8cb94b961",
+    "size": 292057
+  },
+  "lib/core/node_mobile.cpp": {
+    "sha256": "aded5e803bd1bd4911d009cd30a62874c24e9f8c4639bcd773c0d8c42adfe2a3",
+    "size": 107951
+  },
+  "lib/core/node_query.cpp": {
+    "sha256": "ff4a9e76b678bbdd7157aab391b8c7eaa0cbffda49b131f96c7dba0fa24fa4dd",
+    "size": 33680
+  },
+  "lib/core/node_role.h": {
+    "sha256": "aece884037cfc85eec6e7ea6b1a43880eb271c48038766e3b779a45a227d4d65",
+    "size": 9468
+  },
+  "lib/core/node_route_discovery.cpp": {
+    "sha256": "d5fa88b4d45edee85091450c11b9e2f5c235bb682d5819c51946f3474b7b0906",
+    "size": 27509
+  },
+  "lib/core/node_routing.cpp": {
+    "sha256": "ad31eecfed1b913bdb05a751e1d650069edc12b080fd1368826147aba3a132f0",
+    "size": 63908
+  },
+  "lib/core/protocol_constants.h": {
+    "sha256": "46082d205df7728fd80381089d8151bdd4c8e6ebd83784628e6823d6b3305299",
+    "size": 111941
+  },
+  "lib/core/recent_ring.h": {
+    "sha256": "6e23033c1d6003e9462e8c6150da6283cb051eb771d85fbf11ced62b3005b743",
+    "size": 5114
+  },
+  "lib/core/remote_activation.h": {
+    "sha256": "4510313092503927c29e983a9f7ecaee157993ac3b29e1026bb8a2f661ae361b",
+    "size": 4741
+  },
+  "lib/core/remote_client.cpp": {
+    "sha256": "8b96afc9d05429cdd262c651a0f094d0b8a8876871b350424c8bb93bc08fd89d",
+    "size": 46072
+  },
+  "lib/core/remote_client.h": {
+    "sha256": "e10153305f02cac15083d610c5cf420662d907d1b52f5ecb26ad8b7b3956c695",
+    "size": 11728
+  },
+  "lib/core/remote_codec.cpp": {
+    "sha256": "afc81d9205ba0e1da45ee9b4d0666717405040366ffe2418383c507087ac1954",
+    "size": 40944
+  },
+  "lib/core/remote_codec.h": {
+    "sha256": "dcd8d09c8e223dee0d889ead240f4f01be6c47eb242b7255ba81f5189de78c1e",
+    "size": 24490
+  },
+  "lib/core/remote_session.cpp": {
+    "sha256": "4652dd9fc9ea69869e37779cff778dd661cb76d6945e8630967e67a1ba3180ee",
+    "size": 82404
+  },
+  "lib/core/remote_session.h": {
+    "sha256": "77effea7df813890eb90fa35ce75259fdbb03b434ea8f74b47ad09d6329e9ffc",
+    "size": 33498
+  },
+  "lib/core/segmented_inbox_store.h": {
+    "sha256": "6a2ce6a7821dd6a4bafbb8c154694d2582a67cc7b541e95e8a1d7d60e2473a79",
+    "size": 53291
+  },
+  "lib/core/team_seen_ring.h": {
+    "sha256": "df992a27820cc45e25e0f42b437972161f5f460291a7047a009bbd89ebe40753",
+    "size": 11371
+  },
+  "lib/hal/airtime_ledger.cpp": {
+    "sha256": "432d1c43bb5fa3ef7f7c69ae8e8d5cfeee0fd5715f086aaeb649f91a5dbb0c78",
+    "size": 2295
+  },
+  "lib/hal/airtime_ledger.h": {
+    "sha256": "08ee68e4dac7e11ac19aee1c8ed05f8f41c68bb6bad9f2cae645e525359cc153",
+    "size": 1714
+  },
+  "lib/hal/board_rf_provider.h": {
+    "sha256": "94c4d8ad11efd72bb4135a6d1e4a8eb19b842aacb217056bd90c3492e7c0162e",
+    "size": 680
+  },
+  "lib/hal/device_hal.cpp": {
+    "sha256": "4f4228f9a8626d7e05f0d6f7983306a59aa571aebbaa9c9e47f2780e9c9cab40",
+    "size": 9456
+  },
+  "lib/hal/device_hal.h": {
+    "sha256": "e404e90787f2f89666249fe9ce56ac4a59f4c3b206c149c5eabb4b7af33d4a1b",
+    "size": 13973
+  },
+  "lib/hal/device_radio.h": {
+    "sha256": "5a7a5a97ce56a0e35ee2c095502411cbca0f66b9eb72d3531f3ba3da40c26afd",
+    "size": 29921
+  },
+  "lib/hal/iboard_rf.h": {
+    "sha256": "d6a15d4c03cdd4ba5976879f0b2d0bbe4fa65ce814d89b17189f6548d87741fb",
+    "size": 2083
+  },
+  "lib/hal/iclock.h": {
+    "sha256": "4dd0df1a7c71775dc0b2bb79a1fd9d47912afc7ac755c0767da5bf511311d0e8",
+    "size": 2114
+  },
+  "lib/hal/iradio.h": {
+    "sha256": "382ad534286dc79c5ae849901133ee71e58698878092a82c5095c45709d8c419",
+    "size": 4232
+  },
+  "lib/hal/mr_ui.h": {
+    "sha256": "05f36ca97e760f4bd0d1a0021ca014fdb256f630cae9771cf15511d04af03e29",
+    "size": 13183
+  },
+  "lib/hal/radio_canary.h": {
+    "sha256": "13e680d2099b7bdc44c5d916d918d0a16376382326742cbc8201320231155bf8",
+    "size": 1835
+  },
+  "lib/hal/rf_capabilities.h": {
+    "sha256": "3fca0ee5f5793a7f1553806ebae0f87163736e353d42438eeb53afefd370d228",
+    "size": 1749
+  },
+  "lib/hal/timer_wheel.cpp": {
+    "sha256": "d3d7652be9ac6c9a91e765d571a40f5c17deb6ac3a403573d3d447b9f9be5c2e",
+    "size": 1383
+  },
+  "lib/hal/timer_wheel.h": {
+    "sha256": "f5c5c761273043a9ee7fc3122d00281da7f448b0fbc3d633f23832cbd73413b4",
+    "size": 4377
+  },
+  "lib/meshcore/NOTICE": {
+    "sha256": "3d4298db61a7f747cbb717bf6693548f2dee0e38f754110a78304657f090dd66",
+    "size": 2243
+  },
+  "lib/meshcore/library.json": {
+    "sha256": "2f450366ffce1b49e4c8dbe71f4fe9613b0cbb66f654d0001346199db48b29a8",
+    "size": 551
+  },
+  "lib/meshcore/license.txt": {
+    "sha256": "3426328fb2c024c0374ec18e6f587bf0f35782bf04c5d3e90b52d282b156489d",
+    "size": 1087
+  },
+  "lib/meshcore/src/helpers/radiolib/CustomSX1262.h": {
+    "sha256": "a28a62b137fd5a8974c1fc4df5ffa7fbebe311c1f67910cd5d2380179144f6dd",
+    "size": 2885
+  },
+  "lib/meshcore/src/helpers/radiolib/SX126xReset.h": {
+    "sha256": "149edd154fa7ab9962594280ca8f0e2c5b36c5786b567bfe67d7ec64a5af8c09",
+    "size": 1234
+  },
+  "lib/monocypher/NOTICE": {
+    "sha256": "dd0297c190d68c8269c8f2b448ef8e8db64bb27720d147ff09106ac3b50b411b",
+    "size": 883
+  },
+  "lib/monocypher/library.json": {
+    "sha256": "d80bd1dce83afd7db7a154bc6731f88521f884f0887f368a519934e3272400cf",
+    "size": 471
+  },
+  "lib/monocypher/src/monocypher.c": {
+    "sha256": "02174117935699d418443c75a558a287deb06ef8cf7c1adced61d9047d2f323d",
+    "size": 100273
+  },
+  "lib/monocypher/src/monocypher.h": {
+    "sha256": "fcaf6ed771358bb4f40fba016f6518ae86ec02b1b877d2cc35ad92d3a26fd7b3",
+    "size": 12177
+  },
+  "platformio.ini": {
+    "sha256": "722253904b11888dc79938cf352289e3c466090dc1d294a7c80ba946d0574390",
+    "size": 36280
+  },
+  "simulation/BASELINE.md": {
+    "sha256": "71f140988e9d1a5bf1be49dd1feb8fc7ebb8e46c7a4b119e16db62f0df76962f",
+    "size": 2157317
+  },
+  "simulation/s06_seattle_lifecycle.json": {
+    "sha256": "4a40e42d9f9d381a8091f14926b8c029805aed70e07326d89254b5696ca2ec2d",
+    "size": 61859
+  },
+  "simulation/s07_seattle_mobile_meshroute.json": {
+    "sha256": "9b39b4413e275511e82f785538b51e8ac6c985dc0c8e096a5c8a5f82d018f9e8",
+    "size": 74338
+  },
+  "simulation/s09_two_layer_gateway.json": {
+    "sha256": "b388dbd6378ffd35fd682472939930dcb893ee1f6be0d3618f3eba7a600a2d31",
+    "size": 10370
+  },
+  "simulation/s09_two_layer_gateway_metal.json": {
+    "sha256": "724bd5802519266686f0d8f596a473fa6f210191ec8975e0a7117879fd73c68d",
+    "size": 10667
+  },
+  "simulation/s10_two_layer_separation.json": {
+    "sha256": "9a77bb402af01b57eec415000e0bf3129c1fdb4b32a65efbdd5e3ab6e9d014dd",
+    "size": 11465
+  },
+  "simulation/s15_three_layer.json": {
+    "sha256": "58bcdea10e83e266aa0381092dfc4e83437416dc52d9e743a07f57dc6668cec8",
+    "size": 39347
+  },
+  "simulation/s15_three_layer_metal.json": {
+    "sha256": "093c10d98ff1d150a7ec6c44e317b79f3f81cfc5e8483b3ea7a08e856aad106b",
+    "size": 39728
+  },
+  "simulation/s16_dense_gateway.json": {
+    "sha256": "1c5bb8489314e1c19f86d77d454ae9b68e10c8e21499cdbf9e264b4af424bc9d",
+    "size": 23861
+  },
+  "simulation/s17_metro.json": {
+    "sha256": "61e5b64da69e6af561ef7c376153878186487483adf4a4e69dd8b28268e260f6",
+    "size": 429241
+  },
+  "simulation/s18_meshroute.json": {
+    "sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa",
+    "size": 242076
+  },
+  "simulation/s19_singlelayer_multihop_chain.json": {
+    "sha256": "2d4f93b0fc3634a028afd0eee2f30ade062584b47d7b3d2cfeba61059dc70e76",
+    "size": 4652
+  },
+  "simulation/s20_random_mesh.json": {
+    "sha256": "1b6c293cdf7248406f839a6a219ad3f79a2fce2e095e3f447ef485cc1e025052",
+    "size": 50536
+  },
+  "simulation/s21_leaf_config_divergence.json": {
+    "sha256": "f254965059ea8036e06a63e5d68a680b32a4504f8490c4199c5a48f63d264f94",
+    "size": 3248
+  },
+  "simulation/s21_mobile_dm_milestone_meshroute.json": {
+    "sha256": "a75dc37e0cedd0f22ef6f7992a89cd51e9e6f6bc0900a6afc6d834fcd19a0b7c",
+    "size": 3319
+  },
+  "simulation/s22_leaf_config_join.json": {
+    "sha256": "8944e3b5a24c6a507b10ba790164f7821b3d5d93b180b22de2742237bcc36c97",
+    "size": 2270
+  },
+  "simulation/s22_mobile_team_meshroute.json": {
+    "sha256": "bc1b53180dc5ce5d01dde4809a437337a955bcad8349622be89f0d7dd4986308",
+    "size": 18056
+  },
+  "simulation/s23_leaf_config_epoch_write.json": {
+    "sha256": "93d81c01e312cb65cc556b9b634e7b646a630b5c0384e9b5314ec39c9addc810",
+    "size": 2693
+  },
+  "simulation/s23_mobile_team_multihop_meshroute.json": {
+    "sha256": "78a06bba669830f4b31e6d7838d0da8a77bc8630adc204d1b1f4eeb946ea4907",
+    "size": 9803
+  },
+  "simulation/s24_static_and_team_multihop_meshroute.json": {
+    "sha256": "6fb778704b03ae1c768ada6b970a4865059d80fc8b64608d731a4f0851e2dd53",
+    "size": 11134
+  },
+  "simulation/s25_two_team_separation_meshroute.json": {
+    "sha256": "cbbed5c829c425667d4b148861f0e6e0a5fee254551f29ca74e482781a6abfce",
+    "size": 9300
+  },
+  "simulation/s26_team_reroute_meshroute.json": {
+    "sha256": "a1c01a1adfd9e59459be979f57b4cfa7ef41822f97605942bb56cf4f768046d8",
+    "size": 5259
+  },
+  "simulation/s27_cross_layer_mobiles_meshroute.json": {
+    "sha256": "72bd53552ffee888c2759760f7c8b272bddbb5ffbbc36b8cb4db8c64433e61eb",
+    "size": 26220
+  },
+  "simulation/s28_mixed_team_channels_meshroute.json": {
+    "sha256": "52224363398c094531729da83f1bdd07a813d10baba28ebddff366500d26c74b",
+    "size": 22176
+  },
+  "simulation/s29_mixed_leaf_team_meshroute.json": {
+    "sha256": "7b26fa43a6a0d0d3a97cbc8377787ca85201a9322d045e0accaa0ad7d57630db",
+    "size": 9349
+  },
+  "simulation/s30_team_dad_mediation_meshroute.json": {
+    "sha256": "75ace930ad87707961fe7e6b29e2278858c5eb940680db7b8c877d88d5bfb400",
+    "size": 9700
+  },
+  "simulation/s31_dual_carrier_gateway.json": {
+    "sha256": "3b624ae4aff25db09bf2f721b1ae2caa36052f8d0afcdded10ab36ccac7c1eb3",
+    "size": 13018
+  },
+  "simulation/s32_dual_cr_gateway.json": {
+    "sha256": "b5533bdb480cb3182ace6acb5a08d7933a12abc50db26add8610035e9894919a",
+    "size": 13384
+  },
+  "simulation/s33_mixed_cr_channel_overhear.json": {
+    "sha256": "101c499af7c6ae09f9fda6672f47c980e7bd64153043baf34b75440eaddedbf5",
+    "size": 13781
+  },
+  "simulation/s34_team_switch_clears_plane.json": {
+    "sha256": "442c5634a0d7ae8b5daeb98c4557c405dbd3b4b3e3cf47f3e4ef9618f331e1c2",
+    "size": 12627
+  },
+  "simulation/s35a_cochannel_isolation_meshroute.json": {
+    "sha256": "88788ca14a3eaec7769adc95d25907dcb76af7e07dd81b083bc839c157f9d52a",
+    "size": 30486
+  },
+  "simulation/s35b_cochannel_isolation_control_meshroute.json": {
+    "sha256": "96eb276a5d39f0e7d0b2ed695f24e3438e5ea573288469a8814b2dd25a6de990",
+    "size": 5359
+  },
+  "simulation/s36_reprovision_purges_carriers.json": {
+    "sha256": "5ac8828dd9e2d92c20ec9f21079254939c6881836c9e22f0bd533be7ae1baa4a",
+    "size": 7779
+  },
+  "simulation/s37_team_homed_origin_meshroute.json": {
+    "sha256": "089078292b71195b30f6ab5d0d180771d25626a4042ca200c6e898460749e776",
+    "size": 27259
+  },
+  "simulation/s38_team_origin_learn_meshroute.json": {
+    "sha256": "cba11cf0d7f3882f64b511b4c1726415b972d5a15ac68ad2541977400d8fe8d2",
+    "size": 13174
+  },
+  "simulation/sim_9node_base.json": {
+    "sha256": "368b568b79c7bbb0efc5dad36f73198931f1d0bf082b962a3a3d98e6051dc1a0",
+    "size": 9135
+  },
+  "simulation/topo_9node.json": {
+    "sha256": "4e064107366df5949d41538a232b713a1e33d46cf464cd0b9e31658045b68ea2",
+    "size": 518
+  },
+  "simulation/twin_9node_dm.json": {
+    "sha256": "107624ecd37706b164a738a28b7f61db05caed04257c24adff1aa559fce7bd1d",
+    "size": 11893
+  },
+  "src/console_sink.h": {
+    "sha256": "7477cf8cc74fcf5719a81e46c705b8173235c0f67c372a65c1c7e9ce5de29a77",
+    "size": 13103
+  },
+  "src/device_ble.h": {
+    "sha256": "56d68dd9270f670451115854e4861dceab8b25c7d81b1f923f73aa5a3f941ac5",
+    "size": 23629
+  },
+  "src/device_fault.h": {
+    "sha256": "dc0e8cbb947d57591b53fa47e69d293e67c41e323360604e097879e2268b355a",
+    "size": 15282
+  },
+  "src/device_inbox_fs_esp32.h": {
+    "sha256": "8a7cd3fe169f8ad46d34d303d7f6ca9b937ac5ac8d3a922d88a99f3970a7b637",
+    "size": 19607
+  },
+  "src/device_inbox_fs_nrf52.h": {
+    "sha256": "51c2a3a3775c0a695e502ffd74db5a9080ad9b9f4352427a748525aba65eaebf",
+    "size": 36756
+  },
+  "src/device_inbox_seam.h": {
+    "sha256": "e2ba2b44b25fcb4bca273f132800e4088f3dcfbf214f7c22c24aff7dde46080a",
+    "size": 18089
+  },
+  "src/device_nv.h": {
+    "sha256": "47ca6053e56e4268c78b1044dbadad8e7d3eee2baf5258822cdf7df7912eac54",
+    "size": 134800
+  },
+  "src/device_ota.cpp": {
+    "sha256": "2abd26a3f014addfc3f461507672f53251dfa46b2c7b1c47ddfd7ef3e1ab95db",
+    "size": 5503
+  },
+  "src/device_ota.h": {
+    "sha256": "082873c9eab897eb2052c430ee99fbc1f554c065fdafa9109becef54ff4d39dd",
+    "size": 1051
+  },
+  "src/device_rng.h": {
+    "sha256": "a6a5471f3c812033eecaf2784d5718c1a98e9bfca7ece042c3e6ccd60de75ad6",
+    "size": 6556
+  },
+  "src/dispatch_sink.h": {
+    "sha256": "5a498c1f4e25cef60e18aaaa032e81c5c4b215341efb3427b21b2c557823ad4f",
+    "size": 3541
+  },
+  "src/firmware_action_effects.h": {
+    "sha256": "b4f44d7448b629822b63a9fa69688478c001bc8d0afbd9af3dcd9b751627e4cd",
+    "size": 4514
+  },
+  "src/firmware_admin_acl.h": {
+    "sha256": "7fd78fdbd5e588da342ad61182e930bc3c0ed7a4d432dea9a80a3712b2077bfd",
+    "size": 29036
+  },
+  "src/firmware_admin_client_verbs.h": {
+    "sha256": "d3017806bd301422436dc32cbb440f39eb7a16784d44b6b2a70c678fbc1d36b0",
+    "size": 40850
+  },
+  "src/firmware_admin_identity.h": {
+    "sha256": "99d176fa7c0bb50b4c72985fb82bc22f6ac5a60e627a8691ffc4f1cc9f81dd32",
+    "size": 25265
+  },
+  "src/firmware_admin_keyring.h": {
+    "sha256": "af5a85c9da2bb1487ab2af88390f033a5eee69f4bb8ed18336835b91202e489e",
+    "size": 26448
+  },
+  "src/firmware_admin_runtime.h": {
+    "sha256": "9c2a2044af6586ab5b0519e9ab6d79929ec7328b9dc865106db76149d4c9dfc6",
+    "size": 21308
+  },
+  "src/firmware_admin_targets.h": {
+    "sha256": "6ed21c300c17be1fba2eeb7ef347095c24384535024b734a7ebec7bdffc61bbc",
+    "size": 29343
+  },
+  "src/firmware_admin_verbs.h": {
+    "sha256": "79212818546c5f6b91384b9450ffe474b5a9ca04e952d6eeafb3717ea59f0e52",
+    "size": 26370
+  },
+  "src/firmware_command_authority.h": {
+    "sha256": "5b3ab3fc15dd899a406607e6391c3283d0b119bad46bac97fe1c72f0674fa49f",
+    "size": 15118
+  },
+  "src/firmware_command_context.h": {
+    "sha256": "5ecc2bcb0489d7c4232b9894dfe34e9753f8fa2eb2a99bd240811dc3f99312da",
+    "size": 1416
+  },
+  "src/firmware_commands.cpp": {
+    "sha256": "761f3d43129e7c5b6d0e31b156abd963039aef85ebd7d0935382ab0705a2db15",
+    "size": 144462
+  },
+  "src/firmware_commands.h": {
+    "sha256": "e350b00e96ac14df6d2f9184d2b1cd67656c06f8cdc531436c1ab75fdeffb4be",
+    "size": 21818
+  },
+  "src/firmware_config.cpp": {
+    "sha256": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+    "size": 204712
+  },
+  "src/firmware_config.h": {
+    "sha256": "32cabbba4e56706a6abff945507f378278d39c067f4c4dcdba64050fde97015e",
+    "size": 19404
+  },
+  "src/firmware_config_parse.h": {
+    "sha256": "6df46b2e5b5eba98f259f621cd8c55b8e09feb73ec285989279acf37f66b886b",
+    "size": 42937
+  },
+  "src/firmware_config_service.h": {
+    "sha256": "c61448a35e461d016c936103560ca0eedc1da550ed0cbe88f1b1f938c241748d",
+    "size": 34288
+  },
+  "src/firmware_custody_push.h": {
+    "sha256": "76657112342a541445d64593563db31386cecf148df7b6559709b30b36b4f8d3",
+    "size": 8122
+  },
+  "src/firmware_help.h": {
+    "sha256": "5f552f88dfc9aeec03fbdc2486f407b9101814ae21e6364510a6c9048444c795",
+    "size": 9999
+  },
+  "src/firmware_inbox.cpp": {
+    "sha256": "9727e079c0bc1f49a1434314254ebc1fe70789b19c02bb858f40e29ec4d07798",
+    "size": 11110
+  },
+  "src/firmware_inbox.h": {
+    "sha256": "4b091353764f3420bdf7f4c83fbaddc5ca76d043cc74fd703a1e92e09111aa01",
+    "size": 2206
+  },
+  "src/firmware_join_profiles.h": {
+    "sha256": "ce882f7e7e8602aedfb9458a9c9192c658b7a017b2823990fb692b5135095367",
+    "size": 24264
+  },
+  "src/firmware_join_service.h": {
+    "sha256": "97b18a9d8051be700804bde96067c9bf0ae6484df01fea79204b3c336f35a4ab",
+    "size": 18140
+  },
+  "src/firmware_provisioning_service.h": {
+    "sha256": "61e33768704c010378766fb8107e82e39d6ba6a222cdaedb96c0bb05305d5311",
+    "size": 67738
+  },
+  "src/firmware_remote_actions.cpp": {
+    "sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+    "size": 6191
+  },
+  "src/firmware_remote_actions.h": {
+    "sha256": "5c74a418e9fdb9382d7e4fd07c0fd7084336cc9b3cb45b899f114f85adc6078f",
+    "size": 4571
+  },
+  "src/firmware_remote_activation.h": {
+    "sha256": "ca2e597ff0e5e62bb6ef23afc7cb3a8d4ce75881306742372132eef3d9e01514",
+    "size": 1975
+  },
+  "src/firmware_remote_client.cpp": {
+    "sha256": "d1156cf963a4e3aed534f0e32f671864fb6cbbef4f279800beb665b4a8b98bda",
+    "size": 10209
+  },
+  "src/firmware_remote_client.h": {
+    "sha256": "3d5e226192f901fc2b3bec4c4e52e47dab0ada275f5e43316fac7489918a2bf5",
+    "size": 10160
+  },
+  "src/firmware_remote_executor.h": {
+    "sha256": "8eba7b3d40afcb0481f89cf0d55716961b70b70b66e91d16ad192b1a20695eef",
+    "size": 5958
+  },
+  "src/firmware_team_keyring.h": {
+    "sha256": "a427c1e36e76239d5a5dfae122cdeffc038722d1f2e23b82275f4e9bb14a43c5",
+    "size": 91985
+  },
+  "src/firmware_ui.cpp": {
+    "sha256": "e1a491ae81c77e083360ace46456c41301ad00f4373128dba9655d30bf70c5be",
+    "size": 225038
+  },
+  "src/firmware_ui_chrome.h": {
+    "sha256": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+    "size": 45883
+  },
+  "src/firmware_ui_geo.h": {
+    "sha256": "e50f3ec67e94e7ab3dc3171231e46c9142114e6cf95860d68fccb2677b867487",
+    "size": 21230
+  },
+  "src/firmware_ui_icons.h": {
+    "sha256": "c8209e179057d15c6373617a66df22f19edb4ad6ef8b8ff9c57371fb2b3083d8",
+    "size": 18677
+  },
+  "src/firmware_ui_input.h": {
+    "sha256": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+    "size": 4663
+  },
+  "src/firmware_ui_invite.h": {
+    "sha256": "fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f",
+    "size": 61927
+  },
+  "src/firmware_ui_join.h": {
+    "sha256": "61d27ebc9798fd27d241f300c16d283e07562474e97dc2e028fe92ac25bd0f0d",
+    "size": 22429
+  },
+  "src/firmware_ui_model.h": {
+    "sha256": "98b1992aec2a380b9594e769aa81ee7abb24196e723dec19fc6fc9597c08d2b5",
+    "size": 511650
+  },
+  "src/firmware_ui_nearby.h": {
+    "sha256": "54df947131e1772e043b9def1a2ed95515ae7e200ff6e8c0c3735bbea3dcbbb9",
+    "size": 13289
+  },
+  "src/firmware_ui_nearby_row.h": {
+    "sha256": "fbb194bb52080becc5d00bbeb153df17b57818cd2d7ddaa8dfd1f8767147aebb",
+    "size": 8420
+  },
+  "src/firmware_ui_preset_verbs.h": {
+    "sha256": "2c003d4d29ed592cfd19d576a582a7edea68406f0dcd78f863beef2f1ac329dd",
+    "size": 27082
+  },
+  "src/firmware_ui_presets.h": {
+    "sha256": "7f0c2bbacf4e203229a2f15dfadecdf49f0973698d18fd99fd90bf19907827a3",
+    "size": 56859
+  },
+  "src/firmware_ui_prov.h": {
+    "sha256": "c1788f10457cc13321a3a5512ff5327550e68c56e852dfb318e510f07d5df953",
+    "size": 39289
+  },
+  "src/firmware_ui_send.h": {
+    "sha256": "0a12ffc21cef8c7d55abf06add55bcac1bf6da2f436da0fe3652d418eb0ce44d",
+    "size": 61163
+  },
+  "src/firmware_ui_status.h": {
+    "sha256": "b6e42c8e5d595c41f1f34fdf684176729b69e65f895582b6ef10c3f8648f710b",
+    "size": 18506
+  },
+  "src/firmware_ui_team.h": {
+    "sha256": "aefa86f4785f30aa6551308f3f666da4d04eee20426e33eddd4591edb165fbc3",
+    "size": 24612
+  },
+  "src/fw_context.h": {
+    "sha256": "f9006f7da6292d2cc4e8b8b29311866502485104cd1a6cf2fac70ffe41a416de",
+    "size": 8517
+  },
+  "src/fw_context_pure.h": {
+    "sha256": "5cb2cb0619d078ed9d34fde71b8ce2f0fe162df636d3a6cd43d09243782a7604",
+    "size": 2617
+  },
+  "src/fw_main.cpp": {
+    "sha256": "9472d8ab71e92e51423c8695738f33e79cae822b5d383c75312121c744a71cbc",
+    "size": 155088
+  },
+  "src/sched_send.h": {
+    "sha256": "bd8b5a3d328e13c79cef50a6a3e067d5ba7889c5e516d9a6c6a106c20d16c081",
+    "size": 6957
+  },
+  "src/sim_main.cpp": {
+    "sha256": "7f59eaaabc55481d5054a2a7683201f523dcdbb6a08cc41dc7ae02644e0979dd",
+    "size": 2036
+  },
+  "test/console_battery.txt": {
+    "sha256": "a23cc67f9e535cf173d808e32382856764840611139ccd9a438d08d2a75ad370",
+    "size": 840
+  },
+  "test/fake_inbox_storage.h": {
+    "sha256": "b5dcac51289b6be1d73af1fd827b7505d5ad8a39b241923ba3654b1bc1026d60",
+    "size": 9405
+  },
+  "test/radmin_0e_candidate_types.h": {
+    "sha256": "0d268f2494759db6e2ce0d5efc28bf0c10c29a0709d3fbc00244d4c6d700393f",
+    "size": 19920
+  },
+  "test/ram_inbox_store.h": {
+    "sha256": "63bd85d23daca2669e3daf4eeced61ba8d6712be2adf8b26868b0ccaaf535318",
+    "size": 5043
+  },
+  "test/support/remote_carrier_chain.h": {
+    "sha256": "c5c750e2a2e95c6a510afb91fc1431920442aa30b4d83091b2ea29b698acc00b",
+    "size": 7942
+  },
+  "test/support/test_hal.h": {
+    "sha256": "4885d152ddb33690c126456274895fb7e882830768c78c76b89f5ce35772b474",
+    "size": 8323
+  },
+  "test/test_airtime.cpp": {
+    "sha256": "620aa85f5e935950153734985fb2b46c978307a07a3eb6e6f075ae22dcfbadd3",
+    "size": 20271
+  },
+  "test/test_airtime_ledger.cpp": {
+    "sha256": "97fa17b00ff91d32ecfbd46b4dac48f36bb930720b9eff2286132c41edac20b0",
+    "size": 3707
+  },
+  "test/test_command_authority.cpp": {
+    "sha256": "403407f5ae1c3b4866ac8f3736ca600caeb186c32b1f86080090064d1aa7e1fc",
+    "size": 8226
+  },
+  "test/test_companion_policy.cpp": {
+    "sha256": "e86d878c77d6bd60d98db091aa6ecce8c3fdc4b6f660efb3f78f6bb5d83bb1a6",
+    "size": 3408
+  },
+  "test/test_console_json.cpp": {
+    "sha256": "2caf27d0cf23b5c5fcf194b638fb0a59d98ef5f01f21365ba18809eeec3d330e",
+    "size": 95207
+  },
+  "test/test_console_line.cpp": {
+    "sha256": "e479ed253fa628fb917b2488eafafc6bd66896abc3406aa4d2bb42b0241f0d11",
+    "size": 3189
+  },
+  "test/test_console_parse.cpp": {
+    "sha256": "3da6f303da6acc1357199ffd3001f2e0d63181dce174e2aa9a137a3313c289fe",
+    "size": 45223
+  },
+  "test/test_custody_internal_b.cpp": {
+    "sha256": "e97b78d74c10c484d36e62394c0e7a0416b87190c5fdaf66ac262e5fce12f495",
+    "size": 53397
+  },
+  "test/test_custody_internal_c.cpp": {
+    "sha256": "44702ea7a8879d52bf2edbdfbda1694c336bbd71d0c4ab9ddf1b5a368cff4b40",
+    "size": 48603
+  },
+  "test/test_custody_internal_d.cpp": {
+    "sha256": "635c8db28c1bc40c84f04633b4df88a5971a090baef1f912aea287dfb74eb22c",
+    "size": 42186
+  },
+  "test/test_custody_receive_g.cpp": {
+    "sha256": "abdb5ba2e6de7438ce23307f5650b52b0a6d8ca95c1ebf0b5abbf198f81ea58a",
+    "size": 210100
+  },
+  "test/test_custody_relay_f.cpp": {
+    "sha256": "f5e6017c9092b9e95ca37e7f3a12b954a4d3e3023afcb13b78fb93eae02667f6",
+    "size": 110936
+  },
+  "test/test_custody_terminal_e.cpp": {
+    "sha256": "850fc67931b2b25c53c1df34378802b40ce83eeeda66714fc3ddd6a2c252f552",
+    "size": 38353
+  },
+  "test/test_data_type_audit_a0.cpp": {
+    "sha256": "be431293cffc43af54161097d32b368ad10b155dc3f8966d2fbd1a151ffd100a",
+    "size": 43789
+  },
+  "test/test_data_type_namespace.cpp": {
+    "sha256": "60cd4ef4ac8f953e4d8864e4067f5836fa98816553477e393c09c5fe11c30705",
+    "size": 26920
+  },
+  "test/test_device_hal.cpp": {
+    "sha256": "bb6d2ad2c9630d277ce2631a2a7ddb0856b3f8f37c74bf06c471ecc6732e6731",
+    "size": 23942
+  },
+  "test/test_device_inbox_fs_esp32.cpp": {
+    "sha256": "4603d4e8e474b22e60c45b74c0b9c0de0ccdcd175e9227d0b3ff226f58ebfc40",
+    "size": 38694
+  },
+  "test/test_device_inbox_fs_nrf52.cpp": {
+    "sha256": "fa514ffccc09921e91d7bc581a6e3ad30491b25f9c3d691fb48bd8f1dc5f8547",
+    "size": 27215
+  },
+  "test/test_device_nv.cpp": {
+    "sha256": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212",
+    "size": 59592
+  },
+  "test/test_dm_crypto.cpp": {
+    "sha256": "f2811595c206720889eaaa402b7f07f937fb9a333ecd3bede0166c12eff767e4",
+    "size": 11598
+  },
+  "test/test_dual_layer.cpp": {
+    "sha256": "260890cbef5d1b2d8e5b76597ebaaae403bd5729129d98e11afb3ed574c58d77",
+    "size": 691021
+  },
+  "test/test_fault_log.cpp": {
+    "sha256": "21958df472285932cb11b76471cb446dd85ba59eebe558ec5af0acc73a0b7468",
+    "size": 11460
+  },
+  "test/test_firmware_action_admission.cpp": {
+    "sha256": "a6a8703d0d3af44becdf43e1a202c5ab193bf3e8859ed1f2374658b67ce22a7f",
+    "size": 9467
+  },
+  "test/test_firmware_admin_acl.cpp": {
+    "sha256": "5392b109094f2fac41e1eb1eed1bf9617bc29346066fbf3b78e5bc4940dc2168",
+    "size": 32765
+  },
+  "test/test_firmware_admin_client_verbs.cpp": {
+    "sha256": "bb9b525d4947aeb20e99e8b4d534008f18eccaa26c7c8bd43f151c0fd055821f",
+    "size": 38597
+  },
+  "test/test_firmware_admin_identity.cpp": {
+    "sha256": "22c9885104949c255ca26dac30f3124da9bd58a56ab41b3a86d0ae071d296244",
+    "size": 30181
+  },
+  "test/test_firmware_admin_keyring.cpp": {
+    "sha256": "5e1b4192128a390f1a4fc44c4c074e5a7e599560a8152e8c41621019695c1f83",
+    "size": 28457
+  },
+  "test/test_firmware_admin_runtime.cpp": {
+    "sha256": "c9d81d5e5ea3914cdbf0758b1f7d7edfec2964ab2d5708229651e773578ddb91",
+    "size": 31232
+  },
+  "test/test_firmware_admin_targets.cpp": {
+    "sha256": "e423aaeff6b57e04ca3cf531422442597aae5045a509fbd6266e6a71701440fb",
+    "size": 27321
+  },
+  "test/test_firmware_admin_verbs.cpp": {
+    "sha256": "851142286a9f17d435af088e70500c7a72295d788ec55805310496ca2562784a",
+    "size": 34190
+  },
+  "test/test_firmware_config_parse.cpp": {
+    "sha256": "57f39fa2c8019ab4af7ec3bb33f315f2e88c1a0721b5c35fdef952181285b9db",
+    "size": 60954
+  },
+  "test/test_firmware_config_service.cpp": {
+    "sha256": "a4ae64ec046d4a90b2a32cff018d8eb4ec26ff69486918b1aeb973a227d6907e",
+    "size": 39684
+  },
+  "test/test_firmware_join_profiles.cpp": {
+    "sha256": "551d751bfaac8c819ada69dbec421f938a73bbe922b81a0a357e17e4058ee57d",
+    "size": 37711
+  },
+  "test/test_firmware_join_service.cpp": {
+    "sha256": "6cb0105398ae24323e4ca01d75c77e83f66881910334b89b5c80f81e9675d85d",
+    "size": 14846
+  },
+  "test/test_firmware_provisioning_service.cpp": {
+    "sha256": "296f0e9476dea992768734c162b9636b41b835d068fa5c55c8737463b4aefa59",
+    "size": 115058
+  },
+  "test/test_firmware_remote_activation.cpp": {
+    "sha256": "2b1e449d6fc2501dfa58cfcc96733f0b3ae2f3164f6a2c9c4ed040af04eee20e",
+    "size": 4250
+  },
+  "test/test_firmware_remote_executor.cpp": {
+    "sha256": "afc844546eeca76f275c93e8dd917dae018e77484349b699ce2729c23a812066",
+    "size": 11030
+  },
+  "test/test_firmware_team_keyring.cpp": {
+    "sha256": "64718cc9023bd30f36031826dedfdf3548145d56872970ba9309ba0c2a3f556f",
+    "size": 138764
+  },
+  "test/test_firmware_ui_chrome.cpp": {
+    "sha256": "6ab7d9307b249a1fb6eafbff1387e0e399062bb0f69fba09a3c2e866aea28e64",
+    "size": 82692
+  },
+  "test/test_firmware_ui_geo.cpp": {
+    "sha256": "d7cdf5546bf3899f751c6a97feab634ea27b2bb80ca94406d2d773c4ff474dfb",
+    "size": 26036
+  },
+  "test/test_firmware_ui_input.cpp": {
+    "sha256": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+    "size": 14987
+  },
+  "test/test_firmware_ui_invite.cpp": {
+    "sha256": "2a2f7c6fd67af6a2580404247557afea22a31bb3299454f4a7c13b80df5626a7",
+    "size": 89286
+  },
+  "test/test_firmware_ui_join.cpp": {
+    "sha256": "a93148e966ffd22ffbad94f692547e25042995734a4f57bae26be4e786a9e4ab",
+    "size": 24954
+  },
+  "test/test_firmware_ui_model.cpp": {
+    "sha256": "bb4650abf84dbd33156a62ffd3214d87ba64d1a9dbb352a6a13e43f9962a095f",
+    "size": 638279
+  },
+  "test/test_firmware_ui_nearby.cpp": {
+    "sha256": "b80c776f239b2a025f88f38753260b8d8b1ee0e93c1683aacfe8102a31198b37",
+    "size": 17141
+  },
+  "test/test_firmware_ui_preset_verbs.cpp": {
+    "sha256": "a720c95b488aefa9c3ea04f8d9a249a81b67a875746ff91013cd8f5ab56b5b64",
+    "size": 27530
+  },
+  "test/test_firmware_ui_presets.cpp": {
+    "sha256": "d0f321aec4b96db54feb4d0dcb74d2eccf7180db3da493068d713de5677f49dd",
+    "size": 55532
+  },
+  "test/test_firmware_ui_prov.cpp": {
+    "sha256": "816ea9ea36be4d5117d353d9598896984883c52d1c01677d13d3852c73f130d1",
+    "size": 84640
+  },
+  "test/test_firmware_ui_send.cpp": {
+    "sha256": "b1287e803bf336297fa4ae850cf18e59e5048dc2de50ed888e57af5cb0a694fe",
+    "size": 188932
+  },
+  "test/test_firmware_ui_status.cpp": {
+    "sha256": "5d70ed87a048ddff375b624fc237b2d3dcc6cdaa38a029d24face08544bc4ec4",
+    "size": 20898
+  },
+  "test/test_firmware_ui_team.cpp": {
+    "sha256": "b14780f646a4eaea8d51d1ab0bd916383c246c6f54a155179e4dfe999de2397d",
+    "size": 35189
+  },
+  "test/test_fixed_inbox_store.cpp": {
+    "sha256": "9c10829cbcd359d712584dc756148e65ef98d6db0fa47da3144c0b9e83904238",
+    "size": 4627
+  },
+  "test/test_frame_codec.cpp": {
+    "sha256": "0928571dbe571730cf1f7ee94b59dd649e0c18dbb50944d43d6a8401744727e4",
+    "size": 175306
+  },
+  "test/test_identity.cpp": {
+    "sha256": "638d047c07a39688c743152de7dffea04f65aef0fddc424cb94e14419d74890a",
+    "size": 12062
+  },
+  "test/test_inbox.cpp": {
+    "sha256": "589d05564c6d593e479a4f8b43502a13f6bac5a5462278fba4ab1f2318256830",
+    "size": 32919
+  },
+  "test/test_mac_wait_windows.cpp": {
+    "sha256": "e95466beb6d2b3899beb884aa61a70a17b3d9f20273d4682c62e985e5e95d021",
+    "size": 2676
+  },
+  "test/test_node_channel.cpp": {
+    "sha256": "cd92f33dbd86bb9300581c4f8cce8cdf8b6934d594c1c63bd79456aae1cfb609",
+    "size": 267048
+  },
+  "test/test_node_e2e_ack.cpp": {
+    "sha256": "b3da996b4d812249f29c93dba19059116f73809a5b27ece1dc381a6f00751af2",
+    "size": 9742
+  },
+  "test/test_node_hashlocate.cpp": {
+    "sha256": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c",
+    "size": 319518
+  },
+  "test/test_node_join.cpp": {
+    "sha256": "b821cd621718ce5c4b985a796336a169140ce961e2049de5da7e7aa7c3881c77",
+    "size": 484605
+  },
+  "test/test_node_query.cpp": {
+    "sha256": "0618370cbc5d226073093ec3441fa9e428fa8848fc1ab54ef13c17031e1fe2b8",
+    "size": 39769
+  },
+  "test/test_node_r2.cpp": {
+    "sha256": "20449d4d48cefcc265ad197f8e27680c2bd132ab5570c8b8dd4b1780a01e817a",
+    "size": 6072
+  },
+  "test/test_node_r3.cpp": {
+    "sha256": "a6ee531c11c056d579ef566dd4746f7f00dbbe529e37329d9484ba892ae33454",
+    "size": 819679
+  },
+  "test/test_node_remote_carrier.cpp": {
+    "sha256": "15e6370d084099b124eddc76ddfbe5907a0904bc0af9c8085964b76c4835a502",
+    "size": 32122
+  },
+  "test/test_node_remote_exec.cpp": {
+    "sha256": "82da6a121accd93406749ecec8160865f85666aca61666d51c64d662e95b8721",
+    "size": 1619
+  },
+  "test/test_node_remote_session.cpp": {
+    "sha256": "0d39f0c1d335698cc3be40e06e83c00159df20251d57bb01e6b36cad10b628e3",
+    "size": 111116
+  },
+  "test/test_node_team_seen.cpp": {
+    "sha256": "af96bac5686c28b6e7b1e169a31fc36ff2315ada5c335d99e8726b0e823e3c2d",
+    "size": 21744
+  },
+  "test/test_protocol_constants.cpp": {
+    "sha256": "f71f314069d8285a6697a021d2e53a7e4709a2344aef0e30194812b979f7e78a",
+    "size": 15608
+  },
+  "test/test_radio_canary.cpp": {
+    "sha256": "40b276a861b80391c3fa4bd63b05325eadc29efff63f99a3cb377e50ed29e596",
+    "size": 1688
+  },
+  "test/test_radmin_characterization_0e.cpp": {
+    "sha256": "6a74acd663b36886e6a26847035d58b6a7b04bf6026e0b9a778194f11362c968",
+    "size": 43852
+  },
+  "test/test_remote_activation.cpp": {
+    "sha256": "e458d23b1458776c190960aaf5a2ed9dd38c72c2001c9df3c55eba603330eb85",
+    "size": 6630
+  },
+  "test/test_remote_client.cpp": {
+    "sha256": "39dba7b61b296dfad0c05b9953f6e672a144d2617162dc89f0a596ec974a43b0",
+    "size": 30293
+  },
+  "test/test_remote_codec.cpp": {
+    "sha256": "83b075c683a35a28d73fb40e2427aaf8c0b4543bf1f63601367e083e7e0cfb26",
+    "size": 482332
+  },
+  "test/test_remote_session.cpp": {
+    "sha256": "f11dcddea4c160952dc3c0c42ffe253fe43a98b5eb114a3f6cc5752ccdc0d94d",
+    "size": 78275
+  },
+  "test/test_remote_transcript.cpp": {
+    "sha256": "25a406416285f09877c51b67f7de9d390c8cb48853c838f1881cc8bca838bc59",
+    "size": 32632
+  },
+  "test/test_sched_send.cpp": {
+    "sha256": "113c26b6ed8ab52452568b2ff8dc903317c72169f03bcd21a2d774ce0d4667d9",
+    "size": 4999
+  },
+  "test/test_segmented_inbox_store.cpp": {
+    "sha256": "676fd3e00a3963f66e531b5a813c3182b35120ae618d9fb8209a657244cc0b31",
+    "size": 85988
+  },
+  "test/test_timer_wheel.cpp": {
+    "sha256": "c153c8cd636817d83222872fe5238c5461631f7ca397534b417fab676ca72015",
+    "size": 6233
+  },
+  "tools/b278_correlation_census.py": {
+    "sha256": "776212dacd4bf87603c2edbe9edcee398c97fc583d1b5529678f4dffc07627e4",
+    "size": 72987
+  },
+  "tools/ccache_native.py": {
+    "sha256": "440cea895c17f2a2e3f4018d27ccf96668e1a431942ce8dc5d6f16c97903ddb2",
+    "size": 1403
+  },
+  "tools/check_a0_matrix.py": {
+    "sha256": "f15afbd4c340c3adfd1ba00bb0138f29863ea345c9521d17a0348150abc3becb",
+    "size": 15877
+  },
+  "tools/check_command_authority.py": {
+    "sha256": "2d44eef1452464c60029b01e551379be1a5ea91cccc5b7c50f6b4faabb9390bc",
+    "size": 6551
+  },
+  "tools/check_data_type_literals.py": {
+    "sha256": "c77193002875ae79325e8146a9219eb6232cdf25017627b565ffcab60ab9779d",
+    "size": 17175
+  },
+  "tools/compare_corpus_semantics.py": {
+    "sha256": "4a205e0ac5dc64e5df4bae1c878c1866d6293868111800e353c215757745e6e3",
+    "size": 32809
+  },
+  "tools/compare_corpus_slice_b.py": {
+    "sha256": "3a07b33bc072ee1e92c277f88f3d5f9b931f49ab5469c8933566a7e7d8b6b021",
+    "size": 16364
+  },
+  "tools/compare_corpus_slice_e.py": {
+    "sha256": "32a2320a9aa4515c9e2b56ffea7384fcb11875c47096963ea8f0acbedb6e3dc0",
+    "size": 11430
+  },
+  "tools/compare_corpus_slice_f.py": {
+    "sha256": "d94c316df9b8c25352af0943e6b4e09c5586b1303b2f4a01c3862de67a2002a4",
+    "size": 37581
+  },
+  "tools/compare_corpus_slice_g.py": {
+    "sha256": "bd7ef466b76c7cd68608214bced27184a380b099b0eecc4a0e1c19cf56779c60",
+    "size": 25121
+  },
+  "tools/compare_corpus_slice_s1b.py": {
+    "sha256": "bc1cbef5609d48c88a24e8df41cd297e05b3e8c648bb4bdfc0797c81c5125cdb",
+    "size": 43706
+  },
+  "tools/dm_delivery_breakdown.py": {
+    "sha256": "b4656fcc203f1dc90ed6cb9d53a71e069040f249629befd308c5609011707879",
+    "size": 227912
+  },
+  "tools/fading_from_logs.py": {
+    "sha256": "8bfcd954a372d4bb4208dfb1bece5e93043a41f1608601782d07b52eca46919a",
+    "size": 31235
+  },
+  "tools/gen_command_inventory.py": {
+    "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "size": 67886
+  },
+  "tools/git_rev.py": {
+    "sha256": "a3d6f057358203260ef24a6fc02457c91ff4bb7644fef632ee4a174151db4d4c",
+    "size": 9694
+  },
+  "tools/lab/__init__.py": {
+    "sha256": "a59b9e42f5f80f2b01c60db5ec11b28f4d6680246e5b360a302f2bdbe02abe19",
+    "size": 255
+  },
+  "tools/lab/armrun.py": {
+    "sha256": "b95afbf38b1ff947912755388b3d98ac3d895bc1950f84329b3cc27c5ac3e902",
+    "size": 12216
+  },
+  "tools/lab/inbox.py": {
+    "sha256": "25a4568a830a92b3a9c386a68e07a87ff6af2ed98ee68c536023b3dc7498adb3",
+    "size": 2768
+  },
+  "tools/lab/manager.py": {
+    "sha256": "c8415748bdc236b1deeccdc9e5f3a64d62b89837d4f77140b2ca733696e708b2",
+    "size": 8114
+  },
+  "tools/lab/oracle.py": {
+    "sha256": "8d730d6b340c46d96fe46b4856dcd24d1a52f02b3b4f9df73f8bd23e6e0c48b5",
+    "size": 15406
+  },
+  "tools/lab/parsers.py": {
+    "sha256": "60287dcb4908171825efa99e91f71ed57aec543720db4e2b1f3b78507cac7580",
+    "size": 7095
+  },
+  "tools/lab/provision.py": {
+    "sha256": "88e5a72f795205887be2152a0abf2dd54995979b26a928341c2e9c487fa8735b",
+    "size": 10986
+  },
+  "tools/lab/reconcile.py": {
+    "sha256": "2df94d5733a722cd5f01ee76eae29c0c09d9ecf79f3448c9d272728e95805df0",
+    "size": 22742
+  },
+  "tools/lab/registry.py": {
+    "sha256": "261d4f0854991644cca22402b0e74e6b38ed86ead67255d6126675e91d494450",
+    "size": 8669
+  },
+  "tools/lab/report.py": {
+    "sha256": "ee7f9d048f5a3adc74b2627472bf22a50358673db3bcefa774007b6784b3b897",
+    "size": 11656
+  },
+  "tools/lab/schedule.py": {
+    "sha256": "dc047ddad25a49079a9fbb9d176fb8f87ed6960acba5738100c672c294aea7c4",
+    "size": 8208
+  },
+  "tools/lab/tag.py": {
+    "sha256": "c65beac0eef1baf686f2634cb5b541a7d5babafbc435e2e15632018bd899868e",
+    "size": 2362
+  },
+  "tools/lab/topo_to_sim.py": {
+    "sha256": "b874e1f55348af6b9a28706737e566e4f35d42f4627e30a396684cae3e6c7596",
+    "size": 7535
+  },
+  "tools/lab/topology.py": {
+    "sha256": "56403635d513a460715bee203d65c307e703be8e9146e5e128460cfba9fb4263",
+    "size": 3399
+  },
+  "tools/lab/workload.py": {
+    "sha256": "29d889302b19a6f88328e011983cfe5a0ed72f6e458a6d6f346db5f8f413f337",
+    "size": 11049
+  },
+  "tools/measure_board.py": {
+    "sha256": "65ecc700dd25e6de961f21d7ad793c17d425fb989832f147945f12ae1f3d40ad",
+    "size": 42327
+  },
+  "tools/meshroute_client.py": {
+    "sha256": "d1a0aaf8e341d6aa0f4e95fce65072f9f1ff5b34fb9215ff931f7cc32ff80716",
+    "size": 26719
+  },
+  "tools/meshroute_client_ble.py": {
+    "sha256": "7e0f460cbf17bdf40becefbaec532a89ee9c96fd75122bb9ff5c09255465549b",
+    "size": 18703
+  },
+  "tools/meshroute_lab.py": {
+    "sha256": "abef8d6d610b15cc8346b74657dfcb6aec4fc10942e02cd216710654b557fbf6",
+    "size": 14856
+  },
+  "tools/netspec.example.yaml": {
+    "sha256": "5463367f73dec97aee76a7941beb49e39cecdc4fd52fbfdeeee3de3276c88cb2",
+    "size": 493
+  },
+  "tools/probe_b278_row_abi.py": {
+    "sha256": "fadf54f87744f5842c802a3a645af4db109e8afb80660c7ca1fae483bd52153c",
+    "size": 23249
+  },
+  "tools/probe_ble_line/fakes/bluefruit.h": {
+    "sha256": "21ffe5d7ff1b742637bafc40e2dc345e7d76b5f958eb42a4cc593efeead3ceff",
+    "size": 5603
+  },
+  "tools/probe_ble_line/fakes/nrf.h": {
+    "sha256": "9c9a69fedc473b9514b7833a7c67a27de47cbe8f7641714e9d10649135cf8a9a",
+    "size": 884
+  },
+  "tools/probe_ble_line/fakes/nrf_soc.h": {
+    "sha256": "9fe1030cbec72a2e7d52e901ff8edd336bd2137d188f58c81426afa3bc00486a",
+    "size": 522
+  },
+  "tools/probe_ble_line/probe_main.cpp": {
+    "sha256": "7df9622d773379f5e8ebda89d86f2205b03881a8ba3336d89700af237a9731c6",
+    "size": 22101
+  },
+  "tools/probe_ble_line/run.sh": {
+    "sha256": "fb1a683312d381835528b3829806a2f26fe5ba837d2ebe0811ece9341a22b530",
+    "size": 20152
+  },
+  "tools/probe_board_abi.py": {
+    "sha256": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d",
+    "size": 62846
+  },
+  "tools/probe_board_ui/fakes/Arduino.h": {
+    "sha256": "4655c95199dc0dd8e57011381a4f064f0408f4e78617682684cb4247479208e4",
+    "size": 10811
+  },
+  "tools/probe_board_ui/fakes/U8g2lib.h": {
+    "sha256": "a8fb0f7f8d869b165f7bf03bd4b79330275ca6098c2a2e8d7e61d1bcf436e4d5",
+    "size": 4217
+  },
+  "tools/probe_board_ui/fakes/Wire.h": {
+    "sha256": "336618a8bee15fb7c9a8be408721fb135051a54a06a6c4fb6a24751f85251ec4",
+    "size": 1090
+  },
+  "tools/probe_board_ui/fakes/driver/gpio.h": {
+    "sha256": "56866b460bf2cee254fca6b880234e22c08137a1733bf37e4f8d9ee101096774",
+    "size": 1487
+  },
+  "tools/probe_board_ui/fakes/esp_sleep.h": {
+    "sha256": "4cbea38cf1cb283c479146b2b6776357fe7e32c2629873180289ffee361fef5a",
+    "size": 1284
+  },
+  "tools/probe_board_ui/fakes/esp_wake_probe.h": {
+    "sha256": "2c9c0049c04755887cb49fc9f174259d7eaf692c72c1fccc717122e243194b0e",
+    "size": 6758
+  },
+  "tools/probe_board_ui/negctl.py": {
+    "sha256": "067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f",
+    "size": 31694
+  },
+  "tools/probe_board_ui/probe_main.cpp": {
+    "sha256": "6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8",
+    "size": 49165
+  },
+  "tools/probe_board_ui/run.sh": {
+    "sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+    "size": 138728
+  },
+  "tools/probe_build_identity.py": {
+    "sha256": "599dd653a0c662521e294e390f547fe5dbc20a4d22991859594226c8f3c31235",
+    "size": 18571
+  },
+  "tools/probe_console_sink/ble_guard.py": {
+    "sha256": "57e508a9d8deb6e796a88c2a866802b7d29e0a10558beb4148dfe0973a8151bf",
+    "size": 28529
+  },
+  "tools/probe_console_sink/fakes/Arduino.h": {
+    "sha256": "dda336e41f33d197014b9003770022735be6dda5010777928ce2ad0a50167cde",
+    "size": 5463
+  },
+  "tools/probe_console_sink/negctl.py": {
+    "sha256": "6b06bc1182c351932b2bb1f287aa99f3097ca5c63b954c58de3729be57567ce3",
+    "size": 79502
+  },
+  "tools/probe_console_sink/ownership.py": {
+    "sha256": "8e6a024bdd0b130adc0f398198fa970642a20adc0b9b75d4859fb3d003cd12b8",
+    "size": 14393
+  },
+  "tools/probe_console_sink/probe_main.cpp": {
+    "sha256": "f087651e66daaaca4238042438d60371b79a4817d4659397fd96345efaaa9eb4",
+    "size": 35617
+  },
+  "tools/probe_console_sink/run.sh": {
+    "sha256": "f543dbf1829bd09d2e672bdca1f32456b358cb0b5addc507a96f920061588b73",
+    "size": 33041
+  },
+  "tools/probe_console_sink/run.sh.orig": {
+    "sha256": "a4ec1368893c933ae7e521647548e94a40d8a7201a18f96cdfd2969300da0fe5",
+    "size": 5812
+  },
+  "tools/probe_console_sink/structural.py": {
+    "sha256": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+    "size": 66537
+  },
+  "tools/probe_custody_usb/observer_structure.py": {
+    "sha256": "1e0c6264e873b2b0774005f574aef09caadbbce20ae9260add4c656a04ef2c10",
+    "size": 2558
+  },
+  "tools/probe_custody_usb/probe_main.cpp": {
+    "sha256": "05fe4047eb48e61da7d7fe09505d0b9b7c8f633acbe4b9ffd2d60a7478474d41",
+    "size": 18755
+  },
+  "tools/probe_custody_usb/run.sh": {
+    "sha256": "03b47b0f98d3db0482f1112205faedffb47741f37c84c1bbf9f9c885c1871151",
+    "size": 18595
+  },
+  "tools/probe_deferred_actions/README.md": {
+    "sha256": "409c87b1911906900c7c633648916e3dbbd26ca4be3d24c6255842a584e9e91e",
+    "size": 2542
+  },
+  "tools/probe_deferred_actions/controls.py": {
+    "sha256": "7da153c37861dc6de1a50e97bb8dcbf924bf56eb4e293fa2f0c27101e2458ff1",
+    "size": 8435
+  },
+  "tools/probe_deferred_actions/probe.cpp": {
+    "sha256": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+    "size": 12123
+  },
+  "tools/probe_deferred_actions/remote_rows.h": {
+    "sha256": "ed8be70fa39ec8202cff998f6ff3b91e9d63ee5dd407907685894913900d4292",
+    "size": 19208
+  },
+  "tools/probe_deferred_actions/run.py": {
+    "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+    "size": 12933
+  },
+  "tools/probe_deferred_actions/run.sh": {
+    "sha256": "711be73a747053a419d4afbebc60e9fc8ffc2f7594e47c01aebb134f7bee2532",
+    "size": 81
+  },
+  "tools/probe_device_radio/board_rf_probe.cpp": {
+    "sha256": "d9014ee9d0e97a9d550fb88e54852e201394514b18e56ded89f5ccd5fdecb4e4",
+    "size": 7782
+  },
+  "tools/probe_device_radio/fakes/Arduino.h": {
+    "sha256": "d83bfd5c844965c6ae9f3e580b69f01a2fd979a85468bbc6d60d042df9edc66d",
+    "size": 2510
+  },
+  "tools/probe_device_radio/fakes/RadioLib.h": {
+    "sha256": "f54d3d8458f659586fcae6cf652d9768dc3749fe00fa2b19854c629e9d52823b",
+    "size": 1170
+  },
+  "tools/probe_device_radio/fakes/driver/gpio.h": {
+    "sha256": "328e6ff58eb5312e24838656f5540de0aa6dad86dd0c55fedf4aeca1b6c23675",
+    "size": 603
+  },
+  "tools/probe_device_radio/fakes/driver/rtc_io.h": {
+    "sha256": "8781bbf7b0347818021851c451da03beebcdfc6cc55c99121afbbe682aadaa41",
+    "size": 253
+  },
+  "tools/probe_device_radio/fakes/helpers/radiolib/CustomSX1262.h": {
+    "sha256": "108fdb9e683c1a95e1310cb24afdfefdba0ec39bf49ec019a6331343a93a41e1",
+    "size": 2975
+  },
+  "tools/probe_device_radio/mutations.py": {
+    "sha256": "9678c6c91ccce1d9b8adc0bc1915d55a2c7c0ad8211bde9eeb7a6023680fa108",
+    "size": 26333
+  },
+  "tools/probe_device_radio/probe_main.cpp": {
+    "sha256": "dd5abd42a2c8512d6b480b4501dbce530e0a449b9a5ff1407ae693d795978a81",
+    "size": 16884
+  },
+  "tools/probe_device_radio/run.sh": {
+    "sha256": "ae9fe0ea43c09dee9c0e5b2365b6097e9ce7cc7e5e5cf40d30f6d8b82ee83df8",
+    "size": 3403
+  },
+  "tools/probe_device_radio/structural.py": {
+    "sha256": "c7b43b08a4fa8fe2979dde770e059370f020546eb03af34d383838a8d55cd6d2",
+    "size": 8500
+  },
+  "tools/probe_features/envmap.py": {
+    "sha256": "2bc34a8c5ebd7f25045a5e102e8e510ac3008994d2c36fd324ec5a11b86dd2e7",
+    "size": 10387
+  },
+  "tools/probe_features/mutate.py": {
+    "sha256": "4ef0ac13a652498afeb174c696a54a4f8fcde965d975f8c2c1401cc2ac48fb13",
+    "size": 3298
+  },
+  "tools/probe_features/ownership.py": {
+    "sha256": "34cac90d523698cf243cb1dc7dc53d9d083125507eced71650d59b80cefefe36",
+    "size": 44679
+  },
+  "tools/probe_features/probe_main.cpp": {
+    "sha256": "efa9988c1246692f41a941a6a9b35ea749376ccfa837be11c9e29553f5c99695",
+    "size": 5858
+  },
+  "tools/probe_features/run.sh": {
+    "sha256": "2e68285e9a2d013f5294b5d5622145185849920f8ab05c102005f65ac4b8b2bc",
+    "size": 36336
+  },
+  "tools/probe_firmware_ui/probe_main.cpp": {
+    "sha256": "57d93951575e9ce9c45985b03f105db900c81ee00d8ef4c76fc0443d82996a24",
+    "size": 520209
+  },
+  "tools/probe_firmware_ui/run.sh": {
+    "sha256": "f51a3e931ff4096163e1c89f3ae85e4dcddca7cbd46cf9c765aec872d574eb36",
+    "size": 161967
+  },
+  "tools/probe_inbox_verbs/fakes/LittleFS.h": {
+    "sha256": "d9d47e8921b328e9247c52cb86e9730a6bcb6de3be5aad4fbdd20bc070161fe0",
+    "size": 1107
+  },
+  "tools/probe_inbox_verbs/fakes/Preferences.h": {
+    "sha256": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+    "size": 7436
+  },
+  "tools/probe_inbox_verbs/fakes/bootloader_random.h": {
+    "sha256": "621d36e4ea2ef8358991f8fc605602f35d5228553218d7cd5f7345c1179abcb8",
+    "size": 978
+  },
+  "tools/probe_inbox_verbs/fakes/esp_random.h": {
+    "sha256": "a916ef4dd0fffa63362712926394aa6cddf6a978d843742b8efef20a01a1617d",
+    "size": 2928
+  },
+  "tools/probe_inbox_verbs/fakes/helpers/radiolib/CustomSX1262.h": {
+    "sha256": "fa802431bcd4c57a81c5eebfeca3cbbde8a817411eb0ae6179525de254d9c611",
+    "size": 919
+  },
+  "tools/probe_inbox_verbs/fakes/nvs.h": {
+    "sha256": "679a8a6c18680502f401c59a82e4d2e336a2f3a8be77c4df2bf2fe76543b5328",
+    "size": 2329
+  },
+  "tools/probe_inbox_verbs/probe_main.cpp": {
+    "sha256": "ae776415d524c01635fe7bc5c84bf7837967fd296710c26eefcdb46eb93e4a2e",
+    "size": 137573
+  },
+  "tools/probe_inbox_verbs/remote_client_rows.h": {
+    "sha256": "8cca8d85893f0e0d87ecda584d8f95e483a78789961e97b8e611e2f9fb9e4ce3",
+    "size": 17450
+  },
+  "tools/probe_inbox_verbs/remote_exec_rows.h": {
+    "sha256": "e1b74d3789626aa1f2513073bf395cc801ca4b17e056ef01507eae983321c265",
+    "size": 25866
+  },
+  "tools/probe_inbox_verbs/run.sh": {
+    "sha256": "2d1411e94bf39770886dbb65a28de7dcbb9ef35bd2e65f4e4775c45a94e388f8",
+    "size": 71350
+  },
+  "tools/probe_inbox_verbs/transcript.py": {
+    "sha256": "ffb23ad6cecb3d74859136ce06b237027739ddc8dfcdad5599a9180649b9b000",
+    "size": 22278
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+    "sha256": "cac897912d573bcdcf9a0226156971e23ee398098772eee8e4bc55e685bc39af",
+    "size": 8924
+  },
+  "tools/probe_prov_tx/probe.py": {
+    "sha256": "b17fb52e10576c0be1073a7bfe370c014311fa899603943a396b577593ad5f5f",
+    "size": 58199
+  },
+  "tools/probe_prov_tx/run.sh": {
+    "sha256": "5f042f081ae9e3fb9bb588b0449a9ba16d70a5d6f13760dffbe10f97687520d6",
+    "size": 1420
+  },
+  "tools/probe_ui_model_mutations.py": {
+    "sha256": "a70e5343bf8a9a78afcfe44a03aef6edc7d21cdf36bb5e9624a463b83b5a637e",
+    "size": 1084491
+  },
+  "tools/radmin_0e_abi_pins.json": {
+    "sha256": "4e6b6ad4a633f89dc15d699b27b737f86fad94141e5e3c2fd8c391254bea7934",
+    "size": 8448
+  },
+  "tools/requirements-ble.txt": {
+    "sha256": "0d923d69e93664f5eda8cfa78db7b7670a3f53fc03265d211858bce406690413",
+    "size": 238
+  },
+  "tools/run_corpus.py": {
+    "sha256": "2e267ba6d1bae2a280b166405494f4a18fda3160d37ab8e9cecbac53eba627ce",
+    "size": 54798
+  },
+  "tools/scenario-armtest.txt": {
+    "sha256": "a6f50f5f970849ab4435b9652273c59ced28c6d0eaf93e402f19f4c7cb7de955",
+    "size": 688
+  },
+  "tools/scenario-base.txt": {
+    "sha256": "26d4c900d34fc5e14a8ffe888403aba815b0615fa8cf0dc87d69f2a4bea122be",
+    "size": 2523
+  },
+  "tools/scenario-dm.txt": {
+    "sha256": "3194ef2357c7b3b949d8ca8de0814de25feb12e795d309d9c893e35dafa1407e",
+    "size": 1035
+  },
+  "tools/scenario-oracle.txt": {
+    "sha256": "aa17d7157ff7e3294f80f2933afd1444aed89c43b9d20a13ea943da9a0a4a0e2",
+    "size": 719
+  },
+  "tools/scenario-realistic.txt": {
+    "sha256": "082fa356b03ce646546d68cd7c6971f06d37a0d9d570a21142e4aef0f6f4bc97",
+    "size": 1039
+  },
+  "tools/sync_spec.sh": {
+    "sha256": "69a8168aa092afec2c69cffff677dc74a19870eda8f1557ae5354ee746408882",
+    "size": 1855
+  },
+  "tools/test_b278_correlation_census.py": {
+    "sha256": "12cefd87f41f9e64642458064d4cf08e92ac98c47948c1c85f320f0d26eb9b6e",
+    "size": 13835
+  },
+  "tools/test_check_command_authority.py": {
+    "sha256": "06635b36e183323a7234d18fdee0708ca83f71f4336c7e9898509985d6b5ec34",
+    "size": 2456
+  },
+  "tools/test_compare_corpus_slice_s1b.py": {
+    "sha256": "22606a9db4984e303895017aa14e315865cfc4cd91d916a7dd250ce6fdbaf9c5",
+    "size": 18778
+  },
+  "tools/test_dm_delivery_breakdown.py": {
+    "sha256": "36dc8c3f97a9a93f4a36612e1c65ca8be7505b8a5301fb8fc65334589e80076c",
+    "size": 123219
+  },
+  "tools/test_gen_command_inventory.py": {
+    "sha256": "f983496b7ccf61543df50e407d9a43d8f49f855bbcdd63625c543de861338d3d",
+    "size": 58407
+  },
+  "tools/test_measure_board.py": {
+    "sha256": "e07d20d576778ce2cf3e9859bcdf733523c65a0312281a7c24b3961ec5eed8c9",
+    "size": 45750
+  },
+  "tools/test_probe_b278_row_abi.py": {
+    "sha256": "01e222ca45acb855b26ad3a35aa8daf101be87fd835d7c980f38bd6f42d95a78",
+    "size": 8156
+  },
+  "tools/test_probe_ble_line.py": {
+    "sha256": "70b00548adf9ee78a71860d1f5e2cde245dd7a28eea5ae1b4a5dd910ffe4ff21",
+    "size": 8330
+  },
+  "tools/test_probe_board_abi.py": {
+    "sha256": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3",
+    "size": 27584
+  },
+  "tools/test_probe_console_sink.py": {
+    "sha256": "4a3c3eae62dbdbe982f226c44777b974008abcf5920628ead907b8cdc2a90a1f",
+    "size": 24585
+  },
+  "tools/test_probe_custody_usb.py": {
+    "sha256": "8f1b77911f45f0a06c3130431cca5c8d495320dc2c4832b6814a5b78c767a501",
+    "size": 6345
+  },
+  "tools/test_probe_features.py": {
+    "sha256": "674ebf2b814762ab9293affd3c8469b297e2b03fa205615e67983b3abe6dfc89",
+    "size": 24443
+  },
+  "tools/test_worker_formula_derived.py": {
+    "sha256": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+    "size": 8873
+  },
+  "tools/uf2_postbuild.py": {
+    "sha256": "3b55bcc334794ef4b2274c0f9872b89ca47c2d91969f4060c30c44a6f9baad58",
+    "size": 2133
+  },
+  "tools/vendor_meshcore.sh": {
+    "sha256": "85bc81ac85bbcfa87399eeb9a05a10401600a9b403096940514580301cfe209c",
+    "size": 2345
+  },
+  "tools/warning_census.sh": {
+    "sha256": "255e339c51d819e50e4f08e423f51195cd603a15a9e659375848e447ab538767",
+    "size": 10324
+  },
+  "tools/wire_path.py": {
+    "sha256": "5859243e009a1991193073034523adb1bc27fd886a6e2ea3adea7506c0dfe865",
+    "size": 1583
+  }
+}

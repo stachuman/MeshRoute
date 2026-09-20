@@ -1,0 +1,7 @@
+# Slice 10 revision-1 source-validation evidence
+
+This is a STOP-1 preflight, not an implementation freeze or full gate. The shadow headers remove only the intended data/accessor blocks and adjust the layout assertions. They are measurement inputs, not production fixes. Version constants remain at the base value in this layout-only experiment.
+
+`layouts.json` records six successful compile-only measurements on the three real PlatformIO flag sets; `*-command.json` and `*-idedata.json` retain those inputs. `stock-pin-comparator.json` runs the actual shell comparator extracted from the stock runner: two current counts pass and two additive counts refuse. `structural-base.log` is a fresh 83/83 source-reader run. `host-nv.log` executes the actual no-backend load/save wrappers, both false; it is not a migration proof. `preparation/` preserves all six incoming QA files, with original hashes in `preparation-inputs.json`. `implementation-inputs.json` pins 391 unchanged tracked code/test/tool/scenario inputs.
+
+`reproduce.py` is the executed driver retained verbatim; it reads the scratch directory named in `/tmp/mr-s10-active`. For a separate reproduction, point that scratch marker to a new directory and retain the pinned repository base. It uses private shadow headers, never writes production inputs, and invokes `pio ... -t idedata` only to derive flags. Board links, native doctest, simulator/corpus, tools discovery and full gates were not run.

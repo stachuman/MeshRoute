@@ -1,0 +1,11 @@
+{
+  "name": "ble_line",
+  "command": [
+    "bash",
+    "tools/probe_ble_line/run.sh"
+  ],
+  "cwd": "/tmp/mr-s10-r2-_iyw9vw8/final-gate",
+  "exit": 0,
+  "seconds": 12.513424828648567,
+  "sha256": "90d7da2aac45b73c9cc794b97a4c84d8014eb950a8ec6ab5b62ee183ed3d1502"
+}

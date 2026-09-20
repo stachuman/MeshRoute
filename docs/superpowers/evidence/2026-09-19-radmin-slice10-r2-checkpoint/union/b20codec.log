@@ -1,0 +1,60 @@
+-- target b20codec: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/frame_codec.h (5 entries)
+-- selection: IN FULL (all 5 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-fzlzn3_i   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target b20codec: /tmp/mr_mutation_run-fzlzn3_i/w0/lib/core/frame_codec.h (2 of 5 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b20codec: /tmp/mr_mutation_run-fzlzn3_i/w2/lib/core/frame_codec.h (1 of 5 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b20codec: /tmp/mr_mutation_run-fzlzn3_i/w1/lib/core/frame_codec.h (2 of 5 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target b20codec: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/frame_codec.h
+  MISSING C01 ★★★ [[B20]]'s ROOT CAUSE, AT THE AUTHORITY: the trailer is assumed to be the 4-B MAC for every frame, so a CRYPTED inner cap reads 243 instead of 239 and the two silent bytes come back — NO VERDICT (its worker did not report it)
+  MISSING C02 ★★ the TYPE byte is forgotten in the inner cap, so a TYPED sealed DM (MOBILE_SEND, the team key grant) is given one byte more than its frame can carry — the same defect one byte narrower — NO VERDICT (its worker did not report it)
+  MISSING C03 ★★★ the cap becomes the WHOLE FRAME BUDGET (the overhead is computed and ignored) — every length is admitted, a tx-queue slot is burned and the RTS airs for a DATA that pack_data then refuses — NO VERDICT (its worker did not report it)
+  MISSING C04 ★★ data_frame_len forgets the TYPE byte, so the packer's refusal and the sender's preflight DRIFT — the exact two-copies-of-the-arithmetic failure this helper exists to make impossible — NO VERDICT (its worker did not report it)
+  MISSING C05 ★★ data_frame_len's trailer collapses to the 4-B MAC — the frame length it reports for a CRYPTED DATA is 4 B short, so it stops describing the frame pack_data actually writes — NO VERDICT (its worker did not report it)
+  worker 0: 0/2 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-fzlzn3_i/w0
+  worker 1: 0/2 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-fzlzn3_i/w1
+  worker 2: 0/1 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-fzlzn3_i/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 4.2s + battery 6.7s = 10.9s total, 5 entries over 3 worker(s)
+mutations: 0 RED / 5 unusable (of which 5 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    5 selected entries came back with NO verdict: C01, C02, C03, C04, C05
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

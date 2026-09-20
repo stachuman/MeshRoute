@@ -1,0 +1,16 @@
+{
+  "name": "sim-configure",
+  "command": [
+    "cmake",
+    "-S",
+    "/home/staszek/lora-universal-simulator",
+    "-B",
+    "/tmp/mr-s10-r3-j6pcxvmv/sim-base",
+    "-G",
+    "Ninja",
+    "-DMESHROUTE_DIR=/tmp/mr-s10-r3-j6pcxvmv/base",
+    "-DCMAKE_BUILD_TYPE=Release"
+  ],
+  "exit": 0,
+  "seconds": 0.44385992735624313
+}

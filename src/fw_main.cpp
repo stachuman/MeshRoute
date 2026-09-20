@@ -827,7 +827,8 @@ void setup() {
 
     uint8_t node_id = 0;                                         // unprovisioned default; NV / join sets it
     mrnv::Blob nv{};
-    if (mrnv::load(nv)) {                                        // a prior `cfg set` persisted -> apply it
+    const bool nv_loaded = mrnv::load(nv);
+    if (nv_loaded) {                                            // a prior `cfg set` persisted -> apply it
         node_id               = nv.node_id;
         g_freq_mhz            = nv.freq_mhz;
         cfg.radio_freq_mhz    = nv.freq_mhz;     // §layer-freq: keep the Node's global carrier == g_freq_mhz (activate_layer's inherit fallback)
@@ -909,6 +910,7 @@ void setup() {
         }
         mrcon.println(F("  config    = loaded from NV"));
     }
+    mrfw::nv_boot_report_console(mrcon, nv_loaded);
     // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.
     mrnv::IdBlob idb{};
     if (mrnv::load_id(idb)) {
@@ -925,10 +927,7 @@ void setup() {
     g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
-    // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (inert mirrors until Slice 10; no-op stub without ACCEPT).
-    g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
-    // §RADMIN slice 3 — the two TARGET STORES' READ-ONLY boot report, beside the legacy single-admin restore and
-    // ⛔ sharing nothing with it (Slice 10 removes that one, in its own NV-version slice).
+    // §RADMIN slice 3 — the two TARGET STORES' READ-ONLY boot report, independent of /mrcfg.
     // ⛔ IT VALIDATES AND REPORTS. It installs no identity, no ACL and no session, writes nothing, draws no
     //    entropy, auto-generates nothing and prints no key or fingerprint byte — design §6.4 forbids inventing an
     //    active remote owner, and a boot that minted a root on a transient read failure would do exactly that.

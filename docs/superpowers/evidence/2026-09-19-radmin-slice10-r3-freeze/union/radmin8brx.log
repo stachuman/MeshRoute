@@ -1,0 +1,76 @@
+-- target radmin8brx: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_mac_rx.cpp (18 entries)
+-- selection: IN FULL (all 18 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-e_xw6pvl   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8brx: /tmp/mr_mutation_run-e_xw6pvl/w0/lib/core/node_mac_rx.cpp (6 of 18 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin8brx: /tmp/mr_mutation_run-e_xw6pvl/w1/lib/core/node_mac_rx.cpp (6 of 18 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8brx: /tmp/mr_mutation_run-e_xw6pvl/w2/lib/core/node_mac_rx.cpp (6 of 18 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   X03 correlation guard bypassed -> RED (10 assertion(s) failed, match count 1)
+  [w0]   ok   X01 unregistered admission bypassed -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   X02 TX pressure misclassified -> RED (3 assertion(s) failed, match count 1)
+  [w0]   ok   X04 correlation pressure mislabeled full -> RED (3 assertion(s) failed, match count 1)
+  [w1]   ok   X05 no-home lower priority than TX full -> RED (1 assertion(s) failed, match count 1)
+  [w2]   ok   X06 request ACK flag omitted -> RED (45 assertion(s) failed, match count 1)
+  [w0]   ok   X07 returned counter never captured -> RED (72 assertion(s) failed, match count 1)
+  [w1]   ok   X08 typed request becomes DM -> RED (298 assertion(s) failed, match count 1)
+  [w2]   ok   X09 response ACK also asks for ACK -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   X10 target ACKs all verdicts -> RED (30 assertion(s) failed, match count 1)
+  [w1]   ok   X11 target never ACKs admission -> RED (16 assertion(s) failed, match count 1)
+  [w2]   ok   X12 target never ACKs replay -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   X13 target never ACKs tombstone -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   X14 target ignores opt-in -> RED (244 assertion(s) failed, match count 1)
+  [w2]   ok   X15 cross-layer carrier uses same-layer wrapper -> RED (13 assertion(s) failed, match count 1)
+  [w0]   ok   X16 target cross-layer ACK falls back to same layer -> RED (4 assertion(s) failed, match count 1)
+  [w0] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w0] shard 0: 6 RED / 0 unusable   (of 6 entries)
+  [w1]   ok   X17 checked dispatch refusal becomes ownership -> RED (3 assertion(s) failed, match count 1)
+  [w1] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w1] shard 1: 6 RED / 0 unusable   (of 6 entries)
+  [w2]   ok   X18 B413 authoritative target bypasses wrapper -> RED (17 assertion(s) failed, match count 1)
+  [w2] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w2] shard 2: 6 RED / 0 unusable   (of 6 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin8brx: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2950 / 195768   (PIN_CASES, this file)
+  !!      derived  2950 / 195770   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 18 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   X01 unregistered admission bypassed -> RED (3 assertion(s) failed, match count 1)
+  ok   X02 TX pressure misclassified -> RED (3 assertion(s) failed, match count 1)
+  ok   X03 correlation guard bypassed -> RED (10 assertion(s) failed, match count 1)
+  ok   X04 correlation pressure mislabeled full -> RED (3 assertion(s) failed, match count 1)
+  ok   X05 no-home lower priority than TX full -> RED (1 assertion(s) failed, match count 1)
+  ok   X06 request ACK flag omitted -> RED (45 assertion(s) failed, match count 1)
+  ok   X07 returned counter never captured -> RED (72 assertion(s) failed, match count 1)
+  ok   X08 typed request becomes DM -> RED (298 assertion(s) failed, match count 1)
+  ok   X09 response ACK also asks for ACK -> RED (2 assertion(s) failed, match count 1)
+  ok   X10 target ACKs all verdicts -> RED (30 assertion(s) failed, match count 1)
+  ok   X11 target never ACKs admission -> RED (16 assertion(s) failed, match count 1)
+  ok   X12 target never ACKs replay -> RED (2 assertion(s) failed, match count 1)
+  ok   X13 target never ACKs tombstone -> RED (2 assertion(s) failed, match count 1)
+  ok   X14 target ignores opt-in -> RED (244 assertion(s) failed, match count 1)
+  ok   X15 cross-layer carrier uses same-layer wrapper -> RED (13 assertion(s) failed, match count 1)
+  ok   X16 target cross-layer ACK falls back to same layer -> RED (4 assertion(s) failed, match count 1)
+  ok   X17 checked dispatch refusal becomes ownership -> RED (3 assertion(s) failed, match count 1)
+  ok   X18 B413 authoritative target bypasses wrapper -> RED (17 assertion(s) failed, match count 1)
+  worker 0: 6/6 entries, 6 RED / 0 worthless, wall 48.9s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-e_xw6pvl/w0
+  worker 1: 6/6 entries, 6 RED / 0 worthless, wall 52.5s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-e_xw6pvl/w1
+  worker 2: 6/6 entries, 6 RED / 0 worthless, wall 53.0s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-e_xw6pvl/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r3-j6pcxvmv/union-inputs
+timing: copy 4.4s + battery 53.2s = 57.6s total, 18 entries over 3 worker(s)
+mutations: 18 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2950 / 195768, these trees run 2950 / 195770.
+  !!  The battery above RAN IN FULL (18 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -1,0 +1,11 @@
+# Slice 10 revision-2 preserved implementation checkpoint — HOLD
+
+Not an implementation PASS or a completed full gate. B431/B432 require two additional instrument paths in the brief fence. `proposed-repairs/proposal.patch` is a verified PRIVATE proposal, not part of the shared candidate. That arm alone passes native 2950/195770/0 and feature matrix 112/58; the shared candidate has one native failure and O4c fails.
+
+`frozen-primary-inputs.json`, `final-*-inputs.json` and `source-audit.json` describe the initially launched gate. Its native baseline had five assertion failures: one unfenced custody size pin plus four coder-missed assertions in the already fenced NV test. The four NV assertions were corrected in shared `test/test_device_nv.cpp` after stopping the dependent runs. `checkpoint-primary-inputs.json` is the preserved candidate AFTER that correction; `proposal-inputs.json` was captured before the private two-file repair and matches those production/test/tool inputs. Logs distinguish all three states.
+
+The base/final simulator streams compare byte-identically on all 36 scenarios. The stock board pair passed: gateway RAM/flash 203740/572240, mobile 211724/1394704. `measured-board-pairs.tar.gz` retains both fresh pairs including ELFs and manifests. The later test-only correction cannot affect those linked production inputs; no complete-gate attribution is claimed. `final-logs/` includes completed and interrupted instruments; only files with a matching result JSON report a completed command. XIAO, census, the probe chain and the mutation union were not completed. No mutation verdict is claimed from the baseline-red union.
+
+`checkpoint-overlay.tar.gz` plus base commit 4ad9c343b42bab4c91bd8e6721b45b2dfb769e7f reconstructs every shared dirty/untracked input outside this evidence directory, including the QA preparation and brief. No production file is deleted. `checkpoint-inputs.json` pins the complete input set including evidence except itself and the hash manifest (circular-metadata exclusions). `artifact-sha256.json` pins this directory except itself.
+
+Driver scratch root: /tmp/mr-s10-r2-_iyw9vw8, read from /tmp/mr-s10-r2-active. The simulator source remains clean at 6585649ea5a780f0542b2931853a667be56a5b2b. Never treat the proposed patch or its green logs as landed candidate results.

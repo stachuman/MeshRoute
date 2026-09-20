@@ -1,0 +1,11 @@
+{
+  "name": "census",
+  "command": [
+    "bash",
+    "tools/warning_census.sh"
+  ],
+  "cwd": "/tmp/mr-s10-r3-j6pcxvmv/final-boards",
+  "exit": 0,
+  "seconds": 297.53252550959587,
+  "sha256": "ddac16a0e196b376f24bedb325efb43b60277714284f697384aad4217a055485"
+}

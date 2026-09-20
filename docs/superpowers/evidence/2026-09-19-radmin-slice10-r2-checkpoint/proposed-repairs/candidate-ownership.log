@@ -1,0 +1,25 @@
+  ok   O1 the pair is named in CODE by exactly the 10 approved files: lib/core/mr_features.h, lib/core/node.cpp, lib/core/node.h, lib/core/node_mac_rx.cpp, src/firmware_commands.cpp, src/firmware_commands.h, src/firmware_help.h, src/firmware_remote_actions.cpp, src/firmware_remote_actions.h, src/fw_main.cpp
+  ok   O2 lib/core/mr_features.h is the sole definer, with 6 `#define`s (3 derivation arms x 2 capabilities)
+  ok   O3 lib/core/node.h names the pair only on 8 `#if` declaration guards, never in an expression
+  ok   O4a lib/core/mr_features.h: all 8 naming sites match the approved census exactly
+  ok   O4b lib/core/node.cpp: all 2 naming sites match the approved census exactly
+  FAIL O4c lib/core/node.h: site census moved — unapproved/extra [], missing ['#if MR_FEAT_RADMIN_ACCEPT']
+  ok   O4d lib/core/node_mac_rx.cpp: all 11 naming sites match the approved census exactly
+  ok   O4e src/firmware_commands.cpp: all 10 naming sites match the approved census exactly
+  ok   O4f src/firmware_commands.h: all 2 naming sites match the approved census exactly
+  ok   O4g src/firmware_help.h: all 3 naming sites match the approved census exactly
+  ok   O4h src/firmware_remote_actions.cpp: all 1 naming sites match the approved census exactly
+  ok   O4i src/firmware_remote_actions.h: all 1 naming sites match the approved census exactly
+  ok   O4j src/fw_main.cpp: all 9 naming sites match the approved census exactly
+  ok   O5 no directive unconditionally widens a RADMIN capability with || 1
+  ok   O6a all 3 occurrences of `rx_remote_cmd_accept` compile under `MR_FEAT_RADMIN_ACCEPT` and never under `MR_FEAT_RADMIN_CLIENT`
+  ok   O6b all 3 occurrences of `rx_remote_resp_client` compile under `MR_FEAT_RADMIN_CLIENT` and never under `MR_FEAT_RADMIN_ACCEPT`
+  ok   O6c one CLIENT-owned controller receive call; no legacy staging declaration, definition or drain
+  ok   O7a the production router makes exactly ONE call to the pure decision, with (pa.type, MR_FEAT_RADMIN_CLIENT, MR_FEAT_RADMIN_ACCEPT) in the declared order
+  ok   O7b both dispatch arms select on the DECISION'S RESULT, not on the raw type byte
+  ok   O8 both owned arms CONSUME the frame (`become_free(); return;` immediately after the owner call)
+  ok   O9 there is no `none` arm — an unowned remote type takes no branch here and reaches the guard
+  ok   O10 no file under test/ names the capability pair in code — tests are not production owners
+  ok   O11 the pure decision is declared `static` and compiled UNGATED on every build (only its consumers are capability-gated)
+  ok   O12 the pair has no `#ifndef` override surface in lib/, src/ or test/ (R-RA-26)
+  ok   O13 source integrity: 218 scanned files, sha256(tree) a461f497f04723a8… before and after

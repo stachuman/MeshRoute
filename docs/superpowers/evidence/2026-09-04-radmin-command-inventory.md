@@ -218,7 +218,7 @@ Total rows: **197**.
 | `status` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:574` | open · surface:transport |
 | `version` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:547` | operator · surface:transport |
 | `whoami` | — | `ble_dispatch_line` | ble | — | `src/fw_main.cpp:524` | operator · surface:transport |
-| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1215` | owner · surface:transport |
+| `peerkey` | — | `service_console` | serial | `MR_CONSOLE` | `src/fw_main.cpp:1214` | owner · surface:transport |
 
 ## Recognised-but-excluded comparison sites
 

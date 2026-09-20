@@ -1,0 +1,11 @@
+{
+  "name": "abi",
+  "command": [
+    "python3",
+    "tools/probe_board_abi.py"
+  ],
+  "cwd": "/tmp/mr-s10-r3-j6pcxvmv/final-gate",
+  "exit": 0,
+  "seconds": 44.855397306382656,
+  "sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+}

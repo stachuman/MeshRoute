@@ -1,0 +1,15 @@
+{
+  "path": "tools/probe_ui_model_mutations.py",
+  "sha256": "a70e5343bf8a9a78afcfe44a03aef6edc7d21cdf36bb5e9624a463b83b5a637e",
+  "advisory": [
+    2950,
+    195768
+  ],
+  "fresh_derived_baseline": [
+    2950,
+    195770,
+    0
+  ],
+  "authoritative": "fresh clean baseline derived by each worker; advisory mismatch does not skip entries",
+  "disposition": "B434 record only, no harness edit"
+}

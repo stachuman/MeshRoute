@@ -4426,7 +4426,7 @@ step 1 passes. Part 54 (B278 custody on metal) is independent and precedes step 
 
 ## Part 57e — legacy remote-admin deletion (Slice 9)
 
-**SOFTWARE-COMPLETE (Slice 9 independent QA PASS 2026-09-19, uncommitted at `84edd3e`) / METAL PENDING — NOT RUN.** Run at the owner's bench,
+**SOFTWARE-COMPLETE (Slice 9 independent QA PASS 2026-09-19, owner commit `4ad9c34`) / METAL PENDING — NOT RUN.** Run at the owner's bench,
 using one static/gateway ACCEPT board and one mobile CLIENT board. Host tests prove dispatcher fallthrough;
 this part checks the real USB/BLE handlers and compiled help, then confirms the existing radio round trip.
 
@@ -4442,3 +4442,24 @@ this part checks the real USB/BLE handlers and compiled help, then confirms the 
 
 Record the two firmware identities, board models, transport transcripts and owner-reported result. The old
 `/mrcfg` admin fields and Node mirrors remain inert until Slice 10; no migration or flash-wipe check belongs here.
+
+## Part 57f — main-NV v26 reprovision with administration stores retained (Slice 10)
+
+**METAL PENDING — NOT RUN.** Use a provisioned ACCEPT board and a provisioned mobile CLIENT board with v25
+`/mrcfg` records. Record their firmware identities, radio/config values and public administration listings
+before flashing v26 without erasing storage. The host probe covers the ESP32 wrapper policy; this part
+checks real flash on both board ABIs and the unchanged `nv_load_stamped`/live-default reseed path.
+
+1. At first boot on each board, expect exactly one schema line:
+   `> nv: /mrcfg v26 not loaded (absent, or a pre-v26 record refused): compile-time defaults until the next cfg set`.
+   On ACCEPT it precedes `> admin-id boot state=ok` and
+   `> acl boot state=ok count=<n> owners=<n> operators=<n>`; on CLIENT it precedes
+   `> admin-key boot state=ok count=<n>` and `> admin-target boot state=ok count=<n>`.
+   Counts and public identity/ACL/credential/target listings must equal the pre-flash records; no root re-provisioning.
+2. `cfg` shows defaults and no legacy admin fields. Persist a config value with `cfg set` and reboot:
+   expect `> nv: /mrcfg v26 loaded`, with the saved value retained and the same administration reports.
+   Restore the recorded radio/config values through `cfg set`; no erase, `regen`, ACL reset or key regeneration.
+3. Repeat Part 57c step 1: `remote <label> -e -- status` completes with the original credential and target ACL.
+   Expect the normal `> remote <id16> out …` lines and `> remote <id16> completed`.
+
+Record board models, old/new firmware identities and both boot transcripts. Host/software PASS does not close this part.

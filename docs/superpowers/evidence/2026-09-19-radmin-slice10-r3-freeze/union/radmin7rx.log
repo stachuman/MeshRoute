@@ -1,0 +1,72 @@
+-- target radmin7rx: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_mac_rx.cpp (16 entries)
+-- selection: IN FULL (all 16 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-wtgvm3uh   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin7rx: /tmp/mr_mutation_run-wtgvm3uh/w0/lib/core/node_mac_rx.cpp (6 of 16 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin7rx: /tmp/mr_mutation_run-wtgvm3uh/w2/lib/core/node_mac_rx.cpp (5 of 16 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin7rx: /tmp/mr_mutation_run-wtgvm3uh/w1/lib/core/node_mac_rx.cpp (5 of 16 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   R01 real sender ignores full queue -> RED (7 assertion(s) failed, match count 1)
+  [w2]   ok   R03 seal counter missing -> RED (13 assertion(s) failed, match count 1)
+  [w1]   ok   R02 seal refusal handed to transport -> RED (60 assertion(s) failed, match count 1)
+  [w1]   ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  [w0]   ok   R04 seal failure charged to enqueue counter -> RED (20 assertion(s) failed, match count 1)
+  [w2]   ok   R06 seal failure advances cursor -> RED (38 assertion(s) failed, match count 1)
+  [w0]   ok   R07 seal failure resets nonzero cursor -> RED (52 assertion(s) failed, match count 1)
+  [w1]   ok   R08 seal failure changes frozen terminal -> RED (13 assertion(s) failed, match count 1)
+  [w2]   ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  [w0]   ok   R10 enqueue refusal advances cursor -> RED (33 assertion(s) failed, match count 1)
+  [w2]   ok   R12 enqueue refusal charged to seal counter -> RED (29 assertion(s) failed, match count 1)
+  [w1]   ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  [w0]   ok   R13 queued frame cursor stays -> RED (319 assertion(s) failed, match count 1)
+  [w1]   ok   R14 checked terminal ownership is never recorded -> RED (24 assertion(s) failed, match count 1)
+  [w1] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+  [w2]   ok   R15 clock starts before a failed seal -> RED (2 assertion(s) failed, match count 1)
+  [w2] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w2] shard 2: 5 RED / 0 unusable   (of 5 entries)
+  [w0]   ok   R16 saturated action deadline mistaken for no pending work -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w0] shard 0: 6 RED / 0 unusable   (of 6 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin7rx: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2950 / 195768   (PIN_CASES, this file)
+  !!      derived  2950 / 195770   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 16 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   R01 real sender ignores full queue -> RED (7 assertion(s) failed, match count 1)
+  ok   R02 seal refusal handed to transport -> RED (60 assertion(s) failed, match count 1)
+  ok   R03 seal counter missing -> RED (13 assertion(s) failed, match count 1)
+  ok   R04 seal failure charged to enqueue counter -> RED (20 assertion(s) failed, match count 1)
+  ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  ok   R06 seal failure advances cursor -> RED (38 assertion(s) failed, match count 1)
+  ok   R07 seal failure resets nonzero cursor -> RED (52 assertion(s) failed, match count 1)
+  ok   R08 seal failure changes frozen terminal -> RED (13 assertion(s) failed, match count 1)
+  ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  ok   R10 enqueue refusal advances cursor -> RED (33 assertion(s) failed, match count 1)
+  ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  ok   R12 enqueue refusal charged to seal counter -> RED (29 assertion(s) failed, match count 1)
+  ok   R13 queued frame cursor stays -> RED (319 assertion(s) failed, match count 1)
+  ok   R14 checked terminal ownership is never recorded -> RED (24 assertion(s) failed, match count 1)
+  ok   R15 clock starts before a failed seal -> RED (2 assertion(s) failed, match count 1)
+  ok   R16 saturated action deadline mistaken for no pending work -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 6/6 entries, 6 RED / 0 worthless, wall 52.0s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-wtgvm3uh/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 43.9s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-wtgvm3uh/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 44.5s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /tmp/mr_mutation_run-wtgvm3uh/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r3-j6pcxvmv/union-inputs
+timing: copy 4.4s + battery 52.1s = 56.6s total, 16 entries over 3 worker(s)
+mutations: 16 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2950 / 195768, these trees run 2950 / 195770.
+  !!  The battery above RAN IN FULL (16 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -1,0 +1,58 @@
+-- target grantpark: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_hashlocate.cpp (3 entries)
+-- selection: IN FULL (all 3 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-56g_fjh9   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target grantpark: /tmp/mr_mutation_run-56g_fjh9/w1/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target grantpark: /tmp/mr_mutation_run-56g_fjh9/w0/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target grantpark: /tmp/mr_mutation_run-56g_fjh9/w2/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target grantpark: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_hashlocate.cpp
+  MISSING K01 ★★★ a FULL parked ring reports a STORED park — the send is dropped and the caller is told it is waiting behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37) — NO VERDICT (its worker did not report it)
+  MISSING K02 ★★★ `park_send` RESTORES ITS CLAMP: an over-cap parked body is silently truncated to the cap and parked anyway, so the message is delivered short and every layer reports success — NO VERDICT (its worker did not report it)
+  MISSING K03 ★★★ `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing — the sibling defect, attacked separately so neither park can pass on the other's assertion — NO VERDICT (its worker did not report it)
+  worker 0: 0/1 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-56g_fjh9/w0
+  worker 1: 0/1 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-56g_fjh9/w1
+  worker 2: 0/1 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-56g_fjh9/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 3.8s + battery 6.2s = 10.1s total, 3 entries over 3 worker(s)
+mutations: 0 RED / 3 unusable (of which 3 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    3 selected entries came back with NO verdict: K01, K02, K03
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

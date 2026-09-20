@@ -1,0 +1,66 @@
+-- target b20mac: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_mac.cpp (11 entries)
+-- selection: IN FULL (all 11 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-nj9vcl3h   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w2] -- target b20mac: /tmp/mr_mutation_run-nj9vcl3h/w2/lib/core/node_mac.cpp (3 of 11 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target b20mac: /tmp/mr_mutation_run-nj9vcl3h/w1/lib/core/node_mac.cpp (4 of 11 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target b20mac: /tmp/mr_mutation_run-nj9vcl3h/w0/lib/core/node_mac.cpp (4 of 11 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target b20mac: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_mac.cpp
+  MISSING B01 ★★★ [[B20]] VERBATIM: the seal is sized by the BUFFER again (241, a 4-B-MAC constant) instead of the frame — the 215-216 band is admitted, queued, its RTS airs, and the DATA is dropped at TX time with nothing pushed — NO VERDICT (its worker did not report it)
+  MISSING B02 ★★ the carrier boundary is OFF BY ONE — exactly one body length (the cap+1) still disappears, which is the hardest shape to notice and the reason both sides of every cap are asserted — NO VERDICT (its worker did not report it)
+  MISSING B03 ★★★ THE TWO BOUNDS ARE RECONCILED THE WRONG WAY — the LAXER one wins, so the buffer's 241 re-admits what the carrier will drop. The brief's named failure: a laxer check re-admitting past the carrier cap — NO VERDICT (its worker did not report it)
+  MISSING B04 ★★★ [[B21]]'s WRONG CONDITION, MIRRORED: the guard stops distinguishing 'no key' from 'the key did not fit' the other way round, so a send to a peer whose key we do NOT hold is reported as a size problem — NO VERDICT (its worker did not report it)
+  MISSING B05 ★★ [[B21]]'s SILENCE, at its new address: the PLAINTEXT size refusal emits but no longer PUSHES — the app is told nothing, which is exactly the 'no send_failed' the register row names — NO VERDICT (its worker did not report it)
+  MISSING B06 ★★ [[B21]]'s SILENCE, HALF TWO: the genuinely-keyless arm emits but no longer PUSHES — the sibling defect, removed separately so neither half can pass on the other's assertion — NO VERDICT (its worker did not report it)
+  MISSING B07 ★★★ THE FAILED FLIGHT IS NEVER RELEASED: `_pending_tx` still holds the frame pack_data refused, so nothing re-fires it and the node's NEXT DM never reaches the air — the pre-2026-08-28 wedge, half one — NO VERDICT (its worker did not report it)
+  MISSING B08 ★★★ THE QUEUE IS NEVER PUMPED: the flight IS released, but `become_free()` is the DRAIN (node_mac.cpp:891), so a DM already waiting behind the doomed forward is never started — the same wedge, other half — NO VERDICT (its worker did not report it)
+  MISSING H01 ★★★ [[B296]] HALF ONE: `SOURCE_HASH` becomes OPTIONAL-FOR-SIZE again — a full-cap application DM airs with the sender's stable identity stripped, so the receiver's `sender_hash` is 0 and inbox dedup / XL ack identity die — NO VERDICT (its worker did not report it)
+  MISSING H02 ★★★ [[B296]] HALF TWO: a DERIVED `DST_HASH` becomes OPTIONAL-FOR-SIZE again — a by-HASH send silently degrades into a by-ID send, deliverable to whoever happens to hold that id — NO VERDICT (its worker did not report it)
+  MISSING H03 ★★★ [[B296]] HALF THREE / [[B297]]: the PLAINTEXT arm stops checking its packer, so an inner that did not pack is queued as `inner_len = 0`, the RTS airs, and the TX-time bail drops it in silence — NO VERDICT (its worker did not report it)
+  worker 0: 0/4 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-nj9vcl3h/w0
+  worker 1: 0/4 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-nj9vcl3h/w1
+  worker 2: 0/3 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-nj9vcl3h/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 4.2s + battery 6.8s = 11.0s total, 11 entries over 3 worker(s)
+mutations: 0 RED / 11 unusable (of which 11 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    11 selected entries came back with NO verdict: B01, B02, B03, B04, B05, B06, B07, B08, H01, H02, H03
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

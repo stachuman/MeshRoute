@@ -7,9 +7,10 @@
   arc is complete (R-RA-41); **8a+8c (paired) is independent QA PASS 2026-09-18, owner commits `c07b77f` /
   simulator `6585649`**; **8b (the mobile controller carrier) is independent QA PASS 2026-09-18, owner commit `84edd3e`**
   (brief revisions 1–6, R-RA-46..49; the product path is software-complete end to end; Part 57c landed); **Slice 9
-  (legacy deletion + durable protocol docs) is independent QA PASS 2026-09-19, uncommitted at `84edd3e`** (R-RA-50; the
-  legacy `rcmd`/password/unlock/lock protocol is gone; `frames.md`/`protocol.md` §15 document v2); next: Slice 10, the
-  standalone NV cleanup (R-RA-6) — the last slice of the arc.
+  (legacy deletion + durable protocol docs) is independent QA PASS 2026-09-19, owner commit `4ad9c34`** (R-RA-50; the
+  legacy `rcmd`/password/unlock/lock protocol is gone; `frames.md`/`protocol.md` §15 document v2); **the Slice 10 brief
+  (standalone NV cleanup, R-RA-6; rev 3 after B430–B432, 2026-09-19; `/mrcfg` v26, Part 57f) has a fresh full
+  coder freeze ready for independent QA; status/evidence in the register §0 and design §19.1** — the last slice of the arc.
 - **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
   local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
   B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at

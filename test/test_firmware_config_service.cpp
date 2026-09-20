@@ -51,7 +51,7 @@ mrnv::Blob seed_record() {
     b.channel_ctr  = 7;
     b.team_id      = 0xA5A5A5A5u;
     b.team_local_id = 3;
-    b.admin_counter_floor = 99;
+    b.remote_action_activation_ms = 99;
     b.team_ch_key_present = 1;
     b.team_ch_pub[0] = 0xC3;
     b.team_ch_priv[0] = 0x7Eu;
@@ -292,7 +292,7 @@ TEST_CASE("§UI-13 b6 — four changed fields are ONE durable write, and every n
     CHECK(f.store.rec.bw_hz == 125000);
     CHECK(f.store.rec.team_id == 0xA5A5A5A5u);
     CHECK(f.store.rec.team_local_id == 3);
-    CHECK(f.store.rec.admin_counter_floor == 99);
+    CHECK(f.store.rec.remote_action_activation_ms == 99);
     CHECK(f.store.rec.team_ch_key_present == 1);
     CHECK(f.store.rec.team_ch_pub[0] == 0xC3);
     CHECK(f.store.rec.team_ch_priv[0] == 0x7Eu);
@@ -537,11 +537,11 @@ TEST_CASE("§UI-13 b3 NEGATIVE HALF — a NON-covered external write raises no c
     CHECK(f.svc.set(CfgField::e2e_dm, 1) == CfgSet::ok);
 
     // every one of these is a real `/mrcfg` field this editor does not cover — a leased send counter, a team switch,
-    // an admin replay floor, a radio retune, a re-DAD'd node id, a team-plane id
+    // a remote activation delay, a radio retune, a re-DAD'd node id, a team-plane id
     f.store.rec.channel_ctr         = 1234;
     f.store.rec.team_id             = 0x11223344u;
     f.store.rec.team_local_id       = 9;
-    f.store.rec.admin_counter_floor = 4096;
+    f.store.rec.remote_action_activation_ms = 4096;
     f.store.rec.node_id             = 77;
     f.store.rec.routing_sf          = 9;
     f.store.rec.freq_mhz            = 868.1;
@@ -556,7 +556,7 @@ TEST_CASE("§UI-13 b3 NEGATIVE HALF — a NON-covered external write raises no c
     CHECK(f.store.rec.channel_ctr == 1234);
     CHECK(f.store.rec.team_id == 0x11223344u);
     CHECK(f.store.rec.team_local_id == 9);
-    CHECK(f.store.rec.admin_counter_floor == 4096);
+    CHECK(f.store.rec.remote_action_activation_ms == 4096);
     CHECK(f.store.rec.node_id == 77);
     CHECK(f.store.rec.routing_sf == 9);
 }

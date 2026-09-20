@@ -1,0 +1,33 @@
+{
+  "full_input_records": 4225,
+  "roots": {
+    "/home/staszek/MeshRoute": [],
+    "/tmp/mr-s10-r3-j6pcxvmv/final-gate": [],
+    "/tmp/mr-s10-r3-j6pcxvmv/final-boards": [],
+    "/tmp/mr-s10-r3-j6pcxvmv/union-inputs": []
+  },
+  "legacy_mirror_executable_hits": [],
+  "retained_comment_hits": [
+    {
+      "path": "src/device_nv.h",
+      "line": 136
+    },
+    {
+      "path": "src/firmware_admin_identity.h",
+      "line": 32
+    },
+    {
+      "path": "lib/core/node.cpp",
+      "line": 250
+    },
+    {
+      "path": "lib/core/node.h",
+      "line": 3017
+    },
+    {
+      "path": "lib/core/node.h",
+      "line": 4085
+    }
+  ],
+  "classification": "historical layout/version notes and existing forbidden-symbol/restore analogy comments; no surviving member, accessor, stub or call"
+}

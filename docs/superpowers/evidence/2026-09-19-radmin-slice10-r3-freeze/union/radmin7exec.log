@@ -1,0 +1,80 @@
+-- target radmin7exec: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/src/firmware_remote_executor.h (20 entries)
+-- selection: IN FULL (all 20 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-85vcejys   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target radmin7exec: /tmp/mr_mutation_run-85vcejys/w1/src/firmware_remote_executor.h (7 of 20 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target radmin7exec: /tmp/mr_mutation_run-85vcejys/w0/src/firmware_remote_executor.h (7 of 20 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin7exec: /tmp/mr_mutation_run-85vcejys/w2/src/firmware_remote_executor.h (6 of 20 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   E02 only queued consumes pass -> RED (6 assertion(s) failed, match count 1)
+  [w2]   ok   E03 dispatch without reservation -> RED (15 assertion(s) failed, match count 1)
+  [w0]   ok   E01 ignore queue pacing -> RED (2 assertion(s) failed, match count 1)
+  [w2]   ok   E06 authenticated slot lost -> RED (37 assertion(s) failed, match count 1)
+  [w1]   ok   E05 operators become owners -> RED (1 assertion(s) failed, match count 1)
+  [w0]   ok   E04 reserve at storage rather than carrier cap -> RED (6 assertion(s) failed, match count 1)
+  [w2]   ok   E09 unclassified collapses into refused -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   E08 scheduled preparation loses its typed terminal (public-handler bypass is now action-probe R01) -> RED (30 assertion(s) failed, match count 1)
+  [w0]   ok   E07 remote context becomes local -> RED (11 assertion(s) failed, match count 1)
+  [w2]   ok   E12 pending control is not serviced first -> RED (79 assertion(s) failed, match count 1)
+  [w1]   ok   E11 one request dispatched twice -> RED (131 assertion(s) failed, match count 1)
+  [w0]   ok   E10 internal failure becomes success -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   E14 open input is not copied before capture overwrite -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   E13 service omits expiry snapshot -> RED (15 assertion(s) failed, match count 1)
+  [w2]   ok   E15 open context falsely authenticates ACL slot zero -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   E17 refused open send does not consume the pass -> RED (6 assertion(s) failed, match count 1)
+  [w2]   ok   E18 open operation executes twice -> RED (41 assertion(s) failed, match count 1)
+  [w2] source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)
+  [w2] shard 2: 6 RED / 0 unusable   (of 6 entries)
+  [w0]   ok   E16 open context becomes owner -> RED (2 assertion(s) failed, match count 1)
+  [w1]   ok   E20 open executor uses the overwritten borrowed input -> RED (2 assertion(s) failed, match count 1)
+  [w1] source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)
+  [w1] shard 1: 7 RED / 0 unusable   (of 7 entries)
+  [w0]   ok   E19 an authenticated dispatch also permits an open dispatch in one pass -> RED (5 assertion(s) failed, match count 1)
+  [w0] source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)
+  [w0] shard 0: 7 RED / 0 unusable   (of 7 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin7exec: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/src/firmware_remote_executor.h
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2950 / 195768   (PIN_CASES, this file)
+  !!      derived  2950 / 195770   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 20 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   E01 ignore queue pacing -> RED (2 assertion(s) failed, match count 1)
+  ok   E02 only queued consumes pass -> RED (6 assertion(s) failed, match count 1)
+  ok   E03 dispatch without reservation -> RED (15 assertion(s) failed, match count 1)
+  ok   E04 reserve at storage rather than carrier cap -> RED (6 assertion(s) failed, match count 1)
+  ok   E05 operators become owners -> RED (1 assertion(s) failed, match count 1)
+  ok   E06 authenticated slot lost -> RED (37 assertion(s) failed, match count 1)
+  ok   E07 remote context becomes local -> RED (11 assertion(s) failed, match count 1)
+  ok   E08 scheduled preparation loses its typed terminal (public-handler bypass is now action-probe R01) -> RED (30 assertion(s) failed, match count 1)
+  ok   E09 unclassified collapses into refused -> RED (1 assertion(s) failed, match count 1)
+  ok   E10 internal failure becomes success -> RED (1 assertion(s) failed, match count 1)
+  ok   E11 one request dispatched twice -> RED (131 assertion(s) failed, match count 1)
+  ok   E12 pending control is not serviced first -> RED (79 assertion(s) failed, match count 1)
+  ok   E13 service omits expiry snapshot -> RED (15 assertion(s) failed, match count 1)
+  ok   E14 open input is not copied before capture overwrite -> RED (2 assertion(s) failed, match count 1)
+  ok   E15 open context falsely authenticates ACL slot zero -> RED (2 assertion(s) failed, match count 1)
+  ok   E16 open context becomes owner -> RED (2 assertion(s) failed, match count 1)
+  ok   E17 refused open send does not consume the pass -> RED (6 assertion(s) failed, match count 1)
+  ok   E18 open operation executes twice -> RED (41 assertion(s) failed, match count 1)
+  ok   E19 an authenticated dispatch also permits an open dispatch in one pass -> RED (5 assertion(s) failed, match count 1)
+  ok   E20 open executor uses the overwritten borrowed input -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 7/7 entries, 7 RED / 0 worthless, wall 74.4s, rc 0, source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)   /tmp/mr_mutation_run-85vcejys/w0
+  worker 1: 7/7 entries, 7 RED / 0 worthless, wall 74.0s, rc 0, source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)   /tmp/mr_mutation_run-85vcejys/w1
+  worker 2: 6/6 entries, 6 RED / 0 worthless, wall 65.0s, rc 0, source restored: md5 b269136e95dcf53d51ba8441f2be5179 (MATCHES)   /tmp/mr_mutation_run-85vcejys/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r3-j6pcxvmv/union-inputs
+timing: copy 4.9s + battery 74.6s = 79.5s total, 20 entries over 3 worker(s)
+mutations: 20 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2950 / 195768, these trees run 2950 / 195770.
+  !!  The battery above RAN IN FULL (20 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

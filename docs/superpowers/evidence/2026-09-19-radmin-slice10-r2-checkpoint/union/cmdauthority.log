@@ -1,0 +1,71 @@
+-- target cmdauthority: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/src/firmware_command_authority.h (16 entries)
+-- selection: IN FULL (all 16 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-w5okylrp   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target cmdauthority: /tmp/mr_mutation_run-w5okylrp/w0/src/firmware_command_authority.h (6 of 16 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target cmdauthority: /tmp/mr_mutation_run-w5okylrp/w1/src/firmware_command_authority.h (5 of 16 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target cmdauthority: /tmp/mr_mutation_run-w5okylrp/w2/src/firmware_command_authority.h (5 of 16 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target cmdauthority: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/src/firmware_command_authority.h
+  MISSING A01 security configuration downgraded — NO VERDICT (its worker did not report it)
+  MISSING A02 acl list incorrectly physical remotely — NO VERDICT (its worker did not report it)
+  MISSING A03 physical reset admitted to a remote owner — NO VERDICT (its worker did not report it)
+  MISSING A04 open commands inherit arguments — NO VERDICT (its worker did not report it)
+  MISSING A05 operator gains owner authority — NO VERDICT (its worker did not report it)
+  MISSING A06 remote owner gains physical authority — NO VERDICT (its worker did not report it)
+  MISSING A07 local no longer admits unconditionally — NO VERDICT (its worker did not report it)
+  MISSING A08 unknown command acquires a default policy — NO VERDICT (its worker did not report it)
+  MISSING A09 shortest verb wins — NO VERDICT (its worker did not report it)
+  MISSING A10 shortest subverb wins — NO VERDICT (its worker did not report it)
+  MISSING A11 owner-prefixed legacy subcommand falls to a weaker family — NO VERDICT (its worker did not report it)
+  MISSING A12 primary token boundary disappears — NO VERDICT (its worker did not report it)
+  MISSING A13 alias spellings are ignored — NO VERDICT (its worker did not report it)
+  MISSING A14 team mint loses its disruptive flag — NO VERDICT (its worker did not report it)
+  MISSING A15 inter-token spaces bypass the stronger subcommand — NO VERDICT (its worker did not report it)
+  MISSING A16 first matching row wins before the most-specific policy — NO VERDICT (its worker did not report it)
+  worker 0: 0/6 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-w5okylrp/w0
+  worker 1: 0/5 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-w5okylrp/w1
+  worker 2: 0/5 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-w5okylrp/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 4.3s + battery 6.8s = 11.1s total, 16 entries over 3 worker(s)
+mutations: 0 RED / 16 unusable (of which 16 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    16 selected entries came back with NO verdict: A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14, A15, A16
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

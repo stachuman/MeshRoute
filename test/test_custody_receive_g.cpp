@@ -2312,7 +2312,7 @@ TEST_CASE("§B278-S3/20 the bounded translation action is 56 B of value types an
     //    number moves with it — 222072 -> 224136 — but the four lines above, which are what S3 actually pins,
     //    do not move at all. ⛔ Do NOT read this line as "S3 grew": the derivation is in node.h's ledger.
     // 7b-1 measured native pool/counters/alignment delta +1784 (R-RA-34); the S3 offsets stay pinned above.
-    CHECK(sizeof(Node) == 235248); // R-RA-40: +80 ACCEPT-only deferred state
+    CHECK(sizeof(Node) == 235208); // Slice 10 R-RA-6: -40 inert admin mirrors; custody action unchanged
     // and the four dispositions really are four distinct values (a collapsed enum would make three of the
     // product decisions above indistinguishable).
     CHECK(Node::test_custody_disposition_no_live_rows() == 0);

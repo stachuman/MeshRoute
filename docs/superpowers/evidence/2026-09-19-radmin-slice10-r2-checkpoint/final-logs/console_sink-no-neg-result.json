@@ -1,0 +1,12 @@
+{
+  "name": "console_sink-no-neg",
+  "command": [
+    "bash",
+    "tools/probe_console_sink/run.sh",
+    "--no-neg"
+  ],
+  "cwd": "/tmp/mr-s10-r2-_iyw9vw8/final-gate",
+  "exit": 0,
+  "seconds": 22.27062650024891,
+  "sha256": "6ac5c70405509f609bc144da1069798299d988ee4252a815f3af7b93c4ca063c"
+}

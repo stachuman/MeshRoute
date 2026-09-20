@@ -1,0 +1,1187 @@
+{
+  "gateway": {
+    "base": {
+      "flash_bytes": 572224,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 571236
+      },
+      "object_count": 285,
+      "ram_bytes": 203820,
+      "symbol_count": 6599,
+      "symbol_size_total": 752819,
+      "symbols_sha256": "3fb923a3bbbe33a6d9911af61427dbcd02a4510e5024045fdf57aed43cb80b21"
+    },
+    "final": {
+      "flash_bytes": 572240,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 571252
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6597,
+      "symbol_size_total": 752617,
+      "symbols_sha256": "4d1096d7519945a785ebd6e868e2df7089a12c522c5959db819f57ee40503e3b"
+    },
+    "ram_symbols": [
+      {
+        "symbol": "_ZZN4mrnv4saveERKNS_4BlobEE3cur",
+        "type": "OBJECT",
+        "section": ".bss",
+        "base": 280,
+        "final": 240,
+        "delta": -40
+      },
+      {
+        "symbol": "g_node",
+        "type": "OBJECT",
+        "section": ".bss",
+        "base": 157344,
+        "final": 157304,
+        "delta": -40
+      }
+    ],
+    "flash_sections": {
+      ".text": 16
+    },
+    "all_symbol_size_deltas": [
+      {
+        "symbol": "CSWTCH.498",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 0,
+        "final": 36,
+        "delta": 36
+      },
+      {
+        "symbol": "CSWTCH.500",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 36,
+        "final": 0,
+        "delta": -36
+      },
+      {
+        "symbol": "CSWTCH.537",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 0,
+        "final": 48,
+        "delta": 48
+      },
+      {
+        "symbol": "CSWTCH.539",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 48,
+        "final": 0,
+        "delta": -48
+      },
+      {
+        "symbol": "CSWTCH.634",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 0,
+        "final": 28,
+        "delta": 28
+      },
+      {
+        "symbol": "CSWTCH.637",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 28,
+        "final": 0,
+        "delta": -28
+      },
+      {
+        "symbol": "CSWTCH.733",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 0,
+        "final": 20,
+        "delta": 20
+      },
+      {
+        "symbol": "CSWTCH.735",
+        "type": "OBJECT",
+        "section": ".text",
+        "base": 20,
+        "final": 0,
+        "delta": -20
+      },
+      {
+        "symbol": "_ZL17mesh_service_oncev",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 6796,
+        "final": 6776,
+        "delta": -20
+      },
+      {
+        "symbol": "_ZN4mrfw12handle_leaveER5Print",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 684,
+        "final": 676,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN4mrfw14handle_cfg_setEPKcR5Print",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 5012,
+        "final": 4996,
+        "delta": -16
+      },
+      {
+        "symbol": "_ZN4mrfw14handle_gatewayEPKcR5Print",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1232,
+        "final": 1212,
+        "delta": -20
+      },
+      {
+        "symbol": "_ZN4mrfw15make_cfg_extrasEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1124,
+        "final": 1120,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN4mrfw15nv_load_stampedERN4mrnv4BlobE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 616,
+        "final": 612,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN4mrfwL8dump_cfgER5Print",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 3504,
+        "final": 3496,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node10handle_ctsEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 800,
+        "final": 796,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node10handle_rtsEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 3028,
+        "final": 3020,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node10on_commandERKNS_7CommandE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 2174,
+        "final": 2170,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node11become_freeEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 776,
+        "final": 768,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node11do_post_ackEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 4796,
+        "final": 4772,
+        "delta": -24
+      },
+      {
+        "symbol": "_ZN9meshroute4Node11emit_beaconEPKc",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 2332,
+        "final": 2336,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node11handle_dataEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 4128,
+        "final": 4116,
+        "delta": -12
+      },
+      {
+        "symbol": "_ZN9meshroute4Node12enqueue_dataEhPKhhhPKcbhNS_11CryptIntentEmmhNS_5PlaneEPNS0_12SendDispatchE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1682,
+        "final": 1674,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node12join_deny_idEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 578,
+        "final": 620,
+        "delta": 42
+      },
+      {
+        "symbol": "_ZN9meshroute4Node12send_by_hashEmPKhhhNS_11CryptIntentEmtNS_5PlaneEhbPNS0_12SendDispatchEb",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 4504,
+        "final": 4576,
+        "delta": 72
+      },
+      {
+        "symbol": "_ZN9meshroute4Node12tx_rts_retryEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 388,
+        "final": 384,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node13deleg_ack_putEmttNS0_12DelegAckPeerEmS1_mhhNS0_15DelegAckCustodyE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 516,
+        "final": 512,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node13mark_mediatedEhm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 250,
+        "final": 244,
+        "delta": -6
+      },
+      {
+        "symbol": "_ZN9meshroute4Node13tx_initiatingEPKhjsNS0_7LbtKindEmPNS0_11TxAdmissionE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 516,
+        "final": 526,
+        "delta": 10
+      },
+      {
+        "symbol": "_ZN9meshroute4Node14activate_layerEh.part.0",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 664,
+        "final": 660,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node15do_send_channelEhPKhhbb",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 732,
+        "final": 712,
+        "delta": -20
+      },
+      {
+        "symbol": "_ZN9meshroute4Node15duty_defer_fireEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 200,
+        "final": 204,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node15send_req_sync_qEPKcbb",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 248,
+        "final": 252,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16age_out_mediatedEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 168,
+        "final": 172,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16duty_over_budgetEjsPm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 228,
+        "final": 220,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16flood_state_freeEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 96,
+        "final": 92,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16handle_flood_rtsERKNS_7rts_outEPKhs",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 976,
+        "final": 972,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16ingest_channel_mERKNS_5m_outEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1582,
+        "final": 1580,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16park_reflood_armEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 442,
+        "final": 452,
+        "delta": 10
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16send_config_pullEhtt",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 190,
+        "final": 182,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node16send_cross_layerEhmhPKhhhNS_11CryptIntentEhm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 400,
+        "final": 396,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17deleg_ack_reserveEmtNS0_12DelegAckPeerEmhNS0_15DelegAckCustodyERhRm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 448,
+        "final": 432,
+        "delta": -16
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17l2c_park_redirectEmRKNS_7PostAckE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 430,
+        "final": 428,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17mobile_offer_fireEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1582,
+        "final": 1628,
+        "delta": 46
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17park_reflood_fireEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 256,
+        "final": 264,
+        "delta": 8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17purge_tx_carriersENS0_9PurgeAxisE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1550,
+        "final": 1554,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17start_ack_timeoutEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 420,
+        "final": 424,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node17start_rts_timeoutEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 456,
+        "final": 452,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18age_out_denied_idsEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 176,
+        "final": 172,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18deleg_ack_activateEhtNS0_12DelegAckPeerEmhhNS0_15DelegAckCustodyE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1160,
+        "final": 1156,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18drain_parked_sendsEmhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1760,
+        "final": 1756,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18req_sync_loop_fireEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 276,
+        "final": 280,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18schedule_lbt_deferEPKhjsNS0_7LbtKindEmmPKmh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 408,
+        "final": 418,
+        "delta": 10
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18set_window_anchorsEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 130,
+        "final": 134,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node18tx_m_broadcast_rtsEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 552,
+        "final": 548,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node19clear_learned_stateEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 960,
+        "final": 958,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node19clear_routing_stateEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 490,
+        "final": 488,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20age_out_parked_sendsEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1020,
+        "final": 1016,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20flood_fast_self_pullEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 444,
+        "final": 432,
+        "delta": -12
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20id_pubkey_intent_armEhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 180,
+        "final": 188,
+        "delta": 8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20ingest_bridged_layerEhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 546,
+        "final": 544,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20mobile_offer_releaseEm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 278,
+        "final": 284,
+        "delta": 6
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20park_resolve_requestEm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 314,
+        "final": 312,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20periodic_beacon_fireEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 424,
+        "final": 416,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20presence_emit_rosterEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1216,
+        "final": 1212,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node20radmin_send_responseEmRKNS_10ReplyRouteEPKhhhb",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 284,
+        "final": 280,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node21presence_ingest_probeEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 904,
+        "final": 900,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node22id_pubkey_intent_clearEhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 130,
+        "final": 134,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node22mobile_offer_arm_timerEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 562,
+        "final": 558,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node22push_join_refused_wireEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 166,
+        "final": 160,
+        "delta": -6
+      },
+      {
+        "symbol": "_ZN9meshroute4Node22radmin_send_open_frameEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 246,
+        "final": 248,
+        "delta": 2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node22store_gateway_scheduleERKNS_15GatewayScheduleE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 284,
+        "final": 272,
+        "delta": -12
+      },
+      {
+        "symbol": "_ZN9meshroute4Node23custody_failure_receiveERKNS_7PostAckEPKNS_18data_unicast_innerE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 720,
+        "final": 716,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node23start_pending_rx_expiryEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 420,
+        "final": 416,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node24id_pubkey_intent_consumeEhbm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 220,
+        "final": 224,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node24presence_notify_old_homeEmht",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 640,
+        "final": 636,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node25maybe_emit_gateway_beaconEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 516,
+        "final": 500,
+        "delta": -16
+      },
+      {
+        "symbol": "_ZN9meshroute4Node25schedule_triggered_beaconEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 204,
+        "final": 200,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node26drain_xl_handoffs_for_leafEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 648,
+        "final": 646,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN9meshroute4Node27deferred_beacon_jitter_fireEh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 320,
+        "final": 312,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node27drain_resolved_parked_sendsEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1560,
+        "final": 1556,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node7nav_armEm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 40,
+        "final": 44,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node7on_initERKNS_10NodeConfigE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 788,
+        "final": 796,
+        "delta": 8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node8handle_hEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1776,
+        "final": 1772,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node8handle_jEPKhjRKNS_6RxMetaE",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 3388,
+        "final": 3380,
+        "delta": -8
+      },
+      {
+        "symbol": "_ZN9meshroute4Node8on_timerEm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1382,
+        "final": 1378,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4Node8tx_floodEPKhjsPKmh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 432,
+        "final": 428,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN9meshroute4NodeC1ERNS_3HalEhmPKc",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1964,
+        "final": 1928,
+        "delta": -36
+      },
+      {
+        "symbol": "_ZN9meshroute4NodeC2ERNS_3HalEhmPKc",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1964,
+        "final": 1928,
+        "delta": -36
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node11duty_statusEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 200,
+        "final": 188,
+        "delta": -12
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node16nav_duration_ctsEhhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 172,
+        "final": 168,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node16nav_duration_rtsEhhh",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 248,
+        "final": 244,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node17mediated_recentlyEhm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 104,
+        "final": 108,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node18airtime_routing_msEt",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 100,
+        "final": 96,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node19compute_budget_tierEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 140,
+        "final": 142,
+        "delta": 2
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node19exchange_airtime_msEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 172,
+        "final": 168,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node21gateway_spread_nibbleEv",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 188,
+        "final": 184,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZNK9meshroute4Node30deleg_ack_activation_availableEhtNS0_12DelegAckPeerEmhRm",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 1124,
+        "final": 1172,
+        "delta": 48
+      },
+      {
+        "symbol": "_ZZN4mrnv4saveERKNS_4BlobEE3cur",
+        "type": "OBJECT",
+        "section": ".bss",
+        "base": 280,
+        "final": 240,
+        "delta": -40
+      },
+      {
+        "symbol": "_ZZN9meshroute4Node11do_post_ackEvENKUlNS0_20DelegAckReleaseCauseEE_clES1_.part.0",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 84,
+        "final": 80,
+        "delta": -4
+      },
+      {
+        "symbol": "g_node",
+        "type": "OBJECT",
+        "section": ".bss",
+        "base": 157344,
+        "final": 157304,
+        "delta": -40
+      },
+      {
+        "symbol": "setup",
+        "type": "FUNC",
+        "section": ".text",
+        "base": 5248,
+        "final": 5300,
+        "delta": 52
+      }
+    ]
+  },
+  "heltec_mobile": {
+    "base": {
+      "flash_bytes": 1394520,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218004,
+        ".flash.text": 1072386,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211764,
+      "symbol_count": 13299,
+      "symbol_size_total": 1496094,
+      "symbols_sha256": "8c337fd54ee54a2ce601d1af9b80379a9da8777eac26deba20d2337650c5ff17"
+    },
+    "final": {
+      "flash_bytes": 1394704,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218116,
+        ".flash.text": 1072458,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211724,
+      "symbol_count": 13297,
+      "symbol_size_total": 1496108,
+      "symbols_sha256": "27ec410224f285cfa18ec3fa3ec4ce247c1fb90da91f2f3ac5b59d5849ef0589"
+    },
+    "ram_symbols": [
+      {
+        "symbol": "_ZZN4mrnv4saveERKNS_4BlobEE3cur",
+        "type": "OBJECT",
+        "section": ".dram0.bss",
+        "base": 280,
+        "final": 240,
+        "delta": -40
+      }
+    ],
+    "flash_sections": {
+      ".flash.text": 72,
+      ".flash.rodata": 112
+    },
+    "all_symbol_size_deltas": [
+      {
+        "symbol": "_Z10mr_ui_tickm",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 7026,
+        "final": 7030,
+        "delta": 4
+      },
+      {
+        "symbol": "_Z17ui_join_note_pushRKN9meshroute4PushE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 236,
+        "final": 246,
+        "delta": 10
+      },
+      {
+        "symbol": "_Z21mr_ui_arm_button_wakev",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 44,
+        "final": 42,
+        "delta": -2
+      },
+      {
+        "symbol": "_Z21mr_ui_on_config_savedv",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 138,
+        "final": 142,
+        "delta": 4
+      },
+      {
+        "symbol": "_Z5setupv",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 2706,
+        "final": 2586,
+        "delta": -120
+      },
+      {
+        "symbol": "_ZN12_GLOBAL__N_112inbox_row_cbEPvRKN9meshroute10InboxEntryE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 236,
+        "final": 235,
+        "delta": -1
+      },
+      {
+        "symbol": "_ZN4mrfw11JoinService10apply_joinERKNS_11JoinRequestE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 245,
+        "final": 241,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN4mrfw11handle_teamEPKcR5Print",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 2842,
+        "final": 2838,
+        "delta": -4
+      },
+      {
+        "symbol": "_ZN4mrfw12_GLOBAL__N_120DeviceTeamKeyBinding4readERNS_14TeamKeyBindingE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 118,
+        "final": 120,
+        "delta": 2
+      },
+      {
+        "symbol": "_ZN4mrfw12handle_leaveER5Print",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 191,
+        "final": 207,
+        "delta": 16
+      },
+      {
+        "symbol": "_ZN4mrfw13ConfigService4openEv$part$0$isra$0",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 102,
+        "final": 0,
+        "delta": -102
+      },
+      {
+        "symbol": "_ZN4mrfw13ConfigService4saveEv",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 284,
+        "final": 281,
+        "delta": -3
+      },
+      {
+        "symbol": "_ZN4mrfw13ConfigService6reloadEv",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 146,
+        "final": 0,
+        "delta": -146
+      },
+      {
+        "symbol": "_ZN4mrfw13ConfigService7discardEv$part$0",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 107,
+        "final": 0,
+        "delta": -107
+      },
+      {
+        "symbol": "_ZN4mrfw13handle_createEPKcR5Print",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 1147,
+        "final": 1179,
+        "delta": 32
+      },
+      {
+        "symbol": "_ZN4mrfw14handle_cfg_setEPKcR5Print",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 3788,
+        "final": 3796,
+        "delta": 8
+      },
+      {
+        "symbol": "_ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 433,
+        "final": 417,
+        "delta": -16
+      },
+      {
+        "symbol": "_ZN4mrfw18UiProvisionAdapter7performERKN4mrui12UiProvIntentE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 265,
+        "final": 269,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN4mrfw19ProvisioningService10apply_teamERNS_11TeamRequestERKN9meshroute10NodeConfigERKNS_12ProvSnapshotE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 475,
+        "final": 466,
+        "delta": -9
+      },
+      {
+        "symbol": "_ZN4mrfw19ui_prov_create_teamERNS_17ITeamCreateDeviceE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 425,
+        "final": 413,
+        "delta": -12
+      },
+      {
+        "symbol": "_ZN4mrfw20stage_team_candidateERKNS_11TeamRequestERKNS_14TeamProjectionERKNS_12ProvSnapshotERNS_8IEntropyERNS_8TeamPlanERN4mrnv4BlobE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 930,
+        "final": 912,
+        "delta": -18
+      },
+      {
+        "symbol": "_ZN4mrfw25blob_put_team_channel_keyERN4mrnv4BlobEPKhS4_",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 66,
+        "final": 65,
+        "delta": -1
+      },
+      {
+        "symbol": "_ZN4mrfwL8dump_cfgER5Print",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 2130,
+        "final": 2134,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN4mrui18ui_route_recv_pushERNS_15UiInboxCountersERNS_7UiModelERKN9meshroute4PushEhbPKcm$isra$0",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 299,
+        "final": 303,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN4mrui18ui_team_geo_bucketERKNS_10UiSnapshotERKNS_7TeamRowE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 166,
+        "final": 164,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel10on_outcomeERKNS_11SendOutcomeEm",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 248,
+        "final": 249,
+        "delta": 1
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel13sync_settingsERKNS_10UiSnapshotE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 217,
+        "final": 311,
+        "delta": 94
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 290,
+        "final": 514,
+        "delta": 224
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel19refresh_detail_pageEv",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 132,
+        "final": 134,
+        "delta": 2
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 118,
+        "final": 122,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 423,
+        "final": 424,
+        "delta": 1
+      },
+      {
+        "symbol": "_ZN9meshroute4Node19restore_channel_ctrEt",
+        "type": "FUNC",
+        "section": ".flash.text",
+        "base": 0,
+        "final": 187,
+        "delta": 187
+      },
+      {
+        "symbol": "_ZZN4mrnv4saveERKNS_4BlobEE3cur",
+        "type": "OBJECT",
+        "section": ".dram0.bss",
+        "base": 280,
+        "final": 240,
+        "delta": -40
+      }
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+-- target grantpark: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_hashlocate.cpp (3 entries)
+-- selection: IN FULL (all 3 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-f6_on5t2   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target grantpark: /tmp/mr_mutation_run-f6_on5t2/w0/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target grantpark: /tmp/mr_mutation_run-f6_on5t2/w2/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target grantpark: /tmp/mr_mutation_run-f6_on5t2/w1/lib/core/node_hashlocate.cpp (1 of 3 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   K03 ★★★ `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing — the sibling defect, attacked separately so neither park can pass on the other's assertion -> RED (2 assertion(s) failed, match count 1)
+  [w2] source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)
+  [w2] shard 2: 1 RED / 0 unusable   (of 1 entries)
+  [w0]   ok   K01 ★★★ a FULL parked ring reports a STORED park — the send is dropped and the caller is told it is waiting behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37) -> RED (9 assertion(s) failed, match count 1)
+  [w0] source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+  [w1]   ok   K02 ★★★ `park_send` RESTORES ITS CLAMP: an over-cap parked body is silently truncated to the cap and parked anyway, so the message is delivered short and every layer reports success -> RED (3 assertion(s) failed, match count 1)
+  [w1] source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target grantpark: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/node_hashlocate.cpp
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2950 / 195768   (PIN_CASES, this file)
+  !!      derived  2950 / 195770   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 3 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   K01 ★★★ a FULL parked ring reports a STORED park — the send is dropped and the caller is told it is waiting behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37) -> RED (9 assertion(s) failed, match count 1)
+  ok   K02 ★★★ `park_send` RESTORES ITS CLAMP: an over-cap parked body is silently truncated to the cap and parked anyway, so the message is delivered short and every layer reports success -> RED (3 assertion(s) failed, match count 1)
+  ok   K03 ★★★ `park_send_layer` RESTORES ITS CLAMP: the cross-layer twin truncates instead of refusing — the sibling defect, attacked separately so neither park can pass on the other's assertion -> RED (2 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 29.2s, rc 0, source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)   /tmp/mr_mutation_run-f6_on5t2/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 29.9s, rc 0, source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)   /tmp/mr_mutation_run-f6_on5t2/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 29.0s, rc 0, source restored: md5 094c1a00ec20ca7cf10fdcb50a913d25 (MATCHES)   /tmp/mr_mutation_run-f6_on5t2/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r3-j6pcxvmv/union-inputs
+timing: copy 4.4s + battery 30.0s = 34.5s total, 3 entries over 3 worker(s)
+mutations: 3 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2950 / 195768, these trees run 2950 / 195770.
+  !!  The battery above RAN IN FULL (3 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

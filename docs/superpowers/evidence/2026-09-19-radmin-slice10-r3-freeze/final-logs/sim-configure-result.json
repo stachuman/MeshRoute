@@ -1,0 +1,18 @@
+{
+  "name": "sim-configure",
+  "command": [
+    "cmake",
+    "-S",
+    "/home/staszek/lora-universal-simulator",
+    "-B",
+    "/tmp/mr-s10-r3-j6pcxvmv/sim-final",
+    "-G",
+    "Ninja",
+    "-DMESHROUTE_DIR=/tmp/mr-s10-r3-j6pcxvmv/final-gate",
+    "-DCMAKE_BUILD_TYPE=Release"
+  ],
+  "cwd": "/tmp/mr-s10-r3-j6pcxvmv/final-gate",
+  "exit": 0,
+  "seconds": 0.42683977633714676,
+  "sha256": "30fbf406872fbd67e05e3839541752e281172f59a0a94abe07acbdc043306f6c"
+}

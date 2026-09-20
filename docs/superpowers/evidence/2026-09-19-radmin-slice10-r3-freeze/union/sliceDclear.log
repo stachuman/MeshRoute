@@ -1,0 +1,50 @@
+-- target sliceDclear: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/inbox.cpp (5 entries)
+-- selection: IN FULL (all 5 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-s521lz51   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target sliceDclear: /tmp/mr_mutation_run-s521lz51/w1/lib/core/inbox.cpp (2 of 5 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target sliceDclear: /tmp/mr_mutation_run-s521lz51/w0/lib/core/inbox.cpp (2 of 5 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target sliceDclear: /tmp/mr_mutation_run-s521lz51/w2/lib/core/inbox.cpp (1 of 5 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   D01 ★★★★ THE PRE-ERASE HIGH-WATER PERSIST IS DROPPED — the records are erased while the metadata still holds a stale counter, so a reboot after a clear REUSES sequences the companion has already filed -> RED (19 assertion(s) failed, match count 1)
+  [w2]   ok   D03 ★★★ THE SECOND WIPE IS SHORT-CIRCUITED ON THE FIRST'S FAILURE — a partial clear leaves the healthy store's entire history on the medium and still reports the same io_error -> RED (3 assertion(s) failed, match count 1)
+  [w2] source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)
+  [w2] shard 2: 1 RED / 0 unusable   (of 1 entries)
+  [w1]   ok   D02 ★★★★ THE ERASE-NEITHER GUARD IS DROPPED — a high-water that could not be persisted no longer stops the erase, so both stores are destroyed over metadata the medium never accepted -> RED (8 assertion(s) failed, match count 1)
+  [w0]   ok   D04 ★★★ THE READ CURSORS ARE NOT RESET — the unread badge keeps a cursor into a history that was destroyed -> RED (6 assertion(s) failed, match count 1)
+  [w0] source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)
+  [w0] shard 0: 2 RED / 0 unusable   (of 2 entries)
+  [w1]   ok   D05 ★★★★ THE CLEAR ALSO RESETS THE SEQUENCE COUNTERS — the high-water is destroyed by the very operation that just persisted it, so the next message reuses seq 1 -> RED (8 assertion(s) failed, match count 1)
+  [w1] source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)
+  [w1] shard 1: 2 RED / 0 unusable   (of 2 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceDclear: /tmp/mr-s10-r3-j6pcxvmv/union-inputs/lib/core/inbox.cpp
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.
+  !!      pinned   2950 / 195768   (PIN_CASES, this file)
+  !!      derived  2950 / 195770   <-- THE BATTERY USED THIS
+  !!  The battery RAN anyway, IN FULL (all 5 entries): per [[B217]] a stale figure must NEVER zero a run.
+  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ok   D01 ★★★★ THE PRE-ERASE HIGH-WATER PERSIST IS DROPPED — the records are erased while the metadata still holds a stale counter, so a reboot after a clear REUSES sequences the companion has already filed -> RED (19 assertion(s) failed, match count 1)
+  ok   D02 ★★★★ THE ERASE-NEITHER GUARD IS DROPPED — a high-water that could not be persisted no longer stops the erase, so both stores are destroyed over metadata the medium never accepted -> RED (8 assertion(s) failed, match count 1)
+  ok   D03 ★★★ THE SECOND WIPE IS SHORT-CIRCUITED ON THE FIRST'S FAILURE — a partial clear leaves the healthy store's entire history on the medium and still reports the same io_error -> RED (3 assertion(s) failed, match count 1)
+  ok   D04 ★★★ THE READ CURSORS ARE NOT RESET — the unread badge keeps a cursor into a history that was destroyed -> RED (6 assertion(s) failed, match count 1)
+  ok   D05 ★★★★ THE CLEAR ALSO RESETS THE SEQUENCE COUNTERS — the high-water is destroyed by the very operation that just persisted it, so the next message reuses seq 1 -> RED (8 assertion(s) failed, match count 1)
+  worker 0: 2/2 entries, 2 RED / 0 worthless, wall 17.8s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-s521lz51/w0
+  worker 1: 2/2 entries, 2 RED / 0 worthless, wall 18.2s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-s521lz51/w1
+  worker 2: 1/1 entries, 1 RED / 0 worthless, wall 13.8s, rc 0, source restored: md5 a8088417e948aef2e5ffbe8cec312b27 (MATCHES)   /tmp/mr_mutation_run-s521lz51/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r3-j6pcxvmv/union-inputs
+timing: copy 4.0s + battery 18.3s = 22.3s total, 5 entries over 3 worker(s)
+mutations: 5 RED / 0 unusable
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !!  REMINDER — the cross-check pin is STALE: pinned 2950 / 195768, these trees run 2950 / 195770.
+  !!  The battery above RAN IN FULL (5 entries) on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.
+  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

@@ -48,11 +48,14 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   - **8b, the mobile controller carrier: independent QA PASS 2026-09-18, owner commit `84edd3e`** (brief revisions
     1–6; R-RA-46..49; B408/B409–B414/B416 closed, B415 parked, B418 pre-existing tool drift); the remote-admin product
     path is software-complete end to end; bench Part 57c landed, Parts 57b/57d now runnable.
-  - **Slice 9, legacy protocol deletion + the durable protocol docs: independent QA PASS 2026-09-19, uncommitted at
-    `84edd3e`** (brief revisions 1–5; R-RA-50; B420–B429 closed, B418 pre-existing tool drift); zero executable residue,
+  - **Slice 9, legacy protocol deletion + the durable protocol docs: independent QA PASS 2026-09-19, owner commit
+    `4ad9c34`** (brief revisions 1–5; R-RA-50; B420–B429 closed, B418 pre-existing tool drift); zero executable residue,
     corpus byte-identical, Node unchanged, RAM/flash down; `frames.md`/`protocol.md` now document v2; Part 57e reserved.
-  - **In flight:** nothing — next is the Slice 10 brief (the standalone main-NV cleanup, R-RA-6).
-  - **Remaining slices (one cycle):** 9 (PASS) legacy protocol deletion + durable
+  - **In flight:** Slice 10 (the standalone main-NV cleanup, R-RA-6), brief revision 3 (2026-09-19, base
+    `4ad9c34`; B430–B432 folded — six instrument files fenced): `/mrcfg` v26 without the three legacy admin fields,
+    the `Node` mirrors and boot `admin_load` removed, one boot schema line, Part 57f — implemented on the preserved
+    revision-2 candidate with the two fenced repairs and the whole chain freshly rerun; coder freeze ready for independent QA (register §0 / design §19.1 / receipt §8).
+  - **Remaining slices (one cycle, in flight):** 9 (PASS, `4ad9c34`) legacy protocol deletion + durable
     protocol docs → 10 main-NV cleanup (standalone per R-RA-6). Remote provisioning is not required (R-RA-41,
     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
     remotely by design, and the disruptive arc completes with 7b-3.
@@ -93,7 +96,7 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: the owner commits Slice 9, then the Slice 10 brief; metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin Slice 10: independent gate on the fresh revision-3 coder freeze (the last slice); metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
   Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
   remains separately tracked and do not block Part 54.
 

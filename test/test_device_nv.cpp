@@ -61,15 +61,23 @@ TEST_CASE("device_nv: slot_size_ok accepts EXACTLY the wanted length; a short, l
     CHECK_FALSE(slot_size_ok(-1, static_cast<size_t>(-1)));   // the widened-negative trap, stated as a test
 }
 
-TEST_CASE("device_nv: /mrcfg (Blob) takes the RANGE policy — v25 only at this layout, older padding and future versions reject") {
+TEST_CASE("device_nv: /mrcfg (Blob) takes the RANGE policy — v26 only at this layout, older schemas and future versions reject") {
     const int full = full_read(sizeof(Blob));
     {   // the current layout
         Blob b = stamped<Blob>(kMagic, kVersion);
         CHECK(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));
     }
-    {   // B353: old v2..kVersion policy superseded; v24 is the SAME size but has padding here.
+    {   // B353 historical padding guard: literal v24 remains below the current schema floor.
         Blob b = stamped<Blob>(kMagic, 24);
         CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));
+    }
+    {   // Slice 10: isolate the version floor from the removed bytes' size change.
+        Blob b = stamped<Blob>(kMagic, 25);
+        CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));
+    }
+    {   // A v25 image was 280 bytes; a current version stamp cannot bypass the size rule.
+        Blob b = stamped<Blob>(kMagic, kVersion);
+        CHECK_FALSE(blob_valid_range(b, 280, kMagic, kVersionMinLoad, kVersion));
     }
     {   Blob b = stamped<Blob>(kMagic, 1);
         CHECK_FALSE(blob_valid_range(b, full, kMagic, kVersionMinLoad, kVersion));       // below the floor
@@ -515,11 +523,11 @@ TEST_CASE("device_nv: the record sizes the version policy guards are what the st
     CHECK(kMaxPeerRecs == 16);                                // == protocol::cap_peer_keys (the RAM table's cap)
     CHECK(kPeersVersion == 2);                                // §AB1: v2 = confidence + name persisted; v1 rejected outright
     CHECK(kIdVersion == 1);
-    CHECK(kVersion == 25);                                    // v25 activation delay; v24 introduced the team-key binding
-    CHECK(kVersionMinLoad == 25);                             // B353: same-size old padding MUST NOT load
-    CHECK(sizeof(Blob) == 280);
+    CHECK(kVersion == 26);                                    // Slice 10: legacy admin fields removed
+    CHECK(kVersionMinLoad == 26);                             // reject every older schema, even at the new size
+    CHECK(sizeof(Blob) == 240);
     CHECK(alignof(Blob) == 8);
-    CHECK(offsetof(Blob, remote_action_activation_ms) == 276);
+    CHECK(offsetof(Blob, remote_action_activation_ms) == 236);
     CHECK(kMagic == 0x4D524331u);                             // 'MRC1'
     CHECK(kIdMagic == 0x4D524944u);                           // 'MRID'
     CHECK(kPeersMagic == 0x4D525052u);                        // 'MRPR'

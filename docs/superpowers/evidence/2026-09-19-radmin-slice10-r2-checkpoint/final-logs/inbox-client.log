@@ -1,0 +1,574 @@
+== §CUSTODY-D inbox-verb wiring probe (real dispatch() + real handle_clear_inbox, host-linked) ==
+executor symbol ownership: client PASS
+== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==
+  ok   W1  dispatch() OWNS `clear_inbox` (the router reaches the verb at all)
+  ok   W1b ...and routed it to NO other verb's handler (saw '')
+  ok   W2  bare `clear_inbox` answers EXACTLY the needs_confirm line [{"ack":"clear_inbox","result":"needs_confirm"}
+]
+  ok   W2b ...and NEITHER store was wiped (dm=0 ch=0)
+  ok   W2c ...and the clear was not even ENTERED (no high-water persist ran)
+  ok   W2d ...and every record is still there (dm=3 ch=2)
+  ok   W3  `clear_inbox confirm extra` (a SECOND token) -> needs_confirm, INERT
+  ok   W3  `clear_inbox confirmation` (a longer word starting with it) -> needs_confirm, INERT
+  ok   W3  `clear_inbox confirmX` (trailing junk) -> needs_confirm, INERT
+  ok   W3  `clear_inbox confirm ` (a trailing space) -> needs_confirm, INERT
+  ok   W3  `clear_inbox CONFIRM` (the wrong case) -> needs_confirm, INERT
+  ok   W3  `clear_inbox yes` (a different word) -> needs_confirm, INERT
+  ok   W3  `clear_inbox   ` (spaces only) -> needs_confirm, INERT
+  ok   W4  dispatch() owns `clear_inbox confirm`
+  ok   W4b ...and the ack is EXACTLY the cleared line [{"ack":"clear_inbox","result":"cleared","epoch":2,"dm_seq":3,"chan_seq":2}
+]
+  ok   W4c ...both stores wiped exactly once (dm=1 ch=1)
+  ok   W4d ...and both are empty afterwards
+  ok   W4e ...the high-water was persisted BEFORE the erase (both stores)
+  ok   W4f ...and both read cursors are reset
+  ok   W4g ...and no other verb's handler ran (saw '')
+  ok   W4h ...and the PRODUCTION g_inbox_dm/g_inbox_ch stores were not touched (0)
+  ok   W5  a DM-store failure answers EXACTLY the io_error line [{"ack":"clear_inbox","result":"io_error","warning":"messages_may_remain","epoch":1,"dm_seq":3,"chan_seq":2}
+]
+  ok   W5b ...and the word `cleared` appears NOWHERE in a failed clear's ack
+  ok   W5c ...BOTH wipes were still attempted — no short-circuit (dm=1 ch=1)
+  ok   W5d ...and the healthy store WAS erased (a partial clear erases what it can)
+  ok   W6  a CHANNEL-store failure answers io_error + the warning, never cleared [{"ack":"clear_inbox","result":"io_error","warning":"messages_may_remain","epoch":2,"dm_seq":3,"chan_seq":2}
+]
+  ok   W6b ...the DM half completed and the channel half did not (dm=0 ch=2)
+  ok   W7  a high-water that will not persist answers io_error [{"ack":"clear_inbox","result":"io_error","warning":"messages_may_remain","epoch":1,"dm_seq":3,"chan_seq":2}
+]
+  ok   W7b ...and NEITHER store was erased (dm=0 ch=0) — the records are still the only witness
+  ok   W7c ...so every record survives a refused clear
+  ok   W8  `clear_inboxx confirm` is NOT owned by the router (no prefix match)
+  ok   W8b ...and it produced no ack and no clear
+  ok   W8c `clear_inbo` (short) is not owned either
+  ok   W8d nor the bare word `clear`
+  ok   W9  the same router serves a SECOND (BLE-shaped) sink byte-identically [{"ack":"clear_inbox","result":"needs_confirm"}
+]
+  ok   W9b ...and that transport's refusal is inert too
+  ok   W10  `del_msg` still reaches its own REAL handler [{"ack":"del_msg","kind":"dm","seq":1,"result":"erased"}
+]
+  ok   W10b `mark_read` still reaches its own REAL handler [{"ack":"mark_read","kind":"dm","seq":1,"result":"marked"}
+]
+  ok   W10c `pull_inbox` still reaches its own REAL handler [{"ev":"inbox_dm","seq":1,"origin":5,"layer_id":0,"ctr":100,"sender_hash":0,"rx_ms":1000,"body":"m"}
+{"ev":"inbox_channel","seq":1,"origin":7,"layer_id":0,"channel_id":3,"channel_msg_id":117440512,"rx_ms":2000,"body":"c"}
+{"ev":"inbox_end","dm_seq":1,"chan_seq":1,"epoch":1,"count":2,"now_ms":0}
+]
+  ok   R1  dispatch() OWNS `regen` on a BLE-shaped LineSink
+  ok   R2  a REFUSED /mrid save answers EXACTLY the error line on the SUPPLIED sink [> regen err nv_save_failed
+]
+  ok   R3  ...and NOT ONE byte reached the global console (0 B on Serial)
+  ok   R4  ...no success prefix and no identity line accompany the failure
+  ok   R5  ...the installed identity is UNCHANGED (0x4BD6D935)
+  ok   R6  ...and NO crypto identity was installed (crypto_ready=0)
+  ok   R7  ...exactly ONE write was attempted and refused (writes=1)
+  ok   R8  ...and /mrid still holds EXACTLY the pre-command record — a refused write retained NOTHING
+  ok   R9  the SAME failure through `mrcon` is byte-identical on USB [> regen err nv_save_failed
+]
+  ok   R10 ...and the BLE sink received nothing during the USB drive (0 B)
+  ok   R11 dispatch() owns `regen` on the success path too
+  ok   R12 the BLE sink receives EXACTLY the success line [> regen ok  key_hash32= 0xB12D4983  name="probe-node"
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   R13 ...and NOT ONE byte leaked to the global console (0 B on Serial)
+  ok   R14 ...the key_hash32 field is exactly EIGHT UPPERCASE hex digits
+  ok   R15 ...g_identity was re-derived from the FRESH seed (0xB12D4983)
+  ok   R16 ...the node's ROUTING identity was re-installed with it
+  ok   R17 ...and the E2E crypto identity was installed (crypto_ready false -> true)
+  ok   R18 exactly ONE /mrid write was made (writes=1)
+  ok   R19 ...the saved record re-loads and carries the same magic/version
+  ok   R20 ...its seed is the FRESH draw, not the one it replaced
+  ok   R21 ...and the operator name was PRESERVED across the mint
+  ok   R22 the medium retained EXACTLY the record production wrote (name/magic/version kept, seed fresh)
+  ok   R23 the USB console receives BYTE-IDENTICAL bytes through `mrcon` [> regen ok  key_hash32= 0xB12D4983  name="probe-node"
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   R24 ...and the BLE sink stayed empty during the USB drive (0 B)
+  ok   R25 a record with NO name emits no `name=` segment, and still nothing on USB [> regen ok  key_hash32= 0xB12D4983
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   R26 a MAXIMUM-length (32 B) name is emitted in full, and still nothing on USB [> regen ok  key_hash32= 0xB12D4983  name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   R27 `regen ` (a trailing space) is NOT owned as `regen` — no output, no NV write, no identity change
+  ok   R28 `regenerate` (a longer word starting with it) is NOT owned as `regen` — no output, no NV write, no identity change
+  ok   R29 `REGEN` (the wrong case) is NOT owned as `regen` — no output, no NV write, no identity change
+  ok   R30 `rege` (a short prefix) is NOT owned as `regen` — no output, no NV write, no identity change
+  ok   R31 the canonical formatter emits the boot banner line through the sink it is GIVEN [  key_hash32= 0xB12D4983  name="probe-node"
+]
+  ok   R32 ...and nothing reached the BLE sink (0 B)
+  ok   X1  router-owned `whoami` on the TEXT arm streams to the supplied sink, 0 B cross-sink [75/0]
+  ok   X2  ...and on the JSON arm it streams through the REAL LineSink, NEVER the 256-B direct buffer [ret=0 buf0=0 usb=0]
+  ok   X3  parser-owned `send` on the TEXT arm renders the TEXT envelope only [> queued ctr=1 depth=1
+]
+  ok   X4  ...and on the JSON arm exactly ex.n buffered bytes, 0 streamed, 0 USB [{"ack":"queued","ctr":2,"qd":2,"dh":0,"lp":0}
+]
+  ok   X5  the two envelopes never cross: no `> ` in the JSON reply and no JSON on the USB sink
+  ok   X6  each seam call executes the command EXACTLY ONCE (peer ctr 0->1->2)
+  ok   X7  `peerkey` on the TEXT arm reaches handle_peerkey (ack + exactly one /mrpeers write) [{"ev":"peerkey_set","hash":1144201745,"pinned":true}
+]
+  ok   X8  ...and on the JSON arm identically, into the reply buffer [{"ev":"peerkey_set","hash":1144241066,"pinned":true}
+]
+  ok   X8b re-pasting the SAME key is `unchanged` and costs ZERO flash writes (writes=0)
+  ok   X9  `peername` on the TEXT arm reaches handle_peername [{"ev":"peer_name_set","hash":1144201745,"name":"bob"}
+]
+  ok   X10 ...and on the JSON arm identically [{"ev":"peer_name_set","hash":1144201745,"name":"bob"}
+]
+  ok   X11 an ACCEPTED `reqpubkey` keeps its BLE-specific reqpubkey_sent event [{"ev":"reqpubkey_sent","hash":287454020,"plane":"static"}
+]
+  ok   X12 ...while the TEXT arm keeps the plain result line and no JSON event [> queued ctr=0 depth=2 dh=0x287454020 plane=static
+]
+  ok   X13 a refused `reqpubkey` prints the USB remedy line and NEVER puts prose in the JSON ack [{"ack":"err_unsupported","ctr":0,"qd":2,"dh":2972535171,"lp":0,"plane":"static"}
+]
+  ok   X14 a whitespace-only line is `empty` on BOTH arms and emits NOTHING anywhere
+   retired-refusal zzz_unknown_verb: USB=> parse error BLE={"err":"parse","msg":"unknown_cmd"}
+
+   retired-refusal rcmd 1 status: USB=> parse error BLE={"err":"parse","msg":"unknown_cmd"}
+
+   retired-refusal password x: USB=> parse error BLE={"err":"parse","msg":"unknown_cmd"}
+
+   retired-refusal unlock x: USB=> parse error BLE={"err":"parse","msg":"unknown_cmd"}
+
+   retired-refusal lock: USB=> parse error BLE={"err":"parse","msg":"unknown_cmd"}
+
+  ok   X15 every unknown/removed verb is unmatched on both arms; exact USB/BLE caller envelopes
+  ok   X16 a MALFORMED parser-owned line is `unmatched`+bad_args — the named envelope stays the caller's
+  ok   X17 the ROUTER arm writes ONLY to the Print& it is handed — a third sink receives it, `mrcon` gets 0 B [0]
+  ok   X18 ...and so does the TEXT RENDERING itself — the `> …` result line lands on the supplied sink, `mrcon` gets 0 B [0]
+  ok   X19 the rendered reply is a COPY: overwriting the input line after the call changes nothing
+  ok   X20 `help` reaching the seam DOES stream the whole index (500 B) — which is why BLE refuses it first
+  ok   Z1  the shipped decoder still ACCEPTS a well-formed 64-hex token (the grammar did not move)
+  ok   Z2  the decode performs EXACTLY ONE 32-byte crypto_wipe (saw 1)
+  ok   Z3  ...over the SCRATCH that held the decoded key material (content matched 1)
+  ok   Z4  ...and the storage READ BACK ALL-ZERO while the frame was still alive (1)
+  ok   Z5  a malformed token is still REFUSED (the output-on-failure did not move)
+  ok   Z6  ...and its scratch is wiped ON THE REFUSAL PATH too (1 wipe(s), 1 zeroed)
+  ok   Z7  a NULL input allocates no scratch and performs NO wipe (0)
+  ok   Z8  the interposer is LINKED and observes the REAL crypto_wipe (n=1)
+  ok   Q1  `admin-key list` is OWNED by the real dispatch()
+  ok   Q1b `admin-target list` is OWNED by the real dispatch()
+  ok   Q1c `acl list` (the TARGET family) is NOT owned on a CLIENT build — 0 bytes
+  ok   Q1d `admin-id show` is NOT owned on a CLIENT build — 0 bytes
+  ok   Q1e `admin-keys` is NOT owned — the token boundary holds in the real router
+  ok   Q1f `admin-targetx` is NOT owned — the token boundary holds in the real router
+  ok   Q2  `show self` prints THIS node's live identity, byte for byte [> admin-key self fp=cddbc003e492d564 pub=e6fad7d51592680162b38b1515752ffc06dd15c84244764cd7142176f1c10967
+]
+  ok   Q2b ...and it reads NO record and draws NO entropy (reads=0 draws=0)
+  ok   Q3  `generate key0` succeeds through the REAL binding [> admin-key generated key0 fp=b6cc40f580224ade pub=83492db121e635845423212bd90a5394b3d1446d413e5769b06b75da4a40b679
+]
+  ok   Q3b ...at EXACTLY one write and one full 32-byte draw (writes=1 draws=8)
+  ok   Q3c ...and the record landed on the `/mrmkeys` backend key
+  ok   Q3d ...⛔ and NOT on /mradmid (design §6.4's crossing) nor on /mrtargets
+  ok   Q3e ...the record re-loads through the typed wrapper as a valid one-key ring
+  ok   Q4  a DEAD (all-zero) platform draw answers `entropy_failed` [> admin-key err entropy_failed
+]
+  ok   Q4b ...having ASKED the platform for a FULL 32-byte draw (draws=8)
+  ok   Q4c ...and having written NOTHING (writes=0)
+  ok   Q5  a refused medium answers `nv_save_failed` [> admin-key err nv_save_failed
+]
+  ok   Q5b ...after EXACTLY one attempt (writes=1)
+  ok   Q6  `import key2 <hex>` succeeds through the REAL binding [> admin-key imported key2 fp=7b09ce9cab3ba5d3 pub=2ecee23e8b0caf58e5e6b4ae20201cd32e32808efdbc6b8acecba0ba5ab4f333
+]
+  ok   Q6b `export key2` returns EXACTLY the imported seed [> admin-key exported key2 seed=3333333333333333333333333333333333333333333333333333333333333333
+]
+  ok   Q6c ...and writes nothing (writes=0)
+  ok   Q7  `admin-key` is OWNED and answers a typed refusal [> admin-key err bad_args
+]
+  ok   Q7b `admin-key` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-key` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-key bogus` is OWNED and answers a typed refusal [> admin-key err bad_args
+]
+  ok   Q7b `admin-key bogus` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-key bogus` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-key show key9` is OWNED and answers a typed refusal [> admin-key err not_found
+]
+  ok   Q7b `admin-key show key9` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-key show key9` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-key remove key0` is OWNED and answers a typed refusal [> admin-key err needs_confirm
+]
+  ok   Q7b `admin-key remove key0` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-key remove key0` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-key reset` is OWNED and answers a typed refusal [> admin-key err needs_confirm
+]
+  ok   Q7b `admin-key reset` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-key reset` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-target` is OWNED and answers a typed refusal [> admin-target err bad_args
+]
+  ok   Q7b `admin-target` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-target` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-target bogus` is OWNED and answers a typed refusal [> admin-target err bad_args
+]
+  ok   Q7b `admin-target bogus` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-target bogus` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-target show label=nope` is OWNED and answers a typed refusal [> admin-target err not_found
+]
+  ok   Q7b `admin-target show label=nope` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-target show label=nope` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-target remove label=nope confirm` is OWNED and answers a typed refusal [> admin-target err not_found
+]
+  ok   Q7b `admin-target remove label=nope confirm` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-target remove label=nope confirm` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q7  `admin-target reset` is OWNED and answers a typed refusal [> admin-target err needs_confirm
+]
+  ok   Q7b `admin-target reset` costs ZERO writes and ZERO draws (writes=0 draws=0)
+  ok   Q7c `admin-target reset` reaches NO foreign handler and no global sink (0/0 B)
+  ok   Q8  `admin-target add` succeeds through the REAL binding [> admin-target added slot=0 fp=7542389f7290cc83 pub=2222222222222222222222222222222222222222222222222222222222222222
+]
+  ok   Q8b ...at EXACTLY one write (writes=1)
+  ok   Q8c ...and the record landed on `/mrtargets`, ⛔ not on the keyring's key
+  ok   Q8d two identical listings over the ONE resident scratch agree byte for byte
+  ok   Q8e ...and the row carries the stored hint and path verbatim [> admin-target slot=0 label=alpha fp=7542389f7290cc83 pub=2222222222222222222222222222222222222222222222222222222222222222 hash=0xDEADBEEF layer=1,2,3
+> admin-target end page=0 count=1
+]
+  ok   Q8f `remove label=… confirm` succeeds [> admin-target removed slot=0
+]
+  ok   Q8g ...at EXACTLY one write (writes=1)
+  ok   Q9  the CLIENT boot report prints EXACTLY the two ruled lines on `mrcon` [> admin-key boot state=absent count=0
+> admin-target boot state=absent count=0
+]
+  ok   Q9b ...writing nothing and drawing nothing (writes=0 draws=0)
+  ok   Q9c ...and carrying NO key, seed or fingerprint byte
+  ok   Q9d ...and nothing reached the BLE sink (0 B)
+  ok   Q10 a DEAD backend is `store_io_failed`, ⛔ never the fresh-device `absent` [> admin-key err store_io_failed
+]
+  ok   Q10b ...on the book too [> admin-target err store_io_failed
+]
+  ok   Q10c ⛔ EVEN THE CONFIRM-GATED RECOVERY refuses — nothing is known, so nothing may be written
+  ok   Q10d ...and on the book too
+  ok   Q10e the boot report NAMES the state and still writes nothing [> admin-key boot state=io_failed count=0
+> admin-target boot state=io_failed count=0
+]
+  ok   Q10f ...and not one write was attempted anywhere (writes=0)
+  ok   Q11 the whole response lands on the SUPPLIED sink; `mrcon` 0 B [0], BLE 0 B [0]
+  ok   Q12 both controller records are provisioned before the rotation
+  ok   Q12b `regen` still succeeds on a CLIENT build [> regen ok  key_hash32= 0xB12D4983  name="probe-node"
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   Q12c ...and the ruled WARNING follows the success line on the SAME sink [> regen ok  key_hash32= 0xB12D4983  name="probe-node"
+> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved
+]
+  ok   Q12d ...with NOT ONE byte on the global console (0 B)
+  ok   Q12e ...and EXACTLY ONE record was written — /mrid (writes=1)
+  ok   Q12f ★ the KEYRING is byte-identical across the rotation
+  ok   Q12g ★ the TARGET BOOK is byte-identical across the rotation
+  ok   Q12h a REFUSED /mrid save prints the error and ⛔ NO warning [> regen err nv_save_failed
+]
+  ok   Q12i ...the CLIENT warning is ABSENT on the failure path
+  ok   Y1 validator refuses embedded_nul before parsing (format=0)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=0)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y1 validator refuses embedded_cr before parsing (format=0)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=0)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y1 validator refuses embedded_lf before parsing (format=0)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=0)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y4 inclusive bound 1023 reaches the real Node once (format=0); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (1023, format=0)
+  ok   Y4 inclusive bound 274 reaches the real Node once (format=0); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (274, format=0)
+  ok   Y4 inclusive bound 201 reaches the real Node once (format=0); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (201, format=0)
+  ok   Y6 remote authority 1 admission for status (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for status x (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for version (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for factory_reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for acl list (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for acl reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for admin-key list (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for rcmd 1 status (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for unknown-verb (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=1 format=0)
+  ok   Y6 remote authority 2 admission for status (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for status x (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for version (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for factory_reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for acl list (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for acl reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for admin-key list (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for rcmd 1 status (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for unknown-verb (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=2 format=0)
+  ok   Y6 remote authority 3 admission for status (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for status x (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for version (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for factory_reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for acl list (format=0)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for acl reset confirm (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for admin-key list (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for rcmd 1 status (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for unknown-verb (format=0)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=3 format=0)
+  ok   Y1 validator refuses embedded_nul before parsing (format=1)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=1)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y1 validator refuses embedded_cr before parsing (format=1)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=1)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y1 validator refuses embedded_lf before parsing (format=1)
+  ok   Y2 exact bad-line envelope, only on the supplied output (format=1)
+  ok   Y3 bad bytes execute no Node command or router handler
+  ok   Y4 inclusive bound 1023 reaches the real Node once (format=1); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (1023, format=1)
+  ok   Y4 inclusive bound 274 reaches the real Node once (format=1); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (274, format=1)
+  ok   Y4 inclusive bound 201 reaches the real Node once (format=1); not an RF-admission claim
+  ok   Y5 cap+1 refuses before execution (201, format=1)
+  ok   Y6 remote authority 1 admission for status (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for status x (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for version (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for factory_reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for acl list (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for acl reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for admin-key list (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for rcmd 1 status (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 1 admission for unknown-verb (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=1 format=1)
+  ok   Y6 remote authority 2 admission for status (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for status x (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for version (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for factory_reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for acl list (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for acl reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for admin-key list (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for rcmd 1 status (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 2 admission for unknown-verb (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=2 format=1)
+  ok   Y6 remote authority 3 admission for status (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for status x (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for version (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for factory_reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for acl list (format=1)
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for acl reset confirm (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for admin-key list (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for rcmd 1 status (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y6 remote authority 3 admission for unknown-verb (format=1)
+  ok   Y7 remote refusal has zero output, Node calls, handler calls and NV/store changes
+  ok   Y8 only prepared admitted requests can schedule; a missing transcript fails internally
+  ok   Y9 remote validation refusal also writes nothing (authority=3 format=1)
+  ok   Y10 real panel executor refuses NUL without parsing or executing
+  ok   Y11 panel success proves the real Node command counter discriminates
+  ok   A7-1 config record shrinks after legacy mirror removal
+  ok   A7-2 actual wrapper stores the same-size v25 fixture
+  ok   A7-3 actual loader rejects v25 below the floor
+  ok   A7-4 actual wrapper stores v26
+  ok   A7-5 actual loader accepts v26
+  ok   A7-6 activation raw field survives typed reload
+  ok   A7-7 actual wrapper stores the future-version fixture
+  ok   A7-8 actual loader rejects v27
+  ok   A7-9 seed independent administration slot /mradmid
+  ok   A7-9 seed independent administration slot /mracl
+  ok   A7-9 seed independent administration slot /mrmkeys
+  ok   A7-9 seed independent administration slot /mrtargets
+  ok   A7-10 store actual 280-byte v25 image through the primitive
+  ok   A7-11 real typed loader refuses the old image size
+  ok   A7-12 failed-load golden comes from the real formatter [> nv: /mrcfg v26 not loaded (absent, or a pre-v26 record refused): compile-time defaults until the next cfg set
+]
+  ok   A7-13 rejection and report never write storage
+  ok   A7-14 rejected /mrcfg leaves /mradmid byte-identical
+  ok   A7-14 rejected /mrcfg leaves /mracl byte-identical
+  ok   A7-14 rejected /mrcfg leaves /mrmkeys byte-identical
+  ok   A7-14 rejected /mrcfg leaves /mrtargets byte-identical
+  ok   A7-15 persist current record through real save wrapper
+  ok   A7-16 following load accepts persisted v26
+  ok   A7-17 loaded golden comes from the real formatter [> nv: /mrcfg v26 loaded
+]
+  ok   A7-18 only the one config save writes storage
+  ok   A7-19 saved/reloaded /mrcfg leaves /mradmid byte-identical
+  ok   A7-19 saved/reloaded /mrcfg leaves /mracl byte-identical
+  ok   A7-19 saved/reloaded /mrcfg leaves /mrmkeys byte-identical
+  ok   A7-19 saved/reloaded /mrcfg leaves /mrtargets byte-identical
+  ok   R7-I1 real private DM stored
+  ok   R7-I2 real delivery receipt stored
+  ok   R7-I3 custody fixture uses real codec
+  ok   R7-I4 real custody report stored
+  ok   R7-I5 real channel post stored
+  ok   R7-I6 local router owns inbox pull
+  ok   R7-I7 full medium yields all four local records and end
+  ok   R7-I8 oversize fake append refuses atomically rather than clamping
+  ok   R72-S3 CLIENT status still dispatches locally
+  ok   R72-S4 CLIENT status has no target field: radmin_inbound_refusal=
+  ok   R72-S4 CLIENT status has no target field: radmin_open_rate_refusal=
+  ok   R72-S4 CLIENT status has no target field: radmin_transcript_exhaustion=
+  ok   R72-S4 CLIENT status has no target field: radmin_response_enqueue_failure=
+  ok   R72-S4 CLIENT status has no target field: radmin_response_seal_failure=
+  ok   C8-1 valid immutable target fixture
+  ok   C8-2 real target-store wrapper writes fixture
+  ok   C8-3 real router owns remote on each transport
+  ok   C8-4 board carrier refuses with transport-specific bytes [> remote err carrier_unavailable
+]
+  ok   C8-5 unavailable carrier releases reservations
+  ok   C8-3 real router owns remote on each transport
+  ok   C8-4 board carrier refuses with transport-specific bytes [{"err":"remote","msg":"carrier_unavailable"}
+]
+  ok   C8-5 unavailable carrier releases reservations
+  ok   C8-6 two cold admissions draw two fresh eight-byte IDs each
+  ok   C8-7 label lookup is authoritative
+  ok   C8-8 zero ID never reaches carrier
+  ok   C8-9 prep-restart warning precedes admission
+  ok   C8-10 control verb owned
+  ok   C8-11 unmatched request fails loud
+  ok   C8-10 control verb owned
+  ok   C8-11 unmatched request fails loud
+  ok   C8-10 control verb owned
+  ok   C8-11 unmatched request fails loud
+  ok   C8-K1 dedicated credential provisioned through real router
+  ok   C8-K2 selected credential reaches real command module
+  ok   C8-K3 selected seed and expanded identity wiped while their stack frames are alive
+  ok   C8-K4 selected key never falls through to open
+  ok   C8-K5 real key removal sees captured credential ownership
+  ok   C8-K6 real target removal sees captured route ownership
+  ok   C8-S1 real status carries exact counter radmin_client_request_table_pressure=11
+  ok   C8-S1 real status carries exact counter radmin_client_assembly_failure=22
+  ok   C8-S1 real status carries exact counter radmin_client_unmatched_response=33
+  ok   C8-S1 real status carries exact counter radmin_client_auth_failure=44
+  ok   C8-S1 real status carries exact counter radmin_client_local_result_pressure=55
+  ok   C8-S1 real status carries exact counter radmin_client_radio_enqueue_failure=66
+  ok   C8-12 local ACK before complete delivery refuses
+  ok   C8-13 real show route emits exact plaintext envelope [> remote 0123456789abcdef out hello
+> remote 0123456789abcdef action_busy
+]
+  ok   C8-14 BLE retains while USB accepts
+  ok   C8-13 real show route emits exact plaintext envelope [{"ev":"remote_output","id":"0123456789abcdef","seq":0,"body":"hello"}
+{"ev":"remote_terminal","id":"0123456789abcdef","result":"action_busy"}
+]
+  ok   C8-14 BLE retains while USB accepts
+  ok   C8-15 real ACK router releases delivered BLE result
+  ok   C8-L1 disconnected main-loop delivery retains result
+  ok   C8-L2 firmware service reaches real local delivery
+  ok   C8-L3 connected result waits for local ACK without duplicate output
+  ok   C8-L4 reconnect reoffers complete result from zero
+  ok   C8-16 real regen binding sees each owned row class [> regen err remote_busy
+]
+  ok   C8-16 real regen binding sees each owned row class [> regen err remote_busy
+]
+  ok   C8-16 real regen binding sees each owned row class [> regen err remote_busy
+]
+  ok   C8-16 real regen binding sees each owned row class [> regen err remote_busy
+]
+  ok   C8-17 escaped BLE output admitted
+  ok   C8-18 BLE line obeys ATT ceiling
+  ok   C8-L5 multi-event output accepted
+  ok   C8-L6 every byte survives with contiguous local sequences
+  ok   C8-19 scheduled line accepted
+  ok   C8-20 scheduled USB bytes exact
+  ok   C8-21 partial UTF-8 waits for next transcript chunk
+  ok   C8-22 split UTF-8 survives byte-exact
+  ok   C8-23 empty output remains a valid event
+  ok   C8-24 short Print write refuses acceptance
+  ok   C8-25 real console-stage drop is not local acceptance despite Print returning full count
+  ok   C8-B1 observer emits exact ACK only on the row transport
+  ok   C8-B1 observer emits exact ACK only on the row transport
+  ok   C8-B2 disconnected BLE observation drops
+  ok   C8-B3 no retained observation or lifecycle mutation
+  ok   C8-B4 exact timeout event after reconnect, without replaying dropped ACK
+  ok   C8-B7 real translated custody codec fixture
+  ok   C8-B8 exact custody BLE fields through real delivery
+  ok   C8-B9 exact custody USB fields through real delivery
+  ok   C8-B5 real writers deliver text then generic JSON then controller event
+  ok   C8-B10 real lookup reports absent binding
+  ok   C8-B11 no binding does not veto
+  ok   C8-B12 real binding installed at ID 2
+  ok   C8-B13 ID 2 accepts ACK from 2
+  ok   C8-B14 different target installed at ID 3
+  ok   C8-B15 ID 3 vetoes equal-counter ACK from 2
+  ok   C8-B16 delegated timeout has no binding veto
+  ok   C8-B17 matching XL hash has no binding veto
+  ok   C8-B6 dormant debt visible through actual status binding
+checks: 477   failures: 0
+PASS
+
+== negative controls (each MUST turn the probe RED) ==
+  ok   a real SIGSEGV classifies as UNUSABLE, and 1/3 red · 0/0 passes · 1/0 silent still discriminate
+  ok   C1  the `clear_inbox` DISPATCH ARM is deleted (the verb is unreachable) -> RED (21 check(s) failed: W1 W2 W3 W3 W3 W3 W3 W3 W3 W4 W4b W4c W4d W4e W5 W5c W5d W6 W6b W7 W9 )
+  ok   C2  the dispatch arm off-by-one (`line[11]` -> `line[10]`, `+ 11` -> `+ 10`) -> RED (18 check(s) failed: W3 W3 W3 W3 W3 W3 W3 W4 W4b W4c W4d W4e W5 W5c W5d W6 W6b W7 )
+  ok   C3  the confirmation check is BYPASSED (`!parse_confirm_token(...)` -> `false`) -> RED (13 check(s) failed: W2 W2b W2c W2d W3 W3 W3 W3 W3 W3 W3 W9 W9b )
+  ok   C4  the refusal early `return` is REMOVED (it refuses AND clears) -> RED (13 check(s) failed: W2 W2b W2c W2d W3 W3 W3 W3 W3 W3 W3 W9 W9b )
+Terminated

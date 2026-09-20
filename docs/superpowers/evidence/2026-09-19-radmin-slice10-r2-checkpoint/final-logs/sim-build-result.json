@@ -1,0 +1,17 @@
+{
+  "name": "sim-build",
+  "command": [
+    "cmake",
+    "--build",
+    "/tmp/mr-s10-r2-_iyw9vw8/sim-final",
+    "--target",
+    "lus",
+    "--parallel",
+    "3",
+    "--verbose"
+  ],
+  "cwd": "/tmp/mr-s10-r2-_iyw9vw8/final-gate",
+  "exit": 0,
+  "seconds": 113.7734069339931,
+  "sha256": "b52af502990c8251a484f3d219db7162b19cb03cf8ec58f20c1c32d8bb32712f"
+}

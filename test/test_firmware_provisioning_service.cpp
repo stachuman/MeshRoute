@@ -72,7 +72,7 @@ mrnv::Blob prov_seed_record() {
     b.node_id       = 42;
     b.team_local_id = 9;
     b.channel_ctr   = 7;
-    b.admin_counter_floor = 99;
+    b.remote_action_activation_ms = 99;
     b.e2e_dm        = 1;
     b.intro_attach  = 1;
     return b;
@@ -367,7 +367,7 @@ TEST_CASE("§PROV-TX `team new` — one write, then the live apply in order, and
     CHECK(!all_zero32(f.store.rec.team_ch_pub));
     CHECK(!all_zero32(f.store.rec.team_ch_priv));     // ⛔ the persisted key is NOT wiped — see the wipe case below
     CHECK(f.store.rec.channel_ctr == 7);              // a non-provisioning field carried through
-    CHECK(f.store.rec.admin_counter_floor == 99);
+    CHECK(f.store.rec.remote_action_activation_ms == 99);
     // the LIVE apply
     CHECK(f.live.set_team_calls == 1);
     CHECK(f.live.install_calls == 1);

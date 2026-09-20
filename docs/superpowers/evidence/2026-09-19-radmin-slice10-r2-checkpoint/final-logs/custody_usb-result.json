@@ -1,0 +1,11 @@
+{
+  "name": "custody_usb",
+  "command": [
+    "bash",
+    "tools/probe_custody_usb/run.sh"
+  ],
+  "cwd": "/tmp/mr-s10-r2-_iyw9vw8/final-gate",
+  "exit": 0,
+  "seconds": 92.77126952260733,
+  "sha256": "5cf2dfca3ebe179df0cc78fed728b1fe6e3a3ace92a1da538a6a8c4c0fe334d1"
+}

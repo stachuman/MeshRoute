@@ -1,0 +1,11 @@
+{
+  "path": "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md",
+  "before_sha256": "eb33458af3b08893c4eb7fe11be5fa609577b24c74f54a9cb21bb4d4891b0543",
+  "after_sha256": "ca393c0d18451a252dd58c62db8a679793e2ec15cff1284f15a93334c93f6741",
+  "rows": 197,
+  "changed_anchor": "peerkey/service_console src/fw_main.cpp:1215 -> :1214",
+  "semantic_changes": 0,
+  "authority": "brief \u00a78 inventory write/bare/check; AGENTS P4 symbol pins, line hints are not STOP-1",
+  "generated_on": "final-gate snapshot",
+  "landed_to_shared": true
+}

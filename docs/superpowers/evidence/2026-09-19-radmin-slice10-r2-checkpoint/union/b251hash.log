@@ -1,0 +1,110 @@
+-- target b251hash: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_hashlocate.cpp (55 entries)
+-- selection: IN FULL (all 55 entries)
+-- workers: 3
+-- scratch root: /tmp/mr_mutation_run-eol86y8k   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target b251hash: /tmp/mr_mutation_run-eol86y8k/w1/lib/core/node_hashlocate.cpp (18 of 55 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target b251hash: /tmp/mr_mutation_run-eol86y8k/w2/lib/core/node_hashlocate.cpp (18 of 55 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target b251hash: /tmp/mr_mutation_run-eol86y8k/w0/lib/core/node_hashlocate.cpp (19 of 55 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w0]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w0]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w0]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w0]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w0]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w2]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w2]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w2]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w2]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w2]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w2]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+  [w1]   ABORT the clean tree is RED — 2950 / 195770 / 5 FAILED. Every mutation below would read RED for the wrong reason. No mutation was applied.
+  [w1]         TEST CASE:  §B278-S3/20 the bounded translation action is 56 B of value types and costs Node nothing
+  [w1]         test/test_custody_receive_g.cpp:2315: ERROR: CHECK( sizeof(Node) == 235248 ) is NOT correct!
+  [w1]         TEST CASE:  device_nv: the record sizes the version policy guards are what the stored layout expects
+  [w1]         test/test_device_nv.cpp:526: ERROR: CHECK( kVersion == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:527: ERROR: CHECK( kVersionMinLoad == 25 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:528: ERROR: CHECK( sizeof(Blob) == 280 ) is NOT correct!
+  [w1]         test/test_device_nv.cpp:530: ERROR: CHECK( __builtin_offsetof (Blob, remote_action_activation_ms) == 276 ) is NOT correct!
+
+======================================================================================================================
+-- MERGED REPORT — target b251hash: /tmp/mr-s10-r2-_iyw9vw8/union-inputs/lib/core/node_hashlocate.cpp
+  MISSING D01 B251 reverse lookup drops the returning destination discriminator — NO VERDICT (its worker did not report it)
+  MISSING D02 B251 reverse lookup drops the layer/plane discriminator — NO VERDICT (its worker did not report it)
+  MISSING D03 B251 reverse lookup drops the hosted-mobile hash discriminator — NO VERDICT (its worker did not report it)
+  MISSING D04 B251 a full live correlation ring evicts slot zero instead of applying backpressure — NO VERDICT (its worker did not report it)
+  MISSING D05 B251 MOBILE_SEND treats a minted non-zero counter as admission and manufactures phantom evidence/state — NO VERDICT (its worker did not report it)
+  MISSING D06 B278 a full ring EVICTS at RESERVATION instead of refusing, so the ninth -a send is never BUSY-NACKed — NO VERDICT (its worker did not report it)
+  MISSING D07 B278 ACK translation stops being ONE-SHOT: the row survives, so a duplicate ACK translates again — NO VERDICT (its worker did not report it)
+  MISSING D08 B278 prune-before-admit is removed from deleg_ack_put, so the ring never self-drains at its TTL — NO VERDICT (its worker did not report it)
+  MISSING D09i B278 S1b the CROSS-MOBILE refusal is undone at the availability probe (the `mobile_hash` term returns) — NO VERDICT (its worker did not report it)
+  MISSING D09j B278 S1b the CROSS-MOBILE refusal is undone at the ACTIVE-match arm (the `mobile_hash` term returns) — NO VERDICT (its worker did not report it)
+  MISSING D09k B278 S1b a colliding foreign mobile OVERWRITES the incumbent instead of being refused — NO VERDICT (its worker did not report it)
+  MISSING D09m B278 S1b a colliding foreign mobile falls THROUGH to a free slot, creating the second indistinguishable row — NO VERDICT (its worker did not report it)
+  MISSING D10 B278 S1a the mobile-visible TARGET is overwritten at activation (B251's single phase-dependent `peer` restored) — NO VERDICT (its worker did not report it)
+  MISSING D11 B278 S1a the outward carrier TYPE is silently dropped at activation instead of being stored — NO VERDICT (its worker did not report it)
+  MISSING D12 B278 S1b a RESERVED row is born with a candidate REGARDLESS of the caller's §5 verdict — NO VERDICT (its worker did not report it)
+  MISSING D14 B278 S1b the reservation's custody verdict is DROPPED, so no row is ever provisional — NO VERDICT (its worker did not report it)
+  MISSING D15 B278 S1b a `candidate` SURVIVES activation (the arm's verdict never lands on the row) — NO VERDICT (its worker did not report it)
+  MISSING D16 B278 S1b `forwarded` — S3's state — is written at activation, one arc-slice early — NO VERDICT (its worker did not report it)
+  MISSING D17 B278 S1b an ACTIVE refresh RE-DECIDES the custody state instead of preserving it — NO VERDICT (its worker did not report it)
+  MISSING D18 B278 S1b an exact RESERVED retry re-decides the provisional state instead of preserving it — NO VERDICT (its worker did not report it)
+  MISSING D19 B278 S1b F6 the release CAUSE is hard-coded, so every release reads as the same reason — NO VERDICT (its worker did not report it)
+  MISSING D20 B278 S1b F6 `deleg_ack_released` is emitted AFTER the clear, so it reports a zeroed row — NO VERDICT (its worker did not report it)
+  MISSING D21 B278 S1b F6 a NO-MATCH release emits anyway, so the census counts releases that never happened — NO VERDICT (its worker did not report it)
+  MISSING D22 B278 S1b F6 the park-giveup call site BYPASSES the helper, so an aged-out send reports no release — NO VERDICT (its worker did not report it)
+  MISSING D23 B278 S1b F6 the expiry emit is DELETED, so a row's end becomes unobservable again — NO VERDICT (its worker did not report it)
+  MISSING D24 B278 S1b F6 the expiry is emitted AFTER the clear, so every field reports a zeroed row — NO VERDICT (its worker did not report it)
+  MISSING D25 B278 S1b F6 the exclusive 300 s edge becomes inclusive, so a row dies one scan early — NO VERDICT (its worker did not report it)
+  MISSING D26 B278 S1b F6 the translate prune site BYPASSES the one expiry authority — NO VERDICT (its worker did not report it)
+  MISSING D27 B278 S1b F6 `target_kind` is DROPPED from `deleg_ack_reserved` (the appended field never lands) — NO VERDICT (its worker did not report it)
+  MISSING D28 B278 S1b F6 `deleg_ack_reserved` is REORDERED instead of appended (the corpus anchor becomes unattributable) — NO VERDICT (its worker did not report it)
+  MISSING D13 B278 S1a the RESERVED-phase key silently reads the ACTIVE-phase identity, so no reservation can ever match — NO VERDICT (its worker did not report it)
+  MISSING S30 B278 S3 the §4.4 lookup drops the COUNTER term, so any live eligible row answers any report — NO VERDICT (its worker did not report it)
+  MISSING S31 B278 S3 the §4.4 lookup drops the RETURN-KIND term — a hash-addressed return key matches a node-id report — NO VERDICT (its worker did not report it)
+  MISSING S32 B278 S3 THE COUNTER-ONLY MATCHER: the RETURN PEER is dropped, so a report about one destination translates a flight to ANOTHER. Home counters are minted PER DESTINATION, so two live rows really can share `ctr_h` — this is the defect the whole §4.4 key exists to prevent — NO VERDICT (its worker did not report it)
+  MISSING S33 B278 S3 the §4.4 lookup drops the LAYER term, so a dual-layer gateway's other leaf answers — NO VERDICT (its worker did not report it)
+  MISSING S34 B278 S3 the §4.4 lookup drops the OUTWARD-TYPE cross-check, so a report about one carrier type translates a flight that dispatched another — NO VERDICT (its worker did not report it)
+  MISSING S35 B278 S3 the optional DST_HASH cross-check becomes MANDATORY — §4.4 says lookup must not fail merely because the hash is unavailable, and the production direct-transit shape carries none — NO VERDICT (its worker did not report it)
+  MISSING S36 B278 S3 the DST_HASH cross-check is applied to a NODE-ID row too — a node id compared against a 32-bit hash is a category error that happens to be arithmetic (the `HashQuerySeen::by_id` key-space lesson) — NO VERDICT (its worker did not report it)
+  MISSING S37 B278 S3 the lookup stops requiring `eligible`, so a `none` row — one whose arm carried NO custody obligation — acquires one, and a `forwarded` row is translated a SECOND time — NO VERDICT (its worker did not report it)
+  MISSING S38 B278 S3 PRUNE-BEFORE-SCAN IS REMOVED, so a report arriving at or after the 300 s edge matches a row that should already be gone — NO VERDICT (its worker did not report it)
+  MISSING S39 B278 S3 the SILENT zero-population case is collapsed into `no_map`, so every ordinary custody receipt on a v1-only node emits a diagnostic (and four corpus streams move) — NO VERDICT (its worker did not report it)
+  MISSING S40 B278 S3 an AMBIGUOUS ring is resolved by taking the FIRST match — the guess §4.4 forbids — NO VERDICT (its worker did not report it)
+  MISSING S41 B278 S3 the outbound copy's `record_len` is NOT normalized, so a direct report carrying an unknown future tail can never be translated at all (the S2 packer requires a direct-shaped 24) — NO VERDICT (its worker did not report it)
+  MISSING S42 B278 S3 the translated tail's `original_reporter` becomes the record's own `failed_origin` — i.e. the TRANSLATING HOME — so the mobile is told H1 lost custody of its own message — NO VERDICT (its worker did not report it)
+  MISSING S43 B278 S3 the translated tail carries the HOME counter as `mobile_ctr` — the mobile then correlates the outcome to an operation it never started — NO VERDICT (its worker did not report it)
+  MISSING S44 B278 S3 the tail's `target_value` is INFERRED from the return peer instead of the row's RETAINED target — §6.2 exists precisely so a hash-addressed delegation stays representable — NO VERDICT (its worker did not report it)
+  MISSING S45 B278 S3 the tail's `target_kind` is hard-wired to `node_id`, so a hash-addressed delegation's mobile-visible identity is silently re-typed — NO VERDICT (its worker did not report it)
+  MISSING S46 B278 S3 the COMMIT's complete-identity recheck collapses to the counter, so a row REPLACED between the lookup and the send is marked as though it were the one that was sent — NO VERDICT (its worker did not report it)
+  MISSING S47 B278 S3 the commit marks the FIRST candidate even when several match — an ambiguous commit is a misdelivery to the wrong mobile — NO VERDICT (its worker did not report it)
+  MISSING S48 B278 S3 the commit will mark a row in ANY custody state, so a `none` row (one whose arm owed no custody) is stamped `forwarded` — NO VERDICT (its worker did not report it)
+  MISSING S49 B278 S3 the commit CLEARS the row instead of stamping it — the ACK obligation is destroyed, so the later E2E ACK can no longer translate ctr_H -> ctr_M and the mobile times out — NO VERDICT (its worker did not report it)
+  MISSING R01 §RADMIN-0d arm 1/4 (the delegated SEALED_RELAY wrapper) is restored to Plane::AUTO, so a teammate whose team-local id equals the home's static id captures the sealed wrapper onto _rt_team — NO VERDICT (its worker did not report it)
+  MISSING R02 §RADMIN-0d arm 2/4 (the nonzero enclosed-type wrapper) is restored to Plane::AUTO — NO VERDICT (its worker did not report it)
+  MISSING R03 §RADMIN-0d arm 3/4 (the plain MOBILE_SEND wrapper) is restored to Plane::AUTO — NO VERDICT (its worker did not report it)
+  MISSING R04 §RADMIN-0d arm 4/4 (the cached-home send) is restored to Plane::AUTO, so an unregistered team mobile's DM to a target's home is captured by a colliding teammate (the arm D-0d-1 added) — NO VERDICT (its worker did not report it)
+  worker 0: 0/19 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-eol86y8k/w0
+  worker 1: 0/18 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-eol86y8k/w1
+  worker 2: 0/18 entries, 0 RED / 0 worthless, wall 0.0s, rc 2, source restored: md5 None (DIFFERS — FAIL)   /tmp/mr_mutation_run-eol86y8k/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/mr-s10-r2-_iyw9vw8/union-inputs
+timing: copy 4.4s + battery 6.1s = 10.6s total, 55 entries over 3 worker(s)
+mutations: 0 RED / 55 unusable (of which 55 MISSING — never judged)
+  ################################################################################################################
+  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.
+  ##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 0 did not report its source restored
+  ##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 1 did not report its source restored
+  ##    worker 2 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed
+  ##    worker 2 did not report its source restored
+  ##    no worker derived a clean baseline — nothing measured a clean tree
+  ##    55 selected entries came back with NO verdict: D01, D02, D03, D04, D05, D06, D07, D08, D09i, D09j, D09k, D09m, D10, D11, D12, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D13, S30, S31, S32, S33, S34, S35, S36, S37, S38, S39, S40, S41, S42, S43, S44, S45, S46, S47, S48, S49, R01, R02, R03, R04
+  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).
+  ################################################################################################################

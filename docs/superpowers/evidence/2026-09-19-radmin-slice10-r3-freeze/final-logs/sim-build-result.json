@@ -1,0 +1,17 @@
+{
+  "name": "sim-build",
+  "command": [
+    "cmake",
+    "--build",
+    "/tmp/mr-s10-r3-j6pcxvmv/sim-final",
+    "--target",
+    "lus",
+    "--parallel",
+    "3",
+    "--verbose"
+  ],
+  "cwd": "/tmp/mr-s10-r3-j6pcxvmv/final-gate",
+  "exit": 0,
+  "seconds": 77.64629039540887,
+  "sha256": "8218138d39bb9177fe6194d9d68e04ded97269649b44067ff3335705cf9ece47"
+}
