@@ -1,0 +1,14 @@
+PASS: deterministic board measurement env=gateway
+  RAM=203740 flash=572240 objects=285
+  stamp=Jan  1 2000 00:00:00 git=b206b206b206
+  payload_sha256=cd56846e3272db109eff6f77d54c5ea97a05072c679976a4357188c1a35ae9c1
+  manifest=/home/staszek/MeshRoute/.pio-measure/qa-s10-final/gateway/manifest.json
+  full_log=/home/staszek/MeshRoute/.pio-measure/qa-s10-final/gateway/build.log
+PASS: deterministic board measurement env=heltec_mobile
+  RAM=211724 flash=1394704 objects=329
+  stamp=Jan  1 2000 00:00:00 git=b206b206b206
+  payload_sha256=e7049bb7ea6a0d4daee85cf00275838a58e089e5278f891ef0b4df86d58f23d7
+  manifest=/home/staszek/MeshRoute/.pio-measure/qa-s10-final/heltec_mobile/manifest.json
+  full_log=/home/staszek/MeshRoute/.pio-measure/qa-s10-final/heltec_mobile/build.log
+PASS: ruled pair gateway, heltec_mobile jobs=2 wall=42.9s usable_cores=24
+  summary=/home/staszek/MeshRoute/.pio-measure/qa-s10-final/pair.json

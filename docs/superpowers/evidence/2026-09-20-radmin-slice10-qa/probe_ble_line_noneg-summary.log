@@ -1,0 +1,20 @@
+  ok   D2 every notification respects negotiated ATT payload
+  ok   D1 complete 245..256-byte direct reply survives
+  ok   D2 every notification respects negotiated ATT payload
+  ok   D1 complete 245..256-byte direct reply survives
+  ok   D2 every notification respects negotiated ATT payload
+  ok   D1 complete 245..256-byte direct reply survives
+  ok   D2 every notification respects negotiated ATT payload
+  ok   E1 checked SoftDevice entropy accumulates partial pool reads
+  ok   E2 all eight bytes come from the provider in order
+  ok   E3 pool status failure refuses
+  ok   E4 vector status failure refuses
+  ok   E5 empty pool reaches bounded failure
+  ok   E6 stalled peripheral fails and is stopped
+  ok   E7 null nonempty destination refuses before hardware access
+
+probe: 55 checks against the REAL device_ble.h intake, 0 failed
+
+tree unchanged: the real sources' md5 is identical before and after (5e8f06afdae84a45a1672dfe05e71cd5)
+probe: 55 checks against the REAL device_ble.h intake, 0 failed (pin 55)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)

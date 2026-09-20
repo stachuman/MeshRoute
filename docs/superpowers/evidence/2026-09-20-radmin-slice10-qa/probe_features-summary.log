@@ -1,0 +1,60 @@
+  ok   C1 the both-enabled #error is deleted -> the invalid fixture board_static_oled0 now COMPILES; that guard, and no other, was refusing it
+  ok   C2 the neither-enabled #error is deleted -> the invalid fixture board_mobile_oled0 now COMPILES; that guard, and no other, was refusing it
+  ok   C5 the board-only fence is widened to the HOST — the legitimate {1,1} is now refused -> REFUSED at `both` (exit 1); legal sibling board_mobile_oled0 still green
+
+== class X — the controls of the controls (a failure that is NOT a policy refusal must not score as one) ==
+  ok   X1 a broken toolchain (CXX=/bin/false) classifies as `unrelated`, never a refusal
+  ok   X2 an unrelated syntax error classifies as `unrelated`, never a refusal
+  ok   X3 an UNRELATED #error classifies as `unrelated` — the refusal is matched by TEXT, not by exit code
+  ok   X4 the classifier discriminates: 1+diag=refusal · 1+other=unrelated · 0=accepted · 139=abnormal
+
+== class W/Y — the first-consumer ownership contract's violations and their controls ==
+  ctl-ok   Y0 the untouched snapshot passes all 24 checks (the baseline every rejection below is measured against)
+  ctl-ok   W-S73-ACTIONS-H -> REJECTED by O4i — action declarations moved to CLIENT
+  ctl-ok   W-S73-ACTIONS-CPP -> REJECTED by O4h — action implementation moved to CLIENT
+  ctl-ok   W-S73-ACTION-LOOP -> REJECTED by O4j — action main-loop call moved to CLIENT
+  ctl-ok   W-UNKNOWN -> REJECTED by O1 — an UNAPPROVED production file starts naming the pair (a consumer nobody reviewed)
+  ctl-ok   W-EXTRA-SITE -> REJECTED by O4d — an EXTRA capability guard appears inside an ALLOWED file (a second, unreviewed consumer)
+  ctl-ok   W-NOCALL -> REJECTED by O4d, O7a — the production call to the pure decision is DELETED and replaced by a constant
+  ctl-ok   W-BYPASS -> REJECTED by O7b — the decision is still called but the router BYPASSES it and re-tests the raw type byte (a correctly tested helper the real router does not use)
+  ctl-ok   W-SWAP -> REJECTED by O4d, O7a — ★ the two MACRO ARGUMENTS are swapped at the call site — INVISIBLE to the {1,1} native binary, which is exactly why this control lives here and not in a mutation battery
+  ctl-ok   W-OWNER-CMD -> REJECTED by O4d, O6a — the COMMAND entry point is compiled under the CLIENT capability (the R-RA-8 inversion)
+  ctl-ok   W-OWNER-RESP -> REJECTED by O4d, O6b, O6c — the RESPONSE entry point is compiled under the ACCEPT capability (the mirror inversion)
+  ctl-ok   W-WIDEN-ACCEPT -> REJECTED by O4d, O5, O6a — the ACCEPT owner is unconditionally widened with `|| 1` (forbidden by R-RA-27)
+  ctl-ok   W-WIDEN-CLIENT -> REJECTED by O4d, O5, O6b, O6c — the CLIENT owner is unconditionally widened with `|| 1`
+  ctl-ok   W-NONE-ARM -> REJECTED by O9 — an early consume/return is added for the `none` decision — an unowned type would stop reaching the fail-closed guard, and NO capability name appears in the edit at all
+  ctl-ok   W-TEST-OWNER -> REJECTED by O1, O10 — a TEST file starts naming the capability pair (tests must not become production owners)
+  ctl-ok   W-OVERRIDE -> REJECTED by O12, O4a — an `#ifndef` override surface is re-opened on the pair (an invalid pair becomes dialable)
+  ctl-ok   W-DECISION-GATED -> REJECTED by O11, O4c — the pure decision itself becomes capability-gated, so a role-disabled build could not even compute an owner and the four-combination native test would stop being possible
+  ctl-ok   W-S3-DROP-DISPATCH -> REJECTED by O4e — §RADMIN slice 3: the ACCEPT gate around the ROUTER FORWARDING arm is deleted, so a CLIENT board would route `acl`/`admin-id` into a target store it must not have
+  ctl-ok   W-S3-DROP-BLE -> REJECTED by O4j — §RADMIN slice 3: the ACCEPT gate around the R-RA-29 BLE REFUSAL is deleted, so a CLIENT board acquires an unused target-family guard it was ruled not to carry
+  ctl-ok   W-S3-WIDEN-BOOT -> REJECTED by O4j, O5 — §RADMIN slice 3: the boot-call gate is unconditionally widened with `|| 1` (forbidden by R-RA-27 — the capability must not be aliased to the legacy switch)
+  ctl-ok   W-S3-INVERT-HELP -> REJECTED by O4g — §RADMIN slice 3: the help index's two names are compiled under the CLIENT capability — the R-RA-8 inversion, which would advertise a target surface on a MOBILE build
+  ctl-ok   W-S3-DUP-DECL -> REJECTED by O4f — §RADMIN slice 3: a DUPLICATE capability guard appears in the boot wrapper's header — a second, unreviewed gating site inside an allowed file
+  ctl-ok   W-S3-GATE-PURE -> REJECTED by O1 — §RADMIN slice 3: a PURE SERVICE HEADER acquires a capability macro — the [[B255]] idiom's own violation, which would stop the native suite exercising the service arms at all
+  ctl-ok   W-S4-DROP-DISPATCH -> REJECTED by O4e — §RADMIN slice 4: the CLIENT gate around the controller ROUTER FORWARDING arm is deleted, so an ACCEPT board would route `admin-key`/`admin-target` into controller stores it was ruled not to have
+  ctl-ok   W-S4-DROP-BLE -> REJECTED by O4j — §RADMIN slice 4: the CLIENT gate around the R-RA-30 BLE SPLIT is deleted, so an ACCEPT board acquires a controller-family guard it was ruled not to carry
+  ctl-ok   W-S4-WIDEN-BOOT -> REJECTED by O4j, O5 — §RADMIN slice 4: the controller boot-call gate is unconditionally widened with `|| 1` (forbidden by R-RA-27)
+  ctl-ok   W-S4-INVERT-HELP -> REJECTED by O4g — §RADMIN slice 4: the help index's two CONTROLLER names are compiled under the ACCEPT capability — the R-RA-8 inversion, which would advertise a controller surface on a GATEWAY build
+  ctl-ok   W-S4-INVERT-REGEN -> REJECTED by O4e — ★★ §RADMIN slice 4: `do_regen`'s CLIENT ADMISSION is compiled under the ACCEPT capability — the controller check would run on the managed half and never on the controller, which is the exact inversion R-RA-8 exists to forbid
+  ctl-ok   W-S4-DUP-DECL -> REJECTED by O4f — §RADMIN slice 4: a DUPLICATE capability guard appears in the controller boot wrapper's header — a second, unreviewed gating site inside an allowed file
+  ctl-ok   W-S5-DROP-SESSION -> REJECTED by O4c — ★ §RADMIN slice 5: the ACCEPT gate around the 2 064-byte session STATE BLOCK is deleted, so a CLIENT board would carry the whole target-side session state it was ruled not to have — invisible to a {1,1} host binary
+  ctl-ok   W-S5-INVERT-SLOT -> REJECTED by O4c — 8ac controller block compiled under ACCEPT
+  ctl-ok   W-S5-WIDEN-TIMER -> REJECTED by O4b, O5 — §RADMIN slice 5: the ACCEPT gate on the shared EXPIRY TIMER case is unconditionally widened with `|| 1` (forbidden by R-RA-27)
+  ctl-ok   W-S5-INVERT-TAKE -> REJECTED by O4d, O6b, O6c — 8ac pure-state receive consumer compiled under ACCEPT
+  ctl-ok   W-S5-DROP-DRAIN -> REJECTED by O4j — 8ac main-loop delivery loses CLIENT guard
+  ctl-ok   W-S5-GATE-PURE-SESSION -> REJECTED by O1 — ★ §RADMIN slice 5: the PURE SESSION IMPLEMENTATION acquires a capability macro — the [[B255]] idiom's own violation, which would stop the native suite driving the classifier, the crypto and the expiry at all
+  ctl-ok   W-S5-GATE-PURE-RUNTIME -> REJECTED by O1 — §RADMIN slice 5: the PURE prepare/commit/discard SEAM acquires a capability macro — the same violation on the file that owns the durable/live ORDERING
+  ctl-ok   W-S4-GATE-PURE -> REJECTED by O1 — §RADMIN slice 4: a PURE CONTROLLER SERVICE HEADER acquires a capability macro — the [[B255]] idiom's own violation, which would stop the native suite exercising the keyring's arms at all
+  ctl-ok   W-S4-GATE-PURE-VERBS -> REJECTED by O1 — §RADMIN slice 4: the CONTROLLER VERB header acquires a capability macro — the same violation on the file that owns R-RA-30's split predicate, which the BLE guard's extractor compiles UNGATED
+  ctl-ok   Y1 a benign comment edit is ACCEPTED — the checks reject violations, not changes
+  ctl-ok   Y2 a multi-match find is refused as an INSTRUMENT ERROR, never scored as a control
+  ctl-ok   Y3 a vacuous find is refused as an INSTRUMENT ERROR, never scored as a control
+  ctl-ok   Y4 an unreadable/malformed source raises a GATE ERROR, never a silent pass
+  ctl-ok   Y5 the shared checkout is byte-identical before and after (c1b93d81d5045782…)
+ownership controls: 43 verified / 0 unusable
+
+tree unchanged: the real sources' md5 is identical before and after (77e5f2a8a5b47be404fd7027dd59606d)
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+controls: 58 verified / 0 unusable (pin 58)
+PASS

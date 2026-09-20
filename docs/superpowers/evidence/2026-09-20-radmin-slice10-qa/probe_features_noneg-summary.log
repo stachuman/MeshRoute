@@ -1,0 +1,20 @@
+  ok   host_lus_normal.MR_FEAT_GATEWAY = 1
+  ok   host_lus_normal.MR_FEAT_OLED = 0
+  ok   host_lus_normal.MR_FEAT_RADMIN_CLIENT = 1
+  ok   host_lus_normal.MR_FEAT_RADMIN_ACCEPT = 1
+   derived: host_lus_normal TEAM=1 MOBILE=1 MOBILE_HOST=1 GATEWAY=1 OLED=0 RADMIN_CLIENT=1 RADMIN_ACCEPT=1
+   cell host_lus_normal: 8 checks, 0 failed
+  ok   host_lus_gateway.hdr_integrity = 0xccb20878f28dce1f
+  ok   host_lus_gateway.MR_FEAT_TEAM = 1
+  ok   host_lus_gateway.MR_FEAT_MOBILE = 1
+  ok   host_lus_gateway.MR_FEAT_MOBILE_HOST = 1
+  ok   host_lus_gateway.MR_FEAT_GATEWAY = 1
+  ok   host_lus_gateway.MR_FEAT_OLED = 0
+  ok   host_lus_gateway.MR_FEAT_RADMIN_CLIENT = 1
+  ok   host_lus_gateway.MR_FEAT_RADMIN_ACCEPT = 1
+   derived: host_lus_gateway TEAM=1 MOBILE=1 MOBILE_HOST=1 GATEWAY=1 OLED=0 RADMIN_CLIENT=1 RADMIN_ACCEPT=1
+   cell host_lus_gateway: 8 checks, 0 failed
+
+tree unchanged: the real sources' md5 is identical before and after (77e5f2a8a5b47be404fd7027dd59606d)
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)

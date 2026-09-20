@@ -504,6 +504,24 @@ def check(cmds_cpp_path, cmds_h_path, fw_main_path, help_h_path, device_nv_path=
         add('S31', '... and it runs AFTER the filesystem mount/self-heal, never before it',
             mount >= 0 and len(in_setup) == 1 and in_setup[0] > mount, f'mount@{mount} call@{in_setup[:1]}')
 
+        # Slice 10: the schema line belongs to the same load outcome, before either store report.
+        schema_calls = list(re.finditer(r'\bnv_boot_report_console\s*\(', fwm))
+        schema_setup = list(re.finditer(r'\bnv_boot_report_console\s*\(', setup_body))
+        load_result = re.search(r'const\s+bool\s+(\w+)\s*=\s*mrnv::load\(nv\)\s*;', setup_body)
+        schema_ok = False
+        if len(schema_calls) == len(schema_setup) == 1 and load_result and gated:
+            name = load_result.group(1)
+            apply_if = re.search(r'\bif\s*\(\s*' + re.escape(name) + r'\s*\)\s*\{', setup_body)
+            if apply_if:
+                apply_end = setup_body.index('{', apply_if.start()) + len(_body(setup_body, apply_if.group()))
+                args = _args_of(setup_body, schema_setup[0].start())
+                store_gate = setup_body.rfind('#if MR_FEAT_RADMIN_ACCEPT', 0, in_setup[0]) if in_setup else -1
+                schema_ok = (load_result.end() < apply_if.start()
+                             and apply_end < schema_setup[0].start() < store_gate
+                             and bool(re.fullmatch(r'\s*mrcon\s*,\s*' + re.escape(name) + r'\s*', args)))
+        add('S84', 'one schema report uses the load result and explicit mrcon after apply and before the store gate',
+            schema_ok, f'calls={len(schema_calls)} in_setup={len(schema_setup)}')
+
         # ---- the boot path WRITES NOTHING and DRAWS NOTHING ---------------------------------------------------
         boot_body = _body(cmds, 'void admin_stores_boot_report_console()')
         add('S32', 'the boot report body performs NO durable write and NO entropy draw',

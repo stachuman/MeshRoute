@@ -238,10 +238,11 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # 7b-2 ACCEPT: 771 + 592 = 1363. 7b-3's measured label census adds R7-A6 x6,
 # R7-A29/A30 and R7-A13..A16 x1 each, and removes one refusal-only R7-A20: +12 -1 = +11.
 # CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
-PIN_CHECKS_ACCEPT=1374
+# Slice 10: +20 shared migration/golden rows (three four-slot loops + eight scalar checks).
+PIN_CHECKS_ACCEPT=1394
 # 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.
 # 8b adds ten observer/transport checks and eight real-Node binding-veto checks.
-PIN_CHECKS_CLIENT=457
+PIN_CHECKS_CLIENT=477
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -256,10 +257,11 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   is `passes` — i.e. UNUSABLE — so each arm runs the 22 shared ones plus its own eight/eleven.
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
 # 7b-2: 50 + five service/open links and five exact status-value controls.
-PIN_CONTROLS_ACCEPT=60
+# Slice 10: +A10-C1 config wrong-slot read, on both arms; every prior control retained.
+PIN_CONTROLS_ACCEPT=61
 # 8ac adds eleven real firmware decision controls to the previous 45.
 # 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.
-PIN_CONTROLS_CLIENT=68
+PIN_CONTROLS_CLIENT=69
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -754,10 +756,13 @@ if [ "${1:-}" != "--no-neg" ]; then
     ctl 'R7-C9 authenticated actor slot lost before real ACL handler' router \
       's|const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, ctx);|CommandContext no_actor = ctx; no_actor.acl_slot = 0xFF; const LineExec r = exec_console_line(line, n, LineFormat::text, out, nullptr, 0, no_actor);|'
   fi
-  ctl 'A7-C1 config loader floor lowered, same-size v24 loads' nvh \
-    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/24, /\*v_max=\*/kVersion|'
-  ctl 'A7-C2 config loader floor raised, current v25 refuses' nvh \
-    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/26, /\*v_max=\*/kVersion|'
+  ctl 'A7-C1 config loader floor lowered, same-size v25 loads' nvh \
+    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/25, /\*v_max=\*/kVersion|'
+  ctl 'A7-C2 config loader floor raised, current v26 refuses' nvh \
+    's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/27, /\*v_max=\*/kVersion|'
+  ctl 'A10-C1 config loader reads the administration identity slot' nvh \
+    's|    const int n = read_slot(kSlotCfg, \&out, sizeof out);|    const int n = read_slot(kSlotAdmid, \&out, sizeof out);|'
+
 fi
 
 if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" = accept ]; then

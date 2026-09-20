@@ -1,0 +1,6 @@
+== teamkeyring 05:51:53
+rc=0
+  [w0]   ok   T59 ★★★ THE COMPACTION BECOMES A SWAP-WITH-THE-LAST — the survivors are re-ordered under the operator's cursor between one removal and the next, and the tail wipe then clears a slot the swap already overwrote -> RED (4 assertion(s) failed, match count 1)
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   T59 ★★★ THE COMPACTION BECOMES A SWAP-WITH-THE-LAST — the survivors are re-ordered under the operator's cursor between one removal and the next, and the tail wipe then clears a slot the swap already overwrote -> RED (4 assertion(s) failed, match count 1)
+mutations: 68 RED / 0 unusable

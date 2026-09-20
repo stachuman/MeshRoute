@@ -195,7 +195,8 @@ PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))
 # Slice 7a: S63..S76, 14 additive wiring rows.
 # 7b-1: +6 scope, main-loop ownership, semantic inbox and mutator rows.
 # 7b-2: +S83 scalar-only, ACCEPT-only ordered status snapshot.
-PIN_STRUCTURAL=83
+# Slice 10: +S84 schema boot call/result/sink/order; all 83 prior rows retained.
+PIN_STRUCTURAL=84
 PIN_BLE_GUARD=905
 PIN_OWNERSHIP=6
 PIN_OWN_CTL=3
@@ -203,7 +204,8 @@ PIN_OWN_CTL=3
 # Slice 7a: 22 additive activation structural controls.
 # 7b-1: +10 controlled source regressions; all earlier controls retained.
 # 7b-2: +3 status label, secret-state and guard controls.
-PIN_CONTROLS=149
+# Slice 10: +3 schema report removal/duplication/sink controls; all 149 retained.
+PIN_CONTROLS=152
 
 pin_fail=0
 pin_cmp() {   # pin_cmp <term> <observed> <expected> — a missing, non-numeric, zero or differing count is a FAILURE

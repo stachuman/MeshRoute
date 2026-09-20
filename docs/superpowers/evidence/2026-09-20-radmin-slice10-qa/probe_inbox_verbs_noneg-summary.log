@@ -1,0 +1,20 @@
+  ok   C8-B8 exact custody BLE fields through real delivery
+  ok   C8-B9 exact custody USB fields through real delivery
+  ok   C8-B5 real writers deliver text then generic JSON then controller event
+  ok   C8-B10 real lookup reports absent binding
+  ok   C8-B11 no binding does not veto
+  ok   C8-B12 real binding installed at ID 2
+  ok   C8-B13 ID 2 accepts ACK from 2
+  ok   C8-B14 different target installed at ID 3
+  ok   C8-B15 ID 3 vetoes equal-counter ACK from 2
+  ok   C8-B16 delegated timeout has no binding veto
+  ok   C8-B17 matching XL hash has no binding veto
+  ok   C8-B6 dormant debt visible through actual status binding
+checks: 477   failures: 0
+PASS
+
+tree unchanged: the real sources' md5 is identical before and after (407c27396ce01233541105afb822b532)
+probe: 477 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 477)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+
+BOTH ARMS PASS

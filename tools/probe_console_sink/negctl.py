@@ -1251,6 +1251,14 @@ S7B_CTL = [
      [('g_node.radmin_counters()', 'g_node.admin_session_state()')], 'S83'),
     ('T13 status counters lose ACCEPT gate', CMDS,
      [('#if MR_FEAT_RADMIN_ACCEPT\n    const auto radmin', '#if 1\n    const auto radmin')], 'S83'),
+    ('N1 schema report missing', FWMAIN,
+     [('mrfw::nv_boot_report_console(mrcon, nv_loaded);', '')], 'S84'),
+    ('N2 schema report duplicated', FWMAIN,
+     [('mrfw::nv_boot_report_console(mrcon, nv_loaded);',
+       'mrfw::nv_boot_report_console(mrcon, nv_loaded); mrfw::nv_boot_report_console(mrcon, nv_loaded);')], 'S84'),
+    ('N3 schema report bypasses supplied console sink', FWMAIN,
+     [('mrfw::nv_boot_report_console(mrcon, nv_loaded);',
+       'mrfw::nv_boot_report_console(Serial, nv_loaded);')], 'S84'),
 ]
 for index, (label, target, steps, required) in enumerate(S7B_CTL):
     print(label)

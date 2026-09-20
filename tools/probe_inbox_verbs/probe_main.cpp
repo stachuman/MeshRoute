@@ -39,6 +39,7 @@
 #include "fw_context.h"          // the REAL device context — g_node/g_hal + every global the router references
 #include "firmware_commands.h"   // mrfw::dispatch — THE ROUTER UNDER TEST
 #include "firmware_inbox.h"
+#include "firmware_config.h"     // Slice 10: the real header-owned NV boot formatter
 #include "console_json.h"
 #include "inbox.h"
 #include "sched_send.h"
@@ -1962,24 +1963,82 @@ int main() {
             "Y11 panel success proves the real Node command counter discriminates");
     }
 
-    // B360: execute the REAL typed /mrcfg wrappers over the existing byte-backed medium, in BOTH arms.
+    // B360, re-fixtured at v26: keep all eight typed-wrapper checks on BOTH arms.
     {
         auto& medium = mrprobe_nv();
         medium.reset(); medium.ns_present = true; medium.rw_ok = true;
-        mrnv::Blob record{}; record.magic = mrnv::kMagic; record.version = 24;
+        mrnv::Blob record{}; record.magic = mrnv::kMagic; record.version = 25;
         record.remote_action_activation_ms = 20000;
-        CHK(sizeof record == 280, "A7-1 config record keeps its size across the padding append");
-        CHK(mrnv::save(record), "A7-2 actual wrapper stores the same-size v24 fixture");
+        CHK(sizeof record == 240, "A7-1 config record shrinks after legacy mirror removal");
+        CHK(mrnv::save(record), "A7-2 actual wrapper stores the same-size v25 fixture");
         mrnv::Blob loaded{};
-        CHK(!mrnv::load(loaded), "A7-3 actual loader rejects v24 padding");
-        record.version = 25;
-        CHK(mrnv::save(record), "A7-4 actual wrapper stores v25");
-        CHK(mrnv::load(loaded), "A7-5 actual loader accepts v25");
-        CHK(loaded.remote_action_activation_ms == 20000, "A7-6 activation raw field survives typed reload");
+        CHK(!mrnv::load(loaded), "A7-3 actual loader rejects v25 below the floor");
         record.version = 26;
+        CHK(mrnv::save(record), "A7-4 actual wrapper stores v26");
+        CHK(mrnv::load(loaded), "A7-5 actual loader accepts v26");
+        CHK(loaded.remote_action_activation_ms == 20000, "A7-6 activation raw field survives typed reload");
+        record.version = 27;
         CHK(mrnv::save(record), "A7-7 actual wrapper stores the future-version fixture");
-        CHK(!mrnv::load(loaded), "A7-8 actual loader rejects v26");
+        CHK(!mrnv::load(loaded), "A7-8 actual loader rejects v27");
         medium.reset();
+    }
+    // Slice 10: REAL ESP32 slot primitives + typed config wrappers, byte-backed synthetic medium.
+    // No claim to execute setup(), nv_load_stamped() or real flash: Part 57f owns those effects.
+    {
+        auto& medium = mrprobe_nv();
+        medium.reset(); medium.ns_present = true; medium.rw_ok = true;
+        struct StoreWitness { const mrnv::Slot* slot; size_t size; uint8_t fill; };
+        const StoreWitness stores[] = {
+            {&mrnv::kSlotAdmid, sizeof(mrnv::AdminIdBlob), 0x31},
+            {&mrnv::kSlotAcl, sizeof(mrnv::AclBlob), 0x52},
+            {&mrnv::kSlotMgmtKeys, sizeof(mrnv::MgmtKeyBlob), 0x73},
+            {&mrnv::kSlotTargets, sizeof(mrnv::TargetBlob), 0x94},
+        };
+        // Distinct opaque witnesses prove storage isolation without invoking store provisioning policy.
+        uint8_t witness[sizeof(mrnv::TargetBlob)]{};
+        for (const auto& store : stores) {
+            std::memset(witness, store.fill, store.size);
+            CHK(mrnv::write_slot(*store.slot, witness, store.size),
+                "A7-9 seed independent administration slot %s", store.slot->path);
+        }
+        uint8_t old_record[280]{};
+        const uint32_t old_magic = mrnv::kMagic;
+        const uint16_t old_version = 25;
+        std::memcpy(old_record, &old_magic, sizeof old_magic);
+        std::memcpy(old_record + sizeof old_magic, &old_version, sizeof old_version);
+        CHK(mrnv::write_slot(mrnv::kSlotCfg, old_record, sizeof old_record),
+            "A7-10 store actual 280-byte v25 image through the primitive");
+        const int writes_before = medium.writes;
+        mrnv::Blob loaded{};
+        const bool old_loaded = mrnv::load(loaded);
+        CHK(!old_loaded, "A7-11 real typed loader refuses the old image size");
+        Serial.reset();
+        mrfw::nv_boot_report_console(mrcon, old_loaded); mrcon.service();
+        CHK(std::strcmp(Serial.out, "> nv: /mrcfg v26 not loaded (absent, or a pre-v26 record refused): compile-time defaults until the next cfg set\r\n") == 0,
+            "A7-12 failed-load golden comes from the real formatter [%s]", Serial.out);
+        CHK(medium.writes == writes_before, "A7-13 rejection and report never write storage");
+        for (const auto& store : stores) {
+            std::memset(witness, store.fill, store.size);
+            CHK(medium.holds(store.slot->ns, store.slot->key, witness, store.size),
+                "A7-14 rejected /mrcfg leaves %s byte-identical", store.slot->path);
+        }
+        mrnv::Blob current{};
+        current.magic = mrnv::kMagic; current.version = mrnv::kVersion;
+        current.remote_action_activation_ms = 20000;
+        CHK(mrnv::save(current), "A7-15 persist current record through real save wrapper");
+        const bool current_loaded = mrnv::load(loaded);
+        CHK(current_loaded, "A7-16 following load accepts persisted v26");
+        Serial.reset();
+        mrfw::nv_boot_report_console(mrcon, current_loaded); mrcon.service();
+        CHK(std::strcmp(Serial.out, "> nv: /mrcfg v26 loaded\r\n") == 0,
+            "A7-17 loaded golden comes from the real formatter [%s]", Serial.out);
+        CHK(medium.writes == writes_before + 1, "A7-18 only the one config save writes storage");
+        for (const auto& store : stores) {
+            std::memset(witness, store.fill, store.size);
+            CHK(medium.holds(store.slot->ns, store.slot->key, witness, store.size),
+                "A7-19 saved/reloaded /mrcfg leaves %s byte-identical", store.slot->path);
+        }
+        medium.reset(); Serial.reset();
     }
     radmin7_inbox_rows();
 #if MR_FEAT_RADMIN_ACCEPT

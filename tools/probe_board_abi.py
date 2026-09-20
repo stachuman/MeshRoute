@@ -292,7 +292,7 @@ FIXTURE_SOURCE = (
 #      `tools/measure_board.py pair`, not this probe.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
-        "meshroute::Node":         (235248, 8, True),   # R-RA-45: controller block less legacy slot
+        "meshroute::Node":         (235208, 8, True),   # Slice 10 R-RA-6: 235248 - 40 legacy mirrors, measured on native
         "meshroute::RemoteClientState": (4512, 8, True),
         "meshroute::RemoteClientPending": (352, 8, True),
         "meshroute::RemoteClientSession": (144, 8, True),
@@ -359,7 +359,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         # ⓘ `Node` differs from xtensa's by far more than the ABI: `gateway` is MR_PROFILE_GATEWAY
         #   (MR_FEAT_TEAM 0, MR_FEAT_MOBILE 0) with MR_N_LAYERS=2, `heltec_mobile` is MR_PROFILE_MOBILE with
         #   the default single layer. THAT is why the flag derivation has to be real — see control (4).
-        "meshroute::Node":         (157344, 8, True),   # R-RA-40: 157264 + 80; measured by this probe
+        "meshroute::Node":         (157304, 8, True),   # Slice 10 R-RA-6: 157344 - 40 legacy mirrors, measured on ARM
         "meshroute::RemoteClientState": (4512, 8, False),
         "meshroute::RemoteClientPending": (352, 8, False),
         "meshroute::RemoteClientSession": (144, 8, False),

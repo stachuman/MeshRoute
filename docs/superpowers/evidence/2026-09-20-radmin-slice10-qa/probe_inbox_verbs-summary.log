@@ -1,0 +1,60 @@
+  ok   S6-C8 JSON bad_line envelope changes its reason domain -> RED (3 check(s) failed: Y2 Y2 Y2 )
+    source match count 1
+  ok   S6-C9 remote byte-validation refusal emits a local envelope -> RED (6 check(s) failed: Y9 Y9 Y9 Y9 Y9 Y9 )
+  ok   R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail) -> RED (1 check(s) failed: R7-I7 )
+  ok   A7-C1 config loader floor lowered, same-size v25 loads -> RED (1 check(s) failed: A7-3 )
+  ok   A7-C2 config loader floor raised, current v26 refuses -> RED (3 check(s) failed: A7-5 A7-16 A7-17 )
+  ok   A10-C1 config loader reads the administration identity slot -> RED (4 check(s) failed: A7-5 A7-6 A7-16 A7-17 )
+    source match count 1
+  ok   C8-C1 short Print writes count as success -> RED (1 check(s) failed: C8-24 )
+    source match count 1
+  ok   C8-C2 console stage drops count as success -> RED (1 check(s) failed: C8-25 )
+    source match count 1
+  ok   C8-C3 JSON local sequences repeat zero -> RED (1 check(s) failed: C8-L6 )
+    source match count 1
+  ok   C8-C4 selected identity switches to self -> RED (1 check(s) failed: C8-K3 )
+    source match count 1
+  ok   C8-C5 expanded identity is not wiped -> RED (1 check(s) failed: C8-K3 )
+    source match count 1
+  ok   C8-C6 exported seed is not wiped -> RED (1 check(s) failed: C8-K3 )
+    source match count 1
+  ok   C8-C7 scheduled delay is omitted -> RED (1 check(s) failed: C8-20 )
+    source match count 1
+  ok   C8-C8 UTF8 carry is discarded -> RED (1 check(s) failed: C8-22 )
+    source match count 1
+  ok   C8-C9 real router loses supplied transport -> RED (3 check(s) failed: C8-4 C8-13 C8-14 )
+    source match count 1
+  ok   C8-C10 actual regen binding ignores live rows -> RED (4 check(s) failed: C8-16 C8-16 C8-16 C8-16 )
+    source match count 1
+  ok   C8-C11 main-loop binding does not service controller -> RED (1 check(s) failed: C8-L2 )
+    source match count 1
+  ok   C8-C12 real key use binding ignores captured rows -> RED (1 check(s) failed: C8-K5 )
+    source match count 1
+  ok   C8-C13 real target use binding ignores captured rows -> RED (1 check(s) failed: C8-K6 )
+    source match count 1
+  ok   C8-C14 status request_table_pressure value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C15 status assembly_failure value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C16 status unmatched_response value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C17 status auth_failure value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C18 status local_result_pressure value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C19 status radio_enqueue_failure value lost -> RED (1 check(s) failed: C8-S1 )
+    source match count 1
+  ok   C8-C22 real Node lookup ignores binding -> RED (3 check(s) failed: C8-B12 C8-B14 C8-B15 )
+    source match count 1
+  ok   C8-C20 dormant ACK debt status omitted -> RED (1 check(s) failed: C8-B6 )
+    source match count 1
+  ok   C8-C21 observer bytes never reach delivery -> RED (9 check(s) failed: C8-B1 C8-B1 C8-B4 C8-B8 C8-B9 C8-B11 C8-B13 C8-B16 C8-B17 )
+    source match count 1
+  ok   C8-C22 disconnected BLE receives observations -> RED (4 check(s) failed: C8-L1 C8-L4 C8-B2 C8-B4 )
+
+tree unchanged: the real sources' md5 is identical before and after (407c27396ce01233541105afb822b532)
+probe: 477 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 477)
+controls: 69 verified / 0 unusable (pin 69)
+PASS
+
+BOTH ARMS PASS
