@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "base": "e680271791397dbdaa3a7a34b368ebc8851e60a2",
+  "simulator": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "brief_sha256": "f6eafd394894fd65512fcd66ba9613ff7c94308763de3ef4af486daffa3a1048",
+  "changed_since_r1_freeze": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/plans/2026-09-20-radmin-tools-b434-b435-mutation-harness.md",
+    "tracker.md"
+  ],
+  "r1_tool_hashes_preserved": true,
+  "correction": "run_suite first argv adds --without-testing; strengthen existing verdict test to require build-only invocation; mutation table and exits unchanged",
+  "gate": "fresh focused checks + full discovery + full 61-battery union / --workers=3"
+}

@@ -1,0 +1,62 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=radmin7rx --workers=3
+-- target radmin7rx: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/lib/core/node_mac_rx.cpp (16 entries)
+-- selection: IN FULL (all 16 entries)
+-- workers: 3
+-- scratch root: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target radmin7rx: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w1/lib/core/node_mac_rx.cpp (5 of 16 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin7rx: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w2/lib/core/node_mac_rx.cpp (5 of 16 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target radmin7rx: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w0/lib/core/node_mac_rx.cpp (6 of 16 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   R03 seal counter missing -> RED (13 assertion(s) failed, match count 1)
+  [w0]   ok   R01 real sender ignores full queue -> RED (7 assertion(s) failed, match count 1)
+  [w1]   ok   R02 seal refusal handed to transport -> RED (60 assertion(s) failed, match count 1)
+  [w0]   ok   R04 seal failure charged to enqueue counter -> RED (20 assertion(s) failed, match count 1)
+  [w2]   ok   R06 seal failure advances cursor -> RED (38 assertion(s) failed, match count 1)
+  [w1]   ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  [w0]   ok   R07 seal failure resets nonzero cursor -> RED (52 assertion(s) failed, match count 1)
+  [w2]   ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  [w1]   ok   R08 seal failure changes frozen terminal -> RED (13 assertion(s) failed, match count 1)
+  [w0]   ok   R10 enqueue refusal advances cursor -> RED (33 assertion(s) failed, match count 1)
+  [w2]   ok   R12 enqueue refusal charged to seal counter -> RED (29 assertion(s) failed, match count 1)
+  [w1]   ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  [w0]   ok   R13 queued frame cursor stays -> RED (319 assertion(s) failed, match count 1)
+  [w2]   ok   R15 clock starts before a failed seal -> RED (2 assertion(s) failed, match count 1)
+  [w2] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w2] shard 2: 5 RED / 0 unusable   (of 5 entries)
+  [w1]   ok   R14 checked terminal ownership is never recorded -> RED (24 assertion(s) failed, match count 1)
+  [w1] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w1] shard 1: 5 RED / 0 unusable   (of 5 entries)
+  [w0]   ok   R16 saturated action deadline mistaken for no pending work -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)
+  [w0] shard 0: 6 RED / 0 unusable   (of 6 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin7rx: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/lib/core/node_mac_rx.cpp
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   R01 real sender ignores full queue -> RED (7 assertion(s) failed, match count 1)
+  ok   R02 seal refusal handed to transport -> RED (60 assertion(s) failed, match count 1)
+  ok   R03 seal counter missing -> RED (13 assertion(s) failed, match count 1)
+  ok   R04 seal failure charged to enqueue counter -> RED (20 assertion(s) failed, match count 1)
+  ok   R05 seal counter wraps -> RED (5 assertion(s) failed, match count 1)
+  ok   R06 seal failure advances cursor -> RED (38 assertion(s) failed, match count 1)
+  ok   R07 seal failure resets nonzero cursor -> RED (52 assertion(s) failed, match count 1)
+  ok   R08 seal failure changes frozen terminal -> RED (13 assertion(s) failed, match count 1)
+  ok   R09 seal event misclassified -> RED (6 assertion(s) failed, match count 1)
+  ok   R10 enqueue refusal advances cursor -> RED (33 assertion(s) failed, match count 1)
+  ok   R11 enqueue counter wraps -> RED (6 assertion(s) failed, match count 1)
+  ok   R12 enqueue refusal charged to seal counter -> RED (29 assertion(s) failed, match count 1)
+  ok   R13 queued frame cursor stays -> RED (319 assertion(s) failed, match count 1)
+  ok   R14 checked terminal ownership is never recorded -> RED (24 assertion(s) failed, match count 1)
+  ok   R15 clock starts before a failed seal -> RED (2 assertion(s) failed, match count 1)
+  ok   R16 saturated action deadline mistaken for no pending work -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 6/6 entries, 6 RED / 0 worthless, wall 25.3s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w0
+  worker 1: 5/5 entries, 5 RED / 0 worthless, wall 22.2s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w1
+  worker 2: 5/5 entries, 5 RED / 0 worthless, wall 22.0s, rc 0, source restored: md5 15a280defa85eed07e315af6c3a7f968 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-itzrkght/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage
+timing: copy 4.0s + battery 25.4s = 29.4s total, 16 entries over 3 worker(s)
+mutations: 16 RED / 0 unusable

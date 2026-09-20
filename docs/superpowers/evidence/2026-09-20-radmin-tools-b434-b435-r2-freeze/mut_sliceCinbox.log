@@ -1,0 +1,28 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=sliceCinbox --workers=3
+-- target sliceCinbox: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/lib/core/inbox.h (2 entries)
+-- selection: IN FULL (all 2 entries)
+-- workers: 2
+-- scratch root: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-wavtx7zs   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target sliceCinbox: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-wavtx7zs/w0/lib/core/inbox.h (1 of 2 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target sliceCinbox: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-wavtx7zs/w1/lib/core/inbox.h (1 of 2 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   S07 ★★★★ THE PREDICATE IS WEAKENED TO `persistent_outcome` — an 0x81-class record (and every reserved, retired or future internal value) becomes VISIBLE as ordinary text, while today's E2E ack still hides -> RED (66 assertion(s) failed, match count 1)
+  [w1] source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)
+  [w1] shard 1: 1 RED / 0 unusable   (of 1 entries)
+  [w0]   ok   S06 ★★★★ THE CLASSIFICATION PREDICATE IS DROPPED — every internal outcome record becomes an ordinary message again: rows on the panel, a bigger visible total, and a binary body through the byte sanitizer -> RED (95 assertion(s) failed, match count 1)
+  [w0] source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)
+  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target sliceCinbox: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/lib/core/inbox.h
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 2 tree(s) agree)
+  ok   S06 ★★★★ THE CLASSIFICATION PREDICATE IS DROPPED — every internal outcome record becomes an ordinary message again: rows on the panel, a bigger visible total, and a binary body through the byte sanitizer -> RED (95 assertion(s) failed, match count 1)
+  ok   S07 ★★★★ THE PREDICATE IS WEAKENED TO `persistent_outcome` — an 0x81-class record (and every reserved, retired or future internal value) becomes VISIBLE as ordinary text, while today's E2E ack still hides -> RED (66 assertion(s) failed, match count 1)
+  worker 0: 1/1 entries, 1 RED / 0 worthless, wall 8.9s, rc 0, source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-wavtx7zs/w0
+  worker 1: 1/1 entries, 1 RED / 0 worthless, wall 8.7s, rc 0, source restored: md5 6e60f13c2aec55cbffc5b48d24cc9d8d (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-wavtx7zs/w1
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage
+timing: copy 2.7s + battery 8.9s = 11.7s total, 2 entries over 2 worker(s)
+mutations: 2 RED / 0 unusable

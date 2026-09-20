@@ -1,0 +1,14 @@
+--- r1/tools/test_mutation_unusable_reason.py
++++ r2/tools/test_mutation_unusable_reason.py
+@@ -106,6 +106,11 @@
+                                          subprocess.CompletedProcess([], 1, stdout, "stderr diagnostic")])
+         self.assertEqual(run(), ((3, 2950, 195770), stdout))
+         self.assertEqual(process.call_count, 2)
++        # B436: the first command must only build; a failing mutant's verdict comes from the binary.
++        self.assertEqual(process.call_args_list[0].args[0],
++                         ["pio", "test", "-e", "native", "--without-testing"])
++        self.assertEqual(process.call_args_list[1].args[0],
++                         [str(ROOT / ".pio/build/native/program")])
+ 
+ 
+ if __name__ == "__main__":

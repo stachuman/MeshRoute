@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "tools/probe_ui_model_mutations.py",
+    "--target=macwait",
+    "--workers=3"
+  ],
+  "cwd": "/dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage",
+  "elapsed_seconds": 24.096,
+  "name": "mut_macwait",
+  "rc": 0,
+  "started_utc": "2026-09-20T09:40:21.857151+00:00"
+}

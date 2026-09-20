@@ -1,0 +1,214 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=devicenv --workers=3
+-- target devicenv: /dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage/src/device_nv.h (42 entries)
+-- selection: IN FULL (all 42 entries)
+-- workers: 3
+-- scratch root: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-oekcoh93   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target devicenv: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-oekcoh93/w1/src/device_nv.h (14 of 42 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target devicenv: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-oekcoh93/w0/src/device_nv.h (14 of 42 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target devicenv: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-oekcoh93/w2/src/device_nv.h (14 of 42 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   UNUSABLE N01 ★★★ THE DEFECT ITSELF: the mount result is discarded again, so a dead FS reads as a fresh device — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.511
+  [w0]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.511 =============
+  [w2]   UNUSABLE N03 ★★ THE ESP32 CLASSIFIER IS INVERTED: a first boot is called a STORAGE FAILURE (the same lie, other way) — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.613
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.613 =============
+  [w1]   UNUSABLE N02 the mount failure is recorded but the read continues (a half-fix: the fact is set, the early return dropped) — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.512
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.512 =============
+  [w0]   UNUSABLE N04 the ESP32 classifier is dropped, so 'NVS would not open' is a fresh device again — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.383
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.383 =============
+  [w2]   UNUSABLE N06 a storage failure is folded into `invalid` (the tempting collapse — it prints the WRONG remedy) — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.410
+  [w2]         ============= 6 test cases: 5 failed, 0 succeeded in 00:00:03.410 =============
+  [w1]   UNUSABLE N05 ★★ the backend fact is consulted AFTER the absent test — the ordering that loses it entirely — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.381
+  [w1]         ============= 6 test cases: 5 failed, 0 succeeded in 00:00:03.381 =============
+  [w0]   UNUSABLE N13 ★★★ THE REOPENED DEFECT: ANY lookup error is absent again — a metadata error reads as a fresh device — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.587
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.587 =============
+  [w2]   UNUSABLE N15 ⛔ the lookup is issued for EVERY record ('compute first, gate later') — the four bool records pay a stat each — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.585
+  [w2]         ============= 6 test cases: 5 failed, 0 succeeded in 00:00:03.585 =============
+  [w1]   UNUSABLE N14 ★★★ present-but-unopenable collapses to absent — four possibly-intact profiles read as NO PROFILES — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.825
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.825 =============
+  [w0]   UNUSABLE N07 ★★★ THE OVER-LENGTH CHECK IS DROPPED, so a longer file is accepted on its valid PREFIX — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.437
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.437 =============
+  [w2]   UNUSABLE N09 the ESP32 over-length check is dropped — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.647
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.647 =============
+  [w1]   UNUSABLE N08 the size comparison is `>=`, so an EXACTLY-sized record is rejected too (the off-by-one wrong fix) — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.486
+  [w1]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.486 =============
+  [w0]   UNUSABLE N10 an over-length record is accepted anyway (the fact is gathered and then ignored) — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.482
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.482 =============
+  [w2]   UNUSABLE N12 ⛔ the ESP32 nvs_open classification runs for every record, on every open failure — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.457
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.457 =============
+  [w1]   UNUSABLE N11 ⛔ the extra FS question is asked for EVERY record (⛔ /mrcfg, /mrid, /mrpeers, /mrfault must not move) — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.406
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.406 =============
+  [w0]   UNUSABLE N17 ★★ the keyring's backend-failure arm is ordered AFTER `absent`, so a dead flash reports NO STORED KEYS — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.825
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.825 =============
+  [w2]   UNUSABLE N19 ★ the keyring's version policy is RELAXED from equality to a range — an unknown layout is parsed as keys — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.355
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.355 =============
+  [w1]   UNUSABLE N18 an OVER-LENGTH keyring is accepted as a valid PREFIX (the nRF52 short-read hazard, one record over) — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.597
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.597 =============
+  [w0]   UNUSABLE N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.854
+  [w0]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.854 =============
+  [w2]   UNUSABLE N22 ★★ the catalog carries `/mrcfg`'s MAGIC — the two records become mutually readable, which is the same collapse one layer in — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.538
+  [w2]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.538 =============
+  [w1]   UNUSABLE N21 ★★★ THE CATALOG IS ADDRESSED AT `/mrcfg`: a phrase edit now writes the record whose version mismatch REPROVISIONS the node — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.637
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.637 =============
+  [w0]   UNUSABLE N23 ★★ the /mrui seed stamps generation ZERO — the value reserved for 'no generation', which a SendReq can never seal — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.440
+  [w0]         ============ 15 test cases: 14 failed, 0 succeeded in 00:00:03.440 ============
+  [w2]   UNUSABLE N25 ★★ the /mrui read tests `absent` FIRST, so a store that would not open announces 'no catalog configured' — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.395
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.395 =============
+  [w1]   UNUSABLE N24 the /mrui version policy is RELAXED from equality to a range — an unknown layout is parsed as the wearer's phrases — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.685
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.685 =============
+  [w2]   UNUSABLE N42 ★★ /mradmid's backend fact is consulted AFTER the absent test — a dead store reads as a fresh device — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.446
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.446 =============
+  [w0]   UNUSABLE N40 ★★ /mradmid's VERSION POLICY becomes a RANGE — a record written under another layout is adopted — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.697
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.697 =============
+  [w1]   UNUSABLE N41 /mracl's version policy becomes a range — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.536
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.536 =============
+  [w2]   UNUSABLE N45 ★ /mracl's over-length check is dropped — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.366
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.366 =============
+  [w0]   UNUSABLE N43 ★★ /mracl's backend fact is consulted after the absent test — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.707
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.707 =============
+  [w1]   UNUSABLE N44 ★ /mradmid's OVER-LENGTH check is dropped — a longer file is accepted on its valid PREFIX — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.558
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.558 =============
+  [w2]   UNUSABLE N52 `acl_blob_init` no longer value-initialises, so `reserved`/holes carry indeterminate bytes — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.540
+  [w2]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.540 =============
+  [w0]   UNUSABLE N50 ★ `admin_id_blob_init` leaves the header UNSTAMPED, so a minted record reads back as invalid — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.547
+  [w0]         ============= 7 test cases: 6 failed, 0 succeeded in 00:00:03.547 =============
+  [w1]   UNUSABLE N51 `acl_blob_init` stamps the WRONG magic (the two target records become interchangeable) — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.635
+  [w1]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.635 =============
+
+  INTERRUPTED — killing the workers and removing the scratch trees. The real tree was never written to by this run; its targets are unchanged.

@@ -1,0 +1,25 @@
+{
+  "QA_preparation_unchanged": true,
+  "brief_unchanged": true,
+  "fresh_discovery": 356,
+  "full_union": {
+    "RED": 983,
+    "banner_lines": 0,
+    "baseline": [
+      2950,
+      195770,
+      0
+    ],
+    "batteries_completed": 61,
+    "configured_completed": 984,
+    "known_unusable": 1,
+    "pending": [],
+    "vacuous": 0,
+    "worker_baselines_verified": 163
+  },
+  "harness_delta": "one build-only argument from frozen revision 1",
+  "shared_inputs": 4552,
+  "simulator_unchanged": true,
+  "stage_files": 4895,
+  "test_delta": "five lines in existing verdict test; no test removed or added"
+}

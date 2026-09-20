@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "git",
+    "diff",
+    "--check"
+  ],
+  "cwd": "/home/staszek/MeshRoute",
+  "elapsed_seconds": 0.029,
+  "name": "whitespace",
+  "rc": 0,
+  "started_utc": "2026-09-20T07:31:47.686058+00:00"
+}

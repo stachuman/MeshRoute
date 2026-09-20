@@ -1,0 +1,8 @@
+ M MEMORY.md
+ M docs/2026-07-30-open-bug-register.md
+ M tools/probe_ui_model_mutations.py
+ M tracker.md
+?? docs/superpowers/evidence/2026-09-20-radmin-tools-b434-b435-r1-checkpoint/
+?? docs/superpowers/evidence/2026-09-20-radmin-tools-b434-b435.md
+?? docs/superpowers/plans/2026-09-20-radmin-tools-b434-b435-mutation-harness.md
+?? tools/test_mutation_unusable_reason.py

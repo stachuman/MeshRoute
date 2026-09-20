@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-v",
+    "-s",
+    "tools",
+    "-p",
+    "test_mutation_unusable_reason.py"
+  ],
+  "cwd": "/home/staszek/MeshRoute",
+  "elapsed_seconds": 0.435,
+  "name": "focused-discovery",
+  "rc": 0,
+  "started_utc": "2026-09-20T07:31:47.856928+00:00"
+}

@@ -1,0 +1,27 @@
+test_build_failure_cannot_run_a_stale_binary (test_mutation_unusable_reason.MutationUnusableReasonTests.test_build_failure_cannot_run_a_stale_binary) ... ok
+test_collapsed_arm_control_is_red (test_mutation_unusable_reason.MutationUnusableReasonTests.test_collapsed_arm_control_is_red) ... ok
+test_deleted_retention_control_is_red (test_mutation_unusable_reason.MutationUnusableReasonTests.test_deleted_retention_control_is_red) ... ok
+test_existing_doctest_verdict_is_unchanged (test_mutation_unusable_reason.MutationUnusableReasonTests.test_existing_doctest_verdict_is_unchanged) ... FAIL
+test_merged_label_is_absent (test_mutation_unusable_reason.MutationUnusableReasonTests.test_merged_label_is_absent) ... ok
+test_run_failure_retains_code_and_both_full_streams (test_mutation_unusable_reason.MutationUnusableReasonTests.test_run_failure_retains_code_and_both_full_streams) ... ok
+test_selftest_distinguishes_and_retains_both_failures (test_mutation_unusable_reason.MutationUnusableReasonTests.test_selftest_distinguishes_and_retains_both_failures) ... ok
+
+======================================================================
+FAIL: test_existing_doctest_verdict_is_unchanged (test_mutation_unusable_reason.MutationUnusableReasonTests.test_existing_doctest_verdict_is_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/dev/shm/b436-without-testing-control-dv4hd20z/tools/test_mutation_unusable_reason.py", line 110, in test_existing_doctest_verdict_is_unchanged
+    self.assertEqual(process.call_args_list[0].args[0],
+AssertionError: Lists differ: ['pio', 'test', '-e', 'native'] != ['pio', 'test', '-e', 'native', '--without-testing']
+
+Second list contains 1 additional elements.
+First extra element 4:
+'--without-testing'
+
+- ['pio', 'test', '-e', 'native']
++ ['pio', 'test', '-e', 'native', '--without-testing']
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.370s
+
+FAILED (failures=1)

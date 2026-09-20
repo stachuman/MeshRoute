@@ -1,0 +1,50 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=radmin73convert --workers=3
+-- target radmin73convert: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/src/firmware_remote_actions.h (10 entries)
+-- selection: IN FULL (all 10 entries)
+-- workers: 3
+-- scratch root: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w1] -- target radmin73convert: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w1/src/firmware_remote_actions.h (3 of 10 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0] -- target radmin73convert: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w0/src/firmware_remote_actions.h (4 of 10 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin73convert: /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w2/src/firmware_remote_actions.h (3 of 10 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   C03 last enum wrongly rejected -> RED (11 assertion(s) failed, match count 1)
+  [w0]   ok   C01 invalid enum bytes escape -> RED (1733 assertion(s) failed, match count 1)
+  [w1]   ok   C02 invalid stored bytes become typed values -> RED (743 assertion(s) failed, match count 1)
+  [w2]   ok   C06 factory confirmation bypassed -> RED (2 assertion(s) failed, match count 1)
+  [w0]   ok   C04 invalid pair publishes partial plan -> RED (495 assertion(s) failed, match count 1)
+  [w1]   ok   C05 typed backend silently rewritten -> RED (47 assertion(s) failed, match count 1)
+  [w2]   ok   C09 unsupported family prepares reboot -> RED (5 assertion(s) failed, match count 1)
+  [w2] source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)
+  [w2] shard 2: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   C07 sleep prefix grammar rewritten -> RED (1 assertion(s) failed, match count 1)
+  [w1]   ok   C08 crash debug admission bypassed -> RED (1 assertion(s) failed, match count 1)
+  [w1] source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)
+  [w1] shard 1: 3 RED / 0 unusable   (of 3 entries)
+  [w0]   ok   C10 prep dispatch chooses reboot -> RED (1 assertion(s) failed, match count 1)
+  [w0] source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)
+  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)
+
+======================================================================================================================
+-- MERGED REPORT — target radmin73convert: /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/src/firmware_remote_actions.h
+  ok   clean baseline 2950 / 195770 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+  ok   C01 invalid enum bytes escape -> RED (1733 assertion(s) failed, match count 1)
+  ok   C02 invalid stored bytes become typed values -> RED (743 assertion(s) failed, match count 1)
+  ok   C03 last enum wrongly rejected -> RED (11 assertion(s) failed, match count 1)
+  ok   C04 invalid pair publishes partial plan -> RED (495 assertion(s) failed, match count 1)
+  ok   C05 typed backend silently rewritten -> RED (47 assertion(s) failed, match count 1)
+  ok   C06 factory confirmation bypassed -> RED (2 assertion(s) failed, match count 1)
+  ok   C07 sleep prefix grammar rewritten -> RED (1 assertion(s) failed, match count 1)
+  ok   C08 crash debug admission bypassed -> RED (1 assertion(s) failed, match count 1)
+  ok   C09 unsupported family prepares reboot -> RED (5 assertion(s) failed, match count 1)
+  ok   C10 prep dispatch chooses reboot -> RED (1 assertion(s) failed, match count 1)
+  worker 0: 4/4 entries, 4 RED / 0 worthless, wall 17.9s, rc 0, source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w0
+  worker 1: 3/3 entries, 3 RED / 0 worthless, wall 14.9s, rc 0, source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w1
+  worker 2: 3/3 entries, 3 RED / 0 worthless, wall 14.6s, rc 0, source restored: md5 b9d023693119448e1cd38938749fb190 (MATCHES)   /dev/shm/mr-b434-b435-r2-6kvsxgb3/scratch/mr_mutation_run-7o61iyxs/w2
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage
+timing: copy 4.0s + battery 18.0s = 22.0s total, 10 entries over 3 worker(s)
+mutations: 10 RED / 0 unusable

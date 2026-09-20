@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "tools/probe_ui_model_mutations.py",
+    "--target=radmin8client",
+    "--workers=3"
+  ],
+  "cwd": "/dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage",
+  "elapsed_seconds": 55.514,
+  "name": "mut_radmin8client",
+  "rc": 130,
+  "started_utc": "2026-09-20T07:33:20.903196+00:00"
+}

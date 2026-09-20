@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "tools/probe_ui_model_mutations.py",
+    "--selftest-unusable"
+  ],
+  "cwd": "/home/staszek/MeshRoute",
+  "elapsed_seconds": 0.071,
+  "name": "selftest",
+  "rc": 0,
+  "started_utc": "2026-09-20T07:31:47.785612+00:00"
+}

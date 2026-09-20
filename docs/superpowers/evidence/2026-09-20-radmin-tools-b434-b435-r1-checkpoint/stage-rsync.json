@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "rsync",
+    "-a",
+    "--exclude=.git",
+    "--exclude=.pio",
+    "--exclude=.pio-measure",
+    "--exclude=.claude",
+    "/home/staszek/MeshRoute/",
+    "/dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage/"
+  ],
+  "cwd": "/home/staszek/MeshRoute",
+  "elapsed_seconds": 0.112,
+  "name": "stage-rsync",
+  "rc": 0,
+  "started_utc": "2026-09-20T07:32:24.654283+00:00"
+}

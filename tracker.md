@@ -51,9 +51,9 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   - **Slice 9, legacy protocol deletion + the durable protocol docs: independent QA PASS 2026-09-19, owner commit
     `4ad9c34`** (brief revisions 1–5; R-RA-50; B420–B429 closed, B418 pre-existing tool drift); zero executable residue,
     corpus byte-identical, Node unchanged, RAM/flash down; `frames.md`/`protocol.md` now document v2; Part 57e reserved.
-  - **In flight:** nothing — **Slice 10 INDEPENDENT QA PASS 2026-09-20 (owner commit `ab3d9c5` + the uncommitted
-    instrument half); the arc is SOFTWARE-COMPLETE.** Remaining: metal Parts 57b–57f (+54/55a/55b/56/57a/58/59/61/62/63)
-    and the B434 + B435 tool dispatch (harness pin re-sync + label split; no product change).
+  - **In flight:** nothing. **The tool dispatch B434 + B435 (+ B436) is INDEPENDENT QA PASS 2026-09-20 (uncommitted on
+    `e680271`; tool-only); Slice 10 PASS 2026-09-20 — the arc is SOFTWARE-COMPLETE with no software residue.**
+    Remaining metal: Parts 57b–57f (+54/55a/55b/56/57a/58/59/61/62/63).
   - **Remaining slices: NONE — 9 (PASS, `4ad9c34`) legacy protocol deletion + durable protocol docs → 10 (PASS,
     `ab3d9c5`) main-NV cleanup (standalone per R-RA-6).** Remote provisioning is not required (R-RA-41,
     2026-09-16): B395–B398 closed, the 36 disruptive cfg/gateway/join/create/leave/team/regen rows stay refused
@@ -95,7 +95,7 @@ an Author candidate. Explicit review before Save/Send, no preset rewrite for a m
 no implementation dispatch or remote-admin
 sequence change.
 
-- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: ARC SOFTWARE-COMPLETE (Slice 10 QA PASS 2026-09-20) — metal Parts 57b/57c/57d/57e/57f are runnable; the B434+B435 tool dispatch is the only software residue; metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
+- **NEXT QUEUE:** (1) bench **Part 54** on metal — the single item that closes B278; (2) remote-admin: ARC SOFTWARE-COMPLETE (Slice 10 QA PASS 2026-09-20) — metal Parts 57b/57c/57d/57e/57f are runnable; the B434+B435 tool dispatch is QA PASS 2026-09-20 — no software residue; metal Parts 57c/57b/57d/57e are runnable; metal Parts 57c/57b/57d are runnable; (3) the owner's metal backlog Parts 55a–63 as boards are free.
   Bench Part 58 closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]
   remains separately tracked and do not block Part 54.
 

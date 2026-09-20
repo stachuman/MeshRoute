@@ -1,0 +1,20 @@
+  UNUSABLE build — the mutant does not compile (build rc 1)
+        error: fabricated build failure 7
+        error: fabricated build failure 19
+        error: fabricated build failure 31
+        retained: /home/staszek/MeshRoute/.pio/mutation-unusable/selftest/build.log
+  UNUSABLE run — the suite ran without a verdict (binary rc -11 / killed by signal 11)
+        binary output 18
+        binary output 19
+        binary output 20
+        binary output 21
+        binary output 22
+        binary output 23
+        binary output 24
+        binary output 25
+        binary output 26
+        binary output 27
+        binary output 28
+        binary output 29
+        retained: /home/staszek/MeshRoute/.pio/mutation-unusable/selftest/run.log
+SELFTEST OK — build and run failures are told apart and retained

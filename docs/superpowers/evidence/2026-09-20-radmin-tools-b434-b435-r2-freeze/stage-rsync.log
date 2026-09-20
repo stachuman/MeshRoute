@@ -1,0 +1,1 @@
+$ rsync -a --exclude=.git --exclude=.pio --exclude=.pio-measure --exclude=.claude /home/staszek/MeshRoute/ /dev/shm/mr-b434-b435-r2-6kvsxgb3/mutation-stage/

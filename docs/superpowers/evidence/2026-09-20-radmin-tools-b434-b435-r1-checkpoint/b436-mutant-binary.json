@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "/dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-aj7jzqjv/w0/.pio/build/native/program"
+  ],
+  "cwd": "/dev/shm/mr-b434-b435-r1-rwlxb7cv/reference-stage",
+  "elapsed_seconds": 0.757,
+  "name": "b436-mutant-binary",
+  "rc": 1,
+  "started_utc": "2026-09-20T07:35:51.710866+00:00"
+}

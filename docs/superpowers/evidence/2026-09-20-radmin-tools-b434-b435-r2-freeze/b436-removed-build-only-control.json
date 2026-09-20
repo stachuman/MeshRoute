@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-v",
+    "-s",
+    "tools",
+    "-p",
+    "test_mutation_unusable_reason.py"
+  ],
+  "rc": 1,
+  "elapsed_seconds": 0.4478318691253662,
+  "label": "executed temporary-copy control; remove only --without-testing; compiler/PIO unavailable (empty PATH)"
+}

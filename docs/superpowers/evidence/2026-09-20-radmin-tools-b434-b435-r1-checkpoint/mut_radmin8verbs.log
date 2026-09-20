@@ -1,0 +1,160 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=radmin8verbs --workers=3
+-- target radmin8verbs: /dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage/src/firmware_remote_client.h (27 entries)
+-- selection: IN FULL (all 27 entries)
+-- workers: 3
+-- scratch root: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-_s4c6_5g   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8verbs: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-_s4c6_5g/w0/src/firmware_remote_client.h (9 of 27 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8verbs: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-_s4c6_5g/w2/src/firmware_remote_client.h (9 of 27 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin8verbs: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-_s4c6_5g/w1/src/firmware_remote_client.h (9 of 27 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   UNUSABLE V03 open permits arbitrary command — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.344
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.344 =============
+  [w1]   UNUSABLE V02 open silently accepts E2E ACK — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.225
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.225 =============
+  [w0]   UNUSABLE V01 XOR authorization bypassed — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.195
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.195 =============
+  [w2]   UNUSABLE V06 command tail validator bypassed — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.214
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.214 =============
+  [w1]   UNUSABLE V05 invalid request ID accepts zero — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.236
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.236 =============
+  [w0]   UNUSABLE V04 missing force confirmation is accepted — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.173
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.173 =============
+  [w2]   UNUSABLE V09 rollover allows ACK — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.342
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.342 =============
+  [w0]   UNUSABLE V07 result show keyword not required — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.337
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.337 =============
+  [w1]   UNUSABLE V08 extra local acknowledgement tail admitted — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.591
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.591 =============
+  [w2]   UNUSABLE V12 custody observer removed — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.235
+  [w2]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.235 =============
+  [w0]   UNUSABLE V10 observer ACK ignored — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.180
+  [w0]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.180 =============
+  [w1]   UNUSABLE V11 observer wrong failure kind — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.480
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.480 =============
+  [w2]   UNUSABLE V15 layer lost — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.283
+  [w2]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.283 =============
+  [w0]   UNUSABLE V13 origin aliases reporter — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.344
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.344 =============
+  [w1]   UNUSABLE V14 reporter aliases origin — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.450
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.450 =============
+  [w2]   UNUSABLE V18 timeout called ACK — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.329
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.329 =============
+  [w0]   UNUSABLE V16 custody matches outer ctr — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.346
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.346 =============
+  [w1]   UNUSABLE V17 observer steals USB transport — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.232
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.232 =============
+  [w2]   UNUSABLE V21 USB counter lost — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.378
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.378 =============
+  [w0]   UNUSABLE V19 custody fields omitted — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.422
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.422 =============
+  [w1]   UNUSABLE V20 custody reason omitted — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.391
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.391 =============
+  [w2]   UNUSABLE V24 absent binding vetoes — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.173
+  [w2]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.173 =============
+  [w0]   UNUSABLE V22 custody detail wrong event — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.288
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.288 =============
+  [w1]   UNUSABLE V23 binding veto removed — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.466
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.466 =============
+
+  INTERRUPTED — killing the workers and removing the scratch trees. The real tree was never written to by this run; its targets are unchanged.

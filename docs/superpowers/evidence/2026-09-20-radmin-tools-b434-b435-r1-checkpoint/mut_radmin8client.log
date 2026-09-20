@@ -1,0 +1,232 @@
+$ /home/staszek/.platformio/penv/bin/python3 tools/probe_ui_model_mutations.py --target=radmin8client --workers=3
+-- target radmin8client: /dev/shm/mr-b434-b435-r1-rwlxb7cv/mutation-stage/lib/core/remote_client.cpp (57 entries)
+-- selection: IN FULL (all 57 entries)
+-- workers: 3
+-- scratch root: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-e89bnt01   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)
+  [w0] -- target radmin8client: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-e89bnt01/w0/lib/core/remote_client.cpp (19 of 57 entries in this shard)
+  [w0] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w1] -- target radmin8client: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-e89bnt01/w1/lib/core/remote_client.cpp (19 of 57 entries in this shard)
+  [w1] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w2] -- target radmin8client: /dev/shm/mr-b434-b435-r1-rwlxb7cv/scratch/mr_mutation_run-e89bnt01/w2/lib/core/remote_client.cpp (19 of 57 entries in this shard)
+  [w2] -- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's baseline
+  [w0]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2950 / 195770 / 0   (DERIVED from this tree)
+  [w0]   UNUSABLE C01 bootstrap cache ignores selected controller — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.192
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.192 =============
+  [w1]   UNUSABLE C02 entropy failure publishes an ID — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.080
+  [w1]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.080 =============
+  [w2]   UNUSABLE C03 zero and duplicate IDs admitted — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.383
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.383 =============
+  [w0]   UNUSABLE C04 wrong target source accepted — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.385
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.385 =============
+  [w1]   UNUSABLE C05 sequence check bypassed — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.350
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.350 =============
+  [w2]   UNUSABLE C06 auth failure uncounted — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.409
+  [w2]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.409 =============
+  [w1]   UNUSABLE C08 BLE result autoaccepted — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.265
+  [w1]         ============= 8 test cases: 7 failed, 0 succeeded in 00:00:03.265 =============
+  [w0]   UNUSABLE C07 terminal detail lost — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.404
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.404 =============
+  [w2]   UNUSABLE C09 incomplete local ACK accepted — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.364
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.364 =============
+  [w1]   UNUSABLE C11 ACK debt not retried — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.430
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.430 =============
+  [w0]   UNUSABLE C10 ACK debt cleared on submission — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.443
+  [w0]         ============= 6 test cases: 5 failed, 0 succeeded in 00:00:03.443 =============
+  [w2]   UNUSABLE C12 changed epoch permits replay — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.445
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.445 =============
+  [w1]   UNUSABLE C14 pool contents are lost — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.174
+  [w1]         ============ 11 test cases: 10 failed, 0 succeeded in 00:00:03.174 ============
+  [w0]   UNUSABLE C13 exact retry corrupts retained request — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.413
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.413 =============
+  [w2]   UNUSABLE C15 half-sized pool allocation — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.402
+  [w2]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.402 =============
+  [w1]   UNUSABLE C17 automatic rollover keeps old request ID — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.296
+  [w1]         ============= 4 test cases: 3 failed, 0 succeeded in 00:00:03.296 =============
+  [w0]   UNUSABLE C16 repeated automatic rollover — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.317
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.317 =============
+  [w2]   UNUSABLE C18 completed bytes not wiped — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.403
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.403 =============
+  [w0]   UNUSABLE C19 USB short write treated as acceptance — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.182
+  [w0]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.182 =============
+  [w1]   UNUSABLE C20 local disconnect consumes result — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.461
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.461 =============
+  [w2]   UNUSABLE C21 counter wraps — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.301
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.301 =============
+  [w0]   UNUSABLE C22 assembly pressure sends anyway — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.423
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.423 =============
+  [w1]   UNUSABLE C23 retained pressure overwrites BLE result — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.504
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.504 =============
+  [w2]   UNUSABLE C24 radio-unavailable refusal leaves pending debt — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.311
+  [w2]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.311 =============
+  [w0]   UNUSABLE C25 explicit show keeps the original transport — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.199
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.199 =============
+  [w1]   UNUSABLE C26 assembly fallback ignores disconnect reoffer — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.500
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.500 =============
+  [w2]   UNUSABLE C27 disconnect forgets prior complete local acceptance — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.545
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.545 =============
+  [w0]   UNUSABLE C28 full ACK debt blocks rollover recovery — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.626
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.626 =============
+  [w1]   UNUSABLE C29 session controls accept an execution terminal — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.393
+  [w1]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.393 =============
+  [w2]   UNUSABLE C30 non-execute ACK admitted — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.303
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.303 =============
+  [w0]   UNUSABLE C31 bootstrap requests ACK — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.295
+  [w0]         ============= 6 test cases: 5 failed, 0 succeeded in 00:00:03.295 =============
+  [w2]   UNUSABLE C33 correlation pressure becomes radio failure — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.125
+  [w2]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.125 =============
+  [w1]   UNUSABLE C32 initial correlation bound bypassed — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.453
+  [w1]         ============= 3 test cases: 2 failed, 0 succeeded in 00:00:03.453 =============
+  [w0]   UNUSABLE C34 resend uses reversed route tier — the mutant does not compile (build rc 1)
+  [w0]         =================================== SUMMARY ===================================
+  [w0]         Environment    Test    Status    Duration
+  [w0]         -------------  ------  --------  ------------
+  [w0]         native         *       ERRORED   00:00:03.336
+  [w0]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.336 =============
+  [w2]   UNUSABLE C36 resend early — the mutant does not compile (build rc 1)
+  [w2]         =================================== SUMMARY ===================================
+  [w2]         Environment    Test    Status    Duration
+  [w2]         -------------  ------  --------  ------------
+  [w2]         native         *       ERRORED   00:00:03.385
+  [w2]         ============= 2 test cases: 1 failed, 0 succeeded in 00:00:03.385 =============
+  [w1]   UNUSABLE C35 automatic resend disabled — the mutant does not compile (build rc 1)
+  [w1]         =================================== SUMMARY ===================================
+  [w1]         Environment    Test    Status    Duration
+  [w1]         -------------  ------  --------  ------------
+  [w1]         native         *       ERRORED   00:00:03.535
+  [w1]         ============= 5 test cases: 4 failed, 0 succeeded in 00:00:03.535 =============
+
+  INTERRUPTED — killing the workers and removing the scratch trees. The real tree was never written to by this run; its targets are unchanged.

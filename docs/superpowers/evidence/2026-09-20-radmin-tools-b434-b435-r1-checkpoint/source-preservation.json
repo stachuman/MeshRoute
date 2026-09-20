@@ -1,0 +1,9 @@
+{
+  "RED_FAIL_VACUOUS_calls": "AST-identical",
+  "base_harness_sha256": "a70e5343bf8a9a78afcfe44a03aef6edc7d21cdf36bb5e9624a463b83b5a637e",
+  "candidate_harness_sha256": "fa4720976b46128432603a26618142701ecc4b7c7076ae52bf7f7461cb81b12a",
+  "entry_prefixes_checked": 1850,
+  "existing_exit_statements": "AST-identical",
+  "mutation_tables_and_target_map": "AST-identical",
+  "worker_formula": "AST-identical"
+}

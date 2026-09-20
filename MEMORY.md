@@ -10,7 +10,8 @@
   (legacy deletion + durable protocol docs) is independent QA PASS 2026-09-19, owner commit `4ad9c34`** (R-RA-50; the
   legacy `rcmd`/password/unlock/lock protocol is gone; `frames.md`/`protocol.md` §15 document v2); **Slice 10 (standalone NV cleanup,
   R-RA-6; `/mrcfg` v26, 280 → 240; Node 235208/122176/157304) INDEPENDENT QA PASS 2026-09-20 — THE ARC IS
-  SOFTWARE-COMPLETE**; residue = the owner's metal parts (57b–57f et al.) + the B434/B435 tool dispatch.
+  SOFTWARE-COMPLETE**; residue = the owner's metal parts (57b–57f et al.) + nothing in software — the B434/B435/B436 harness tool dispatch is
+  INDEPENDENT QA PASS 2026-09-20 (uncommitted on `e680271`); only the owner's metal backlog remains.
 - **Remote-admin 8b durable rulings (2026-09-18):** R-RA-46 B112 does NOT gate 8b — the controller claims only its own
   local `SendDispatch` ("wrapper stored in my TX queue"), never the hop ACK / `send_aired` / the home's `deleg_fail`;
   B112 stays open as its separate core slice. R-RA-47 ONE automatic exact resend at

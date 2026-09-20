@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "/home/staszek/.platformio/penv/bin/python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-v",
+    "-s",
+    "tools",
+    "-p",
+    "test_*.py"
+  ],
+  "cwd": "/home/staszek/MeshRoute",
+  "elapsed_seconds": 706.326,
+  "name": "tools-discovery",
+  "rc": 0,
+  "started_utc": "2026-09-20T09:34:08.544464+00:00"
+}

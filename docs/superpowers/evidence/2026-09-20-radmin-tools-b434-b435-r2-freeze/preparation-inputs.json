@@ -1,0 +1,18 @@
+{
+  "MEMORY.md": {
+    "sha256": "f71a2303abd8f73036b426b72048dee8f2bef0fc6c3297c745967b7f44a1043e",
+    "size": 17594
+  },
+  "docs/2026-07-30-open-bug-register.md": {
+    "sha256": "6a61684dd8091ba6f2e8ffbd3ecefb4d13f1a4b43406e77220101403b3302d24",
+    "size": 617096
+  },
+  "docs/superpowers/plans/2026-09-20-radmin-tools-b434-b435-mutation-harness.md": {
+    "sha256": "f6eafd394894fd65512fcd66ba9613ff7c94308763de3ef4af486daffa3a1048",
+    "size": 10676
+  },
+  "tracker.md": {
+    "sha256": "70484127999a4c126426135ed32e1d269d88ae9ae56ecd13440e580b40021bf8",
+    "size": 10275
+  }
+}
