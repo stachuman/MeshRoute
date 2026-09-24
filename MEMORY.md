@@ -33,21 +33,44 @@
   (Part 57b, 8a warning); R-RA-39 named-family refusal fallback made permanent by R-RA-41 (36 rows refused remotely by design; B395–B398 closed as not required);
   R-RA-40 allocation +80 B ACCEPT-only, Node 230976 native / 157344 gateway, mobile unchanged.
 
-- **Standalone mobile Home redesign (owner discussion, updated 2026-09-07):**
-  `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a dedicated
-  DRAFT, not dispatch authority or a change to the remote-admin queue. Agreed direction: visible own
-  name; no-team join/create entry points; in-team communication/attention Home. Ordinary team-channel
-  presets already exist in source; the owner clarified there is no contrary device-experience report.
-  Owner rejects the old 17-byte/single-row preset limit: messages must use multiple lines/pages, with
-  bounded capacity derived from transport/storage and explicit catalog migration, not shortened wording.
-  Boot-only logo splash and non-interrupting received-team Home preview are proposals; preview is not
-  read/ACK/delivery evidence. Owner agrees one shared editor for names and manually composed DM/team
-  messages: short next, double choose; equal-sized fixed-order groups; minimal letters/digits/space/
-  punctuation, no language-frequency/predictive ordering. Long holds keep emergency ownership. Seven
-  groups of six is an Author candidate, not a frozen alphabet; exact case/layout/capacities await review.
-  Done opens review, never sends; manual drafts do not overwrite presets or inherit their 17-byte cap.
-  Home gestures and preview policy remain proposals; no overlapping implementation is authorized.
-  HOME-A1/HOME-A2 are maintained intake aliases; no code, tests, tools, bench or commit changed for this draft.
+- **Standalone mobile Home redesign (agreements 2026-09-06/07/23/24; revision 2.17 2026-09-24; REVIEWED):**
+  `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is a DRAFT, not
+  dispatch authority. Owner-agreed: visible own name; no-team join/create entry points; in-team
+  communication Home; ordinary team presets already exist (no device report said otherwise); the 17-byte
+  single-row cap is wrong — full text over multiple lines, capacity derived from transport/storage; one shared
+  editor for names and one-off DM/team text (short next, double choose, equal fixed groups, minimal repertoire,
+  no frequency/prediction; long holds stay emergency); explicit
+  review before Save/Send; RAM-only drafts; cancel never saves/sends. Navigation (owner 2026-09-23, D1):
+  Home is the default in list focus; `MENU` ends every top-level list and opens menu mode on the rail at the
+  Home slot; the panel going dark never re-homes (screen, focus and arrow stay); design §6.1. Home (owner
+  2026-09-23, D2): name row, team line, three-row list, counts in labels, position in My device, mark to the
+  splash; `INBOX` first, `INVITE MEMBER` on Home for key holders, Settings through `MENU` (§6.2–§6.3). Inbox (owner
+  2026-09-23, D13/D13b): one newest-first list across DMs and team posts; this session's rows by receive time,
+  earlier-boot rows below with `--` ages (§6.8). Review (owner 2026-09-23, D5): every phrase, written message
+  and name goes through one review that opens on the safe action (§7.3). Phrase size (owner 2026-09-23, D7):
+  163 bytes per slot, ≈ +7.4 KB RAM estimate accepted, to be measured. Phrase record (owner 2026-09-23, D8): no
+  migration — MeshRoute is not deployed, no backward compatibility; an old record boots as defaults with a clear
+  message. Defaults (owner 2026-09-23, D9): the five existing plus team `Return to base now`, `On my way`,
+  personal `Where are you?`, location off. Written messages (owner 2026-09-23, D6): one 163-byte limit for
+  every panel message, no location on written messages (classified not location-eligible for the GPS design);
+  a located phrase shows `LOC` on its review. Names (owner 2026-09-23, D10): an unnamed device is shown by its
+  ID (`0x<HASH8>` where 10 columns fit, else the six-digit member fingerprint, never a clipped hash) and
+  advertises no name (core package W1c); 32-byte names with `»`; rename preloads a typeable name; a name prompt
+  before JOIN/CREATE only when unnamed, SKIP preselected. Setup from Home (owner 2026-09-23, D11): JOIN/CREATE
+  pass the same settings gate; INVITE MEMBER opens without it (changes no settings); exits return to the recorded
+  origin; a blocked gate shows a SETTINGS-slot note. Editor (owner 2026-09-23, D4): uppercase, digits, space and
+  `. , ? ! -` in seven groups of six, controls under `EDIT`, return to group 1 after each character. Splash (owner
+  2026-09-24, D3): the mark for about 1 s after start-up with the build's Git ID under it, dismissible, never on
+  wake. Home card (owner 2026-09-24, D12): while this session's newest sealed team post is unread, Home's rows
+  1–2 show `FROM T<n> <age> +<n>` and its first 19 bytes; no rows added, cleared by the existing unread rule. All
+  decisions are ruled. Independent review 2026-09-24: HOLD with DR-1–DR-8 (card bound to the session arrival
+  serial, preset `text_max` and reply buffer, per-caller review table, full-precision Inbox key, wording); the
+  scoped re-review closed seven and kept DR-4 (name origins, request states, known refusal vs residual) plus
+  minor DR-9–DR-11; the second re-review returned PASS with fold-ins (DR-12 folded into revision 2.17), and
+  the owner confirmed the author's disclosed choices. The design is REVIEWED; each §13 package still needs a
+  Quality-Agent pre-check, a measured allocation and a brief. B335 stays open until implementation QA. B335 stays open; B440–B448 were registered by this work
+  (B446: the GPS design still contradicts preset ruling R-2; B447: a `peername` label is overwritten by the peer's
+  next advertised name; B448: `cfg set name` silently shortens names over 32 bytes).
 
 - **Remote administration v2 controller boundary (owner-ruled; design QA-passed 2026-09-04):** the locally
   attached MeshRoute node—not its companion—is the authenticated RPC endpoint. It seals/opens with its

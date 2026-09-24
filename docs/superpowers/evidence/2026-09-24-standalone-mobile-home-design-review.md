@@ -1,0 +1,118 @@
+<!-- Author: OpenAI Codex; independent design review, 2026-09-24 -->
+# Standalone mobile Home — independent design review
+
+**Verdict: HOLD — 2026-09-24.** Revision 2.14 needs the corrections below before implementation briefs. The principal source error is the Home card's comparison of a persistent Inbox sequence with a session-arrival watermark. The preset console contract and the shared review/submission state machine also need correction. The message capacities, catalog allocation arithmetic, editor gesture calculations and font claim reproduce.
+
+This reviews the [design](../specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md) under the [review brief](../plans/2026-09-24-standalone-mobile-home-design-review-brief.md). It is a specification review, not an implementation or hardware gate. I authored the September 22 preparation handoff, but did not author the reviewed revision 2.14 or its source audit. I have left all reviewed inputs unchanged. No owner ruling D1–D13/D13b is reopened; none of these corrections requires an owner ruling on the evidence established here.
+
+## 1. Inputs verified
+
+Both commits match: MeshRoute `20357578700270d7315dcf86bc3bb5725d8024cb`; simulator `6585649ea5a780f0542b2931853a667be56a5b2b`. Simulator porcelain is empty. Production, test, tool, profile and simulation sources have no working-tree changes.
+
+| Input | SHA-256 observed | Result |
+| --- | --- | --- |
+| Review-input manifest | `0e3319fa9fd2df423985a93266135dae90302f9193fe6ce4508afb599e7bfab6` | Matches the brief |
+| Design, revision 2.14 | `e3d34eaed1719e8d6adbaceeb820225a716dda718166bfa0b28fcd5c670694e4` | MATCH |
+| Source audit | `84de18db60678a4c54d91b83d4761c34f9bd536969d4eb695723933dc855bf96` | MATCH |
+| Bug register | `03119e87bbe4347128defd57d7fba1f5902262235b8713879e47ad2aae9d2b6f` | MATCH |
+| Specification-author handoff | `ba9f71e9c7783de42c511bdd007df990381aa49b75beced08050d2f428f2c5b8` | MATCH |
+| Handoff-input manifest | `3cddb1512296152893d27b94e5816e0c19a18d0490fe1db4e36488408c75dfe1` | MATCH |
+| `tracker.md` (context) | `317610f0f74a71c13de9f8ba3eaba7e01e0080d4445870f12ce3cd9130b7f691` | MATCH |
+| `MEMORY.md` (context) | `1b123557e6b2a04fa205b3a0902a86ba5a0ac0d2a45e5ef0fd10bc1fe01a92b8` | MATCH |
+| Review brief (additional receipt pin) | `8404261e617624dca8f95a1820dcccdc176629653ba928878f498d9f078b3e4b` | Recorded at review |
+
+Starting changes were exactly the manifest's preparation set, plus its two expected new files: deleted `B164.md`; modified `MEMORY.md`, register, design and tracker; untracked September 22 handoff, handoff manifest and source audit; untracked September 24 review brief and review manifest. No mismatch required a STOP. The reviewed-file hashes were checked again at completion. The only review output is this report; all 1,140 pre-existing tracked/untracked paths in the preservation inventory retain their starting contents or absence.
+
+## 2. Findings
+
+Line numbers below are hints at the pinned tree; symbols and section names are the anchors.
+
+| Finding | Severity | Design § | Finding | Evidence (`file:symbol`, line hint) | Required correction | OWNER RULING REQUESTED |
+| --- | --- | --- | --- | --- | --- | --- |
+| **DR-1** | **BLOCKER** | §8, §§6.1/14/15 | The card clears when the channel watermark moves past its Inbox `seq`, but those numbers are different domains. A record restored at sequence 100 followed by one arrival gives card seq 101 and arrival/read watermark 1. Completing the Inbox frame cannot satisfy the specified comparison. The existing watermark also advances on the passive Inbox screen, not only an entered list or a frame that exposes that particular row. | `src/firmware_ui_model.h:UiInboxCounters` (2072–2084), `FrameGate::step/on_page` (5651–5684); `src/firmware_ui_send.h:ui_route_recv_push` (665–666); `lib/core/inbox.cpp:restore_next`, `Inbox::record`, `Inbox::erase` (72, 159, 258). | Bind the card to the **session arrival serial** used by the frozen frame, separately from record identity; define the modular comparison/clearing boundary and price any state. Describe the existing passive-screen/read-all-arrivals behavior accurately, retaining D12's existing unread policy. Add nonzero restored-sequence, tombstone/gap, passive Inbox, arrival-during-frame and counter-wrap cases. Do not replace the existing counter with persisted `Inbox::mark_read`. | No — D12's display-only/existing-unread choice stands |
+| **DR-2** | **MAJOR** | §7.7, W6, §14 | “`ui preset` NDJSON reports capacity T” conflates text bytes with slot count. Today `ui_presets_end.capacity` is **17 slots**, derived from `kUiPresets`; setting it to 163 would report the wrong catalog cardinality. | `src/firmware_ui_preset_verbs.h:write_ui_presets_end` (152–156); `src/device_nv.h:kUiPresets`, `kUiPresetTextMax` (355–356). | Specify the console schema explicitly: retain the slot count and, if the text bound is advertised, give it its own clearly named byte-limit field. Reconcile the W6 and acceptance wording; test both quantities independently. No compatibility machinery is requested. | No |
+| **DR-3** | **MAJOR** | §§7.7/11.1/13–14 | The capacity audit sizes the outgoing send command but misses the preset reply buffer. `kPresetLineMax` is a literal **160**. A valid 163-byte emergency phrase with location off needs **243 bytes including newline, 244 including NUL** in the existing schema. Leaving the buffer unchanged makes `JsonBuf::finish()` return 0 and the emitter write zero bytes: a successful set/list can lose its record reply. | `src/firmware_ui_preset_verbs.h:kPresetLineMax`, `write_ui_preset`, `preset_emit_record` (78, 136, 182); `lib/console/console_json.cpp:JsonBuf::ch/finish` (12, 96); `src/firmware_commands.cpp:PresetPrintLines::line` (194). | Include the serializer bound and all emitters in W6's derived capacities/fence. Account for its call-path stack cost; do not infer stack neutrality only from moving the send buffer. Require full 163-byte set/list round trips through the real output path and a control restoring the old bound. This is a **proposed-change omission**, not an existing defect at the current 17-byte cap. | No |
+| **DR-4** | **MAJOR** | §§5.4–5.6/7.3–7.4, W6–W8 | The unified review lacks caller-specific transitions. `long_fire`, team invalidation and executor refusal return “to the editor,” including saved-phrase reviews, while preset editing is explicitly out of scope. The new draft-locked gate is not scoped to manual kinds, so its literal application rejects presets that have no manual draft. The text also ends the lock at command drain but invokes that lock to prevent another editor until acknowledgement. | Design §5.5 (350–355), §5.6 (363–368), §7.4 (640–647); current `src/firmware_ui_send.h:send_gate_of` (493–503); `src/firmware_ui_model.h:compose_gesture/close_compose`, `take_send_request`; `src/firmware_ui.cpp:mr_ui_tick` (2483–2490). | Add a caller × event/outcome table for name, manual DM/team and saved DM/team review. Define preset return to its selection list without creating an editable preset draft. Separate manual draft validation from preset slot/generation validation; state which context gates apply to both. Specify ownership through queued, drained, synchronous refusal, accepted/asynchronous failure, acknowledgement and emergency pre-emption; distinguish content locking from panel/result ownership. Every path must keep or release the correct bytes and require a fresh safe review where appropriate. | No — implements D5 and retained safety rules |
+| **DR-5** | **MAJOR** | §6.8, §11.1, W4c/W4d, §14 | The proposed merge has no specified full-precision sort-key path. The existing eight published rows contain **seconds of age**, not receive timestamps. With `now=2000 ms`, DM at 1100 ms and channel at 1900 ms both project to age 0; treating that as a tie puts the older DM first. The design's “equal times” rule refers to receive time, not this quantized value. | `src/firmware_ui.cpp:inbox_row_cb` (585–592), `fill_inbox_rows`; `src/firmware_ui_model.h:InboxRow`, `InboxRowBudget::add/publish` (1728–1735, 2118–2155); `lib/core/inbox.h:InboxEntry::rx_time_ms`. | Specify where the original ordering key survives until the merge, or how it is otherwise obtained before projection. Keep the four-per-kind budget and boot split. Add unequal timestamps within one second, genuinely equal timestamps and long-uptime cases. Re-price any temporary/resident storage instead of assuming the boot boundary's +8 B is the whole ordering cost. No particular extra allocation or implementation is mandated by this finding. | No — D13/D13b's ordering and restart policy stand |
+| **DR-6** | **MINOR** | §7.8 and D8 summaries | “Boots on the defaults once” is inconsistent with zero boot writes and replacement only on a successful mutation. An untouched v1 record will select defaults and report the old-record diagnostic on **every boot** until replaced or erased. | Design §7.8 table; current `src/firmware_ui_presets.h:PresetCatalog::begin/commit`; `src/device_nv.h:load_ui_presets`. | Say “until the first successful v2 mutation or erase,” including repeated diagnostics. Keep zero boot writes and no upgrade reader; do not add a hidden write merely to make “once” literal. | No |
+| **DR-7** | **MINOR** | §§4.3/4.6, W1c validation | The statement that peers learn a rename at their next key exchange is too broad: pinned rows ignore an on-air refresh. Also, no-default-name advertising does not erase an **already persisted** old default-name cache: empty names are ignored. The new fresh-cache behavior is sound, but the rollout/test precondition is unstated. | `lib/core/node_hashlocate.cpp:peer_key_set` (343–346); `src/fw_main.cpp:setup` peer-store restore (1054); B447, explicitly retained open for named-peer precedence. | Qualify propagation for non-pinned cache rows, and state the fresh/reset peer-cache precondition when proving the unnamed-display behavior. Preserve D8's no-compatibility policy: this does not request migration, special default-string recognition or a new name-precedence rule. | No |
+| **DR-8** | **MINOR** | §§4.6/8/12/15 | Three exact examples need correction: omitting an unnamed WANT_PUBKEY trailer saves **27**, not 26 bytes (length byte plus name); the capped card token `+9+` makes the shown worst header **17**, not 16 columns; EDIT-01 asks for mixed-case `Return to base now`, which the ruled uppercase editor cannot produce. | `lib/core/frame_codec.cpp:pack_h` (668–682); design §8 `+<n>`/`9+`; D4 repertoire and §15 EDIT-01. | Distinguish INTRO/key-answer savings (26) from key-request savings (27); fix the header census without changing the cap; use `RETURN TO BASE NOW` for manual-entry metal work while retaining the mixed-case **saved default** exactly as D9 rules. | No |
+
+## 3. Independent verification and review coverage
+
+### Source and calculations
+
+**Admission and line size.** Read the executable constants, `data_inner_cap`, the `on_command` send/send_channel arms, `enqueue_data` and the parser. Re-derived: frame 255; DATA buffer 241; admission DM 232; sealed DM 214, located 208; sealed team text 173, located 163. The 241-byte parser clamp exists; its current text consumers have smaller bounds. `kSendLineCap` is 96. The proposed conservative formatted-command bound is `13 + 10 + 2 + 163 + 1 + 9 + 1 = 199`, including NUL. The ten digits bound `%u`, rather than claiming a reachable ten-digit channel ID.
+
+**Catalog.** Read the actual slot/header/tail and the three catalog members. For T=163: slot `3+164=167`; record `12+17×167+1=2852`; three-record growth `3×(2852−372)=7440`. The projection must be decoupled from T as proposed. The catalog instance is OLED-gated in `firmware_commands.cpp`; the six OLED profiles share it. D7's estimate is reproduced, not a linked allocation measurement. DR-2/DR-3 address the additional console contract.
+
+**Host layout measurement, outside the repository.** A disposable C++20 program included the real `firmware_ui_model.h` and `firmware_ui_presets.h`, with `MESHROUTE_NATIVE=1`, `MR_N_LAYERS=2`, repository header paths and `lib/monocypher/src`. It printed `sizeof`/alignment only; it was not a native firmware test. The first compile lacked the Monocypher include directory and failed with `fatal error: monocypher.h: No such file or directory`; adding that existing header path made the calculation compile and run without source changes.
+
+| Type | Independent host size / alignment | Audit comparison |
+| --- | --- | --- |
+| `UiState` | 504 / 8 | Match |
+| `UiSnapshot` | 1336 / 8 | Match |
+| `UiModel` | 928 / 8 | Match |
+| `ComposeSlot`, `ComposeList` | 20 / 1, 161 / 1 | Match |
+| `SendReq` | 8 / 4 | Match |
+| `UiPresetSlot`, `UiPresetBlob` | 21 / 1, 372 / 4 | Match |
+| `PresetCatalog` | 1144 / 8 | Match |
+| `InboxRow` | 40 / 4 | Additional current-layout observation for DR-5 |
+
+The static/transient distinction and doubled `UiState` in §11 are appropriate. Candidate draft/card sizes and overall +8.3 KB remain estimates, with DR-1/DR-3/DR-5 to fold in. No candidate board layout, linked RAM, flash delta or NVS occupancy was measured. The cited 211724-B mobile baseline remains a historical receipt figure, not a reproduction here.
+
+**Location and outcomes.** Verified per-slot location intent in `ui_compose_send_line`, emergency's no-fix exception, strict DM location checks in `enqueue_data` and channel checks in `on_command`. A synchronous channel refusal maps through `refuse_reason_of` to `REFUSED`/code; `NO FIX` is the asynchronous DM failure mapping. D6's no-`-l` manual path is consistent with the current command grammar. B446 correctly identifies the older GPS design's conflicting phrase policy; it remains separate documentation work.
+
+**Names and corpus prediction.** Verified `Node::effective_name`, INTRO length, key-answer length, optional WANT_PUBKEY name trailer, empty-name receipt, pinned/unpinned refresh, `whoami`, `write_ready` and `write_peer_row`. Read simulator `JsonConfig.cpp`'s required name field, then used the canonical anchor-table parser from `tools/run_corpus.py` in read-only mode to select the actual scenario set: **36 scenarios, 783 nodes, all with nonempty string names**. This supports W1c's predicted corpus inertia; no simulator run proves it here. Name-related qualifications are DR-7/DR-8. Companion application rendering itself was not inspected.
+
+**Inbox and restart.** Verified uptime accumulation in `ArduinoClock`, restoration in `Inbox::on_init` before `mr_ui_init`, receive-time record paths, and `Inbox::clear` preserving sequence high-water. D13b's boot boundary is available without a new persistent format. Reproduced B445's source-level counterexample: an old stamp of 300000 ms can appear five minutes old when the next boot reaches 600000 ms. Read the row projection, per-kind budget, identity cursor and frame watermarks; DR-1 and DR-5 are the discrepancies between those seams and the proposed design.
+
+**Input, navigation and setup.** Verified the 25/350/800/3500-ms input defaults, delayed short classification, emergency-before-wake ordering, overlay short/double absorption, retained blank state, list navigation, settings service opening/retention, provisioning close on leaving Settings, `prov_invite` and `DeviceInvite`'s operations. The proposed Home gate/return-origin approach can reuse these seams. `ui_route_recv_push` counts and wakes DMs; channels count and wake only when sealed; it does not navigate. B444's unequal DM/channel pre-DAD guards and the static-origin fallback are present. This review does not execute a pre-DAD radio reproduction.
+
+**Editor calculations.** Independently implemented the stated ring arithmetic as a disposable calculation: a character costs the forward group distance + one choose + its character index + one choose; finishing walks to EDIT and then DONE. All six sample rows in audit §4 reproduce, including **STAN 30**, **END OF SHIFT 84**, **RETURN TO BASE NOW 126**, and **INJURED AT NORTH RIDGE, SEND HELP 217** for return-to-group-1. The return phrase is 88 shorts/38 doubles; `88×350 ms=30.8 s` of short-classification waiting. Uniform means are **7.50** versus **7.928571…** for return-to-previous-group. Deletion after an insertion is nine gestures. These are the specified model's costs, not a measured typing rate.
+
+**Wrap proposal.** A direct disposable translation of §7.2 preserved concatenated bytes and the 19-cell bound over 10,000 deterministic sampled inputs. A 163-byte boundary witness, `(" " + "A"×19)×8 + "XYZ"`, produces line lengths `(1,19)×8,3`: **17 lines / six pages**. The proposal is coherent and admits the stated worst page count. The author's later implementation still needs its own property and boundary tests; this calculation is not a test of production paging.
+
+**Glyph and geometry.** Independently decoded the actual `u8g2_font_6x10_tf` array using the library's 23-byte header and length-linked glyph records. It is 2000 bytes, SHA-256 `dbdd1b69c7c364c77ea1a72a5545a4eac3af317f52c290652b4917eb79d1b402`, with 191 byte glyphs exactly in 0x20–0x7E and 0xA0–0xFF; **0xBB is present**, at array offset 1221. `board_ui.cpp` uses that font and byte-oriented `drawStr`. Checked rail x=0–9, gutter x=10–11, body x=12, five rows and 19 columns. Team lines are 18/19 cells; the longest stated DM review header and located action row are 19. The ring layouts fit their budgets. The mark coordinates center 24 pixels, and a 13-character build ID occupies 78 pixels at x=25–102. Under the card plus restart message, row 0 identity, row 1 header, row 2 restart and rows 3–4 actions fit; DR-8 corrects the card's capped-count census. These are calculations, not a glass-readability result.
+
+### Rulings and earlier authorities
+
+| Decision | Review disposition |
+| --- | --- |
+| D1 | Menu/list distinction, Home landing, `MENU` exits and withdrawn re-homing are carried through; emergency and frame-read contracts need the precise qualifications in DR-1/DR-4 |
+| D2/D2a–D2c | Identity/team/action row budgets, Inbox first, invitation entry and Settings via menu are carried through |
+| D3 | Boot-only, nonblocking, dismissible splash with existing Git ID is carried through; physical timing remains pending |
+| D4 | Fixed equal uppercase groups and return-to-first are consistent; costs reproduce; correct the metal example per DR-8 |
+| D5 | Safe initial review action is consistent; caller-specific returns/ownership need DR-4 |
+| D6/D7 | Shared 163-byte bound and no location on manual text are consistent; 7440-B catalog estimate reproduces; console consequences need DR-2/DR-3 |
+| D8 | No migration reader and zero boot writes are retained; the repeated-boot wording needs DR-6. The older handoff's migration recommendation is superseded by this owner ruling |
+| D9 | Five retained plus three added defaults give eight enabled defaults; exact mixed-case saved text is retained |
+| D10 | 32-byte names, uppercase-compatible preload, safe unnamed setup prompt and no default advertisement are carried through; qualify propagation and exact savings per DR-7/DR-8 |
+| D11 | Shared join/create settings gate, ungated Home invite, explicit origin and Settings-slot refusal note are consistent |
+| D12 | Display-only card and unchanged wake/navigation direction are consistent; its clearing mechanism needs DR-1 |
+| D13/D13b | Four rows per kind, current-boot merge, old-history grouping and unknown ages are consistent; specify the actual sort-key path per DR-5 |
+
+Read the relevant parent OLED, UI-17, UI-16, preset, GPS and address-book authorities. §10 identifies the main intentional reversals rather than silently discarding them. UI-17 R-1/R-5/R-7, S8 and the retained Team ordering remain the applicable constraints. DR-1 must clarify that “existing read rule” includes the source's passive Inbox behavior; changing it would need an explicit authority revision instead.
+
+### Packages, instruments, register and assignment
+
+The dependency edges named by the brief are present: W1/W1c before W4a; W2 before W6; W4c before W4d. W3 is isolated as a refactor; core fixes and W1c retain the full gate; no new core translation unit is proposed, hence no simulator source-list addition. The final §13 paragraph carries P6's per-scope gates, P7's symbol-user audit, strict-reader requirements and the two-environment board gate. Those are obligations for later concrete briefs, not measurements or dispatch permission from this review. DR-2–DR-5 must appear in the corresponding package fences and acceptance cases.
+
+The matrix appropriately requires real `probe_firmware_ui` renderer/composer reachability, beyond pure helper cases. Verified the source-reading drift described for B418 against the current dispatch signature, BLE shared-dispatch path and retired help anchor; no probe/control counts are claimed. The mutation copy-amplification caution and full-input preservation requirement remain valid. No mutation, probe or full gate was run.
+
+B440–B448's principal findings are supported by the current source/documents: identity fallback drops fields; labels omit sanitization and can clip hashes; KEYRING FULL's intended lexeme differs from the renderer's refusal; touched comments drift; pre-DAD channel admission lacks the DM guard; old ages can be false; GPS phrase policy conflicts with R-2; unpinned peer names overwrite labels; `cfg set name` silently clamps. B443 is a list for the touching slices, not a claim that each comment has been repaired. B241 remains distinct from B441. No duplicate of these new rows was found in the related name/load/age/register search. Their existing “static, not reproduced” qualifications remain appropriate.
+
+The metal mappings remain proposed residue in the design; the actual metal plan is unchanged and no row is marked PASS. EDIT-01 is not yet an allocated live scenario. Resource allowances remain limited to the owner's accepted catalog estimate; additional measurements return through the later brief/pre-check process. The review does not impose compatibility work withdrawn by D8 or reopen D1–D13/D13b.
+
+## 4. Not verified
+
+- No native firmware suite, corpus execution, board build, linked RAM/flash measurement, warning census, ABI board probe, mutation battery or production wiring probe was run. The disposable host layout program and source/formula calculations above are the only executions relevant to this review.
+- No hardware timing, readability, actual transport delivery, button ergonomics, power draw, NVS free-entry count or power-cut outcome was measured.
+- No implementation exists for these proposed editor/Home/review changes; their production behavior has not been demonstrated.
+- Author-reported historical gate figures, earlier agent exploration results and companion application rendering were not accepted as independently reproduced results. Owner quotations are reviewed as the supplied decision record; I did not independently authenticate the originating conversation.
+
+## 5. Register and next step
+
+**Register rows added: none.** DR-1–DR-8 are corrections to the design under review, handled in this report as the review brief requires. No reviewed register row was edited; next free remains B449. **B335 stays OPEN.**
+
+Return the report to the author for revision 2.15, with each DR number marked fixed or disputed. Re-review the changed sections and their affected acceptance/resource/package entries. The HOLD concerns this design contract; it does not withdraw completed software gates elsewhere in MeshRoute. Commits are not a prerequisite for that correction/re-review cycle.

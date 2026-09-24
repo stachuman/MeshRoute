@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "purpose": "Re-review input pin: revision 2.15 of the standalone-mobile Home design folds in review findings DR-1–DR-8. Only the changed sections are re-reviewed. The first review's report, brief and manifest are pinned unchanged as receipts.",
+  "observed_date_utc": "2026-09-24",
+  "repository": "/home/staszek/MeshRoute",
+  "base_commit": "20357578700270d7315dcf86bc3bb5725d8024cb",
+  "simulator": {
+    "path": "/home/staszek/lora-universal-simulator",
+    "commit": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "status_porcelain": "",
+    "edits_authorized": false
+  },
+  "working_tree_status_porcelain": [
+    " D B164.md",
+    " M MEMORY.md",
+    " M docs/2026-07-30-open-bug-register.md",
+    " M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    " M tracker.md",
+    "?? docs/superpowers/evidence/2026-09-22-standalone-mobile-home-handoff-inputs.json",
+    "?? docs/superpowers/evidence/2026-09-22-standalone-mobile-home-source-audit.md",
+    "?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-review.md",
+    "?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-review-inputs.json",
+    "?? docs/superpowers/plans/2026-09-22-standalone-mobile-home-spec-author-handoff.md",
+    "?? docs/superpowers/plans/2026-09-24-standalone-mobile-home-design-review-brief.md"
+  ],
+  "preserve": [
+    {
+      "path": "B164.md",
+      "status": " D",
+      "instruction": "Preserve deletion"
+    },
+    {
+      "path": "all untracked paths listed above",
+      "instruction": "Preserve; never clean"
+    }
+  ],
+  "reviewed_inputs_sha256": {
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "2a162dcdfd7ce23d7267a9c8f6e02025f9601b946b22845e870bf09975a253dd",
+    "docs/superpowers/evidence/2026-09-22-standalone-mobile-home-source-audit.md": "9c90f644c1413ddd1faec543d97d8827952a9ed74eedd7466ec9a83a9d3c76ba",
+    "docs/2026-07-30-open-bug-register.md": "03119e87bbe4347128defd57d7fba1f5902262235b8713879e47ad2aae9d2b6f",
+    "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-review.md": "d7c8ffb02ea64a3fd785c0942e7cb58e9c68a6674c3816dacfd61c3452f984fe",
+    "docs/superpowers/plans/2026-09-24-standalone-mobile-home-design-review-brief.md": "8404261e617624dca8f95a1820dcccdc176629653ba928878f498d9f078b3e4b",
+    "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-review-inputs.json": "0e3319fa9fd2df423985a93266135dae90302f9193fe6ce4508afb599e7bfab6"
+  },
+  "context_sha256_informational": {
+    "tracker.md": "93a49b3e48315f27ed7ceae3c81588e366bd2a347577b772ffffb028f92a6abe",
+    "MEMORY.md": "e95ae0e42a092ee56ca496603c9e80103306f68db011f193c0c835c94bcad487"
+  },
+  "design_revision": "2.15 (2026-09-24)",
+  "register_next_free_at_pin": "B449",
+  "expected_rereview_output": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-rereview.md"
+}
