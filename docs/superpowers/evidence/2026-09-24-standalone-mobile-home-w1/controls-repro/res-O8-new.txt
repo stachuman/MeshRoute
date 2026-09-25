@@ -1,0 +1,3 @@
+exit=1 fails=2
+  FAIL P23d ★★ rule 3 — the name column now reads `Wolfga`, CLAMPED to six  named && row_after != nullptr && strncmp(row_after + 1, "Wolfga", 6)
+  FAIL P23e ⛔ the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, "Wolfgangetta")

@@ -1,0 +1,256 @@
+{
+  "scenarios": [
+    {
+      "name": "s06_seattle_lifecycle",
+      "sha256": "8752ead2e768a636151d1b18a70789911b45935fa0fc1aa3240598a91207360c",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s07_seattle_mobile_meshroute",
+      "sha256": "2d2b7f102d5fd83128f9193f75c476be6d3db0fd7319525f664a3783d3f4eadd",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s09_two_layer_gateway",
+      "sha256": "00344934602afbcb592d05c162414c37d137e5d1cbf45d7f66db7773df0e4bb2",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s09_two_layer_gateway_metal",
+      "sha256": "0609592534fc6dbb27d790d6b0bc5047cb6e424750d7926e48c571529ce474c3",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s10_two_layer_separation",
+      "sha256": "11be65070092db0e2c013a99b0a7f13706ae7f76bcd8b8a8d9126b4bf793a5d5",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s15_three_layer",
+      "sha256": "8a2b3b408f6b2259d317782776dd158e6b59d38e77107ceb1e40471412b370f3",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s15_three_layer_metal",
+      "sha256": "90456024d18efa391410ac0eef79b46c103856f27b339ab6c238942191be7549",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s16_dense_gateway",
+      "sha256": "37a445d91b4334177e8c351412b6078d48d7df65d05326b7dee5056551525c79",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s17_metro",
+      "sha256": "0bc2d1a86c868f13a92e6afb16ec1f35b6c1267b3fdf828db322d174225d459c",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s18_meshroute",
+      "sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s19_singlelayer_multihop_chain",
+      "sha256": "b22f0c43d5ab71b562d5a6d9504fd295577635680ac5552c3df7e6f8c8c58520",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s20_random_mesh",
+      "sha256": "a67929d840d2fa8090d8ca44b642557fbcf82239d3b43752ffc07d5df8c596b3",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s21_leaf_config_divergence",
+      "sha256": "9e4d191fcd66c05d2aa4946704444e422fc1484d2d9739ee5cd72992459b8307",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s21_mobile_dm_milestone_meshroute",
+      "sha256": "10976b355525b9b645d507609a5ae02ed1671e4955a53fb1f485eee8aecf2a3a",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s22_leaf_config_join",
+      "sha256": "1284016dc4b2efa9bbe062e8a08daeab1fff2be90d89a19b663f84f28a20f02f",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s22_mobile_team_meshroute",
+      "sha256": "c7daa5cf616ac3d46adeadd489d2d34472a4fe561cec7e67664d92276880477d",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s23_leaf_config_epoch_write",
+      "sha256": "ee3d026fc7983177d4231e3052eedcc6f5af430b3170159052845e8ab1bad1f8",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s23_mobile_team_multihop_meshroute",
+      "sha256": "f3944eba314b6dd04bb2fc1a56f2c82864f6f77083aa556cdc4c6014ee3301ac",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s24_static_and_team_multihop_meshroute",
+      "sha256": "6202cba600410ade5974967b015d997013a52265dda90caea94d6e77c23dbfa3",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s25_two_team_separation_meshroute",
+      "sha256": "894b9c42caa7c4ce4a8fc88048c6540286e28b055286217e00a102ca475466cf",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s26_team_reroute_meshroute",
+      "sha256": "0723687f154855a9747ac4ef312a54ef071b8c8c27675434393dcc07c40a5ce0",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s27_cross_layer_mobiles_meshroute",
+      "sha256": "7be75453d0c079c59d89bbdefce877e97cb7af6e24d9381073ceb2bdc18986bb",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s28_mixed_team_channels_meshroute",
+      "sha256": "87df8a70ae918189b2a2ebbbd77dc5ea915447727381b21d6dfd131a168b946e",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s29_mixed_leaf_team_meshroute",
+      "sha256": "a5d6ae27d5d995cff354104169893cc9bb04d748a14b68762d991109bf1ec1f6",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s30_team_dad_mediation_meshroute",
+      "sha256": "63986c46b33f927b4b6d625da189c90bbdc61112e5c64f2d6ff2cad84c745256",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s31_dual_carrier_gateway",
+      "sha256": "4ce423cd90ebb73938450018717144ed7d736c5421d644e94956e9eae19f9ef5",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s32_dual_cr_gateway",
+      "sha256": "5da34fbd85aa56965c26fa63630fb3c83d9591e8be7419722b6236b024d5b546",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s33_mixed_cr_channel_overhear",
+      "sha256": "79d6ad865863fae7525406c71b484865b785ed7d569e0c98558a21327ccb4400",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s34_team_switch_clears_plane",
+      "sha256": "19fee178527e37b46e729a09f63328b58da63a9ba157f952204adcd21caa7c52",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s35a_cochannel_isolation_meshroute",
+      "sha256": "5048191f64629d5f27bcda818ed85ed6511ab8e0cecc892359ffd03aadc98e86",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s35b_cochannel_isolation_control_meshroute",
+      "sha256": "1ec7e51e16a13fb8d8ec2c495acfe4ced388f89279e4987692c179bdef3d5fe1",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s36_reprovision_purges_carriers",
+      "sha256": "0bb7e6e2caa505d6e4dee297bb3d8e6ac4f8079aa5adbf78bd6dfb8ad1ee090a",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s37_team_homed_origin_meshroute",
+      "sha256": "4c5526bafea200b4d39a7ed32e5dde174d9d3e5ba9d4221ecf058d668e2ae0d1",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "s38_team_origin_learn_meshroute",
+      "sha256": "0d12280c1f66e789c90f4b90f0c8b4db4c4e95696e97f1ad14ac04778fe3f037",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "sim_9node_base",
+      "sha256": "2cb4a13d42f9519ecf500a8e1bb96fe4b204113bfcf14fbe0ee09008c5cf6610",
+      "matches_precheck": true,
+      "matches_coder": true
+    },
+    {
+      "name": "twin_9node_dm",
+      "sha256": "3f48d922db52f2491feba58e434b3ecf233af217fa6e07a65e828c55eaf34679",
+      "matches_precheck": true,
+      "matches_coder": true
+    }
+  ],
+  "s18": {
+    "anchor_assertion_failures": 0,
+    "anchor_events": 269517,
+    "anchor_match": true,
+    "anchor_md5_prefix": "32afbf11",
+    "assertion_failures": 0,
+    "events": 269517,
+    "exit_status": 0,
+    "name": "s18_meshroute",
+    "output_bytes": 38698103,
+    "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+    "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+    "promoted": true,
+    "scenario_path": "simulation/s18_meshroute.json",
+    "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+  },
+  "canonical_s18_anchor": {
+    "name": "s18_meshroute",
+    "anchor_md5_prefix": "32afbf11",
+    "anchor_events": 269517,
+    "anchor_assertion_failures": 0
+  },
+  "fields_compared": [
+    "output_md5",
+    "output_sha256",
+    "output_bytes",
+    "events",
+    "exit_status",
+    "assertion_failures",
+    "anchor_match",
+    "scenario_sha256"
+  ],
+  "inputs_stable": true,
+  "lus_sha256": "9fe475f3180b655b2550c9f275c6095fb74ce54a1523155c3468e6fb443ce52d",
+  "baseline_sha256": "71f140988e9d1a5bf1be49dd1feb8fc7ebb8e46c7a4b119e16db62f0df76962f",
+  "diagnostic_note": "An earlier ad-hoc pretty-printer searched for a Markdown pipe row and raised StopIteration after the 36 hash comparisons passed. The stock corpus runner passed throughout; this receipt uses its actual fenced-block parser."
+}

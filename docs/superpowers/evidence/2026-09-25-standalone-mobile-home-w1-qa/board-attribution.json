@@ -1,0 +1,96 @@
+{
+  "tool": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-nm",
+  "object": "/home/staszek/MeshRoute/.pio-measure/env/heltec_mobile/build/heltec_mobile/src/firmware_ui.cpp.o",
+  "object_sha256": "b20a6cfc51f2ffa00e73bef0227206915793518e76554218141f74f13185bd20",
+  "all_changed_symbols_defined_in_firmware_ui_object": true,
+  "symbols": [
+    {
+      "symbol": "_Z10mr_ui_tickm",
+      "base_bytes": 7030,
+      "qa_bytes": 7026,
+      "delta": -4,
+      "unlinked_object_bytes": 7366
+    },
+    {
+      "symbol": "_Z21mr_ui_arm_button_wakev",
+      "base_bytes": 42,
+      "qa_bytes": 44,
+      "delta": 2,
+      "unlinked_object_bytes": 51
+    },
+    {
+      "symbol": "_ZN12_GLOBAL__N_112inbox_row_cbEPvRKN9meshroute10InboxEntryE",
+      "base_bytes": 235,
+      "qa_bytes": 236,
+      "delta": 1,
+      "unlinked_object_bytes": 244
+    },
+    {
+      "symbol": "_ZN12_GLOBAL__N_115label_from_hashEmPch",
+      "base_bytes": 34,
+      "qa_bytes": 50,
+      "delta": 16,
+      "unlinked_object_bytes": 54
+    },
+    {
+      "symbol": "_ZN4mrfw13ConfigService4saveEv",
+      "base_bytes": 281,
+      "qa_bytes": 282,
+      "delta": 1,
+      "unlinked_object_bytes": 286
+    },
+    {
+      "symbol": "_ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE",
+      "base_bytes": 38,
+      "qa_bytes": 37,
+      "delta": -1,
+      "unlinked_object_bytes": 37
+    },
+    {
+      "symbol": "_ZN4mrui18ui_team_geo_bucketERKNS_10UiSnapshotERKNS_7TeamRowE",
+      "base_bytes": 164,
+      "qa_bytes": 166,
+      "delta": 2,
+      "unlinked_object_bytes": 170
+    },
+    {
+      "symbol": "_ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE",
+      "base_bytes": 120,
+      "qa_bytes": 118,
+      "delta": -2,
+      "unlinked_object_bytes": 118
+    },
+    {
+      "symbol": "_ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE",
+      "base_bytes": 500,
+      "qa_bytes": 504,
+      "delta": 4,
+      "unlinked_object_bytes": 523
+    },
+    {
+      "symbol": "_ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE",
+      "base_bytes": 179,
+      "qa_bytes": 183,
+      "delta": 4,
+      "unlinked_object_bytes": 183
+    },
+    {
+      "symbol": "_ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE",
+      "base_bytes": 278,
+      "qa_bytes": 282,
+      "delta": 4,
+      "unlinked_object_bytes": 293
+    },
+    {
+      "symbol": "_ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE",
+      "base_bytes": 424,
+      "qa_bytes": 423,
+      "delta": -1,
+      "unlinked_object_bytes": 443
+    }
+  ],
+  "linked_symbol_delta": 26,
+  "loadable_text_delta": 28,
+  "remaining_alignment_bytes": 2,
+  "limit": "No independently compiled pre-fix object in this QA run; base ELF symbols verified against the coder baseline manifest. Linker relaxation is the explanation consistent with unchanged source functions and their differing object-versus-linked sizes."
+}

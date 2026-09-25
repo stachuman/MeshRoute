@@ -1,0 +1,9 @@
+{
+  "targets": 105,
+  "selector_a": {},
+  "dependency_counts": {
+    "MUTS_UITEAM": 20,
+    "MUTS_UIINVITE": 32,
+    "MUTS_UISEND": 15
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "results": [
+    {
+      "label": "B241a",
+      "tree": "frozen",
+      "arm": "l2",
+      "mutant_sha256": "67e923576e168660c086349f1e94448f2e43509482b8967a0f20637ddbdc4aae",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H1\", 2)",
+        "  FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H2\", 2)",
+        "  FAIL P28a a 27-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[2].name, strlen(named[2].name))",
+        "  FAIL P28a \u2605\u2605 renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, \"H1\", 2)",
+        "  FAIL P28a a 14-byte name lands whole, NUL at byte 14                   label_is(f, named[3].name, 14)",
+        "  FAIL P28a a 15-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[4].name, 15)",
+        "  FAIL P28a a 32-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[5].name, 32)",
+        "  FAIL P28a synthetic: capacity 1 writes only the terminator             only_nul",
+        "  FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)",
+        "  FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)"
+      ],
+      "failed_count": 10
+    },
+    {
+      "label": "B241b",
+      "tree": "frozen",
+      "arm": "l2",
+      "mutant_sha256": "e3ec8ba9e712cf0d4627996783e159823d26f3a3da5d1e33784f50e4ec590ce4",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H1\", 2)",
+        "  FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H2\", 2)",
+        "  FAIL P28a \u2605\u2605 renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, \"H1\", 2)",
+        "  FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)",
+        "  FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)"
+      ],
+      "failed_count": 5
+    },
+    {
+      "label": "N4",
+      "tree": "base",
+      "arm": "v3",
+      "mutant_sha256": "0fddd39f440f6b03c5e33695d66fc19576fad90594f1c52ee0c555ec4f4b6ade",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age  body_row_is(3, rowA)",
+        "  FAIL P21b row 4 is the SECOND, stronger and fresher \u2014 \u26d4 the order is not signal's  body_row_is(4, rowB)",
+        "  FAIL P21d \u26d4 the advertiser's cached NODE NAME appears nowhere on the scan  strstr(g_c.page_text, \"Wolfga\") == nullptr",
+        "  FAIL P21e a short press moves the marker to the second team            body_row_is(4, \">ABCDEF 3/3 2m\") && body_row_is(3, \" D9348A 1/3 3m\")",
+        "  FAIL P21c \u26d4 ...and it is on no row after the WHOLE list has been walked  strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, \" ABCDEF 3/3 2m\")",
+        "  FAIL P21g ...and was CONSUMED as the wake \u2014 the SAME row is still marked  body_row_is(3, \">D9348A 1/3 3m\")",
+        "  FAIL P22a a double on a team row opens JOIN <fingerprint>?             body_row_is(0, want)",
+        "  FAIL P22b ...with the frozen list intact under the cursor              row_starts(3, \">C0FFEE 3/3\")"
+      ],
+      "failed_count": 8
+    },
+    {
+      "label": "N4",
+      "tree": "frozen",
+      "arm": "v3",
+      "mutant_sha256": "816a6801383eff2a612ad9b9f4785c128e979a1f73265c2d6687161fa7fda5f6",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age  body_row_is(3, rowA)",
+        "  FAIL P21b row 4 is the SECOND, stronger and fresher \u2014 \u26d4 the order is not signal's  body_row_is(4, rowB)",
+        "  FAIL P21d \u26d4 the advertiser's cached NODE NAME appears nowhere on the scan  strstr(g_c.page_text, \"Wolfga\") == nullptr",
+        "  FAIL P21e a short press moves the marker to the second team            body_row_is(4, \">ABCDEF 3/3 2m\") && body_row_is(3, \" D9348A 1/3 3m\")",
+        "  FAIL P21c \u26d4 ...and it is on no row after the WHOLE list has been walked  strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, \" ABCDEF 3/3 2m\")",
+        "  FAIL P21g ...and was CONSUMED as the wake \u2014 the SAME row is still marked  body_row_is(3, \">D9348A 1/3 3m\")",
+        "  FAIL P22a a double on a team row opens JOIN <fingerprint>?             body_row_is(0, want)",
+        "  FAIL P22b ...with the frozen list intact under the cursor              row_starts(3, \">C0FFEE 3/3\")"
+      ],
+      "failed_count": 8
+    },
+    {
+      "label": "N9",
+      "tree": "base",
+      "arm": "v3",
+      "mutant_sha256": "c503cbf94730854afd8fbeefe9d8e17e8944e76c6ec7a9b86fa4efe5cc72a075",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age  body_row_is(3, rowA)",
+        "  FAIL P21b row 4 is the SECOND, stronger and fresher \u2014 \u26d4 the order is not signal's  body_row_is(4, rowB)",
+        "  FAIL P21d ...and no `0x` spelling of any hash reached the panel either  strstr(g_c.page_text, \"0x\") == nullptr",
+        "  FAIL P21e a short press moves the marker to the second team            body_row_is(4, \">ABCDEF 3/3 2m\") && body_row_is(3, \" D9348A 1/3 3m\")",
+        "  FAIL P21c \u26d4 ...and it is on no row after the WHOLE list has been walked  strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, \" ABCDEF 3/3 2m\")",
+        "  FAIL P21g ...and was CONSUMED as the wake \u2014 the SAME row is still marked  body_row_is(3, \">D9348A 1/3 3m\")",
+        "  FAIL P22a a double on a team row opens JOIN <fingerprint>?             body_row_is(0, want)",
+        "  FAIL P22b ...with the frozen list intact under the cursor              row_starts(3, \">C0FFEE 3/3\")"
+      ],
+      "failed_count": 8
+    },
+    {
+      "label": "N9",
+      "tree": "frozen",
+      "arm": "v3",
+      "mutant_sha256": "a5214ee04e52600af9a4ae24c9c47aac8e27f3dc6123eb15efb69d532753c999",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age  body_row_is(3, rowA)",
+        "  FAIL P21b row 4 is the SECOND, stronger and fresher \u2014 \u26d4 the order is not signal's  body_row_is(4, rowB)",
+        "  FAIL P21d ...and no `0x` spelling of any hash reached the panel either  strstr(g_c.page_text, \"0x\") == nullptr",
+        "  FAIL P21e a short press moves the marker to the second team            body_row_is(4, \">ABCDEF 3/3 2m\") && body_row_is(3, \" D9348A 1/3 3m\")",
+        "  FAIL P21c \u26d4 ...and it is on no row after the WHOLE list has been walked  strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, \" ABCDEF 3/3 2m\")",
+        "  FAIL P21g ...and was CONSUMED as the wake \u2014 the SAME row is still marked  body_row_is(3, \">D9348A 1/3 3m\")",
+        "  FAIL P22a a double on a team row opens JOIN <fingerprint>?             body_row_is(0, want)",
+        "  FAIL P22b ...with the frozen list intact under the cursor              row_starts(3, \">C0FFEE 3/3\")"
+      ],
+      "failed_count": 8
+    },
+    {
+      "label": "O2",
+      "tree": "base",
+      "arm": "v3",
+      "mutant_sha256": "47d626abb2b50e9aac1a26c9e617ebc3294943f202070388920ac70af21973de",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23a ...and its second row is the TEAM's own fingerprint, \u26d4 no label  body_row_is(1, fp_team)"
+      ],
+      "failed_count": 1
+    },
+    {
+      "label": "O2",
+      "tree": "frozen",
+      "arm": "v3",
+      "mutant_sha256": "ca805f141570d269f28f01c33b61c233dcdbfe0424a957c55008b6ac17aa2061",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23a ...and its second row is the TEAM's own fingerprint, \u26d4 no label  body_row_is(1, fp_team)"
+      ],
+      "failed_count": 1
+    },
+    {
+      "label": "O6",
+      "tree": "base",
+      "arm": "v3",
+      "mutant_sha256": "a4b683daa9fc29ec6a0330276b0e02494e9a38c1cfd0deee60882548f3c31f83",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23d the request confirmation carries the FULL hash               body_row_is(1, full)"
+      ],
+      "failed_count": 1
+    },
+    {
+      "label": "O6",
+      "tree": "frozen",
+      "arm": "v3",
+      "mutant_sha256": "63582654c9c35e375c9d3deed72d0de7ea94855f22954255328fbf815e1bd6ec",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23d the request confirmation carries the FULL hash               body_row_is(1, full)"
+      ],
+      "failed_count": 1
+    },
+    {
+      "label": "O8",
+      "tree": "base",
+      "arm": "v3",
+      "mutant_sha256": "7f08e5cb360c3b855727af71dfff190f5d62bda17d0af5fcff500a88db70ff9c",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23d \u2605\u2605 rule 3 \u2014 the name column now reads `Wolfga`, CLAMPED to six  named && row_after != nullptr && strncmp(row_after + 1, \"Wolfga\", 6) == 0",
+        "  FAIL P23e \u26d4 the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, \"Wolfgangetta\")"
+      ],
+      "failed_count": 2
+    },
+    {
+      "label": "O8",
+      "tree": "frozen",
+      "arm": "v3",
+      "mutant_sha256": "980a17e2c056af7c9f5f850e977bbf978f1894f3defbfdf0b138579595f8ec69",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P23d \u2605\u2605 rule 3 \u2014 the name column now reads `Wolfga`, CLAMPED to six  named && row_after != nullptr && strncmp(row_after + 1, \"Wolfga\", 6) == 0",
+        "  FAIL P23e \u26d4 the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, \"Wolfgangetta\")"
+      ],
+      "failed_count": 2
+    },
+    {
+      "label": "synthetic-fallback",
+      "tree": "frozen",
+      "arm": "l2",
+      "mutant_sha256": "205b3f7d3bcb5e1d1937d03eada705260b4c5abda201cb305a61917df635f502",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P18a row 1 is the 0x<hash> label, clamped the same way            body_row_is(1, \" 0x00c0  2m        \")",
+        "  FAIL P18b a short walks to row 1, which is now the marked one          body_row_is(1, \">0x00c0  2m        \") && body_row_is(0, \" Wolfga  3m        \")",
+        "  FAIL P28a a NAMELESS cached key renders exactly 0x plus eight hex digits  fallback_is(f, h[7])",
+        "  FAIL P28a an UNKNOWN hash renders exactly 0x plus eight hex digits     fallback_is(f, unknown)",
+        "  FAIL P28b TEAM row 1 carries the NAMELESS key's 0x label, clamped to six  label_col(r[1], \" 0xb241 \")",
+        "  FAIL P28b TEAM row 3 carries the UNKNOWN hash's 0x label, clamped to six  label_col(r[3], \" 0xb2ee \")",
+        "  FAIL P28c the compose HEADER names the NAMELESS teammate exactly       body_row_is(0, head)",
+        "  FAIL P28c the DELIVERED result names the NAMELESS teammate exactly     body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "  FAIL P28c the compose HEADER names the UNKNOWN-hash teammate exactly   body_row_is(0, head)",
+        "  FAIL P28c the DELIVERED result names the UNKNOWN-hash teammate exactly  body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "  FAIL P28d the REPLY from the NAMELESS sender names it exactly          hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0",
+        "  FAIL P28d the REPLY from the UNKNOWN-hash sender names it exactly      hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0"
+      ],
+      "failed_count": 12
+    },
+    {
+      "label": "synthetic-capacity-zero",
+      "tree": "frozen",
+      "arm": "l2",
+      "mutant_sha256": "892fd8d197d410008a9d33b499c4b8a90c1cd66a8008cc3a5244ebd45d610d45",
+      "exit": 1,
+      "failed_checks": [
+        "  FAIL P28a synthetic: capacity 0 writes nothing at all                  untouched"
+      ],
+      "failed_count": 1
+    }
+  ],
+  "existing_failure_sets_identical": true
+}

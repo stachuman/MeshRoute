@@ -1,0 +1,9 @@
+433 passed / 0 failed / 433 total
+       868 passed / 0 failed / 868 total
+       433 passed / 0 failed / 433 total
+  ok   C0  restoring #include "fw_context.h" breaks the host build (build fails, as required)
+sources unchanged: md5 f87779aa254f64992ba36d19611e48a0
+checks per arm: l2 404 · v3 839
+coverage: 703 of 840 checks (both arms, unioned) are reddened by at least one control
+controls: 223 verified / 0 unusable
+PASS

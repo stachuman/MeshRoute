@@ -1,0 +1,9 @@
+exit=1 fails=8
+  FAIL P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age  body_row_is(3, rowA)
+  FAIL P21b row 4 is the SECOND, stronger and fresher — ⛔ the order is not signal's  body_row_is(4, rowB)
+  FAIL P21d ⛔ the advertiser's cached NODE NAME appears nowhere on the scan  strstr(g_c.page_text, "Wolfga") == nullptr
+  FAIL P21e a short press moves the marker to the second team            body_row_is(4, ">ABCDEF 3/3 2m") && body_row_is(3, " D9348A 1/3 3m")
+  FAIL P21c ⛔ ...and it is on no row after the WHOLE list has been walked  strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, " ABCDEF 3/3 2
+  FAIL P21g ...and was CONSUMED as the wake — the SAME row is still marked  body_row_is(3, ">D9348A 1/3 3m")
+  FAIL P22a a double on a team row opens JOIN <fingerprint>?             body_row_is(0, want)
+  FAIL P22b ...with the frozen list intact under the cursor              row_starts(3, ">C0FFEE 3/3")

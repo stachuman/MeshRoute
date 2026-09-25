@@ -1,0 +1,14 @@
+{
+  "command": [
+    "python3",
+    "-B",
+    "tools/measure_board.py",
+    "pair",
+    "--jobs=1",
+    "--output",
+    ".pio-measure/w1/qa-20260925-s2s8uk5l"
+  ],
+  "exit": 0,
+  "seconds": 44.854,
+  "log": "/tmp/meshroute-w1-qa-20260925-s2s8uk5l/boards-retry.log"
+}

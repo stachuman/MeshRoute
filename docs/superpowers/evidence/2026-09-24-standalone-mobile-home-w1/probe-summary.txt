@@ -1,0 +1,12 @@
+467 passed / 0 failed / 467 total
+  ok   the child-enabled arm builds and PASSES
+       902 passed / 0 failed / 902 total
+  ok   the BLE-row arm builds and PASSES (10 lines)
+       467 passed / 0 failed / 467 total
+  ok   none of the 225 ctl labels (all 225 calls) contains a backtick or a $-substitution
+  ok   C0  restoring #include "fw_context.h" breaks the host build (build fails, as required)
+sources unchanged: md5 43ddc46062a4b30cff929ebd8ee8f127
+checks per arm: l2 438 · v3 873
+coverage: 733 of 874 checks (both arms, unioned) are reddened by at least one control
+controls: 225 verified / 0 unusable
+PASS

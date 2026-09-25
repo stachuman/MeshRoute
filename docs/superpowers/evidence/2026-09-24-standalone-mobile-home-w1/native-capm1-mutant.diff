@@ -1,0 +1,8 @@
+453c453,455
+<             const uint8_t n = _active->_peer_keys[i].name_len < cap ? _active->_peer_keys[i].name_len : cap;
+---
+>             if (cap == 0) return 0;                                   // SCRATCH MUTANT: the global cap-1 "fix"
+>             const uint8_t lim = uint8_t(cap - 1);
+>             const uint8_t n = _active->_peer_keys[i].name_len < lim ? _active->_peer_keys[i].name_len : lim;
+454a457
+>             out[n] = '\0';

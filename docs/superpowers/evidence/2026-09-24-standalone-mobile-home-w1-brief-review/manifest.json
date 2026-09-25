@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "date_utc": "2026-09-24",
+  "purpose": "Independent W1 brief review; no implementation gate",
+  "repositories": [
+    {
+      "repository": "/home/staszek/MeshRoute",
+      "head": "4a230f4501c6a19d71b9234968bf1389484d8295",
+      "paths_checked": 1154,
+      "changed_inputs": [],
+      "initial_status": [
+        " M MEMORY.md",
+        " M docs/2026-07-30-open-bug-register.md",
+        " M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        " M tracker.md",
+        "?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck.md",
+        "?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/",
+        "?? docs/superpowers/plans/2026-09-24-standalone-mobile-home-w1-label-termination.md"
+      ]
+    },
+    {
+      "repository": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "paths_checked": 285,
+      "changed_inputs": [],
+      "initial_status": []
+    }
+  ],
+  "review_input_sha256": {
+    "docs/superpowers/plans/2026-09-24-standalone-mobile-home-w1-label-termination.md": "44321c6b6fe66fdbae959344a87f5adab637f8a13e6a10a69cc67778c12dbb7f",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "3eb9bc94e3982ac67ae076c1092c4f5db06adca04d1a1a218ba333a94bdee3ea",
+    "docs/2026-07-30-open-bug-register.md": "00e09d0a6e5142374fd99803febc068d352c825fa20e553a69689b270fa22807",
+    "tracker.md": "1661c6f1eda9a1842b7e8245ede2a826acc1cc05dc3ceb4b3b4f89b22f196418",
+    "MEMORY.md": "4ade610827a39fb9ce62f0e1de165d5e35d3be83d07381d9ae9c5153820c3d8c",
+    "AGENTS.md": "abbbce6592f4cfc09a295e54985978f88a9d954eeffcb5449fdc9da7d7e89340",
+    "docs/CODE_GUIDELINES.md": "c356981674305605c3d4ef255e42ec3ec5bdb15c26350e83bdea94b0ac8dd839",
+    "docs/2026-09-02-agent-roles.md": "037d6bc5a3843f2df2520c17a6fb27b72709edde5b47f256e0ca6e130c5ef254",
+    "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck.md": "19e7eae4247699a47fb17c3ff80492a4922782dad12feb30720da372532a40e1",
+    "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/corpus-manifest.json": "ab513423ff9b44481ffbb0e89c773515e160c7ceaaae7e937a7cbbba6a067431",
+    "src/firmware_ui.cpp": "e1a491ae81c77e083360ace46456c41301ad00f4373128dba9655d30bf70c5be",
+    "tools/probe_firmware_ui/run.sh": "f51a3e931ff4096163e1c89f3ae85e4dcddca7cbd46cf9c765aec872d574eb36",
+    "tools/probe_firmware_ui/probe_main.cpp": "57d93951575e9ce9c45985b03f105db900c81ee00d8ef4c76fc0443d82996a24",
+    "test/test_node_hashlocate.cpp": "2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c",
+    "tools/probe_ui_model_mutations.py": "61f1cd06e363af9433757f8a79128401dd691e89ba92c4ee0f83a8eff656d67d",
+    "tools/measure_board.py": "65ecc700dd25e6de961f21d7ad793c17d425fb989832f147945f12ae1f3d40ad",
+    "tools/warning_census.sh": "255e339c51d819e50e4f08e423f51195cd603a15a9e659375848e447ab538767"
+  },
+  "wrapper_compile_logs": {
+    "l2": "",
+    "v3": "",
+    "ble": ""
+  },
+  "c0_disposable_source": {
+    "origin": "src/firmware_ui.cpp",
+    "replacement": {
+      "from": "#include \"fw_context_pure.h\"",
+      "to": "#include \"fw_context.h\"",
+      "matches": 1
+    },
+    "sha256": "59416510bd35b1c44c1c210ca9bbad9d8b2e9c925e49d257079acf8aa81c7f96"
+  },
+  "source_selector": {
+    "TARGET_SRC_mapping_count": 105,
+    "fenced_file_targets": []
+  },
+  "scratch": "/tmp/meshroute-w1-brief-review-zevmuh6a"
+}

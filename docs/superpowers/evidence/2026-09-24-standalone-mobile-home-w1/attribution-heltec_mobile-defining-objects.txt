@@ -1,0 +1,12 @@
+_Z10mr_ui_tickm -> firmware_ui.cpp.o
+_Z21mr_ui_arm_button_wakev -> firmware_ui.cpp.o
+_ZN12_GLOBAL__N_112inbox_row_cbEPvRKN9meshroute10InboxEntryE -> firmware_ui.cpp.o
+_ZN12_GLOBAL__N_115label_from_hashEmPch -> firmware_ui.cpp.o
+_ZN4mrfw13ConfigService4saveEv -> firmware_ui.cpp.o
+_ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE -> firmware_ui.cpp.o
+_ZN4mrui18ui_team_geo_bucketERKNS_10UiSnapshotERKNS_7TeamRowE -> firmware_ui.cpp.o
+_ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE -> firmware_ui.cpp.o
+_ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE -> firmware_ui.cpp.o
+_ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE -> firmware_ui.cpp.o
+_ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE -> firmware_ui.cpp.o
+_ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE -> firmware_ui.cpp.o

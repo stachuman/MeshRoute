@@ -1,0 +1,6 @@
+exit=1 fails=5
+  FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, "H1", 2)
+  FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, "H2", 2)
+  FAIL P28a ★★ renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, "H1", 2)
+  FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)
+  FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, "DELIVERED to") && body_row_is(2, p.label)

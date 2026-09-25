@@ -1,0 +1,35 @@
+{
+  "command": [
+    "bash",
+    "tools/probe_firmware_ui/run.sh"
+  ],
+  "exit": 0,
+  "seconds": 332.065,
+  "log": "/tmp/meshroute-w1-qa-20260925-s2s8uk5l/probe.log",
+  "captured_qa_support": [
+    {
+      "name": "libsupport-l2.a",
+      "sha256": "a679821aceb562627bebb2fcc98a22ed7514118c1a7ef27ac7eb99e4419bacb4"
+    },
+    {
+      "name": "libsupport-v3.a",
+      "sha256": "8ffe7fa95f5c53a8541a2bd94f2ec447173184c38650df1d5f01b599adb72f2d"
+    },
+    {
+      "name": "probe_main-l2.o",
+      "sha256": "0b47938f446c491d58bd90fb4240de63fb9d25e83c30c8582f06c565179d681b"
+    },
+    {
+      "name": "probe_main-v3.o",
+      "sha256": "b84fa9fdb6620603a11ab14521eb0dd02cd03e8009c09e20e571b405afc94f30"
+    },
+    {
+      "name": "all_checks-l2.txt",
+      "sha256": "07c5736bc00f71493aed81b30c87baf6ef66abe7823e453f3128438c514ec109"
+    },
+    {
+      "name": "all_checks-v3.txt",
+      "sha256": "baaecfb292ced519802295231558060a5c49992c48cac8036b2000fe4d787a3b"
+    }
+  ]
+}

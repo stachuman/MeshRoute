@@ -437,8 +437,19 @@ void battery_maybe_sample(uint32_t now_ms) {
 }
 
 // ---- labels (spec §6: team_key_of_id -> peer_name_find -> 0x<hash> -> bare id) ------------------------------------
+// ★★★ [[B241]] — THE ONE C-STRING ADAPTER OVER `Node::peer_name_find`, AND ITS RESULT IS ALWAYS TERMINATED (cap >= 1).
+//     The raw API copies `n` bytes, returns `n` and writes NO terminator, and this function used to hand that straight
+//     to `%s`: a short name (`H1`) left the destination's stale bytes after it (garbage on glass, seen on metal) and a
+//     name of 15+ bytes filled the buffer with no NUL at all. ⇒ one byte is reserved HERE and the NUL is written at
+//     the returned count, so a 15-byte label holds at most 14 name bytes — the same visible clamp as `kLabelCap`.
+// ⛔ THE RAW API STAYS UNTERMINATED ON PURPOSE: its full 32-byte count is PAYLOAD for its two other consumers,
+//    `Node::push_peer_key_cached` (the push body) and `mrfw::peer_store_sync` (`/mrpeers` persistence), so reserving a
+//    NUL inside it would drop byte 32 of a maximum-length name. `test/test_node_hashlocate.cpp` pins that capacity.
 void label_from_hash(uint32_t hash, char* out, uint8_t cap) {
-    if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (unsigned long)hash);
+    if (cap == 0) return;                                       // nothing to write, and `cap - 1` must not wrap
+    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));
+    if (n == 0) { snprintf(out, cap, "0x%08lx", (unsigned long)hash); return; }
+    out[n] = '\0';
 }
 // ★★★ §UI-17 S5 — IT **RETURNS THE HASH IT RESOLVED** (0 = none), AND THAT IS THE WHOLE OF THE CHANGE (spec §3.4
 //     term 2, U1): `build_snapshot` needs the same `team_key_of_id` answer to look the peer's cached POSITION up, and

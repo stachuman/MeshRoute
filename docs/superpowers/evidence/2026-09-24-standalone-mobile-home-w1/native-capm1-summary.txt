@@ -1,0 +1,39 @@
+pio exit=1
+b241-only exit=1
+full exit=1
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+test/test_node_hashlocate.cpp:1988:
+TEST CASE:  B241 peer_name_find — a 32-byte name fills an exact 32-byte destination, and the push body carries all 32
+
+test/test_node_hashlocate.cpp:2007: ERROR: CHECK( pu.body_len == protocol::peer_name_max ) is NOT correct!
+  values: CHECK( 31 == 32 )
+
+test/test_node_hashlocate.cpp:2008: ERROR: CHECK( std::memcmp(pu.body, name, protocol::peer_name_max) == 0 ) is NOT correct!
+  values: CHECK( -86 == 0 )
+
+test/test_node_hashlocate.cpp:2014: ERROR: CHECK( node.peer_name_find(id.key_hash32, dst.nm, sizeof dst.nm) == protocol::peer_name_max ) is NOT correct!
+  values: CHECK( 31 == 32 )
+
+test/test_node_hashlocate.cpp:2015: ERROR: CHECK( std::memcmp(dst.nm, name, protocol::peer_name_max) == 0 ) is NOT correct!
+  values: CHECK( -86 == 0 )
+
+===============================================================================
+[doctest] test cases: 1 | 0 passed | 1 failed | 2950 skipped
+[doctest] assertions: 7 | 3 passed | 4 failed |
+[doctest] Status: FAILURE!
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+TEST CASE:  B241 peer_name_find — a 32-byte name fills an exact 32-byte destination, and the push body carries all 32
+test/test_node_hashlocate.cpp:2007: ERROR: CHECK( pu.body_len == protocol::peer_name_max ) is NOT correct!
+  values: CHECK( 31 == 32 )
+test/test_node_hashlocate.cpp:2008: ERROR: CHECK( std::memcmp(pu.body, name, protocol::peer_name_max) == 0 ) is NOT correct!
+  values: CHECK( -86 == 0 )
+test/test_node_hashlocate.cpp:2014: ERROR: CHECK( node.peer_name_find(id.key_hash32, dst.nm, sizeof dst.nm) == protocol::peer_name_max ) is NOT correct!
+  values: CHECK( 31 == 32 )
+test/test_node_hashlocate.cpp:2015: ERROR: CHECK( std::memcmp(dst.nm, name, protocol::peer_name_max) == 0 ) is NOT correct!
+  values: CHECK( -86 == 0 )
+[doctest] test cases:   2951 |   2950 passed | 1 failed | 0 skipped
+[doctest] assertions: 195777 | 195773 passed | 4 failed |
+[doctest] Status: FAILURE!

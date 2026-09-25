@@ -1,0 +1,2 @@
+exit=1 fails=1
+  FAIL P23a ...and its second row is the TEAM's own fingerprint, ⛔ no label  body_row_is(1, fp_team)

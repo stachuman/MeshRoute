@@ -1,0 +1,112 @@
+[
+  {
+    "arm": "l2",
+    "argv": [
+      "g++",
+      "-std=gnu++20",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-DARDUINO=100",
+      "-DMR_FEAT_OLED=1",
+      "-DMR_UI_BTN_PIN=0",
+      "-DMR_UI_TEAM_CHANNEL_ID=0",
+      "-DMR_CONSOLE=1",
+      "-I/home/staszek/MeshRoute/tools/probe_board_ui/fakes",
+      "-I/home/staszek/MeshRoute/variants/heltec_common",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "-DMR_N_LAYERS=2",
+      "-c",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/wrapper.cpp",
+      "-o",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/l2.o"
+    ],
+    "exit_code": 0,
+    "seconds": 1.077,
+    "label_symbols": [
+      "0000000000004d40 T mr_probe_label_from_hash(unsigned int, char*, unsigned char)",
+      "00000000000000b1 t (anonymous namespace)::label_from_hash(unsigned int, char*, unsigned char)"
+    ]
+  },
+  {
+    "arm": "v3",
+    "argv": [
+      "g++",
+      "-std=gnu++20",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-DARDUINO=100",
+      "-DMR_FEAT_OLED=1",
+      "-DMR_UI_BTN_PIN=0",
+      "-DMR_UI_TEAM_CHANNEL_ID=0",
+      "-DMR_CONSOLE=1",
+      "-I/home/staszek/MeshRoute/tools/probe_board_ui/fakes",
+      "-I/home/staszek/MeshRoute/variants/heltec_common",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "-DMR_UI_ADC_CTRL=37",
+      "-DMR_UI_VBAT_READ=1",
+      "-c",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/wrapper.cpp",
+      "-o",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/v3.o"
+    ],
+    "exit_code": 0,
+    "seconds": 1.146,
+    "label_symbols": [
+      "0000000000005145 T mr_probe_label_from_hash(unsigned int, char*, unsigned char)",
+      "00000000000003c3 t (anonymous namespace)::label_from_hash(unsigned int, char*, unsigned char)"
+    ]
+  },
+  {
+    "arm": "ble",
+    "argv": [
+      "g++",
+      "-std=gnu++20",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-DARDUINO=100",
+      "-DMR_FEAT_OLED=1",
+      "-DMR_UI_BTN_PIN=0",
+      "-DMR_UI_TEAM_CHANNEL_ID=0",
+      "-DMR_CONSOLE=1",
+      "-I/home/staszek/MeshRoute/tools/probe_board_ui/fakes",
+      "-I/home/staszek/MeshRoute/variants/heltec_common",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "-DMR_N_LAYERS=2",
+      "-DMR_UI_BLE_ROW=1",
+      "-c",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/wrapper.cpp",
+      "-o",
+      "/tmp/meshroute-w1-brief-review-zevmuh6a/ble.o"
+    ],
+    "exit_code": 0,
+    "seconds": 1.079,
+    "label_symbols": [
+      "0000000000004d40 T mr_probe_label_from_hash(unsigned int, char*, unsigned char)",
+      "00000000000000b1 t (anonymous namespace)::label_from_hash(unsigned int, char*, unsigned char)"
+    ]
+  }
+]

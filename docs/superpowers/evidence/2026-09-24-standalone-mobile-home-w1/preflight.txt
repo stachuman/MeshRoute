@@ -1,0 +1,53 @@
+date: 2026-09-24T19:55:46+00:00
+meshroute HEAD: 4a230f4501c6a19d71b9234968bf1389484d8295 branch main
+sim HEAD: 6585649ea5a780f0542b2931853a667be56a5b2b status-lines: 0
+brief: 617c2be56cdf2db21981373aac3f8dd5a5baa09235d8b753f2a9210ccab5d018  docs/superpowers/plans/2026-09-24-standalone-mobile-home-w1-label-termination.md
+== exec inputs (disk | git show 4a230f4)
+e1a491ae81c77e083360ace46456c41301ad00f4373128dba9655d30bf70c5be e1a491ae81c77e083360ace46456c41301ad00f4373128dba9655d30bf70c5be clean src/firmware_ui.cpp
+f51a3e931ff4096163e1c89f3ae85e4dcddca7cbd46cf9c765aec872d574eb36 f51a3e931ff4096163e1c89f3ae85e4dcddca7cbd46cf9c765aec872d574eb36 clean tools/probe_firmware_ui/run.sh
+57d93951575e9ce9c45985b03f105db900c81ee00d8ef4c76fc0443d82996a24 57d93951575e9ce9c45985b03f105db900c81ee00d8ef4c76fc0443d82996a24 clean tools/probe_firmware_ui/probe_main.cpp
+2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c 2aa7932b6e7c5ffa8ea627c3dd87b10442cc1d9c34216e4486a7a87d78d7762c clean test/test_node_hashlocate.cpp
+61f1cd06e363af9433757f8a79128401dd691e89ba92c4ee0f83a8eff656d67d 61f1cd06e363af9433757f8a79128401dd691e89ba92c4ee0f83a8eff656d67d clean tools/probe_ui_model_mutations.py
+== prep set
+docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md: OK
+docs/2026-07-30-open-bug-register.md: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck.md: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/SHA256SUMS: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review.md: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/SHA256SUMS: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview.md: OK
+docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/SHA256SUMS: OK
+tracker.md: OK
+MEMORY.md: OK
+== git status --porcelain --untracked-files=all
+ M MEMORY.md
+ M docs/2026-07-30-open-bug-register.md
+ M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+ M tracker.md
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2.md
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2/contract-checks.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2/hash-checks.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2/manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview.md
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/hash-checks.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/measurement-contract-checks.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/synthetic-base-manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/synthetic-changed-manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review.md
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/c0-results.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/wrapper-c0.cpp
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/wrapper-results.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/wrapper.cpp
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck.md
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/corpus-manifest.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/inputs.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/preservation.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/runs.json
+?? docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/sim-inputs.json
+?? docs/superpowers/plans/2026-09-24-standalone-mobile-home-w1-label-termination.md

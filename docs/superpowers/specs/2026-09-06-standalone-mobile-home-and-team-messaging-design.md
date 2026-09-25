@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.17 · 2026-09-24 · REVIEWED — independent review PASS with fold-ins (2026-09-24).** Every decision in
+**Revision 2.18 · 2026-09-24 · REVIEWED — independent review PASS with fold-ins (2026-09-24); package W1 re-scoped by its QA pre-check (§16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -122,7 +122,7 @@ post (D12); the boot splash (D3).
 **Out:** mobile-home attachment or routing; an application acknowledgement/provenance protocol (B118);
 direct-message preview (separate decision); on-device preset editing; typed team-ID entry; draft persistence
 across reboot; companion/BLE editing surfaces; any wire change; any `lib/core` change inside a feature package
-(§11.3 — B241, B444 and D10's no-default-name change are separate core packages).
+(§11.3 — B444 and D10's no-default-name change are separate core packages; B241 is fixed in the UI's label adapter, W1).
 
 ## 2. Current source baseline [FACT]
 
@@ -186,7 +186,8 @@ name on Home and in My device, TEAM rows, compose, review and result lines, invi
   glyph the 6×10 font has; it can occur in neither the editor alphabet, the preset grammar nor sanitised
   names, so it is unambiguous). No silent clipping. It applies to the invite row as well as the TEAM row, so one
   name is shortened the same way on both screens (`Wolfg»`; UI-16's `%-6.6s` clip is revised, §10).
-- It depends on B241's fix (termination in `peer_name_find`) and on the no-default-name package (§4.6); without
+- It depends on B241's fix (termination in the UI's label adapter `label_from_hash`, W1; the raw `peer_name_find`
+  keeps its full 32-byte contract) and on the no-default-name package (§4.6); without
   the latter an unnamed peer's advertised default would render as a name.
 
 ### 4.2 Where the own name appears
@@ -961,14 +962,14 @@ allocation is granted by this document.**
 All six OLED envs are ESP32-S3 and compile the same UI (the mobile role is runtime). Gateways (`MR_FEAT_TEAM 0`)
 get identity, My device, rename, the navigation model and the splash; their menu mode skips the empty Team and Send
 slots and team actions are absent (UI-19 shape preserved). nRF52 and XIAO images have no OLED and are unaffected
-except by shared `lib/core`/`src` fixes (W0, W1, W1b, W1c); with W1c an unnamed static node also advertises no name.
+except by shared `lib/core`/`src` fixes (W0, W1b, W1c; W1 touches only the OLED UI); with W1c an unnamed static node also advertises no name.
 
 ### 11.3 lib/core, wire, NV and corpus
 
 No feature package needs `lib/core` or a wire change: names already ride the existing frames, admission caps are
 existing constants, and the UI composes existing console forms. The core changes are separate packages, each with
-the full corpus gate: B241's termination fix, B444's team-post guard and D10's no-default-name change (W1c, §4.6 —
-no wire change; predicted corpus-inert because every simulated node is named). `/mrui` v2 is an NV record version (not
+the full corpus gate: B444's team-post guard and D10's no-default-name change (W1c, §4.6 — no wire change; predicted
+corpus-inert because every simulated node is named). B241 is a `src`-only fix in the UI's label adapter (W1). `/mrui` v2 is an NV record version (not
 wire, not `/mrcfg` v26). Feature packages confined to `src/` are predicted corpus-inert by construction; the
 prediction is re-checked at each gate, never assumed.
 
@@ -995,7 +996,7 @@ prediction is re-checked at each gate, never assumed.
 | # | Kind | Content | Depends | Gate obligation |
 | --- | --- | --- | --- | --- |
 | W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; QA names the probe that drives `cfg set` |
-| W1 | fix, `lib/core` | B241: `peer_name_find` terminates | — | full gate: native, corpus keystone per `simulation/BASELINE.md`, boards |
+| W1 | fix, `src` | B241: `label_from_hash` terminates at the copied length (one byte reserved; the `0x%08lx` fallback and zero capacity handled); `peer_name_find` keeps its raw full-32-byte contract for the push body and `/mrpeers` persistence ([pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)) | — | `src`-only gate (P6): native (plus an exact-capacity guard on the raw API), corpus (predicted 36/36 identical), the two board envs, the firmware-UI probe driving the real adapter with poisoned destinations and assertion-failing controls **Status 2026-09-25: INDEPENDENT QA PASS; B241 closed**, uncommitted on `4a230f4`: native 2951/195777/0; corpus 36/36 identical; firmware-UI 467/902/467 with 225 verified controls / 0 unusable; gateway unchanged, mobile RAM unchanged / flash +28 B. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w1-qa.md). Product decisions and the remaining packages are unchanged. |
 | W1b | fix, `lib/core` | B444: refuse a `-t` post while the team-local ID is 0 (or the owner rules the intended pre-DAD behaviour) | — | full gate; independent of the Home work, which hides SEND TO TEAM regardless |
 | W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7) |
 | W2 | tool | B418: re-anchor W49/W51/W54 and their controls; rerun the supplemental probe | — | tools discovery; all board-UI controls RED |
@@ -1027,7 +1028,7 @@ must preserve every tracked and untracked input and deletion.
 | Editor transitions | — | every state × gesture; wrap; `BACK`; cursor bounds; `DEL` at 0; `FULL` at cap and cap+1 refused; `EMPTY`/all-space `DONE` refused; discard confirm; zero writes and zero sends on cancel | EDIT-01 |
 | Interruption | UI-17 R-1/S8 cases (`test_firmware_ui_model.cpp` ui17-*) | blank/wake in every editor and review state; receive without navigation; `long_arm`/`cancel`/`fire` per §5.5; no request ever queued by overlay dismissal | UI-16/UI-17 |
 | Name save | none native: the arm lives in the device TU `firmware_config.cpp` (no battery target) | exact bytes, 32-byte max, fake-NV failure keeps the live name, seed/position/membership preserved (W0), identical save = 0 writes; each origin's returns (My device, or on into setup with the gate re-asked; a refusing gate's note → Home); console `cfg set name` of 33 bytes refused (B448) | UI-13 |
-| Identity labels | label cases (`test_firmware_ui_team.cpp`), invite-row cases (S-35) | sanitisation; unnamed → `0x<HASH8>` at ≥ 10 columns and the six-digit fingerprint below, never a clipped hash; the name part left out where the row carries the hash; `»` on names only, identical on TEAM and invite rows; B241 termination with a poisoned tail | UI-13 |
+| Identity labels | label cases (`test_firmware_ui_team.cpp`), invite-row cases (S-35) | sanitisation; unnamed → `0x<HASH8>` at ≥ 10 columns and the six-digit fingerprint below, never a clipped hash; the name part left out where the row carries the hash; `»` on names only, identical on TEAM and invite rows; B241: the real label adapter terminates at the copied length with a poisoned, canary-guarded destination (firmware-UI probe, W1) | UI-13 |
 | No default name (W1c) | the §1.3 `effective_name` case (`test_node_r3.cpp`) | an unnamed node's INTRO, key answer and key request carry an empty name (exact bytes); a receiver keeps its cached name on an empty one; `whoami` prints `name=""`; corpus keystone reproduces | UI-13 |
 | Home rows and lists | `test_firmware_ui_status.cpp`, P14a/P14f/P17a | each state's list and order; key-before-ID precedence; conditional items; counts in labels; arrow landing and return rules; identity tracking; `OPTIONS CHANGED` refusal; `RESTART NEEDED` line; return to Home from every setup exit (unknown origin → PROVISION menu); `JOIN`/`CREATE` refused by an unsaved or conflicted draft with zero writes and the note, `INVITE MEMBER` opening with the same draft; the gate before the name prompt; name prompt only when unnamed, SKIP preselected, `NAME SAVED` continuing into setup and an unsaved exit returning to the prompt; blocked-gate note; gateway arm; real renderer | UI-01, UI-04, UI-06, UI-19 |
 | Inbox order | B231 per-kind newest-first cases (mutations M92/M93); the §B64 cursor cases | one list newest-first across kinds for this session's rows; rows under one second apart in both kind orders (never ordered by the published age); genuinely equal times; receive times above 2^32 ms; rows from before the restart below, each kind newest-first, ages `--` on both sides of the stamp (B445); per-kind budget of four unchanged; cursor follows `(kind, seq)` through reordering; after-delete neighbour in displayed order; Home `INBOX` lands on the newest | UI-02 |
@@ -1195,3 +1196,10 @@ interrupted by an alarm lands on Home; the accepted-open residual). Its one fold
 `SENT, waiting` moves from *Accepted, final* to *Accepted, open*, *Known refused* now starts from "known not to have
 aired", and the late-ACK upgrade of `NO CONFIRM` is stated — no retain/release rule, owner decision or tracker
 behaviour changes (§7.4.1). The status line now records the verdict. Documentation only.
+
+**r2.18, 2026-09-24 — W1 re-scoped by its QA pre-check.** The [W1 pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)
+found that `peer_name_find`'s full 32-byte count is payload for two raw consumers (the push body and `/mrpeers`
+persistence), so terminating inside it would clip a 32-byte name. B241 is fixed instead in `label_from_hash`, the one
+C-string adapter — the register's listed alternative. The package becomes `src`-only and corpus-inert by construction
+[HISTORY: r2–r2.17 planned W1 as a `lib/core` change terminating inside `peer_name_find`]. §1.2, §4.1, §11.2, §11.3,
+§13 W1 and §14 follow; no owner ruling or product behaviour changes. Documentation only.

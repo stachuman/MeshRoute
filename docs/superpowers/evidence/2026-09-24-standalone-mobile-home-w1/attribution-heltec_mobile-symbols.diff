@@ -1,0 +1,48 @@
+801c801
+< _Z10mr_ui_tickm	FUNC	GLOBAL	DEFAULT	.flash.text	7030
+---
+> _Z10mr_ui_tickm	FUNC	GLOBAL	DEFAULT	.flash.text	7026
+815c815
+< _Z21mr_ui_arm_button_wakev	FUNC	GLOBAL	DEFAULT	.flash.text	42
+---
+> _Z21mr_ui_arm_button_wakev	FUNC	GLOBAL	DEFAULT	.flash.text	44
+1049c1049
+< _ZN12_GLOBAL__N_112inbox_row_cbEPvRKN9meshroute10InboxEntryE	FUNC	LOCAL	DEFAULT	.flash.text	235
+---
+> _ZN12_GLOBAL__N_112inbox_row_cbEPvRKN9meshroute10InboxEntryE	FUNC	LOCAL	DEFAULT	.flash.text	236
+1063c1063
+< _ZN12_GLOBAL__N_115label_from_hashEmPch	FUNC	LOCAL	DEFAULT	.flash.text	34
+---
+> _ZN12_GLOBAL__N_115label_from_hashEmPch	FUNC	LOCAL	DEFAULT	.flash.text	50
+1549c1549
+< _ZN4mrfw13ConfigService4saveEv	FUNC	WEAK	DEFAULT	.flash.text	281
+---
+> _ZN4mrfw13ConfigService4saveEv	FUNC	WEAK	DEFAULT	.flash.text	282
+1773c1773
+< _ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE	FUNC	WEAK	DEFAULT	.flash.text	38
+---
+> _ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE	FUNC	WEAK	DEFAULT	.flash.text	37
+1799c1799
+< _ZN4mrui18ui_team_geo_bucketERKNS_10UiSnapshotERKNS_7TeamRowE	FUNC	WEAK	DEFAULT	.flash.text	164
+---
+> _ZN4mrui18ui_team_geo_bucketERKNS_10UiSnapshotERKNS_7TeamRowE	FUNC	WEAK	DEFAULT	.flash.text	166
+1803c1803
+< _ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE	FUNC	WEAK	DEFAULT	.flash.text	120
+---
+> _ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE	FUNC	WEAK	DEFAULT	.flash.text	118
+1827c1827
+< _ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	500
+---
+> _ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	504
+1859c1859
+< _ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	179
+---
+> _ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	183
+1861c1861
+< _ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	278
+---
+> _ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	282
+1868c1868
+< _ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	424
+---
+> _ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	423

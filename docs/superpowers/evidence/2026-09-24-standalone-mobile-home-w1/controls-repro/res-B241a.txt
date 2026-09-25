@@ -1,0 +1,11 @@
+exit=1 fails=10
+  FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, "H1", 2)
+  FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, "H2", 2)
+  FAIL P28a a 27-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[2].name, strlen(named[2].name))
+  FAIL P28a ★★ renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, "H1", 2)
+  FAIL P28a a 14-byte name lands whole, NUL at byte 14                   label_is(f, named[3].name, 14)
+  FAIL P28a a 15-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[4].name, 15)
+  FAIL P28a a 32-byte name clamps to 14 bytes, NUL at byte 14            label_is(f, named[5].name, 32)
+  FAIL P28a synthetic: capacity 1 writes only the terminator             only_nul
+  FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)
+  FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, "DELIVERED to") && body_row_is(2, p.label)

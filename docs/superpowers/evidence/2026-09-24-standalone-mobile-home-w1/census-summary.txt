@@ -1,0 +1,9 @@
+env                   objs      warn    expect  -Wswitch        RAM      Flash  verdict
+gateway_heltec         329       171       171         0     238852    1337960  ok
+gateway_heltec_v4      330       175       175         0     239124    1336016  ok
+heltec_mobile          329       175       175         0     211724    1394732  ok
+heltec_v3              329       175       175         0     214068    1392408  ok
+heltec_v4              330       179       179         0     214340    1390388  ok
+heltec_v4_mobile       330       179       179         0     211996    1392688  ok
+PASS — 6 OLED env(s) match their pinned warning baseline
+gate6 census exit=0

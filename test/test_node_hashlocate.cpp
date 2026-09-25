@@ -1977,6 +1977,45 @@ TEST_CASE("§AB2 peer_key_cached push — carries the STORED confidence (and a p
     // render (including an out-of-range byte), and the default is one field initialiser away in command.h.
 }
 
+// ★★ [[B241]] (W1) — THE RAW NAME API KEEPS ITS FULL 32-BYTE COUNT AT **EXACT** CAPACITY. B241 terminates peer labels
+// in the UI's one C-string adapter (`src/firmware_ui.cpp`'s `label_from_hash`), deliberately NOT here: `peer_name_find`
+// writes no NUL and returns the byte count because its two other consumers treat every byte as payload —
+// `push_peer_key_cached` (the push body, capacity `peer_name_max`) and `src/`'s `peer_store_sync` (`/mrpeers`, a
+// `char nm[32]`). ⛔ Every other full-length check in this file reads into a 64-byte destination, so a GLOBAL `cap - 1`
+// "fix" would pass them all; this case reads into EXACTLY 32 bytes with a canary after them and fails on such a change.
+// ⓘ The name arrives through the real public receive path — the pubkey answer's appended `[name_len][name]` into
+// `on_hash_bind_pubkey` — so the push half is the wire-to-app behaviour, with no core test hook.
+TEST_CASE("B241 peer_name_find — a 32-byte name fills an exact 32-byte destination, and the push body carries all 32") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 91);
+    Identity id{}; identity_from_seed(id, seed);
+    const char name[] = "0123456789ABCDEFGHIJKLMNOPQRSTUV";                 // 32 DISTINCT bytes, so a shift is visible
+    static_assert(sizeof name - 1 == protocol::peer_name_max, "the case is about EXACTLY peer_name_max bytes");
+    hash_bind_pubkey_inner hb{}; hb.target_layer = 0; hb.node_id = 9;
+    for (int i = 0; i < 32; ++i) hb.ed_pub[i] = id.ed_pub[i];
+    uint8_t inner[34 + 1 + protocol::peer_name_max];
+    const size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(inner, 34));
+    CHECK(n == 34);
+    inner[34] = protocol::peer_name_max;
+    std::memcpy(inner + 35, name, protocol::peer_name_max);
+    node.on_hash_bind_pubkey(inner, static_cast<uint8_t>(sizeof inner));
+    // 1. THE PUSH BODY: all 32 bytes, counted and copied (Push::body is the payload the app and /mrpeers mirror read).
+    Push pu{}; bool seen = false;
+    while (node.next_push(pu)) if (pu.kind == PushKind::peer_key_cached && pu.sender_hash == id.key_hash32) { seen = true; break; }
+    CHECK(seen);                                            // a missing push fails the next two as well
+    CHECK(pu.body_len == protocol::peer_name_max);
+    CHECK(std::memcmp(pu.body, name, protocol::peer_name_max) == 0);
+    // 2. THE RAW READ AT EXACT CAPACITY: 32 returned, 32 copied, and the byte after the destination untouched.
+    struct { char nm[protocol::peer_name_max]; char canary; } dst;
+    static_assert(sizeof dst == protocol::peer_name_max + 1, "the canary must ABUT the destination");
+    std::memset(&dst, 0x5A, sizeof dst);
+    dst.canary = 0x7E;
+    CHECK(node.peer_name_find(id.key_hash32, dst.nm, sizeof dst.nm) == protocol::peer_name_max);
+    CHECK(std::memcmp(dst.nm, name, protocol::peer_name_max) == 0);
+    CHECK(dst.canary == 0x7E);
+}
+
 
 // =============================================================================
 // §S3 (cross-layer mobile first-contact, parts 2+3) — the home as key custodian:

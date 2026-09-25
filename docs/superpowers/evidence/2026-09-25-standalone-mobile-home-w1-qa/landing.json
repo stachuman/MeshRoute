@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "changed_after_gate": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "tracker.md"
+      ],
+      "prior_inputs_otherwise_preserved": true,
+      "head_unchanged": true,
+      "staged": []
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "changed_after_gate": [],
+      "prior_inputs_otherwise_preserved": true,
+      "head_unchanged": true,
+      "staged": []
+    }
+  ],
+  "whitespace_exit": 0,
+  "new_report_sha256": "ca3304f2f56a783cb2cfe9a4f0b4b3fa8b96315be883407cebac7b84238f5a2c",
+  "modified_document_hashes": {
+    "MEMORY.md": "fc1c7ba0b6fb627b5d0934cc23b772bad5104b63a45cec9cfa36a69d2c749b04",
+    "docs/2026-07-30-open-bug-register.md": "b0113bb18750b6c51f0d2725e6a6b43b9aa7069f7f3759db160ce9fdb1be1887",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "b0f72299af8edcae6421c11e5d9af7d5cd03d62a8a6006bd8cc661583ec1698e",
+    "tracker.md": "b22ecb5696ecee4726fb61285fe7ff99d4024b57643a578dc46606441b76b199"
+  },
+  "relative_file_links_checked": true
+}

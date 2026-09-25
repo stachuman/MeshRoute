@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "date_utc": "2026-09-24",
+  "purpose": "W1/B241 QA pre-check baseline; no implementation gate",
+  "scratch_root": "/tmp/meshroute-w1-precheck-pv8ozdmu",
+  "meshroute_head": "4a230f4501c6a19d71b9234968bf1389484d8295",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "runs": [
+    {
+      "label": "native-build",
+      "argv": [
+        "pio",
+        "test",
+        "-e",
+        "native"
+      ],
+      "exit_code": 0,
+      "seconds": 3.485
+    },
+    {
+      "label": "native-binary",
+      "argv": [
+        "./.pio/build/native/program"
+      ],
+      "exit_code": 0,
+      "seconds": 0.743
+    },
+    {
+      "label": "sim-configure",
+      "argv": [
+        "cmake",
+        "-S",
+        "/home/staszek/lora-universal-simulator",
+        "-B",
+        "/tmp/meshroute-w1-precheck-pv8ozdmu/sim-build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+      ],
+      "exit_code": 0,
+      "seconds": 0.508
+    },
+    {
+      "label": "sim-build",
+      "argv": [
+        "cmake",
+        "--build",
+        "/tmp/meshroute-w1-precheck-pv8ozdmu/sim-build",
+        "--target",
+        "lus",
+        "-j",
+        "4"
+      ],
+      "exit_code": 0,
+      "seconds": 31.747
+    },
+    {
+      "label": "corpus",
+      "argv": [
+        "python3",
+        "-B",
+        "tools/run_corpus.py",
+        "--out",
+        "/tmp/meshroute-w1-precheck-pv8ozdmu/corpus",
+        "--jobs",
+        "4",
+        "--lus",
+        "/tmp/meshroute-w1-precheck-pv8ozdmu/sim-build/orchestrator/lus",
+        "--require-anchors"
+      ],
+      "exit_code": 0,
+      "seconds": 52.775
+    }
+  ],
+  "native_binary_sha256": "3e5d5fa1a40bd60d705ceabdbccfe61877b5d6261a6e83b0139d6090a4d0ec9b",
+  "lus_sha256": "9fe475f3180b655b2550c9f275c6095fb74ce54a1523155c3468e6fb443ce52d",
+  "native": {
+    "cases": 2950,
+    "assertions": 195770,
+    "failures": 0,
+    "skipped": 0,
+    "clean_build": false
+  },
+  "corpus": {
+    "scenarios": 36,
+    "anchor_matches": 36,
+    "assertion_failures": 0,
+    "inputs_stable": true
+  },
+  "not_run": [
+    "firmware-UI probe",
+    "new B241 regression",
+    "board builds",
+    "ABI or RAM/flash measurement",
+    "warning census",
+    "mutation batteries",
+    "tools discovery",
+    "metal checks"
+  ]
+}

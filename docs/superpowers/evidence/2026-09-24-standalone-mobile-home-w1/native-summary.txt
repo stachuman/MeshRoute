@@ -1,0 +1,11 @@
+BASE  [doctest] doctest version is "2.4.12"
+BASE  [doctest] run with "--help" for options
+BASE  [doctest] test cases:   2950 |   2950 passed | 0 failed | 0 skipped
+BASE  [doctest] assertions: 195770 | 195770 passed | 0 failed |
+BASE  [doctest] Status: SUCCESS!
+FINAL [doctest] doctest version is "2.4.12"
+FINAL [doctest] run with "--help" for options
+FINAL [doctest] test cases:   2951 |   2951 passed | 0 failed | 0 skipped
+FINAL [doctest] assertions: 195777 | 195777 passed | 0 failed |
+FINAL [doctest] Status: SUCCESS!
+FINAL gate2 binary exit=0

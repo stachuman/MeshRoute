@@ -1,0 +1,96 @@
+{
+  "date_utc": "2026-09-25",
+  "brief_sha256": "617c2be56cdf2db21981373aac3f8dd5a5baa09235d8b753f2a9210ccab5d018",
+  "coder_report_sha256": "a157a3b5bd1a71618dc5ca6b9e9eb9c7b4ba21b7ef5a16bb042e3e82d42de7f9",
+  "frozen_files": [
+    {
+      "path": "src/firmware_ui.cpp",
+      "sha256": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f"
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "cf18d721854f13264bdef9a0a223a8f85c9707cf6641088947c02c019c1c6a3e"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "sha256": "887df0c299143570c9c119943f58dfa7f0e4398b881bc14c38a0b594e68cd324"
+    },
+    {
+      "path": "test/test_node_hashlocate.cpp",
+      "sha256": "198c0211715a82cf3e5d676d4e3f84ed8bf2f077c1eadc2041d75de34e5462ba"
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "f135d051b626909ce2dd6099af8db5a98c79565d16e7b8c7d9c5a782bfd99afa"
+    }
+  ],
+  "preparation_files": [
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "sha256": "3eb9bc94e3982ac67ae076c1092c4f5db06adca04d1a1a218ba333a94bdee3ea"
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "sha256": "00e09d0a6e5142374fd99803febc068d352c825fa20e553a69689b270fa22807"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck.md",
+      "sha256": "19e7eae4247699a47fb17c3ff80492a4922782dad12feb30720da372532a40e1"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck/SHA256SUMS",
+      "sha256": "76c6b5fc89eac2584bbf2ef719d7b04e8656667dde4ee8cc09b97fd900aa7f85"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review.md",
+      "sha256": "8a6eea90e18013232a4626e35c2e014c7f44a6ce1faf545717fa30a3248ec009"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review/SHA256SUMS",
+      "sha256": "d378e9c0e507f0ec8c10212fa72e6edf2755d0e454bf9566f83091653e27c3c3"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview.md",
+      "sha256": "8eb6d79697a7085a9059b6617c809c9b41b74d9f130ad702532267fdb95677ef"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview/SHA256SUMS",
+      "sha256": "0d5b5b154589387862b405d50b208f0b6441cbdcc8db8e80e26fd57640b9246d"
+    },
+    {
+      "path": "tracker.md",
+      "sha256": "197616512cea9f347d97202908ef663a2361d263b61ad3860ddb5e494075f54b"
+    },
+    {
+      "path": "MEMORY.md",
+      "sha256": "a354886f972591bd31233fb97e9bd8846286646d409053cf8cce56fbba08159e"
+    }
+  ],
+  "artifact_checks": [
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-precheck",
+      "files": 10,
+      "sha256sums_sha256": "76c6b5fc89eac2584bbf2ef719d7b04e8656667dde4ee8cc09b97fd900aa7f85"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-review",
+      "files": 6,
+      "sha256sums_sha256": "d378e9c0e507f0ec8c10212fa72e6edf2755d0e454bf9566f83091653e27c3c3"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview",
+      "files": 5,
+      "sha256sums_sha256": "0d5b5b154589387862b405d50b208f0b6441cbdcc8db8e80e26fd57640b9246d"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1-brief-rereview-2",
+      "files": 3,
+      "sha256sums_sha256": "ea70db5464dd9ff00e011b51a5421832f0276d412e3a655919d4500150f08e0f"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1",
+      "files": 64,
+      "sha256sums_sha256": "66ff7a785bbc62fee03d2051f01ad6043a23860eb150685997d1dfc5b790d441"
+    }
+  ]
+}

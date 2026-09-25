@@ -719,7 +719,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # authority -45, frozen-sealer fixture -6, typed-send queue proof +5 = 2950/195768.
 # Both complete native binaries and per-file filtered runs measured this attribution.
 # Slice 10: +2 assertions (test_device_nv v25-floor and 280-byte-size refusals), 0 cases = 2950/195770; measured by the full native binary.
-PIN_CASES, PIN_ASSERTS = 2950, 195770
+# W1 (B241): +1 case / +7 assertions (test_node_hashlocate exact-capacity raw-name guard) = 2951/195777; measured by the full native binary.
+PIN_CASES, PIN_ASSERTS = 2951, 195777
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:

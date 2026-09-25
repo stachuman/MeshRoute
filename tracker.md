@@ -32,7 +32,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Backlog — priority order
 
-- [2026-09-06-standalone-mobile-home-and-team-messaging-design.md](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md) — Home/editor redesign; revision 2.17 (2026-09-24) is **REVIEWED — independent review PASS with fold-ins** ([review](docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-review.md), [re-review](docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-rereview.md), [second re-review](docs/superpowers/evidence/2026-09-24-standalone-mobile-home-design-rereview-2.md); DR-1–DR-12 closed); every decision is owner-resolved (D1–D13, D13b). Next: a Quality-Agent pre-check per §13 package, then its brief.
+- [Standalone mobile Home/editor design, revision 2.18](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) — reviewed design and package status; [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18) and [W1 independent QA receipt](docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1-qa.md) hold the current dispatch and closure evidence.
 
 - [Heltec V4 L76K GNSS/location design](docs/superpowers/specs/2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md) — first-review draft; ready for final review and implementation planning.
 

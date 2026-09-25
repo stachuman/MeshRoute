@@ -1,0 +1,22 @@
+TARGET_SRC entries: 105
+targets whose configured source file is a W1-changed file: NONE
+firmware_ui*/node_hashlocate targets:
+   b161hash -> lib/core/node_hashlocate.cpp
+   b251hash -> lib/core/node_hashlocate.cpp
+   chrome -> src/firmware_ui_chrome.h
+   grantpark -> lib/core/node_hashlocate.cpp
+   icons -> src/firmware_ui_icons.h
+   model -> src/firmware_ui_model.h
+   sliceCbudget -> src/firmware_ui_model.h
+   sliceCsend -> src/firmware_ui_send.h
+   uigeo -> src/firmware_ui_geo.h
+   uiinvite -> src/firmware_ui_invite.h
+   uijoin -> src/firmware_ui_join.h
+   uinearby -> src/firmware_ui_nearby.h
+   uinearbyrow -> src/firmware_ui_nearby_row.h
+   uipresets -> src/firmware_ui_presets.h
+   uipresetverbs -> src/firmware_ui_preset_verbs.h
+   uiprov -> src/firmware_ui_prov.h
+   uisend -> src/firmware_ui_send.h
+   uistatus -> src/firmware_ui_status.h
+   uiteam -> src/firmware_ui_team.h

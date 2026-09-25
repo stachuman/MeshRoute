@@ -1,0 +1,35 @@
+{
+  "output_paths": [
+    {
+      "input": ".pio-measure/w1/base-1",
+      "resolved": "/home/staszek/MeshRoute/.pio-measure/w1/base-1",
+      "accepted": true,
+      "exists": false
+    },
+    {
+      "input": ".pio-measure/w1/base-2",
+      "resolved": "/home/staszek/MeshRoute/.pio-measure/w1/base-2",
+      "accepted": true,
+      "exists": false
+    },
+    {
+      "input": ".pio-measure/w1/final-1",
+      "resolved": "/home/staszek/MeshRoute/.pio-measure/w1/final-1",
+      "accepted": true,
+      "exists": false
+    },
+    {
+      "input": ".pio-measure/w1/final-2",
+      "resolved": "/home/staszek/MeshRoute/.pio-measure/w1/final-2",
+      "accepted": true,
+      "exists": false
+    }
+  ],
+  "measure_board_sha256": "65ecc700dd25e6de961f21d7ad793c17d425fb989832f147945f12ae1f3d40ad",
+  "changed_prior_inputs": [
+    "MEMORY.md",
+    "docs/superpowers/plans/2026-09-24-standalone-mobile-home-w1-label-termination.md",
+    "tracker.md"
+  ],
+  "builds_run": 0
+}

@@ -1,0 +1,22 @@
+{
+  "script_unchanged": true,
+  "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|\n       s|            mem.name\\[nn\\] = .\\\\\\\\0.;|            ;|",
+  "reproductions": [
+    {
+      "tree": "base",
+      "substitution_matches": [
+        1,
+        0
+      ],
+      "mutated_projection": "        mem.name[0] = '\\0';\n        if (hash != 0u) {\n            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;\n            mem.name[nn] = '\\0';\n        }"
+    },
+    {
+      "tree": "frozen",
+      "substitution_matches": [
+        1,
+        0
+      ],
+      "mutated_projection": "        mem.name[0] = '\\0';\n        if (hash != 0u) {\n            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;\n            mem.name[nn] = '\\0';\n        }"
+    }
+  ]
+}

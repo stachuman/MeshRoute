@@ -1,0 +1,96 @@
+{
+  "schema": 2,
+  "environment": "synthetic-review-only",
+  "fixed_identity": {
+    "source_date_epoch": 0,
+    "build_stamp": 0,
+    "build_stamp_count": 0,
+    "git_revision": 0,
+    "git_revision_count": 0
+  },
+  "source": {
+    "git_head": 0,
+    "git_status_sha256": 0,
+    "file_count": 0,
+    "deleted_files": 0,
+    "tree_sha256": "synthetic-A"
+  },
+  "paths": {
+    "project_root": 0,
+    "build_root": 0,
+    "libdeps_root": 0,
+    "workspace_root": 0,
+    "env_build_dir": 0,
+    "normal_pio_root": 0,
+    "normal_pio_used": 0
+  },
+  "measurements": {
+    "ram_bytes": 0,
+    "flash_bytes": 0,
+    "object_count": 0,
+    "loadable_sections": 0,
+    "symbol_count": 0,
+    "symbol_size_total": 0,
+    "symbols_sha256": 0
+  },
+  "artifacts": {
+    "payload": {
+      "filename": 0,
+      "bytes": 0,
+      "sha256": 0
+    }
+  },
+  "toolchain": {
+    "platformio": 0,
+    "platform": 0,
+    "packages": 0,
+    "command_state_schema": 0,
+    "commands": {
+      "cc": {
+        "command": 0,
+        "command_template": 0,
+        "tool_token": 0,
+        "executable_resolved": 0,
+        "executable_realpath": 0,
+        "wrapper_active": 0,
+        "wrapper_prefix": 0,
+        "version": 0
+      },
+      "cxx": {
+        "command": 0,
+        "command_template": 0,
+        "tool_token": 0,
+        "executable_resolved": 0,
+        "executable_realpath": 0,
+        "wrapper_active": 0,
+        "wrapper_prefix": 0,
+        "version": 0
+      },
+      "link": {
+        "command": 0,
+        "command_template": 0,
+        "tool_token": 0,
+        "executable_resolved": 0,
+        "executable_realpath": 0,
+        "wrapper_active": 0,
+        "wrapper_prefix": 0,
+        "version": 0
+      }
+    },
+    "link_aliases": 0
+  },
+  "normal_pio_metadata": {
+    "exists": 0,
+    "entry_count": 0,
+    "sha256": 0
+  },
+  "concurrency": {
+    "measurement_lock": 0,
+    "mutation_batteries_share_lock": 0,
+    "limitation": 0
+  },
+  "host": {
+    "platform": 0,
+    "limitation": 0
+  }
+}

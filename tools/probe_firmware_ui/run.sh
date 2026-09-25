@@ -134,13 +134,33 @@ build_support() {
 build_support l2 "${DEFS[@]}"
 build_support v3 "${LEAF_DEFS[@]}"
 
+# ---- ★★★★ [[B241]] (W1): THE UI SOURCE UNDER TEST IS COMPILED THROUGH A GENERATED **WRAPPER TU** ---------------------
+# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it — and the
+#   B241 regression (a peer label handed to `%s` with no terminator) is deterministic only when the probe hands the REAL
+#   adapter a POISONED destination of its own (P28). ⇒ every build that links `probe_main.cpp` compiles, in place of the
+#   UI source itself, a TU that `#include`s THAT SOURCE and adds ONE external trampoline, `mr_probe_label_from_hash`.
+# ⛔ THE WRAPPER INCLUDES THE PATH IT WAS HANDED — the live `$FW_UI` or a control's `mutant.cpp` — ⛔ never a hard-wired
+#   path: a wrapper pinned to the live source would compile the REAL file under every control and defeat all of them.
+# ⓘ Same TU, so the compiled code IS the source under test (no copied implementation); the live builds keep their
+#   `-Werror`; C0 still fails to build (its mutant, restored `fw_context.h` included, is what the wrapper includes); and
+#   `md5_sources` still hashes the real files — the wrapper lives in `$OUT` and is never a tracked input.
+ui_wrapper() {   # ui_wrapper <ui-source> <wrapper.cpp>
+  case "$1" in *'"'*|*'\'*) echo "UI WRAPPER REFUSED: the source path cannot be quoted in an #include: $1"; exit 1 ;; esac
+  # ⛔ A FAILED WRITE STOPS THE RUN: the file is reused, so a control would otherwise compile the PREVIOUS wrapper — the
+  #   live source's — and measure nothing.
+  printf '#include "%s"\nvoid mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap) { label_from_hash(hash, out, cap); }\n' \
+         "$1" > "$2" || { echo "UI WRAPPER WRITE FAILED: $2"; exit 1; }
+}
+
 # ---- the arm currently under test. `ARM` picks the archive + harness object; `ARM_DEFS` names the flag array. -------
 ARM=l2; ARM_DEFS=DEFS
-# build_variant(src, out_binary, extra_cxxflags...) -> 0 on a successful link
+# build_variant(src, out_binary, extra_cxxflags...) -> 0 on a successful link. `src` is compiled through `ui_wrapper`.
 build_variant() {
   local src=$1 bin=$2; shift 2
   local -n d="$ARM_DEFS"
-  "$CXX" "${STD[@]}" -Wall -Wextra "$@" "${d[@]}" "${INCS[@]}" -c "$src" -o "$OUT/fw_ui_var.o" 2>"$OUT/build.log" \
+  ui_wrapper "$src" "$OUT/fw_ui_var_wrap.cpp"
+  "$CXX" "${STD[@]}" -Wall -Wextra "$@" "${d[@]}" "${INCS[@]}" -c "$OUT/fw_ui_var_wrap.cpp" -o "$OUT/fw_ui_var.o" \
+         2>"$OUT/build.log" \
     && "$CXX" "$OUT/probe_main-$ARM.o" "$OUT/fw_ui_var.o" "$OUT/libsupport-$ARM.a" -o "$bin" 2>>"$OUT/build.log"
 }
 
@@ -178,10 +198,11 @@ ARM=l2; ARM_DEFS=DEFS
 # requires the probe to pass THERE TOO; `probe_main.cpp` carries the matching `#if`, so one source asserts both arms.
 echo
 echo "== §UI-14 second arm: the BLE row's condition MET (-DMR_UI_BLE_ROW=1) =="
+ui_wrapper "$FW_UI" "$OUT/fw_ui_ble_wrap.cpp"   # [[B241]]: this arm links probe_main.cpp too, so it takes the wrapper
 if "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${INCS[@]}" \
         -c "$HERE/probe_main.cpp" -o "$OUT/probe_main_ble.o" 2>"$OUT/ble.log" \
    && "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${INCS[@]}" \
-        -c "$FW_UI" -o "$OUT/fw_ui_ble.o" 2>>"$OUT/ble.log" \
+        -c "$OUT/fw_ui_ble_wrap.cpp" -o "$OUT/fw_ui_ble.o" 2>>"$OUT/ble.log" \
    && "$CXX" "$OUT/probe_main_ble.o" "$OUT/fw_ui_ble.o" "$OUT/libsupport-l2.a" -o "$OUT/probe_ble" 2>>"$OUT/ble.log"; then
   if "$OUT/probe_ble" > "$OUT/probe_ble.out" 2>&1; then
     echo "  ok   the BLE-row arm builds and PASSES ($(grep -c '' "$OUT/probe_ble.out") lines)"
@@ -1219,6 +1240,24 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     operator is then told his message FAILED, when in fact nothing was submitted at all.
   ctl "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED" yes \
       's|            case mrui::DmState::preset_changed:|            case mrui::DmState::preset_changed: draw_failure_lines(v); break;|'
+
+  # ★★★★ [[B241]] (W1): B241a-B241b, THE LABEL ADAPTER's TWO WRONG ANSWERS. Both must go RED on P28a's POISONED-buffer
+  #   checks, which are the only deterministic view of the defect: the TEAM snapshot is zero-initialised, and the
+  #   compose/receive locals hold whatever the stack held.
+  # ⛔ B241a IS THE PRE-FIX BODY, RESTORED BYTE FOR BYTE (the one-line `if (g_node.peer_name_find(hash, out, cap) == 0)`
+  #   form): no byte reserved, no terminator written — the metal garbage after `H1`.
+  # ⛔ B241b IS THE TEMPTING WRONG REPAIR: pass the whole capacity and terminate only the LAST byte. It looks safe (the
+  #   buffer can no longer run unterminated) and it still leaves the poison after a short name — the same garbage.
+  ctl "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator" yes \
+      '/^void label_from_hash(uint32_t hash, char\* out, uint8_t cap) {$/,/^}$/ {
+         /^    if (cap == 0) return;/d
+         /^    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));$/d
+         /^    out\[n\] = /d
+         s|^    if (n == 0) { snprintf(out, cap, "0x%08lx", (unsigned long)hash); return; }$|    if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (unsigned long)hash);|
+       }'
+  ctl "B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated" yes \
+      's|^    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));$|    const uint8_t n = g_node.peer_name_find(hash, out, cap);|
+       s|^    out\[n\] = .\\0.;$|    out[cap - 1] = 0;|'
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are

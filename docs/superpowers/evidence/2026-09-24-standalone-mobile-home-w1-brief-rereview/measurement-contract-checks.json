@@ -1,0 +1,65 @@
+{
+  "checks": [
+    {
+      "name": "brief board output path is rejected before any build",
+      "argv": [
+        "/home/staszek/.platformio/penv/bin/python3",
+        "-B",
+        "tools/measure_board.py",
+        "pair",
+        "--jobs=1",
+        "--output",
+        "docs/superpowers/evidence/2026-09-24-standalone-mobile-home-w1/boards/base-1"
+      ],
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "ERROR: an output inside the repository must be below the gitignored .pio-measure/\n",
+      "expected_exit": 2
+    },
+    {
+      "name": "synthetic identical manifests pass qualification",
+      "expected": "PASS",
+      "actual": "PASS",
+      "measurement": false
+    },
+    {
+      "name": "synthetic source-only change fails strict repeatability despite unchanged measurements",
+      "expected": "repeatability mismatch in: source.tree_sha256",
+      "actual": "repeatability mismatch in: source.tree_sha256",
+      "measurement": false
+    },
+    {
+      "name": "compare rejects directories even when they contain valid manifests",
+      "argv": [
+        "/home/staszek/.platformio/penv/bin/python3",
+        "-B",
+        "tools/measure_board.py",
+        "compare",
+        "/tmp/meshroute-w1-r2-review-502jxsv4/base-1",
+        "/tmp/meshroute-w1-r2-review-502jxsv4/base-2"
+      ],
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "ERROR: manifest does not exist: /tmp/meshroute-w1-r2-review-502jxsv4/base-1\n",
+      "expected_exit": 2,
+      "measurement": false
+    },
+    {
+      "name": "compare accepts synthetic manifest-file paths",
+      "argv": [
+        "/home/staszek/.platformio/penv/bin/python3",
+        "-B",
+        "tools/measure_board.py",
+        "compare",
+        "/tmp/meshroute-w1-r2-review-502jxsv4/base-1/manifest.json",
+        "/tmp/meshroute-w1-r2-review-502jxsv4/base-2/manifest.json"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS: exact repeatability env=synthetic-review-only\n  RAM=0 flash=0 objects=0\n  payload_sha256=0\n  ELF hashes are diagnostic only and were not used as the verdict\n",
+      "stderr": "",
+      "expected_exit": 0,
+      "measurement": false
+    }
+  ],
+  "earlier_harness_error": "The first ad-hoc capture asserted the expected CLI error in stdout; it is correctly on stderr. That assertion failed before further checks or filesystem writes. The corrected checks above retain both streams."
+}

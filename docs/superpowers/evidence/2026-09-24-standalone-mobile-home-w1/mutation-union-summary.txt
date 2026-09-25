@@ -1,0 +1,36 @@
+gate7 uiteam exit=0
+mutations: 20 RED / 0 unusable
+  ok   clean baseline 2951 / 195777 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+  [w0]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w4]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w5]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w6]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w7]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+gate7 uiinvite exit=0
+mutations: 32 RED / 0 unusable
+  ok   clean baseline 2951 / 195777 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+  [w0]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w4]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w5]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w6]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w7]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+gate7 uisend exit=0
+mutations: 15 RED / 0 unusable
+  ok   clean baseline 2951 / 195777 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+  [w0]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w4]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w5]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w6]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)
+  [w7]   ok   clean baseline 2951 / 195777 / 0   (DERIVED from this tree)

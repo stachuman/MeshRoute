@@ -207,6 +207,12 @@
 #include <cstring>
 #include <cctype>
 #include <cstdlib>          // getenv — PROBE_LIST, the coverage roll-up switch
+#include <cstddef>          // offsetof — P28's canary-layout assertion
+
+// ★★★★ [[B241]] (W1) — THE ONE PROBE-ONLY DOOR INTO A FILE-LOCAL FUNCTION. `label_from_hash` sits in
+//      `src/firmware_ui.cpp`'s anonymous namespace; `run.sh`'s `ui_wrapper` compiles that source (or a control's mutant)
+//      inside a TU that DEFINES this forwarder beside it, so P28 drives the REAL adapter and nothing re-implemented.
+void mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap);
 
 // ==================================================================================================================
 // the scriptable device under the feature layer
@@ -6682,6 +6688,258 @@ int main() {
             run_preset_cmd("preset reset all") &&
             probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 &&
             probe_presets().enabled_count(mrfw::PresetKind::channel) == 2);
+    }
+
+    // ============================================================================================================ P28
+    // ★★★★ [[B241]] (W1) — A PEER LABEL IS **TERMINATED**: proven on a POISONED destination first, then on glass.
+    //      `label_from_hash` used to hand its `%s` consumers `Node::peer_name_find`'s bytes with NO terminator. A short
+    //      name (`H1`) left the destination's stale bytes after it — the garbage seen on metal — and a name of 15+
+    //      bytes filled the 15-byte buffer with no NUL at all. ⛔ No earlier phase could see it: the TEAM snapshot is
+    //      zero-initialised (`UiSnapshot s{}`), which HIDES the short-name case, and no phase put a cached name behind
+    //      the compose or receive labels, whose buffers are uninitialised locals.
+    // ★ (a) drives the REAL adapter through `mr_probe_label_from_hash` (`run.sh`'s `ui_wrapper`) into a 15-byte
+    //   destination PRE-FILLED with a non-zero poison and fenced by canaries on both sides. Every byte is checked with
+    //   BOUNDED reads before anything renders it, so a failing check can never itself read past the buffer.
+    // ★ (b)-(d) then read each consumer through the public seam only, in that screen's own formatting and clamp: the
+    //   TEAM row, the compose header, the compose RESULT (`DELIVERED to`), and the receive path — a same-team REPLY to
+    //   a real alarm, the one route by which `label_for_origin`'s answer reaches the panel (`UiModel::on_reply`).
+    // ⓘ W1 changes no spelling (W4a owns the identity format), so every check asserts TODAY's text.
+    // ⓘ IT RUNS BEFORE P26 because P26 must stay last (it leaves a FIRING alarm): this phase dismisses its own alarm
+    //   and restores the canonical team fixture, so P26's "no alarm before the hold" precondition still holds.
+    {
+        // ---- the fixture: six named peers, one NAMELESS key, one hash nobody cached --------------------------------
+        // `hash = LE(pub[0..3]) = 0xB24100kk`, so a `0x` fallback names its own fixture at a glance.
+        auto b241_key = [](uint8_t k, uint8_t (&pub)[32]) {
+            for (int i = 0; i < 32; ++i) pub[i] = uint8_t(0x90 + i);
+            pub[0] = k; pub[1] = 0x00; pub[2] = 0x41; pub[3] = 0xB2;
+            return MESHROUTE_NS::key_hash32_of(pub);
+        };
+        struct Named { uint8_t k; const char* name; };
+        const Named named[] = {
+            {1, "H1"}, {2, "H2"}, {3, "A-LONG-NAME-THAT-BECOMES-H1"},
+            {4, "NAME-FOURTEEN!"}, {5, "NAME-OF-FIFTEEN"}, {6, "A-THIRTY-TWO-BYTE-NAME-012345678"},
+        };
+        uint32_t h[8] = {};
+        bool cached = true;
+        for (const Named& n : named) {
+            uint8_t pub[32];
+            h[n.k] = b241_key(n.k, pub);
+            cached = g_node.peer_key_set(h[n.k], pub, MESHROUTE_NS::Node::PeerKeyConf::authoritative,
+                                         n.name, uint8_t(strlen(n.name))) && cached;
+        }
+        {
+            uint8_t pub[32];
+            h[7] = b241_key(7, pub);
+            cached = g_node.peer_key_set(h[7], pub, MESHROUTE_NS::Node::PeerKeyConf::authoritative) && cached;
+        }
+        // ⓘ NEVER cached, and deliberately NOT `0xB24100kk`: the TEAM row clamps a label to six columns, and this
+        //   hash's (`0xb2ee`) must differ from the nameless key's (`0xb241`) for the two rows to be told apart.
+        const uint32_t unknown = 0xB2EE41EEu;
+        char nm_probe[40];
+        uint8_t ed_probe[32];
+        // ⚠ `peer_name_find == 0` is true for a nameless key AND for an absent one, so the key's PRESENCE is asked
+        //   separately (`peer_key_find`, a pure read) — otherwise "nameless" and "unknown" would be the same fixture.
+        CHK("P28 precondition: the names are 14/15/32 bytes where it matters and all seven keys are cached",
+            cached && strlen(named[3].name) == 14 && strlen(named[4].name) == 15 && strlen(named[5].name) == 32 &&
+            g_node.peer_name_find(h[6], nm_probe, sizeof nm_probe) == 32 &&
+            g_node.peer_key_find(h[7], ed_probe) && g_node.peer_name_find(h[7], nm_probe, sizeof nm_probe) == 0 &&
+            !g_node.peer_key_find(unknown, ed_probe) && g_node.peer_name_find(unknown, nm_probe, sizeof nm_probe) == 0);
+
+        // ---- (a) THE ADAPTER ITSELF, on a poisoned, canary-fenced 15-byte destination ------------------------------
+        struct Fenced { uint8_t pre[8]; char out[15]; uint8_t post[8]; };
+        static_assert(offsetof(Fenced, out) == 8 && offsetof(Fenced, post) == 8 + 15,
+                      "the canaries must ABUT the destination, or an overrun could land in padding unseen");
+        constexpr uint8_t kPoison = 0xA7, kCanary = 0xC3;
+        auto fence = [&](Fenced& f) {
+            memset(f.pre, kCanary, sizeof f.pre); memset(f.out, kPoison, sizeof f.out); memset(f.post, kCanary, sizeof f.post);
+        };
+        auto fence_ok = [&](const Fenced& f) {
+            for (size_t i = 0; i < sizeof f.pre; ++i) if (f.pre[i] != kCanary || f.post[i] != kCanary) return false;
+            return true;
+        };
+        // Exact bytes, the NUL at min(len, 14), both canaries intact — BOUNDED reads only.
+        auto label_is = [&](const Fenced& f, const char* want, size_t len) {
+            const size_t n = len < sizeof f.out - 1 ? len : sizeof f.out - 1;
+            return memcmp(f.out, want, n) == 0 && f.out[n] == '\0' && fence_ok(f);
+        };
+        auto fallback_is = [&](const Fenced& f, uint32_t hash) {   // the `0x%08lx` spelling, exactly as today
+            char want[16];
+            snprintf(want, sizeof want, "0x%08lx", (unsigned long)hash);
+            return label_is(f, want, strlen(want));
+        };
+        auto resolve = [&](Fenced& f, uint32_t hash, uint8_t cap) { mr_probe_label_from_hash(hash, f.out, cap); };
+        const uint8_t full = uint8_t(sizeof(Fenced::out));   // what every production caller passes
+        Fenced f{};
+        fence(f); resolve(f, h[1], full);
+        CHK("P28a H1 lands exactly, NUL at byte 2, both canaries intact", label_is(f, "H1", 2));
+        fence(f); resolve(f, h[2], full);
+        CHK("P28a H2 lands exactly, NUL at byte 2, both canaries intact", label_is(f, "H2", 2));
+        // ★★ THE METAL SYMPTOM ITSELF: a long name, then a rename to `H1` INTO THE SAME BUFFER, which still holds the
+        //    long name's bytes — exactly what rendered as garbage after `H1`.
+        fence(f); resolve(f, h[3], full);
+        CHK("P28a a 27-byte name clamps to 14 bytes, NUL at byte 14",
+            label_is(f, named[2].name, strlen(named[2].name)));
+        const bool renamed = g_node.peer_name_set(h[3], "H1", 2);
+        resolve(f, h[3], full);
+        CHK("P28a ★★ renamed to H1 over the old content: NUL at byte 2, no stale tail",
+            renamed && label_is(f, "H1", 2));
+        fence(f); resolve(f, h[4], full);
+        CHK("P28a a 14-byte name lands whole, NUL at byte 14", label_is(f, named[3].name, 14));
+        fence(f); resolve(f, h[5], full);
+        CHK("P28a a 15-byte name clamps to 14 bytes, NUL at byte 14", label_is(f, named[4].name, 15));
+        fence(f); resolve(f, h[6], full);
+        CHK("P28a a 32-byte name clamps to 14 bytes, NUL at byte 14", label_is(f, named[5].name, 32));
+        fence(f); resolve(f, h[7], full);
+        CHK("P28a a NAMELESS cached key renders exactly 0x plus eight hex digits", fallback_is(f, h[7]));
+        fence(f); resolve(f, unknown, full);
+        CHK("P28a an UNKNOWN hash renders exactly 0x plus eight hex digits", fallback_is(f, unknown));
+        // ⓘ SYNTHETIC, and labelled so: every production caller passes the full 15. These pin the two edges the fix
+        //   itself introduces — the `cap == 0` return before `cap - 1`, and a 1-byte destination that holds only NUL.
+        fence(f); resolve(f, h[1], 0);
+        bool untouched = fence_ok(f);
+        for (size_t i = 0; i < sizeof f.out; ++i) if (uint8_t(f.out[i]) != kPoison) untouched = false;
+        CHK("P28a synthetic: capacity 0 writes nothing at all", untouched);
+        fence(f); resolve(f, h[1], 1);
+        bool only_nul = fence_ok(f) && f.out[0] == '\0';
+        for (size_t i = 1; i < sizeof f.out; ++i) if (uint8_t(f.out[i]) != kPoison) only_nul = false;
+        CHK("P28a synthetic: capacity 1 writes only the terminator", only_nul);
+        {   // evidence only, printed BOUNDED (every check above has already run)
+            fence(f); resolve(f, h[6], full);
+            const void* z = memchr(f.out, 0, sizeof f.out);
+            const int shown = z ? int(static_cast<const char*>(z) - f.out) : int(sizeof f.out);
+            printf("  INFO P28a 32-byte name -> [%.*s] (%s)\n", shown, f.out, z ? "terminated" : "NO NUL in 15 bytes");
+        }
+
+        // ---- (b) THE TEAM ROW: named, NAMELESS, keyless and UNKNOWN-hash teammates, through the real resolver ------
+        // `set_team_id` drops the previous team's roster and bindings (P18's note), so the list is exactly these four:
+        // 91 -> `H1`, 92 -> the NAMELESS key (`0xb2410007`), 93 -> no key at all (`id 93`, `label_for_team_id`'s own
+        // arm), 94 -> a hash nobody cached (`0xb2ee41ee`, `label_from_hash`'s fallback for an UNKNOWN peer).
+        // ⚠ P18/P19's MEASURED CLOCK TRAP applies: a screen walk steps `millis()` backwards, `DeviceHal::now()` reads it
+        //   as a wrap (+2^32 ms), and a binding stamped before it falls past `team_key_of_id`'s 48 h gate — the rows
+        //   would then quietly read `id 91`. ⇒ `rebind` re-stamps routes and bindings AFTER every walk, AHEAD of the
+        //   clock, and only then is the panel painted and read.
+        (void)g_node.set_team_id(0xB2410001u);
+        g_node.set_team_local_id(90);
+        auto rebind = [&](uint32_t at) {
+            set_now(at);
+            for (uint8_t id = 91; id <= 94; ++id) g_node.test_learn_route(id, id, 1, 144, /*team_plane=*/true);
+            g_node.team_key_set(91, h[1], MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            g_node.team_key_set(92, h[7], MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            g_node.team_key_set(94, unknown, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+        };
+        uint32_t t28 = settle(g_probe_millis + 5000);
+        t28 = walk_to_slot(t28 + 500, kSlotTeam);
+        rebind(t28 + 1000);
+        dirty_the_model(t28 + 1000); paint(t28 + 1100); t28 += 1200;
+        {
+            const char* r[4] = { body_row(0), body_row(1), body_row(2), body_row(3) };
+            printf("  INFO P28b TEAM rows: [%s] [%s] [%s] [%s]\n", r[0] ? r[0] : "-", r[1] ? r[1] : "-",
+                   r[2] ? r[2] : "-", r[3] ? r[3] : "-");
+            // The row is `%c%-6.6s %3s %4s %2s`: the marker, the label clamped to SIX columns, one blank — then the age.
+            auto label_col = [](const char* row, const char* want8) {
+                return row != nullptr && strlen(row) == 19 && strncmp(row, want8, 8) == 0;
+            };
+            CHK("P28b TEAM row 0 carries the named teammate's label, H1", label_col(r[0], " H1     "));
+            CHK("P28b TEAM row 1 carries the NAMELESS key's 0x label, clamped to six", label_col(r[1], " 0xb241 "));
+            CHK("P28b TEAM row 2 carries the keyless teammate's bare id", label_col(r[2], " id 93  "));
+            CHK("P28b TEAM row 3 carries the UNKNOWN hash's 0x label, clamped to six", label_col(r[3], " 0xb2ee "));
+        }
+
+        // ---- (c) THE COMPOSE HEADER AND THE `DELIVERED to` RESULT, for each of the four ----------------------------
+        // ⓘ The row is reached by POSITION (`enter_list` lands on row 0, one `short` per row), never by searching for
+        //   its label: a walk can wrap the clock, so the label on the list is only trusted after `rebind`.
+        struct Peer { uint8_t id; const char* label; const char* who; uint16_t ctr; };
+        const Peer peers[] = { {91, "H1", "named", 2411}, {92, "0xb2410007", "NAMELESS", 2412},
+                               {93, "id 93", "keyless", 2413}, {94, "0xb2ee41ee", "UNKNOWN-hash", 2414} };
+        for (uint8_t row = 0; row < 4; ++row) {
+            const Peer& p = peers[row];
+            char lab[96];
+            t28 = enter_list(t28 + 2000, kSlotTeam);
+            for (uint8_t i = 0; i < row; ++i) t28 = settle(t28 + 500);
+            t28 = double_press(t28 + 500);                            // -> the DM compose for THAT row
+            rebind(t28 + 1000);
+            dirty_the_model(t28 + 1000); paint(t28 + 1100); t28 += 1200;
+            char head[24];
+            snprintf(head, sizeof head, "to: %s", p.label);
+            snprintf(lab, sizeof lab, "P28c the compose HEADER names the %s teammate exactly", p.who);
+            CHK(lab, body_row_is(0, head));
+            g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = p.ctr;
+            t28 = double_press(t28 + 500);                            // send the first canned text
+            t28 += 700; paint(t28);
+            snprintf(lab, sizeof lab, "P28c precondition: the DM to the %s teammate reached the executor", p.who);
+            CHK(lab, g_exec.calls == 1);
+            MESHROUTE_NS::Push ack{};
+            ack.kind = MESHROUTE_NS::PushKind::send_e2e_acked; ack.dst = p.id; ack.ctr = p.ctr;
+            mr_ui_on_push(ack);
+            t28 += 700; paint(t28);
+            snprintf(lab, sizeof lab, "P28c the DELIVERED result names the %s teammate exactly", p.who);
+            CHK(lab, body_row_is(1, "DELIVERED to") && body_row_is(2, p.label));
+            t28 = settle(t28 + 1000); paint(t28);                     // acknowledge -> the sub-view closes (P9d)
+        }
+
+        // ---- (d) THE RECEIVE PATH: a same-team REPLY to a REAL alarm reaches `UiModel::on_reply` -------------------
+        // ★ `on_reply` accepts only an answer to an alarm that really went out (`_tries > 0`), so the alarm is FIRED
+        //   through the real gesture and ACCEPTED by the executor fake — P26a's idiom — before any reply arrives.
+        // ⓘ The emergency rows, stated here rather than imported from the TU: the large headline at y = 34 and the
+        //   small detail line beneath it at y = 52, both at x = 0 (§5.3).
+        constexpr int kEmgHeadYExpected = 34, kEmgDetailYExpected = 52;
+        g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 2415;
+        t28 = settle(t28 + 2000);
+        g_c.button_down = true;                                       // hold PAST fire_ms -> the alarm FIRES
+        for (int i = 0; i < 60; ++i) tick(t28 + 100 + uint32_t(i) * 100);
+        g_c.button_down = false;
+        for (int i = 0; i < 10; ++i) tick(t28 + 6200 + uint32_t(i) * 100);
+        t28 += 7500;
+        CHK("P28d precondition: a real alarm FIRED and its post was ACCEPTED by the executor",
+            g_exec.calls == 1 && mrfw::ui_emergency_active());
+        struct Reply { uint32_t sender; uint8_t origin; const char* label; const char* who; };
+        const Reply replies[] = {
+            { h[1],    91, "H1",         "named" },
+            { h[7],    92, "0xb2410007", "NAMELESS" },
+            { unknown, 94, "0xb2ee41ee", "UNKNOWN-hash" },
+            { 0,       93, "id 93",      "hash-less" },
+        };
+        for (const Reply& rp : replies) {
+            MESHROUTE_NS::Push pu{};
+            pu.kind = MESHROUTE_NS::PushKind::channel_recv;
+            pu.channel_id = uint8_t(MR_UI_TEAM_CHANNEL_ID);
+            pu.team_id = g_node.config().team_id;                     // OUR team, so `same_team` admits it
+            pu.origin = rp.origin; pu.sender_hash = rp.sender; pu.enc = true;
+            pu.body[0] = 'O'; pu.body[1] = 'K'; pu.body_len = 2;
+            set_now(t28); mr_ui_on_push(pu);
+            t28 += 700; paint(t28); t28 += 200;
+            char want[32], lab[96];
+            snprintf(want, sizeof want, "%s: OK", rp.label);
+            const char* hd = text_at(0, kEmgHeadYExpected);
+            const char* dt = text_at(0, kEmgDetailYExpected);
+            snprintf(lab, sizeof lab, "P28d the REPLY from the %s sender names it exactly", rp.who);
+            CHK(lab, hd != nullptr && strcmp(hd, "REPLY") == 0 && dt != nullptr && strcmp(dt, want) == 0);
+        }
+        t28 = settle(t28 + 1000); paint(t28);                         // a short press dismisses the presented REPLY
+        CHK("P28d ...and the dismissed REPLY leaves no alarm for P26 to inherit",
+            !mrfw::ui_emergency_active() && text_at(0, kEmgHeadYExpected) == nullptr);
+
+        // ---- restore the fixture P26 inherits (P18's own restore, verbatim) ---------------------------------------
+        {
+            uint8_t s_pub[32], s_priv[32];
+            for (int i = 0; i < 32; ++i) { s_pub[i] = uint8_t(0xA0 + i); s_priv[i] = uint8_t(0x40 + i); }
+            (void)g_node.set_team_id(0);
+            MESHROUTE_NS::NodeConfig back{};
+            back.routing_sf = 7; back.allowed_sf_bitmap = (1u << 7); back.leaf_id = 0;
+            back.team_id = 0xABCD1234u;
+            g_node.on_init(back);
+            g_node.set_team_local_id(50);
+            g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            t28 = settle(t28 + 1000);
+            g_exec = ExecLog{};   // a FRESH executor for P26 — its alarm must not reuse this phase's handle
+        }
+        (void)t28;
     }
 
     // §UI-10/11 slice P2 — THE `/mrui` PRESET CATALOG's TWO DEVICE-SIDE FACTS. Both are here rather than in the

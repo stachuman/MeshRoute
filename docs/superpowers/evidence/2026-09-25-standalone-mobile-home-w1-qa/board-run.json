@@ -1,0 +1,14 @@
+{
+  "instrument": "boards",
+  "argv": [
+    "python3",
+    "-B",
+    "tools/measure_board.py",
+    "pair",
+    "--jobs=1",
+    "--output",
+    "/tmp/meshroute-w1-qa-20260925-s2s8uk5l/boards"
+  ],
+  "exit_code": 2,
+  "seconds": 16.013
+}
