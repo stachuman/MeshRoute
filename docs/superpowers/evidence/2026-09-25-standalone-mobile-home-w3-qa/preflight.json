@@ -1,0 +1,50 @@
+{
+  "freeze_pins": {
+    "src/firmware_ui_model.h": "2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1",
+    "test/test_firmware_ui_model.cpp": "42dc27ffb4c2205bf8743a9c3d39d80fc6d9b6e33068262bff9c6ddc8799ee63",
+    "tools/probe_firmware_ui/probe_main.cpp": "d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a",
+    "tools/probe_firmware_ui/run.sh": "f754b745c75968dd615e80e092144bad681775d10b6a99c6914446249b4f2579",
+    "tools/probe_ui_model_mutations.py": "9429254f5d2ec79c32ac1dd4beca3fc9fbadab0d432e8fa57087f8bb4cebe932",
+    "src/firmware_ui.cpp": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+    "docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md": "9a84d03b0f2e9826df67feba52ff87c50644383bfb85ef8bc06af7ed8e25d825",
+    "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3.md": "94aa5d341229ac617fc3a2c86b43a4a7820d87f098449d6b8066125bc5d9a041",
+    "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/SHA256SUMS": "60768607c2db45417ed3bff8015b8d6b08ad322d188de0d65c6bbcb048cae30e"
+  },
+  "preparation_pins": {
+    "MEMORY.md": "93d122451513209c7165356b7ed258fec544a8515e6d94ade80658e5e0e9075a",
+    "tracker.md": "a61466662168563a22bfc77b1b3d7314c5160be2a83b9ab1f9c7b4413e1d65a4",
+    "docs/2026-07-30-open-bug-register.md": "fbb23c93eb224d624683e15bdf3d29056a3457a69a38f481e2ffc19a65eab0c3",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "40b71bdb46f05888440eb666eae628f26e40430eb82e636d75630fa4c3429b5b",
+    "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md": "6dd927b592cb009cea5f06028e8977cc15a0ec01224f603ec2f21691c08d0cfc",
+    "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/SHA256SUMS": "2619012ea75ea8e963eba9f88b192b34983413064870f90c5b50b423b73a843b"
+  },
+  "checksum_folders": [
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3",
+      "verified": 31
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck",
+      "verified": 23
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review",
+      "verified": 12
+    }
+  ],
+  "changed_from_precheck": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "src/firmware_ui_model.h",
+    "test/test_firmware_ui_model.cpp",
+    "tools/probe_firmware_ui/probe_main.cpp",
+    "tools/probe_firmware_ui/run.sh",
+    "tools/probe_ui_model_mutations.py",
+    "tracker.md"
+  ],
+  "coder_raw_files_verified": 73,
+  "stage_a_native_hash": "e752732b71c08af62b8131f25a35a7f39bb23ef11b66d21329796d685effb3f1",
+  "original_input_paths": 1710,
+  "simulator_clean": true
+}

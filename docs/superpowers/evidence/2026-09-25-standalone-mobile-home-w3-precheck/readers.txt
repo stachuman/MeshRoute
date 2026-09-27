@@ -1,0 +1,431 @@
+tools/probe_board_abi.py:113:    "firmware_ui_model.h",
+tools/probe_board_abi.py:130:#    across ALL effective environments, `MR_FEAT_OLED=1` and `firmware_ui.cpp` in `build_src_filter` must agree.
+tools/probe_board_abi.py:166:    #     ⓘ A DIFFERENT TU from the `mrui::` block below, same flag: the panel's model lives in firmware_ui.cpp,
+tools/probe_board_abi.py:169:    # --- the OLED panel's model: its feature TU (firmware_ui.cpp) is compiled only where MR_FEAT_OLED is on ---
+tools/probe_board_abi.py:705:UI_TU = "firmware_ui.cpp"
+tools/probe_board_abi.py:721:    """{env: (declares MR_FEAT_OLED=1, compiles firmware_ui.cpp)} — both DERIVED, neither listed."""
+tools/probe_board_abi.py:882:    `firmware_ui.cpp`. The predicate's own justification must go RED."""
+tools/probe_board_abi.py:934:        ("(4c) an env declares MR_FEAT_OLED=1 without compiling firmware_ui.cpp",
+src/firmware_ui_nearby_row.h:11://    `src/firmware_ui_chrome.h:36` includes `firmware_ui_model.h`, so a header the MODEL includes may not
+src/firmware_ui_nearby_row.h:16:// ★ THAT IS THIS TREE'S OWN LAYERING: `TeamRow` lives in `firmware_ui_model.h` and its formatter
+src/firmware_ui_nearby_row.h:64://     (`label_for_team_id`, src/firmware_ui.cpp) — so the mutation that resolves the sender's name into
+src/firmware_ui_nearby_row.h:82:// ⚠⚠ WHY IT LIVES IN **THIS** FILE AND NOT IN `firmware_ui_model.h`, REPORTED because the spec's §4-N3 file list
+src/firmware_ui_nearby_row.h:86://    in `src/firmware_ui.cpp`, where §B115 would leave it a string no automated gate can read and no mutation can
+src/firmware_commands.h:47:// UI model (`s_model`, `src/firmware_ui.cpp`) is FILE-LOCAL and its TU is compiled only where `MR_FEAT_OLED=1`
+src/firmware_commands.h:48:// (platformio.ini:218 lists `firmware_ui.cpp` for the heltec_v3 family and nowhere else), while the `ui preset`
+src/firmware_commands.h:194://     behaviour change, not a de-duplication. Its two `firmware_ui.cpp` call sites are untouched by 0c.
+src/firmware_ui_input.h:11://   - what a gesture MEANS on screen: firmware_ui_model.h (UI-2/UI-3)
+src/firmware_config.cpp:845:// ⛔ NOT `static` (§UI-15 slice 6): `src/firmware_ui.cpp`'s OLED adapter calls THIS instance, through the
+src/firmware_config.cpp:1766:// ⓘ It is exported so `src/firmware_ui.cpp` can call it WITHOUT reaching a second Node send path, and so
+src/firmware_config.h:88:// `handle_team` does the same assignment inline, and `src/firmware_ui.cpp` cannot: `fw_context.h` is barred from that
+test/test_firmware_ui_status.cpp:10:// ★★★ WHY IT EXISTS AS ITS OWN SUITE. `src/firmware_ui.cpp` — the only other place these bytes could have been
+src/firmware_ui_status.h:6:// (`src/firmware_ui.cpp`'s `draw_status_screen`) does nothing but place them beside the reserved 24x24 mark.
+src/firmware_ui_status.h:11://     (`firmware_ui_model.h:102-104`): **a string built in `firmware_ui.cpp` is a string no automated gate can
+src/firmware_ui_status.h:52:#include "firmware_ui_model.h"    // UiSnapshot — the frozen facts; kCfgRestartText — the REUSED lexeme (S-17)
+src/firmware_ui_status.h:58:// ⛔ DERIVED IN THE RENDERER, NEVER A SECOND LITERAL THERE: `src/firmware_ui.cpp` static_asserts its own pixel
+src/firmware_ui_status.h:94://    documents **0 as "not team-DAD'd"** — and `firmware_ui_model.h`'s own team-cursor code relies on exactly that
+src/firmware_ui_status.h:176://   one site that can see `NodeConfig`: `src/firmware_ui.cpp`'s `ui_have_fix()` — the §4.1 `-l` gate, which needs
+tools/probe_inbox_verbs/run.sh:71:#    `firmware_commands.cpp` references `mrfw::ui_emergency_active()`, which lives in `src/firmware_ui.cpp` — a TU
+src/firmware_ui_geo.h:11://     (`firmware_ui_model.h:102-104`): **a decision made in `firmware_ui.cpp` is a decision no automated gate can
+tools/probe_inbox_verbs/probe_main.cpp:21://     · `tools/probe_firmware_ui/` is keyed to the OLED PANEL: it links `src/firmware_ui.cpp` under two panel `-D`
+src/firmware_ui.cpp:1:// MeshRoute — src/firmware_ui.cpp
+src/firmware_ui.cpp:12://   below it  `firmware_ui_model.h` / `firmware_ui_send.h` — pure, board-free, natively tested. Every gesture meaning,
+src/firmware_ui.cpp:23://             green because of it. They are now pure code in firmware_ui_model.h / firmware_ui_send.h, driven by the
+src/firmware_ui.cpp:34://             meaning, the identity tracking, the paging cadence and all three outcome landings are `firmware_ui_model.h`,
+src/firmware_ui.cpp:45://             three action landings are `firmware_ui_model.h`, under the native gate.
+src/firmware_ui.cpp:63://             each screen); the inbox detail's wrap moved with it, AT THE MODEL (`kDetailCols` 21 -> 19, so the page
+src/firmware_ui.cpp:78://             native suite compiles; every string is `firmware_ui_model.h`'s or `firmware_ui_chrome.h`'s.
+src/firmware_ui.cpp:102://               a false claim". §9 R-1 deleted that auto-exit — see `firmware_ui_model.h`'s `on_tick`.
+src/firmware_ui.cpp:110:#include "firmware_ui_model.h"
+src/firmware_ui.cpp:120:                                 //   lexemes, which `firmware_ui_model.h` above already included.
+src/firmware_ui.cpp:123:                                 //   EXPLICITLY although `firmware_ui_model.h` above already pulls it in (the
+src/firmware_ui.cpp:213:// so the two things that move them are natively driven — see firmware_ui_model.h and §B103/§B108.
+src/firmware_ui.cpp:359:    //    readings are different claims — see firmware_ui_model.h's EmgEvidence.
+src/firmware_ui.cpp:365:    //     — see firmware_ui_model.h's two-numbers block. The shipped bug was one field serving both: the FIRING arm
+src/firmware_ui.cpp:1012:static_assert(kBodyCols == mrui::kDetailCols,
+src/firmware_ui.cpp:1351://      §B115's rule (`firmware_ui_model.h:102-104`): *a string built in `firmware_ui.cpp` is a string no automated
+src/firmware_ui.cpp:1573:    for (uint8_t row = 0; row < mrui::kDetailBodyRows; ++row)
+src/firmware_ui.cpp:2167://    in firmware_ui_model.h — with `back` identified POSITIONALLY (`cursor + 1 == n`), so a text added in one place
+src/firmware_ui.cpp:2175://    `kEmergencyText` are RETIRED (their withdrawn declarations sit at their old home in `firmware_ui_model.h`),
+src/firmware_ui.cpp:2252:            //     FAILURE — neither of them a success (see firmware_ui_model.h's EmgEvidence block for the source
+src/firmware_ui.cpp:2349:        //     producers are a pre-TX block and a SEAL FAILURE (see firmware_ui_model.h's EmgEvidence block for the
+src/firmware_ui.cpp:2541:    //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the
+src/firmware_ui.cpp:2582://   SECOND is the actual UI policy, and it is the PURE `mrui::ui_allows_sleep` in firmware_ui_model.h, driven by the
+src/firmware_ui.cpp:2708://     it ends only on a correlated adopt or on a replacing transaction (`UiJoinSession`, firmware_ui_model.h), so a
+tools/probe_firmware_ui/run.sh:4:# §B105 FEATURE-LAYER PROBE — the first automated cover `src/firmware_ui.cpp` has ever had.
+tools/probe_firmware_ui/run.sh:7:#   `src/firmware_ui.cpp` is compiled by NEITHER the native suite (`test_build_src = no`) NOR the simulator (which
+tools/probe_firmware_ui/run.sh:32:# ★★★ WHAT A CONTROL HAS TO BE HERE. Each one applies ONE mutation to a COPY of `src/firmware_ui.cpp` — the tempting
+tools/probe_firmware_ui/run.sh:53:FW_UI="$ROOT/src/firmware_ui.cpp"
+tools/probe_firmware_ui/run.sh:71:#           and therefore the only one in which `draw_provision_screen` (`src/firmware_ui.cpp:1143`) — real shipped
+tools/probe_firmware_ui/run.sh:98:      "$ROOT/src/firmware_ui_presets.h" "$ROOT/src/firmware_ui_model.h" "$ROOT/src/firmware_ui_send.h" \
+tools/probe_firmware_ui/run.sh:103:echo "== §B105 feature-layer probe (src/firmware_ui.cpp, host-compiled) =="
+tools/probe_firmware_ui/run.sh:108:#     `firmware_ui.cpp` compiled against the other — an ODR violation whose symptom is a corrupt run, not a link error.
+tools/probe_firmware_ui/run.sh:138:# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it — and the
+tools/probe_firmware_ui/run.sh:169:  echo "PROBE BUILD FAILED — src/firmware_ui.cpp did not host-compile:"; sed 's/^/    /' "$OUT/build.log" | head -20
+tools/probe_firmware_ui/run.sh:966:  #   THEM AT ALL, and whether the reserved slot is drawn — `src/firmware_ui.cpp` is compiled by neither the native
+tools/probe_firmware_ui/run.sh:1020:  #   mutations stay RED, and the panel shows the wrong people. (ⓘ count corrected 2026-08-21, QG: said "twelve".) `src/firmware_ui.cpp` is compiled by neither the
+tools/probe_firmware_ui/run.sh:1066:  #   `src/firmware_ui.cpp` is the PUBLISH SITE (the `peer_loc_find` read, under the hash the label resolved) and the
+tools/probe_firmware_ui/run.sh:1122:  #   §B115 again: `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. C96/C99 already
+tools/probe_firmware_ui/run.sh:1213:  # ★★★ EACH ONE IS A DECISION THAT LIVES IN `src/firmware_ui.cpp` AND THEREFORE IN NO OTHER INSTRUMENT (§B115): the
+tools/probe_firmware_ui/run.sh:1372:  #   do: the screen is unreachable on the `l2` arm, and `src/firmware_ui.cpp` is compiled by NO other gate. The pure
+tools/probe_firmware_ui/run.sh:1405:  #   reason L1-L22 and N1-N10 do: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by
+tools/probe_firmware_ui/run.sh:1438:  #   does: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by NO other gate. The
+tools/probe_firmware_ui/run.sh:1460:  #   reason every N- and L- control above does: the screens are unreachable on the `l2` arm and `src/firmware_ui.cpp`
+tools/probe_firmware_ui/run.sh:1498:  #   floor are mutation-covered in `firmware_ui_invite.h` / `firmware_ui_model.h`; only this host-compiled probe can
+tools/probe_firmware_ui/run.sh:1523:  #   them compiles `src/firmware_ui.cpp`, so a verdict arm drawn from the wrong field, a word that ignores the state,
+tools/probe_firmware_ui/run.sh:1585:  #   ONLY here for the reason every L/N/O control does: `src/firmware_ui.cpp` is compiled by NO other gate, so a
+tools/probe_firmware_ui/run.sh:1611:  #   `src/firmware_ui.cpp` is compiled by NO other gate. The pure decisions have their own battery entries
+src/firmware_ui_nearby.h:9:// ★★★ WHY A FILE OF ITS OWN rather than more of `firmware_ui_model.h`: a battery is per-SOURCE-FILE
+src/firmware_ui_nearby.h:16://     3400-line model they would have shared `model`'s ~140 entries; composed in `src/firmware_ui.cpp`
+src/firmware_ui_nearby.h:42://    `firmware_ui_model.h`, so ⛔ NO HEADER THE MODEL ITSELF INCLUDES MAY INCLUDE CHROME — the model would be
+src/firmware_ui_nearby.h:46:// ★ THAT IS THIS TREE'S OWN LAYERING, NOT AN INVENTION: `TeamRow` lives in `firmware_ui_model.h` while its row
+src/firmware_ui_nearby.h:157://   case can pin the exact bytes (§B115: a string built in `src/firmware_ui.cpp` is a string no
+test/test_firmware_ui_join.cpp:10://     traps it defends against are both INVISIBLE to every other gate — `src/firmware_ui.cpp` (which supplies the
+src/firmware_ui_presets.h:75://       ⇒ `mrui::kDmTexts` / `kChannelTexts` / `kEmergencyText` (`src/firmware_ui_model.h:1370-1379`) are STILL the
+src/firmware_ui_presets.h:82://       withdrawn declarations are kept visible at their old home in `src/firmware_ui_model.h`, and
+src/firmware_ui_presets.h:361://    `kEmergencyText` and no `firmware_ui_model.h:1370-1379`. P3 retired both tables and the emergency constant,
+src/firmware_ui_presets.h:366://    (`src/firmware_ui_model.h:1370-1379`) AND THAT DUPLICATION IS **TEMPORARY, DELIBERATE AND BOUNDED**, ⛔ not the
+src/firmware_ui_presets.h:369://    header must stay model-INCLUDABLE (P3 needs it from inside `firmware_ui_model.h`), and a header the model
+tools/probe_board_ui/fakes/Arduino.h:4:// ★ SHARED BY TWO PROBES (§B105, 2026-08-06). `tools/probe_firmware_ui/` compiles `src/firmware_ui.cpp` against this
+tools/warning_census.sh:38:#    DIAGNOSTIC FROM A VENDORED HEADER — NOT ONE COMES FROM UI-6 CODE.** `src/firmware_ui.cpp` is the 326th object, and
+tools/warning_census.sh:43:#    ⇒ ATTRIBUTED BY CONTROLLED A/B, not inferred: dropping `+<firmware_ui.cpp>` from `[env:heltec_v3]`'s
+tools/warning_census.sh:49:#   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back).
+tools/warning_census.sh:56:#     NOT SILENT. `src/firmware_ui.cpp` no longer includes `fw_context.h`; it includes the new pure `fw_context_pure.h`
+test/test_node_hashlocate.cpp:1981:// in the UI's one C-string adapter (`src/firmware_ui.cpp`'s `label_from_hash`), deliberately NOT here: `peer_name_find`
+test/test_firmware_ui_chrome.cpp:656:// ★★ Both live beside the fingerprint for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+test/test_firmware_ui_chrome.cpp:814:    //      (`src/firmware_ui.cpp:949-953`), which draws **emergency -> compose -> inbox detail -> screen**, each arm
+test/test_firmware_ui_chrome.cpp:894://      `draw_rail` (`src/firmware_ui.cpp`) walks its five 10-px slots as `NavSlot(i + 1)` for `i = 0..4` and places
+tools/probe_board_ui/probe_main.cpp:7://   moved all three to src/firmware_ui.cpp — which pulls fw_context.h, i.e. RadioLib and the whole device stack — so
+tools/probe_board_ui/probe_main.cpp:10://     transfers, one per next_page(), and the loop body runs 8 times). The CALLER half — that firmware_ui.cpp actually
+tools/probe_board_ui/probe_main.cpp:391:    // ⓘ NOT fatal by contract: the caller (src/firmware_ui.cpp) logs one line and keeps meshing. This probe cannot see
+tools/probe_board_ui/probe_main.cpp:392:    //   that half — firmware_ui.cpp is not host-compilable here (fw_context.h -> RadioLib) — so run.sh checks it
+tools/probe_board_ui/negctl.py:48: # that loop out of this TU into src/firmware_ui.cpp, which cannot be host-compiled here (fw_context.h pulls RadioLib),
+tools/probe_firmware_ui/probe_main.cpp:4:// §B105 PROBE — host-compiles the REAL `src/firmware_ui.cpp` and MEASURES the four behaviours [[B104]] named as having
+tools/probe_firmware_ui/probe_main.cpp:8:// ★★ WHY IT COULD NOT EXIST BEFORE, in one line: `firmware_ui.cpp` included `fw_context.h` -> `<RadioLib.h>` -> not
+tools/probe_firmware_ui/probe_main.cpp:13://     REAL   `src/firmware_ui.cpp` itself · `meshroute::Node` · `meshroute::DeviceHal` (so `txq_depth()` is the real
+tools/probe_firmware_ui/probe_main.cpp:25:// ★★★ EVERY CHECK MUST BE ABLE TO FAIL. `run.sh` re-runs this binary against mutated COPIES of `firmware_ui.cpp` (the
+tools/probe_firmware_ui/probe_main.cpp:34://     PRECONDITIONS asserting `DeviceHal`/`IRadio` behaviour, not `firmware_ui.cpp`'s — "the frame was accepted",
+tools/probe_firmware_ui/probe_main.cpp:58://     `src/firmware_ui_preset_verbs.h`, not this file — so no `ctl` (which mutates `src/firmware_ui.cpp` and nothing
+tools/probe_firmware_ui/probe_main.cpp:95://     THE RETENTION ITSELF: it lives in `src/firmware_ui_model.h` and every control in `run.sh` mutates
+tools/probe_firmware_ui/probe_main.cpp:96://     `src/firmware_ui.cpp`. That half is named rather than assumed, and the inventory is COMPLETE — **SEVEN**
+tools/probe_firmware_ui/probe_main.cpp:143://     therefore builds this file and `firmware_ui.cpp` a second time against `[env:heltec_v3]`'s own `-D` set; P7's
+tools/probe_firmware_ui/probe_main.cpp:178:                                //   drive `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call
+tools/probe_firmware_ui/probe_main.cpp:213://      `src/firmware_ui.cpp`'s anonymous namespace; `run.sh`'s `ui_wrapper` compiles that source (or a control's mutant)
+tools/probe_firmware_ui/probe_main.cpp:301://   character. That is the same arithmetic `src/firmware_ui.cpp`'s layout table derives its slots from, written out
+tools/probe_firmware_ui/probe_main.cpp:474:// ⚠ THE GEOMETRY IS STATED HERE, independently of `src/firmware_ui.cpp`'s own table, exactly as `kBodyXExpected`
+tools/probe_firmware_ui/probe_main.cpp:649:// ★★★ THE SAME SHAPE AS `exec_command` ABOVE, AND FOR THE SAME REASON: `src/firmware_ui.cpp` constructs the ONE
+tools/probe_firmware_ui/probe_main.cpp:714://    then walks the compose list `src/firmware_ui.cpp` renders from `mrfw::preset_catalog().live()`. ⛔ There is no
+tools/probe_firmware_ui/probe_main.cpp:762:// ---- the globals `firmware_ui.cpp` reads. Construction order matters: g_hal before g_node, same TU, in order. -----
+tools/probe_firmware_ui/probe_main.cpp:773://     anonymous namespace inside `src/firmware_ui.cpp`, so nothing outside that TU can call `attach_provision` — and
+tools/probe_firmware_ui/probe_main.cpp:781://    the layered arm these three functions do not exist to define, and `firmware_ui.cpp` references none of them.
+tools/probe_firmware_ui/probe_main.cpp:949:// ★★★ THE SAME ARGUMENT AS THE PROVISIONING FAKES ABOVE, one feature over: `src/firmware_ui.cpp`'s
+tools/probe_firmware_ui/probe_main.cpp:1133:        //    instrument that covers `src/firmware_ui.cpp` has been unrunnable and every gate that claimed it was
+tools/probe_firmware_ui/probe_main.cpp:1273:// Design §3.2's normal body origin, stated here rather than imported from `src/firmware_ui.cpp`'s `kBodyX`.
+tools/probe_firmware_ui/probe_main.cpp:1389:    printf("== §B105 probe — src/firmware_ui.cpp, host-compiled ==\n");
+tools/probe_firmware_ui/probe_main.cpp:1578:    //     identity tracking -> `firmware_ui.cpp`'s `(kind, seq)` lookup over the real `pull()` -> the real
+tools/probe_firmware_ui/probe_main.cpp:1595:    //   `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call against a REAL `meshroute::Inbox` —
+tools/probe_firmware_ui/probe_main.cpp:1686:    // ⛔ WHAT NO CONTROL HERE CAN DO is invert the RETENTION itself: it lives in `firmware_ui_model.h` while every
+tools/probe_firmware_ui/probe_main.cpp:1687:    //   control in `run.sh` mutates `src/firmware_ui.cpp`. ⇒ being reddened by a broad control proves these checks
+tools/probe_firmware_ui/probe_main.cpp:1809:    //     because `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator (§B115). What
+tools/probe_firmware_ui/probe_main.cpp:1883:    //    can rot unnoticed. `run.sh` builds this file AND `firmware_ui.cpp` a second time with `-DMR_UI_BLE_ROW=1`.
+tools/probe_firmware_ui/probe_main.cpp:1905:        //      above (U3), and [[B225]]'s whole correction: `run.sh` builds this file and `firmware_ui.cpp` twice, once
+tools/probe_firmware_ui/probe_main.cpp:2114:    // measured gaps short of the air. These cases drive the SHIPPED path — the real `firmware_ui.cpp`, the real
+tools/probe_firmware_ui/probe_main.cpp:2535:        //   `firmware_ui.cpp` from naming `clear_dirty` at all. ⓘ `mr_ui_allows_sleep()` is ALSO unusable from here
+tools/probe_firmware_ui/probe_main.cpp:2791:            //     swapping it mid-retry, which is why the classification in `src/firmware_ui.cpp` includes this arm.
+tools/probe_firmware_ui/probe_main.cpp:3391:    //      shows a distance that is nobody's. `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+tools/probe_firmware_ui/probe_main.cpp:3613:    //      (`src/firmware_ui.cpp`) is compiled by neither the native suite nor the simulator (§B115), so a wake wired
+tools/probe_firmware_ui/probe_main.cpp:3992:    //      (`src/firmware_ui.cpp:1143`) — real shipped rendering — is STRUCTURALLY UNREACHABLE and the slice's screens
+tools/probe_firmware_ui/probe_main.cpp:3993:    //      were measured by nothing. `run.sh` therefore compiles this file and `firmware_ui.cpp` a SECOND time with the
+tools/probe_firmware_ui/probe_main.cpp:4278:            //   only edits `src/firmware_ui.cpp`). It is attacked at match count 1 by `--target=teamkeyring` T39
+tools/probe_firmware_ui/probe_main.cpp:4448:        //       the PURE formatters, not about this file — no mutation of `firmware_ui.cpp` can move them, and they
+tools/probe_firmware_ui/probe_main.cpp:4943:            //      reaches it — but ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a confirmation drawn with the CREATE
+tools/probe_firmware_ui/probe_main.cpp:5304:            //      ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a window drawn from the FROZEN member array instead
+tools/probe_firmware_ui/probe_main.cpp:5637:                //      proves which gesture reaches it — ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a result arm
+tools/probe_firmware_ui/probe_main.cpp:5925:                // ★★★ WHY IT CANNOT BE A NATIVE CASE: `src/firmware_ui.cpp` is compiled by neither the native suite
+tools/probe_firmware_ui/probe_main.cpp:6181:        //      `src/firmware_ui.cpp`, so a list drawn from the wrong copy, a row whose ACTIVE marker is wired to the
+tools/probe_firmware_ui/probe_main.cpp:6512:    // that `src/firmware_ui.cpp`'s `build_snapshot` projects from, and the rows asserted below are what the SHIPPED
+tools/probe_firmware_ui/probe_main.cpp:6947:    //   (a) the `busy` classification lives in `src/firmware_ui.cpp` — a TU no native test and no scenario compiles;
+src/firmware_ui_invite.h:9:// ★★★ WHY A FILE OF ITS OWN rather than more of `firmware_ui_model.h`: a battery is per-SOURCE-FILE
+src/firmware_ui_invite.h:15://     3700-line model they would have shared `model`'s entries; composed in `src/firmware_ui.cpp` they would
+src/firmware_ui_invite.h:20://    INCLUDE-ORDER FACT — `src/firmware_ui_chrome.h:36` includes `firmware_ui_model.h`, so a header the MODEL
+src/firmware_ui_invite.h:46://   a `static_assert` in `firmware_ui_model.h` rather than by this comment — this header may not include the
+src/firmware_ui_invite.h:411://      the panel at the moment a PRIVATE KEY is shipped is a ruled decision (P-7c), and `src/firmware_ui.cpp` is
+src/firmware_ui_invite.h:437://     (`src/firmware_ui.cpp`): both fall back to `0x%08lx` (ten columns) and to a bare id, which in a six-column
+src/firmware_ui_invite.h:666:// ⓘ COST, MEASURED not assumed (host, `offsetof`-proved beside its declaration in `firmware_ui_model.h`):
+test/test_firmware_ui_invite.cpp:24://   (`src/firmware_ui.cpp`'s five invite arms) is compiled by neither the native suite nor the simulator (§B115)
+test/test_firmware_ui_invite.cpp:954://   (`src/firmware_ui.cpp`) and its `grant` is `mrfw::device_team_grant`'s. Nothing is scripted here.
+test/test_firmware_ui_team.cpp:11://     `src/firmware_ui.cpp` is compiled by NEITHER the native suite NOR the simulator (§B115), so a row composed
+test/test_firmware_ui_send.cpp:20:// requires '#include <initializer_list>'`. Neither doctest.h nor firmware_ui_model.h drags it in on this toolchain.
+test/test_firmware_ui_send.cpp:358:// ⇒ the ruled path now calls `mrui::ui_pump_trackers` — the ACTUAL function firmware_ui.cpp calls, and its only caller.
+test/test_firmware_ui_send.cpp:454:// `src/firmware_ui.cpp`'s `mr_ui_tick` / `mr_ui_on_push` call. Before UI-6 this wiring lived inline in a `.cpp` that
+test/test_firmware_ui_send.cpp:633:// The kinds the router deliberately does not handle: firmware_ui.cpp owns those (counters + the §4.4 reply scope).
+test/test_firmware_ui_send.cpp:785:// The tick's own order: `firmware_ui.cpp` builds the snapshot FROM the counters, so the frame freezes what it renders.
+test/test_firmware_ui_send.cpp:1045:// ⓘ HONEST SCOPE, stated rather than implied: `PanelLog::apply` HAND-REPLICATES `firmware_ui.cpp`'s switch, and a
+test/test_firmware_ui_send.cpp:1226:// `ui_perform_send` shipped in `src/firmware_ui.cpp` as a LOUD REFUSAL STUB — a TU neither the native suite nor the
+test/test_firmware_ui_send.cpp:1620://     referenced exactly ONCE, by `firmware_ui.cpp`'s `"SENT, waiting"` arm — a DEAD STATE. `on_send_accepted` had
+test/test_firmware_ui_send.cpp:1860:    //   feeds (`else if (s_tracker_normal.idle())`) lives in `firmware_ui.cpp`, which no native test compiles. The
+test/test_firmware_ui_send.cpp:1893://   wrong is the DISPLAY, so the display gets its own number — see the two-numbers block in firmware_ui_model.h.
+test/test_firmware_ui_send.cpp:1896:// The exact panel text for the alarm's CURRENT attempt, built the way `firmware_ui.cpp` builds it — the model's
+src/firmware_ui_team.h:6:// S-11); the renderer (`src/firmware_ui.cpp`'s `draw_team_screen`) does nothing but place the result on a body row.
+src/firmware_ui_team.h:13:// ★★★ WHY IT IS A FILE OF ITS OWN — the §B115 rule this cluster states nine times (`firmware_ui_model.h:102-104`):
+src/firmware_ui_team.h:14://     **a string built in `firmware_ui.cpp` is a string no automated gate can read**, because that TU is compiled by
+src/firmware_ui_team.h:26://   (`firmware_ui_model.h`'s `activate`), and ⛔ nothing selects or sends by the displayed text.
+src/firmware_ui_team.h:31://      (`src/firmware_ui.cpp`'s `build_snapshot`), so on a multihop path it says SOMEBODY ELSE heard that teammate.
+src/firmware_ui_team.h:80:#include "firmware_ui_model.h"    // TeamRow / UiSnapshot / UiModel / Screen — the frozen facts and the dirty bit
+src/firmware_ui_team.h:133:// ★★ THE ROUTE-AGE TOKEN. ⚠ A **DECLARED DUPLICATE** (the [[B224]] idiom) of `src/firmware_ui.cpp`'s one-line
+src/firmware_ui_team.h:146://      written in `firmware_ui.cpp` is a condition no battery can attack.
+src/firmware_ui_team.h:155://     FIX, and ⛔ the caller may not pre-compute them: a condition written in `firmware_ui.cpp` is a condition no
+src/firmware_ui_team.h:247://      body from any screen. ⛔ THE ORDER AND THE TERMS MIRROR `draw_frame`'s OWN ARMS (`src/firmware_ui.cpp`:
+src/firmware_ui_join.h:10:// ★★★ WHY IT IS A FILE OF ITS OWN rather than more of `firmware_ui_model.h`: the correlation rule is the ONE
+src/firmware_ui_join.h:146:// ★ FORMATTED IN THIS PURE UNIT for the §B115 reason: a string built in `src/firmware_ui.cpp` is a string no
+src/firmware_ui_join.h:219:// growing a second two-member enum — `firmware_ui_model.h`'s own note said slice 6 would — so the BACK-is-zero
+src/firmware_ui_join.h:255://   through their whole domain. The DEVICE reads them (src/firmware_ui.cpp), and only while a session is active, so
+test/test_firmware_ui_presets.cpp:21:#include "firmware_ui_model.h"   // ★★ WAS the DRIFT FENCE's other side (`mrui::kDmTexts` / `kChannelTexts` /
+tools/probe_ui_model_mutations.py:3:"""The NATIVE mutation battery for the tree's PURE units — §UI-7D slice B's `firmware_ui_model.h`, §UI-13's
+tools/probe_ui_model_mutations.py:129:    "model":  "src/firmware_ui_model.h",        # §UI-7D slice B — the pure screen/state model
+tools/probe_ui_model_mutations.py:157:    #    `src/firmware_ui.cpp` they would have had NO battery at all (that TU is compiled by neither the native
+tools/probe_ui_model_mutations.py:163:    #    is per-SOURCE-FILE. Composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+tools/probe_ui_model_mutations.py:169:    #    `uiteam`'s entries; composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+tools/probe_ui_model_mutations.py:198:    #    `firmware_ui_model.h`, so a header the MODEL includes may not include chrome. The carriers + the OWN-TEAM
+tools/probe_ui_model_mutations.py:223:    #    NOT here — it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s
+tools/probe_ui_model_mutations.py:406:    #    (`firmware_ui_model.h`), the UNREAD router's scope (`firmware_ui_send.h`) and the slot ring's eviction
+tools/probe_ui_model_mutations.py:411:    #      · "THE EXCLUSION IS APPLIED AFTER THE BUDGET" — the gate lives in `src/firmware_ui.cpp`, which neither
+tools/probe_ui_model_mutations.py:420:    "sliceCbudget": "src/firmware_ui_model.h",         # §CUSTODY-C — inbox_total = ADMITTED, taken before the cap
+tools/probe_ui_model_mutations.py:1556:                                         # touches no landed assertion (`src/firmware_ui_model.h`'s fixed tables are
+tools/probe_ui_model_mutations.py:2255:                                         # `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+tools/probe_ui_model_mutations.py:2318:                                         # blank exactly as they were. `src/firmware_ui.cpp` compiles in neither the
+tools/probe_ui_model_mutations.py:2352:                                         # `src/firmware_ui.cpp` compiles in neither the native suite nor the
+tools/probe_ui_model_mutations.py:2392:                                         # touched, and `src/firmware_ui.cpp` compiles in neither the native suite
+tools/probe_ui_model_mutations.py:3053:  "const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);",
+tools/probe_ui_model_mutations.py:3054:  "const uint8_t p = uint8_t(n / kDetailPageChars);"),
+tools/probe_ui_model_mutations.py:3063:  "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
+tools/probe_ui_model_mutations.py:3207: #    `src/firmware_ui.cpp`'s `static_assert(kBodyCols == mrui::kDetailCols)`, which is the point of that assert —
+tools/probe_ui_model_mutations.py:3210:  "inline constexpr uint8_t  kDetailCols      = 19;",
+tools/probe_ui_model_mutations.py:3211:  "inline constexpr uint8_t  kDetailCols      = 21;"),
+tools/probe_ui_model_mutations.py:3214: ("M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+tools/probe_ui_model_mutations.py:3215:  "inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);",
+tools/probe_ui_model_mutations.py:3216:  "inline constexpr uint8_t  kDetailPageChars = 42;"),
+tools/probe_ui_model_mutations.py:3440: #   nine-press walk comes back), the ENTRY (M99), the SERVICE STILL OPENING ON ARRIVAL (M100 — the register names
+tools/probe_ui_model_mutations.py:3469: # ⛔⛔ M100 IS THE REGISTER'S NAMED WRONG FIX: defer `open()` to the menu. The §3.6.1 BASELINE is then never taken
+tools/probe_ui_model_mutations.py:3472: ("M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+tools/probe_ui_model_mutations.py:4347: #     policy) are `--target=uisend`'s U14/U15; the ones in `src/firmware_ui.cpp` are the probe's C137-C141.
+tools/probe_ui_model_mutations.py:4352: ("Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are "
+tools/probe_ui_model_mutations.py:4606: #    while `draw_frame` (src/firmware_ui.cpp:949-953) draws compose FIRST ⇒ with both open the renderer drew COMPOSE
+tools/probe_ui_model_mutations.py:4640: #    which forbids `src/firmware_ui.cpp` from naming `clear_dirty` at all.
+tools/probe_ui_model_mutations.py:5561: ("Y02 ★★ the own-team filter is INVERTED — the ONLY team offered is the one we cannot join",
+test/test_firmware_ui_geo.cpp:12://     `src/firmware_ui.cpp` is compiled by NEITHER the native suite NOR the simulator (§B115), so a decision made
+test/test_firmware_ui_prov.cpp:10://     TUs it sits between — `src/firmware_ui.cpp` and `src/firmware_config.cpp` — are compiled by NEITHER the native
+test/test_custody_internal_d.cpp:38:#include "firmware_ui_model.h"       // mrui::InboxRowBudget — the OLED list this verb must need no change to
+test/test_custody_internal_d.cpp:682:// The OLED adapter's arithmetic, MIRRORED (src/firmware_ui.cpp's `inbox_row_cb`; §B115 — the shipped callback's
+test/test_firmware_ui_nearby.cpp:20://   (`src/firmware_ui.cpp`'s `Provision::nearby` arm) is compiled by neither the native suite nor the simulator
+test/test_custody_internal_c.cpp:28:#include "firmware_ui_model.h"   // mrui::InboxRowBudget — the OLED row budget this seam publishes through
+test/test_custody_internal_c.cpp:39:// ---- the OLED adapter, MIRRORED (src/firmware_ui.cpp's `inbox_row_cb` + `fill_inbox_rows`) -------------------
+test/test_custody_internal_c.cpp:40:// ⚠ IT IS A MIRROR AND IS LABELLED ONE. `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+src/firmware_config_service.h:9:// service is not used. **§UI-14 HAS LANDED and IS that consumer**: `src/firmware_ui.cpp` renders the SETTINGS screen
+src/firmware_config_service.h:29:// ⛔ IT IS `config_unsaved`, NEVER `dirty`. `UiState::dirty` (src/firmware_ui_model.h) already means "a repaint is
+src/firmware_config_service.h:52://   · ✅ LANDED (§UI-14) — the SETTINGS renderer / menu / gestures (§3.6.2): `src/firmware_ui.cpp` + the pure model in
+src/firmware_config_service.h:53://     `src/firmware_ui_model.h`. This file stayed transport- and render-agnostic, which is why it could.
+src/firmware_config_service.h:59://     and `src/firmware_ui.cpp` constructs the ONE `ConfigService` over them. ★ BOTH OBLIGATIONS THIS ENTRY RECORDED
+src/firmware_config_service.h:301:// `emg_attempt_line` is (src/firmware_ui_model.h): a native test can then assert the VISIBLE BYTES. ⛔ The other
+src/firmware_ui_prov.h:9:// call in `src/firmware_ui.cpp`.
+src/firmware_ui_prov.h:12://     over in this arc: `src/firmware_ui.cpp` and `src/firmware_config.cpp` are compiled by NEITHER the native suite
+src/firmware_ui_prov.h:41:#include "firmware_ui_model.h"             // mrui::UiProvIntent / UiProvAnswer / IUiProvision — the pure carriers
+src/firmware_ui_prov.h:47://    device implementation (`src/firmware_ui.cpp`, which owns `g_node` and the OLED layer's bindings) reads facts,
+lib/core/inbox.h:250:    //      Filtering is the VIEW's job and lives at the view: `src/firmware_ui.cpp`'s OLED adapter is the one
+src/firmware_ui_chrome.h:14://     decision the panel makes. In `src/firmware_ui.cpp` none of it would be reachable by any automated gate
+src/firmware_ui_chrome.h:36:#include "firmware_ui_model.h"
+src/firmware_ui_chrome.h:51://     already hit five times (see `Settings`' block in firmware_ui_model.h).
+src/firmware_ui_chrome.h:204:// ⓘ Byte-for-byte the existing `fmt_volts` (src/firmware_ui.cpp:273) expressed over DECIVOLTS instead of millivolts:
+src/firmware_ui_chrome.h:279:// ★★ THEY LIVE HERE, BESIDE THE FINGERPRINT, FOR THE §B115 REASON: a string built in `src/firmware_ui.cpp` is a string
+src/firmware_ui_chrome.h:334:    //    `draw_frame` (`src/firmware_ui.cpp:949-953`) draws emergency -> compose -> inbox detail -> screen, each arm
+src/firmware_ui_chrome.h:391://   again. `settings_note` / `cfg_marker_text` in firmware_ui_model.h keep the same three-predicate shape.
+src/firmware_ui_chrome.h:486:// ★★★ IT LIVES HERE, NOT IN THE TICK, FOR THE §B115 REASON: `src/firmware_ui.cpp` is compiled by neither the native
+src/firmware_ui_chrome.h:493://      FIRST (`firmware_ui_model.h`, the `if (m.state().blanked)` arm), sets `_open = false` and returns `blank` — so
+src/firmware_ui_chrome.h:501://     `tools/probe_board_ui/run.sh`'s W3 independently forbids `firmware_ui.cpp` from naming `clear_dirty` at all.
+src/firmware_ui_chrome.h:590:        // `next_screen`'s own set (firmware_ui_model.h) — SETTINGS is in BOTH cycles because its four covered fields
+src/firmware_ui_send.h:16://   reason is the whole point: as caller obligations in `firmware_ui.cpp` they were unreachable by every automated gate
+src/firmware_ui_send.h:22:// "no local handle" rather than as failure. `src/firmware_ui.cpp` supplies only an EXECUTOR, the fix bit and the
+src/firmware_ui_send.h:30://     firmware_ui_model.h, which also measures why "render it as SENT" would have been a FALSE CONFIRMATION on the
+src/firmware_ui_send.h:45:#include "firmware_ui_model.h"
+src/firmware_ui_send.h:252://    ⇒ these two functions ARE the shipped glue; `firmware_ui.cpp` does nothing but call them, and the tests now drive
+src/firmware_ui_send.h:284:    //    file has carried since UI-4 ("CLOSING a `late_ack` slot ... that lifetime lives in firmware_ui.cpp ⇒ it must
+src/firmware_ui_send.h:350:        //     `default:` below (or to `firmware_ui.cpp:mr_ui_on_push`'s own `default:`): both would silently ignore
+src/firmware_ui_send.h:385:        //    firmware_ui.cpp, which owns the counters they feed.
+src/firmware_ui_send.h:394:// ⚠⚠ IT LIVES HERE, NOT IN `firmware_ui.cpp`, FOR THE REASON THE BLOCK ABOVE ALREADY ARGUES: as a caller obligation it
+src/firmware_ui_send.h:417:// `src/firmware_ui.cpp` as a LOUD REFUSAL STUB precisely because that TU is compiled by neither the native suite nor
+src/firmware_ui_send.h:467:// deliberate slack against `-Wformat-truncation=`, exactly as `firmware_ui.cpp`'s kLineCap documents.
+src/firmware_ui_send.h:530://    are recorded at their old home in `firmware_ui_model.h`. ⓘ `%.*s` bounds the copy by the record's own `len`
+test/test_firmware_ui_model.cpp:10:// reason firmware_ui_model.h is a pure header (reachable via `-I src`, platformio.ini:83).
+test/test_firmware_ui_model.cpp:19:#include "firmware_ui_model.h"
+test/test_firmware_ui_model.cpp:1831://   honest rendering is UNCONFIRMED. See firmware_ui_model.h's EmgEvidence block.
+test/test_firmware_ui_model.cpp:2180:// The device half, in three lines, exactly as `firmware_ui.cpp` performs it: drain the request, look the record up by
+test/test_firmware_ui_model.cpp:2353://      The rail takes `x = 0..9`, so the ordinary body is 116 px = 19 small-font columns. `kDetailCols` is that 19;
+test/test_firmware_ui_model.cpp:2354://      `kDetailPageChars` and `kDetailMaxPages` are computed FROM it and are asserted here as CONSEQUENCES.
+test/test_firmware_ui_model.cpp:2359:    CHECK(kDetailCols == 19);                                    // ★ the ONE edited number (was 21 before §CHROME-4)
+test/test_firmware_ui_model.cpp:2360:    CHECK(kDetailBodyRows == 2);
+test/test_firmware_ui_model.cpp:2361:    CHECK(kDetailPageChars == 38);                               // 19 x 2, derived
+test/test_firmware_ui_model.cpp:2362:    CHECK(kDetailMaxPages == 7);                                 // ceil(241 / 38), derived
+test/test_firmware_ui_model.cpp:2363:    CHECK(kDetailPageMs == 2000u);
+test/test_firmware_ui_model.cpp:2367:    CHECK(uint16_t(kDetailMaxPages) * kDetailPageChars >= MESHROUTE_NS::protocol::inbox_max_body);
+test/test_firmware_ui_model.cpp:2369:    CHECK(uint16_t(kDetailMaxPages - 1) * kDetailPageChars < MESHROUTE_NS::protocol::inbox_max_body);
+test/test_firmware_ui_model.cpp:2425:    // ⛔ NO ROW MAY EXCEED THE PANEL'S BODY. The buffer is `kDetailCols + 1`, so an over-wide wrap could not even be
+test/test_firmware_ui_model.cpp:2427:    for (uint8_t r = 0; r < kDetailBodyRows; ++r) CHECK(std::strlen(m.state().detail_line[r]) <= kDetailCols);
+test/test_firmware_ui_model.cpp:2429:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:2456:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:2459:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:2462:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2464:    m.on_tick(snap_inbox(1, 1000 + 3 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2474:    for (uint32_t k = 1; k <= 5; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2495:    for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) { m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs)); ++turns; }
+test/test_firmware_ui_model.cpp:2735://      in the ORDER `src/firmware_ui.cpp`'s `mr_ui_tick` calls them in — build the snapshot FIRST, gesture, tick, SERVE
+test/test_firmware_ui_model.cpp:2807:        serve(now_ms);                                   // ★ MID-TICK, before the gate — firmware_ui.cpp:1643
+test/test_firmware_ui_model.cpp:3000:    // ⓘ `pages` is at most `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
+test/test_firmware_ui_model.cpp:3002:    CHECK(std::strlen(l) <= kDetailCols);
+test/test_firmware_ui_model.cpp:3006:    CHECK(std::strlen(l) <= kDetailCols);
+test/test_firmware_ui_model.cpp:3212:// ★ THE VISIBLE BYTES, asserted here because `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+test/test_firmware_ui_model.cpp:3286://   no test in this file compiles `src/firmware_ui.cpp`; that is `tools/probe_firmware_ui`'s P7/P14g.
+test/test_firmware_ui_model.cpp:3675://   RENDERER in neither — no test here compiles `src/firmware_ui.cpp` (`tools/probe_firmware_ui` is its cover).
+test/test_firmware_ui_model.cpp:5146://      has drifted. `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator, so what is
+test/test_firmware_ui_model.cpp:5148://   ⓘ NOT covered here, and named rather than implied: the literals that live in `src/firmware_ui.cpp` itself
+test/test_firmware_ui_model.cpp:5239:    // ---- the inbox detail's header, at its widest reachable expansion (`pages` is bounded by kDetailMaxPages)
+test/test_firmware_ui_model.cpp:5241:    inbox_detail_head(l, sizeof l, InboxKind::channel, 255, 255, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, false);
+test/test_firmware_ui_model.cpp:5243:    inbox_detail_head(l, sizeof l, InboxKind::dm, 255, 0, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, true);
+test/test_firmware_ui_model.cpp:5246:    CHECK(size_t(kDetailCols) <= kCols);
+test/test_firmware_ui_model.cpp:5644://    refusal rows are `src/firmware_ui.cpp`'s, which no test in this file compiles. That is
+test/test_firmware_ui_model.cpp:5934:    m.on_tick(snap_inbox(3, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:5935:    m.on_tick(snap_inbox(3, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5937:    // ★★★ THE BLANKING TICK IS ALSO A PAGE-DUE TICK — 13 s since the last turn, well past `kDetailPageMs` — so this
+test/test_firmware_ui_model.cpp:5969://      (`src/firmware_ui.cpp`). Half (b) is INVISIBLE to a harness that only presses and asserts, because the tick
+test/test_firmware_ui_model.cpp:5976:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:5977:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5980:    //      past `kDetailPageMs`) and this is also the tick the blank deadline lands on. The blank must WIN: the page
+test/test_firmware_ui_model.cpp:5986:    // ---- (a) DARK TICKS. Each is well past `kDetailPageMs`, so an ungated cadence would turn the page every one.
+test/test_firmware_ui_model.cpp:5987:    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5992:    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;   // a LONG dark interval to bank, if it could
+test/test_firmware_ui_model.cpp:6000:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:6002:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6222:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6225:    m.on_msg_wake(1000 + kDetailPageMs + 500);                      // ...a message arrives mid-page
+test/test_firmware_ui_model.cpp:6230:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6359:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6360:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6365:    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6368:    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;
+test/test_firmware_ui_model.cpp:6376:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:6378:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6391:// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115), and its
+test/test_firmware_ui_model.cpp:6612:// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115), and its
+test/test_firmware_ui_model.cpp:6847:// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115), and its
+test/test_firmware_ui_model.cpp:7113:// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115), and its
+test/test_firmware_ui_model.cpp:8987:// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115); its cover
+tools/probe_board_ui/run.sh:159:# behaviour. They exist because Task 6 moved three things OUT of host-compilable reach (src/firmware_ui.cpp includes
+tools/probe_board_ui/run.sh:162:FW_UI="$ROOT/src/firmware_ui.cpp"
+tools/probe_board_ui/run.sh:171:[ -f "$FW_UI" ] || { echo "  FAIL S0 src/firmware_ui.cpp is missing"; rc=1; }
+tools/probe_board_ui/run.sh:188:  schk "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:193:schk "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:205:# S4 THE HARD BOUNDARY, both directions. board_ui.h must not include the model; firmware_ui.cpp must not name the driver.
+tools/probe_board_ui/run.sh:211:schk "S4a board_ui.h #includes no firmware_ui_model.h" \
+tools/probe_board_ui/run.sh:213:schk "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
+tools/probe_board_ui/run.sh:216:schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+tools/probe_board_ui/run.sh:241:# The §B103/§B107/§B108 fixes are pure functions in `firmware_ui_send.h` / `firmware_ui_model.h`, so their LOGIC is
+tools/probe_board_ui/run.sh:242:# driven by the native suite and turns red on a revert. What no native test can see is whether `firmware_ui.cpp`
+tools/probe_board_ui/run.sh:258:#   in `src/firmware_config.cpp` (the config verb must NOTIFY the panel) rather than in `firmware_ui.cpp`. ⛔ The body
+tools/probe_board_ui/run.sh:278:wchk() { wchk_in "$FW_UI" "$@"; }   # the thirteen §UI-6/§UI-7 checks, unchanged: they all read firmware_ui.cpp
+tools/probe_board_ui/run.sh:297:wchk "W3 firmware_ui.cpp never clears dirty itself (the freeze owns it)" \
+tools/probe_board_ui/run.sh:308:wchk "W4 firmware_ui.cpp never moves the unread counters or watermarks itself (a completed frame does)" \
+tools/probe_board_ui/run.sh:359:wchk "W8 firmware_ui.cpp composes no send line itself (the pure composer owns the wire text)" \
+tools/probe_board_ui/run.sh:722:#     envs; `src/firmware_ui.cpp`'s fail-closed latch is reachable by `tools/probe_firmware_ui` but its CALL SITE in
+tools/probe_board_ui/run.sh:824:wchk_in "$FW_UI" "W28 firmware_ui.cpp never reaches for the board-private s_painting" \
+tools/probe_board_ui/run.sh:948:#   or defined in them. S4a already covers `board_ui.h` x `firmware_ui_model.h`; this widens it to both files and to
+tools/probe_board_ui/run.sh:959:         's|#include "board_ui.h"|#include "board_ui.h"\n#include "firmware_ui_model.h"|' \
+tools/probe_board_ui/run.sh:1035:#     `probe_firmware_ui` can compile a `!MR_FEAT_TEAM` `firmware_ui.cpp` against a team-enabled `lib/core`, so the
+tools/probe_board_ui/run.sh:1065:#     detail's wrap must move AT THE MODEL, not at the draw origin. `kDetailCols` and the renderer's `kBodyCols` are
+tools/probe_board_ui/run.sh:1071:w43() { code_flat "$1" | grep -qF 'static_assert(kBodyCols == mrui::kDetailCols,' && \
+tools/probe_board_ui/run.sh:1074:     w43 's|static_assert(kBodyCols == mrui::kDetailCols,|static_assert(kBodyCols == kBodyCols,|' \
+tools/probe_board_ui/run.sh:1217:# ================================================================================================ W49-W51
+tools/probe_board_ui/run.sh:1230:#        from `firmware_ui.cpp` was [[B105]]'s whole refactor — plus ~20 `extern` device globals and the five
+tools/probe_board_ui/run.sh:1258:# ★★★ W49 — THE LIVE ARM, AND IT IS PINNED WITH ITS OFFSETS. A substring check would pass a mis-sliced call, so the
+tools/probe_board_ui/run.sh:1262:echo "  W49 counts: $(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' "$CMD_CPP") arm line(s) in $(basename "$CMD_CPP") (required 1), $(fn_flat "$CMD_CPP" "$DISPATCH_SIG" | grep -cF "$UI_ARM_GUARDED") guarded arm(s) inside dispatch() (required 1)"
+tools/probe_board_ui/run.sh:1267:wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate" \
+tools/probe_board_ui/run.sh:1297:# ★★★★ W51 — **THE NO-FORK FACT, AND IT IS NEGATIVE SPACE**, so it carries the [[B237]]-class care in both
+tools/probe_board_ui/run.sh:1309:echo "  W51 counts: $(fn_flat "$FW_MAIN" "$BLE_SIG" | grep -cF 'if (dispatch(line, len, ls)) { ls.flush(); return 0; }') shared fallback(s) in ble_dispatch_line (required 1), $(fn_flat "$FW_MAIN" "$BLE_SIG" | grep -oE '"ui|handle_ui|preset_' | wc -l) ui-shaped handler token(s) (required 0)"
+tools/probe_board_ui/run.sh:1314:wchk_in "$FW_MAIN" "W51 ble_dispatch_line has NO ui arm of its own and keeps the shared dispatch fallback" \
+tools/probe_board_ui/run.sh:1361:# ================================================================================================ W54
+tools/probe_board_ui/run.sh:1362:# ★★★★ W54 — **[[B255]]'s GATE, PINNED WHERE IT LIVES, AND IT IS THE ONLY INSTRUMENT THAT CAN SEE IT.** The owner
+tools/probe_board_ui/run.sh:1371:# ⓘ W49 pins the `ui` ARM's guard and W50 the BOOT CALL's; this check is the other five sites, in one place, so a
+tools/probe_board_ui/run.sh:1384:echo "  W54 counts: $(oled_guarded "$CMD_CPP" | wc -l) line(s) of $(basename "$CMD_CPP") inside a MR_FEAT_OLED region (required > 0), $(grep -cF 'static mrfw::PresetCatalog cat(st, gate);' "$CMD_CPP") live catalog instance(s) (required 1)"
+tools/probe_board_ui/run.sh:1400:wchk_in "$CMD_CPP" "W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status, help) is MR_FEAT_OLED-gated" \
+src/firmware_ui_model.h:1:// MeshRoute — src/firmware_ui_model.h
+src/firmware_ui_model.h:20:// outcome returns `_emg` to `idle`. It lives in this pure unit and not in firmware_ui.cpp on purpose: it is gesture
+src/firmware_ui_model.h:27:// modal. ★ All five lived in `src/firmware_ui.cpp`, which neither the native suite nor the simulator compiles — which
+src/firmware_ui_model.h:104://    `g_node` and live in src/firmware_ui.cpp. ⚠ [[B134]]: on ESP32 the inbox is a RAM ring, so "durable" here means the
+src/firmware_ui_model.h:112:// NOT here at all, by unit boundary: what a screen LOOKS like and the send itself live in src/firmware_ui.cpp
+src/firmware_ui_model.h:131:                     // pulls <cstdio> through firmware_ui_send.h or firmware_ui.cpp.
+src/firmware_ui_model.h:154://   · classifying at the PUBLISHER (`src/firmware_ui.cpp`'s `build_snapshot`) would put the four-state -> icon switch
+src/firmware_ui_model.h:158:// ⓘ COST, MEASURED not assumed: `src/firmware_ui.cpp` already pulls `node.h` through `fw_context_pure.h:29`, so the
+src/firmware_ui_model.h:184://   note. `src/firmware_ui.cpp`, the tests and the probe include both.
+src/firmware_ui_model.h:210://      *"this header must stay model-INCLUDABLE (P3 needs it from inside `firmware_ui_model.h`)"* — and the direction
+src/firmware_ui_model.h:295:// ★ The row's label, in this PURE unit for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+src/firmware_ui_model.h:626://                supplied at the ONE call site (`src/firmware_ui.cpp`, `MR_UI_BLE_ROW`), and is FALSE in every env in
+src/firmware_ui_model.h:668:// ★ THE ROW LABELS, in this PURE unit for the §B115 reason: a string built in `src/firmware_ui.cpp` is a string no
+src/firmware_ui_model.h:817://   pin the exact bytes (§B115: a string built in `src/firmware_ui.cpp` is a string no automated gate can read).
+src/firmware_ui_model.h:879://     site (§B115: `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator, so a condition
+src/firmware_ui_model.h:911:// ★ The child labels, in this PURE unit for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+src/firmware_ui_model.h:1386:// Two body rows of the panel's small-font columns expose `kDetailCols * kDetailBodyRows` characters per page, so the
+src/firmware_ui_model.h:1392://      columns (`src/firmware_ui.cpp`'s `kBodyX` / `kBodyCols`). ⛔ THE WRAP HAD TO MOVE **HERE**, AT THE MODEL'S
+src/firmware_ui_model.h:1393://      FREEZE POINT, and not merely at the draw origin: `refresh_detail_page` slices the body into `detail_line[]`
+src/firmware_ui_model.h:1398://      ⓘ Every one of those figures is DERIVED below; the only edited number is `kDetailCols`.
+src/firmware_ui_model.h:1399:inline constexpr uint8_t  kDetailCols      = 19;
+src/firmware_ui_model.h:1400:inline constexpr uint8_t  kDetailBodyRows  = 2;
+src/firmware_ui_model.h:1401:inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);
+src/firmware_ui_model.h:1402:inline constexpr uint8_t  kDetailMaxPages  =
+src/firmware_ui_model.h:1403:    uint8_t((MESHROUTE_NS::protocol::inbox_max_body + kDetailPageChars - 1) / kDetailPageChars);
+src/firmware_ui_model.h:1404:inline constexpr uint32_t kDetailPageMs    = 2000;   // spec §3.5: long bodies advance every 2 s and CYCLE
+src/firmware_ui_model.h:1444:// ★★★ §3.2.1's EMPTY STATE, and it is a LEXEME here rather than an `if` in the renderer (§B115: `src/firmware_ui.cpp`
+src/firmware_ui_model.h:1611:// The row's text, decided HERE and not in the renderer (§B115: `src/firmware_ui.cpp` is compiled by neither the
+src/firmware_ui_model.h:1656:// The model NEVER sends — it ASKS. firmware_ui.cpp drains the request, performs the send and feeds back a typed outcome.
+src/firmware_ui_model.h:1756:    //   that knows it (`src/firmware_ui.cpp`) so the model stays `#if`-free and both arms are natively drivable.
+src/firmware_ui_model.h:1807:    //     from them; `src/firmware_ui.cpp`'s `build_snapshot` gains the four assignments in slice 3. Until then these
+src/firmware_ui_model.h:1847:    //      `draw_frame` runs ONCE PER OLED PAGE over the frozen copies (`src/firmware_ui.cpp`'s own rule: *"nothing
+src/firmware_ui_model.h:2049:// ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
+src/firmware_ui_model.h:2094://   handful of pushes. `firmware_ui.cpp` owns only the `pull()` trampoline and the text clamping.
+src/firmware_ui_model.h:2112:    //      (`src/firmware_ui.cpp`'s pull callback, which must refuse an internal record before it touches the
+src/firmware_ui_model.h:2192:// renderer for the §UI-6-GLUE reason: `src/firmware_ui.cpp` includes `fw_context.h` (RadioLib, the whole device
+src/firmware_ui_model.h:2196:// the exact text of the FIRST attempt. `firmware_ui.cpp` must CALL this; `tools/probe_board_ui/run.sh`'s W10 pins it.
+src/firmware_ui_model.h:2207:// ⓘ There is deliberately no `opening` state: `firmware_ui.cpp` serves the request inside the SAME service pass (the
+src/firmware_ui_model.h:2215:// The model NEVER touches `g_node.inbox()` — it ASKS, exactly as it does for a send. `firmware_ui.cpp` drains the
+src/firmware_ui_model.h:2220:// ★★ THE MODAL'S HEADER LINE, formatted in this PURE unit for the §B115 reason: `src/firmware_ui.cpp` is compiled by
+src/firmware_ui_model.h:2225://   exceed `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
+src/firmware_ui_model.h:2264://                   ★ §T3 renamed its STRING `SENT, no relay` -> `NO RELAY HEARD` (`firmware_ui.cpp`). The state and
+src/firmware_ui_model.h:2444:    char        detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
+src/firmware_ui_model.h:2447:    //     through `ConfigService` at the freeze (`src/firmware_ui.cpp`'s `SettingsView`) — mirroring them into
+src/firmware_ui_model.h:2630://    assert the VISIBLE BYTES (§B115's rule; `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+src/firmware_ui_model.h:2842:            elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
+src/firmware_ui_model.h:2845:            refresh_detail_page();
+src/firmware_ui_model.h:2882:        //      (firmware_ui.cpp:1643 — deliberately, or the press would do nothing for a whole frame), and the frame
+src/firmware_ui_model.h:2937:    // ★★ §UI-14 — THE STAGED-CONFIG SERVICE, ATTACHED RATHER THAN OWNED. `src/firmware_ui.cpp` constructs it over the
+src/firmware_ui_model.h:2947:    // ★★ §UI-15 slice 5 — THE PROVISIONING SEAM, ATTACHED exactly as the config service is (U3). `src/firmware_ui.cpp`
+src/firmware_ui_model.h:2981:    //      `firmware_ui.cpp` would be a second correlation site, i.e. two rules to keep in step.
+src/firmware_ui_model.h:3017:    //        `lib/hal/mr_ui.h`) -> `src/firmware_ui.cpp` -> here. ⛔ CORRECTED IN PLACE 2026-08-25, [[B243]]
+src/firmware_ui_model.h:3069:    // `join_session_active()` is the DEVICE's cheap guard and NOTHING ELSE: `src/firmware_ui.cpp` must read
+src/firmware_ui_model.h:3077:    //    `src/firmware_ui.cpp` carries the kind PREFILTER that actually is one.
+src/firmware_ui_model.h:3155:    // -> `SENDING...`). This IS the hand-off point — firmware_ui.cpp performs the send inside the same service pass,
+src/firmware_ui_model.h:3179:    //   2. `firmware_ui.cpp` performs the `pull()` / `erase()`;
+src/firmware_ui_model.h:3207:        // ★ pages = max(1, ceil(len / kDetailPageChars)) — ⛔ never zero: an empty body still has a page, or the modal
+src/firmware_ui_model.h:3209:        const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);
+src/firmware_ui_model.h:3217:        refresh_detail_page();
+src/firmware_ui_model.h:3331:    // `firmware_ui.cpp`'s renderer arm. An ACCEPTED canned post therefore stayed on `submitting`, so the panel
+src/firmware_ui_model.h:3923:            //      is not open (`src/firmware_ui.cpp`), so EVERY ROW IS INVISIBLE — opening `browsing` there would
+src/firmware_ui_model.h:4619:    //    (`src/firmware_ui.cpp:1674` says so at the row it shares). Keying on the screen would give ONE note TWO
+src/firmware_ui_model.h:5029:    //      place — `draw_settings_screen` (`src/firmware_ui.cpp`), i.e. only while `Screen::settings` is up — while
+src/firmware_ui_model.h:5263:    // ⛔⛔ WHY THE RESTART IS NOT OPTIONAL, AND IT IS THE REAL LOOP'S ORDER THAT MAKES IT SO (`firmware_ui.cpp`:
+src/firmware_ui_model.h:5265:    //     `_detail_page_at_ms` is still the pre-blank stamp, so `elapsed >= kDetailPageMs` is already true and the
+src/firmware_ui_model.h:5333:        for (uint8_t r = 0; r < kDetailBodyRows; ++r) _st.detail_line[r][0] = '\0';
+src/firmware_ui_model.h:5337:    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: `kDetailCols` columns each (19 since
+src/firmware_ui_model.h:5341:    void refresh_detail_page() {
+src/firmware_ui_model.h:5342:        const uint16_t off = uint16_t(uint16_t(_st.detail_page) * kDetailPageChars);
+src/firmware_ui_model.h:5343:        for (uint8_t row = 0; row < kDetailBodyRows; ++row) {
+src/firmware_ui_model.h:5346:            for (; n < kDetailCols; ++n) {
+src/firmware_ui_model.h:5347:                const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);
+src/firmware_ui_model.h:5587:// `src/firmware_ui.cpp` — a TU neither the native suite nor the simulator compiles — and §B104 records the result:
+src/firmware_ui_model.h:5593://   boundaries (spec §5). This class owns WHEN; `firmware_ui.cpp` owns WHAT (it holds the frozen copies).

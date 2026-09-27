@@ -1,0 +1,98 @@
+[
+  {
+    "root": "/home/staszek/MeshRoute",
+    "head": "8360802904f7bd0023279d3da844453d61207ede",
+    "original_paths_preserved_except_authorized_landing": true,
+    "authorized_changed": [
+      {
+        "path": "MEMORY.md",
+        "before": {
+          "kind": "file",
+          "sha256": "93d122451513209c7165356b7ed258fec544a8515e6d94ade80658e5e0e9075a"
+        },
+        "after": {
+          "kind": "file",
+          "sha256": "191a7ad7de15c45da244ab2d5fdcb4c7352913240fbe5a02b514c78fac9b8673"
+        }
+      },
+      {
+        "path": "docs/2026-07-30-open-bug-register.md",
+        "before": {
+          "kind": "file",
+          "sha256": "fbb23c93eb224d624683e15bdf3d29056a3457a69a38f481e2ffc19a65eab0c3"
+        },
+        "after": {
+          "kind": "file",
+          "sha256": "65506fa555fac3d10b45cbdd6fb16b071bb44e8a0735f51f73f71cf0cbc6d0aa"
+        }
+      },
+      {
+        "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "before": {
+          "kind": "file",
+          "sha256": "40b71bdb46f05888440eb666eae628f26e40430eb82e636d75630fa4c3429b5b"
+        },
+        "after": {
+          "kind": "file",
+          "sha256": "a6970198b11012762597bdbe77428f2beb46731e4e61cb96ebede565a3c6032a"
+        }
+      },
+      {
+        "path": "tracker.md",
+        "before": {
+          "kind": "file",
+          "sha256": "a61466662168563a22bfc77b1b3d7314c5160be2a83b9ab1f9c7b4413e1d65a4"
+        },
+        "after": {
+          "kind": "file",
+          "sha256": "501a2d632a7693981791fc41cc523eab21ec7a7a33f31071ec3d818e1d2959ae"
+        }
+      }
+    ],
+    "added_qa_paths_at_check": [
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa.md",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/SHA256SUMS",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/abi-summary.txt",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/archived-board-deltas.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/archived-board-repeatability.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/board-comparison.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/board-ui-diagnostic.txt",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/coder-board-source-reconciliation.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/coder-union-audit.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/control-guard-checks.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/corpus-comparison.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/corpus-manifest.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/e14-finding.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/inputs.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/manifests/gateway/manifest.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/manifests/heltec_mobile/manifest.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/mutation-audit.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/mutations.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/native-summary.txt",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/preflight.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/preservation-postlanding.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/preservation-prelanding.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/raw-artifacts.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/reanchor-results.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/run-ledger.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/source-review.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/stage-a-reconstruction.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/stage-b-native.diff",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/ui-comparison.json",
+      "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/verdict.json"
+    ],
+    "missing": [],
+    "staged": [],
+    "whitespace_exit": 0
+  },
+  {
+    "root": "/home/staszek/lora-universal-simulator",
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "original_paths_preserved_except_authorized_landing": true,
+    "authorized_changed": [],
+    "added_qa_paths_at_check": [],
+    "missing": [],
+    "staged": [],
+    "whitespace_exit": 0
+  }
+]

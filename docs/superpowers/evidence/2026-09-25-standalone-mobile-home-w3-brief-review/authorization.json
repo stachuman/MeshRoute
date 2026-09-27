@@ -1,0 +1,15 @@
+{
+  "verdict": "PASS with fold-ins",
+  "reviewed_revision": 1,
+  "reviewed_sha256": "bf90a44ee92e202b4fa20e8de590ffd1c11bf6eb20454f8d9f1c0b87821f1d80",
+  "authorized_revision": 2,
+  "authorized_sha256": "9a84d03b0f2e9826df67feba52ff87c50644383bfb85ef8bc06af7ed8e25d825",
+  "authorization": "Prospective exact bytes produced by required-fold-ins.patch; revision 1 remains unchanged on disk. No implementation gate or owner commit implied.",
+  "findings": [
+    "W3R-1",
+    "W3R-2",
+    "W3R-3"
+  ],
+  "base": "8360802904f7bd0023279d3da844453d61207ede",
+  "simulator": "6585649ea5a780f0542b2931853a667be56a5b2b"
+}

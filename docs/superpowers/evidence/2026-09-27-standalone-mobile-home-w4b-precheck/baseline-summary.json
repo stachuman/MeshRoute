@@ -1,0 +1,77 @@
+{
+  "native": {
+    "cases": 2986,
+    "assertions": 197299,
+    "failures": 0,
+    "skips": 0
+  },
+  "corpus": {
+    "streams": 36,
+    "identical_fields_per_stream": 14,
+    "anchors": 36,
+    "s18": {
+      "anchor_assertion_failures": 0,
+      "anchor_events": 269517,
+      "anchor_match": true,
+      "anchor_md5_prefix": "32afbf11",
+      "assertion_failures": 0,
+      "events": 269517,
+      "exit_status": 0,
+      "name": "s18_meshroute",
+      "output_bytes": 38698103,
+      "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+      "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "promoted": true,
+      "scenario_path": "simulation/s18_meshroute.json",
+      "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+    },
+    "inputs_stable": true
+  },
+  "firmware_ui": {
+    "l2": 529,
+    "v3": 980,
+    "ble": 529,
+    "defined": 236,
+    "observed_once": 236,
+    "unusable": 0,
+    "C0": "build fails, as required"
+  },
+  "abi": {
+    "checks": 290,
+    "controls_red": 9,
+    "unusable": 0
+  },
+  "board_ui": {
+    "mode": "--no-neg; supplemental not gate",
+    "structural_pass": 23,
+    "wiring_pass": 56,
+    "wiring_fail": [
+      "W49",
+      "W51",
+      "W54"
+    ],
+    "wiring_controls_reported": 171,
+    "host_counts": [
+      [
+        "124",
+        "0",
+        "124"
+      ],
+      [
+        "110",
+        "0",
+        "110"
+      ],
+      [
+        "23",
+        "0",
+        "23"
+      ],
+      [
+        "56",
+        "3",
+        "59"
+      ]
+    ]
+  }
+}

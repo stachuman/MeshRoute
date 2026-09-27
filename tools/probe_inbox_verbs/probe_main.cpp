@@ -973,6 +973,61 @@ int main() {
                 && std::strstr(g_ble, "docs/manual/command-reference.md"),
             "X20 `help` reaching the seam DOES stream the whole index (%u B) — which is why BLE refuses it first",
             unsigned(g_ble_n));
+
+        // ---- X21..X26 — ★★ W1c (design §4.6 D10): `whoami` PRINTS THE STORED NAME EXACTLY. An UNNAMED node prints
+        //      `name=""` — never a made-up default and never an omitted field. Each row compares the WHOLE identity
+        //      line, byte for byte, with one built from `g_node`'s own accessors (so id/hash/leaf/gw/gwonly/mobile are
+        //      pinned as well), on BOTH transports. ⓘ The fake `Print` renders `HEX` as DECIMAL
+        //      (tools/probe_board_ui/fakes/Arduino.h), so the expected `hash=0x…` digits follow the fake, exactly as the
+        //      production call reaches it. The line each row checked is printed (CR/LF stripped) for the
+        //      tools/lab/parsers.py::parse_whoami compatibility check. ⛔ Placed LAST in the block, and the fixture's
+        //      name is restored afterwards, so no earlier row moves or changes state.
+        {
+            char saved[32];
+            const uint8_t saved_n = g_node.effective_name(saved, sizeof saved);
+            static char want[192], seen[192];
+            auto expect_line = [&](const char* nm, uint8_t nn) {
+                const meshroute::NodeConfig& c = g_node.config();
+                std::snprintf(want, sizeof want, "[whoami] id=%u hash=0x%lu name=\"%.*s\" leaf=%u gw=%d gwonly=%d mobile=%d\r\n",
+                              unsigned(g_node.node_id()), static_cast<unsigned long>(g_node.key_hash32()), int(nn), nm,
+                              unsigned(c.leaf_id), c.is_gateway ? 1 : 0, c.gateway_only ? 1 : 0, c.is_mobile ? 1 : 0);
+            };
+            auto shown = [&](const char* src) {                       // the checked line, without its CR/LF
+                size_t i = 0;
+                for (; src[i] && src[i] != '\r' && src[i] != '\n' && i + 1 < sizeof seen; ++i) seen[i] = src[i];
+                seen[i] = '\0';
+            };
+            const char n32[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";   // a MAXIMUM (32-byte) name
+
+            g_node.set_name("", 0);                                   // UNNAMED, through the public setter
+            expect_line("", 0);
+            ex = run_text("whoami"); shown(Serial.out);
+            CHK(ex.state == St::streamed && std::strcmp(Serial.out, want) == 0 && g_ble_n == 0,
+                "X21 an UNNAMED node's `whoami` on the TEXT arm is the exact identity line with name=\"\" [%s]", seen);
+            ex = run_json("whoami"); shown(g_ble);
+            CHK(ex.state == St::streamed && ex.n == 0 && std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
+                "X22 ...and on the JSON arm, byte-identical through the REAL LineSink [%s]", seen);
+
+            g_node.set_name("Bench 1", 7);
+            expect_line("Bench 1", 7);
+            ex = run_text("whoami"); shown(Serial.out);
+            CHK(ex.state == St::streamed && std::strcmp(Serial.out, want) == 0 && g_ble_n == 0,
+                "X23 a NAMED node prints name=\"Bench 1\" on the TEXT arm, the rest of the line intact [%s]", seen);
+            ex = run_json("whoami"); shown(g_ble);
+            CHK(ex.state == St::streamed && ex.n == 0 && std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
+                "X24 ...and on the JSON arm, byte-identical [%s]", seen);
+
+            g_node.set_name(n32, 32);
+            expect_line(n32, 32);
+            ex = run_text("whoami"); shown(Serial.out);
+            CHK(ex.state == St::streamed && std::strcmp(Serial.out, want) == 0 && g_ble_n == 0,
+                "X25 a MAXIMUM 32-byte name is printed whole between the quotes on the TEXT arm [%s]", seen);
+            ex = run_json("whoami"); shown(g_ble);
+            CHK(ex.state == St::streamed && ex.n == 0 && std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
+                "X26 ...and on the JSON arm, byte-identical [%s]", seen);
+
+            g_node.set_name(saved, saved_n);                          // restore the fixture's name
+        }
     }
 
 

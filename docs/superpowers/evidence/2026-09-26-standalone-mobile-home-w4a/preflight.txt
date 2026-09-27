@@ -1,0 +1,71 @@
+date: 2026-09-26T19:51:41+00:00
+brief: 7fafe9ef08aa50842a30240b08fa079cf8ce67c608f46d8ebe390ed879fff067  docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md
+HEAD: 8360802904f7bd0023279d3da844453d61207ede branch main; staged: 0
+sim: 6585649ea5a780f0542b2931853a667be56a5b2b status-lines=0
+== executable inputs (expected | disk | lines exp/actual)
+OK src/firmware_ui.cpp 6fe8c435f0c3 lines=2785
+OK src/firmware_ui_model.h 2a4529404740 lines=5777
+OK src/firmware_ui_invite.h fc1c72570f80 lines=746
+OK src/firmware_ui_team.h aefa86f4785f lines=280
+OK test/test_firmware_ui_model.cpp 42dc27ffb4c2 lines=10229
+OK test/test_firmware_ui_team.cpp b14780f646a4 lines=592
+OK test/test_firmware_ui_invite.cpp 2a2f7c6fd67a lines=1314
+OK tools/probe_firmware_ui/probe_main.cpp d0cf6502737b lines=7283
+OK tools/probe_firmware_ui/run.sh f754b745c759 lines=1753
+OK tools/probe_ui_model_mutations.py 9429254f5d2e lines=12450
+== preparation set
+OK docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+OK docs/2026-07-30-open-bug-register.md
+OK docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md
+OK docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS
+OK tracker.md
+OK MEMORY.md
+== pre-check folder: 30 OK, 0 not OK
+== review folder: 12 OK, 0 not OK
+73b20bed46ea7ec458e6e213d41f6fba2163fd5e0a14b363fe40d5b5f0b2f23c  docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review.md
+df086000494d1b18101c63223d776ac295d7a5e0b9c464769f19328d3ec45190  docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/SHA256SUMS
+== git status
+ M MEMORY.md
+ M docs/2026-07-30-open-bug-register.md
+ M docs/superpowers/specs/2026-07-29-peer-address-book-design.md
+ M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+ M ios-companion/INBOX_SYNC_CONTRACT.md
+ M lib/console/console_parse.cpp
+ M lib/core/node.cpp
+ M lib/core/node.h
+ M src/firmware_commands.cpp
+ M src/firmware_ui_model.h
+ M src/fw_main.cpp
+ M test/test_dual_layer.cpp
+ M test/test_firmware_ui_model.cpp
+ M test/test_node_hashlocate.cpp
+ M test/test_node_r3.cpp
+ M tools/probe_firmware_ui/probe_main.cpp
+ M tools/probe_firmware_ui/run.sh
+ M tools/probe_inbox_verbs/probe_main.cpp
+ M tools/probe_inbox_verbs/run.sh
+ M tools/probe_ui_model_mutations.py
+ M tracker.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/
+?? docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review.md
+?? docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/
+?? docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md
+?? docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/
+?? docs/superpowers/plans/2026-09-25-standalone-mobile-home-w1c-no-default-name.md
+?? docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
+?? docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md

@@ -1,0 +1,92 @@
+gate11 radmin8node exit=0
+gate11 radmin73node exit=0
+gate11 teamgrant exit=0
+gate11 b159map exit=0
+gate11 sliceBnode exit=0
+gate11 sliceEnode exit=0
+gate11 w1cname exit=0
+gate11 b161hash exit=0
+gate11 w1cretain exit=0
+UNION DONE
+=== radmin8node
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 1 RED / 0 unusable
+ok   N01 B408 counts home delegation ring instead of mobile E2E ring -> RED (22 assertion(s) failed, match count 1)
+=== radmin73node
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 5 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 5 RED / 0 unusable
+ok   N01 service does not mark due work -> RED (6 assertion(s) failed, match count 1)
+ok   N02 consumer clock is stale -> RED (5 assertion(s) failed, match count 1)
+ok   N03 consumed promise leaves wake armed -> RED (1 assertion(s) failed, match count 1)
+ok   N04 status clock is stale -> RED (1 assertion(s) failed, match count 1)
+ok   N05 last outcome lost -> RED (1 assertion(s) failed, match count 1)
+=== teamgrant
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 4 RED / 0 unusable
+ok   G01 ★★★ THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` — a full TX queue (or a full parked ring) drops the frame at the door and the caller is told it was admitted, which is the QG blocker verbatim -> RED (7 assertion(s) failed, match count 1)
+ok   G02 ★★★ THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` — the pre-correction answer, which left the panel to guess the parked state from a zero handle (the inference S-37 now forbids) -> RED (28 assertion(s) failed, match count 1)
+ok   G03 ★★★ A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `queued` — the loud refusals (the joining gate, a seal failure, the type-19 structural refusals) are dressed as a successful enqueue -> RED (7 assertion(s) failed, match count 1)
+ok   G04 ★★★ THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED — the caller gets a handle with no address, so no `send_aired` can ever correlate and the grant screen waits for ever -> RED (19 assertion(s) failed, match count 1)
+=== b159map
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 2 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 2 RED / 0 unusable
+ok   B16 the expiry is mapped to a NON-TERMINAL outcome — the flight re-enters retry instead of ending -> RED (2 assertion(s) failed, match count 1)
+ok   B17 the wrong-flight guard is dropped — a SUPERSEDED flight's expiry fails the LIVE flight -> RED (2 assertion(s) failed, match count 1)
+=== sliceBnode
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 8 RED / 0 unusable
+ok   N01 ★★★ THE GRANT'S AIRED PUSH IS DELETED — §UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close -> RED (6 assertion(s) failed, match count 1)
+ok   N02 ★★★ THE CORRELATION IS DROPPED — the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen -> RED (4 assertion(s) failed, match count 1)
+ok   N03 ★★★ THE SUPPRESSION IS DISABLED FOR EVERY TYPE — the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (§6.2(5) undone) AND its own kind is never minted -> RED (7 assertion(s) failed, match count 1)
+ok   N04 ★★★ THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED — a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1) -> RED (3 assertion(s) failed, match count 1)
+ok   N05 ★★ THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED — the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1) -> RED (2 assertion(s) failed, match count 1)
+ok   N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is §6.4 inverted -> RED (3 assertion(s) failed, match count 1)
+ok   N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape) -> RED (13 assertion(s) failed, match count 1)
+ok   N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven post-admission carrier deaths stops reporting the grant at once: the §UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight -> RED (23 assertion(s) failed, match count 1)
+=== sliceEnode
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 3 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 3 RED / 0 unusable
+ok   E01 ★★★★ [[B263]] IS RESTORED — the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one -> RED (4 assertion(s) failed, match count 1)
+ok   E02 ★★★ THE TRANSIT AXIS IS INVERTED — only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app -> RED (34 assertion(s) failed, match count 1)
+ok   E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone -> RED (6 assertion(s) failed, match count 1)
+=== w1cname
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 4 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 4 RED / 0 unusable
+ok   W01 ★★★ the retired DEFAULT is restored for an empty name — an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone) -> RED (45 assertion(s) failed, match count 1)
+ok   W02 ★★ a TERMINATOR is reserved — the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire -> RED (8 assertion(s) failed, match count 1)
+ok   W03 ★ the EMPTY path writes a terminator (out[0] = NUL when unnamed) — the count is still 0, but `writes nothing` is broken -> RED (2 assertion(s) failed, match count 1)
+ok   W04 ★★ the CAPACITY is ignored — the whole stored name is copied whatever `cap` the caller passed -> RED (4 assertion(s) failed, match count 1)
+=== b161hash
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 6 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 6 RED / 0 unusable
+ok   H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority -> RED (18 assertion(s) failed, match count 1)
+ok   H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope -> RED (134 assertion(s) failed, match count 1)
+ok   H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO -> RED (2 assertion(s) failed, match count 1)
+ok   H04 B161 type 13 omits both name_len and the name tail from the transmitted body -> RED (25 assertion(s) failed, match count 1)
+ok   H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix -> RED (3 assertion(s) failed, match count 1)
+ok   H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains -> RED (1 assertion(s) failed, match count 1)
+=== w1cretain
+  ok   clean baseline 2962 / 195904 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+mutations: 1 RED / 0 unusable
+ok   R01 ★★★ an EMPTY advertisement ERASES a retained name — the refresh guard `name && name_len` loses its count term (B447's unnamed half) -> RED (8 assertion(s) failed, match count 1)
+
+== per-entry verdicts of the NEW batteries (worker lines, as printed)
+ok   R01 ★★★ an EMPTY advertisement ERASES a retained name — the refresh guard `name && name_len` loses its count term (B447's unnamed half) -> RED (8 assertion(s) failed, match count 1)
+ok   W01 ★★★ the retired DEFAULT is restored for an empty name — an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone) -> RED (45 assertion(s) failed, match count 1)
+ok   W02 ★★ a TERMINATOR is reserved — the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire -> RED (8 assertion(s) failed, match count 1)
+ok   W03 ★ the EMPTY path writes a terminator (out[0] = NUL when unnamed) — the count is still 0, but `writes nothing` is broken -> RED (2 assertion(s) failed, match count 1)
+ok   W04 ★★ the CAPACITY is ignored — the whole stored name is copied whatever `cap` the caller passed -> RED (4 assertion(s) failed, match count 1)
+[w0]   ok   R01 ★★★ an EMPTY advertisement ERASES a retained name — the refresh guard `name && name_len` loses its count term (B447's unnamed half) -> RED (8 assertion(s) failed, match count 1)
+[w0]   ok   W01 ★★★ the retired DEFAULT is restored for an empty name — an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone) -> RED (45 assertion(s) failed, match count 1)
+[w1]   ok   W02 ★★ a TERMINATOR is reserved — the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire -> RED (8 assertion(s) failed, match count 1)
+[w2]   ok   W03 ★ the EMPTY path writes a terminator (out[0] = NUL when unnamed) — the count is still 0, but `writes nothing` is broken -> RED (2 assertion(s) failed, match count 1)
+[w3]   ok   W04 ★★ the CAPACITY is ignored — the whole stored name is copied whatever `cap` the caller passed -> RED (4 assertion(s) failed, match count 1)

@@ -1,0 +1,19 @@
+{
+  "report_links": 17,
+  "missing_links": [],
+  "whitespace_meshroute": "PASS",
+  "whitespace_simulator": "PASS",
+  "original_inventory_preserved": true,
+  "native_cases": 2973,
+  "native_assertions": 196111,
+  "ui_checks": [
+    518,
+    964,
+    518
+  ],
+  "ui_controls": 231,
+  "abi_checks": 290,
+  "abi_controls": 9,
+  "corpus_identical": 36,
+  "report_sha256": "f7e55b32d4c268ed04bbf0ff88e0fba39c4c31d920586b7a453410af614288ca"
+}

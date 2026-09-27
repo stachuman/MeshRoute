@@ -212,7 +212,8 @@
 // ★★★★ [[B241]] (W1) — THE ONE PROBE-ONLY DOOR INTO A FILE-LOCAL FUNCTION. `label_from_hash` sits in
 //      `src/firmware_ui.cpp`'s anonymous namespace; `run.sh`'s `ui_wrapper` compiles that source (or a control's mutant)
 //      inside a TU that DEFINES this forwarder beside it, so P28 drives the REAL adapter and nothing re-implemented.
-void mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap);
+// ⓘ W4a: the adapter now takes the site's column budget too; the door forwards it unchanged.
+void mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols);
 
 // ==================================================================================================================
 // the scriptable device under the feature layer
@@ -1473,6 +1474,14 @@ int main() {
     run_ticks(t + 100, 8, 10);
     CHK("P2b the paint RESUMES once the queue is empty",     g_c.begin_frame == 1 && g_c.next_page == 8);
 
+    // ★★★ W3 STAGE A — THE ONE WINDOW IN WHICH THE CONFIG SERVICE CAN BE SEEN **UNAVAILABLE** ON GLASS. P3's `settle`
+    //     below is this binary's FIRST ARRIVAL on SETTINGS (P2b leaves the panel on SEND; measured 2026-09-25: the fake
+    //     store's load count is 0 at P3 and 1 at P4). `ConfigService::open` latches `_open` on its first success and
+    //     nothing ever clears it, so this is the only moment a refused load can be drawn at all. ⇒ the fake refuses
+    //     every load across P3 — whose checks count FRAMES and read no body text, so the refusal is invisible to them
+    //     — and P3u below reads the closed view, then lets the service open.
+    probe_store().can_load = false;
+
     // ============================================================================================================ P3
     // THE 2 Hz THROTTLE, as INTEGRATION. The decision itself is `FrameGate::step`, pure and natively driven; what no
     // native case can see is whether this file routes through it at all — a tick that painted unconditionally would
@@ -1487,6 +1496,32 @@ int main() {
     CHK("P3 no SECOND frame opens inside the throttle",      g_c.begin_frame == 1);
     run_ticks(t + 600, 8, 1);                                // now past 500 ms since frame 1's paint
     CHK("P3 a frame opens again once the throttle expires",  g_c.begin_frame == 2);
+
+    // ---- ★★★ P3u (W3 stage A) — THE UNAVAILABLE VIEW, THEN THE RETRY ---------------------------------------------
+    // ★ What the renderer draws when `open()` has never succeeded (`draw_settings_screen`'s `!c.open` arm), at its
+    //   exact row, and that the MODEL keeps retrying the open — the repeat-safe opener W3 extracts must not grow an
+    //   "attempted" latch. ⓘ The press here is a `double`, so it cannot move the screen: P4 and P5 start where they
+    //   always did.
+    {
+        ProbeCfgStore& st = probe_store();
+        const int l0 = st.loads, w0 = st.writes;
+        CHK("P3u precondition: SETTINGS is up and the refused load was attempted",
+            rail_boxed_slot() == kSlotSettings && l0 > 0);
+        t = double_press(t + 1000); paint(t); paint(t + 700); t += 800;
+        CHK("P3u an unopened service draws exactly CFG UNAVAILABLE on body row 2", body_row_is(2, "CFG UNAVAILABLE"));
+        CHK("P3u ...and nothing else in the body: no marker, no entry row, no menu",
+            body_row(0) == nullptr && body_row(1) == nullptr && body_row(3) == nullptr && body_row(4) == nullptr);
+        CHK("P3u ...the double wrote nothing, and every sync re-tried the load",
+            rail_boxed_slot() == kSlotSettings && st.writes == w0 && st.loads > l0);
+        // The store recovers: the NEXT sync opens the service. ⓘ `dirty_the_model` is only the repaint trigger — the
+        //   property is the open, which the load count and the entry row both witness.
+        const int l1 = st.loads;
+        st.can_load = true;
+        dirty_the_model(t); paint(t); paint(t + 700); t += 800;
+        char entry[24]; snprintf(entry, sizeof entry, ">%s", mrui::kSettingsEnterText);
+        CHK("P3u once the store answers, the next sync OPENS it: the entry row replaces the notice",
+            body_row_is(0, entry) && body_row(2) == nullptr && st.loads == l1 + 1 && st.writes == w0);
+    }
 
     // ============================================================================================================ P4
     // THE BATTERY CADENCE — sampled at boot and every 30 s, ONLY while the MAC is idle, and the cadence gates on
@@ -3132,8 +3167,8 @@ int main() {
     //      ⇒ this phase drives THREE DISTINCTIVE teammates through the REAL node — the real label resolver, the real
     //      route ages — and asserts EVERY row's EXACT BYTES AT ITS EXACT COORDINATE ([[B226]]'s discipline).
     // ★★ THE THREE ROWS ARE THE THREE ANSWERS THE LABEL RESOLVER CAN GIVE (`label_for_team_id`), so a misroute cannot
-    //    pass by coincidence: a cached NAME (`Wolfgangetta` -> `Wolfga`), a key with NO name (`0x00c0ffee` ->
-    //    `0x00c0`) and no key at all (`id 83`). No row's text is a substring of another's, and each carries its own
+    //    pass by coincidence: a cached NAME (`Wolfgangetta` -> `Wolfg` + `»`, W4a), a key with NO name (`0x00c0ffee` ->
+    //    its fingerprint `C0FFEE`) and no key at all (`id 83`). No row's text is a substring of another's, and each carries its own
     //    route age (`3m` / `2m` / `1m`).
     // ⛔ THE AGES ARE EXACT, NOT APPROXIMATE: the probe's clock is deterministic, so each route is STAMPED at a fixed
     //    offset before the frame that reads it (`stamp_min` / the second-scale stamps below). ⚠ `set_now` alone moves
@@ -3205,10 +3240,10 @@ int main() {
             const char* r[4] = { body_row(0), body_row(1), body_row(2), body_row(3) };
             printf("  INFO §UI-17 TEAM rows: [%s] [%s] [%s] [%s]\n",
                    r[0] ? r[0] : "-", r[1] ? r[1] : "-", r[2] ? r[2] : "-", r[3] ? r[3] : "-");
-            CHK("P18a row 0 is the NAMED teammate, clamped to six columns",
-                body_row_is(0, " Wolfga  3m        "));
-            CHK("P18a row 1 is the 0x<hash> label, clamped the same way",
-                body_row_is(1, " 0x00c0  2m        "));
+            CHK("P18a row 0 is the NAMED teammate, abbreviated to six cells with the marker",
+                body_row_is(0, " Wolfg" "\xBB" "  3m        "));
+            CHK("P18a row 1 is the unnamed key's six-digit member fingerprint",
+                body_row_is(1, " C0FFEE  2m        "));
             CHK("P18a row 2 is the bare-id fallback, and its own age",
                 body_row_is(2, " id 83   1m        "));
             // ⛔ THE TWO RESERVED COLUMNS ARE PART OF EVERY ASSERTION ABOVE — each row is its WHOLE 19 characters,
@@ -3237,14 +3272,14 @@ int main() {
             stamp_min(tb);
             tb = double_press(tb); paint(tb);
             CHK("P18b entering marks row 0 and moves no other column",
-                body_row_is(0, ">Wolfga  3m        "));
+                body_row_is(0, ">Wolfg" "\xBB" "  3m        "));
             CHK("P18b ...and the last row is the shared BACK row", body_row_is(3, " BACK"));
             // One `short` walks the list — ⛔ it does not leave the screen (the contained-`BACK` rule) — and the
             // marker moves ONE row. ⚠ The rows are re-stamped first so the walk's own ~1.2 s cannot move a token.
             stamp_min(tb + 400);
             tb = settle(tb + 500);
             CHK("P18b a short walks to row 1, which is now the marked one",
-                body_row_is(1, ">0x00c0  2m        ") && body_row_is(0, " Wolfga  3m        "));
+                body_row_is(1, ">C0FFEE  2m        ") && body_row_is(0, " Wolfg" "\xBB" "  3m        "));
         }
 
         // ---- (c) ★★★ THE FROZEN FRAME: A ROUTE AGE THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW ------------
@@ -3262,7 +3297,7 @@ int main() {
             const char* p0 = text_at(kBodyXExpected, body_y_expected(0), 0);
             snprintf(frozen, sizeof frozen, "%s", p0 ? p0 : "?");
             CHK("P18c precondition: page 0 drew the row the frame froze",
-                strcmp(frozen, " Wolfga  3m        ") == 0);
+                strcmp(frozen, " Wolfg" "\xBB" "  3m        ") == 0);
             stamp(tc + 1100, 500000, 130000, 90000);          // ⚡ the route age JUMPS under the open frame
             run_ticks(tc + 1140, 6, 10);                      // ...and the remaining pages replay
             bool same_every_page = true;
@@ -3275,7 +3310,7 @@ int main() {
             uint32_t tn = tc + 2200;
             dirty_the_model(tn); paint(tn + 100);
             CHK("P18c ...and the NEXT frame renders the newer route age",
-                body_row_is(0, " Wolfga  8m        "));
+                body_row_is(0, " Wolfg" "\xBB" "  8m        "));
         }
 
         // ---- (d) ★★★★ §1.9 F-8 — A LIT TEAM SCREEN'S AGES **TURN**, WITH NO PRESS AND NO PUSH ------------------
@@ -3289,24 +3324,24 @@ int main() {
             stamp(td, 12000, 130000, 90000);
             dirty_the_model(td); paint(td + 100);
             CHK("P18d precondition: the lit TEAM screen shows a 12s route age",
-                body_row_is(0, " Wolfga 12s        "));
+                body_row_is(0, " Wolfg" "\xBB" " 12s        "));
             const int frames0 = g_c.begin_frame;
             run_ticks(td + 1200, 10, 10);                     // one second on, and NOTHING else has happened
             CHK("P18d ★ the age turns on a LIT panel with no press and no push",
-                g_c.begin_frame == frames0 + 1 && body_row_is(0, " Wolfga 13s        "));
+                g_c.begin_frame == frames0 + 1 && body_row_is(0, " Wolfg" "\xBB" " 13s        "));
             // ⓘ A reference paint whose NEXT token turn lands inside the 2 Hz window ...
             run_ticks(td + 2900, 10, 10);
             CHK("P18d ...a second turn repaints too (the rule is not one-shot)",
-                g_c.begin_frame == frames0 + 2 && body_row_is(0, " Wolfga 14s        "));
+                g_c.begin_frame == frames0 + 2 && body_row_is(0, " Wolfg" "\xBB" " 14s        "));
             // ⛔ ...AND THE THROTTLE IS STILL FREE TO REFUSE IT. The invalidation only ever ASKS for a paint; the
             //    MAC-idle gate and the 2 Hz throttle inside `FrameGate::step` decide.
             const int frames2 = g_c.begin_frame;
             run_ticks(td + 3050, 5, 10);                      // the token HAS turned, ~150 ms after that paint
             CHK("P18d ⛔ the 2 Hz throttle still REFUSES a turn inside its window",
-                g_c.begin_frame == frames2 && body_row_is(0, " Wolfga 14s        "));
+                g_c.begin_frame == frames2 && body_row_is(0, " Wolfg" "\xBB" " 14s        "));
             run_ticks(td + 3600, 10, 10);                     // past the throttle — the request was not lost
             CHK("P18d ...and the refused request is not lost, it paints next",
-                g_c.begin_frame == frames2 + 1 && body_row_is(0, " Wolfga 15s        "));
+                g_c.begin_frame == frames2 + 1 && body_row_is(0, " Wolfg" "\xBB" " 15s        "));
         }
 
         // ---- (d2) ⛔ AND A RAW AGE THAT MOVES INSIDE ITS BUCKET ASKS FOR NOTHING ---------------------------------
@@ -3317,7 +3352,7 @@ int main() {
             stamp_min(te);                                    // 3m / 2m / 1m — every token far from its boundary
             dirty_the_model(te); paint(te + 100);
             CHK("P18d2 precondition: the panel is lit on the three minute-aged rows",
-                body_row_is(0, " Wolfga  3m        ") && body_row_is(2, " id 83   1m        "));
+                body_row_is(0, " Wolfg" "\xBB" "  3m        ") && body_row_is(2, " id 83   1m        "));
             const int frames = g_c.begin_frame;
             const int cmds   = g_c.bus_cmds();
             run_ticks(te + 1200, 200, 10);                    // 2 s of ticks, no press, no push, no token turn
@@ -3333,7 +3368,7 @@ int main() {
             uint32_t tk = walk_to_slot(t19 + 26000, kSlotTeam) + 1000;
             stamp(tk, 12000, 130000, 90000);
             dirty_the_model(tk); paint(tk + 100);
-            CHK("P18e precondition: the panel is lit on TEAM", body_row_is(0, " Wolfga 12s        "));
+            CHK("P18e precondition: the panel is lit on TEAM", body_row_is(0, " Wolfg" "\xBB" " 12s        "));
             run_ticks(tk + 200, 170, 100);                    // 17 s with NO press: the attention window expires
             CHK("P18e the panel blanked with no press at all", g_c.last_power_save == 1);
             const int frames = g_c.begin_frame, cmds = g_c.bus_cmds();
@@ -3358,7 +3393,7 @@ int main() {
             //   one froze on `12s` — so "the CURRENT age" is what this assertion actually distinguishes.
             t19 = settle(tw);
             CHK("P18e the wake paints the CURRENT route age, not the dark one",
-                body_row_is(0, " Wolfga  3m        "));
+                body_row_is(0, " Wolfg" "\xBB" "  3m        "));
         }
 
         // ---- restore the fixture the later phases inherit (P17's own restore, verbatim) -------------------------
@@ -4166,8 +4201,11 @@ int main() {
             const bool quiet_push = (g_c.bus_ops() == bus_k);   // read BEFORE the repaint the tick owns
             t17 = see(t17 + 500);
             CHK("P15k a forwarded grant receipt says TEAM KEY RECEIVED", body_row_is(0, "TEAM KEY RECEIVED"));
+            // ⓘ W4a: STRENGTHENED — the name's six-cell abbreviation (`Wolfg` + `»`) is excluded too, since that is
+            //   how a leaked device label would now render.
             CHK("P15k ...the granter's name= is NOWHERE on the panel (F-3/P-5)",
-                strstr(g_c.page_text, granter) == nullptr && strstr(g_c.page_text, "Wolfga") == nullptr);
+                strstr(g_c.page_text, granter) == nullptr && strstr(g_c.page_text, "Wolfga") == nullptr &&
+                strstr(g_c.page_text, "Wolfg" "\xBB") == nullptr);
             CHK("P15k ...and no forbidden completion word came with it",
                 strstr(g_c.page_text, "JOIN COMPLETE") == nullptr && strstr(g_c.page_text, "KEYLESS") == nullptr);
             CHK("P15k ...the screen did NOT move — still the result, still `press = back`",
@@ -4853,8 +4891,9 @@ int main() {
                     strstr(g_c.page_text, fpOwn) == nullptr);
                 // ⛔⛔ (d) R-13 RULE 1 — AN ADVERTISER'S NODE NAME IS NEVER THE TEAM'S NAME. The name IS resolvable
                 //     here (the precondition above proved it), so this is a measurement rather than a coincidence.
+                // ⓘ W4a: STRENGTHENED — the name's six-cell abbreviation (`Wolfg` + `»`) is excluded too.
                 CHK("P21d ⛔ the advertiser's cached NODE NAME appears nowhere on the scan",
-                    strstr(g_c.page_text, "Wolfga") == nullptr);
+                    strstr(g_c.page_text, "Wolfga") == nullptr && strstr(g_c.page_text, "Wolfg" "\xBB") == nullptr);
                 CHK("P21d ...and no `0x` spelling of any hash reached the panel either",
                     strstr(g_c.page_text, "0x") == nullptr);
             }
@@ -5399,7 +5438,7 @@ int main() {
                     mrui::InviteMember want{};
                     want.id = 221; want.key_hash32 = hashB;
                     char row[mrui::kInviteRowCap];
-                    mrui::ui_fmt_invite_row(row, sizeof row, '>', want);
+                    mrui::ui_fmt_invite_row(row, sizeof row, '>', want, "");   // W4a: the prepared name is blank
                     CHK("P23b ★ rule 2 — a BLANK name column and a POPULATED member fingerprint, at 19 columns",
                         body_row_is(3, row) && strlen(row) == 19u && strstr(row, fpB) != nullptr &&
                         strncmp(row + 1, "      ", 6) == 0);
@@ -5449,7 +5488,7 @@ int main() {
                     mrui::InviteMember blank_pick{};
                     blank_pick.id = 221; blank_pick.key_hash32 = hashB;
                     char blank_target[mrui::kInviteRowCap];
-                    mrui::ui_fmt_invite_row(blank_target, sizeof blank_target, '>', blank_pick);
+                    mrui::ui_fmt_invite_row(blank_target, sizeof blank_target, '>', blank_pick, "");
 
                     // Missing key -> NEED PUBKEY. Merely entering and then double-pressing BACK air nothing.
                     const int d0 = g_hal.txq_depth(), s0 = g_probe_radio.starts, x0 = g_exec.calls;
@@ -5552,8 +5591,8 @@ int main() {
                         const char* c = body_row(r);
                         if (c && strstr(c, "T221") != nullptr) row_after = c;
                     }
-                    CHK("P23d ★★ rule 3 — the name column now reads `Wolfga`, CLAMPED to six",
-                        named && row_after != nullptr && strncmp(row_after + 1, "Wolfga", 6) == 0);
+                    CHK("P23d ★★ rule 3 — the name column now reads `Wolfg` + the marker, SIX cells (W4a)",
+                        named && row_after != nullptr && strncmp(row_after + 1, "Wolfg" "\xBB", 6) == 0);
                     CHK("P23d ⛔ ...and the member fingerprint is UNCHANGED beside it (⛔ never a swap)",
                         row_after != nullptr && strstr(row_after, fpB) != nullptr &&
                         strlen(row_after) == 19u && strcmp(row_after + 7, before + 7) == 0);
@@ -5565,7 +5604,7 @@ int main() {
                     // ⚠ THE WALK TARGET CARRIES THE **MARKER**: `walk_to` only guarantees the text is ON the panel,
                     //   and a `double` acts on whatever the CURSOR is on — so a target without `>` would open the
                     //   confirmation for a row the operator is not standing on (or for BACK).
-                    t17 = walk_to(t17 + 500, ">Wolfga T221");
+                    t17 = walk_to(t17 + 500, ">Wolfg" "\xBB" " T221");
                     t17 = see(double_press(t17 + 500));
                     CHK("P23e a double on a candidate opens NEW MEMBER", body_row_is(0, mrui::kInviteNew));
                     {
@@ -5656,7 +5695,7 @@ int main() {
                         member(221, hashB);                            // ...and only now does the candidate arrive
                         dirty_the_model(t17 + 1000);
                         t17 = see(t17 + 1100);
-                        t17 = walk_to(t17 + 500, ">Wolfga T221");
+                        t17 = walk_to(t17 + 500, ">Wolfg" "\xBB" " T221");
                         t17 = see(double_press(t17 + 500));           // -> the ready confirmation
                         t17 = see(settle(t17 + 500));                 // short: REJECT -> GRANT KEY
                         t17 = see(double_press(t17 + 500));           // ...and the act
@@ -6708,7 +6747,7 @@ int main() {
     //   and restores the canonical team fixture, so P26's "no alarm before the hold" precondition still holds.
     {
         // ---- the fixture: six named peers, one NAMELESS key, one hash nobody cached --------------------------------
-        // `hash = LE(pub[0..3]) = 0xB24100kk`, so a `0x` fallback names its own fixture at a glance.
+        // `hash = LE(pub[0..3]) = 0xB24100kk`, so a hash token names its own fixture at a glance.
         auto b241_key = [](uint8_t k, uint8_t (&pub)[32]) {
             for (int i = 0; i < 32; ++i) pub[i] = uint8_t(0x90 + i);
             pub[0] = k; pub[1] = 0x00; pub[2] = 0x41; pub[3] = 0xB2;
@@ -6732,8 +6771,9 @@ int main() {
             h[7] = b241_key(7, pub);
             cached = g_node.peer_key_set(h[7], pub, MESHROUTE_NS::Node::PeerKeyConf::authoritative) && cached;
         }
-        // ⓘ NEVER cached, and deliberately NOT `0xB24100kk`: the TEAM row clamps a label to six columns, and this
-        //   hash's (`0xb2ee`) must differ from the nameless key's (`0xb241`) for the two rows to be told apart.
+        // ⓘ NEVER cached, and deliberately NOT `0xB24100kk`: the TEAM row shows an unnamed peer as its six-digit
+        //   fingerprint, and this hash's (`EE41EE`) must differ from the nameless key's (`410007`) for the two rows to be
+        //   told apart.
         const uint32_t unknown = 0xB2EE41EEu;
         char nm_probe[40];
         uint8_t ed_probe[32];
@@ -6762,12 +6802,21 @@ int main() {
             const size_t n = len < sizeof f.out - 1 ? len : sizeof f.out - 1;
             return memcmp(f.out, want, n) == 0 && f.out[n] == '\0' && fence_ok(f);
         };
-        auto fallback_is = [&](const Fenced& f, uint32_t hash) {   // the `0x%08lx` spelling, exactly as today
+        auto fallback_is = [&](const Fenced& f, uint32_t hash) {   // W4a: the member's UPPERCASE `0x%08lX` token
             char want[16];
-            snprintf(want, sizeof want, "0x%08lx", (unsigned long)hash);
+            snprintf(want, sizeof want, "0x%08lX", (unsigned long)hash);
             return label_is(f, want, strlen(want));
         };
-        auto resolve = [&](Fenced& f, uint32_t hash, uint8_t cap) { mr_probe_label_from_hash(hash, f.out, cap); };
+        // ★ W4a — A NAME WIDER THAN THE BUDGET IS ITS FIRST 13 BYTES AND THE GENERATED `»` (0xBB), NUL at 14. The
+        //   expected bytes are built HERE from the name itself — ⛔ never by the formatter under test.
+        auto abbrev_is = [&](const Fenced& f, const char* name) {
+            char want[16];
+            memcpy(want, name, 13); want[13] = char(0xBB); want[14] = '\0';
+            return label_is(f, want, 14);
+        };
+        // The adapter at the REPLY/carrier budget (`kLabelCap`, 14) — the budget P28a's oracles are written for.
+        const uint8_t budget = mrui::kLabelCap;
+        auto resolve = [&](Fenced& f, uint32_t hash, uint8_t cap) { mr_probe_label_from_hash(hash, f.out, cap, budget); };
         const uint8_t full = uint8_t(sizeof(Fenced::out));   // what every production caller passes
         Fenced f{};
         fence(f); resolve(f, h[1], full);
@@ -6777,8 +6826,7 @@ int main() {
         // ★★ THE METAL SYMPTOM ITSELF: a long name, then a rename to `H1` INTO THE SAME BUFFER, which still holds the
         //    long name's bytes — exactly what rendered as garbage after `H1`.
         fence(f); resolve(f, h[3], full);
-        CHK("P28a a 27-byte name clamps to 14 bytes, NUL at byte 14",
-            label_is(f, named[2].name, strlen(named[2].name)));
+        CHK("P28a a 27-byte name is 13 bytes and the marker, NUL at byte 14", abbrev_is(f, named[2].name));
         const bool renamed = g_node.peer_name_set(h[3], "H1", 2);
         resolve(f, h[3], full);
         CHK("P28a ★★ renamed to H1 over the old content: NUL at byte 2, no stale tail",
@@ -6786,9 +6834,9 @@ int main() {
         fence(f); resolve(f, h[4], full);
         CHK("P28a a 14-byte name lands whole, NUL at byte 14", label_is(f, named[3].name, 14));
         fence(f); resolve(f, h[5], full);
-        CHK("P28a a 15-byte name clamps to 14 bytes, NUL at byte 14", label_is(f, named[4].name, 15));
+        CHK("P28a a 15-byte name is 13 bytes and the marker, NUL at byte 14", abbrev_is(f, named[4].name));
         fence(f); resolve(f, h[6], full);
-        CHK("P28a a 32-byte name clamps to 14 bytes, NUL at byte 14", label_is(f, named[5].name, 32));
+        CHK("P28a a 32-byte name is 13 bytes and the marker, NUL at byte 14", abbrev_is(f, named[5].name));
         fence(f); resolve(f, h[7], full);
         CHK("P28a a NAMELESS cached key renders exactly 0x plus eight hex digits", fallback_is(f, h[7]));
         fence(f); resolve(f, unknown, full);
@@ -6812,8 +6860,9 @@ int main() {
 
         // ---- (b) THE TEAM ROW: named, NAMELESS, keyless and UNKNOWN-hash teammates, through the real resolver ------
         // `set_team_id` drops the previous team's roster and bindings (P18's note), so the list is exactly these four:
-        // 91 -> `H1`, 92 -> the NAMELESS key (`0xb2410007`), 93 -> no key at all (`id 93`, `label_for_team_id`'s own
-        // arm), 94 -> a hash nobody cached (`0xb2ee41ee`, `label_from_hash`'s fallback for an UNKNOWN peer).
+        // 91 -> `H1`, 92 -> the NAMELESS key (`0xB2410007`), 93 -> no key at all (`id 93`, `label_for_team_id`'s own
+        // arm), 94 -> a hash nobody cached (`0xB2EE41EE`, the formatter's unnamed arm for an UNKNOWN peer). ⓘ W4a: a
+        // six-cell TEAM field shows an unnamed peer's fingerprint; the wider compose/result/REPLY sites its full hash.
         // ⚠ P18/P19's MEASURED CLOCK TRAP applies: a screen walk steps `millis()` backwards, `DeviceHal::now()` reads it
         //   as a wrap (+2^32 ms), and a binding stamped before it falls past `team_key_of_id`'s 48 h gate — the rows
         //   would then quietly read `id 91`. ⇒ `rebind` re-stamps routes and bindings AFTER every walk, AHEAD of the
@@ -6838,22 +6887,22 @@ int main() {
             const char* r[4] = { body_row(0), body_row(1), body_row(2), body_row(3) };
             printf("  INFO P28b TEAM rows: [%s] [%s] [%s] [%s]\n", r[0] ? r[0] : "-", r[1] ? r[1] : "-",
                    r[2] ? r[2] : "-", r[3] ? r[3] : "-");
-            // The row is `%c%-6.6s %3s %4s %2s`: the marker, the label clamped to SIX columns, one blank — then the age.
+            // The row is `%c%-6.6s %3s %4s %2s`: the marker, the six-cell label, one blank — then the age.
             auto label_col = [](const char* row, const char* want8) {
                 return row != nullptr && strlen(row) == 19 && strncmp(row, want8, 8) == 0;
             };
             CHK("P28b TEAM row 0 carries the named teammate's label, H1", label_col(r[0], " H1     "));
-            CHK("P28b TEAM row 1 carries the NAMELESS key's 0x label, clamped to six", label_col(r[1], " 0xb241 "));
+            CHK("P28b TEAM row 1 carries the NAMELESS key's six-digit member fingerprint", label_col(r[1], " 410007 "));
             CHK("P28b TEAM row 2 carries the keyless teammate's bare id", label_col(r[2], " id 93  "));
-            CHK("P28b TEAM row 3 carries the UNKNOWN hash's 0x label, clamped to six", label_col(r[3], " 0xb2ee "));
+            CHK("P28b TEAM row 3 carries the UNKNOWN hash's six-digit member fingerprint", label_col(r[3], " EE41EE "));
         }
 
         // ---- (c) THE COMPOSE HEADER AND THE `DELIVERED to` RESULT, for each of the four ----------------------------
         // ⓘ The row is reached by POSITION (`enter_list` lands on row 0, one `short` per row), never by searching for
         //   its label: a walk can wrap the clock, so the label on the list is only trusted after `rebind`.
         struct Peer { uint8_t id; const char* label; const char* who; uint16_t ctr; };
-        const Peer peers[] = { {91, "H1", "named", 2411}, {92, "0xb2410007", "NAMELESS", 2412},
-                               {93, "id 93", "keyless", 2413}, {94, "0xb2ee41ee", "UNKNOWN-hash", 2414} };
+        const Peer peers[] = { {91, "H1", "named", 2411}, {92, "0xB2410007", "NAMELESS", 2412},
+                               {93, "id 93", "keyless", 2413}, {94, "0xB2EE41EE", "UNKNOWN-hash", 2414} };
         for (uint8_t row = 0; row < 4; ++row) {
             const Peer& p = peers[row];
             char lab[96];
@@ -6898,8 +6947,8 @@ int main() {
         struct Reply { uint32_t sender; uint8_t origin; const char* label; const char* who; };
         const Reply replies[] = {
             { h[1],    91, "H1",         "named" },
-            { h[7],    92, "0xb2410007", "NAMELESS" },
-            { unknown, 94, "0xb2ee41ee", "UNKNOWN-hash" },
+            { h[7],    92, "0xB2410007", "NAMELESS" },
+            { unknown, 94, "0xB2EE41EE", "UNKNOWN-hash" },
             { 0,       93, "id 93",      "hash-less" },
         };
         for (const Reply& rp : replies) {
@@ -6940,6 +6989,376 @@ int main() {
             g_exec = ExecLog{};   // a FRESH executor for P26 — its alarm must not reuse this phase's handle
         }
         (void)t28;
+    }
+
+    // ============================================================================================================ P29
+    // ★★★★ W3 (standalone Home) STAGE A — THE RENDERER'S VIEW OF THE THREE MODEL SEAMS W3 EXTRACTS, written and passed
+    //      against the UNCHANGED model, then frozen, so the extraction cannot re-write the answers it is judged by:
+    //        (a) the DETAIL PAGER — every page of 0/38/39/76/241-byte bodies, at its exact rows;
+    //        (b) the COMPOSE ROW at the display width — 17-byte phrases, both markers, selected and not;
+    //        (c) the BLOCKED PROVISION note — exactly at body row 4, with no transition and nothing written.
+    //      The unavailable service is P3u, the only window in which it can be drawn.
+    // ⓘ IT RUNS BEFORE P26 for P28's reason (P26 must stay last), and it SENDS NOTHING: P26 inherits P28's executor.
+    {
+        auto see = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+        const int exec_w3 = g_exec.calls;
+        uint32_t t29 = settle(g_probe_millis + 5000);
+
+        // ---- (a) THE DETAIL PAGER ON GLASS -----------------------------------------------------------------------
+        // ★ Each body is recorded as the NEWEST DM, so it is row 0 of the entered INBOX list (DMs publish newest-first,
+        //   `InboxRowBudget::publish`), and opened with the operator's own `double`. Body bytes cycle through 36
+        //   printable characters, so no two row slices of the 241-byte body are equal and a row drawn from the wrong
+        //   slice cannot pass. Geometry stated independently of the model: 19 columns x 2 rows, 38 bytes a page.
+        // ⚠ THE CLOCK IS CONTINUOUS (10 ms ticks), so the 2 s cadence turns ON its deadline and the page on the panel
+        //   is a function of time alone; a page is read only from a COMPLETE frame whose header already names it.
+        static const char kCycle36[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        uint8_t body[241];
+        for (int i = 0; i < int(sizeof body); ++i) body[i] = uint8_t(kCycle36[i % 36]);
+        struct DetailCase { uint8_t len; uint8_t pages; };
+        const DetailCase cases[] = { {0, 1}, {38, 1}, {39, 2}, {76, 2}, {241, 7} };
+        uint16_t ctr = 3100;
+        for (const DetailCase& dc : cases) {
+            char lab[112];
+            char head[24], r1[20], r2[20];
+            auto expect = [&](uint8_t page) {             // the header and both rows of `page`, from the body itself
+                snprintf(head, sizeof head, "DM from 51     %u/%u", unsigned(page) + 1u, unsigned(dc.pages));
+                char* rows[2] = { r1, r2 };
+                for (int r = 0; r < 2; ++r) {
+                    const int off = page * 38 + r * 19;
+                    const int n = off >= dc.len ? 0 : (dc.len - off < 19 ? dc.len - off : 19);
+                    if (n > 0) memcpy(rows[r], body + off, size_t(n));
+                    rows[r][n] = '\0';
+                }
+            };
+            // Tick until a COMPLETE frame's header reads `head` — bounded, so a page that never comes fails the check.
+            uint32_t now = 0;
+            auto until_head = [&](uint32_t bound_ms) {
+                for (uint32_t w = 0; w <= bound_ms; w += 10) {
+                    now += 10; tick(now);
+                    if (g_c.pages_this_frame == 8 && body_row_is(0, head)) return true;
+                }
+                return false;
+            };
+            auto page_ok = [&](uint8_t page, uint32_t bound_ms) {
+                expect(page);
+                return until_head(bound_ms) && body_row_is(1, r1) && body_row_is(2, r2);
+            };
+            // ⛔ Where the page must NOT change, the frame already on record would answer by itself — so it is
+            //   forgotten first, and only a frame painted AFTER the event can satisfy the check.
+            auto forget_frame = [&]() { g_c.n_rec = 0; g_c.pages_this_frame = 0; };
+            snprintf(lab, sizeof lab, "P29a precondition: the %u-byte DM is recorded as the newest", unsigned(dc.len));
+            CHK(lab, g_node.inbox().record_dm(51, 0, ctr++, 0, dc.len ? body : nullptr, dc.len, 1000) != 0);
+            t29 = enter_list(t29 + 500, kSlotInbox);
+            now = double_press(t29 + 500);                // opens row 0; the answer lands inside this press
+            snprintf(lab, sizeof lab, "P29a %u B: page 1/%u opens with its header and both rows exact",
+                     unsigned(dc.len), unsigned(dc.pages));
+            CHK(lab, page_ok(0, 1500) && body_row_is(3, ">back"));
+            if (dc.pages == 1) {
+                // ★ ONE PAGE STAYS PUT: two cadence deadlines pass, a repaint is forced, and it is still page 1/1.
+                for (int i = 0; i < 500; ++i) { now += 10; tick(now); }
+                forget_frame();
+                dirty_the_model(now);
+                snprintf(lab, sizeof lab, "P29a %u B: the single page stays 1/1 across the cadence", unsigned(dc.len));
+                CHK(lab, page_ok(0, 1500));
+            } else {
+                snprintf(lab, sizeof lab, "P29a %u B: page 2/%u turns on the cadence, both rows exact",
+                         unsigned(dc.len), unsigned(dc.pages));
+                CHK(lab, page_ok(1, 2600));
+            }
+            // ★★ BLANK AND WAKE ON THE PAGE NOW SHOWING (page 2 when there is one): ONE tick past both deadlines —
+            //    the blank outranks the page turn — then one short press, which the model consumes as the wake.
+            const uint8_t kept = dc.pages > 1 ? 1 : 0;
+            now += 16000; tick(now); now += 10; tick(now);
+            snprintf(lab, sizeof lab, "P29a %u B: the panel blanks with the modal on page %u",
+                     unsigned(dc.len), unsigned(kept) + 1u);
+            CHK(lab, g_c.last_power_save == 1);
+            forget_frame();
+            now = settle(now + 500);
+            snprintf(lab, sizeof lab, "P29a %u B: the wake keeps page %u/%u and both rows, `back` still selected",
+                     unsigned(dc.len), unsigned(kept) + 1u, unsigned(dc.pages));
+            CHK(lab, page_ok(kept, 1500) && g_c.last_power_save != 1 && body_row_is(3, ">back"));
+            // The remaining pages in order, then the CYCLE back to page 1 — ⛔ never a stop on the last page.
+            for (uint8_t p = 2; p < dc.pages; ++p) {
+                snprintf(lab, sizeof lab, "P29a %u B: page %u/%u header and both rows exact",
+                         unsigned(dc.len), unsigned(p) + 1u, unsigned(dc.pages));
+                CHK(lab, page_ok(p, 2600));
+            }
+            if (dc.pages > 1) {
+                snprintf(lab, sizeof lab, "P29a %u B: after page %u/%u the cadence cycles back to page 1",
+                         unsigned(dc.len), unsigned(dc.pages), unsigned(dc.pages));
+                CHK(lab, page_ok(0, 2600));
+            }
+            t29 = double_press(now + 500); paint(t29);    // `back` -> the modal closes; storage untouched
+        }
+
+        // ---- (b) THE COMPOSE ROW AT THE DISPLAY WIDTH -------------------------------------------------------------
+        // ★ 17 bytes is the widest phrase a row shows whole: marker 1 + location 1 + 17 = the body's 19 columns. Each
+        //   kind gets one located and one plain phrase, read selected and unselected, through the REAL verbs.
+        static constexpr char kDmLoc[] = "DM17-LOCATED-ABCD", kDmPlain[] = "DM17-PLAIN-EFGHIJ";
+        static constexpr char kChLoc[] = "CH17-LOCATED-KLMN", kChPlain[] = "CH17-PLAIN-OPQRST";
+        static_assert(sizeof kDmLoc == 18 && sizeof kDmPlain == 18 && sizeof kChLoc == 18 && sizeof kChPlain == 18,
+                      "each phrase is exactly 17 bytes");
+        {
+            char c1[64], c2[64], c3[64], c4[64];
+            snprintf(c1, sizeof c1, "preset set dm1 loc=on \"%s\"", kDmLoc);
+            snprintf(c2, sizeof c2, "preset set dm2 loc=off \"%s\"", kDmPlain);
+            snprintf(c3, sizeof c3, "preset set channel1 loc=on \"%s\"", kChLoc);
+            snprintf(c4, sizeof c4, "preset set channel2 loc=off \"%s\"", kChPlain);
+            CHK("P29b precondition: the REAL verbs store four 17-byte phrases",
+                run_preset_cmd(c1) && run_preset_cmd(c2) && run_preset_cmd(c3) && run_preset_cmd(c4));
+        }
+        struct ComposeCase { const char* who; const char* loc; const char* plain; };
+        const ComposeCase kinds[] = { {"DM", kDmLoc, kDmPlain}, {"channel", kChLoc, kChPlain} };
+        for (const ComposeCase& k : kinds) {
+            char lab[112], sel_loc[24], un_loc[24], sel_plain[24], un_plain[24];
+            snprintf(sel_loc, sizeof sel_loc, ">L%s", k.loc);     snprintf(un_loc, sizeof un_loc, " L%s", k.loc);
+            snprintf(sel_plain, sizeof sel_plain, ">-%s", k.plain); snprintf(un_plain, sizeof un_plain, " -%s", k.plain);
+            const bool dm = (k.loc == kDmLoc);
+            if (dm) { t29 = enter_list(t29 + 500, kSlotTeam); t29 = see(double_press(t29 + 500)); }
+            else    { t29 = walk_to_slot(t29 + 500, kSlotSend); t29 = see(double_press(t29 + 500)); }
+            snprintf(lab, sizeof lab, "P29b %s compose: the located phrase SELECTED renders whole at row 1", k.who);
+            CHK(lab, body_row_is(1, sel_loc));
+            snprintf(lab, sizeof lab, "P29b %s compose: the plain phrase UNSELECTED renders whole at row 2", k.who);
+            CHK(lab, body_row_is(2, un_plain));
+            snprintf(lab, sizeof lab, "P29b %s compose: BACK follows unchanged at row 3", k.who);
+            CHK(lab, body_row_is(3, " back, don't send"));
+            t29 = see(settle(t29 + 500));
+            snprintf(lab, sizeof lab, "P29b %s compose: after one short the located phrase is UNSELECTED, whole", k.who);
+            CHK(lab, body_row_is(1, un_loc));
+            snprintf(lab, sizeof lab, "P29b %s compose: ...and the plain phrase SELECTED, whole", k.who);
+            CHK(lab, body_row_is(2, sel_plain));
+            t29 = open_highlighted(t29 + 500, ">back, don't send");   // leave without sending
+        }
+        CHK("P29b `preset reset all` restores the compiled catalog",
+            run_preset_cmd("preset reset all") &&
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 &&
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 2);
+
+#if MR_N_LAYERS < 2
+        // ---- (c) THE BLOCKED PROVISION NOTE, on the child-enabled arm's real SETTINGS -> PROVISION path -------------
+        // ★ Three refusals: UNSAVED, CONFLICT only, and BOTH — where conflict must outrank unsaved. Each is read at its
+        //   exact row (the note/reboot row, body row 4) with the menu still up, and the fake store and live seam
+        //   prove nothing was saved, applied or loaded by the refused press.
+        {
+            ProbeCfgStore& st = probe_store();
+            ProbeCfgLive&  lv = probe_live();
+            const mrnv::Blob rec0 = st.rec;
+            char entry[24]; snprintf(entry, sizeof entry, ">%s", mrui::kSettingsEnterText);
+            t29 = to_cfg_closed(t29 + 500);
+            CHK("P29c precondition: the configuration is CLEAN (no marker above the entry row)", body_row_is(0, entry));
+            auto edit_dm_crypt = [&]() {                  // P7a's editor walk: enter, cycle the DRAFT, accept
+                t29 = cfg_walk_to(t29 + 500, ">DM crypt");
+                t29 = double_press(t29 + 500); paint(t29);
+                t29 = settle(t29 + 500);
+                t29 = double_press(t29 + 500); paint(t29);
+            };
+            struct Cell { const char* what; const char* note; };
+            auto refuse = [&](const Cell& c, const char* marker) {
+                char lab[112];
+                t29 = walk_to(t29 + 500, ">PROVISION");
+                const int w0 = st.writes, a0 = lv.applies, l0 = st.loads;
+                t29 = see(double_press(t29 + 500));
+                snprintf(lab, sizeof lab, "P29c %s: PROVISION refuses with exactly %s on body row 4", c.what, c.note);
+                CHK(lab, body_row_is(4, c.note));
+                snprintf(lab, sizeof lab, "P29c %s: ...the menu stays up (marker row 0, PROVISION highlighted)", c.what);
+                CHK(lab, body_row_is(0, marker) && strstr(g_c.page_text, ">PROVISION") != nullptr);
+                snprintf(lab, sizeof lab, "P29c %s: ...and the press saved, applied and loaded nothing", c.what);
+                CHK(lab, st.writes == w0 && lv.applies == a0 && st.loads == l0);
+            };
+            // UNSAVED
+            edit_dm_crypt();
+            refuse({"unsaved", "SAVE OR DISCARD"}, "CFG* UNSAVED");
+            t29 = walk_to(t29 + 500, ">DISCARD"); t29 = see(double_press(t29 + 500));
+            // CONFLICT ONLY — the companion's write lands under a clean draft
+            st.rec.intro_attach = rec0.intro_attach ? 0 : 1;
+            mr_ui_on_config_saved();
+            t29 = cfg_walk_to(t29 + 500, ">DM crypt");
+            refuse({"conflict", "RELOAD OR DISCARD"}, "CFG! RELOAD");
+            // BOTH — an unsaved edit under the standing conflict
+            edit_dm_crypt();
+            refuse({"both", "RELOAD OR DISCARD"}, "CFG! RELOAD");
+            // Restore: the record goes back and DISCARD re-reads it, so the service leaves this phase CLEAN.
+            st.rec = rec0;
+            t29 = walk_to(t29 + 500, ">DISCARD"); t29 = see(double_press(t29 + 500));
+            t29 = to_cfg_closed(t29 + 500);
+            CHK("P29c the phase leaves the configuration CLEAN again", body_row_is(0, entry));
+        }
+#endif
+        t29 = walk_to_slot(t29 + 500, kSlotStatus);
+        CHK("P29 ⛔ ...and nothing in this phase reached the executor", g_exec.calls == exec_w3);
+    }
+
+    // ============================================================================================================ P30
+    // ★★★★ W4a ([[B441]]) — THE ONE IDENTITY FORMATTER, REACHED BY THE **REAL** NAME LOOKUP AT EVERY SITE. P28 walks
+    //      the short / NAMELESS / keyless / UNKNOWN peers; this phase adds the two inputs the formatter exists for:
+    //        · a LONG name — 20 bytes, wider than every budget, so each site shows its own abbreviation (TEAM 6,
+    //          compose header 15, DELIVERED 19, REPLY 14, candidate row 6, NEW MEMBER 14);
+    //        · a HIGH-BYTE name — `ł` + `AB` (C5 82 41 42): two `.` cells, never a Latin-1 glyph or a lost cell.
+    // ★★ EVERY EXPECTED STRING IS A LITERAL, written with the marker as its own literal (`"Maxim" "\xBB"`) — ⛔ never
+    //    built by the formatter under test, which would agree with a wrong answer.
+    // ⓘ IT RUNS BEFORE P26 for P28's reason (P26 must stay last), and it restores the same canonical team fixture.
+    {
+        uint8_t pubL[32], pubH[32];
+        for (int i = 0; i < 32; ++i) { pubL[i] = uint8_t(0x30 + i); pubH[i] = uint8_t(0x60 + i); }
+        pubL[0] = 0xC3; pubL[1] = 0xB2; pubL[2] = 0xA1; pubL[3] = 0x00;   // -> LE hash 0x00A1B2C3, fingerprint A1B2C3
+        pubH[0] = 0xD4; pubH[1] = 0xC3; pubH[2] = 0xB2; pubH[3] = 0x00;   // -> LE hash 0x00B2C3D4, fingerprint B2C3D4
+        const uint32_t hL = MESHROUTE_NS::key_hash32_of(pubL);
+        const uint32_t hH = MESHROUTE_NS::key_hash32_of(pubH);
+        const char long_name[] = "Maximilian-Alexander";                  // 20 bytes
+        const char high_name[] = { char(0xC5), char(0x82), 'A', 'B' };     // `łAB`, 4 counted bytes
+        const bool cached =
+            g_node.peer_key_set(hL, pubL, MESHROUTE_NS::Node::PeerKeyConf::authoritative, long_name,
+                                uint8_t(sizeof long_name - 1)) &&
+            g_node.peer_key_set(hH, pubH, MESHROUTE_NS::Node::PeerKeyConf::authoritative, high_name,
+                                uint8_t(sizeof high_name));
+        char nm[40];
+        CHK("P30 precondition: both keys cached with their RAW names (20 bytes; C5 82 41 42)",
+            cached && hL == 0x00A1B2C3u && hH == 0x00B2C3D4u &&
+            g_node.peer_name_find(hL, nm, sizeof nm) == 20 && g_node.peer_name_find(hH, nm, sizeof nm) == 4 &&
+            uint8_t(nm[0]) == 0xC5 && uint8_t(nm[1]) == 0x82);
+        (void)g_node.set_team_id(0xB2420001u);
+        g_node.set_team_local_id(90);
+        // ⚠ P18/P28's MEASURED CLOCK TRAP: bindings are re-stamped AFTER every walk, AHEAD of the clock — and so are
+        //   the two cached keys, because `peer_key_find` ages an entry by the same clock and INVITE's preflight asks it.
+        auto rebind = [&](uint32_t at) {
+            set_now(at);
+            (void)g_node.peer_key_set(hL, pubL, MESHROUTE_NS::Node::PeerKeyConf::authoritative, long_name,
+                                      uint8_t(sizeof long_name - 1));
+            (void)g_node.peer_key_set(hH, pubH, MESHROUTE_NS::Node::PeerKeyConf::authoritative, high_name,
+                                      uint8_t(sizeof high_name));
+            g_node.test_learn_route(101, 101, 1, 144, /*team_plane=*/true);
+            g_node.test_learn_route(102, 102, 1, 144, /*team_plane=*/true);
+            g_node.team_key_set(101, hL, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            g_node.team_key_set(102, hH, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+        };
+        uint32_t t30 = settle(g_probe_millis + 5000);
+        t30 = walk_to_slot(t30 + 500, kSlotTeam);
+        rebind(t30 + 1000);
+        dirty_the_model(t30 + 1000); paint(t30 + 1100); t30 += 1200;
+        // ---- (a) TEAM: six cells ----------------------------------------------------------------------------------
+        {
+            auto label_col = [](const char* row, const char* want8) {
+                return row != nullptr && strlen(row) == 19 && strncmp(row, want8, 8) == 0;
+            };
+            CHK("P30a TEAM: the long name is five cells and the marker", label_col(body_row(0), " Maxim" "\xBB" " "));
+            CHK("P30a TEAM: the high-byte name is two dots and AB, padded", label_col(body_row(1), " ..AB   "));
+        }
+        // ---- (b) the compose header (15 cells after `to: `) and the DELIVERED row (19) ------------------------------
+        struct Case { uint8_t id; const char* head; const char* delivered; const char* who; uint16_t ctr; };
+        const Case cases[] = {
+            { 101, "to: Maximilian-Ale" "\xBB", "Maximilian-Alexand" "\xBB", "long",      3011 },
+            { 102, "to: ..AB",                  "..AB",                      "high-byte", 3012 },
+        };
+        for (uint8_t row = 0; row < 2; ++row) {
+            const Case& c = cases[row];
+            char lab[96];
+            t30 = enter_list(t30 + 2000, kSlotTeam);
+            for (uint8_t i = 0; i < row; ++i) t30 = settle(t30 + 500);
+            t30 = double_press(t30 + 500);                            // -> the DM compose for THAT row
+            rebind(t30 + 1000);
+            dirty_the_model(t30 + 1000); paint(t30 + 1100); t30 += 1200;
+            snprintf(lab, sizeof lab, "P30b the compose HEADER shows the %s name at 15 cells", c.who);
+            CHK(lab, body_row_is(0, c.head));
+            g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = c.ctr;
+            t30 = double_press(t30 + 500);                            // send the first canned text
+            t30 += 700; paint(t30);
+            MESHROUTE_NS::Push ack{};
+            ack.kind = MESHROUTE_NS::PushKind::send_e2e_acked; ack.dst = c.id; ack.ctr = c.ctr;
+            mr_ui_on_push(ack);
+            t30 += 700; paint(t30);
+            snprintf(lab, sizeof lab, "P30b the DELIVERED row shows the %s name at 19 cells", c.who);
+            CHK(lab, g_exec.calls == 1 && body_row_is(1, "DELIVERED to") && body_row_is(2, c.delivered));
+            t30 = settle(t30 + 1000); paint(t30);                     // acknowledge -> the sub-view closes
+        }
+        // ---- (c) REPLY: 14 cells, formatted before the model and copied verbatim -------------------------------------
+        constexpr int kEmgHeadYExpected = 34, kEmgDetailYExpected = 52;
+        g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 3015;
+        t30 = settle(t30 + 2000);
+        g_c.button_down = true;                                       // hold PAST fire_ms -> the alarm FIRES
+        for (int i = 0; i < 60; ++i) tick(t30 + 100 + uint32_t(i) * 100);
+        g_c.button_down = false;
+        for (int i = 0; i < 10; ++i) tick(t30 + 6200 + uint32_t(i) * 100);
+        t30 += 7500;
+        CHK("P30c precondition: a real alarm FIRED and its post was ACCEPTED by the executor",
+            g_exec.calls == 1 && mrfw::ui_emergency_active());
+        struct Reply { uint32_t sender; uint8_t origin; const char* line; const char* who; };
+        const Reply replies[] = {
+            { hL, 101, "Maximilian-Al" "\xBB" ": OK", "long" },
+            { hH, 102, "..AB: OK",                    "high-byte" },
+        };
+        for (const Reply& rp : replies) {
+            MESHROUTE_NS::Push pu{};
+            pu.kind = MESHROUTE_NS::PushKind::channel_recv;
+            pu.channel_id = uint8_t(MR_UI_TEAM_CHANNEL_ID);
+            pu.team_id = g_node.config().team_id;
+            pu.origin = rp.origin; pu.sender_hash = rp.sender; pu.enc = true;
+            pu.body[0] = 'O'; pu.body[1] = 'K'; pu.body_len = 2;
+            set_now(t30); mr_ui_on_push(pu);
+            t30 += 700; paint(t30); t30 += 200;
+            char lab[96];
+            const char* hd = text_at(0, kEmgHeadYExpected);
+            const char* dt = text_at(0, kEmgDetailYExpected);
+            snprintf(lab, sizeof lab, "P30c the REPLY names the %s sender at 14 cells, the marker intact", rp.who);
+            CHK(lab, hd != nullptr && strcmp(hd, "REPLY") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0);
+        }
+        t30 = settle(t30 + 1000); paint(t30);                         // a short press dismisses the presented REPLY
+        CHK("P30c ...and the dismissed REPLY leaves no alarm behind",
+            !mrfw::ui_emergency_active() && text_at(0, kEmgHeadYExpected) == nullptr);
+#if MR_N_LAYERS < 2
+        // ---- (d) INVITE: the candidate row's six cells and NEW MEMBER's 14 (the child-enabled arm only) -----------
+        // ★ P24's pass shape: the core's own team-plane wipe drops the routes and bindings but keeps the cached PUBKEYS
+        //   and NAMES, so the window opens EMPTY and both members then ARRIVE as candidates.
+        {
+            auto see = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+            g_node.clear_team_routing_state();
+            t30 = cfg_walk_to(t30 + 500, ">PROVISION");
+            t30 = see(double_press(t30 + 500));
+            t30 = walk_to(t30 + 500, ">INVITE MEMBER");
+            t30 = see(double_press(t30 + 500));
+            CHK("P30d precondition: the INVITE window is open and EMPTY",
+                body_row_is(0, mrui::kInviteTitle) && body_row_is(2, mrui::kInviteEmpty));
+            rebind(t30 + 1000);
+            dirty_the_model(t30 + 1000);
+            t30 = see(t30 + 1100);
+            CHK("P30d the long name's candidate row: five cells, the marker, its id and fingerprint",
+                body_row_is(3, ">Maxim" "\xBB" " T101 A1B2C3"));
+            CHK("P30d the high-byte name's candidate row: two dots, AB, padded",
+                body_row_is(4, " ..AB   T102 B2C3D4"));
+            t30 = see(double_press(t30 + 500));                        // the cursor is on the long-name candidate
+            CHK("P30d NEW MEMBER keeps the FULL hash and shows the long name at 14 cells",
+                body_row_is(0, mrui::kInviteNew) && body_row_is(1, "0x00A1B2C3") &&
+                body_row_is(2, "Maximilian-Al" "\xBB"));
+            t30 = see(double_press(t30 + 500));                        // REJECT (the default) -> back to the window
+            t30 = walk_to(t30 + 500, ">..AB   T102 B2C3D4");
+            t30 = see(double_press(t30 + 500));
+            CHK("P30d NEW MEMBER shows the high-byte name as its sanitized cells, beside the full hash",
+                body_row_is(0, mrui::kInviteNew) && body_row_is(1, "0x00B2C3D4") && body_row_is(2, "..AB"));
+            t30 = see(double_press(t30 + 500));                        // REJECT
+            t30 = walk_to(t30 + 500, ">BACK");
+            t30 = see(double_press(t30 + 500));                        // -> the PROVISION menu
+            if (strstr(g_c.page_text, "CREATE TEAM") != nullptr) t30 = open_highlighted(t30 + 500, ">BACK");
+        }
+#endif
+        // ---- restore the fixture P26 inherits (P28's restore, verbatim) --------------------------------------------
+        {
+            uint8_t s_pub[32], s_priv[32];
+            for (int i = 0; i < 32; ++i) { s_pub[i] = uint8_t(0xA0 + i); s_priv[i] = uint8_t(0x40 + i); }
+            (void)g_node.set_team_id(0);
+            MESHROUTE_NS::NodeConfig back{};
+            back.routing_sf = 7; back.allowed_sf_bitmap = (1u << 7); back.leaf_id = 0;
+            back.team_id = 0xABCD1234u;
+            g_node.on_init(back);
+            g_node.set_team_local_id(50);
+            g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            t30 = walk_to_slot(t30 + 1000, kSlotStatus);
+            g_exec = ExecLog{};   // a FRESH executor for P26 — its alarm must not reuse this phase's handle
+        }
+        (void)t30;
     }
 
     // §UI-10/11 slice P2 — THE `/mrui` PRESET CATALOG's TWO DEVICE-SIDE FACTS. Both are here rather than in the

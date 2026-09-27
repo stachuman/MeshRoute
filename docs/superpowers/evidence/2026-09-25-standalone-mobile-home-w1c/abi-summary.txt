@@ -1,0 +1,7 @@
+       -> the probe TU DID NOT COMPILE for target 'gateway' (exit 1) — this is a FAILING verdict, not a measurement:
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+probe_board_abi exit=0
+  meshroute::Node                         235208/8 T              122176/8 T              157304/8 T *
+       -> [gateway] meshroute::Node is PINNED but the probe TU emitted no size symbol — coverage lost
+PASS: B278 production correlation-row ABI mirror (42 measurements, 6/6 controls RED)
+probe_b278_row_abi exit=0

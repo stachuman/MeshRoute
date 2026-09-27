@@ -1,0 +1,306 @@
+# W4a reader audit — 2026-09-26T20:42:23+00:00; HEAD 8360802904f7bd0023279d3da844453d61207ede
+## 1. Changed signatures / new symbols (every hit must be inside the fence)
+
+$ grep -rn --exclude-dir=__pycache__ --binary-files=text -E 'label_from_hash|mr_probe_label_from_hash' lib src test tools --include=*.cpp --include=*.h --include=*.py --include=*.sh
+src/firmware_ui.cpp:453:void label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:468:    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap, cols); return hash; }
+src/firmware_ui.cpp:475:    if (pu.sender_hash != 0) { label_from_hash(pu.sender_hash, out, cap, cols); return; }
+test/test_node_hashlocate.cpp:1981:// in the UI's one C-string adapter (`src/firmware_ui.cpp`'s `label_from_hash`), deliberately NOT here: `peer_name_find`
+tools/probe_firmware_ui/probe_main.cpp:212:// ★★★★ [[B241]] (W1) — THE ONE PROBE-ONLY DOOR INTO A FILE-LOCAL FUNCTION. `label_from_hash` sits in
+tools/probe_firmware_ui/probe_main.cpp:216:void mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols);
+tools/probe_firmware_ui/probe_main.cpp:6734:    //      `label_from_hash` used to hand its `%s` consumers `Node::peer_name_find`'s bytes with NO terminator. A short
+tools/probe_firmware_ui/probe_main.cpp:6739:    // ★ (a) drives the REAL adapter through `mr_probe_label_from_hash` (`run.sh`'s `ui_wrapper`) into a 15-byte
+tools/probe_firmware_ui/probe_main.cpp:6819:        auto resolve = [&](Fenced& f, uint32_t hash, uint8_t cap) { mr_probe_label_from_hash(hash, f.out, cap, budget); };
+tools/probe_firmware_ui/run.sh:138:# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it — and the
+tools/probe_firmware_ui/run.sh:141:#   UI source itself, a TU that `#include`s THAT SOURCE and adds ONE external trampoline, `mr_probe_label_from_hash`.
+tools/probe_firmware_ui/run.sh:151:  printf '#include "%s"\nvoid mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols) { label_from_hash(hash, out, cap, cols); }\n' \
+tools/probe_firmware_ui/run.sh:1280:  ctl "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator" yes \
+tools/probe_firmware_ui/run.sh:1477:  n9s='s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_from_hash(r.team.team_id, label, uint8_t(sizeof label), uint8_t(sizeo
+tools/probe_firmware_ui/run.sh:1557:  #   `label_from_hash` is one call away, it is what the TEAM screen legitimately uses, and it looks like reuse (U1!)
+tools/probe_firmware_ui/run.sh:1581:  #   `st.invite.sel_hash` full-hash calls of the NEED / WAITING FOR PUBKEY screens into `label_from_hash`, and the one
+tools/probe_ui_model_mutations.py:5684:#    fix, because `label_from_hash` is the resolver the TEAM screen next door really does use.
+tools/probe_ui_model_mutations.py:5716: ("I08 ★★ the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached — the TRUNCATED "
+
+$ grep -rn --exclude-dir=__pycache__ --binary-files=text -E 'label_for_team_id|label_for_origin' lib src test tools --include=*.cpp --include=*.h --include=*.py --include=*.sh
+src/firmware_ui.cpp:464:uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:472:void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:793:        // ★ ONE RESOLUTION PER ROW (U1): `label_for_team_id` returns the very hash it labelled from, so the position
+src/firmware_ui.cpp:803:        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);
+src/firmware_ui.cpp:819:        //     `label_for_team_id`'s bare `id <n>`, and either one in the row's six-column name field would be a
+src/firmware_ui.cpp:2239:        char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);
+src/firmware_ui.cpp:2322:        char label[kComposeToCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kComposeToCols);
+src/firmware_ui.cpp:2788:            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);
+src/firmware_ui.cpp:2797:        // ⛔ THE LABEL IS `""` AND THAT IS THE POINT, not laziness: the arm reads no name, and `label_for_origin`
+src/firmware_ui_geo.h:178://        (`build_snapshot`), because it is the step `label_for_team_id` already takes and the spec requires ONE
+src/firmware_ui_nearby_row.h:64://     (`label_for_team_id`, src/firmware_ui.cpp) — so the mutation that resolves the sender's name into
+test/test_firmware_ui_team.cpp:53:// ★ W4a — THE IDENTITY PROJECTION `build_snapshot` APPLIES BEFORE IT PUBLISHES (`label_for_team_id` ->
+tools/probe_firmware_ui/probe_main.cpp:3169:    // ★★ THE THREE ROWS ARE THE THREE ANSWERS THE LABEL RESOLVER CAN GIVE (`label_for_team_id`), so a misroute cannot
+tools/probe_firmware_ui/probe_main.cpp:6744:    //   a real alarm, the one route by which `label_for_origin`'s answer reaches the panel (`UiModel::on_reply`).
+tools/probe_firmware_ui/probe_main.cpp:6863:        // 91 -> `H1`, 92 -> the NAMELESS key (`0xB2410007`), 93 -> no key at all (`id 93`, `label_for_team_id`'s own
+tools/probe_firmware_ui/run.sh:1137:  c120s='s|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_
+tools/probe_firmware_ui/run.sh:1138:  once '            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);' "$c120s" &&
+tools/probe_firmware_ui/run.sh:1292:  w4as='s|        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);|        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.
+tools/probe_firmware_ui/run.sh:1293:  once '        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);' "$w4as" &&
+tools/probe_firmware_ui/run.sh:1303:  w4as='s|        char label\[kDeliveredCols + 1\]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);|        char label[kDeliveredCols + 1]; label_for_team_id(st
+tools/probe_firmware_ui/run.sh:1304:  once '        char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);' "$w4as" &&
+tools/probe_firmware_ui/run.sh:1309:  w4as='s|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t
+tools/probe_firmware_ui/run.sh:1310:  once '            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);' "$w4as" &&
+tools/probe_firmware_ui/run.sh:1471:  n4b='s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_for_team_id(r.team.reserved, label, uint8_t(sizeof label), uint8_t(si
+tools/probe_firmware_ui/run.sh:1567:  o2s='s|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);|            label_for_team_id(s.my_team_id, fp, uint8_t(sizeof fp), uint8_t(sizeof fp - 1));|'
+
+$ grep -rn --exclude-dir=__pycache__ --binary-files=text -E 'ui_fmt_invite_row' lib src test tools --include=*.cpp --include=*.h --include=*.py --include=*.sh
+src/firmware_ui_invite.h:451:inline void ui_fmt_invite_row(char* out, std::size_t cap, char marker, const InviteMember& m, const char* name6) {
+src/firmware_ui.cpp:2004:        //      `invite_note`, the row's three columns are `ui_fmt_invite_row`'s (name · team-local id · member
+src/firmware_ui.cpp:2043:                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);
+test/test_firmware_ui_model.cpp:8104:    mrui::ui_fmt_invite_row(row, sizeof row, '>', s.member[1], s.member[1].name);
+test/test_firmware_ui_invite.cpp:54:using mrui::ui_fmt_invite_row;
+test/test_firmware_ui_invite.cpp:77:    ui_fmt_invite_row(out, cap, marker, m, name6);
+test/test_firmware_ui_invite.cpp:527:    // ★★ A SYNTHETIC OVER-LONG PREPARED NAME, passed straight to `ui_fmt_invite_row` (brief §2.6): no correct caller
+test/test_firmware_ui_invite.cpp:531:    ui_fmt_invite_row(row, sizeof row, '>', mem(7, 0x006C2971u), "Wolfgangetta-the-longest");
+test/test_firmware_ui_invite.cpp:535:    ui_fmt_invite_row(row, sizeof row, '>', mem(7, 0x006C2971u), nullptr);
+tools/probe_firmware_ui/probe_main.cpp:5441:                    mrui::ui_fmt_invite_row(row, sizeof row, '>', want, "");   // W4a: the prepared name is blank
+tools/probe_firmware_ui/probe_main.cpp:5491:                    mrui::ui_fmt_invite_row(blank_target, sizeof blank_target, '>', blank_pick, "");
+tools/probe_firmware_ui/run.sh:1571:  o3s='s|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);|                    mrui::ui_fmt_invite_row(label, sizeof label, char(32), r.cand, name6);|'
+tools/probe_firmware_ui/run.sh:1572:  once '                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);' "$o3s" &&
+tools/probe_firmware_ui/run.sh:1611:  w4as='s|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, r.cand.name);|
+tools/probe_firmware_ui/run.sh:1612:  once '                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);' "$w4as" &&
+
+$ grep -rn --exclude-dir=__pycache__ --binary-files=text -E 'ui_fmt_identity|IdentityFmt|kIdentityMarker|kInviteRowNameCols' lib src test tools --include=*.cpp --include=*.h --include=*.py --include=*.sh
+src/firmware_ui_model.h:229://    the SAME width as the label carriers. ⓘ W4a: every device label is `ui_fmt_identity`'s answer at its site's
+src/firmware_ui_model.h:1455://          budget keeps `cols - 1` cells and then gets the GENERATED marker `kIdentityMarker` (0xBB, `»`). The
+src/firmware_ui_model.h:1471:inline constexpr char kIdentityMarker = char(0xBB);   // the generated abbreviation marker `»`: one 6-px font cell
+src/firmware_ui_model.h:1472:enum class IdentityFmt : uint8_t { name, hash, none, no_fit };
+src/firmware_ui_model.h:1473:inline IdentityFmt ui_fmt_identity(char* out, std::size_t cap, const char* bytes, uint8_t len,
+src/firmware_ui_model.h:1475:    if (!out || cap == 0) return IdentityFmt::no_fit;               // nothing may be written
+src/firmware_ui_model.h:1477:    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result
+src/firmware_ui_model.h:1479:        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read
+src/firmware_ui_model.h:1483:        if (keep < len) out[end++] = kIdentityMarker;               // generated AFTER sanitizing: stays 0xBB
+src/firmware_ui_model.h:1485:        return IdentityFmt::name;
+src/firmware_ui_model.h:1487:    if (key_hash32 == 0) return IdentityFmt::none;
+src/firmware_ui_model.h:1488:    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }
+src/firmware_ui_model.h:1489:    if (std::size_t(cols) >= kMemberFpCap - 1)   { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }
+src/firmware_ui_model.h:1490:    return IdentityFmt::no_fit;                                     // under six cells: never a clipped hash
+src/firmware_ui_model.h:1776:    char     label[kLabelCap + 1] = {};   // `ui_fmt_identity` at the TEAM budget (6): name / fingerprint / bare id
+src/firmware_ui_team.h:152://   label is ALREADY `ui_fmt_identity`'s six-cell answer (an abbreviated name ends in `»`, an unnamed peer is its
+src/firmware_ui_invite.h:51://   holds the name FORMATTED at 14 cells (`mrui::ui_fmt_identity` at `kInviteNameCap - 1`, from the FULL raw name),
+src/firmware_ui_invite.h:53://   projection of that carrier (`kInviteRowNameCols`), and the row still bounds its own column (`%-6.6s`), so a
+src/firmware_ui_invite.h:202:    char     name[kInviteNameCap] = {};    // the cached name as `ui_fmt_identity` formats it at 14; "" = none
+src/firmware_ui_invite.h:441://    `mrui::ui_fmt_identity`, so the renderer projects the 14-cell carrier to `kInviteRowNameCols` cells first (the
+src/firmware_ui_invite.h:450:inline constexpr uint8_t     kInviteRowNameCols = 6;   // the row's name column — the `6` of `%-6.6s` below
+src/firmware_ui.cpp:439:// ---- labels (spec §6: team_key_of_id -> peer_name_find -> mrui::ui_fmt_identity -> bare id) ------------------------
+src/firmware_ui.cpp:448://      `mrui::ui_fmt_identity` renders it: sanitized cells, a generated `»` when it is wider than `cols`, and the
+src/firmware_ui.cpp:457:    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);
+src/firmware_ui.cpp:482://     `budget + 1` bytes, so `IdentityFmt::no_fit` is unreachable at every production site — asserted, not argued.
+src/firmware_ui.cpp:487:constexpr uint8_t kInviteCandCols = mrui::kInviteRowNameCols;            // candidate row's name column           (6)
+src/firmware_ui.cpp:497:static_assert(mrui::kInviteRowNameCols == mrui::kTeamLabelCols,
+src/firmware_ui.cpp:835:            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);
+src/firmware_ui.cpp:2041:                    (void)mrui::ui_fmt_identity(name6, sizeof name6, r.cand.name, uint8_t(strlen(r.cand.name)), 0,
+test/test_firmware_ui_team.cpp:54://   `ui_fmt_identity` at `kTeamLabelCols`): a counted NAME, or — unnamed — the key hash. ⛔ `row_of` above stays the
+test/test_firmware_ui_team.cpp:59:    (void)ui_fmt_identity(t.label, sizeof t.label, name, uint8_t(name ? std::strlen(name) : 0), key_hash32,
+test/test_firmware_ui_model.cpp:2577:// ---------------------------------------------------------------------------------------------- W4a — ui_fmt_identity
+test/test_firmware_ui_model.cpp:2592:IdentityFmt id_fmt(IdBuf& b, std::size_t cap, const char* bytes, uint8_t len, uint32_t hash, uint8_t cols) {
+test/test_firmware_ui_model.cpp:2594:    return ui_fmt_identity(b.out, cap, bytes, len, hash, cols);
+test/test_firmware_ui_model.cpp:2612:        CHECK(id_fmt(b, 20, &one, 1, 0, 19) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2620:    CHECK(id_fmt(b, 7, utf8, 4, 0, 6) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2624:    CHECK(id_fmt(b, 7, nul, 4, 0, 6) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2632:    CHECK(id_fmt(b, 7, src, 6, 0, 6) == IdentityFmt::name);   CHECK(id_is(b, 7, "ABCDEF"));
+test/test_firmware_ui_model.cpp:2633:    CHECK(id_fmt(b, 7, src, 7, 0, 6) == IdentityFmt::name);   CHECK(id_is(b, 7, "ABCDE" "\xBB"));
+test/test_firmware_ui_model.cpp:2634:    CHECK(id_fmt(b, 7, src, 32, 0, 6) == IdentityFmt::name);  CHECK(id_is(b, 7, "ABCDE" "\xBB"));
+test/test_firmware_ui_model.cpp:2636:    CHECK(id_fmt(b, 15, src, 14, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLMN"));
+test/test_firmware_ui_model.cpp:2637:    CHECK(id_fmt(b, 15, src, 15, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLM" "\xBB"));
+test/test_firmware_ui_model.cpp:2638:    CHECK(id_fmt(b, 15, src, 32, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLM" "\xBB"));
+test/test_firmware_ui_model.cpp:2640:    CHECK(id_fmt(b, 16, src, 15, 0, 15) == IdentityFmt::name); CHECK(id_is(b, 16, "ABCDEFGHIJKLMNO"));
+test/test_firmware_ui_model.cpp:2641:    CHECK(id_fmt(b, 16, src, 16, 0, 15) == IdentityFmt::name); CHECK(id_is(b, 16, "ABCDEFGHIJKLMN" "\xBB"));
+test/test_firmware_ui_model.cpp:2642:    CHECK(id_fmt(b, 20, src, 19, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQRS"));
+test/test_firmware_ui_model.cpp:2643:    CHECK(id_fmt(b, 20, src, 20, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQR" "\xBB"));
+test/test_firmware_ui_model.cpp:2644:    CHECK(id_fmt(b, 20, src, 32, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQR" "\xBB"));
+test/test_firmware_ui_model.cpp:2648:    CHECK(id_fmt(b, 48, src, 32, 0, 6) == IdentityFmt::name); CHECK(id_is(b, 48, "ABCDE" "\xBB"));
+test/test_firmware_ui_model.cpp:2654:    CHECK(id_fmt(b, 7, raw_bb, 3, 0, 6) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2658:    CHECK(id_fmt(b, 7, mixed, 8, 0, 6) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2660:    CHECK(b.out[5] == kIdentityMarker);
+test/test_firmware_ui_model.cpp:2667:    CHECK(id_fmt(b, 7, looks, 10, 0xDEADBEEFu, 6) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2669:    CHECK(id_fmt(b, 11, looks, 10, 0xDEADBEEFu, 10) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2672:    CHECK(id_fmt(b, 7, nullptr, 0, 0xDEADBEEFu, 6) == IdentityFmt::hash);
+test/test_firmware_ui_model.cpp:2674:    CHECK(id_fmt(b, 11, nullptr, 0, 0xDEADBEEFu, 10) == IdentityFmt::hash);
+test/test_firmware_ui_model.cpp:2681:    CHECK(id_fmt(b, 7,  nullptr, 0, h, 6)  == IdentityFmt::hash); CHECK(id_is(b, 7,  "BEDEAD"));
+test/test_firmware_ui_model.cpp:2682:    CHECK(id_fmt(b, 10, nullptr, 0, h, 9)  == IdentityFmt::hash); CHECK(id_is(b, 10, "BEDEAD"));
+test/test_firmware_ui_model.cpp:2683:    CHECK(id_fmt(b, 11, nullptr, 0, h, 10) == IdentityFmt::hash); CHECK(id_is(b, 11, "0x00BEDEAD"));
+test/test_firmware_ui_model.cpp:2684:    CHECK(id_fmt(b, 20, nullptr, 0, h, 19) == IdentityFmt::hash); CHECK(id_is(b, 20, "0x00BEDEAD"));
+test/test_firmware_ui_model.cpp:2687:        CHECK(id_fmt(b, 20, nullptr, 0, h, cols) == IdentityFmt::no_fit);
+test/test_firmware_ui_model.cpp:2694:    CHECK(id_fmt(b, 20, "Wolf", 4, 0x1234u, 0) == IdentityFmt::no_fit);
+test/test_firmware_ui_model.cpp:2696:    CHECK(id_fmt(b, 20, "W", 1, 0, 1) == IdentityFmt::name);    CHECK(id_is(b, 20, "W"));
+test/test_firmware_ui_model.cpp:2697:    CHECK(id_fmt(b, 20, "Wo", 2, 0, 1) == IdentityFmt::name);   CHECK(id_is(b, 20, "\xBB"));
+test/test_firmware_ui_model.cpp:2698:    CHECK(id_fmt(b, 20, "Wolf", 4, 0, 3) == IdentityFmt::name); CHECK(id_is(b, 20, "Wo" "\xBB"));
+test/test_firmware_ui_model.cpp:2699:    CHECK(id_fmt(b, 20, "Wolf", 4, 0, 4) == IdentityFmt::name); CHECK(id_is(b, 20, "Wolf"));
+test/test_firmware_ui_model.cpp:2700:    CHECK(id_fmt(b, 20, "Wolfga", 6, 0, 5) == IdentityFmt::name); CHECK(id_is(b, 20, "Wolf" "\xBB"));
+test/test_firmware_ui_model.cpp:2705:    CHECK(id_fmt(b, 0, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);
+test/test_firmware_ui_model.cpp:2707:    CHECK(id_fmt(b, 1, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);
+test/test_firmware_ui_model.cpp:2709:    CHECK(id_fmt(b, 6, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);    // cap < cols + 1
+test/test_firmware_ui_model.cpp:2711:    CHECK(id_fmt(b, 10, nullptr, 0, 0x00BEDEADu, 10) == IdentityFmt::no_fit);     // the full hash would not fit
+test/test_firmware_ui_model.cpp:2713:    CHECK(id_fmt(b, 7, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::name);     // cap == cols + 1 is enough
+test/test_firmware_ui_model.cpp:2716:    CHECK(ui_fmt_identity(nullptr, 20, "Wolf", 4, 0, 6) == IdentityFmt::no_fit);
+test/test_firmware_ui_model.cpp:2722:        CHECK(id_fmt(b, 20, nullptr, 0, 0, cols) == IdentityFmt::none);
+test/test_firmware_ui_model.cpp:2734:        (void)ui_fmt_identity(a6, 7, name, len, 0, 6);
+test/test_firmware_ui_model.cpp:2735:        (void)ui_fmt_identity(c14, 15, name, len, 0, 14);
+test/test_firmware_ui_model.cpp:2736:        (void)ui_fmt_identity(b6, 7, c14, uint8_t(std::strlen(c14)), 0, 6);
+test/test_firmware_ui_model.cpp:2759:    (void)ui_fmt_identity(c14, 15, "Wolfgangetta-the-longest", 24, 0, 14);
+test/test_firmware_ui_model.cpp:2761:    (void)ui_fmt_identity(b6, 7, c14, uint8_t(std::strlen(c14)), 0, 6);
+test/test_firmware_ui_model.cpp:2771:    CHECK(ui_fmt_identity(who, kLabelCap + 1, "Wolfgangetta-the-longest", 24, 0, kLabelCap) == IdentityFmt::name);
+test/test_firmware_ui_model.cpp:2776:    CHECK(m.reply_who()[13] == kIdentityMarker);
+test/test_firmware_ui_invite.cpp:28:#include "firmware_ui_model.h"        // ★ W4a: `mrui::ui_fmt_identity` — the renderer's candidate-name projection
+test/test_firmware_ui_invite.cpp:70://   column by `mrui::ui_fmt_identity` (NAME only — hash 0, so an empty carrier stays the blank column), then placed.
+test/test_firmware_ui_invite.cpp:74:    char name6[mrui::kInviteRowNameCols + 1 + 1];
+test/test_firmware_ui_invite.cpp:75:    (void)mrui::ui_fmt_identity(name6, mrui::kInviteRowNameCols + 1u, m.name, uint8_t(strlen(m.name)), 0,
+test/test_firmware_ui_invite.cpp:76:                                mrui::kInviteRowNameCols);
+test/test_firmware_ui_invite.cpp:540:    CHECK(mrui::ui_fmt_identity(hb.name, sizeof hb.name, raw, 4, hb.key_hash32, uint8_t(mrui::kInviteNameCap - 1)) ==
+test/test_firmware_ui_invite.cpp:541:          mrui::IdentityFmt::name);
+test/test_firmware_ui_invite.cpp:921:    CHECK(mrui::ui_fmt_identity(live[0].name, sizeof live[0].name, longest, uint8_t(strlen(longest)),
+test/test_firmware_ui_invite.cpp:922:                                live[0].key_hash32, uint8_t(mrui::kInviteNameCap - 1)) == mrui::IdentityFmt::name);
+test/test_firmware_ui_invite.cpp:924:    CHECK(mrui::ui_fmt_identity(live[1].name, sizeof live[1].name, hi, 4, live[1].key_hash32,
+test/test_firmware_ui_invite.cpp:925:                                uint8_t(mrui::kInviteNameCap - 1)) == mrui::IdentityFmt::name);
+test/test_firmware_ui_invite.cpp:929:    CHECK(a.name[13] == mrui::kIdentityMarker);
+tools/probe_firmware_ui/run.sh:1278:  b241as='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    (void)raw; (void)n; (void)cols; if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (un
+tools/probe_firmware_ui/run.sh:1279:  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$b241as" &&
+tools/probe_firmware_ui/run.sh:1282:  b241bs='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    (void)raw; (void)n; (void)cols; if (g_node.peer_name_find(hash, out, cap) == 0) { snprintf(out, cap, "0x%08lx", (
+tools/probe_firmware_ui/run.sh:1283:  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$b241bs" &&
+tools/probe_firmware_ui/run.sh:1298:  w4as='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    if (n == 0) { (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols); return; } const uint8_t k = (n > cols) ? u
+tools/probe_firmware_ui/run.sh:1299:  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$w4as" &&
+tools/probe_firmware_ui/run.sh:1598:  o8s='s|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);|            (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, n
+tools/probe_firmware_ui/run.sh:1599:  once '            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);' "$o8s" &&
+tools/probe_firmware_ui/run.sh:1605:  w4as='s|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem
+tools/probe_firmware_ui/run.sh:1606:  once '            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);' "$w4as" &&
+tools/probe_ui_model_mutations.py:547:    # ★★ ADDED 2026-09-26 BY W4a ([[B441]], design §4.1): the ONE device-label formatter, `mrui::ui_fmt_identity`.
+tools/probe_ui_model_mutations.py:11765:# ★★★★ W4a ([[B441]], design §4.1) — `mrui::ui_fmt_identity`, THE ONE DEVICE-LABEL FORMATTER. Each entry is a
+tools/probe_ui_model_mutations.py:11771:  "        if (keep < len) out[end++] = kIdentityMarker;",
+tools/probe_ui_model_mutations.py:11777:  "        if (keep < len) out[end++] = kIdentityMarker;",
+tools/probe_ui_model_mutations.py:11778:  "        if (keep < len) { out[end] = kIdentityMarker; out[end] = ui_display_byte(uint8_t(out[end])); ++end; }"),
+tools/probe_ui_model_mutations.py:11780:  "    if (std::size_t(cols) >= kMemberFpCap - 1)   { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }",
+tools/probe_ui_model_mutations.py:11782:  "snprintf(out, cap, \"%.*s\", int(cols), h); return IdentityFmt::hash; }"),
+tools/probe_ui_model_mutations.py:11784:  "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }",
+tools/probe_ui_model_mutations.py:11785:  "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }"),
+tools/probe_ui_model_mutations.py:11787:  "    if (key_hash32 == 0) return IdentityFmt::none;",
+tools/probe_ui_model_mutations.py:11788:  "    if (key_hash32 == 0) { snprintf(out, cap, \"0x%08lX\", 0ul); return IdentityFmt::none; }"),
+tools/probe_ui_model_mutations.py:11793:  "    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result",
+tools/probe_ui_model_mutations.py:11796:  "    if (len > 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read",
+tools/probe_ui_model_mutations.py:11797:  "    if (len > 0 && key_hash32 == 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read"),
+
+## 2. Hits OUTSIDE the fence (files), per symbol family
+  [label_from_hash] outside-fence hits: 1
+    test/test_node_hashlocate.cpp:1981:// in the UI's one C-string adapter (`src/firmware_ui.cpp`'s `label_from_hash`), deliberately NOT here: `peer_name_find`
+  [label_for_team_id|label_for_origin] outside-fence hits: 2
+    src/firmware_ui_geo.h:178://        (`build_snapshot`), because it is the step `label_for_team_id` already takes and the spec requires ONE
+    src/firmware_ui_nearby_row.h:64://     (`label_for_team_id`, src/firmware_ui.cpp) — so the mutation that resolves the sender's name into
+  [ui_fmt_invite_row] outside-fence hits: 0
+  [ui_fmt_identity|IdentityFmt|kIdentityMarker|kInviteRowNameCols] outside-fence hits: 0
+  [kLabelCap] outside-fence hits: 0
+  [kInviteNameCap] outside-fence hits: 0
+  [kTeamLabelCols] outside-fence hits: 0
+
+## 3. Structural readers of the fenced sources (directory/file scanners)
+
+$ grep -rn --exclude-dir=__pycache__ --binary-files=text -E 'firmware_ui\.cpp|firmware_ui_model\.h|firmware_ui_invite\.h|firmware_ui_team\.h' lib src test tools --include=*.py --include=*.sh --include=*.json
+tools/probe_board_abi.py:113:    "firmware_ui_model.h",
+tools/probe_board_abi.py:115:    "firmware_ui_invite.h",
+tools/probe_board_abi.py:130:#    across ALL effective environments, `MR_FEAT_OLED=1` and `firmware_ui.cpp` in `build_src_filter` must agree.
+tools/probe_board_abi.py:166:    #     ⓘ A DIFFERENT TU from the `mrui::` block below, same flag: the panel's model lives in firmware_ui.cpp,
+tools/probe_board_abi.py:169:    # --- the OLED panel's model: its feature TU (firmware_ui.cpp) is compiled only where MR_FEAT_OLED is on ---
+tools/probe_board_abi.py:705:UI_TU = "firmware_ui.cpp"
+tools/probe_board_abi.py:721:    """{env: (declares MR_FEAT_OLED=1, compiles firmware_ui.cpp)} — both DERIVED, neither listed."""
+tools/probe_board_abi.py:882:    `firmware_ui.cpp`. The predicate's own justification must go RED."""
+tools/probe_board_abi.py:934:        ("(4c) an env declares MR_FEAT_OLED=1 without compiling firmware_ui.cpp",
+tools/probe_inbox_verbs/run.sh:71:#    `firmware_commands.cpp` references `mrfw::ui_emergency_active()`, which lives in `src/firmware_ui.cpp` — a TU
+tools/probe_firmware_ui/run.sh:4:# §B105 FEATURE-LAYER PROBE — the first automated cover `src/firmware_ui.cpp` has ever had.
+tools/probe_firmware_ui/run.sh:7:#   `src/firmware_ui.cpp` is compiled by NEITHER the native suite (`test_build_src = no`) NOR the simulator (which
+tools/probe_firmware_ui/run.sh:32:# ★★★ WHAT A CONTROL HAS TO BE HERE. Each one applies ONE mutation to a COPY of `src/firmware_ui.cpp` — the tempting
+tools/probe_firmware_ui/run.sh:53:FW_UI="$ROOT/src/firmware_ui.cpp"
+tools/probe_firmware_ui/run.sh:71:#           and therefore the only one in which `draw_provision_screen` (`src/firmware_ui.cpp:1143`) — real shipped
+tools/probe_firmware_ui/run.sh:98:      "$ROOT/src/firmware_ui_presets.h" "$ROOT/src/firmware_ui_model.h" "$ROOT/src/firmware_ui_send.h" \
+tools/probe_firmware_ui/run.sh:103:echo "== §B105 feature-layer probe (src/firmware_ui.cpp, host-compiled) =="
+tools/probe_firmware_ui/run.sh:108:#     `firmware_ui.cpp` compiled against the other — an ODR violation whose symptom is a corrupt run, not a link error.
+tools/probe_firmware_ui/run.sh:138:# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it — and the
+tools/probe_firmware_ui/run.sh:169:  echo "PROBE BUILD FAILED — src/firmware_ui.cpp did not host-compile:"; sed 's/^/    /' "$OUT/build.log" | head -20
+tools/probe_firmware_ui/run.sh:985:  #   THEM AT ALL, and whether the reserved slot is drawn — `src/firmware_ui.cpp` is compiled by neither the native
+tools/probe_firmware_ui/run.sh:1039:  #   mutations stay RED, and the panel shows the wrong people. (ⓘ count corrected 2026-08-21, QG: said "twelve".) `src/firmware_ui.cpp` is compiled by neither the
+tools/probe_firmware_ui/run.sh:1085:  #   `src/firmware_ui.cpp` is the PUBLISH SITE (the `peer_loc_find` read, under the hash the label resolved) and the
+tools/probe_firmware_ui/run.sh:1145:  #   §B115 again: `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. C96/C99 already
+tools/probe_firmware_ui/run.sh:1236:  # ★★★ EACH ONE IS A DECISION THAT LIVES IN `src/firmware_ui.cpp` AND THEREFORE IN NO OTHER INSTRUMENT (§B115): the
+tools/probe_firmware_ui/run.sh:1455:  #   do: the screen is unreachable on the `l2` arm, and `src/firmware_ui.cpp` is compiled by NO other gate. The pure
+tools/probe_firmware_ui/run.sh:1497:  #   reason L1-L22 and N1-N10 do: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by
+tools/probe_firmware_ui/run.sh:1530:  #   does: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by NO other gate. The
+tools/probe_firmware_ui/run.sh:1552:  #   reason every N- and L- control above does: the screens are unreachable on the `l2` arm and `src/firmware_ui.cpp`
+tools/probe_firmware_ui/run.sh:1625:  #   floor are mutation-covered in `firmware_ui_invite.h` / `firmware_ui_model.h`; only this host-compiled probe can
+tools/probe_firmware_ui/run.sh:1650:  #   them compiles `src/firmware_ui.cpp`, so a verdict arm drawn from the wrong field, a word that ignores the state,
+tools/probe_firmware_ui/run.sh:1712:  #   ONLY here for the reason every L/N/O control does: `src/firmware_ui.cpp` is compiled by NO other gate, so a
+tools/probe_firmware_ui/run.sh:1738:  #   `src/firmware_ui.cpp` is compiled by NO other gate. The pure decisions have their own battery entries
+tools/probe_board_ui/negctl.py:48: # that loop out of this TU into src/firmware_ui.cpp, which cannot be host-compiled here (fw_context.h pulls RadioLib),
+tools/probe_board_ui/run.sh:159:# behaviour. They exist because Task 6 moved three things OUT of host-compilable reach (src/firmware_ui.cpp includes
+tools/probe_board_ui/run.sh:162:FW_UI="$ROOT/src/firmware_ui.cpp"
+tools/probe_board_ui/run.sh:171:[ -f "$FW_UI" ] || { echo "  FAIL S0 src/firmware_ui.cpp is missing"; rc=1; }
+tools/probe_board_ui/run.sh:188:  schk "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:193:schk "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:205:# S4 THE HARD BOUNDARY, both directions. board_ui.h must not include the model; firmware_ui.cpp must not name the driver.
+tools/probe_board_ui/run.sh:211:schk "S4a board_ui.h #includes no firmware_ui_model.h" \
+tools/probe_board_ui/run.sh:213:schk "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
+tools/probe_board_ui/run.sh:216:schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+tools/probe_board_ui/run.sh:241:# The §B103/§B107/§B108 fixes are pure functions in `firmware_ui_send.h` / `firmware_ui_model.h`, so their LOGIC is
+tools/probe_board_ui/run.sh:242:# driven by the native suite and turns red on a revert. What no native test can see is whether `firmware_ui.cpp`
+tools/probe_board_ui/run.sh:258:#   in `src/firmware_config.cpp` (the config verb must NOTIFY the panel) rather than in `firmware_ui.cpp`. ⛔ The body
+tools/probe_board_ui/run.sh:278:wchk() { wchk_in "$FW_UI" "$@"; }   # the thirteen §UI-6/§UI-7 checks, unchanged: they all read firmware_ui.cpp
+tools/probe_board_ui/run.sh:297:wchk "W3 firmware_ui.cpp never clears dirty itself (the freeze owns it)" \
+tools/probe_board_ui/run.sh:308:wchk "W4 firmware_ui.cpp never moves the unread counters or watermarks itself (a completed frame does)" \
+tools/probe_board_ui/run.sh:359:wchk "W8 firmware_ui.cpp composes no send line itself (the pure composer owns the wire text)" \
+tools/probe_board_ui/run.sh:722:#     envs; `src/firmware_ui.cpp`'s fail-closed latch is reachable by `tools/probe_firmware_ui` but its CALL SITE in
+tools/probe_board_ui/run.sh:824:wchk_in "$FW_UI" "W28 firmware_ui.cpp never reaches for the board-private s_painting" \
+tools/probe_board_ui/run.sh:948:#   or defined in them. S4a already covers `board_ui.h` x `firmware_ui_model.h`; this widens it to both files and to
+tools/probe_board_ui/run.sh:959:         's|#include "board_ui.h"|#include "board_ui.h"\n#include "firmware_ui_model.h"|' \
+tools/probe_board_ui/run.sh:1035:#     `probe_firmware_ui` can compile a `!MR_FEAT_TEAM` `firmware_ui.cpp` against a team-enabled `lib/core`, so the
+tools/probe_board_ui/run.sh:1230:#        from `firmware_ui.cpp` was [[B105]]'s whole refactor — plus ~20 `extern` device globals and the five
+tools/probe_ui_model_mutations.py:3:"""The NATIVE mutation battery for the tree's PURE units — §UI-7D slice B's `firmware_ui_model.h`, §UI-13's
+tools/probe_ui_model_mutations.py:129:    "model":  "src/firmware_ui_model.h",        # §UI-7D slice B — the pure screen/state model
+tools/probe_ui_model_mutations.py:157:    #    `src/firmware_ui.cpp` they would have had NO battery at all (that TU is compiled by neither the native
+tools/probe_ui_model_mutations.py:163:    #    is per-SOURCE-FILE. Composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+tools/probe_ui_model_mutations.py:164:    "uiteam": "src/firmware_ui_team.h",         # §UI-17 S4 — the TEAM row + the F-8 clock-driven repaint
+tools/probe_ui_model_mutations.py:169:    #    `uiteam`'s entries; composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+tools/probe_ui_model_mutations.py:198:    #    `firmware_ui_model.h`, so a header the MODEL includes may not include chrome. The carriers + the OWN-TEAM
+tools/probe_ui_model_mutations.py:223:    #    NOT here — it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s
+tools/probe_ui_model_mutations.py:284:    "uiinvite":    "src/firmware_ui_invite.h",      # §UI-16 N4 — the two authorities, the handled set, the row
+tools/probe_ui_model_mutations.py:406:    #    (`firmware_ui_model.h`), the UNREAD router's scope (`firmware_ui_send.h`) and the slot ring's eviction
+tools/probe_ui_model_mutations.py:411:    #      · "THE EXCLUSION IS APPLIED AFTER THE BUDGET" — the gate lives in `src/firmware_ui.cpp`, which neither
+tools/probe_ui_model_mutations.py:420:    "sliceCbudget": "src/firmware_ui_model.h",         # §CUSTODY-C — inbox_total = ADMITTED, taken before the cap
+tools/probe_ui_model_mutations.py:548:    "w4aident":     "src/firmware_ui_model.h",       # W4a — sanitize, abbreviate with `»`, member tokens, no fabrication
+tools/probe_ui_model_mutations.py:1560:                                         # touches no landed assertion (`src/firmware_ui_model.h`'s fixed tables are
+tools/probe_ui_model_mutations.py:1626:                                         # ⓘ `src/firmware_ui_invite.h` is ⛔ NOT TOUCHED by K7, so the whole
+tools/probe_ui_model_mutations.py:2259:                                         # `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+tools/probe_ui_model_mutations.py:2322:                                         # blank exactly as they were. `src/firmware_ui.cpp` compiles in neither the
+tools/probe_ui_model_mutations.py:2356:                                         # `src/firmware_ui.cpp` compiles in neither the native suite nor the
+tools/probe_ui_model_mutations.py:2396:                                         # touched, and `src/firmware_ui.cpp` compiles in neither the native suite
+tools/probe_ui_model_mutations.py:3215: #    `src/firmware_ui.cpp`'s `static_assert(kBodyCols == mrui::kDetailCols)`, which is the point of that assert —
+tools/probe_ui_model_mutations.py:4185: #     `src/firmware_ui_invite.h` is not touched by this slice at all, so those entries re-run unchanged.
+tools/probe_ui_model_mutations.py:4362: #     policy) are `--target=uisend`'s U14/U15; the ones in `src/firmware_ui.cpp` are the probe's C137-C141.
+tools/probe_ui_model_mutations.py:4621: #    while `draw_frame` (src/firmware_ui.cpp:949-953) draws compose FIRST ⇒ with both open the renderer drew COMPOSE
+tools/probe_ui_model_mutations.py:4655: #    which forbids `src/firmware_ui.cpp` from naming `clear_dirty` at all.
+tools/probe_ui_model_mutations.py:5677:# ===== §UI-16 N4 — src/firmware_ui_invite.h: THE TWO AUTHORITIES, THE HANDLED SET AND THE NAME LIFECYCLE =========
+tools/warning_census.sh:38:#    DIAGNOSTIC FROM A VENDORED HEADER — NOT ONE COMES FROM UI-6 CODE.** `src/firmware_ui.cpp` is the 326th object, and
+tools/warning_census.sh:43:#    ⇒ ATTRIBUTED BY CONTROLLED A/B, not inferred: dropping `+<firmware_ui.cpp>` from `[env:heltec_v3]`'s
+tools/warning_census.sh:49:#   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back).
+tools/warning_census.sh:56:#     NOT SILENT. `src/firmware_ui.cpp` no longer includes `fw_context.h`; it includes the new pure `fw_context_pure.h`
+
+## 4. Board-UI supplemental anchors on the edited statements (tools/probe_board_ui)
+  tools/probe_board_ui [label_from_hash]: 0
+  tools/probe_board_ui [label_for_team_id]: 0
+  tools/probe_board_ui [label_for_origin]: 0
+  tools/probe_board_ui [ui_fmt_invite_row]: 0
+  tools/probe_board_ui [mem\.name]: 0
+  tools/probe_board_ui [kLabelCap]: 0
+  tools/probe_board_ui [r\.label]: 0
+  tools/probe_board_ui [who\[]: 0
+  tools/probe_board_ui [to: ]: 0
+
+## 5. Console / JSON / companion paths never receive a formatted label
+  (none: no console/JSON/companion/BLE/commands/fw_main file references the formatter or the adapters)
+
+## 6. Console-sink scanner inputs (SCAN_FILES) and feature-ownership / data-type-literal scanners
+tools/probe_console_sink/negctl.py:677:    """A scratch copy of exactly the generator's SCAN_FILES, so build_rows() can read a MUTATED source tree."""
+tools/probe_console_sink/negctl.py:678:    for rel in GEN.SCAN_FILES:
+tools/probe_features/ownership.py:232:        for p in sorted(base.rglob("*")):
+168:        for p in sorted((ROOT / r).rglob("*")):

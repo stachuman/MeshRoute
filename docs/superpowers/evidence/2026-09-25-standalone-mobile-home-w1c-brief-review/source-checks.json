@@ -1,0 +1,190 @@
+{
+  "command_inventory": {
+    "rows": 197,
+    "tracked_byte_identical": true,
+    "rows_below_comment_edits": {
+      "src/firmware_commands.cpp": 48,
+      "lib/console/console_parse.cpp": 7,
+      "src/fw_main.cpp": 1
+    }
+  },
+  "existing_mutation_anchors": [
+    {
+      "target": "radmin8node",
+      "source": "lib/core/node.h",
+      "entries": [
+        {
+          "label": "N01 B408 counts home delegation ring instead of mobile E2E ring",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "radmin73node",
+      "source": "lib/core/node.cpp",
+      "entries": [
+        {
+          "label": "N01 service does not mark due work",
+          "source_match_count": 1
+        },
+        {
+          "label": "N02 consumer clock is stale",
+          "source_match_count": 1
+        },
+        {
+          "label": "N03 consumed promise leaves wake armed",
+          "source_match_count": 1
+        },
+        {
+          "label": "N04 status clock is stale",
+          "source_match_count": 1
+        },
+        {
+          "label": "N05 last outcome lost",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "teamgrant",
+      "source": "lib/core/node.cpp",
+      "entries": [
+        {
+          "label": "G01 \u2605\u2605\u2605 THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` \u2014 a full TX queue (or a full parked ring) drops the frame at the door and the caller is told it was admitted, which is the QG blocker verbatim",
+          "source_match_count": 1
+        },
+        {
+          "label": "G02 \u2605\u2605\u2605 THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` \u2014 the pre-correction answer, which left the panel to guess the parked state from a zero handle (the inference S-37 now forbids)",
+          "source_match_count": 1
+        },
+        {
+          "label": "G03 \u2605\u2605\u2605 A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `queued` \u2014 the loud refusals (the joining gate, a seal failure, the type-19 structural refusals) are dressed as a successful enqueue",
+          "source_match_count": 1
+        },
+        {
+          "label": "G04 \u2605\u2605\u2605 THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED \u2014 the caller gets a handle with no address, so no `send_aired` can ever correlate and the grant screen waits for ever",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "b159map",
+      "source": "lib/core/node.cpp",
+      "entries": [
+        {
+          "label": "B16 the expiry is mapped to a NON-TERMINAL outcome \u2014 the flight re-enters retry instead of ending",
+          "source_match_count": 1
+        },
+        {
+          "label": "B17 the wrong-flight guard is dropped \u2014 a SUPERSEDED flight's expiry fails the LIVE flight",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceBnode",
+      "source": "lib/core/node.cpp",
+      "entries": [
+        {
+          "label": "N01 \u2605\u2605\u2605 THE GRANT'S AIRED PUSH IS DELETED \u2014 \u00a7UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close",
+          "source_match_count": 1
+        },
+        {
+          "label": "N02 \u2605\u2605\u2605 THE CORRELATION IS DROPPED \u2014 the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen",
+          "source_match_count": 1
+        },
+        {
+          "label": "N03 \u2605\u2605\u2605 THE SUPPRESSION IS DISABLED FOR EVERY TYPE \u2014 the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (\u00a76.2(5) undone) AND its own kind is never minted",
+          "source_match_count": 1
+        },
+        {
+          "label": "N04 \u2605\u2605\u2605 THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED \u2014 a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1)",
+          "source_match_count": 1
+        },
+        {
+          "label": "N05 \u2605\u2605 THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED \u2014 the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1)",
+          "source_match_count": 1
+        },
+        {
+          "label": "N06 \u2605\u2605\u2605 THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM \u2014 every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is \u00a76.4 inverted",
+          "source_match_count": 1
+        },
+        {
+          "label": "N07 \u2605\u2605\u2605 THE HELPER'S TRAIT TERM IS DROPPED \u2014 a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape)",
+          "source_match_count": 1
+        },
+        {
+          "label": "N08 \u2605\u2605\u2605 THE HELPER'S GRANT ARM IS DELETED \u2014 every one of the eleven post-admission carrier deaths stops reporting the grant at once: the \u00a7UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "sliceEnode",
+      "source": "lib/core/node.cpp",
+      "entries": [
+        {
+          "label": "E01 \u2605\u2605\u2605\u2605 [[B263]] IS RESTORED \u2014 the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one",
+          "source_match_count": 1
+        },
+        {
+          "label": "E02 \u2605\u2605\u2605 THE TRANSIT AXIS IS INVERTED \u2014 only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app",
+          "source_match_count": 1
+        },
+        {
+          "label": "E03 \u2605\u2605\u2605 THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED \u2014 `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone",
+          "source_match_count": 1
+        }
+      ]
+    },
+    {
+      "target": "b161hash",
+      "source": "lib/core/node_hashlocate.cpp",
+      "entries": [
+        {
+          "label": "H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority",
+          "source_match_count": 1
+        },
+        {
+          "label": "H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope",
+          "source_match_count": 1
+        },
+        {
+          "label": "H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO",
+          "source_match_count": 1
+        },
+        {
+          "label": "H04 B161 type 13 omits both name_len and the name tail from the transmitted body",
+          "source_match_count": 1
+        },
+        {
+          "label": "H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix",
+          "source_match_count": 1
+        },
+        {
+          "label": "H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains",
+          "source_match_count": 1
+        }
+      ]
+    }
+  ],
+  "existing_configured_entries": 29,
+  "retention_anchor": {
+    "bare_guard_count": 2,
+    "refresh_line_count": 1
+  },
+  "radio_structural_check": {
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_device_radio/structural.py",
+      "lib/hal/device_radio.h",
+      "src/fw_main.cpp",
+      "src/firmware_config.cpp",
+      "src/firmware_commands.cpp",
+      "platformio.ini"
+    ],
+    "exit": 0,
+    "not_a_full_probe_gate": true
+  }
+}

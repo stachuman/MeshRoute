@@ -1396,7 +1396,7 @@ void handle_peers(Print& out) {
 static void handle_whoami(Print& out) {
     out.print(F("[whoami] id=")); out.print(g_node.node_id());
     out.print(F(" hash=0x"));     out.print(g_node.key_hash32(), HEX);
-    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
+    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED name exactly — name="" when unnamed (no default is made up)
     const meshroute::NodeConfig& c = g_node.config();
     out.print(F(" leaf="));   out.print(c.leaf_id);
     out.print(F(" gw="));     out.print(c.is_gateway ? 1 : 0);

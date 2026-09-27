@@ -1,0 +1,100 @@
+== D6/P7 reader audit AFTER the final edits (2026-09-25T09:37:45+00:00)
+== edited lines (final text):
+-    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
++    //   case (a peer advertises no name, so it is shown by its ID, or a name the operator wants to replace), and with
+-// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+-// the key_hash32 is STABLE (the node_id can change via join/lease), so the default is a persistent identity.
++// §1.3 / W1c (design §4.6 D10): the STORED name only, which may be empty — an unnamed node advertises NO name. A
++// counted copy of min(_name_len, cap) bytes that never terminates (its callers write counted fields); 0 writes nothing.
+-    if (cap == 0) return 0;
+-    if (_name_len > 0) {                                          // an explicit name
+-        const uint8_t n = _name_len < cap ? _name_len : cap;
+-        for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
+-        return n;
+-    }
+-    static const char pfx[] = "MeshRoute node: 0x";
+-    const char hex[] = "0123456789ABCDEF";
+-    uint8_t k = 0;
+-    for (uint8_t i = 0; pfx[i] && k < cap; ++i) out[k++] = pfx[i];
+-    for (int sh = 28; sh >= 0 && k < cap; sh -= 4) out[k++] = hex[(_key_hash32 >> sh) & 0xF];
+-    return k;
++    const uint8_t n = _name_len < cap ? _name_len : cap;
++    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
++    return n;
+-    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
++    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy of min(name_len, cap) bytes; never terminates (callers write counted fields).
+-    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
++    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); may be empty — W1c D10: an unnamed node advertises NO name
+-    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
++    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED name exactly — name="" when unnamed (no default is made up)
+-    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
++    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); an empty /mrid name leaves the node UNNAMED and it advertises no name (W1c D10)
+
+### grep -rn -- 'W1c D10' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy 
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); may be empty — W1c D10: an unnamed node advertises NO name
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); an empty /mrid name leaves the node UN
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED nam
+
+### grep -rn -- 'STORED name' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/core/node.cpp:39:// §1.3 / W1c (design §4.6 D10): the STORED name only, which may be empty — an unnamed node advertises NO name. A
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy 
+tools/probe_ui_model_mutations.py:11695:# ★★ W1c (design §4.6 D10) — `Node::effective_name` is the STORED name only: a counted copy of min(_name_len, cap)
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED nam
+
+### grep -rn -- 'advertises no name' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); an empty /mrid name leaves the node UN
+lib/console/console_parse.cpp:197:    //   case (a peer advertises no name, so it is shown by its ID, or a name the operator wants to replace), and with
+
+### grep -rn -- 'advertises NO name' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/core/node.cpp:39:// §1.3 / W1c (design §4.6 D10): the STORED name only, which may be empty — an unnamed node advertises NO name. A
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy 
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); may be empty — W1c D10: an unnamed node advertises NO name
+tools/probe_ui_model_mutations.py:541:    # ★★ ADDED 2026-09-25 BY W1c (design §4.6 D10: an unnamed device advertises NO name). Two targets, one per source
+
+### grep -rn -- 'counted fields' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy 
+lib/core/node.cpp:40:// counted copy of min(_name_len, cap) bytes that never terminates (its callers write counted fields); 0 writes nothing.
+
+### grep -rn -- 'no default is made up' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED nam
+
+### grep -rn -- 'shown by its ID' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/console/console_parse.cpp:197:    //   case (a peer advertises no name, so it is shown by its ID, or a name the operator wants to replace), and with
+
+### grep -rn -- 'leaves the node UNNAMED' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); an empty /mrid name leaves the node UN
+
+### grep -rn -- 'effective_name' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy 
+lib/core/node.cpp:32:    if (name) { uint8_t l = 0; while (name[l] && l < sizeof _name) ++l; set_name(name, l); }   // §1.3: keep the ctor/sim name (was discarded) so effective_name + the pubkey exch
+lib/core/node.cpp:41:uint8_t Node::effective_name(char* out, uint8_t cap) const {
+tools/probe_inbox_verbs/run.sh:778:    'uint8_t nn = g_node.effective_name(nm, sizeof nm);' \
+tools/probe_inbox_verbs/run.sh:779:    's|uint8_t nn = g_node.effective_name(nm, sizeof nm);|uint8_t nn = g_node.effective_name(nm, sizeof nm); if (nn == 0) nn = uint8_t(snprintf(nm, sizeof nm, "MeshR
+tools/probe_inbox_verbs/probe_main.cpp:987:            const uint8_t saved_n = g_node.effective_name(saved, sizeof saved);
+tools/probe_ui_model_mutations.py:543:    #    (`Node::effective_name`); `w1cretain` is a DEPENDENCY control on the UNCHANGED `Node::peer_key_set` refresh
+tools/probe_ui_model_mutations.py:11695:# ★★ W1c (design §4.6 D10) — `Node::effective_name` is the STORED name only: a counted copy of min(_name_len, cap)
+lib/core/node_hashlocate.cpp:767:    char nm[32]; const uint8_t nlen = effective_name(nm, 32);      // INTRO name field is <=32 B (matches the PeerKey name cap)
+lib/core/node_hashlocate.cpp:1262:    const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + n + 1), 32);   // §1.3: ‖ [name_len][name] (OUR name; the owner answers its own key)
+lib/core/node_hashlocate.cpp:2321:        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors th
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3 / W1c D10: the STORED nam
+
+### grep -rn -- 'MeshRoute node: 0x' lib src test tools (excl *.log, excl the fenced test files' own new cases)
+tools/probe_inbox_verbs/run.sh:779:    's|uint8_t nn = g_node.effective_name(nm, sizeof nm);|uint8_t nn = g_node.effective_name(nm, sizeof nm); if (nn == 0) nn = uint8_t(snprintf(nm, sizeof nm, "MeshR
+tools/probe_ui_model_mutations.py:11701: ("W01 ★★★ the retired DEFAULT is restored for an empty name — an unnamed node advertises `MeshRoute node: 0x<hash>` "
+tools/probe_ui_model_mutations.py:11706:  "        static const char pfx[] = \"MeshRoute node: 0x\";\n"
+
+### tools/probe_device_radio readers of the two edited src files
+tools/probe_device_radio/structural.py:45:    # The provider is bound once at construction; fw_main contains no board/FEM pin choice.
+tools/probe_device_radio/structural.py:47:    check("S4 fw_main binds Sx1262Radio to the optional provider", fw.count(provider_ctor) == 1)
+tools/probe_device_radio/structural.py:48:    check("S5 fw_main contains no V4 FEM pin/mode logic", all(token not in fw for token in ("GC1109", "KCT8103", "MR_RF_FEM_")))
+tools/probe_device_radio/structural.py:94:    check("S17 fw_main/config contain no direct RadioLib setFrequency bypass",
+tools/probe_device_radio/mutations.py:103:    commands_path = root / "src/firmware_commands.cpp"
+tools/probe_device_radio/mutations.py:405:    print("== fw_main structural mutation controls ==")
+tools/probe_device_radio/run.sh:5:# counting silicon/GPIO fakes, then checks fw_main and derived-profile wiring the native suite cannot link. Controls
+tools/probe_device_radio/run.sh:17:FW_MAIN="$ROOT/src/fw_main.cpp"
+tools/probe_device_radio/run.sh:19:FW_COMMANDS="$ROOT/src/firmware_commands.cpp"
+### ...and any of its patterns touching the edited lines' text
+(none above = no reader)
+### probe_console_sink structural readers of the edited text
+(none above = no reader)

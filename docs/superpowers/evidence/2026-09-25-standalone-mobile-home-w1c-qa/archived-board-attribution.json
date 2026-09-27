@@ -1,0 +1,111 @@
+[
+  {
+    "environment": "gateway",
+    "method": "Fresh readelf analysis of hash-verified archived ELFs; not a rebuilt before-state",
+    "measurements_delta": {
+      "flash_bytes": {
+        "base": 572240,
+        "final": 571936
+      },
+      "loadable_sections": {
+        "base": {
+          ".ARM.exidx": 8,
+          ".data": 980,
+          ".text": 571252
+        },
+        "final": {
+          ".ARM.exidx": 8,
+          ".data": 980,
+          ".text": 570948
+        }
+      },
+      "symbol_count": {
+        "base": 6597,
+        "final": 6593
+      },
+      "symbol_size_total": {
+        "base": 752617,
+        "final": 752316
+      },
+      "symbols_sha256": {
+        "base": "4d1096d7519945a785ebd6e868e2df7089a12c522c5959db819f57ee40503e3b",
+        "final": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+      }
+    },
+    "removed_or_changed_symbol_rows": [
+      "$d\tNOTYPE\tLOCAL\tDEFAULT\t.text\t0",
+      "$d\tNOTYPE\tLOCAL\tDEFAULT\t.text\t0",
+      "$d\tNOTYPE\tLOCAL\tDEFAULT\t.text\t0",
+      "CSWTCH.251\tOBJECT\tLOCAL\tDEFAULT\t.text\t4",
+      "_ZNK9meshroute4Node14effective_nameEPch\tFUNC\tGLOBAL\tDEFAULT\t.text\t492",
+      "_ZZNK9meshroute4Node14effective_nameEPchE3pfx\tOBJECT\tLOCAL\tDEFAULT\t.text\t19"
+    ],
+    "added_or_changed_symbol_rows": [
+      "CSWTCH.244\tOBJECT\tLOCAL\tDEFAULT\t.text\t4",
+      "_ZNK9meshroute4Node14effective_nameEPch\tFUNC\tGLOBAL\tDEFAULT\t.text\t210"
+    ]
+  },
+  {
+    "environment": "heltec_mobile",
+    "method": "Fresh readelf analysis of hash-verified archived ELFs; not a rebuilt before-state",
+    "measurements_delta": {
+      "flash_bytes": {
+        "base": 1394732,
+        "final": 1394592
+      },
+      "loadable_sections": {
+        "base": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 218116,
+          ".flash.text": 1072486,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "final": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 218100,
+          ".flash.text": 1072362,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        }
+      },
+      "symbol_count": {
+        "base": 13297,
+        "final": 13296
+      },
+      "symbol_size_total": {
+        "base": 1496134,
+        "final": 1495992
+      },
+      "symbols_sha256": {
+        "base": "a0e270222204b0fe7955bb7bee0c0c614fb98f205546d7ebfacb93a2e1c8c64f",
+        "final": "8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070"
+      }
+    },
+    "removed_or_changed_symbol_rows": [
+      "_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t5574",
+      "_ZN9meshroute4Node10on_commandERKNS_7CommandE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t2710",
+      "_ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t334",
+      "_ZN9meshroute4Node19intro_attach_prefixEmNS_11CryptIntentEhPhh\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t182",
+      "_ZN9meshroute4Node30send_hash_bind_pubkey_responseEhhhPKhmb\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t154",
+      "_ZN9meshroute4Node8on_timerEm\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t1276",
+      "_ZNK9meshroute4Node14effective_nameEPch\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t170",
+      "_ZZNK9meshroute4Node14effective_nameEPchE3pfx\tOBJECT\tLOCAL\tDEFAULT\t.flash.rodata\t19"
+    ],
+    "added_or_changed_symbol_rows": [
+      "_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t5578",
+      "_ZN9meshroute4Node10on_commandERKNS_7CommandE\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t2706",
+      "_ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t338",
+      "_ZN9meshroute4Node19intro_attach_prefixEmNS_11CryptIntentEhPhh\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t186",
+      "_ZN9meshroute4Node30send_hash_bind_pubkey_responseEhhhPKhmb\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t158",
+      "_ZN9meshroute4Node8on_timerEm\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t1272",
+      "_ZNK9meshroute4Node14effective_nameEPch\tFUNC\tGLOBAL\tDEFAULT\t.flash.text\t39"
+    ]
+  }
+]

@@ -1,0 +1,66 @@
+[
+  {
+    "instrument": "native-build",
+    "argv": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "seconds": 1.879
+  },
+  {
+    "instrument": "native-binary",
+    "argv": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "seconds": 0.719
+  },
+  {
+    "instrument": "sim-configure",
+    "argv": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w1c-precheck-20260925-1c_q0s8j/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.499
+  },
+  {
+    "instrument": "sim-build",
+    "argv": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w1c-precheck-20260925-1c_q0s8j/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 32.804
+  },
+  {
+    "instrument": "corpus",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w1c-precheck-20260925-1c_q0s8j/corpus",
+      "--jobs",
+      "4",
+      "--lus",
+      "/tmp/meshroute-w1c-precheck-20260925-1c_q0s8j/sim-build/orchestrator/lus",
+      "--require-anchors"
+    ],
+    "exit": 0,
+    "seconds": 54.026
+  }
+]

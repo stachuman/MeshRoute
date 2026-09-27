@@ -1,0 +1,9 @@
+w1cretain R01 ★★★ an EMPTY advertisement ERASES a retained name — the refresh guard `name && name_len` loses its count term (B447's unnamed half)
+build rc=1 run rc=1
+[doctest] test cases:   2962 |   2958 passed | 4 failed | 0 skipped
+[doctest] assertions: 195904 | 195896 passed | 8 failed |
+FAILING CASES:
+  W1c C route 2 — the 0x8B key answer with an EMPTY name: a fresh cache stays nameless; a peername label survives
+  W1c C route 3 — WANT_PUBKEY at the OWNER with an EMPTY name: a fresh cache stays nameless; a peername label survives
+  W1c C route 4 — WANT_PUBKEY at a HOSTING HOME with an EMPTY name: a fresh cache stays nameless; an old default survives
+  W1c C route 5 — MOBILE_KEY_FORWARD with an EMPTY name: a fresh cache stays nameless; an old default survives

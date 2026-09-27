@@ -1,0 +1,30 @@
+{
+  "repositories": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_path_count": 1263,
+      "all_original_paths_unchanged": true,
+      "staged_files": [],
+      "new_paths_at_check": [
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review.md",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/authorization.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/input-check.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/precheck-checksums.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/radio-structural.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/required-fold-ins.patch",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/source-checks.json"
+      ]
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_path_count": 285,
+      "all_original_paths_unchanged": true,
+      "staged_files": [],
+      "new_paths_at_check": []
+    }
+  ],
+  "report_sha256": "7be92c30698142f635ec3c6747618ad0bfa823dc08ff715e25a67bd39c3e9ac4",
+  "note": "Checksums and this preservation receipt are subsequent evidence-only additions."
+}

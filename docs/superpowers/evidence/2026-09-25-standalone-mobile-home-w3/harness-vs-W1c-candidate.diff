@@ -1,0 +1,96 @@
+--- /tmp/claude-1001/-home-staszek-MeshRoute/7019fa4d-8324-4b18-b429-3c8de8a32587/scratchpad/harness_W1c_reconstructed.py	2026-09-25 16:07:19.658514280 +0000
++++ tools/probe_ui_model_mutations.py	2026-09-25 16:02:46.211087394 +0000
+@@ -727,7 +727,8 @@
+ # Slice 10: +2 assertions (test_device_nv v25-floor and 280-byte-size refusals), 0 cases = 2950/195770; measured by the full native binary.
+ # W1 (B241): +1 case / +7 assertions (test_node_hashlocate exact-capacity raw-name guard) = 2951/195777; measured by the full native binary.
+ # W1c (D10): §1.3 accessor case replaced 4->19 (+15), hashlocate B1-B5+C2-C5 +10 cases/+96, dual-layer INTRO route +1/+14, INTRO golden +2 = 2962/195904; measured by the full native binary.
+-PIN_CASES, PIN_ASSERTS = 2962, 195904
++# W3 (UI-model seams): stage A +7 cases/+74 (test_firmware_ui_model w3-open/w3-prov counted loads) + stage B +4 cases/+133 (w3-pager helpers), 2 budget asserts restated in place = 2973/196111; measured by the full native binary.
++PIN_CASES, PIN_ASSERTS = 2973, 196111
+ # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
+                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
+                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
+@@ -3049,19 +3050,23 @@
+  ("M13 the sanitizer passes raw bytes through",
+   "inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }",
+   "inline char ui_display_byte(uint8_t b) { return char(b); }"),
++ # ⚠ M14/M15/M18's ANCHORS MOVED 2026-09-25 (W3): the page arithmetic now lives in the pure pager helpers
++ #   `detail_page_count` / `detail_page_rows`, which `on_inbox_opened` / `refresh_detail_page` call at the modal's
++ #   geometry. Each mutant keeps its meaning — a partial page floored away, zero pages for an empty body, and every
++ #   row re-reading row 0's columns. The withdrawn anchors were the same three statements in the modal's own body.
+  ("M14 pages FLOORS instead of ceiling",
+-  "const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);",
+-  "const uint8_t p = uint8_t(n / kDetailPageChars);"),
++  "const uint32_t p = (uint32_t(len) + per - 1) / per;",
++  "const uint32_t p = uint32_t(len) / per;"),
+  ("M15 an empty body yields ZERO pages",
+-  "_st.detail_pages = p ? p : uint8_t(1);", "_st.detail_pages = p;"),
++  "return p ? uint8_t(p) : uint8_t(1);", "return uint8_t(p);"),
+  ("M16 the page advance STOPS at the last page instead of cycling",
+   "_st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);",
+   "if (_st.detail_page + 1 < _st.detail_pages) _st.detail_page = uint8_t(_st.detail_page + 1);"),
+  ("M17 a page turn also refreshes the inactivity deadline",
+   "_detail_page_at_ms = s.now_ms;", "_detail_page_at_ms = s.now_ms; _last_input_ms = s.now_ms;"),
+  ("M18 both body rows render the SAME 19 columns",
+-  "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
+-  "const uint16_t i = uint16_t(off + n);"),
++  "const uint32_t i = off + uint32_t(row) * Cols + n;",
++  "const uint32_t i = off + n;"),
+  # ⛔⛔ M19 IS **WITHDRAWN IN PLACE** 2026-08-21 (§UI-17 S2, §9 R-1), and it is left standing as a comment rather than
+  #     deleted because the reason is the record. It read:
+  #       ("M19 the modal has no inactivity timeout",
+@@ -3240,25 +3245,29 @@
+  ("M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
+   "    arm = Provision::closed;",
+   "    if (arm == Provision::menu) arm = Provision::closed;"),
++ # ⚠ M55/M56/M57/M59's ANCHORS MOVED 2026-09-25 (W3): the §4 gate's two refusals now live in `provision_admit`,
++ #   which the `CfgRow::provision` arm calls, so a refusal is `return false` rather than `break`. Each mutant keeps its
++ #   meaning: the order swapped, the unsaved refusal dropped, the conflict refusal dropped, and — M59 — the unsaved
++ #   guard SAVING and then ADMITTING, so the arm enters PROVISION itself (the helpful write C2 forbids).
+  ("M55 the §4 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan §4's conflation, through the ORDER)",
+-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }\n"
+-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }\n"
+-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }"),
++  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }\n"
++  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
++  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }\n"
++  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }"),
+  ("M56 the UNSAVED cell is dropped — PROVISION opens over an unsaved draft (§3.6.3's precondition gone)",
+-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+-  "                ;"),
++  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
++  "        ;"),
+  ("M57 the CONFLICT cell is dropped — the two states collapse into one",
+-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }",
+-  "                ;"),
++  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }",
++  "        ;"),
+  ("M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
+   '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
+   '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
+   '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
+   '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
+  ("M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
+-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+-  "                if (_cfg->config_unsaved())         { (void)_cfg->save(); enter_provision(Provision::menu); break; }"),
++  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
++  "        if (_cfg->config_unsaved()) { (void)_cfg->save(); return true; }"),
+  ("M60 static join is hidden because the TEAM plane is off (plan §6's named defect, verbatim)",
+   "    if (join_static) l.row[l.n++] = ProvRow::join_static;",
+   "    if (create_team && join_static) l.row[l.n++] = ProvRow::join_static;"),
+@@ -3469,9 +3478,12 @@
+  # ⛔⛔ M100 IS THE REGISTER'S NAMED WRONG FIX: defer `open()` to the menu. The §3.6.1 BASELINE is then never taken
+  #     for an operator who only cycled past SETTINGS, so `note_external_write` has nothing to compare against and the
+  #     conflict latch — and the rail badge that reads it — stay silent on a companion write.
++ # ⚠ M100's ANCHOR MOVED 2026-09-25 (W3): `sync_settings` now calls the repeat-safe opener `ensure_config_open`. The
++ #   mutant keeps its shape and meaning — the opener runs only off the closed view, i.e. as if placed below the
++ #   closed-view return — so passive arrival again takes no baseline.
+  ("M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+-  "            (void)_cfg->open();",
+-  "            if (_st.settings != Settings::closed) (void)_cfg->open();"),
++  "        ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below",
++  "        if (_st.settings != Settings::closed) ensure_config_open();"),
+  ("M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)",
+   "if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }",
+   ";"),

@@ -1,0 +1,35 @@
+{
+  "comparisons": [
+    {
+      "against": "precheck",
+      "manifest_sha256": "3e95bcce48fe2b695a47f9141a6b64c6033e9d3c082038e01da894f176515e77",
+      "scenario_rows_equal": 36,
+      "fields_per_row": 14,
+      "all_fields_equal": true
+    },
+    {
+      "against": "coder",
+      "manifest_sha256": "69f1a619ef6013f7d92e3502016f6869f0c0fd81edf3b1345dbdd9e5c5f91b42",
+      "scenario_rows_equal": 36,
+      "fields_per_row": 14,
+      "all_fields_equal": true
+    }
+  ],
+  "inputs_stable": true,
+  "s18": {
+    "anchor_assertion_failures": 0,
+    "anchor_events": 269517,
+    "anchor_match": true,
+    "anchor_md5_prefix": "32afbf11",
+    "assertion_failures": 0,
+    "events": 269517,
+    "exit_status": 0,
+    "name": "s18_meshroute",
+    "output_bytes": 38698103,
+    "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+    "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+    "promoted": true,
+    "scenario_path": "simulation/s18_meshroute.json",
+    "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+  }
+}

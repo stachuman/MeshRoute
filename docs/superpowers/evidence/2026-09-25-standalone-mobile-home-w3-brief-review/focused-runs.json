@@ -1,0 +1,21 @@
+[
+  {
+    "label": "board-ui-diagnostic",
+    "argv": [
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "exit": 1,
+    "seconds": 11.443
+  },
+  {
+    "label": "feature-ownership",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_features/ownership.py"
+    ],
+    "exit": 0,
+    "seconds": 1.701
+  }
+]

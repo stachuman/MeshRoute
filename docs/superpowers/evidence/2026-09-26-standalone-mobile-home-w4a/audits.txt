@@ -1,0 +1,8 @@
+# W4a audits run in the chain (D6/P7 reader-audit companions)
+## tools/probe_features/ownership.py
+  25 ok, 0 FAIL; ok   O13 source integrity: 218 scanned files, sha256(tree) 74cdba08753163af… before and after
+## tools/check_data_type_literals.py (+ --selftest)
+audit-literals.log:PASS — 218 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.
+audit-literals-selftest.log:SELFTEST PASS — 4/4 controls RED. The zero result above is a measurement.
+## tools/probe_build_identity.py
+PASS: build identity (27 checks, 12/12 controls RED, 0 unusable)

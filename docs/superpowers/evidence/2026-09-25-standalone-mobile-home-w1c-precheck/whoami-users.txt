@@ -1,0 +1,67 @@
+test/console_battery.txt:8:# (duty/limits/routes/pull_inbox/whoami/version/cfg) — those must stay byte-identical (the iOS contract).
+test/console_battery.txt:18:whoami
+tools/test_gen_command_inventory.py:68:    if (len == 6 && !strncmp(line, "whoami", 6)) { return emit_ready(out, cap); }
+tools/test_gen_command_inventory.py:178:    "whoami": "—", "widget": "—", "zzz": "—", "peek": "—", "cfg set": "—", "quit": "—",
+tools/test_gen_command_inventory.py:251:        self.assertIn(("whoami", "—", "ble_dispatch_line"), cells)
+tools/test_gen_command_inventory.py:344:                r'^    if \(len == \d+ && !strncmp\(line, "(?:whoami|extra)".*\n', "", s, flags=re.M)}) as t:
+tools/test_gen_command_inventory.py:682:        self.assertIn(("whoami", "—", "ble_dispatch_line", "ble"), cells)
+tools/test_gen_command_inventory.py:771:        for excluded in ("alpha", "beta", "whoami", "extra", "reboot"):
+tools/meshroute_client_ble.py:13:#   RXD 6E400002 (write)  : host -> node. A console line, ASCII, e.g. 'send 2 "hello"\n' or "whoami\n".
+tools/meshroute_client_ble.py:19:#   line grammar as USB (`send <id|hash> "..." [-a] [-e]`/`send_channel`/`send_layer`/`resolve`/`whoami`).
+tools/meshroute_client_ble.py:266:        print("  repl — type a console line (send/whoami/...), Ctrl+D to quit", file=sys.stderr)
+tools/fading_from_logs.py:122:RE_WHOAMI = re.compile(r"\[whoami\]\s*id=(\d+)")
+tools/fading_from_logs.py:147:      3. `[whoami] id=<id>`       — authoritative for the node's CONFIGURED id, but
+tools/fading_from_logs.py:157:    from_votes, resp_votes, whoami = defaultdict(int), defaultdict(int), None
+tools/fading_from_logs.py:162:                whoami = int(m_w.group(1))
+tools/fading_from_logs.py:187:    elif whoami is not None:
+tools/fading_from_logs.py:188:        node, how = whoami, "whoami"
+tools/fading_from_logs.py:192:    if whoami is not None and node is not None and whoami != node:
+tools/fading_from_logs.py:193:        notes.append(f"[whoami] id={whoami} differs from the on-air id {node} "
+tools/meshroute_lab.py:8:# Identity is by whoami id/hash, never the ACM number. NEVER `debug on` (verbose). Every request has a timeout
+tools/lab/parsers.py:6:#   [whoami] id=<N> hash=0x<HEX> [name="…"] leaf=<L> gw=<0|1> gwonly=<0|1> mobile=<0|1>
+tools/lab/parsers.py:23:def parse_whoami(lines):
+tools/lab/parsers.py:26:        if not s.startswith("[whoami]"):
+tools/lab/parsers.py:32:        kv = _kv(re.sub(r'name="[^"]*"', "", s[len("[whoami]"):]))   # drop name="…" (may contain spaces) before kv
+tools/lab/parsers.py:119:    w = parse_whoami(['[whoami] id=254 hash=0x1A2B3C4D name="bench 1" leaf=1 gw=0 gwonly=0 mobile=0'])
+tools/lab/parsers.py:122:    w0 = parse_whoami(["[whoami] id=0 hash=0xDEAD leaf=1 gw=0 gwonly=0 mobile=1"])   # unprovisioned, no name
+tools/lab/parsers.py:156:    assert parse_whoami(["garbage"]) is None and parse_cfg(["nope"]) is None and parse_duty([]) is None
+tools/probe_inbox_verbs/probe_main.cpp:808:        auto ex = run_text("whoami");
+tools/probe_inbox_verbs/probe_main.cpp:809:        CHK(ex.state == St::streamed && std::strstr(Serial.out, "[whoami]") && g_ble_n == 0,
+tools/probe_inbox_verbs/probe_main.cpp:810:            "X1  router-owned `whoami` on the TEXT arm streams to the supplied sink, 0 B cross-sink [%u/%u]",
+tools/probe_inbox_verbs/probe_main.cpp:812:        ex = run_json("whoami");
+tools/probe_inbox_verbs/probe_main.cpp:814:                && std::strstr(g_ble, "[whoami]") && Serial.n_out == 0,
+tools/probe_inbox_verbs/probe_main.cpp:932:            const mrfw::LineExec e2 = mrfw::exec_console_line("whoami", 6, mrfw::LineFormat::text, g_sink,
+tools/probe_inbox_verbs/probe_main.cpp:935:            CHK(e2.state == St::streamed && g_sink.has("[whoami]") && Serial.n_out == 0 && g_ble_n == 0,
+tools/lab/registry.py:4:# Identity is by `whoami` id/hash, NEVER the ACM number (hub enumeration is unstable across replug/reboot).
+tools/lab/registry.py:5:# A port that fails to open OR doesn't answer `whoami` in time is kept as responsive=False (a DEAD row in
+tools/lab/registry.py:44:def discover(ports=None, whoami_timeout=2.0):
+tools/lab/registry.py:45:    """Open each port, `whoami`-probe it, return [NodeInfo] (responsive + DEAD)."""
+tools/lab/registry.py:67:            w = parsers.parse_whoami(collect_burst(client, "whoami", "[whoami]", timeout=whoami_timeout))
+tools/lab/registry.py:73:                ni.error = "no [whoami] response"
+tools/lab/registry.py:75:            ni.error = f"whoami error: {e}"
+tools/lab/registry.py:80:def reattach(node, exclude=(), timeout=8.0, whoami_timeout=2.0, poll=0.5):
+tools/lab/registry.py:83:    whoami id/hash re-probe — on whatever /dev/ttyACM* it now appears, reopen it, and swap the live client into `node`.
+tools/lab/registry.py:86:    = device paths held by OTHER live nodes (don't probe them — a stray whoami would disturb their stream). Polls until
+tools/lab/registry.py:87:    `timeout`. Returns True once the node answers whoami again on the fresh link."""
+tools/lab/registry.py:105:        # if we never had a serial, fall back to probing every ACM port and matching the whoami id/hash.
+tools/lab/registry.py:116:                w = parsers.parse_whoami(collect_burst(client, "whoami", "[whoami]", timeout=whoami_timeout))
+tools/lab/registry.py:136:    """Offline (no device): monkeypatch the serial layer + exercise reattach()'s serial-match / whoami-fallback /
+tools/lab/registry.py:141:    saved_pw = parsers.parse_whoami
+tools/lab/registry.py:153:        g["collect_burst"] = lambda client, *a, **k: [client.dev]      # carry the device path through to parse_whoami
+tools/lab/registry.py:154:        parsers.parse_whoami = lambda lines: ident.get(lines[0]) if lines else None
+tools/lab/registry.py:164:        assert reattach(n3, timeout=1.0, poll=0.01) is True and n3.dev == "/dev/ttyACM6"  # no serial -> whoami id/hash match
+tools/lab/registry.py:169:        parsers.parse_whoami = saved_pw
+tools/lab/provision.py:109:        wres = manager.broadcast("whoami", "[whoami]", timeout=3.0)
+tools/lab/provision.py:111:            w = parsers.parse_whoami(wres.get(n.port, []))
+tools/lab/oracle.py:193:            # the USB-CDC link to src dropped (it re-enumerates after a moment) — re-attach by USB serial / whoami,
+tools/lab/manager.py:60:        that marks the real response, e.g. '[cfg]' / '[whoami]' / '> '). Returns the raw response-burst lines (or []
+tools/probe_console_sink/negctl.py:252:     '    out.println(F("whoami"));',
+tools/probe_console_sink/negctl.py:253:     '    out.print(F("whoami"));', ('S4',)),
+tools/probe_console_sink/negctl.py:358:     BLE_VALIDATION + '    if (len == 6 && !strncmp(line, "whoami", 6)) {',
+tools/probe_console_sink/negctl.py:359:     '    if (len == 6 && !strncmp(line, "whoami", 6)) {\n' + BLE_VALIDATION, ('S61',)),
+tools/probe_console_sink/negctl.py:467:LONG_B = 'zzzb' + 'Z' * 1400     # `whoami`, so the ordering row stays green and the STAGE row is what speaks
+tools/probe_console_sink/negctl.py:528:     _name_line('whoami'), _name_line('whoami') + _name_line('zzz_not_a_command'),
+tools/probe_console_sink/negctl.py:549:     _name_line('whoami') + '    manual_pointer(out);\n', _name_line('whoami'),
+tools/probe_console_sink/negctl.py:553:     _name_line('whoami') + '    manual_pointer(out);\n',
+tools/probe_console_sink/negctl.py:554:     '    manual_pointer(out);\n' + _name_line('whoami'),
+tools/probe_console_sink/negctl.py:578:     _name_line('whoami'), _name_line('whoami') + _name_line(LONG_A) + _name_line(LONG_B),

@@ -1,0 +1,13 @@
+{
+  "default_run_controls": [
+    "ok   W1c-C1 whoami restores a made-up default name when the node is unnamed -> RED (2 check(s) failed: X21 X22 )",
+    "ok   W1c-C2 whoami omits the name field when the node is unnamed -> RED (2 check(s) failed: X21 X22 )",
+    "ok   W1c-C1 whoami restores a made-up default name when the node is unnamed -> RED (2 check(s) failed: X21 X22 )",
+    "ok   W1c-C2 whoami omits the name field when the node is unnamed -> RED (2 check(s) failed: X21 X22 )"
+  ],
+  "expected_failure_labels": [
+    "X21",
+    "X22"
+  ],
+  "both_arms": true
+}

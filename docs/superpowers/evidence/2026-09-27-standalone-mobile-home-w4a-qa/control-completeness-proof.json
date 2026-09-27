@@ -1,0 +1,46 @@
+{
+  "scope": "Synthetic control dispatch plus exact current stock verdict tail, not a full probe replay; proposed guard exists only in this evidence",
+  "runner_sha256": "89e41dd80920ba42e72216d982a0702c3444fcf1a62ec71df44ccddd86252468",
+  "tail": "echo \"controls: $n_ctl verified / $n_bad unusable\"\n[ \"$n_bad\" -eq 0 ] || rc=1\nif [ \"$rc\" -eq 0 ]; then echo \"PASS\"; else echo \"FAIL\"; fi\nexit $rc\n",
+  "runs": {
+    "last_control_runs-stock-tail": {
+      "exit": 0,
+      "stdout": "controls: 236 verified / 0 unusable\nPASS\n",
+      "stderr": ""
+    },
+    "last_control_runs-proposed-completeness-guard": {
+      "exit": 0,
+      "stdout": "controls: 236 verified / 0 unusable\nPASS\n",
+      "stderr": ""
+    },
+    "false_guard_skips-stock-tail": {
+      "exit": 0,
+      "stdout": "controls: 235 verified / 0 unusable\nPASS\n",
+      "stderr": ""
+    },
+    "false_guard_skips-proposed-completeness-guard": {
+      "exit": 1,
+      "stdout": "FAIL missing control verdict\ncontrols: 235 verified / 0 unusable\nFAIL\n",
+      "stderr": ""
+    },
+    "missing_guard_skips-stock-tail": {
+      "exit": 0,
+      "stdout": "controls: 235 verified / 0 unusable\nPASS\n",
+      "stderr": "bash: line 4: qa_missing_guard_function: command not found\n"
+    },
+    "missing_guard_skips-proposed-completeness-guard": {
+      "exit": 1,
+      "stdout": "FAIL missing control verdict\ncontrols: 235 verified / 0 unusable\nFAIL\n",
+      "stderr": "bash: line 4: qa_missing_guard_function: command not found\n"
+    }
+  },
+  "coder_invalid_archive": {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-26-standalone-mobile-home-w4a/invalid-chain-1/gate5-fwui-default.log",
+    "sha256": "c71da8a209a891459c8940f753ea79f0feea5b3bcc92afd08c5622ae6be49e99",
+    "missing_helper_errors": 7,
+    "counts": [
+      "controls: 229 verified / 0 unusable"
+    ],
+    "last_line": "PASS"
+  }
+}

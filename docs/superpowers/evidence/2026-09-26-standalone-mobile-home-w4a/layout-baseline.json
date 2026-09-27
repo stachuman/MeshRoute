@@ -1,0 +1,103 @@
+{
+  "inputs": {
+    "src/firmware_ui_model.h": "2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1",
+    "src/firmware_ui_invite.h": "fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f",
+    "src/firmware_ui.cpp": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+    "tools/probe_board_abi.py": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d"
+  },
+  "generated_tu": "/tmp/claude-1001/-home-staszek-MeshRoute/7019fa4d-8324-4b18-b429-3c8de8a32587/scratchpad/w4a/layout-baseline/layout-base/query.cpp",
+  "generated_tu_sha256": "786020e68cc44551ec0206419c02f0b78e33c0b1761c25a2f21c287f800e671f",
+  "outcome_view_decl_sha256": "4d59c9673dd40689608bf6062090d6461860496956e65bb71d883e35f5e7f8af",
+  "targets": {
+    "native": {
+      "mrui::UiState": {
+        "size": 504,
+        "align": 8
+      },
+      "mrui::UiSnapshot": {
+        "size": 1336,
+        "align": 8
+      },
+      "mrui::UiModel": {
+        "size": 928,
+        "align": 8
+      },
+      "mrui::TeamRow": {
+        "size": 40,
+        "align": 4
+      },
+      "mrui::InviteMember": {
+        "size": 20,
+        "align": 4
+      },
+      "mrui::InviteIdRows": {
+        "size": 26,
+        "align": 1
+      },
+      "OutcomeView": {
+        "size": 52,
+        "align": 4
+      }
+    },
+    "heltec_mobile": {
+      "mrui::UiState": {
+        "size": 504,
+        "align": 8
+      },
+      "mrui::UiSnapshot": {
+        "size": 1336,
+        "align": 8
+      },
+      "mrui::UiModel": {
+        "size": 912,
+        "align": 8
+      },
+      "mrui::TeamRow": {
+        "size": 40,
+        "align": 4
+      },
+      "mrui::InviteMember": {
+        "size": 20,
+        "align": 4
+      },
+      "mrui::InviteIdRows": {
+        "size": 26,
+        "align": 1
+      },
+      "OutcomeView": {
+        "size": 52,
+        "align": 4
+      }
+    },
+    "gateway": {
+      "mrui::UiState": {
+        "size": 504,
+        "align": 8
+      },
+      "mrui::UiSnapshot": {
+        "size": 1336,
+        "align": 8
+      },
+      "mrui::UiModel": {
+        "size": 912,
+        "align": 8
+      },
+      "mrui::TeamRow": {
+        "size": 40,
+        "align": 4
+      },
+      "mrui::InviteMember": {
+        "size": 20,
+        "align": 4
+      },
+      "mrui::InviteIdRows": {
+        "size": 26,
+        "align": 1
+      },
+      "OutcomeView": {
+        "size": 52,
+        "align": 4
+      }
+    }
+  }
+}

@@ -1,0 +1,192 @@
+[
+  {
+    "label": "W01",
+    "worker": {
+      "shard": "0",
+      "target": "w1cname",
+      "root": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations/mr_mutation_run-_w1hr109/w0",
+      "base": [
+        2962,
+        195904,
+        0
+      ],
+      "entries": [
+        {
+          "idx": 0,
+          "label": "W01 \u2605\u2605\u2605 the retired DEFAULT is restored for an empty name \u2014 an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone)",
+          "verdict": "RED",
+          "line": "  ok   W01 \u2605\u2605\u2605 the retired DEFAULT is restored for an empty name \u2014 an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone) -> RED (45 assertion(s) failed, match count 1)",
+          "extra": []
+        }
+      ],
+      "restored": true,
+      "md5_after": "3cac406a64ad7b760ff956a4d1cba6e5",
+      "elapsed": 9.17618703842163
+    },
+    "binary_sha256": "a7d7003ed7cfb7d78ffc2d6a6138498178cfd883e4380242a3d3802b6ab30fcc",
+    "exit": 1,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W01.log",
+    "failing_cases": [
+      "W1c C route 1 \u2014 an UNNAMED sender's INTRO: a fresh cache stays nameless; a peername label survives; the message is stripped exactly",
+      "\u00a7S2 INTRO wire golden \u2014 a first-contact plaintext hash send rides as INTRO: [ed_pub 32][name_len][name] before the body",
+      "W1c B1 \u2014 an UNNAMED sender's INTRO body is exactly [ed_pub 32][00][msg]; the NAMED control carries [len][name]",
+      "W1c B2 \u2014 an UNNAMED INTRO attaches up to dm_max_body_bytes - 33 of body; one byte more sends PLAIN with one intro_attach_too_large",
+      "W1c B3 \u2014 an UNNAMED owner's AUTHORITATIVE_H_ANSWER_PUBKEY (0x8B) body is exactly [leaf][id][ed_pub 32][00]",
+      "W1c B4 \u2014 an UNNAMED requester's WANT_PUBKEY H is exactly 40 B with no trailer; the NAMED control appends [len][name]",
+      "W1c B4 team \u2014 an UNNAMED team-scoped WANT_PUBKEY H is exactly 44 B: team_id LE32 at 40..43 and nothing after",
+      "W1c B5 \u2014 a home forwarding an UNNAMED requester's real H queues MOBILE_KEY_FORWARD with inner exactly [origin][ed_pub 32][00]",
+      "W1c C route 2 \u2014 the 0x8B key answer with an EMPTY name: a fresh cache stays nameless; a peername label survives",
+      "W1c C route 3 \u2014 WANT_PUBKEY at the OWNER with an EMPTY name: a fresh cache stays nameless; a peername label survives",
+      "W1c C route 4 \u2014 WANT_PUBKEY at a HOSTING HOME with an EMPTY name: a fresh cache stays nameless; an old default survives",
+      "W1c C route 5 \u2014 MOBILE_KEY_FORWARD with an EMPTY name: a fresh cache stays nameless; an old default survives",
+      "W1c \u2014 effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated"
+    ],
+    "doctest_summary": [
+      "[doctest] test cases:   2962 |   2949 passed | 13 failed | 0 skipped",
+      "[doctest] assertions: 195879 | 195834 passed | 45 failed |"
+    ]
+  },
+  {
+    "label": "W02",
+    "worker": {
+      "shard": "1",
+      "target": "w1cname",
+      "root": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations/mr_mutation_run-_w1hr109/w1",
+      "base": [
+        2962,
+        195904,
+        0
+      ],
+      "entries": [
+        {
+          "idx": 1,
+          "label": "W02 \u2605\u2605 a TERMINATOR is reserved \u2014 the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire",
+          "verdict": "RED",
+          "line": "  ok   W02 \u2605\u2605 a TERMINATOR is reserved \u2014 the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire -> RED (8 assertion(s) failed, match count 1)",
+          "extra": []
+        }
+      ],
+      "restored": true,
+      "md5_after": "3cac406a64ad7b760ff956a4d1cba6e5",
+      "elapsed": 9.02924394607544
+    },
+    "binary_sha256": "69b01d2f45cbc68aeb7d525f10c0702836d01e3101451aa17dac12181ab286f3",
+    "exit": 1,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W02.log",
+    "failing_cases": [
+      "W1c \u2014 effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated"
+    ],
+    "doctest_summary": [
+      "[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped",
+      "[doctest] assertions: 195904 | 195896 passed | 8 failed |"
+    ]
+  },
+  {
+    "label": "W03",
+    "worker": {
+      "shard": "2",
+      "target": "w1cname",
+      "root": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations/mr_mutation_run-_w1hr109/w2",
+      "base": [
+        2962,
+        195904,
+        0
+      ],
+      "entries": [
+        {
+          "idx": 2,
+          "label": "W03 \u2605 the EMPTY path writes a terminator (out[0] = NUL when unnamed) \u2014 the count is still 0, but `writes nothing` is broken",
+          "verdict": "RED",
+          "line": "  ok   W03 \u2605 the EMPTY path writes a terminator (out[0] = NUL when unnamed) \u2014 the count is still 0, but `writes nothing` is broken -> RED (2 assertion(s) failed, match count 1)",
+          "extra": []
+        }
+      ],
+      "restored": true,
+      "md5_after": "3cac406a64ad7b760ff956a4d1cba6e5",
+      "elapsed": 9.361311197280884
+    },
+    "binary_sha256": "89b81e4c0e374b7b25ed47fd9bab7f0c20cfd39312c002764f8fb11120c9e1fa",
+    "exit": 1,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W03.log",
+    "failing_cases": [
+      "W1c \u2014 effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated"
+    ],
+    "doctest_summary": [
+      "[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped",
+      "[doctest] assertions: 195904 | 195902 passed | 2 failed |"
+    ]
+  },
+  {
+    "label": "W04",
+    "worker": {
+      "shard": "3",
+      "target": "w1cname",
+      "root": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations/mr_mutation_run-_w1hr109/w3",
+      "base": [
+        2962,
+        195904,
+        0
+      ],
+      "entries": [
+        {
+          "idx": 3,
+          "label": "W04 \u2605\u2605 the CAPACITY is ignored \u2014 the whole stored name is copied whatever `cap` the caller passed",
+          "verdict": "RED",
+          "line": "  ok   W04 \u2605\u2605 the CAPACITY is ignored \u2014 the whole stored name is copied whatever `cap` the caller passed -> RED (4 assertion(s) failed, match count 1)",
+          "extra": []
+        }
+      ],
+      "restored": true,
+      "md5_after": "3cac406a64ad7b760ff956a4d1cba6e5",
+      "elapsed": 9.149677753448486
+    },
+    "binary_sha256": "bed8261b3bfa38797bb9c9a85b3caa5a62c9e3df67a34c9d93fee4fcd13e6ef2",
+    "exit": 1,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W04.log",
+    "failing_cases": [
+      "W1c \u2014 effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated"
+    ],
+    "doctest_summary": [
+      "[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped",
+      "[doctest] assertions: 195904 | 195900 passed | 4 failed |"
+    ]
+  },
+  {
+    "label": "R01",
+    "worker": {
+      "shard": "0",
+      "target": "w1cretain",
+      "root": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations/mr_mutation_run-vgz6hgqn/w0",
+      "base": [
+        2962,
+        195904,
+        0
+      ],
+      "entries": [
+        {
+          "idx": 0,
+          "label": "R01 \u2605\u2605\u2605 an EMPTY advertisement ERASES a retained name \u2014 the refresh guard `name && name_len` loses its count term (B447's unnamed half)",
+          "verdict": "RED",
+          "line": "  ok   R01 \u2605\u2605\u2605 an EMPTY advertisement ERASES a retained name \u2014 the refresh guard `name && name_len` loses its count term (B447's unnamed half) -> RED (8 assertion(s) failed, match count 1)",
+          "extra": []
+        }
+      ],
+      "restored": true,
+      "md5_after": "094c1a00ec20ca7cf10fdcb50a913d25",
+      "elapsed": 28.44386076927185
+    },
+    "binary_sha256": "3d381d7a44a5f9497247921379bf0c65c3fe34488a624a327da2d7c47f179e58",
+    "exit": 1,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-R01.log",
+    "failing_cases": [
+      "W1c C route 2 \u2014 the 0x8B key answer with an EMPTY name: a fresh cache stays nameless; a peername label survives",
+      "W1c C route 3 \u2014 WANT_PUBKEY at the OWNER with an EMPTY name: a fresh cache stays nameless; a peername label survives",
+      "W1c C route 4 \u2014 WANT_PUBKEY at a HOSTING HOME with an EMPTY name: a fresh cache stays nameless; an old default survives",
+      "W1c C route 5 \u2014 MOBILE_KEY_FORWARD with an EMPTY name: a fresh cache stays nameless; an old default survives"
+    ],
+    "doctest_summary": [
+      "[doctest] test cases:   2962 |   2958 passed | 4 failed | 0 skipped",
+      "[doctest] assertions: 195904 | 195896 passed | 8 failed |"
+    ]
+  }
+]

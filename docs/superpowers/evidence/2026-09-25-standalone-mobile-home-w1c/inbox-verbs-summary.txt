@@ -1,0 +1,47 @@
+== baseline (unmodified probe, both arms)
+== ARM: accept  (independently compiled; own defines, own objects, own outputs)
+probe: 1394 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1394)
+controls: 61 verified / 0 unusable (pin 61)
+== ARM: client  (independently compiled; own defines, own objects, own outputs)
+probe: 477 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 477)
+controls: 69 verified / 0 unusable (pin 69)
+BOTH ARMS PASS
+
+== gate (default, both arms)
+== ARM: accept  (independently compiled; own defines, own objects, own outputs)
+tree unchanged: the real sources' md5 is identical before and after (550a34a49334f0466c36f590ccaf6cde)
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+== ARM: client  (independently compiled; own defines, own objects, own outputs)
+tree unchanged: the real sources' md5 is identical before and after (550a34a49334f0466c36f590ccaf6cde)
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+BOTH ARMS PASS
+
+== new rows + new controls (default run)
+  ok   X21 an UNNAMED node's `whoami` on the TEXT arm is the exact identity line with name="" [[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X22 ...and on the JSON arm, byte-identical through the REAL LineSink [[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X23 a NAMED node prints name="Bench 1" on the TEXT arm, the rest of the line intact [[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X24 ...and on the JSON arm, byte-identical [[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X25 a MAXIMUM 32-byte name is printed whole between the quotes on the TEXT arm [[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X26 ...and on the JSON arm, byte-identical [[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   C11 the production `LineSink` never ships (neither on newline nor on flush) -> RED (10 check(s) failed: R2 R12 R14 R25 R26 X2 X20 X22 X24 X26 )
+  ok   C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush) -> RED (10 check(s) failed: X1 X2 X17 X20 X21 X22 X23 X24 X25 X26 )
+  ok   W1c-C1 whoami restores a made-up default name when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+  ok   W1c-C2 whoami omits the name field when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+  ok   X21 an UNNAMED node's `whoami` on the TEXT arm is the exact identity line with name="" [[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X22 ...and on the JSON arm, byte-identical through the REAL LineSink [[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X23 a NAMED node prints name="Bench 1" on the TEXT arm, the rest of the line intact [[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X24 ...and on the JSON arm, byte-identical [[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X25 a MAXIMUM 32-byte name is printed whole between the quotes on the TEXT arm [[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   X26 ...and on the JSON arm, byte-identical [[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0]
+  ok   C11 the production `LineSink` never ships (neither on newline nor on flush) -> RED (14 check(s) failed: R2 R12 R14 R25 R26 X2 X20 X22 X24 X26 Q12b Q12c Q12h C8-B5 )
+  ok   C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush) -> RED (12 check(s) failed: X1 X2 X17 X20 X21 X22 X23 X24 X25 X26 C8-3 C8-3 )
+  ok   W1c-C1 whoami restores a made-up default name when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+  ok   W1c-C2 whoami omits the name field when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+
+== explicit MR_PROBE_ARM=client
+  ok   W1c-C1 whoami restores a made-up default name when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+  ok   W1c-C2 whoami omits the name field when the node is unnamed -> RED (2 check(s) failed: X21 X22 )
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)

@@ -1,0 +1,35 @@
+# W4a §4.1 step 5 — probes
+## firmware-UI, default mode, all arms (tools/probe_firmware_ui/run.sh)
+529 passed / 0 failed / 529 total
+       980 passed / 0 failed / 980 total
+       529 passed / 0 failed / 529 total
+  ok   none of the 236 ctl labels (all 236 calls) contains a backtick or a $-substitution
+sources unchanged: md5 4b5fbd713139b30540ae73b5d3d5eb34
+checks per arm: l2 500 · v3 951
+coverage: 804 of 952 checks (both arms, unioned) are reddened by at least one control
+controls: 236 verified / 0 unusable
+PASS
+outside cross-check: B227 ctl call sites=236 verified=236 unusable=0 ran=236 command-not-found=0 shell-errors=0
+per arm vs baseline / stage A: l2 518 / 518 / 529 · v3 964 / 964 / 980 · BLE 518 / 518 / 529 ; controls 231 / 230 / 236 (0 unusable each)
+(control-level detail: control-compare.txt)
+
+## firmware-UI --no-neg (diagnostic only; B350)
+529 passed / 0 failed / 529 total
+  ok   the child-enabled arm builds and PASSES
+       980 passed / 0 failed / 980 total
+  ok   the BLE-row arm builds and PASSES (10 lines)
+       529 passed / 0 failed / 529 total
+controls: 0 verified / 0 unusable
+PASS
+
+## board-UI supplemental --no-neg (expected failure set = baseline: W49, W51, W54 — B418, W2's)
+Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+traits:      14 passed / 0 failed / 14 controls verified RED
+missing:     12 passed / 0 failed / 12 controls failed loud
+  FAIL W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate (not wired in firmware_commands.cpp)
+  FAIL W51 ble_dispatch_line has NO ui arm of its own and keeps the shared dispatch fallback (not wired in fw_main.cpp)
+  FAIL W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status, help) is MR_FEAT_OLED-gated (not wired in firmware_commands.cpp)
+structural: 23 passed / 0 failed / 23 total
+wiring:     56 passed / 3 failed / 59 total; 171 negative control(s) verified RED
+failure set vs baseline: IDENTICAL

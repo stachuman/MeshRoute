@@ -1,0 +1,27 @@
+== RED (new tests, unchanged production)
+[doctest] test cases:   2962 |   2949 passed | 13 failed | 0 skipped
+[doctest] assertions: 195879 | 195834 passed | 45 failed |
+TEST CASE:  §S2 INTRO wire golden — a first-contact plaintext hash send rides as INTRO: [ed_pub 32][name_len][name] before the body
+TEST CASE:  W1c B1 — an UNNAMED sender's INTRO body is exactly [ed_pub 32][00][msg]; the NAMED control carries [len][name]
+TEST CASE:  W1c B2 — an UNNAMED INTRO attaches up to dm_max_body_bytes - 33 of body; one byte more sends PLAIN with one intro_attach_too_large
+TEST CASE:  W1c B3 — an UNNAMED owner's AUTHORITATIVE_H_ANSWER_PUBKEY (0x8B) body is exactly [leaf][id][ed_pub 32][00]
+TEST CASE:  W1c B4 — an UNNAMED requester's WANT_PUBKEY H is exactly 40 B with no trailer; the NAMED control appends [len][name]
+TEST CASE:  W1c B4 team — an UNNAMED team-scoped WANT_PUBKEY H is exactly 44 B: team_id LE32 at 40..43 and nothing after
+TEST CASE:  W1c B5 — a home forwarding an UNNAMED requester's real H queues MOBILE_KEY_FORWARD with inner exactly [origin][ed_pub 32][00]
+TEST CASE:  W1c C route 1 — an UNNAMED sender's INTRO: a fresh cache stays nameless; a peername label survives; the message is stripped exactly
+TEST CASE:  W1c C route 2 — the 0x8B key answer with an EMPTY name: a fresh cache stays nameless; a peername label survives
+TEST CASE:  W1c C route 3 — WANT_PUBKEY at the OWNER with an EMPTY name: a fresh cache stays nameless; a peername label survives
+TEST CASE:  W1c C route 4 — WANT_PUBKEY at a HOSTING HOME with an EMPTY name: a fresh cache stays nameless; an old default survives
+TEST CASE:  W1c C route 5 — MOBILE_KEY_FORWARD with an EMPTY name: a fresh cache stays nameless; an old default survives
+TEST CASE:  W1c — effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated
+
+== GREEN (iteration)
+[doctest] test cases:   2962 |   2962 passed | 0 failed | 0 skipped
+[doctest] assertions: 195904 | 195904 passed | 0 failed |
+
+== GATE step 2
+.pio-measure/w1c/logs/gate2-native-build.log:pio exit=0
+.pio-measure/w1c/logs/gate2-native-binary.log:[doctest] test cases:   2962 |   2962 passed | 0 failed | 0 skipped
+.pio-measure/w1c/logs/gate2-native-binary.log:[doctest] assertions: 195904 | 195904 passed | 0 failed |
+.pio-measure/w1c/logs/gate2-native-binary.log:[doctest] Status: SUCCESS!
+.pio-measure/w1c/logs/gate2-native-binary.log:binary exit=0

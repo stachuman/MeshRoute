@@ -1,0 +1,9 @@
+{
+  "verdict": "PASS with fold-ins",
+  "reviewed_sha256": "6db3cfa2cf982a0334d5e4e6c3cca395dc8efb5fed7023ee5f161b0afa3340ef",
+  "authorized_prospective_revision": 2,
+  "authorized_prospective_sha256": "7fafe9ef08aa50842a30240b08fa079cf8ce67c608f46d8ebe390ed879fff067",
+  "patch_sha256": "05284c6206cc1d128e891e463cd81339e9d4fca8b429e0a49bdcb4821d19b4fc",
+  "scope": "Only the exact patch; no re-review needed for these fold-ins. Revision 1 is not authorized as written. No implementation or metal PASS.",
+  "patch_applied": false
+}

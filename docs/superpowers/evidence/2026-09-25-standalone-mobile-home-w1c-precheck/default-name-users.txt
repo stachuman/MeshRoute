@@ -1,0 +1,11 @@
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+lib/core/node.cpp:39:// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+lib/core/node.cpp:48:    static const char pfx[] = "MeshRoute node: 0x";
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
+test/test_node_hashlocate.cpp:1781:    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "MeshRoute node: 0x6c29", 22));
+test/test_device_nv.cpp:299:    CHECK(put(b, k, kPeerConfAuthoritative, "MeshRoute node: 0x40414243") == PeerPut::inserted);
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+test/test_node_r3.cpp:9065:    CHECK(std::string(buf, n) == "MeshRoute node: 0xDEADBEEF");   // ★ empty -> hash default (uppercase 8-hex)
+lib/console/console_parse.cpp:197:    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with

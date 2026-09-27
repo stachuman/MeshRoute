@@ -1,0 +1,725 @@
+{
+  "streams": [
+    {
+      "name": "s06_seattle_lifecycle",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s07_seattle_mobile_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s09_two_layer_gateway",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s09_two_layer_gateway_metal",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s10_two_layer_separation",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s15_three_layer",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s15_three_layer_metal",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s16_dense_gateway",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s17_metro",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s18_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s19_singlelayer_multihop_chain",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s20_random_mesh",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s21_leaf_config_divergence",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s21_mobile_dm_milestone_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s22_leaf_config_join",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s22_mobile_team_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s23_leaf_config_epoch_write",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s23_mobile_team_multihop_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s24_static_and_team_multihop_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s25_two_team_separation_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s26_team_reroute_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s27_cross_layer_mobiles_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s28_mixed_team_channels_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s29_mixed_leaf_team_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s30_team_dad_mediation_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s31_dual_carrier_gateway",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s32_dual_cr_gateway",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s33_mixed_cr_channel_overhear",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s34_team_switch_clears_plane",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s35a_cochannel_isolation_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s35b_cochannel_isolation_control_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s36_reprovision_purges_carriers",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s37_team_homed_origin_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "s38_team_origin_learn_meshroute",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "sim_9node_base",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    },
+    {
+      "name": "twin_9node_dm",
+      "all_per_stream_fields_identical": true,
+      "fields_compared": [
+        "anchor_assertion_failures",
+        "anchor_events",
+        "anchor_match",
+        "anchor_md5_prefix",
+        "assertion_failures",
+        "events",
+        "exit_status",
+        "name",
+        "output_bytes",
+        "output_md5",
+        "output_sha256",
+        "promoted",
+        "scenario_path",
+        "scenario_sha256"
+      ]
+    }
+  ],
+  "count": 36
+}

@@ -7971,6 +7971,76 @@ TEST_CASE("§S2 receive rejects — a self-inconsistent ed_pub (ed[:4] != source
       Push p{}; bool got = false; while (B.next_push(p)) if (p.kind == PushKind::msg_recv) got = true; CHECK_FALSE(got); }
 }
 
+// ★★★ W1c (design §4.6 D10) — route 1 of the five: an UNNAMED sender's INTRO reaches the UNCHANGED receiver. The body
+// is taken from a REAL unnamed sender (test_node_hashlocate.cpp's W1c B1 proves its exact bytes) and driven through the
+// real post-ACK receiver. C1: a FRESH cache stays nameless and the message is stripped exactly. C2: a `peername` label
+// held in an UNPINNED row survives byte-identical, and the push carries it.
+// ⓘ NOT a `--target=w1cretain` victim, and stated rather than claimed: this receiver hands `peer_key_set` a NULL name for
+//   a zero count, so no single-site mutation of the refresh guard can erase the label here (routes 2-5 carry one).
+TEST_CASE("W1c C route 1 — an UNNAMED sender's INTRO: a fresh cache stays nameless; a peername label survives; the message is stripped exactly") {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    uint8_t sA[32]; for (int i = 0; i < 32; ++i) sA[i] = uint8_t(i * 5 + 1);
+    Identity idA{}; identity_from_seed(idA, sA);
+    const uint32_t Bhash = 0x0000B0B0u;
+    const uint8_t msg[3] = { 'h', 'i', '!' };
+    std::vector<uint8_t> body;
+    {   // the REAL producer: an unnamed, crypto-ready sender's first-contact plaintext send-by-hash
+        StubHal hal; Node A(hal, /*id=*/1, idA.key_hash32); A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+        A.test_id_bind_set(9, Bhash, /*authoritative=*/true);
+        A.test_suspend_tx_drain(true);
+        (void)DualLayerTestAccess::send_by_hash_intent(A, Bhash, msg, 3, CryptIntent::off);
+        for (uint8_t i = 0; i < A.test_tx_queue_n(); ++i) {
+            if (A.test_tx_type(i) != DATA_TYPE_INTRO) continue;
+            uint8_t il = 0; const uint8_t* in = A.test_tx_inner(i, il);
+            auto ui = parse_unicast_inner(std::span<const uint8_t>(in, il), A.test_tx_flags(i));
+            if (ui) body.assign(ui->body.begin(), ui->body.end());
+            break;
+        }
+    }
+    std::vector<uint8_t> want(idA.ed_pub, idA.ed_pub + 32); want.push_back(0); want.insert(want.end(), msg, msg + 3);
+    CHECK(body == want);                                                          // precondition: [ed_pub 32][00]["hi!"]
+    const std::string label = "Desk label";
+    auto receive = [&](bool seeded, std::string& name, std::string& push_name, bool& pushed, std::string& delivered,
+                       Node::PeerKeyConf& conf, bool& cached) {
+        StubHal halB; Node B(halB, /*id=*/20, Bhash); B.on_init(cfg);
+        if (seeded) {
+            CHECK(B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative));   // UNPINNED
+            CHECK(B.peer_name_set(idA.key_hash32, label.c_str(), static_cast<uint8_t>(label.size())));
+            Push d{}; while (B.next_push(d)) {}
+        }
+        DualLayerTestAccess::drive_post_ack_intro(B, /*origin=*/1, /*src_hash=*/idA.key_hash32, body.data(),
+                                                  static_cast<uint8_t>(body.size()));
+        uint8_t pk[32]; cached = B.peer_key_find(idA.key_hash32, pk, &conf);
+        char nm[40]; const uint8_t nl = B.peer_name_find(idA.key_hash32, nm, 32); name.assign(nm, nl);
+        Push p{}; pushed = false;
+        while (B.next_push(p)) {
+            if (p.kind == PushKind::peer_key_cached && p.sender_hash == idA.key_hash32) {
+                pushed = true; push_name.assign(reinterpret_cast<const char*>(p.body), p.body_len);
+            }
+            if (p.kind == PushKind::msg_recv) delivered.assign(reinterpret_cast<const char*>(p.body), p.body_len);
+        }
+    };
+    {   // C1 — a FRESH receiver
+        std::string name = "x", push_name = "x", delivered; bool pushed = false, cached = false;
+        Node::PeerKeyConf conf = Node::PeerKeyConf::overheard;
+        receive(false, name, push_name, pushed, delivered, conf, cached);
+        CHECK(cached);
+        CHECK(conf == Node::PeerKeyConf::authoritative);
+        CHECK(name.empty());
+        CHECK(pushed); CHECK(push_name.empty());
+        CHECK(delivered == "hi!");                                                // STRIPPED: exactly the message
+    }
+    {   // C2 — the label survives the zero-name INTRO
+        std::string name, push_name, delivered; bool pushed = false, cached = false;
+        Node::PeerKeyConf conf = Node::PeerKeyConf::overheard;
+        receive(true, name, push_name, pushed, delivered, conf, cached);
+        CHECK(cached);
+        CHECK(name == label);
+        CHECK(pushed); CHECK(push_name == label);
+        CHECK(delivered == "hi!");
+    }
+}
+
 TEST_CASE("§S2 delegation wrapper — a PLAIN same-layer MOBILE_SEND is byte-identical (no marker); an INTRO sets DATA_FLAG_MS_ENCLOSED_TYPE + prefixes the enclosed type") {
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     const uint32_t TGT = 0x4444AAAAu;

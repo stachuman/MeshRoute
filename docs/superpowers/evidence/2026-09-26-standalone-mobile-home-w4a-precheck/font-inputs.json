@@ -1,0 +1,26 @@
+{
+  "command": [
+    "cc",
+    "-std=c11",
+    "-O2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-I.pio/libdeps/heltec_mobile/U8g2/src/clib",
+    "artifacts/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_font.c",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_fonts.c",
+    "-Wl,--gc-sections",
+    "-o",
+    "/tmp/meshroute-w4a-precheck-6amjuubq/font-proof"
+  ],
+  "inputs": {
+    "artifacts/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c": "3d7c71787394a39d4c43c20442c1e3a7451130cdbd291283c70a58ae13d7c2b1",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_font.c": "33b1d8611ac13bda84c7639c2d760087811133e22f6fa35a76e7291604f10f66",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_fonts.c": "4320525f309cec957538502a48ac1b86c6fd4fbc7db45335ec48e046618d1494",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2.h": "38f231e6b3f54560886628ef595f3bbe6c463b886c0a69acf7c8aabaf8bd6f30",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8x8.h": "0ed46c69398906c87b4f9304f0a410b246aeedecc1928434ff5b54bf8b61680f",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8x8_8x8.c": "da32dff05050e4b18ea9007fdefc49ef31bf24b85ba2200fa791755aa81b2884",
+    ".pio/libdeps/heltec_mobile/U8g2/library.properties": "3031442ac034482410c7d5427dd19167c620d0d8fdf6dadacbf76f41ecaf39ec",
+    "variants/heltec_common/board_ui.cpp": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46"
+  }
+}

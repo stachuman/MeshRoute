@@ -1,0 +1,6 @@
+w1cname W01 run rc 1 ['[doctest] test cases:   2962 |   2949 passed | 13 failed | 0 skipped', '[doctest] assertions: 195879 | 195834 passed | 45 failed |'] 13 failing cases
+w1cname W02 run rc 1 ['[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped', '[doctest] assertions: 195904 | 195896 passed | 8 failed |'] 1 failing cases
+w1cname W03 run rc 1 ['[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped', '[doctest] assertions: 195904 | 195902 passed | 2 failed |'] 1 failing cases
+w1cname W04 run rc 1 ['[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped', '[doctest] assertions: 195904 | 195900 passed | 4 failed |'] 1 failing cases
+w1cretain R01 run rc 1 ['[doctest] test cases:   2962 |   2958 passed | 4 failed | 0 skipped', '[doctest] assertions: 195904 | 195896 passed | 8 failed |'] 4 failing cases
+driver exit=0

@@ -1,0 +1,724 @@
+{
+  "scope": "Counterfactual STRUCT-ONLY pricing, not implementation or a linked RAM claim. Scratch headers outside both repos.",
+  "inputs": {
+    "src/firmware_ui_model.h": "4a499098be6b55cb2c3c02c3cf5462b87489eca34e8a15d30e6b18c2346239c9",
+    "src/firmware_ui_chrome.h": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+    "src/firmware_ui.cpp": "bfe5d70e0795effcbeaa7623dc3ee84f4481bc5b04d5728f8167619b92f3530e",
+    "tools/probe_board_abi.py": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d"
+  },
+  "variants": {
+    "baseline": {
+      "model_sha256": "4a499098be6b55cb2c3c02c3cf5462b87489eca34e8a15d30e6b18c2346239c9",
+      "chrome_sha256": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+      "tu": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0/layout/baseline/query.cpp",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 504,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1336,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 928,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 504,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1336,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 912,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 504,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1336,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 912,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          }
+        }
+      }
+    },
+    "reuse_focus_append_name": {
+      "model_sha256": "fc21eb73da527195169396f9aac11e1038c7b0ec0fd65eba050829ca4c6bf9e9",
+      "chrome_sha256": "24e0e50d6776fd47e359cfb7bf9da192641482d9617b43623a376b7221004cba",
+      "tu": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0/layout/reuse_focus_append_name/query.cpp",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 944,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        }
+      }
+    },
+    "reuse_focus_padding_len": {
+      "model_sha256": "e352c025bb00259684b447d8296ff1dae4f85ed576c84f8631730cc02d71ba4e",
+      "chrome_sha256": "24e0e50d6776fd47e359cfb7bf9da192641482d9617b43623a376b7221004cba",
+      "tu": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0/layout/reuse_focus_padding_len/query.cpp",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 944,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        }
+      }
+    },
+    "new_focus_and_rail": {
+      "model_sha256": "5b9d622d91665a6659a7703fbd70564a70aa98de3c9b11903db889f46b496ae8",
+      "chrome_sha256": "24e0e50d6776fd47e359cfb7bf9da192641482d9617b43623a376b7221004cba",
+      "tu": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0/layout/new_focus_and_rail/query.cpp",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 944,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 9,
+            "align": 1
+          }
+        }
+      }
+    },
+    "compact_profile": {
+      "model_sha256": "433d8184d82b0ffa7bd38f8f4c02c52550b604aaefff0793984d044e0eb665d3",
+      "chrome_sha256": "24e0e50d6776fd47e359cfb7bf9da192641482d9617b43623a376b7221004cba",
+      "tu": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0/layout/compact_profile/query.cpp",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 512,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 3,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 512,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 928,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 3,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 512,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 928,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::FrameGate": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::TeamRow": {
+            "size": 40,
+            "align": 4
+          },
+          "mrui::InviteMember": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::InviteIdRows": {
+            "size": 26,
+            "align": 1
+          },
+          "OutcomeView": {
+            "size": 52,
+            "align": 4
+          },
+          "SettingsView": {
+            "size": 8,
+            "align": 1
+          },
+          "mrui::QaHomeCapture": {
+            "size": 3,
+            "align": 1
+          }
+        }
+      }
+    }
+  }
+}

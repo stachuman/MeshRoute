@@ -1,0 +1,82 @@
+# W3 raw logs and retained artefacts — kept OUTSIDE this folder (ignored artifacts/, .pio-measure/w3/, scratch), with SHA-256
+# location: artifacts/2026-09-25-standalone-mobile-home-w3/ (gitignored); source snapshot = the final tree in stability-end.txt
+
+5751d4579bc307d6bc2cb1d381063d04934751386731e9567ddeee33267eb74e  attribution-base1-final1.txt
+cb796620943736fd3d994a9910a46698b53953de22f959ed474102ac4ba7309b  attribution-heltec_mobile-object-vs-elf.txt
+a14216f698c85252517185cece97876266bad8313ab2fccce0332052c4787642  attribution-heltec_mobile-symbols.diff
+23cc211a06673dac87b4bb13f3683617bc6d99085b1c47efe56858716f77dbcb  audit-build-identity.log
+82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930  audit-literals.log
+b386b12cc92cae5297bd33aaa38d073b2e8e9c9256c44754c6d6c93947837a86  audit-literals-selftest.log
+fe4e18f9b319a8e3d483a38094c39f683f9e30e8f2ae85e6a6ce3bb8d30a7cfb  audit-ownership.log
+7797cb5e74164ba7fe0a3239f99ed14adc5cb5603df2e9eb2a7f89032c7bfae0  base-probe-board-ui-noneg.log
+4e2610fe99f00d84cf4cca18669543d63b33f81ed8d87f7454ee7f8398e91a60  base-probe-firmware-ui.log
+c77fbcdd057713fe3b84af3af1944903d5effc6e4c2c1a2776109da6db5785a6  chain.log
+24e7cb2c9b595c04c1552c4ec0ca31ca30e2fa02bcec89b4e708b013f193f988  compare-base-gateway.txt
+04a3135287857abe66c8476ec40a77cc7bc3d739daae0bc4f88d7bb06884d4fb  compare-base-heltec_mobile.txt
+94f0874697b421b0ef1bb8d0a6c5e259bce44a007a86eda8948be6664420b045  compare-final-gateway.txt
+a3d618ee62d51567ba935cd3b055957fe0b2a2b4356c225095a848e15b67d8ae  compare-final-heltec_mobile.txt
+e166b69690e16ae439415724bf7ee0f69f9dcc4160540c93018968c94d1566cf  gate1-hygiene.log
+1ad87b5e06e47dee360867a820356d0b6f8ae9883ce74546f7924182b354b158  gate2-native-binary.log
+b41ad231e9f1470f85c09b9ff4d53360be68d2105688370ae8fa3a87a01b8981  gate2-native-pio.log
+8860d39c66111fdee01c2a76fe185bd8cd1db6b640024ede871949a18d9b4366  gate3-cmake-build.log
+3caed3980625631244c6a4921261c520d0e536a20208f2c8943ea02fbcc0e12a  gate3-cmake-configure.log
+a87a6adc96c81ad9a267b71fdad0e6c2dbed3e24c7fde7d8ae90f9d78b963293  gate3-corpus-compare.txt
+e41cc7c3608e5db1c39573c0ec7c2fd387fa47cf6a11dcc2dec7be0f3f409feb  gate3-corpus.log
+aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c  gate4-abi.log
+5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8  gate5-boardui-noneg.log
+83d4baf30afe250f410180e6841b7aba5ed8e3243863af9391295269e0a71a46  gate5-fwui-default.log
+d2570761134c7a127d9ac6c952421b6e9ec93fee75014cce4ac42ccc68ed1829  gate5-fwui-noneg.log
+6ee77985edbe47b189b63e289d9d34d7aa36b13b3815577c7319f605803520c9  gate6-discovery.log
+fd436bd276eda9f7e3e8be85507f801da2eaf0fbccc1916e3ee2fd59414f4492  gate7-census.log
+77f034fcdccb9b4c7dab0bc7ce3426bf46ec49a9876aad61d84d4eabca34091b  ledger.md
+ec2a9ba334b8418e38e869fad61d33f8e6085a3c3fc8eb7d5d53a90de9751336  measure-base.log
+93288fcfdf21570f13961b5f91fc35f95cec71d553a99baa5d8bbf156d22e958  measure-final.log
+8567526582fa78be27c6d802b2a425652df5779a2a8bffc333adca864b440fde  preflight-inventory.txt
+f87a8a2f3f3c0f1a35d035671545294cd248220d44d2e6530c64e910b4aecc5c  preflight.txt
+401dc71cb6b614603918bfc153920e287c3a039af3294578378d47695628140c  stageA-freeze.sha256
+e812d170bf8238f9ff6fda6f26d4640f5c053561b7547a1e833cec39cdbef22c  stageA-fwui-probe.log
+93b0f880047c95d4047c6312430dc27a403a2a336d1e290001412ed1c1b6a481  stageA-native-binary.log
+05895996d6a2cfc47508fbd0ac6a9bc824e84854830b729fd255fc8039cdc413  stageA-native-pio.log
+af2d62e00c2177a859d28be45462907b8ce5faf60ef2225c6cf8f2539e07cf5c  stageA-prerun-hashes.txt
+e752732b71c08af62b8131f25a35a7f39bb23ef11b66d21329796d685effb3f1  stageA-test_firmware_ui_model.cpp
+1ad87b5e06e47dee360867a820356d0b6f8ae9883ce74546f7924182b354b158  stageB-iter-native-binary.log
+6e944f83c2f48cce722bcf746f09da23eab8533ab942b15ebf4ce9c1aed033e7  stageB-iter-native-pio.log
+55ddd17d4e8e99d14cce2b9e05dafa2d1eebaa83b3fd61849e5eb0a9b986d943  stageB-native-test-vs-stageA.diff
+ce472161d56d077cf89ca4f1194146c07848dfbecebbe19a651211e864feb570  union-config.log
+2399cc54ce08f0aeae81c954933751edea7b53560f65800ada1ef7c6e2293911  union.log
+2075d21705ff8c54b32483fb7ed8315fb0a9ed001eafbdb4a1c4b23098bfa73b  union-model.log
+e98717f3338dcb2e076bb5b7d92ef7020c951c283e0052623998f8b898e6619d  union-sliceCbudget.log
+865022def3bee77ee502c41ba1fa93228571cff93f44362f0b121b8c7acf47ba  union-uipresets.log
+9e1039c9e4f0e85ced2069d990f671c9f3957a80eb640254c048500ef7ba92b2  union-uiprov.log
+0d1376bdeaa1909c2135cc02e0358a2fcd59724202c979e8c57175422dbe5af2  union-uisend.log
+bc6c27444960187dffbce8e5d205e86491edf9826f9c5f14057adcdd7e19f73b  w3-harness-vs-W1c.diff
+
+# board measurement runs: .pio-measure/w3/{base-1,base-2,final-1,final-2}/{gateway,heltec_mobile}/ (manifests copied into manifests/)
+4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba  .pio-measure/w3/base-1/gateway/firmware.elf
+17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed  .pio-measure/w3/base-1/gateway/symbols.txt
+f53412377b0efcf86e0955f91fde8e6ae4767edf3d91a8e60b0185d98a32f4cb  .pio-measure/w3/base-1/gateway/build.log
+ae4d80655954de4e979a2392c225ec49fba747e630adf4e921ef59c3a94bb23e  .pio-measure/w3/base-1/heltec_mobile/firmware.elf
+8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070  .pio-measure/w3/base-1/heltec_mobile/symbols.txt
+f78cce7668a5f532706cc7743b913be8abbfd924d750b0c48fb4890fc518cec9  .pio-measure/w3/base-1/heltec_mobile/build.log
+4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba  .pio-measure/w3/base-2/gateway/firmware.elf
+17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed  .pio-measure/w3/base-2/gateway/symbols.txt
+0a8184995ac37b36b3e318a8cfd2942f42cb955fabe5470e01189bb5ff329859  .pio-measure/w3/base-2/gateway/build.log
+ae4d80655954de4e979a2392c225ec49fba747e630adf4e921ef59c3a94bb23e  .pio-measure/w3/base-2/heltec_mobile/firmware.elf
+8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070  .pio-measure/w3/base-2/heltec_mobile/symbols.txt
+5e5a2d23f49791581027feb562b2e313eb57e31a0e41c6cd6475a5ed3f621871  .pio-measure/w3/base-2/heltec_mobile/build.log
+4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba  .pio-measure/w3/final-1/gateway/firmware.elf
+17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed  .pio-measure/w3/final-1/gateway/symbols.txt
+f3982f35f436a28d69919b8b28056f73d29951c388352cfe708cdc920a80dff4  .pio-measure/w3/final-1/gateway/build.log
+d6db1116bd1125b0e2750d20a1fdaca9b0003b3881c5b1db58de7c402703d86b  .pio-measure/w3/final-1/heltec_mobile/firmware.elf
+417acc130738b3b17e1c915300ca5d5dd2208d5d1ad8bb0dbe028acd3c603e1e  .pio-measure/w3/final-1/heltec_mobile/symbols.txt
+682ebf5281e5dc4643da8e916e8654a7bfe14d33a159e56b7538750430780460  .pio-measure/w3/final-1/heltec_mobile/build.log
+4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba  .pio-measure/w3/final-2/gateway/firmware.elf
+17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed  .pio-measure/w3/final-2/gateway/symbols.txt
+8d4ed68ce2ed5c2ecdac684f9d3f1ff021dd20c251edab09d642f62b40a8fed0  .pio-measure/w3/final-2/gateway/build.log
+d6db1116bd1125b0e2750d20a1fdaca9b0003b3881c5b1db58de7c402703d86b  .pio-measure/w3/final-2/heltec_mobile/firmware.elf
+417acc130738b3b17e1c915300ca5d5dd2208d5d1ad8bb0dbe028acd3c603e1e  .pio-measure/w3/final-2/heltec_mobile/symbols.txt
+66ee1102292fa0e55a6dca616877fe73aa7b81d95dc24953de240934a94490fc  .pio-measure/w3/final-2/heltec_mobile/build.log
+
+# corpus run (scratch, outside both repos): <scratch>/w3-gate/corpus/{streams,inputs,logs}; manifest copied as corpus-manifest.json
+# fresh lus (scratch): <scratch>/w3-gate/sim-build/orchestrator/lus
+# mutation scratch trees: /tmp/mr_mutation_run-* (the harness's own; real tree reported untouched)

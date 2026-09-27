@@ -1,0 +1,34 @@
+{
+  "metadata_note": "preservation.json and SHA256SUMS reserved before new-path enumeration; finalized afterward.",
+  "repositories": [
+    {
+      "added": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/authorization.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/inputs.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/preservation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/required-fold-in.patch",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview/source-checks.json"
+      ],
+      "changed_or_missing": [],
+      "diff_check": "PASS",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "protected_paths": 1603,
+      "root": "/home/staszek/MeshRoute",
+      "staged_paths": 0
+    },
+    {
+      "added": [],
+      "changed_or_missing": [],
+      "diff_check": "PASS",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "protected_paths": 285,
+      "root": "/home/staszek/lora-universal-simulator",
+      "staged_paths": 0
+    }
+  ],
+  "review_links_verified": 4,
+  "scope": "Initial nonignored tracked/untracked inputs preserved. New files limited to this report and evidence. Raw brief copies are in ignored artifacts/."
+}

@@ -1,0 +1,286 @@
+src/firmware_ui.cpp:63://             each screen); the inbox detail's wrap moved with it, AT THE MODEL (`kDetailCols` 21 -> 19, so the page
+src/firmware_ui.cpp:1012:static_assert(kBodyCols == mrui::kDetailCols,
+src/firmware_ui.cpp:1573:    for (uint8_t row = 0; row < mrui::kDetailBodyRows; ++row)
+src/firmware_ui.cpp:1574:        body_text(row + 1, st.detail_line[row]);
+src/firmware_ui.cpp:1615://    string is GONE — §UI-15 slice 4 replaced the placeholder refusal with §4's TWO remedy cells (`ProvBlock`), whose
+src/firmware_ui.cpp:2292:    const mrui::ComposeList& list = dm ? s.preset_dm : s.preset_ch;
+src/firmware_ui.cpp:2305:        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);
+src/firmware_ui_presets.h:84://       of the live record (`mrui::compose_project` -> `UiSnapshot::preset_dm` / `preset_ch`, frozen per frame),
+src/firmware_ui_presets.h:332:    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;
+src/firmware_ui_presets.h:362://    the model consumes THIS catalog through `mrui::compose_project`, and the drift-fence case that guarded the two
+src/firmware_ui_presets.h:414:    if (len > mrnv::kUiPresetTextMax) len = mrnv::kUiPresetTextMax;   // validate_preset_text already refused this
+tools/probe_board_abi.py:179:    ("mrui::ComposeSlot",      "MR_FEAT_OLED"),
+tools/probe_board_abi.py:180:    ("mrui::ComposeList",      "MR_FEAT_OLED"),
+tools/probe_board_abi.py:321:        "mrui::ComposeSlot":       (20, 1, False),
+tools/probe_board_abi.py:322:        "mrui::ComposeList":       (161, 1, False),
+tools/probe_board_abi.py:353:        "mrui::ComposeSlot":       (20, 1, True),
+tools/probe_board_abi.py:354:        "mrui::ComposeList":       (161, 1, True),
+tools/probe_board_abi.py:388:        "mrui::ComposeSlot":       (20, 1, False),
+tools/probe_board_abi.py:389:        "mrui::ComposeList":       (161, 1, False),
+src/device_nv.h:347:    uint8_t len;       // 0..kUiPresetTextMax; ★ the bytes AT and AFTER `len` are ZERO (canonical)
+src/device_nv.h:356:constexpr uint8_t kUiPresetTextMax = 17;   // OQ-A: 17 printable ASCII bytes for EVERY preset, both location states
+test/test_firmware_ui_presets.cpp:24:                                 //    compose_project`, which is what the panel actually renders the defaults
+test/test_firmware_ui_presets.cpp:102:    CHECK(mrnv::kUiPresetTextMax == 17);          // ★ OQ-A's owner ruling, and `text[18]` = 17 + the terminator
+test/test_firmware_ui_presets.cpp:200:    //   device are the compiled defaults, arriving through the SHIPPED projection (`mrui::compose_project`) rather
+test/test_firmware_ui_presets.cpp:203:    mrui::ComposeList dm{}, ch{};
+test/test_firmware_ui_presets.cpp:204:    mrui::compose_project(f.cat.live(), PresetKind::dm,      dm);
+test/test_firmware_ui_presets.cpp:205:    mrui::compose_project(f.cat.live(), PresetKind::channel, ch);
+test/test_firmware_ui_presets.cpp:702:    CHECK((n273 & 0xFFu) == mrnv::kUiPresetTextMax);
+test/test_firmware_ui_presets.cpp:726:    CHECK(s.len == mrnv::kUiPresetTextMax);        // clamped, ⛔ never 273 bytes into an 18-byte buffer
+src/firmware_ui_send.h:470://   promoted-`%u` worst case the paragraph above sizes for. The bound is `mrnv::kUiPresetTextMax` (OQ-A's 17), so a
+tools/probe_ui_model_mutations.py:3053:  "const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);",
+tools/probe_ui_model_mutations.py:3054:  "const uint8_t p = uint8_t(n / kDetailPageChars);"),
+tools/probe_ui_model_mutations.py:3063:  "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
+tools/probe_ui_model_mutations.py:3068: #        "if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();",
+tools/probe_ui_model_mutations.py:3086:  "                close_detail();\n                _st.detail_action = InboxAction::back;"),
+tools/probe_ui_model_mutations.py:3092:  "close_detail();"),
+tools/probe_ui_model_mutations.py:3094:  "        if (_st.detail == InboxModal::gone) {\n            if (g == Gesture::short_press || g == Gesture::double_press) close_detail();\n            return;\n        }",
+tools/probe_ui_model_mutations.py:3106:  "if (_st.detail != InboxModal::closed) close_detail();",
+tools/probe_ui_model_mutations.py:3107:  "if (g == Gesture::long_fire && _st.detail != InboxModal::closed) close_detail();"),
+tools/probe_ui_model_mutations.py:3109:  "if (_st.detail != InboxModal::closed) close_detail();",
+tools/probe_ui_model_mutations.py:3190: #     `ConfigService::_open` is never cleared once set — so no gesture sequence reaches `settings_activate` with a
+tools/probe_ui_model_mutations.py:3207: #    `src/firmware_ui.cpp`'s `static_assert(kBodyCols == mrui::kDetailCols)`, which is the point of that assert —
+tools/probe_ui_model_mutations.py:3210:  "inline constexpr uint8_t  kDetailCols      = 19;",
+tools/probe_ui_model_mutations.py:3211:  "inline constexpr uint8_t  kDetailCols      = 21;"),
+tools/probe_ui_model_mutations.py:3214: ("M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+tools/probe_ui_model_mutations.py:3215:  "inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);",
+tools/probe_ui_model_mutations.py:3216:  "inline constexpr uint8_t  kDetailPageChars = 42;"),
+tools/probe_ui_model_mutations.py:3244:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }\n"
+tools/probe_ui_model_mutations.py:3245:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3246:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }\n"
+tools/probe_ui_model_mutations.py:3247:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }"),
+tools/probe_ui_model_mutations.py:3249:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3252:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }",
+tools/probe_ui_model_mutations.py:3255:  '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
+tools/probe_ui_model_mutations.py:3256:  '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
+tools/probe_ui_model_mutations.py:3257:  '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
+tools/probe_ui_model_mutations.py:3258:  '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
+tools/probe_ui_model_mutations.py:3260:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3443: # ⛔ M97 IS THE REVERSION, LITERALLY: it puts the auto-enter back where `sync_settings` used to hold it.
+tools/probe_ui_model_mutations.py:3601:  "        if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();\n"),
+tools/probe_ui_model_mutations.py:4375:  "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }",
+tools/probe_ui_model_mutations.py:4376:  "inline const char* compose_empty_note(const ComposeList& l) { (void)l; return nullptr; }"),
+tools/probe_ui_model_mutations.py:7399:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+tools/probe_ui_model_mutations.py:7415:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+tools/probe_ui_model_mutations.py:7417:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"),
+src/firmware_ui_model.h:51:// three literals (`cfg_marker_text`, `kCfgRestartText`), the row-identity cursor (`sync_settings` /
+src/firmware_ui_model.h:56:// entry gate (two DISTINCT refusals with two DIFFERENT remedies — `ProvBlock`), the §6 availability model
+src/firmware_ui_model.h:77:// ⛔ IT REVERSES §UI-14's DOCUMENTED LANDING, in which `sync_settings` auto-entered `browsing` on arrival and the
+src/firmware_ui_model.h:253://                the screen closes it, see `sync_settings`), and it is ALSO the view SETTINGS now LANDS on — one
+src/firmware_ui_model.h:567:enum class ProvBlock : uint8_t { none = 0, conflict, unsaved };
+src/firmware_ui_model.h:602:    provision,                                                 // §3.6.3's entry point — see `settings_activate`
+src/firmware_ui_model.h:1386:// Two body rows of the panel's small-font columns expose `kDetailCols * kDetailBodyRows` characters per page, so the
+src/firmware_ui_model.h:1393://      FREEZE POINT, and not merely at the draw origin: `refresh_detail_page` slices the body into `detail_line[]`
+src/firmware_ui_model.h:1398://      ⓘ Every one of those figures is DERIVED below; the only edited number is `kDetailCols`.
+src/firmware_ui_model.h:1399:inline constexpr uint8_t  kDetailCols      = 19;
+src/firmware_ui_model.h:1400:inline constexpr uint8_t  kDetailBodyRows  = 2;
+src/firmware_ui_model.h:1401:inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);
+src/firmware_ui_model.h:1402:inline constexpr uint8_t  kDetailMaxPages  =
+src/firmware_ui_model.h:1403:    uint8_t((MESHROUTE_NS::protocol::inbox_max_body + kDetailPageChars - 1) / kDetailPageChars);
+src/firmware_ui_model.h:1404:inline constexpr uint32_t kDetailPageMs    = 2000;   // spec §3.5: long bodies advance every 2 s and CYCLE
+src/firmware_ui_model.h:1469:struct ComposeSlot {
+src/firmware_ui_model.h:1470:    // 17 characters + the terminator — `mrnv::kUiPresetTextMax` is OQ-A's owner ruling and is ⛔ never re-typed here.
+src/firmware_ui_model.h:1471:    char    text[mrnv::kUiPresetTextMax + 1] = {};
+src/firmware_ui_model.h:1477:// ⓘ COST, MEASURED not assumed: `sizeof(ComposeSlot)` is **20** (alignof 1 — 18 char + 2 uint8, no padding), so
+src/firmware_ui_model.h:1478://   `sizeof(ComposeList)` is 8 x 20 + 1 = **161** and the pair on `UiSnapshot` costs 322. The `offsetof` proof is in
+src/firmware_ui_model.h:1480:struct ComposeList {
+src/firmware_ui_model.h:1481:    ComposeSlot row[mrfw::kPresetPerKind] = {};
+src/firmware_ui_model.h:1495:inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind, ComposeList& out) {
+src/firmware_ui_model.h:1496:    out = ComposeList{};
+src/firmware_ui_model.h:1501:        ComposeSlot& r = out.row[out.n++];
+src/firmware_ui_model.h:1504:        uint8_t n = s.len < mrnv::kUiPresetTextMax ? s.len : mrnv::kUiPresetTextMax;
+src/firmware_ui_model.h:1511:inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }
+src/firmware_ui_model.h:1535://   occupy `0 .. n-1` where **`n` is the PROJECTED LIST's own length** (`ComposeList::n`), `GRANT KEY` sits at `n`,
+src/firmware_ui_model.h:1594:inline uint8_t compose_row_count(const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1599:inline ComposeRow compose_row_kind(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1608:inline uint8_t compose_row_slot(uint8_t idx, const ComposeList& l) {
+src/firmware_ui_model.h:1616:inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1627://      `mrnv::kUiPresetTextMax` is 17 and why a conditional bound was WRONG. ⛔ There is no third answer for a
+src/firmware_ui_model.h:1636:inline char compose_row_loc_marker(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1648:inline void compose_row_line(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool grant,
+src/firmware_ui_model.h:1652:    if (m) snprintf(out, cap, "%c%c%s", selected ? '>' : ' ', m, compose_row_text(idx, l, grant));
+src/firmware_ui_model.h:1653:    else   snprintf(out, cap, "%c%s",   selected ? '>' : ' ', compose_row_text(idx, l, grant));
+src/firmware_ui_model.h:2036:    ComposeList preset_dm{};
+src/firmware_ui_model.h:2037:    ComposeList preset_ch{};
+src/firmware_ui_model.h:2045:    compose_project(cat, mrfw::PresetKind::dm,      s.preset_dm);
+src/firmware_ui_model.h:2046:    compose_project(cat, mrfw::PresetKind::channel, s.preset_ch);
+src/firmware_ui_model.h:2225://   exceed `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
+src/firmware_ui_model.h:2444:    char        detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
+src/firmware_ui_model.h:2481:    ProvBlock   prov_block = ProvBlock::none;
+src/firmware_ui_model.h:2643:        case ProvBlock::conflict: return "RELOAD OR DISCARD";
+src/firmware_ui_model.h:2644:        case ProvBlock::unsaved:  return "SAVE OR DISCARD";
+src/firmware_ui_model.h:2645:        case ProvBlock::none:     break;
+src/firmware_ui_model.h:2728:        sync_settings(s);                // ★ §UI-14: the screen owns the editor's lifetime — see the function
+src/firmware_ui_model.h:2741:        // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
+src/firmware_ui_model.h:2790:        //              && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();
+src/firmware_ui_model.h:2842:            elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
+src/firmware_ui_model.h:2845:            refresh_detail_page();
+src/firmware_ui_model.h:2898:        sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
+src/firmware_ui_model.h:3207:        // ★ pages = max(1, ceil(len / kDetailPageChars)) — ⛔ never zero: an empty body still has a page, or the modal
+src/firmware_ui_model.h:3209:        const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);
+src/firmware_ui_model.h:3217:        refresh_detail_page();
+src/firmware_ui_model.h:3255:                // ★★★ [[B233]] — THE STORE JUST CHANGED UNDER A SNAPSHOT THAT IS ALREADY BUILT. `close_detail()`
+src/firmware_ui_model.h:3261:                close_detail();
+src/firmware_ui_model.h:3740:    //    (`UiState::detail_line`), which is what keeps a 242-byte buffer off the per-frame copy.
+src/firmware_ui_model.h:3776:    // ★ The SETTINGS cursor's selection, held by ROW IDENTITY rather than by index — see `sync_settings` for why that
+src/firmware_ui_model.h:3919:            //     row offers. It is checked here rather than inside `settings_activate` because that function is
+src/firmware_ui_model.h:3934:            settings_activate(s);
+src/firmware_ui_model.h:3950:    //    paths that can leave SETTINGS (the `short` that advances the CYCLE, and `sync_settings` itself), because a
+src/firmware_ui_model.h:3951:    //    guard belongs to the INVARIANT and not to the site where it was first needed. ⛔ Leaving it to `sync_settings`
+src/firmware_ui_model.h:3980:    //       · the arm, · the cursor at row 0, · and `_cfg_sel_valid` false so `sync_settings` re-anchors the pick.
+src/firmware_ui_model.h:3996:    //    lets `sync_settings` re-anchor on the next pass (*"first arrival: whatever row 0 is IS the pick"*). ⛔ TEAM
+src/firmware_ui_model.h:4022:    void sync_settings(const UiSnapshot& s) {
+src/firmware_ui_model.h:4070:        // ⛔ The same sub-view guard as `sync_settings`'s, and it belongs to the INVARIANT rather than to the site
+src/firmware_ui_model.h:4106:    void settings_activate(const UiSnapshot& s) {
+src/firmware_ui_model.h:4140:            //   ⛔ It is deliberately NOT reported as a `ProvBlock`: those two are §4's cells and carry §4's remedies,
+src/firmware_ui_model.h:4144:                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }
+src/firmware_ui_model.h:4145:                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }
+src/firmware_ui_model.h:4191:        _st.cfg_have_save = false; _st.cfg_refresh_failed = false; _st.prov_block = ProvBlock::none;
+src/firmware_ui_model.h:4247:    //   The highlight lands back on the PROVISION row by itself — `sync_settings` re-anchors from `_cfg_sel_row`,
+src/firmware_ui_model.h:5234:            if (g == Gesture::short_press || g == Gesture::double_press) close_detail();
+src/firmware_ui_model.h:5246:        if (_st.detail_action == InboxAction::back) { close_detail(); return; }   // ⇒ storage is not touched at all
+src/firmware_ui_model.h:5265:    //     `_detail_page_at_ms` is still the pre-blank stamp, so `elapsed >= kDetailPageMs` is already true and the
+src/firmware_ui_model.h:5326:    void close_detail() {
+src/firmware_ui_model.h:5333:        for (uint8_t r = 0; r < kDetailBodyRows; ++r) _st.detail_line[r][0] = '\0';
+src/firmware_ui_model.h:5337:    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: `kDetailCols` columns each (19 since
+src/firmware_ui_model.h:5341:    void refresh_detail_page() {
+src/firmware_ui_model.h:5342:        const uint16_t off = uint16_t(uint16_t(_st.detail_page) * kDetailPageChars);
+src/firmware_ui_model.h:5343:        for (uint8_t row = 0; row < kDetailBodyRows; ++row) {
+src/firmware_ui_model.h:5344:            char* dst = _st.detail_line[row];
+src/firmware_ui_model.h:5346:            for (; n < kDetailCols; ++n) {
+src/firmware_ui_model.h:5347:                const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);
+src/firmware_ui_model.h:5401:        const ComposeList& list = dm ? s.preset_dm : s.preset_ch;
+src/firmware_ui_model.h:5505:    if (_st.detail != InboxModal::closed) close_detail();
+src/firmware_ui_chrome.h:359:    // only on `Screen::settings` (`sync_settings` closes it on leaving) — and listed anyway, because §5.2 lists it
+tools/probe_firmware_ui/run.sh:1227:      's|    const mrui::ComposeList\& list = dm ? s.preset_dm : s.preset_ch;|    const mrui::ComposeList\& list = s.preset_ch;|'
+tools/probe_firmware_ui/run.sh:1233:      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        snprintf(l, sizeof l, "%c%s", ((first + row) == st.cursor) ? 0x3e : 0x20, mrui::compose_row_text(uint8_t(first + row), list, grant));|'
+tools/probe_firmware_ui/run.sh:1627:  #   `s|… mrui::compose_row_text(uint8_t(first + row), dm, grant));|… dm, false));|`. P3 moved the row's WHOLE line
+tools/probe_firmware_ui/run.sh:1628:  #   into the pure composer, so the same `grant`-blind resolution is now spelled on `compose_row_line`.
+tools/probe_firmware_ui/run.sh:1630:      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, false, (first + row) == st.cursor);|'
+test/test_firmware_ui_model.cpp:659:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:660:        compose_project(preset_defaults_blob(), mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:661:        compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:2143:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:2144:        compose_project(b, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:2145:        compose_project(b, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:2148:        for (const ComposeList* l : { &dm, &ch })
+test/test_firmware_ui_model.cpp:2153:                CHECK(std::strcmp(compose_row_text(uint8_t(n - 1), *l, grant), "back, don't send") == 0);
+test/test_firmware_ui_model.cpp:2353://      The rail takes `x = 0..9`, so the ordinary body is 116 px = 19 small-font columns. `kDetailCols` is that 19;
+test/test_firmware_ui_model.cpp:2354://      `kDetailPageChars` and `kDetailMaxPages` are computed FROM it and are asserted here as CONSEQUENCES.
+test/test_firmware_ui_model.cpp:2359:    CHECK(kDetailCols == 19);                                    // ★ the ONE edited number (was 21 before §CHROME-4)
+test/test_firmware_ui_model.cpp:2360:    CHECK(kDetailBodyRows == 2);
+test/test_firmware_ui_model.cpp:2361:    CHECK(kDetailPageChars == 38);                               // 19 x 2, derived
+test/test_firmware_ui_model.cpp:2362:    CHECK(kDetailMaxPages == 7);                                 // ceil(241 / 38), derived
+test/test_firmware_ui_model.cpp:2363:    CHECK(kDetailPageMs == 2000u);
+test/test_firmware_ui_model.cpp:2367:    CHECK(uint16_t(kDetailMaxPages) * kDetailPageChars >= MESHROUTE_NS::protocol::inbox_max_body);
+test/test_firmware_ui_model.cpp:2369:    CHECK(uint16_t(kDetailMaxPages - 1) * kDetailPageChars < MESHROUTE_NS::protocol::inbox_max_body);
+test/test_firmware_ui_model.cpp:2400:    CHECK(m.state().detail_line[0][0] == '\0');
+test/test_firmware_ui_model.cpp:2401:    CHECK(m.state().detail_line[1][0] == '\0');
+test/test_firmware_ui_model.cpp:2409:    CHECK(m.state().detail_line[0][0] == '\0');
+test/test_firmware_ui_model.cpp:2421:    CHECK(std::strlen(m.state().detail_line[0]) == 19);
+test/test_firmware_ui_model.cpp:2422:    CHECK(std::strlen(m.state().detail_line[1]) == 19);
+test/test_firmware_ui_model.cpp:2423:    CHECK(std::strcmp(m.state().detail_line[0], "ABCDEFGHIJKLMNOPQRS") == 0);
+test/test_firmware_ui_model.cpp:2424:    CHECK(std::strcmp(m.state().detail_line[1], "TUVWXYZABCDEFGHIJKL") == 0);
+test/test_firmware_ui_model.cpp:2425:    // ⛔ NO ROW MAY EXCEED THE PANEL'S BODY. The buffer is `kDetailCols + 1`, so an over-wide wrap could not even be
+test/test_firmware_ui_model.cpp:2427:    for (uint8_t r = 0; r < kDetailBodyRows; ++r) CHECK(std::strlen(m.state().detail_line[r]) <= kDetailCols);
+test/test_firmware_ui_model.cpp:2429:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:2431:    CHECK(std::strcmp(m.state().detail_line[0], "MNOPQRS") == 0);
+test/test_firmware_ui_model.cpp:2432:    CHECK(m.state().detail_line[1][0] == '\0');
+test/test_firmware_ui_model.cpp:2441:    CHECK(std::strcmp(m.state().detail_line[0], "o.k.....z") == 0);
+test/test_firmware_ui_model.cpp:2456:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:2459:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:2462:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2464:    m.on_tick(snap_inbox(1, 1000 + 3 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2474:    for (uint32_t k = 1; k <= 5; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:2495:    for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) { m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs)); ++turns; }
+test/test_firmware_ui_model.cpp:3000:    // ⓘ `pages` is at most `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
+test/test_firmware_ui_model.cpp:3002:    CHECK(std::strlen(l) <= kDetailCols);
+test/test_firmware_ui_model.cpp:3006:    CHECK(std::strlen(l) <= kDetailCols);
+test/test_firmware_ui_model.cpp:3093:    //   is when `sync_settings` OPENS the service. Without it the baseline would be snapshotted later — at whatever
+test/test_firmware_ui_model.cpp:3113://   helper: `sync_settings` re-anchors the highlight onto the remembered ROW, and it runs at the top of every gesture
+test/test_firmware_ui_model.cpp:3798:    CHECK(st.prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3824:    CHECK(f.m.state().prov_block == ProvBlock::unsaved);
+test/test_firmware_ui_model.cpp:3836:    CHECK(f.m.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3851:    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+test/test_firmware_ui_model.cpp:3879:    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+test/test_firmware_ui_model.cpp:3890:// ⓘ `settings_activate`'s own `!_cfg || !_cfg->is_open()` arm is unchanged and is now unreachable, stated in code.
+test/test_firmware_ui_model.cpp:3902:    CHECK(m.state().prov_block == ProvBlock::none);           // ⛔ §4's remedies do not apply to "there is no draft"
+test/test_firmware_ui_model.cpp:3910:    CHECK(m2.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3922:    // ★ THE PICK SURVIVED THE SUB-VIEW: `sync_settings` re-anchors from the row identity the operator left on, which
+test/test_firmware_ui_model.cpp:4059:    // ★ THE NEGATIVE HALF FIRST: a tick must NOT close the sub-view. `sync_settings` runs on every tick and every
+test/test_firmware_ui_model.cpp:4648:    CHECK(f.m.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:5080://   now UNREACHABLE by construction — see `settings_activate`'s note, which says so in code.
+test/test_firmware_ui_model.cpp:5184:    for (ProvBlock b : { ProvBlock::none, ProvBlock::unsaved, ProvBlock::conflict }) {
+test/test_firmware_ui_model.cpp:5187:    st.prov_block = ProvBlock::none;
+test/test_firmware_ui_model.cpp:5239:    // ---- the inbox detail's header, at its widest reachable expansion (`pages` is bounded by kDetailMaxPages)
+test/test_firmware_ui_model.cpp:5241:    inbox_detail_head(l, sizeof l, InboxKind::channel, 255, 255, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, false);
+test/test_firmware_ui_model.cpp:5243:    inbox_detail_head(l, sizeof l, InboxKind::dm, 255, 0, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, true);
+test/test_firmware_ui_model.cpp:5246:    CHECK(size_t(kDetailCols) <= kCols);
+test/test_firmware_ui_model.cpp:5251:    //      LONGER than any of them. ⇒ the budget is now proved against the BOUND (`mrnv::kUiPresetTextMax`, 17), so
+test/test_firmware_ui_model.cpp:5254:    CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));
+test/test_firmware_ui_model.cpp:5260:        CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));
+test/test_firmware_ui_model.cpp:5264:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:5265:        compose_project(wide, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:5266:        compose_project(wide, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:5268:        for (const ComposeList* l : { &dm, &ch })
+test/test_firmware_ui_model.cpp:5271:                    compose_row_line(row, sizeof row, i, *l, /*grant=*/true, sel);
+test/test_firmware_ui_model.cpp:5314:    st.prov_block = ProvBlock::unsaved;   CHECK(strcmp(settings_note(st), "SAVE OR DISCARD") == 0);
+test/test_firmware_ui_model.cpp:5315:    st.prov_block = ProvBlock::conflict;  CHECK(strcmp(settings_note(st), "RELOAD OR DISCARD") == 0);
+test/test_firmware_ui_model.cpp:5934:    m.on_tick(snap_inbox(3, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:5935:    m.on_tick(snap_inbox(3, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5937:    // ★★★ THE BLANKING TICK IS ALSO A PAGE-DUE TICK — 13 s since the last turn, well past `kDetailPageMs` — so this
+test/test_firmware_ui_model.cpp:5976:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:5977:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5980:    //      past `kDetailPageMs`) and this is also the tick the blank deadline lands on. The blank must WIN: the page
+test/test_firmware_ui_model.cpp:5986:    // ---- (a) DARK TICKS. Each is well past `kDetailPageMs`, so an ungated cadence would turn the page every one.
+test/test_firmware_ui_model.cpp:5987:    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:5992:    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;   // a LONG dark interval to bank, if it could
+test/test_firmware_ui_model.cpp:6000:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:6002:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6222:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6225:    m.on_msg_wake(1000 + kDetailPageMs + 500);                      // ...a message arrives mid-page
+test/test_firmware_ui_model.cpp:6230:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6359:    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+test/test_firmware_ui_model.cpp:6360:    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6365:    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+test/test_firmware_ui_model.cpp:6368:    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;
+test/test_firmware_ui_model.cpp:6376:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+test/test_firmware_ui_model.cpp:6378:    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+test/test_firmware_ui_model.cpp:7720:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:7963:    const mrui::ComposeList& l = (m.state().compose == Compose::dm) ? s.preset_dm : s.preset_ch;
+test/test_firmware_ui_model.cpp:8035:    CHECK(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true) == mrui::kInviteGrantKey);
+test/test_firmware_ui_model.cpp:8036:    CHECK(strcmp(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true), "GRANT KEY") == 0);
+test/test_firmware_ui_model.cpp:8641:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:8973:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:9403:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:9586:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9587:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9626:    ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:9627:    compose_project(cat, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:9628:    compose_project(cat, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:9648:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9649:    compose_project(full, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9669:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9670:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9689:    compose_row_line(b, sizeof b, 0, l, /*grant=*/false, /*selected=*/true);
+test/test_firmware_ui_model.cpp:9691:    compose_row_line(b, sizeof b, 1, l, /*grant=*/false, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9694:    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9696:    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/true);
+test/test_firmware_ui_model.cpp:9698:    compose_row_line(b, sizeof b, uint8_t(l.n + 1), l, /*grant=*/true, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9705:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9706:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9713:    ComposeList some{};
+test/test_firmware_ui_model.cpp:9714:    compose_project(gapped_cat({3}), mrfw::PresetKind::dm, some);
+test/test_firmware_ui_model.cpp:9858:        compose_row_line(b, sizeof b, i, frozen.preset_dm, false, false);
+test/test_firmware_ui_model.cpp:9883:        ComposeList l{};
+test/test_firmware_ui_model.cpp:9890:        compose_project(c, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9894:        CHECK(compose_row_text(k, l, /*grant=*/true) == kInviteGrantKey);
+test/test_firmware_ui_model.cpp:9906:    CHECK(sizeof(mrui::ComposeSlot) == 20u);               // 18 char + slot + loc, alignof 1, no padding
+test/test_firmware_ui_model.cpp:9907:    CHECK(sizeof(mrui::ComposeList) == 161u);              // 8 x 20 + the count
+test/test_firmware_ui_model.cpp:9908:    CHECK(offsetof(mrui::ComposeSlot, text) == 0u);
+test/test_firmware_ui_model.cpp:9909:    CHECK(offsetof(mrui::ComposeSlot, slot) == 18u);
+test/test_firmware_ui_model.cpp:9910:    CHECK(offsetof(mrui::ComposeSlot, loc)  == 19u);
+tools/probe_board_ui/run.sh:1065:#     detail's wrap must move AT THE MODEL, not at the draw origin. `kDetailCols` and the renderer's `kBodyCols` are
+tools/probe_board_ui/run.sh:1071:w43() { code_flat "$1" | grep -qF 'static_assert(kBodyCols == mrui::kDetailCols,' && \
+tools/probe_board_ui/run.sh:1074:     w43 's|static_assert(kBodyCols == mrui::kDetailCols,|static_assert(kBodyCols == kBodyCols,|' \
+test/test_firmware_ui_send.cpp:1411:    //   the cap must now clear, and it is `mrnv::kUiPresetTextMax` rather than the longest compiled string.

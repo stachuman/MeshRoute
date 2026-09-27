@@ -1,0 +1,66 @@
+{
+  "comment_only_files": [
+    {
+      "path": "lib/core/node.h",
+      "line_count": 4088,
+      "changed_comment_lines": [
+        576,
+        2978
+      ],
+      "all_code_prefixes_identical": true
+    },
+    {
+      "path": "src/fw_main.cpp",
+      "line_count": 1875,
+      "changed_comment_lines": [
+        927
+      ],
+      "all_code_prefixes_identical": true
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "line_count": 1915,
+      "changed_comment_lines": [
+        1399
+      ],
+      "all_code_prefixes_identical": true
+    },
+    {
+      "path": "lib/console/console_parse.cpp",
+      "line_count": 376,
+      "changed_comment_lines": [
+        197
+      ],
+      "all_code_prefixes_identical": true
+    }
+  ],
+  "node_cpp_only_accessor_and_comment_changed": true,
+  "all_existing_native_mutation_lists_and_targets_unchanged": true,
+  "new_mutation_anchors": [
+    {
+      "label": "W01 \u2605\u2605\u2605 the retired DEFAULT is restored for an empty name \u2014 an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone)",
+      "target": "lib/core/node.cpp",
+      "matches": 1
+    },
+    {
+      "label": "W02 \u2605\u2605 a TERMINATOR is reserved \u2014 the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire",
+      "target": "lib/core/node.cpp",
+      "matches": 1
+    },
+    {
+      "label": "W03 \u2605 the EMPTY path writes a terminator (out[0] = NUL when unnamed) \u2014 the count is still 0, but `writes nothing` is broken",
+      "target": "lib/core/node.cpp",
+      "matches": 1
+    },
+    {
+      "label": "W04 \u2605\u2605 the CAPACITY is ignored \u2014 the whole stored name is copied whatever `cap` the caller passed",
+      "target": "lib/core/node.cpp",
+      "matches": 1
+    },
+    {
+      "label": "R01 \u2605\u2605\u2605 an EMPTY advertisement ERASES a retained name \u2014 the refresh guard `name && name_len` loses its count term (B447's unnamed half)",
+      "target": "lib/core/node_hashlocate.cpp",
+      "matches": 1
+    }
+  ]
+}

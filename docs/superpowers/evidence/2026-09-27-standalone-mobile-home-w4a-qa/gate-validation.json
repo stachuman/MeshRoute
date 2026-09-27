@@ -1,0 +1,18 @@
+{
+  "verdict": "PASS",
+  "native": [
+    2986,
+    197299,
+    0,
+    0
+  ],
+  "corpus": 36,
+  "controls": 236,
+  "mutations": 301,
+  "discovery": 356,
+  "stock_abi": [
+    290,
+    9
+  ],
+  "preservation": true
+}

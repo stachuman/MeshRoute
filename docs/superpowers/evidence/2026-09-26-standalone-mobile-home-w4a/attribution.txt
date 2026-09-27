@@ -1,0 +1,71 @@
+# W4a board attribution — base-1 → final-1, field by field (brief §4.1 step 8)
+# Inputs: .pio-measure/w4a/{base-1,final-1}/{gateway,heltec_mobile}/manifest.json (+ symbols.txt, firmware.elf).
+# The raw field-by-field listing (every field, same/DELTA/EXPECTED-DIFF) is attribution-fields.txt.
+
+## Repeatability (stock `measure_board.py compare`)
+base-1 vs base-2:   gateway PASS · heltec_mobile PASS
+final-1 vs final-2: gateway PASS · heltec_mobile PASS
+
+## Compatibility
+toolchain.*, fixed_identity.*, paths.*, concurrency.*, host.*, schema/environment: 48 fields checked per env, 0 differ.
+Expected differences only: source.git_status_sha256, source.tree_sha256, normal_pio_metadata.sha256 (the source changed).
+source.git_head (8360802) and source.file_count (1502) are equal: no evidence file existed yet at either measurement.
+
+## gateway — predicted IDENTICAL (the OLED renderer is not compiled): HOLDS
+RAM 203,740 = 203,740 · flash 571,936 = 571,936 · objects 285 = 285 · symbols 6,593 (sha 17b0adb1…) equal ·
+payload firmware.hex 1,608,800 B, sha256 97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886 equal ·
+ELF sha 4d439615… equal (diagnostic).
+
+## heltec_mobile — predicted RAM UNCHANGED: HOLDS (211,724 = 211,724; .dram0.data 25,260 =; .iram0.* =; rtc.* =)
+| field | base-1 | final-1 | delta | attribution |
+| --- | ---: | ---: | ---: | --- |
+| measurements.ram_bytes | 211,724 | 211,724 | 0 | no resident member or array changed (layout: TeamRow 40, InviteIdRows 26, OutcomeView 52 on all three ABIs) |
+| .flash.text | 1,072,358 | 1,072,626 | +268 | the symbol deltas below (sum +271) minus 3 B of literal-pool / inter-function alignment layout |
+| .flash.rodata | 218,100 | 218,084 | −16 | strings: −`0x%08lx` (8 B; the lowercase fallback is gone), −`to: %s` (7 B), +`to: ` (5 B, `kComposeToPrefix`) = −10; the remaining −6 is alignment padding. `%s%s` already existed in the image (merged) |
+| measurements.flash_bytes | 1,394,588 | 1,394,840 | +252 | = .flash.text +268 + .flash.rodata −16 |
+| measurements.symbol_count | 13,297 | 13,298 | +1 | −`label_from_hash`, −`label_for_team_id$constprop$0`; +`label_for_team_id(…, cols)`, +`kComposeToPrefix`, +`ui_fmt_identity$isra$0` |
+| measurements.symbol_size_total | 1,495,987 | 1,496,263 | +276 | = text symbol deltas +271 + `kComposeToPrefix` 5 |
+| artifacts.payload.bytes (firmware.bin) | 1,395,232 | 1,395,472 | +240 | the +252 B of section content inside esptool's image segments (segment padding/alignment) |
+| artifacts.payload.sha256 | 70c33b3f… | 820b8bd3… | — | the code change above |
+
+### Symbol level (ELF symbols.txt, base-1 → final-1)
+| symbol | base | final | Δ | cause |
+| --- | ---: | ---: | ---: | --- |
+| `mrui::ui_fmt_identity(…)$isra$0` | — | 149 | +149 | NEW: the one formatter (§2.1) |
+| `label_from_hash(uint32_t, char*, uint8_t)` | 50 | — | −50 | now takes `cols` and is inlined into its callers |
+| `label_for_team_id(…)$constprop$0` → `label_for_team_id(uint8_t, char*, uint8_t, uint8_t)` | 61 | 111 | +50 | absorbs the adapter (full 32-byte counted read + one formatter call); no longer const-propagated (4 budgets) |
+| `mr_ui_tick(unsigned long)` | 7,018 | 7,086 | +68 | TEAM at 6, compose header at 15 (`"%s%s"`, prefix), DELIVERED at 19, the invite publication's raw read + formatter call |
+| `mr_ui_on_push(const Push&)` | 646 | 683 | +37 | REPLY: `label_for_origin` → adapter with `kReplyWhoCols` (inlined) |
+| `draw_provision_screen(…)$constprop$0` | 3,300 | 3,328 | +28 | the candidate row's 14→6 name projection (`name6`) before `ui_fmt_invite_row` |
+| `kComposeToPrefix` (rodata OBJECT) | — | 5 | +5 | `"to: "` |
+| `mrui::ui_fmt_home_age` (W) | 181 | 180 | −1 | source UNCHANGED — codegen shift (below) |
+| `mrui::ui_team_age_bucket` (W) | 96 | 95 | −1 | source UNCHANGED — codegen shift |
+| `mrui::UiModel::on_outcome` (W) | 249 | 248 | −1 | source UNCHANGED — codegen shift |
+| `mrui::UiModel::settings_activate` (W) | 522 | 521 | −1 | source UNCHANGED — codegen shift |
+| `mrui::UiModel::saved_keys_select_gesture` (W) | 121 | 118 | −3 | source UNCHANGED — codegen (+1 in the object) and link relaxation |
+| `mrui::ui_route_recv_push(…)$isra$0` | 303 | 299 | −4 | source UNCHANGED — codegen shift |
+
+**The "source UNCHANGED" rows, measured rather than assumed.** I compiled `src/firmware_ui.cpp.o` for `heltec_mobile` in
+two scratch copies of the tree (outside the repo; `pio run -t <object>`, `MESHROUTE_GIT_REV_OVERRIDE=b206b206b206`):
+one with the verified base sources (`base-copies/`), one with the final ones. The scratch final object's symbol table
+equals the measured `.pio-measure/env/heltec_mobile/…/firmware_ui.cpp.o`'s exactly. In the OBJECT, base → final:
+`ui_fmt_home_age` 181→180, `ui_team_age_bucket` 96→95, `on_outcome` 249→248, `settings_activate` 534→533,
+`saved_keys_select_gesture` 128→129, `ui_route_recv_push$isra$0` 303→299. So the shifts are already present at compile
+time, in functions whose source W4a does not touch (the model header's only code change is the formatter's addition).
+The translation unit grew, and GCC's unit-wide optimizer and code generator emitted slightly different code for them. The
+ELF keeps `firmware_ui.cpp.o`'s copy of these weak/local symbols. Six more weak functions shift inside the object
+(`GuardedConsole::write` 30→33, `project_team` 330→326, `ui_prov_join_team` 421→417, `apply_team` 490→494,
+`on_gesture` 519→523, `provision_gesture` 983→979), but the linker keeps another object's copy, so their ELF sizes are
+unchanged. Object-vs-ELF sizes also differ (e.g. `settings_activate` 533 vs 521) because Xtensa link relaxation rewrites
+code. `saved_keys_select_gesture` is the one where that gives a different sign (+1 object, −3 ELF).
+
+## Stack locals added per call path (brief §2.8; no resident growth)
+| call path | local | before | after | Δ |
+| --- | --- | ---: | ---: | ---: |
+| every label via `label_from_hash` (TEAM rows in the snapshot, compose header, DELIVERED, REPLY) | `char raw[peer_name_max]` | — | 32 | +32 (the full counted name; inlined into `label_for_team_id` / `mr_ui_on_push`) |
+| snapshot, invite member publication (per member, loop scope) | `char raw[peer_name_max]` | — | 32 | +32 |
+| compose header (`to: <label>`) | `label` | 15 (`kLabelCap + 1`) | 16 (`kComposeToCols + 1`) | +1 |
+| DELIVERED row | `label` | 15 (`kLabelCap + 1`) | 20 (`kDeliveredCols + 1`) | +5 |
+| candidate row (`draw_provision_screen`) | `char name6[kInviteCandCols + 1]` | — | 7 | +7 |
+| REPLY sender (`mr_ui_on_push`) | `who` | 15 | 15 | 0 |
+| `ui_fmt_identity` | scalars only | — | — | 0 |

@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_paths_preserved": 1352,
+      "changed_original_paths": [],
+      "only_permitted_new_evidence": true,
+      "new_evidence_paths_at_check": [
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-baseline.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-summary.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/base-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/baseline-summary.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/compose-users.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-comparison.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/gate-users.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/inputs.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/literal-readers.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation-census.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation_census.py",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/native-binary-summary.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/pager-users.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/probe-summary.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/readers.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/runs.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/source-pins.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/symbol-users.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/w1c-qa-checksums.txt"
+      ],
+      "staged_paths": [],
+      "simulator_clean": null
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_paths_preserved": 285,
+      "changed_original_paths": [],
+      "only_permitted_new_evidence": true,
+      "new_evidence_paths_at_check": [],
+      "staged_paths": [],
+      "simulator_clean": true
+    }
+  ],
+  "note": "This final preservation record and SHA256SUMS are the only files finalized after the inventory check; all additions are under the same evidence prefix."
+}

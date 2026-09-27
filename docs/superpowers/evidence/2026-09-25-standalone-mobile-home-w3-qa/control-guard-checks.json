@@ -1,0 +1,40 @@
+{
+  "method": "Exact once function extracted from frozen runner; synthetic text outside checkout, no probe source edits",
+  "results": [
+    {
+      "case": "unique",
+      "expected_exit": 0,
+      "exit": 0,
+      "stdout": "rc=0 bad=0\n",
+      "stderr": ""
+    },
+    {
+      "case": "missing",
+      "expected_exit": 1,
+      "exit": 1,
+      "stdout": "  FAIL a W3 control guard: the anchor occurs 0 time(s) and the script changes 0 line(s), both must be 1: anchor\nrc=1 bad=1\n",
+      "stderr": ""
+    },
+    {
+      "case": "duplicate",
+      "expected_exit": 1,
+      "exit": 1,
+      "stdout": "  FAIL a W3 control guard: the anchor occurs 2 time(s) and the script changes 2 line(s), both must be 1: anchor\nrc=1 bad=1\n",
+      "stderr": ""
+    },
+    {
+      "case": "dead-script",
+      "expected_exit": 1,
+      "exit": 1,
+      "stdout": "  FAIL a W3 control guard: the anchor occurs 1 time(s) and the script changes 0 line(s), both must be 1: anchor\nrc=1 bad=1\n",
+      "stderr": ""
+    },
+    {
+      "case": "two-lines",
+      "expected_exit": 1,
+      "exit": 1,
+      "stdout": "  FAIL a W3 control guard: the anchor occurs 1 time(s) and the script changes 2 line(s), both must be 1: anchor\nrc=1 bad=1\n",
+      "stderr": ""
+    }
+  ]
+}

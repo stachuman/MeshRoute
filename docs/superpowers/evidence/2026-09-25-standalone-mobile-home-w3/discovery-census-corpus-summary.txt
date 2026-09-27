@@ -1,0 +1,28 @@
+# W3 §4.1 step 6 — tools discovery (D5): python3 -m unittest discover -s tools -p "test_*.py"
+Ran 356 tests in 730.839s
+OK
+356 tests (W1c recorded 356), OK, 0 skipped. Discovery ran after run.sh and the harness changed; its harness readers
+(test_mutation_unusable_reason.py, test_worker_formula_derived.py) are in it.
+
+# W3 §4.1 step 7 — warning census: tools/warning_census.sh (six pinned OLED envs, the stated exception to the two-env rule) -> exit 0
+env                   objs      warn    expect  -Wswitch        RAM      Flash  verdict
+gateway_heltec         329       171       171         0     238852    1337880  ok
+gateway_heltec_v4      330       175       175         0     239124    1335900  ok
+heltec_mobile          329       175       175         0     211724    1394588  ok
+heltec_v3              329       175       175         0     214068    1392284  ok
+heltec_v4              330       179       179         0     214340    1390268  ok
+heltec_v4_mobile       330       179       179         0     211996    1392548  ok
+
+PASS — 6 OLED env(s) match their pinned warning baseline
+pins unchanged (171/175/175/175/179/179), -Wswitch 0 on every env, zero new warnings
+(RAM/Flash here are the census build's own figures, not the measure_board payload)
+
+# W3 §4.1 step 3 — corpus (see corpus-compare.txt and corpus-manifest.json)
+fresh stock lus: cmake -S ../lora-universal-simulator -B <scratch>/w3-gate/sim-build -DCMAKE_BUILD_TYPE=Release -DMESHROUTE_DIR=<MeshRoute> (exit 0), --target lus (exit 0)
+lus sha256 e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2
+python3 -B tools/run_corpus.py --out <scratch>/w3-gate/corpus --lus <lus> --jobs 4 --require-anchors -> exit 0
+PASS: 36/36 streams produced and validated, 0 failures
+  anchors: 36/36 rows reproduce simulation/BASELINE.md
+streams compared: 36; identical on all 14 fields: 36; deltas: 0
+IDENTICAL s18_meshroute                                md5=32afbf11e43b4bf9d0bd470ad502ba0a events=269517
+simulator: 6585649ea5a780f0542b2931853a667be56a5b2b, status lines 0

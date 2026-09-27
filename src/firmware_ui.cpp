@@ -436,40 +436,66 @@ void battery_maybe_sample(uint32_t now_ms) {
     s_batt_next_ms   = now_ms + kBattPeriodMs;
 }
 
-// ---- labels (spec §6: team_key_of_id -> peer_name_find -> 0x<hash> -> bare id) ------------------------------------
+// ---- labels (spec §6: team_key_of_id -> peer_name_find -> mrui::ui_fmt_identity -> bare id) ------------------------
 // ★★★ [[B241]] — THE ONE C-STRING ADAPTER OVER `Node::peer_name_find`, AND ITS RESULT IS ALWAYS TERMINATED (cap >= 1).
 //     The raw API copies `n` bytes, returns `n` and writes NO terminator, and this function used to hand that straight
 //     to `%s`: a short name (`H1`) left the destination's stale bytes after it (garbage on glass, seen on metal) and a
-//     name of 15+ bytes filled the buffer with no NUL at all. ⇒ one byte is reserved HERE and the NUL is written at
-//     the returned count, so a 15-byte label holds at most 14 name bytes — the same visible clamp as `kLabelCap`.
+//     name of 15+ bytes filled the buffer with no NUL at all. ⇒ the answer is now always the formatter's terminated
+//     string, and `cap == 0` still writes nothing.
+// ★★★★ W4a ([[B441]]) — THE WHOLE NAME IS READ, THEN FORMATTED AT THE SITE's BUDGET `cols`. The raw name goes into a
+//      counted `peer_name_max` (32-byte) stack buffer — ⛔ never a pre-clipped prefix: a 14-byte copy cannot tell an
+//      exact fit from a longer name, nor a real hash fallback from a name that merely begins `0x` — and
+//      `mrui::ui_fmt_identity` renders it: sanitized cells, a generated `»` when it is wider than `cols`, and the
+//      uppercase member tokens (`0x<HASH8>` / six-digit fingerprint) when the peer is unnamed.
 // ⛔ THE RAW API STAYS UNTERMINATED ON PURPOSE: its full 32-byte count is PAYLOAD for its two other consumers,
 //    `Node::push_peer_key_cached` (the push body) and `mrfw::peer_store_sync` (`/mrpeers` persistence), so reserving a
 //    NUL inside it would drop byte 32 of a maximum-length name. `test/test_node_hashlocate.cpp` pins that capacity.
-void label_from_hash(uint32_t hash, char* out, uint8_t cap) {
-    if (cap == 0) return;                                       // nothing to write, and `cap - 1` must not wrap
-    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));
-    if (n == 0) { snprintf(out, cap, "0x%08lx", (unsigned long)hash); return; }
-    out[n] = '\0';
+void label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols) {
+    if (cap == 0) return;                                       // nothing to write (W1)
+    char raw[MESHROUTE_NS::protocol::peer_name_max];            // the FULL counted name — no terminator, no clip
+    const uint8_t n = g_node.peer_name_find(hash, raw, uint8_t(sizeof raw));
+    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);
 }
 // ★★★ §UI-17 S5 — IT **RETURNS THE HASH IT RESOLVED** (0 = none), AND THAT IS THE WHOLE OF THE CHANGE (spec §3.4
 //     term 2, U1): `build_snapshot` needs the same `team_key_of_id` answer to look the peer's cached POSITION up, and
 //     a second call there would be a second resolution of one fact — the fork this project keeps paying for. ⇒ ONE
 //     resolution per row, handed to both the label and `peer_loc_find`.
 // ⓘ The two compose call sites ignore the value; they only ever wanted the label, and that behaviour is unchanged.
-uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap) {
+uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap, uint8_t cols) {
     uint32_t hash = 0;
     // ⓘ Inert on a !MR_FEAT_TEAM build: `team_key_of_id` stubs to false there, so the label falls straight through to
     //   the bare id. No #if needed — the stub IS the fallback.
-    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap); return hash; }
+    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap, cols); return hash; }
     snprintf(out, cap, "id %u", unsigned(id));
     return 0;   // ⛔ C2: "no hash" is said out loud, never a plausible one — the caller blanks the location columns
 }
-void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap) {
+void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap, uint8_t cols) {
     // §chan-crypt CL2c: a channel_recv carries the sender's stable key_hash32 here too, and `origin` on a team post is
     // only a DAD-assigned team_local_id — so prefer the hash when the post named one.
-    if (pu.sender_hash != 0) { label_from_hash(pu.sender_hash, out, cap); return; }
+    if (pu.sender_hash != 0) { label_from_hash(pu.sender_hash, out, cap, cols); return; }
     snprintf(out, cap, "id %u", unsigned(pu.origin));
 }
+
+// ★★★ W4a — EACH DEVICE-LABEL SITE's COLUMN BUDGET (design §4.1 r2.20), NAMED AND DERIVED FROM EXISTING GEOMETRY —
+//     ⛔ no site passes a bare number. The two compose budgets need the body width and sit beside `kBodyCols`.
+//     ⓘ Every production budget is at least SIX cells (the member fingerprint), and every carrier has at least
+//     `budget + 1` bytes, so `IdentityFmt::no_fit` is unreachable at every production site — asserted, not argued.
+constexpr uint8_t kLabelMinCols   = uint8_t(mrui::kMemberFpCap - 1);     // the six-digit member fingerprint
+constexpr uint8_t kTeamNameCols   = uint8_t(mrui::kTeamLabelCols);       // TEAM row's name field                  (6)
+constexpr uint8_t kReplyWhoCols   = mrui::kLabelCap;                     // REPLY sender, the carriers' width     (14)
+constexpr uint8_t kInviteNameCols = uint8_t(mrui::kInviteNameCap - 1);   // invite carrier = NEW MEMBER name row (14)
+constexpr uint8_t kInviteCandCols = mrui::kInviteRowNameCols;            // candidate row's name column           (6)
+static_assert(kTeamNameCols >= kLabelMinCols && kReplyWhoCols >= kLabelMinCols &&
+              kInviteNameCols >= kLabelMinCols && kInviteCandCols >= kLabelMinCols,
+              "W4a: every device-label budget holds at least the six-digit member fingerprint");
+static_assert(sizeof(mrui::TeamRow::label) >= std::size_t(kTeamNameCols) + 1u &&
+              sizeof(OutcomeView::who) >= std::size_t(kReplyWhoCols) + 1u &&
+              sizeof(mrui::InviteMember::name) >= std::size_t(kInviteNameCols) + 1u,
+              "W4a: every resident label carrier holds its site's budget plus the NUL (zero resident growth)");
+static_assert(kInviteCandCols < kInviteNameCols,
+              "W4a: the candidate row's name-only second pass must be STRICTLY narrower than the carrier's first");
+static_assert(mrui::kInviteRowNameCols == mrui::kTeamLabelCols,
+              "W4a: a member on both screens renders ONE six-cell projection of one name");
 
 // ---- small formatters (ALL text formatting lives in this file, never in the board TU) ----------------------------
 // ★★★★ §CHROME-4 — `fmt_age` IS NOW A ONE-LINE ADAPTER ONTO `mrui::ui_fmt_home_age`, WHICH IS THE SECOND FORMATTER
@@ -774,7 +800,7 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
         //   same blank, through the same arm (spec §3.4's four terms; the other three are the pure unit's).
         // ⓘ COST (spec §6): ONE linear scan of at most `cap_peer_loc` (16) slots per shown row, per tick, bounded by
         //   `kMaxTeamRows` (8). ⛔ No flash, no radio, no allocation.
-        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label));
+        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);
         // ★★★★ §UI-16 N4 — THE **SECOND CONSUMER** OF THAT ONE RESOLUTION (spec §6, U1: *"one `team_key_of_id`
         //      resolution per row and hands it to BOTH consumers, ⛔ never two lookups for one row"*). The INVITE
         //      window needs the same member enumeration the TEAM screen is already walking, so it is projected
@@ -789,21 +815,24 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
         mem.id         = r.id;
         mem.key_hash32 = hash;          // ⛔ 0 = NO AUTHORITATIVE BINDING — the pure unit's fail-closed floor (F-7)
         // ★★★ THE NAME IS `Node::peer_name_find`'s ANSWER AND NOTHING ELSE (F-15 rules 2-3), asked HERE rather
-        //     than copied out of `r.label`: that string carries `label_from_hash`'s `0x%08lx` fallback and
-        //     `label_for_team_id`'s bare `id <n>`, and either one truncated into the row's six-column name field
-        //     would be a THIRD spelling of the hash. `""` — the blank column — is the honest state until a name
-        //     is cached beside a verified pubkey.
-        // ⚠ AND IT IS TERMINATED EXPLICITLY: `peer_name_find` COPIES `n` BYTES AND RETURNS `n` — it does not
-        //   NUL-terminate — so the cap it is given is one short of the buffer and the terminator is written
-        //   here, ⛔ never left to the caller's zero-initialisation.
+        //     than copied out of `r.label`: that string carries the member-fingerprint fallback and
+        //     `label_for_team_id`'s bare `id <n>`, and either one in the row's six-column name field would be a
+        //     THIRD spelling of the hash. `""` — the blank column — is the honest state until a name is cached
+        //     beside a verified pubkey.
+        // ★★★★ W4a — THE WHOLE NAME IS READ (32 counted bytes, never NUL-terminated by the raw API) AND FORMATTED AS A
+        //      NAME at the carrier's 14 cells (`kInviteNameCols`), which is what NEW MEMBER draws; the candidate row
+        //      projects it to six at draw time. ⛔ ONLY WHEN THERE IS ONE (`nn > 0`): an unnamed member keeps `""`
+        //      and ⛔ never reaches the formatter's hash branch, which would put a hash-derived token in the name
+        //      column (the defect probe control O8 reinstates).
         // ⚠ THE GUARD IS SPELLED `!= 0u`, ⛔ NOT `!= 0`, AND THAT IS DELIBERATE RATHER THAN A STYLE CHOICE
         //   (measured, not anticipated): the location publish two lines down carries the guard `if (hash != 0) {`,
         //   which is the ANCHOR of probe control C114 — a `sed` substring. A second identical line here makes that
         //   control mutate THIS block instead, and a landed control silently stops measuring what it names.
         mem.name[0] = '\0';
         if (hash != 0u) {
-            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));
-            mem.name[nn] = '\0';
+            char raw[MESHROUTE_NS::protocol::peer_name_max];
+            const uint8_t nn = g_node.peer_name_find(hash, raw, uint8_t(sizeof raw));
+            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);
         }
         if (hash != 0) {
             MESHROUTE_NS::Node::PeerLocSrc src = MESHROUTE_NS::Node::PeerLocSrc::peer;
@@ -1017,6 +1046,13 @@ static_assert(kBodyCols == mrui::kDetailCols,
 //   where the two meet, so a body that narrowed and a row that did not cannot coexist.
 static_assert(int(mrui::kTeamRowCols) == kBodyCols,
               "spec §3.2: the TEAM row fills the body's own column count — one width, not a second literal");
+// ★ W4a — THE TWO COMPOSE-SCREEN LABEL BUDGETS, FROM THE BODY WIDTH (design §4.1 r2.20): the header draws the peer after
+//   `to: ` (ONE literal, which the header's format also uses), and the DELIVERED result gives the peer a row of its own.
+constexpr char    kComposeToPrefix[] = "to: ";
+constexpr uint8_t kComposeToCols     = uint8_t(kBodyCols - int(sizeof kComposeToPrefix - 1));   // 15
+constexpr uint8_t kDeliveredCols     = uint8_t(kBodyCols);                                      // 19
+static_assert(kComposeToCols >= kLabelMinCols && kDeliveredCols >= kLabelMinCols,
+              "W4a: every device-label budget holds at least the six-digit member fingerprint");
 
 // ★★★★ THE ONE ORDINARY-BODY DRAW, AND IT DELIBERATELY DOES **NOT** CLAMP THE LINE.
 //   §7.1 rule 5 requires dynamic labels to be *"explicitly clamped or moved to a second row"*, and every one of them
@@ -1979,7 +2015,7 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         //   title           `INVITE MEMBER`                                     = 13
         //   team token      `3D9348`                                            = 6
         //   note            `NEW MEMBER` 10 · `NO CANDIDATES`                   = 13
-        //   candidate row   `%c%-6.6s T%-3u %6s` : `>Wolfga T221 6C2971`         = 19 exactly
+        //   candidate row   `%c%-6.6s T%-3u %6s` : `>Wolfg» T221 6C2971`         = 19 exactly
         //   back row        `%c%s`  : `>BACK`                                   = 5
         case mrui::Provision::invite: {
             body_text(0, mrui::kInviteTitle);
@@ -1997,7 +2033,15 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
                 char label[mrui::kInviteRowCap];
                 if (r.back) snprintf(label, sizeof label, "%c%s", marker,
                                      mrui::provision_row_label(mrui::ProvRow::back));
-                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);
+                else {
+                    // ★ W4a: the row takes a PREPARED six-cell name — the 14-cell carrier re-formatted at
+                    //   `kInviteCandCols`, the name-only two-pass rule (`firmware_ui_model.h`). The hash argument
+                    //   is 0 on purpose: an unnamed carrier is `""` and stays the blank column, ⛔ never a hash token.
+                    char name6[kInviteCandCols + 1];
+                    (void)mrui::ui_fmt_identity(name6, sizeof name6, r.cand.name, uint8_t(strlen(r.cand.name)), 0,
+                                                kInviteCandCols);
+                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);
+                }
                 body_text(uint8_t(3 + row), label);
             }
             return;
@@ -2192,7 +2236,7 @@ void draw_send_screen() {
 //   `-Wunused-variable` on the board envs and INVISIBLE to both the native suite and this file's host probe ([[B169]]).
 void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
     if (st.compose == mrui::Compose::dm) {
-        char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));
+        char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);
         switch (v.dm) {
             case mrui::DmState::idle:
             case mrui::DmState::submitting:    body_text(1, "SENDING..."); break;
@@ -2209,7 +2253,8 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
             //    `DELIVERED to <14-column label>` is 27 columns; it already over-ran the OLD 21-column body (u8g2
             //    was clipping the name of the person the message reached) and at 19 it would lose even more. ⛔ The
             //    label is the one thing on this screen that must not be truncated — it is WHO the delivery was to —
-            //    so the two facts take a row each: `DELIVERED to` (12) then the label (<= 14).
+            //    so the two facts take a row each: `DELIVERED to` (12) then the label, formatted at the row's full
+            //    `kDeliveredCols` (19) — a longer name is abbreviated VISIBLY with `»` (W4a), never clipped.
             case mrui::DmState::delivered:
                 body_text(1, "DELIVERED to");
                 body_text(2, label);
@@ -2272,8 +2317,10 @@ void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outc
     if (dm) {
         // The peer was bound at ENTRY (`compose_peer`), so a roster that reorders under an open modal cannot retarget
         // the label — or the send. Resolve the label from that bound id, never from the cursor.
-        char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));
-        snprintf(head, sizeof head, "to: %s", label);
+        // ⓘ W4a: formatted at the 15 cells `to: ` leaves (`kComposeToCols`). ⓘ Looked up LIVE at draw time, as
+        //   before — W4a adds no freeze, so a rename between two page replays is not claimed atomic.
+        char label[kComposeToCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kComposeToCols);
+        snprintf(head, sizeof head, "%s%s", kComposeToPrefix, label);
     } else {
         snprintf(head, sizeof head, "to: team ch %u", unsigned(MR_UI_TEAM_CHANNEL_ID));
     }
@@ -2736,7 +2783,9 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
         //      function for the full argument and for why `same_team` IS the three-clause guard.
         case MESHROUTE_NS::PushKind::msg_recv:
         case MESHROUTE_NS::PushKind::channel_recv: {
-            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who));
+            // ★ W4a: formatted HERE, at the carriers' 14 cells (`kReplyWhoCols`), BEFORE the model sees it; `on_reply`
+            //   and `freeze_outcome` then copy it verbatim, so the generated `»` survives — ⛔ never re-sanitized.
+            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);
             (void)mrui::ui_route_recv_push(s_counters, s_model, pu, uint8_t(MR_UI_TEAM_CHANNEL_ID),
                                            g_node.same_team(pu.team_id), who, now);
             break;

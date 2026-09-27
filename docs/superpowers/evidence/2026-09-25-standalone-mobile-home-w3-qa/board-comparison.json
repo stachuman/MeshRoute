@@ -1,0 +1,109 @@
+[
+  {
+    "env": "gateway",
+    "fields_equal": {
+      "measurements": true,
+      "toolchain": true,
+      "fixed_identity": true,
+      "paths": true,
+      "payload": true,
+      "elf": true
+    },
+    "measurements": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 769540,
+        "filename": "firmware.elf",
+        "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      }
+    },
+    "qa_source": {
+      "deleted_files": [],
+      "file_count": 1425,
+      "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+      "git_status_sha256": "08f25c1c14e35103ff3b41ca26ed6bf97a38f082fa21cdfcac5d2ccd1e597335",
+      "tree_sha256": "bf6e30c757cf352644fdf114da6beb3b580a0d8fd2786aba0869f3393a711f5f"
+    },
+    "coder_source": {
+      "deleted_files": [],
+      "file_count": 1392,
+      "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+      "git_status_sha256": "c7c2b9f0ff2f95e72c18245b7505d0bd630567f9cc174641ec0d84f8889bf00d",
+      "tree_sha256": "85fd4259c77538ce10a3148df36650494828d4b99247dddb3ae96743228d9a53"
+    },
+    "normal_pio_metadata_expected_to_differ": true
+  },
+  {
+    "env": "heltec_mobile",
+    "fields_equal": {
+      "measurements": true,
+      "toolchain": true,
+      "fixed_identity": true,
+      "paths": true,
+      "payload": true,
+      "elf": true
+    },
+    "measurements": {
+      "flash_bytes": 1394588,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218100,
+        ".flash.text": 1072358,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211724,
+      "symbol_count": 13297,
+      "symbol_size_total": 1495987,
+      "symbols_sha256": "417acc130738b3b17e1c915300ca5d5dd2208d5d1ad8bb0dbe028acd3c603e1e"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 21599720,
+        "filename": "firmware.elf",
+        "sha256": "d6db1116bd1125b0e2750d20a1fdaca9b0003b3881c5b1db58de7c402703d86b"
+      },
+      "payload": {
+        "bytes": 1395232,
+        "filename": "firmware.bin",
+        "sha256": "70c33b3f895b1ee98290cdf454a01ecd97af336cb82da4a794d94862abcad69f"
+      }
+    },
+    "qa_source": {
+      "deleted_files": [],
+      "file_count": 1425,
+      "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+      "git_status_sha256": "08f25c1c14e35103ff3b41ca26ed6bf97a38f082fa21cdfcac5d2ccd1e597335",
+      "tree_sha256": "bf6e30c757cf352644fdf114da6beb3b580a0d8fd2786aba0869f3393a711f5f"
+    },
+    "coder_source": {
+      "deleted_files": [],
+      "file_count": 1392,
+      "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+      "git_status_sha256": "c7c2b9f0ff2f95e72c18245b7505d0bd630567f9cc174641ec0d84f8889bf00d",
+      "tree_sha256": "85fd4259c77538ce10a3148df36650494828d4b99247dddb3ae96743228d9a53"
+    },
+    "normal_pio_metadata_expected_to_differ": true
+  }
+]

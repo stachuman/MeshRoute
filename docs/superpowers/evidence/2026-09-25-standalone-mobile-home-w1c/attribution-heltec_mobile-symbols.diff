@@ -1,0 +1,30 @@
+1721c1721
+< _ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE	FUNC	GLOBAL	DEFAULT	.flash.text	5574
+---
+> _ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE	FUNC	GLOBAL	DEFAULT	.flash.text	5578
+2479c2479
+< _ZN9meshroute4Node10on_commandERKNS_7CommandE	FUNC	GLOBAL	DEFAULT	.flash.text	2710
+---
+> _ZN9meshroute4Node10on_commandERKNS_7CommandE	FUNC	GLOBAL	DEFAULT	.flash.text	2706
+2537c2537
+< _ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb	FUNC	GLOBAL	DEFAULT	.flash.text	334
+---
+> _ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb	FUNC	GLOBAL	DEFAULT	.flash.text	338
+2637c2637
+< _ZN9meshroute4Node19intro_attach_prefixEmNS_11CryptIntentEhPhh	FUNC	GLOBAL	DEFAULT	.flash.text	182
+---
+> _ZN9meshroute4Node19intro_attach_prefixEmNS_11CryptIntentEhPhh	FUNC	GLOBAL	DEFAULT	.flash.text	186
+2777c2777
+< _ZN9meshroute4Node30send_hash_bind_pubkey_responseEhhhPKhmb	FUNC	GLOBAL	DEFAULT	.flash.text	154
+---
+> _ZN9meshroute4Node30send_hash_bind_pubkey_responseEhhhPKhmb	FUNC	GLOBAL	DEFAULT	.flash.text	158
+2799c2799
+< _ZN9meshroute4Node8on_timerEm	FUNC	GLOBAL	DEFAULT	.flash.text	1276
+---
+> _ZN9meshroute4Node8on_timerEm	FUNC	GLOBAL	DEFAULT	.flash.text	1272
+3064c3064
+< _ZNK9meshroute4Node14effective_nameEPch	FUNC	GLOBAL	DEFAULT	.flash.text	170
+---
+> _ZNK9meshroute4Node14effective_nameEPch	FUNC	GLOBAL	DEFAULT	.flash.text	39
+3497d3496
+< _ZZNK9meshroute4Node14effective_nameEPchE3pfx	OBJECT	LOCAL	DEFAULT	.flash.rodata	19

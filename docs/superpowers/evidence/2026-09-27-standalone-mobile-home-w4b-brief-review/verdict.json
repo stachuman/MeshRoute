@@ -1,0 +1,15 @@
+{
+  "allocation": "Accepted as already ruled; independently remeasured",
+  "authorized_for_dispatch": false,
+  "date": "2026-09-27",
+  "findings": {
+    "W4B-1": "MAJOR",
+    "W4B-2": "MAJOR",
+    "W4B-3": "MAJOR",
+    "W4B-4": "MINOR"
+  },
+  "owner_ruling_requested": false,
+  "report_sha256": "5df9ea38d34031ff517ee15bd38cc7f468b7b3c3aa2085dc1cd6d6ca1fdfe479",
+  "reviewed_brief_sha256": "a354c251da007415de8b3b616d65da47933918d0dcc8e67cc0d4c90a3edf599e",
+  "verdict": "HOLD"
+}

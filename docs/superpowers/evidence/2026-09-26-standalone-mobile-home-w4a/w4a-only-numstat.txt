@@ -1,0 +1,10 @@
+src/firmware_ui.cpp                      +78 -29
+src/firmware_ui_invite.h                 +26 -20
+src/firmware_ui_model.h                  +54 -9
+src/firmware_ui_team.h                   +9 -4
+test/test_firmware_ui_invite.cpp         +71 -19
+test/test_firmware_ui_model.cpp          +206 -1
+test/test_firmware_ui_team.cpp           +78 -15
+tools/probe_firmware_ui/probe_main.cpp   +234 -46
+tools/probe_firmware_ui/run.sh           +117 -34
+tools/probe_ui_model_mutations.py        +51 -8

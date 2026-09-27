@@ -1,0 +1,38 @@
+[
+  {
+    "battery": "model",
+    "source": "src/firmware_ui_model.h",
+    "configured": 239,
+    "nonunique": []
+  },
+  {
+    "battery": "sliceCbudget",
+    "source": "src/firmware_ui_model.h",
+    "configured": 1,
+    "nonunique": []
+  },
+  {
+    "battery": "uipresets",
+    "source": "src/firmware_ui_presets.h",
+    "configured": 32,
+    "nonunique": []
+  },
+  {
+    "battery": "uisend",
+    "source": "src/firmware_ui_send.h",
+    "configured": 15,
+    "nonunique": []
+  },
+  {
+    "battery": "config",
+    "source": "src/firmware_config_service.h",
+    "configured": 32,
+    "nonunique": []
+  },
+  {
+    "battery": "uiprov",
+    "source": "src/firmware_ui_prov.h",
+    "configured": 45,
+    "nonunique": []
+  }
+]

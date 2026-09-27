@@ -1,0 +1,179 @@
+--- verified-stage-A-test
++++ frozen-final-test
+@@ -2430,6 +2430,135 @@
+     CHECK(m.state().detail_page == 1);
+     CHECK(std::strcmp(m.state().detail_line[0], "MNOPQRS") == 0);
+     CHECK(m.state().detail_line[1][0] == '\0');
++}
++
++// ---------------------------------------------------------------------------------------------- W3 — the pure pager
++// ★★ W3 STAGE B — `detail_page_count` / `detail_page_rows`, at the modal's geometry and at others, over LOCAL buffers
++//    (`UiState` is not widened). A row buffer is pre-filled with `#` so "exactly one NUL, the tail untouched" is a
++//    measurement rather than an assumption.
++TEST_CASE("w3-pager: the (19, 2) geometry IS the detail modal — every page of every boundary body agrees") {
++    static uint8_t big[MESHROUTE_NS::protocol::inbox_max_body];
++    for (uint16_t i = 0; i < sizeof big; ++i) big[i] = uint8_t('A' + (i % 26));
++    for (uint16_t len : { 0, 1, 38, 39, 76, 77, 241 }) {
++        UiModel m; auto s = snap_inbox(1);
++        to_inbox(m, s);
++        CHECK(open_detail(m, s, big, uint8_t(len)) == true);
++        const uint8_t pages = detail_page_count<kDetailCols, kDetailBodyRows>(uint8_t(len));
++        CHECK(m.state().detail_pages == pages);
++        for (uint8_t p = 0; p < pages; ++p) {
++            if (p) m.on_tick(snap_inbox(1, 1000 + uint32_t(p) * kDetailPageMs));
++            CHECK(m.state().detail_page == p);
++            char rows[kDetailBodyRows][kDetailCols + 1];
++            detail_page_rows<kDetailCols, kDetailBodyRows>(reinterpret_cast<const char*>(big), uint8_t(len), p, rows);
++            for (uint8_t r = 0; r < kDetailBodyRows; ++r) CHECK(std::strcmp(m.state().detail_line[r], rows[r]) == 0);
++        }
++    }
++}
++
++TEST_CASE("w3-pager: (19, 2) counts and slices — full, partial and empty rows, one NUL each, the tail untouched") {
++    CHECK(detail_page_count<19, 2>(0) == 1);                     // ⛔ never zero
++    CHECK(detail_page_count<19, 2>(1) == 1);
++    CHECK(detail_page_count<19, 2>(38) == 1);                    // an exact multiple adds no empty page
++    CHECK(detail_page_count<19, 2>(39) == 2);                    // ...and one byte more does
++    CHECK(detail_page_count<19, 2>(76) == 2);
++    CHECK(detail_page_count<19, 2>(77) == 3);
++    CHECK(detail_page_count<19, 2>(241) == 7);
++    CHECK(detail_page_count<19, 2>(255) == 7);                   // the uint8_t maximum
++    char body[241];
++    for (int i = 0; i < 241; ++i) body[i] = char('a' + i % 26);
++    char rows[2][20];
++    // 241 bytes, page 7 of 7: it starts at byte 228 — 13 bytes on the first row, the second row EMPTY
++    memset(rows, '#', sizeof rows);
++    detail_page_rows<19, 2>(body, 241, 6, rows);
++    CHECK(memcmp(rows[0], body + 228, 13) == 0);
++    CHECK(rows[0][13] == '\0');
++    CHECK(rows[0][14] == '#');                                   // ⛔ nothing past the NUL is written
++    CHECK(rows[1][0] == '\0');
++    CHECK(rows[1][1] == '#');
++    // 76 bytes: two FULL pages, NUL at column 19 on every row
++    detail_page_rows<19, 2>(body, 76, 0, rows);
++    CHECK(memcmp(rows[0], body, 19) == 0);       CHECK(rows[0][19] == '\0');
++    CHECK(memcmp(rows[1], body + 19, 19) == 0);  CHECK(rows[1][19] == '\0');
++    detail_page_rows<19, 2>(body, 76, 1, rows);
++    CHECK(memcmp(rows[0], body + 38, 19) == 0);  CHECK(rows[0][19] == '\0');
++    CHECK(memcmp(rows[1], body + 57, 19) == 0);  CHECK(rows[1][19] == '\0');
++    // 39 bytes, page 2: ONE byte, then an empty row
++    memset(rows, '#', sizeof rows);
++    detail_page_rows<19, 2>(body, 39, 1, rows);
++    CHECK(rows[0][0] == body[38]);
++    CHECK(rows[0][1] == '\0');
++    CHECK(rows[0][2] == '#');
++    CHECK(rows[1][0] == '\0');
++    // length 0: two empty rows, and nothing else touched
++    memset(rows, '#', sizeof rows);
++    detail_page_rows<19, 2>(body, 0, 0, rows);
++    CHECK(rows[0][0] == '\0');
++    CHECK(rows[0][1] == '#');
++    CHECK(rows[1][0] == '\0');
++    CHECK(rows[1][1] == '#');
++}
++
++TEST_CASE("w3-pager: a THREE-row geometry pages by 57 and fills three rows") {
++    CHECK(detail_page_count<19, 3>(0) == 1);
++    CHECK(detail_page_count<19, 3>(57) == 1);
++    CHECK(detail_page_count<19, 3>(58) == 2);
++    CHECK(detail_page_count<19, 3>(114) == 2);
++    CHECK(detail_page_count<19, 3>(241) == 5);                   // ceil(241 / 57)
++    char body[241];
++    for (int i = 0; i < 241; ++i) body[i] = char('A' + i % 26);
++    char rows[3][20];
++    detail_page_rows<19, 3>(body, 241, 1, rows);                 // bytes 57..113, three full rows
++    CHECK(memcmp(rows[0], body + 57, 19) == 0);  CHECK(rows[0][19] == '\0');
++    CHECK(memcmp(rows[1], body + 76, 19) == 0);  CHECK(rows[1][19] == '\0');
++    CHECK(memcmp(rows[2], body + 95, 19) == 0);  CHECK(rows[2][19] == '\0');
++    memset(rows, '#', sizeof rows);
++    detail_page_rows<19, 3>(body, 241, 4, rows);                 // the last page starts at 228: 13 bytes, two empty
++    CHECK(memcmp(rows[0], body + 228, 13) == 0);
++    CHECK(rows[0][13] == '\0');
++    CHECK(rows[1][0] == '\0');
++    CHECK(rows[2][0] == '\0');
++    CHECK(rows[2][1] == '#');
++}
++
++TEST_CASE("w3-pager: small geometries — lengths 0, 1, exact multiples, +1 and the maximum, with no truncation") {
++    // (1, 1): one byte a page, so the page count IS the length — up to the uint8_t maximum
++    CHECK(detail_page_count<1, 1>(0) == 1);
++    CHECK(detail_page_count<1, 1>(1) == 1);
++    CHECK(detail_page_count<1, 1>(2) == 2);
++    CHECK(detail_page_count<1, 1>(255) == 255);
++    // (4, 2): eight a page
++    CHECK(detail_page_count<4, 2>(8) == 1);
++    CHECK(detail_page_count<4, 2>(9) == 2);
++    CHECK(detail_page_count<4, 2>(16) == 2);
++    CHECK(detail_page_count<4, 2>(17) == 3);
++    CHECK(detail_page_count<4, 2>(255) == 32);
++    // the widest geometry: `len + per - 1` must not wrap anywhere near the top of the range
++    CHECK(detail_page_count<255, 255>(0) == 1);
++    CHECK(detail_page_count<255, 255>(255) == 1);
++    CHECK(detail_page_count<255, 1>(255) == 1);
++    const char nine[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
++    char r42[2][5];
++    memset(r42, '#', sizeof r42);
++    detail_page_rows<4, 2>(nine, 9, 0, r42);
++    CHECK(memcmp(r42[0], "1234", 5) == 0);                       // four bytes and the NUL
++    CHECK(memcmp(r42[1], "5678", 5) == 0);
++    memset(r42, '#', sizeof r42);
++    detail_page_rows<4, 2>(nine, 9, 1, r42);
++    CHECK(r42[0][0] == '9');
++    CHECK(r42[0][1] == '\0');
++    CHECK(r42[0][2] == '#');
++    CHECK(r42[1][0] == '\0');
++    CHECK(r42[1][1] == '#');
++    // (1, 1) at the maximum: page 254 of a 255-byte body is its last byte — a counted body may hold NUL bytes
++    char big[255];
++    for (int i = 0; i < 255; ++i) big[i] = char(i);
++    char r11[1][2];
++    detail_page_rows<1, 1>(big, 255, 254, r11);
++    CHECK(uint8_t(r11[0][0]) == 254);
++    CHECK(r11[0][1] == '\0');
++    detail_page_rows<1, 1>(big, 255, 0, r11);
++    CHECK(r11[0][0] == '\0');                                    // byte 0 IS a NUL, copied as a byte, not a stop
++    CHECK(r11[0][1] == '\0');
+ }
+ 
+ TEST_CASE("ui7d-modal: unsupported display bytes are replaced VISIBLY — NUL, control and high-bit alike") {
+@@ -5405,19 +5534,21 @@
+     // ...and the wrapped body rows themselves
+     CHECK(size_t(kDetailCols) <= kCols);
+ 
+-    // ---- ★★★★ §UI-10/11 P3 — THE COMPOSE ROWS, AT THE **WIDEST PHRASE THE CATALOG CAN HOLD**. ⛔ WITHDRAWN AND
++    // ---- ★★★★ §UI-10/11 P3 — THE COMPOSE ROWS, AT THE **WIDEST PHRASE A ROW DISPLAYS WHOLE**. ⛔ WITHDRAWN AND
+     //      KEPT VISIBLE: this used to walk `kDmTexts` / `kChannelTexts` and check `1 + strlen(text) <= kCols`, i.e.
+     //      the FIVE compiled strings. Those tables are retired, and — the point of OQ-A — a configured phrase can be
+-    //      LONGER than any of them. ⇒ the budget is now proved against the BOUND (`mrnv::kUiPresetTextMax`, 17), so
+-    //      it holds for every phrase the wearer can ever store rather than for the five that shipped.
+-    // ★★ OQ-A's ARITHMETIC, ASSERTED RATHER THAN RESTATED: selection marker 1 + location marker 1 + text 17 = 19.
+-    CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));
++    //      LONGER than any of them. ⇒ the budget is proved against the row's DISPLAY bound (`kComposeTextCols`, 17).
++    // ⓘ W3: TWO SEPARATE FACTS, which agree today. The row's text width is permanent GEOMETRY (asserted here); the
++    //   record's own limit `mrnv::kUiPresetTextMax` (OQ-A's 17) is the record's, pinned by the presets suite. So the
++    //   17-byte fixture below is the DISPLAY bound, and it is also the longest phrase the record accepts today.
++    // ★★ THE ROW's ARITHMETIC, ASSERTED RATHER THAN RESTATED: selection marker 1 + location marker 1 + text 17 = 19.
++    CHECK(1u + 1u + size_t(kComposeTextCols) == size_t(kCols));
+     {
+         // A catalog whose two DM and two channel slots all carry a MAXIMUM-LENGTH phrase, in both location states.
+         mrnv::UiPresetBlob wide{};
+         mrfw::preset_defaults(wide);
+         const char* w17 = "ABCDEFGHIJKLMNOPQ";                 // exactly 17
+-        CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));
++        CHECK(strlen(w17) == size_t(kComposeTextCols));
+         for (uint8_t i : { uint8_t(mrfw::kPresetDmFirst), uint8_t(mrfw::kPresetDmFirst + 1),
+                            uint8_t(mrfw::kPresetChannelFirst), uint8_t(mrfw::kPresetChannelFirst + 1) })
+             mrfw::preset_slot_put(wide.slot[i], true, (i % 2) == 0, w17, strlen(w17));
+@@ -5442,8 +5573,10 @@
+     //    the five COMPILED strings, and the catalog is now the WEARER's. Nothing in this tree can stop him
+     //    configuring `dm1` and `dm2` to the same words — and refusing a duplicate would be a new owner ruling
+     //    (§3.2.3's `set` validation has no such clause). ⇒ what survives is the half that is still ours to keep:
+-    //    a phrase can never be CLAMPED at all, because `validate_preset_text` refuses 18+ bytes outright, so two
+-    //    distinct phrases can never become identical *through truncation*. That is asserted above.
++    //    TODAY no stored phrase is CLAMPED by the row — `validate_preset_text` refuses more than the record's 17
++    //    bytes, and 17 is also the row's display width — so two distinct phrases cannot become identical *through
++    //    truncation*. That is asserted above. ⓘ It holds because the two limits agree, not because one derives the
++    //    other; a record limit wider than the row would need its own display ruling, which this test does not make.
+     // ⓘ The emergency body is EXEMPT and stays 21 columns at x = 0 (§5.3) — the emergency phrase is not a body row
+     //   at all (it is the wire text of the alarm), and the `Font::large` headlines have their own 12-column budget,
+     //   pinned by `tools/probe_board_ui`'s W11b.

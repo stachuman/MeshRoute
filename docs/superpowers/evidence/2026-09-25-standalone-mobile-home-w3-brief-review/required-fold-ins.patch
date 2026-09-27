@@ -1,0 +1,90 @@
+--- a/docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
++++ b/docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
+@@ -1,7 +1,7 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # Standalone Home W3 — three UI-model seams (`src`-only refactor, C1)
+ 
+-**Revision 1 — 2026-09-25 — DRAFT, awaiting Quality-Agent review.**
++**Revision 2 — 2026-09-25 — QUALITY-AGENT PASS with fold-ins; authorized by the [QA brief-review receipt](../evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md).**
+ 
+ - **Base:** commit **`8360802`** (`8360802904f7bd0023279d3da844453d61207ede`) **plus the uncommitted, QA-passed W1c
+   candidate and its landing documents**. This is not HEAD alone. The authority for the whole working tree is the
+@@ -165,8 +165,9 @@
+ 
+ **Stage A — instrument first, against the unchanged production source.** Add, run and pass:
+ - **Firmware-UI probe fixtures** (`probe_main.cpp`) through the real renderer, with exact row text at exact rows:
+-  1. **Detail:** bodies of 0, 38, 39, 76 and 241 bytes. For each, every page's header and two body rows, the final
+-     partial row, the cycle back to page 0, and blank/wake on a page other than 0 (the page is kept).
++  1. **Detail:** bodies of 0, 38, 39, 76 and 241 bytes. For each, every page's header and two body rows, including
++     empty and partial rows. Multi-page bodies also cycle back to page 0 and blank/wake on a page other than 0
++     (the page is kept); single-page bodies stay on page 0 across cadence ticks and blank/wake.
+   2. **Compose:** a 17-byte DM phrase and a 17-byte channel phrase, each selected and unselected, with both location
+      markers. GRANT KEY, BACK and the empty-list rows stay unchanged, and the generation and frozen-frame checks keep.
+   3. **Blocked PROVISION**, on the real SETTINGS → PROVISION path, on a capability-bearing arm (today the
+@@ -338,7 +339,7 @@
+ ### 4.2 QA's independent gate (P6, `src`-only)
+ 
+ On the frozen tree, QA re-runs:
+-- **Native** — the binary run;
++- **Native** — a fresh `pio test -e native`, then run `./.pio/build/native/program`; no inherited binary result;
+ - **Corpus** — 36/36 byte-identical;
+ - **Boards** — its own `pair --jobs=1` into a fresh `.pio-measure/` directory. Its `measurements.*` and payload hashes
+   must equal the coder's `final-1`, read field by field;
+@@ -351,8 +352,9 @@
+ 
+ - **Frozen instruments:** a stage-A fixture expectation or control changed after stage A (hash drift in `probe_main.cpp`
+   or `run.sh`), or a stage-A native case edited beyond the named restatements.
+-- **Behaviour and layout:** any behaviour change, meaning any native, probe or corpus delta; a data member added, or any
+-  ABI/offset change.
++- **Behaviour and layout:** any changed existing native expectation, any stage-A render/check outcome changed by
++  stage B, any corpus stream delta, a data member added, or any ABI/offset change. The planned added test counts and
++  named assertion restatements are permitted; derive and report them, without weakening existing expectations.
+ - **Fence:** an edit outside §3, `src/firmware_ui.cpp` included.
+ - **SETTINGS opening:** a change to arrival opening, the no-latch retry, or the no-extra-load facts.
+ - **Controls and entries:**
+@@ -374,12 +376,18 @@
+   `heltec_mobile`), copied from `.pio-measure/w3/` **after the last measurement run**;
+ - **Board comparisons:** the four `compare` outputs and the attribution table;
+ - **Stage A:** its hashes and run results;
+-- **Logs:** native, corpus manifest with its field comparison, ABI, every probe mode, discovery, census and union;
++- **Durable receipts:** compact native, ABI, probe-mode, discovery, census and union summaries; the full corpus
++  manifest and field comparison; locations and SHA-256 hashes of the raw logs retained outside this folder;
+ - **The re-anchor table and the reader-audit greps** (D6/P7), including the grep showing no `kUiPresetTextMax` reader
+   in the compose-row path;
+ - **A `SHA256SUMS`** covering everything.
+ 
+-The raw measurements stay under the gitignored `.pio-measure/w3/`; build trees stay outside the repository.
++Follow [the evidence-retention policy](../evidence/README.md): raw runs/logs go under ignored
++`artifacts/2026-09-25-standalone-mobile-home-w3/` or a named external archive. Raw board measurement outputs stay
++under `.pio-measure/w3/`; the stock tool keeps its stable per-env build/libdeps/workspace roots under
++`.pio-measure/env/`. Do not relocate those roots: the mobile payload is path-dependent. Native uses normal `.pio/`;
++simulator and mutation scratch builds stay outside both repositories. Compact receipts and copied board manifests
++remain in the durable evidence folder above.
+ 
+ The report contains:
+ 1. **Preflight:** both repositories' identity and status, every §1 hash as found, and the inventory check.
+@@ -401,8 +409,11 @@
+    - the stability statement.
+ 9. **Not run,** with reasons. Expected:
+    - the full board-UI probe (B418, W2);
+-   - the other probes, which compile or read none of the fenced files: console sink, inbox verbs, custody USB, BLE
+-     line, feature matrix and deferred actions. The coder confirms each by grep against the final edits;
++   - console sink, inbox verbs, custody USB, BLE line and deferred actions: no affected predicate or compiled
++     implementation under the stated fence, subject to the final D6/P7 reader audit;
++   - the full feature-matrix probe: its ownership scanner **does read** the model header and native test file,
++     scanning `lib/src/test` for the remote-admin capability pair. W3 changes none of those predicates. Verify this
++     against the final edits and rerun any affected check/control; do not claim that these files are unread;
+    - the command inventory and authority checkers — `firmware_ui_model.h` is not in their scan (discovery still runs
+      the inventory's real-tree test);
+    - metal.
+@@ -422,6 +433,10 @@
+ 
+ ## 8. Revision history
+ 
++**Revision 2 (2026-09-25)** folds in QA W3R-1–W3R-3: applicability of single-page versus multi-page fixtures,
++planned count increases versus regression stops, an explicit fresh QA native build, the feature-ownership reader
++scope, and raw-artifact/build-root wording. No production contract, fence, mutation effect or required gate is removed.
++
+ **Revision 1 (2026-09-25)** is the first draft, built on the W3 pre-check.
+ - It adopts the pre-check's recommended shape, fence, dependency selector and re-anchor ledger.
+ - It adds the stage-A/stage-B protocol that makes the render proof precede the extraction.

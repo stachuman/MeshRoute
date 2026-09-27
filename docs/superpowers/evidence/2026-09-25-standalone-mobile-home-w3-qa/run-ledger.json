@@ -1,0 +1,206 @@
+[
+  {
+    "label": "native-build",
+    "argv": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 2.093,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/native-build.log",
+    "log_sha256": "c594c65b7ae275058ce7103d09db7d9b48447ac186d8a31abac14501b61a30e3"
+  },
+  {
+    "label": "native-binary",
+    "argv": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 0.751,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/native-binary.log",
+    "log_sha256": "1ad87b5e06e47dee360867a820356d0b6f8ae9883ce74546f7924182b354b158"
+  },
+  {
+    "label": "abi",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 19.693,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/abi.log",
+    "log_sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+  },
+  {
+    "label": "firmware-ui",
+    "argv": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 345.029,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/firmware-ui.log",
+    "log_sha256": "1e2fe62d9b8269d71de5baa5546bb9b7fd32e16f8d7663217d53549b219d98bc"
+  },
+  {
+    "label": "sim-configure",
+    "argv": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w3-qa-n5ab83ph/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 0.501,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/sim-configure.log",
+    "log_sha256": "9aee40c9b550ab46d4926517de0e470262b4c98d2baa130448677e22ffd0134d"
+  },
+  {
+    "label": "sim-build",
+    "argv": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w3-qa-n5ab83ph/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 31.9,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/sim-build.log",
+    "log_sha256": "9b33eb2f81528e27e044c283f051c3ce996b569090ef2b34816a71f5c1f5c593"
+  },
+  {
+    "label": "corpus",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w3-qa-n5ab83ph/corpus",
+      "--lus",
+      "/tmp/meshroute-w3-qa-n5ab83ph/sim-build/orchestrator/lus",
+      "--jobs",
+      "4",
+      "--require-anchors"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 52.639,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/corpus.log",
+    "log_sha256": "f8b848a011c3a86f708365a986b7b69523d8a912125226329d17e928ed1d7c86"
+  },
+  {
+    "label": "board-ui-diagnostic",
+    "argv": [
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "seconds": 11.403,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/board-ui-diagnostic.log",
+    "log_sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8"
+  },
+  {
+    "label": "feature-ownership",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_features/ownership.py"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 1.689,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/feature-ownership.log",
+    "log_sha256": "fe4e18f9b319a8e3d483a38094c39f683f9e30e8f2ae85e6a6ce3bb8d30a7cfb"
+  },
+  {
+    "label": "tools-discovery",
+    "argv": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "seconds": 731.383,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/tools-discovery.log",
+    "log_sha256": "72883fbd8209a6655d95f1cbca2b536cd892812ff87efca628a40b535e821d88"
+  },
+  {
+    "label": "stage-a-render-replay",
+    "argv": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh",
+      "--no-neg"
+    ],
+    "cwd": "/tmp/meshroute-w3-qa-n5ab83ph/stage-a",
+    "exit": 0,
+    "seconds": 33.793,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/stage-a-render-replay.log",
+    "log_sha256": "0083557ceb26f3b3e52fc471c9efa6f2775c2c36bf784dddd22fb74bc2b9cc8b"
+  },
+  {
+    "label": "mutation-model",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=model"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "seconds": 677.035,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/mutation-model.log",
+    "log_sha256": "40fdd25b5f8d9edaae00d473e7e45713a77d2c04b9cb9df6125017ad9f2336be"
+  },
+  {
+    "label": "mutation-sliceCbudget",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceCbudget"
+    ],
+    "cwd": "/home/staszek/MeshRoute",
+    "exit": 0,
+    "seconds": 22.667,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/mutation-sliceCbudget.log",
+    "log_sha256": "14a4a68a44990c5704fa46a2c7ffdae462ee7b12ddb5a0a075e089950f474a2f"
+  },
+  {
+    "label": "boards",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w3/qa-1"
+    ],
+    "exit": 0,
+    "seconds": 43.967,
+    "log": "artifacts/2026-09-25-standalone-mobile-home-w3-qa/boards.log",
+    "log_sha256": "3c23d7b9014ce4da3003de54d79ba75817617709912c727a394ac3194676d5c7"
+  }
+]

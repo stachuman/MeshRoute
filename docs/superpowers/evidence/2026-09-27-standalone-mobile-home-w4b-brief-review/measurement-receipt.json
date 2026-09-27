@@ -1,0 +1,79 @@
+{
+  "command": "python3 -B docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/layout-measure.py --output /tmp/meshroute-w4b-brief-review-layout.json",
+  "derived": {
+    "gateway": {
+      "is_linked_ram": false,
+      "sizes": {
+        "mrui::UiChrome": [
+          20,
+          20
+        ],
+        "mrui::UiModel": [
+          912,
+          936
+        ],
+        "mrui::UiSnapshot": [
+          1336,
+          1368
+        ],
+        "mrui::UiState": [
+          504,
+          520
+        ]
+      },
+      "static_sum_delta": 72
+    },
+    "heltec_mobile": {
+      "is_linked_ram": false,
+      "sizes": {
+        "mrui::UiChrome": [
+          20,
+          20
+        ],
+        "mrui::UiModel": [
+          912,
+          936
+        ],
+        "mrui::UiSnapshot": [
+          1336,
+          1368
+        ],
+        "mrui::UiState": [
+          504,
+          520
+        ]
+      },
+      "static_sum_delta": 72
+    },
+    "native": {
+      "is_linked_ram": false,
+      "sizes": {
+        "mrui::UiChrome": [
+          20,
+          20
+        ],
+        "mrui::UiModel": [
+          928,
+          944
+        ],
+        "mrui::UiSnapshot": [
+          1336,
+          1368
+        ],
+        "mrui::UiState": [
+          504,
+          520
+        ]
+      },
+      "static_sum_delta": 64
+    }
+  },
+  "driver": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/layout-measure.py",
+  "driver_sha256": "d0e129c21337be56b1ddd7bc66a238e0aa6c171ec79e3b3d51b804700e9025f8",
+  "exit_code": 0,
+  "other_variants": "The unchanged pre-check driver also measures its original alternatives; none is proposed or authorized here.",
+  "raw_log": "artifacts/2026-09-27-standalone-mobile-home-w4b-brief-review/layout.log",
+  "raw_log_sha256": "1124e8c14fdfc26c40bedb7369ca6ac52a2bd189e722f3e50dd18dc9c7f6ec54",
+  "scope": "Fresh scratch-header layout measurements only; no linked board size or gate claim",
+  "selected_variant": "reuse_focus_append_name"
+}

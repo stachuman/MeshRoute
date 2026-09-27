@@ -1,0 +1,26 @@
+{
+  "production_review": {
+    "only_w3_production_path": "src/firmware_ui_model.h",
+    "renderer_unchanged": true,
+    "new_data_members": 0,
+    "pager": "Counted bytes, nonzero compile-time geometry, 32-bit offsets, one terminator per row; existing normalization, cadence, wake, deletion and modal buffers stay at their old call sites. Geometry up to 255 by 255 and length up to 255 cannot overflow arithmetic.",
+    "compose": "17 display columns derive from kDetailCols minus two markers; only frozen display sizing/copy use this constant. Live catalog send and generation gates remain unchanged.",
+    "provision": "Existing arrival opener is shared with admission; repeated opens are skipped while open, failed opens retry on later sync. Conflict precedes unsaved; caller alone transitions; no save/apply or new note.",
+    "future_branch": "Unattached/still-closed admission is unreachable through current SETTINGS flow. It is explicitly untested until W4b adds a caller, as the approved brief requires."
+  },
+  "stage_b_native_diff": "Only four new pager cases plus the two authorized display-bound assertion substitutions and related comments; all seven Stage-A characterization cases remain byte-identical.",
+  "probe_review": {
+    "fixtures": "Real renderer exact rows for 0/38/39/76/241 byte bodies with independent 19-by-2 expected text; current and retained page across cycle/blank/wake; selected/unselected 17-column DM/channel rows; real unsaved/conflict/both flags notes; failed-open view.",
+    "P3_unavailable_placement": "Service must not have opened yet. Failed-load fixture precedes the first successful open, restores the fake, and proves the next load succeeds.",
+    "P29_order": "No send fixture runs here; P26 retains its terminal alarm state and remains last.",
+    "control_contract": "All six new substitutions guarded individually. C0 remains the required compile-failure control; existing controls retain exact script bytes.",
+    "negative_space": "Five record preconditions and three no-save/apply/load checks lack renderer controls. Their effect/state checks live in native characterization; M59 checks forbidden saving. No claim that renderer mutation coverage covers them."
+  },
+  "mutations": "AST parsed, never imported. Exactly eight model entries re-anchored; all other list entries identical to reconstructed W1c candidate. All 364 needles in coder union match once. Full independent model/sliceCbudget execution is separately logged.",
+  "coverage_limits": [
+    "Host draw operations and exact row assertions, not physical pixels or an exhaustive all-screen transcript.",
+    "Three-row pager tested using local test buffers; no resident three-row buffer or review UI added.",
+    "No new metal behavior or bench row.",
+    "E14 in sliceEcascade is a pre-existing zero-match unrelated to W3 and measured separately."
+  ]
+}

@@ -573,7 +573,7 @@ public:
     uint32_t          key_hash32()     const { return _key_hash32; }
     void              set_name(const char* name, uint8_t len) { _name_len = len > sizeof _name ? (uint8_t)sizeof _name : len; for (uint8_t i = 0; i < _name_len; ++i) _name[i] = name[i]; }   // §1.3: load the /mrid name into the core (for the pubkey exchange + display)
     uint8_t           name_len()       const { return _name_len; }
-    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
+    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy of min(name_len, cap) bytes; never terminates (callers write counted fields).
     bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
     const NodeConfig& config()         const { return _cfg; }
     NodeConfig&       mutable_config()       { return _cfg; }   // LIVE tweak of dynamically-read cfg (device `cfg set`):
@@ -2975,7 +2975,7 @@ private:
     bool     _team_ch_key_present = false;
 #endif
     uint32_t _key_hash32;         // ctor init-list [3]; stable long identity
-    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); may be empty — W1c D10: an unnamed node advertises NO name
     uint8_t  _name_len = 0;
 
     // ---- E2E CRYPTO (Node-global) ----

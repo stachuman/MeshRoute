@@ -148,7 +148,7 @@ ui_wrapper() {   # ui_wrapper <ui-source> <wrapper.cpp>
   case "$1" in *'"'*|*'\'*) echo "UI WRAPPER REFUSED: the source path cannot be quoted in an #include: $1"; exit 1 ;; esac
   # ⛔ A FAILED WRITE STOPS THE RUN: the file is reused, so a control would otherwise compile the PREVIOUS wrapper — the
   #   live source's — and measure nothing.
-  printf '#include "%s"\nvoid mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap) { label_from_hash(hash, out, cap); }\n' \
+  printf '#include "%s"\nvoid mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols) { label_from_hash(hash, out, cap, cols); }\n' \
          "$1" > "$2" || { echo "UI WRAPPER WRITE FAILED: $2"; exit 1; }
 }
 
@@ -451,6 +451,25 @@ ctl() {
     # ⓘ INTO THE CURRENT ARM's file: a control mutates ONE build, so its evidence belongs to that arm's ratio.
     attribute "$OUT/all_checks-$ARM.txt" "$OUT/mutant.out" >> "$OUT/reddened-$ARM.txt"
   fi
+}
+
+# ⛔⛔ EVERY SUBSTITUTION HAS ITS OWN EXACTLY-ONE GUARD ([[B449]]'s lesson: a pattern that silently matched ZERO
+#     times kept a control "usable" while it measured something else). `ctl`'s `cmp` only proves that SOMETHING
+#     changed; `once` proves the literal anchor occurs exactly once AND the script changes exactly one line. A guard
+#     that fails is counted as an unusable control and the control does not run.
+# ⚠ DEFINED HERE, BESIDE `ctl`, BEFORE THE FIRST CONTROL — MOVED 2026-09-26 (W4a) out of W3's block. A bash function
+#   exists only once its definition has RUN, and W4a's guards precede that block: the first chain met
+#   `once: command not found` (exit 127) seven times, and each `&&` then skipped its control with NO FAIL line —
+#   229 of 236 controls ran and the gate still printed PASS.
+once() {   # once <literal anchor> <sed script>
+  local hits changed
+  hits=$(grep -o -F -- "$1" "$FW_UI" | wc -l)
+  changed=$(sed "$2" "$FW_UI" | diff - "$FW_UI" | grep -c '^>')
+  [ "$hits" -eq 1 ] && [ "$changed" -eq 1 ] && return 0
+  n_bad=$((n_bad+1))
+  printf '  FAIL a control guard: the anchor occurs %s time(s) and the script changes %s line(s), both must be 1: %s\n' \
+         "$hits" "$changed" "$1"
+  return 1
 }
 
 if [ "${1:-}" != "--no-neg" ]; then
@@ -1113,8 +1132,12 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⛔ C120 IS THE OTHER DIRECTION and it is why the positive arms are not decoration: route the RX kinds through the
   #    SEND half — the "one router, surely" simplification — and the panel never wakes for a message at all, while the
   #    pure recv unit stays perfectly correct and perfectly unreached.
+  # ⓘ RE-ANCHORED 2026-09-26 (W4a): the REPLY line now passes its column budget (`kReplyWhoCols`); the mutation is
+  #   unchanged in meaning — the RX kinds are routed to the SEND half — and it is guarded exactly once.
+  c120s='s|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols); (void)who; (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now); if (true) break;|'
+  once '            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);' "$c120s" &&
   ctl "C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel" yes \
-      's|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who));|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who)); (void)who; (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now); if (true) break;|'
+      "$c120s"
 
   # ================================================================================= §UI-17 S6: C121-C122, THE MARK
   # ★★★★ THE ASSET IS PURE AND ITS BYTES ARE PINNED NATIVELY (`test_firmware_ui_chrome.cpp`) AND ATTACKED BY
@@ -1248,16 +1271,76 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   form): no byte reserved, no terminator written — the metal garbage after `H1`.
   # ⛔ B241b IS THE TEMPTING WRONG REPAIR: pass the whole capacity and terminate only the LAST byte. It looks safe (the
   #   buffer can no longer run unterminated) and it still leaves the poison after a short name — the same garbage.
+  # ⓘ RE-ANCHORED 2026-09-26 (W4a): the adapter is now ONE formatter call over a counted 32-byte read, so both wrong
+  #   answers are written onto that one line, each with its own exactly-one guard. MEANINGS UNCHANGED: B241a is the
+  #   pre-fix body (the raw API straight into the destination at FULL capacity, no terminator, the old lowercase
+  #   fallback); B241b terminates only the LAST byte. Both must still fail P28a's poisoned short-name and rename checks.
+  b241as='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    (void)raw; (void)n; (void)cols; if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (unsigned long)hash);|'
+  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$b241as" &&
   ctl "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator" yes \
-      '/^void label_from_hash(uint32_t hash, char\* out, uint8_t cap) {$/,/^}$/ {
-         /^    if (cap == 0) return;/d
-         /^    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));$/d
-         /^    out\[n\] = /d
-         s|^    if (n == 0) { snprintf(out, cap, "0x%08lx", (unsigned long)hash); return; }$|    if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (unsigned long)hash);|
-       }'
+      "$b241as"
+  b241bs='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    (void)raw; (void)n; (void)cols; if (g_node.peer_name_find(hash, out, cap) == 0) { snprintf(out, cap, "0x%08lx", (unsigned long)hash); return; } out[cap - 1] = 0;|'
+  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$b241bs" &&
   ctl "B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated" yes \
-      's|^    const uint8_t n = g_node.peer_name_find(hash, out, uint8_t(cap - 1));$|    const uint8_t n = g_node.peer_name_find(hash, out, cap);|
-       s|^    out\[n\] = .\\0.;$|    out[cap - 1] = 0;|'
+      "$b241bs"
+
+  # ★★★★ W4a ([[B441]]): W4a-S1..W4a-S4, THE DEVICE-LABEL SITES' WRONG ANSWERS. Each is a renderer that drifts from the
+  #   one formatter — a silent clip, a skipped sanitizer, the wrong budget, a second sanitizing pass — and each must go
+  #   RED on the exact-byte checks of P18 / P28 / P30. The formatter itself is the `--target=w4aident` battery's.
+  # W4a-S1 THE MARKER LOST: the TEAM label is formatted at the CARRIER's 14 cells, so a 12-byte name fits whole and the
+  #   row's `%-6.6s` clips it silently (`Wolfga`), and an unnamed peer's full `0x…` is clipped to `0x00C0`.
+  w4as='s|        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);|        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kReplyWhoCols);|'
+  once '        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);' "$w4as" &&
+  ctl "W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker)" yes \
+      "$w4as"
+  # W4a-S2 THE SANITIZER SKIPPED: the adapter copies the raw name bytes (marker kept, hash branch kept), so `ł` reaches
+  #   the panel as its raw C5 82 bytes — Latin-1 mojibake and a missing glyph on the real font.
+  w4as='s|^    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);$|    if (n == 0) { (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols); return; } const uint8_t k = (n > cols) ? uint8_t(cols - 1) : n; memcpy(out, raw, k); out[k] = 0; if (n > cols) { out[k] = char(0xBB); out[k + 1] = 0; }|'
+  once '    (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);' "$w4as" &&
+  ctl "W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel)" yes \
+      "$w4as"
+  # W4a-S3 THE WRONG BUDGET: the DELIVERED row is formatted at the header's 15 cells instead of its own row's 19.
+  w4as='s|        char label\[kDeliveredCols + 1\]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);|        char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kComposeToCols);|'
+  once '        char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols);' "$w4as" &&
+  ctl "W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19" yes \
+      "$w4as"
+  # W4a-S4 THE SECOND SANITIZING PASS: the REPLY sender is re-sanitized after formatting, so the generated `»` (0xBB)
+  #   becomes `.` — the exact loss the ruled verbatim copy exists to prevent.
+  w4as='s|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols); for (char* w = who; *w; ++w) *w = mrui::ui_display_byte(uint8_t(*w));|'
+  once '            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols);' "$w4as" &&
+  ctl "W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot" yes \
+      "$w4as"
+
+  # ★★★★ W3 (standalone Home) STAGE A: W3-D1..W3-U1, THE RENDER CONTROLS FOR P3u/P29. Each is a WRONG RENDERING of a
+  #   seam W3 moves inside the model — the detail rows, the compose row's width, the unavailable notice — and each must
+  #   go RED on P29's exact-row checks. The model is untouched by all of them: what they prove is that the probe reads
+  #   the panel precisely enough to catch a renderer that drifts from the model's answer.
+  # ⛔⛔ EVERY SUBSTITUTION HAS ITS OWN EXACTLY-ONE GUARD — `once`, defined beside `ctl` above ([[B449]]).
+  # W3-D1 the second detail row drawn from the FIRST row's slice — every two-row page then repeats its first row.
+  w3s='s|body_text(row + 1, st.detail_line\[row\]);|body_text(row + 1, st.detail_line[0]);|'
+  once 'body_text(row + 1, st.detail_line[row]);' "$w3s" &&
+  ctl "W3-D1 the detail modal's second body row repeats the first row's slice" yes \
+      "$w3s"
+  # W3-D2 each detail row clipped to 18 columns — the last byte of every full row is lost.
+  w3s='s|body_text(row + 1, st.detail_line\[row\]);|{ char c18[20]; snprintf(c18, sizeof c18, "%.18s", st.detail_line[row]); body_text(row + 1, c18); }|'
+  once 'body_text(row + 1, st.detail_line[row]);' "$w3s" &&
+  ctl "W3-D2 every detail body row is clipped to 18 columns (a lost final byte)" yes \
+      "$w3s"
+  # W3-C1 the compose row composed into 19 bytes — a 17-byte phrase loses its last column (16 text columns).
+  w3s='s|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|mrui::compose_row_line(l, 19, uint8_t(first + row), list, grant, (first + row) == st.cursor);|'
+  once 'mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);' "$w3s" &&
+  ctl "W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)" yes \
+      "$w3s"
+  # W3-C2 the location column inverted after the row is composed — a located phrase reads as plain and vice versa.
+  w3s="s|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor); if (l[1] == 'L') l[1] = '-'; else if (l[1] == '-') l[1] = 'L';|"
+  once 'mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);' "$w3s" &&
+  ctl "W3-C2 the compose location marker is inverted (L and - swapped)" yes \
+      "$w3s"
+  # W3-U1 the unavailable notice drawn one row up — the closed view no longer says it where the operator reads it.
+  w3s='s|if (!c.open) { body_text(2, "CFG UNAVAILABLE"); return; }|if (!c.open) { body_text(1, "CFG UNAVAILABLE"); return; }|'
+  once 'if (!c.open) { body_text(2, "CFG UNAVAILABLE"); return; }' "$w3s" &&
+  ctl "W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2" yes \
+      "$w3s"
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
@@ -1381,11 +1464,20 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|            r.age_ms    = r.age_valid ? (seen_now - e->last_ms) : 0;|            r.age_ms    = e->last_ms;|'
   ctl "N3 the ring is walked BACKWARDS (strongest/newest first) — the ruled first-observed order is gone" yes \
       's|            const MESHROUTE_NS::TeamSeen\* e = g_node.team_seen_at(i);|            const MESHROUTE_NS::TeamSeen* e = g_node.team_seen_at(uint8_t(s.nearby_n - 1 - i));|'
+  # ⓘ RE-ANCHORED 2026-09-26 (W4a): the resolver takes a column budget now; N4 and N9 pass the whole NEARBY label
+  #   width (`sizeof label - 1`, the old `cap - 1`), so the device's name / the team id reach the row as before. Every
+  #   substitution is guarded exactly once.
+  n4a='s|            r.snr_q4    = e->snr_q4;                  |            r.snr_q4    = e->snr_q4; r.reserved = e->src_id;   |'
+  n4b='s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_for_team_id(r.team.reserved, label, uint8_t(sizeof label), uint8_t(sizeof label - 1));|'
+  once '            r.snr_q4    = e->snr_q4;                  ' "$n4a" &&
+  once '                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);' "$n4b" &&
   ctl "N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)" yes \
-      's|            r.snr_q4    = e->snr_q4;                  |            r.snr_q4    = e->snr_q4; r.reserved = e->src_id;   |
-       s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_for_team_id(r.team.reserved, label, uint8_t(sizeof label));|'
+      "$n4a
+$n4b"
+  n9s='s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_from_hash(r.team.team_id, label, uint8_t(sizeof label), uint8_t(sizeof label - 1));|'
+  once '                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);' "$n9s" &&
   ctl "N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)" yes \
-      's|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_from_hash(r.team.team_id, label, uint8_t(sizeof label));|'
+      "$n9s"
   # ⛔⛔ N10 IS THE ZERO-TX RULE'S OWN CONTROL, in C118's shape one screen over (spec §3 P-4): *"the scan transmits
   #   nothing"* is a PROMISE until something that DOES transmit is shown to break it. The tempting wrong fix is a
   #   liveness ping — *"is that team still there?"* — and it is exactly what a read-only observation may not do.
@@ -1470,21 +1562,56 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   cursor, and a refresh between the two presses is exactly what F-14 says may not move the target.
   ctl "O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)" yes \
       's|            const mrui::InviteSelList ilist = mrui::invite_sel_rows(st.invite, s.member, s.team_shown);|            const mrui::InviteSelList ilist = mrui::invite_sel_rows(st.invite, nullptr, 0);|'
+  # ⓘ RE-ANCHORED 2026-09-26 (W4a): O2 passes the fingerprint buffer's own width as the budget (a DEVICE label of our
+  #   own id, still ⛔ never the TEAM token), and O3 follows the candidate row's new prepared-name call. Guarded once each.
+  o2s='s|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);|            label_for_team_id(s.my_team_id, fp, uint8_t(sizeof fp), uint8_t(sizeof fp - 1));|'
+  once '            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);' "$o2s" &&
   ctl "O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)" yes \
-      's|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);|            label_for_team_id(s.my_team_id, fp, uint8_t(sizeof fp));|'
+      "$o2s"
+  o3s='s|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);|                    mrui::ui_fmt_invite_row(label, sizeof label, char(32), r.cand, name6);|'
+  once '                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);' "$o3s" &&
   ctl "O3 every candidate row is drawn UNMARKED — the cursor is invisible on the one list that grants a key" yes \
-      's|                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);|                else        mrui::ui_fmt_invite_row(label, sizeof label, char(32), r.cand);|'
+      "$o3s"
   ctl "O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)" yes \
       's|                body_text(uint8_t(3 + row), label);|                body_text(uint8_t(2 + row), label);|'
   ctl "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)" yes \
       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_fingerprint(hash, sizeof hash, st.invite.sel_hash);|'
-  ctl "O6 the confirmation shows the cached NAME instead of the hash — a mutable label as the only identity (P-7c)" yes \
-      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|'
+  # ⛔ O6 RETIRED 2026-09-26 (W4a stage A, [[B455]]), kept visible rather than deleted. Its label claimed *"the
+  #   confirmation shows the cached NAME instead of the hash"*, but its substitution rewrote the two
+  #   `st.invite.sel_hash` full-hash calls of the NEED / WAITING FOR PUBKEY screens into `label_from_hash`, and the one
+  #   check it failed was P23d's request confirmation, on the LOWERCASE spelling. MEASURED before retirement: RED on
+  #   exactly "P23d the request confirmation carries the FULL hash" (1 check). ⇒ the property its label names is
+  #   O20's (the named NEW MEMBER confirmation keeps its full hash, 3 checks) and native I29's; the two request
+  #   screens' full hash stays pinned by O5 / O9 (both sites) and by P23d itself. A duplicate of O20 is not re-added.
   ctl "O7 the INVITE child is published as absent on a build and a node that have it" yes \
       's|    s.prov_invite      = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0) \&\& (g_node.config().team_id != 0);|    s.prov_invite      = false;|'
-  ctl "O8 the member name is published through label_from_hash — the truncated 0x third spelling (F-15)" yes \
-      's|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|
-       s|            mem.name\[nn\] = .\\\\0.;|            ;|'
+  # ⛔⛔ O8 REPAIRED 2026-09-26 (W4a stage A, [[B449]]). Its second substitution was over-escaped (`.\\\\0.` asks sed
+  #     for TWO backslashes) and matched ZERO times, so the surviving `mem.name[nn] = '\0'` blanked every name and the
+  #     control failed P23d rule 3 / P23e — checks about a blanked REAL name, not the forbidden fallback. Each
+  #     substitution now has its own exactly-one guard. ★ THE PROOF: the nameless candidate row reads
+  #     `>0x00be T221 BEDEAD`, and exactly P23b's blank-name-field check and P23d's blank-name precondition fail.
+  # ★★ RE-AIMED 2026-09-26 (W4a stage B, [[B449]]'s post-change proof). The publication now formats a NAME only when
+  #   the raw lookup found one (`nn > 0`); O8 drops that condition, so an unnamed member's field is filled from the
+  #   formatter's HASH branch (`0x00BEDEAD` at 14 cells) and the candidate row projects it to `0x00B` + `»` — a
+  #   hash-derived token in the name column. It must fail P23b's / P23d's literal BLANK-NAME assertions; the row stays
+  #   19 columns with its separate fingerprint intact (preserved invariants, not required failures).
+  o8s='s|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);|            (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);|'
+  once '            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);' "$o8s" &&
+  ctl "O8 the unnamed member's name field is filled from the formatter's HASH branch — a third hash spelling (F-15)" yes \
+      "$o8s"
+  # ★★★★ W4a ([[B441]]) on the child-enabled arm: the invite's two label sites.
+  # W4a-S5 THE CONFIRMATION LOSES ITS DETAIL: the invite carrier is formatted at the candidate row's SIX cells, so
+  #   NEW MEMBER — which draws the carrier — shows `Wolfg»` instead of the 14-cell name.
+  w4as='s|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);|            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteCandCols);|'
+  once '            if (nn > 0) (void)mrui::ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols);' "$w4as" &&
+  ctl "W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name" yes \
+      "$w4as"
+  # W4a-S6 THE MARKER LOST ON THE CANDIDATE ROW: the row is handed the 14-cell carrier unprojected, so its own
+  #   `%-6.6s` clips a long name silently (`Wolfga`) — the pre-W4a rendering.
+  w4as='s|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);|                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, r.cand.name);|'
+  once '                    mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand, name6);' "$w4as" &&
+  ctl "W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker)" yes \
+      "$w4as"
   ctl "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)" yes \
       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'
   # ★★★★ [[B249]] THE WRONG PRODUCTION DESTINATION. W53 pins this structurally; this independent behavioral
@@ -1638,6 +1765,13 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   itself. ⓘ `0` is the honest "no identity yet" value, which is precisely why it is the tempting stub.
   ctl "R4 ★★★ our own stable identity is never published, so the SELF veto can never fire" yes \
       's|    s.my_key_hash32        = g_node.key_hash32();|    s.my_key_hash32        = 0;|'
+
+  # ★★★★ W3 STAGE A, on the ONLY arm that reaches PROVISION: W3-N1 moves the settings note off its row. P29c's three
+  #   refusals must each go RED — the note is exact text at an exact row, never "somewhere in the frame".
+  w3s='s|if (note\[0\])   body_text(kBodyRows - 1, note);|if (note[0])   body_text(kBodyRows - 2, note);|'
+  once 'if (note[0])   body_text(kBodyRows - 1, note);' "$w3s" &&
+  ctl "W3-N1 the settings note is drawn on body row 3 instead of row 4" yes \
+      "$w3s"
 
   ARM=l2; ARM_DEFS=DEFS
 fi

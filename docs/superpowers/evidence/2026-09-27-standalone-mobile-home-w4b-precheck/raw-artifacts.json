@@ -1,0 +1,56 @@
+{
+  "logs": [
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/abi.log",
+      "bytes": 5471,
+      "sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/board-ui-noneg.log",
+      "bytes": 1851,
+      "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/corpus.log",
+      "bytes": 3369,
+      "sha256": "f24567305b52b8ddf8d621cab765be943e8a1cbb694d876634e557392d2282b9"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/firmware-ui.log",
+      "bytes": 40976,
+      "sha256": "21fe47d552468589b3973f3afc0c76a7a116a721409f646e943546cfc470dafb"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/layout-pricing.log",
+      "bytes": 3227,
+      "sha256": "1124e8c14fdfc26c40bedb7369ca6ac52a2bd189e722f3e50dd18dc9c7f6ec54"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/layout-replay.log",
+      "bytes": 3227,
+      "sha256": "1124e8c14fdfc26c40bedb7369ca6ac52a2bd189e722f3e50dd18dc9c7f6ec54"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/native-binary.log",
+      "bytes": 409,
+      "sha256": "d895833f01e8bb6627b0faa71cf4705ba680e414e83185a5fc17d7f3e2593b16"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/native-build.log",
+      "bytes": 414,
+      "sha256": "d075fc0ccab43277f8ba708fe816cd200f5ad2cc367553216e98f30773ffc645"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/sim-build.log",
+      "bytes": 8312,
+      "sha256": "0dc029d1f3f08e658164f42eab7bfdcc97b7384be3007a4b6ea58a31345f43bb"
+    },
+    {
+      "path": "artifacts/2026-09-27-standalone-mobile-home-w4b-precheck/sim-configure.log",
+      "bytes": 1018,
+      "sha256": "e4506afbe53ca2ca3a5f068d894f9367daec1563795e410f24343e3a7e4a29a3"
+    }
+  ],
+  "simulation_scratch": "/tmp/meshroute-w4b-precheck-20260927-wo3v1jp0",
+  "policy": "Logs/build products stay ignored/outside the repository; compact records are retained here."
+}

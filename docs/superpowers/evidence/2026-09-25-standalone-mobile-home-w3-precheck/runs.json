@@ -1,0 +1,84 @@
+[
+  {
+    "label": "native-build",
+    "argv": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "seconds": 2.097
+  },
+  {
+    "label": "native-binary",
+    "argv": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "seconds": 0.739
+  },
+  {
+    "label": "firmware-ui",
+    "argv": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 331.141
+  },
+  {
+    "label": "abi",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "seconds": 19.739
+  },
+  {
+    "label": "sim-configure",
+    "argv": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w3-precheck-so1m4f6l/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.498
+  },
+  {
+    "label": "sim-build",
+    "argv": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w3-precheck-so1m4f6l/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 32.186
+  },
+  {
+    "label": "corpus",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w3-precheck-so1m4f6l/corpus",
+      "--lus",
+      "/tmp/meshroute-w3-precheck-so1m4f6l/sim-build/orchestrator/lus",
+      "--jobs",
+      "4",
+      "--require-anchors"
+    ],
+    "exit": 0,
+    "seconds": 52.352
+  }
+]

@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.18 · 2026-09-24 · REVIEWED — independent review PASS with fold-ins (2026-09-24); package W1 re-scoped by its QA pre-check (§16).** Every decision in
+**Revision 2.21 · 2026-09-27 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a and W4b scoped by their QA pre-checks; the W4b allocation owner-ruled (§11.1, §16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -178,7 +178,7 @@ name on Home and in My device, TEAM rows, compose, review and result lines, invi
   for the own device and no cached name for a peer. An unnamed device is shown by its ID: `0x<HASH8>` (uppercase,
   `ui_fmt_member_hash_full`) where the cell has at least 10 columns — `ME 0x12AB34CD` on Home — otherwise the
   six-digit member fingerprint (`ui_fmt_member_fingerprint`, UI-16 S-13, the spelling the invite list already
-  shows): `AB34CD` on a TEAM row, `DELIVERED to AB34CD`. A hash is never clipped — UI-16 (candidate row, F-15)
+  shows): `AB34CD` on a TEAM row. A hash is never clipped — UI-16 (candidate row, F-15)
   bans a clipped `0x` form as a third spelling of the hash. Where the row already carries the hash (the invite
   row's fingerprint column, the DM review header `TO 12AB34CD`), the name part is left out. No hash known ⇒ the
   caller's existing `id <n>`/`T<n>` fallback.
@@ -186,6 +186,11 @@ name on Home and in My device, TEAM rows, compose, review and result lines, invi
   glyph the 6×10 font has; it can occur in neither the editor alphabet, the preset grammar nor sanitised
   names, so it is unambiguous). No silent clipping. It applies to the invite row as well as the TEAM row, so one
   name is shortened the same way on both screens (`Wolfg»`; UI-16's `%-6.6s` clip is revised, §10).
+- **Budgets at today's sites** (W4a; set from the [W4a pre-check](../evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md), zero resident growth):
+  TEAM row name 6; compose header `to: ` + 15; the DELIVERED result's own peer row 19 (so an unnamed peer shows
+  `0x12AB34CD` there); the emergency REPLY sender 14; invite candidate name 6 beside its separate fingerprint (an
+  unnamed member's name field stays blank); NEW MEMBER confirmation name 14, always beside the full `0x<HASH8>`.
+  The formatter reads the full counted name (up to 32 bytes) before abbreviating, never a pre-clipped copy.
 - It depends on B241's fix (termination in the UI's label adapter `label_from_hash`, W1; the raw `peer_name_find`
   keeps its full 32-byte contract) and on the no-default-name package (§4.6); without
   the latter an unnamed peer's advertised default would render as a name.
@@ -245,9 +250,9 @@ key_hash32)` when entered and re-checked at review and at submission (§7.4).
 
 ### 4.6 Unnamed devices advertise no name [AGREED D10; core package W1c]
 
-- **Today:** `Node::effective_name` puts `MeshRoute node: 0x<HASH8>` (26 bytes) in place of an empty name in INTRO,
-  the key answer and the key request (`node_hashlocate.cpp` :767, :1262, :2321), and peers cache it as the name.
-- **Change:** those frames carry the stored name as it is, which may be empty — INTRO and the key answer with
+- **Before W1c:** `Node::effective_name` synthesized `MeshRoute node: 0x<HASH8>` (26 bytes) for an empty name in
+  INTRO, the key answer and the key request; peers cached it as the name.
+- **Implemented; independent software QA PASS 2026-09-25:** those frames carry the stored name as it is, which may be empty — INTRO and the key answer with
   `name_len` 0, the key request without its optional name trailer (the codec's existing nameless form,
   `frame_codec.cpp` :718). No wire change and no `wire_version` bump.
 - **Receivers are unchanged:** an empty advertised name is already ignored (`peer_key_set` :346), so it never
@@ -267,11 +272,11 @@ key_hash32)` when entered and re-checked at review and at submission (§7.4).
   unnamed-display proof therefore starts from a fresh peer cache; a bench device that cached default names before
   W1c shows them until a factory reset clears `/mrpeers` with the rest of the `mr` namespace (`factory_erase`).
 - **Corpus:** every simulated node has a name — the simulator requires the field, and all 783 nodes across the 36
-  scenarios carry one — so the default never runs there. The change is predicted corpus-inert and still takes the
-  full `lib/core` gate.
-- The same package rewrites the test that pins the default (`test_node_r3.cpp`, *"§1.3 — effective_name defaults
-  …"*) and corrects the comments that cite the default as the address-book case (`console_parse.cpp` :197;
-  address-book design §2.3), per V1.
+  scenarios carry one. The full independent `lib/core` gate reproduced **36/36 streams byte-identical**, including
+  s18; Node size and RAM are unchanged. Flash falls **304 B gateway / 140 B heltec_mobile**.
+  [W1c QA evidence](../evidence/2026-09-25-standalone-mobile-home-w1c-qa.md).
+- W1c replaced the default-name test with the counted stored-name contract and corrected the default-name comments
+  and address-book/companion documentation (V1). B447's unnamed half is closed; named-peer precedence stays open.
 
 ## 5. Shared one-button editor
 
@@ -423,7 +428,10 @@ Rules (refinements 1–5 as accepted; refinement 6 withdrawn by the owner — ru
 7. **The panel going dark never re-homes** (owner, 2026-09-23; refinement 6 withdrawn): a blank keeps the current
    screen, the focus state (list focus or menu mode) and the arrow; the next wake — a consumed press or an R-7
    message wake — shows exactly what was there (R-1/§3.3, S1). Neither a blank nor a push changes the screen
-   (S8).
+   (S8). The only exceptions are the two existing unfinished-confirmation cancellations (UI-16 OQ-3, owner-ruled),
+   which stay as they are: at the blank an uncommitted key-grant confirmation falls back to its invitation list —
+   or, for a TEAM-roster grant, to the TEAM list — and a saved-key offer closes to the PROVISION menu. Neither
+   lands on Home, and a setup's typed origin (§6.6) survives them.
 8. Emergency holds work in both states; the overlay rules are unchanged; afterwards the previous focus returns.
 9. The rail names the body in both states (R-4); in menu mode its box follows the previewed screen.
 10. Session-unread moves only as it does today: `FrameGate::on_page` advances each read watermark to the arrival
@@ -432,8 +440,9 @@ Rules (refinements 1–5 as accepted; refinement 6 withdrawn by the owner — ru
     the Inbox list and the Inbox's menu-mode preview (its former passive form). Such a frame marks read every arrival
     it froze, not only the rows it drew. This design does not change that rule.
 
-**Settings:** its menu-mode preview is today's closed `ENTER SETTINGS` view; double opens the settings menu in list
-focus. The menu's last row becomes `MENU` (was `BACK`) and short wraps within it instead of walking off the end —
+**Settings:** its menu-mode preview is today's closed view without the body arrow (`ENTER SETTINGS`, rule 4); double
+opens the settings menu in list focus. The menu's last row becomes `MENU` (was `BACK`): it keeps `BACK`'s
+draft-preserving `on_back()`, then enters menu mode on the Home slot; short wraps within the menu instead of walking off the end —
 a named revision of B232/§UI-14. An unsaved draft survives leaving (badge; R-3).
 
 ### 6.2 Home rows [AGREED owner 2026-09-23, D2]
@@ -447,7 +456,7 @@ a named revision of B232/§UI-14. An unsaved draft survives leaving (badge; R-3)
 - **While an unread team post is on the card** (§8, D12), rows 1–2 show it in place of the team line and the list
   window is rows 3–4; no item is added or removed and the arrow keeps its item.
 - Status rides in the labels: unread in `INBOX 3 NEW` (the strip's `99+` token, omitted at zero), route count in
-  `TEAM 4 KNOWN` (the strip's `9+` token), key state in `NO TEAM KEY - HELP`. Home age stays in the strip; the own
+  `TEAM 4 KNOWN` (the strip's `9+` token, omitted at zero), key state in `NO TEAM KEY - HELP`. Home age stays in the strip; the own
   position moves to My device; the 24×24 mark leaves Home (D2, splash D3).
 
 ### 6.3 Home lists by state [AGREED owner 2026-09-23, D2 with D2a–D2c]
@@ -463,8 +472,10 @@ a named revision of B232/§UI-14. An unsaved draft survives leaving (badge; R-3)
 A missing key takes precedence over a pending ID. Static-role team-build nodes use the no-team list (JOIN/CREATE
 promote them as today). Only actions that can work appear: UI team posts are sealed-only, so `SEND TO TEAM` needs
 the key; while the local ID is pending, DMs are refused (`err_no_binding`) and a registered member's team post would
-originate under its static ID (B444), so `SEND TO TEAM` and `INVITE MEMBER` wait for the ID. The order is fixed per
-state; counts never reorder items.
+originate under its static ID (B444), so `SEND TO TEAM` and `INVITE MEMBER` wait for the ID. Each action item also
+needs its capability (`prov_join_team`, `prov_create_team`, `prov_invite`): production OLED team builds have them, so
+the lists are as shown; a build without one omits that item rather than offering an action that cannot run. The order
+is fixed per state; counts never reorder items.
 
 ```
 ready                       no team                     no team key
@@ -504,10 +515,19 @@ every later item one step further).]
   item no longer exists (for example CREATE TEAM once a team exists), on item 1.
 - A blank never moves the arrow or changes the screen (§6.1 rule 7).
 - The list follows state changes while shown (a join completes, the key arrives, the team is left from the
-  console). The arrow keeps its item by identity (the action kind), never by row number. If its item disappeared,
-  `OPTIONS CHANGED` (15 columns) replaces the first list row until the next press, the next double is refused and
-  the arrow rests on item 1 — the `TEAMMATE GONE, pick` idiom. A count changing inside a label is not a change of
-  item.
+  console). The arrow keeps its item by identity (the action kind), never by row number; a count changing inside a
+  label is not a change of item. If the arrow's item disappears while Home is in list focus (lit or dark), the arrow
+  moves to item 1 and `OPTIONS CHANGED` (15 columns) replaces item 1's label until the next press — the
+  `TEAMMATE GONE, pick` idiom, pinned exactly (W4b):
+
+  | While the note shows | Result |
+  | --- | --- |
+  | a short or a double (not a wake press) | clears the note and nothing else: the arrow stays on item 1, a double runs nothing |
+  | the wake press on a dark panel | only wakes (S1/R-7); the note stays |
+  | the list changes again (items leave or return) | the arrow stays on item 1 of the newest list; the note stays |
+  | an emergency hold | works as ever; afterwards the note is still there |
+
+  Menu mode raises no note: its preview has no arrow, and a later double opens Home on item 1.
 
 ### 6.5 What Home items open [PROPOSED]
 
@@ -521,6 +541,14 @@ every later item one step further).]
 | `NO TEAM KEY - HELP` | note `NO TEAM KEY` / `A MEMBER WHO HAS IT` / `MUST GRANT IT TO` / `THIS DEVICE` / `press = back` — the existing procedure (a key holder uses INVITE MEMBER or TEAM → GRANT KEY); no automatic key request | STATUS | either press → Home |
 | `MY DEVICE` | §6.7 | STATUS | its BACK → Home |
 | `MENU` | menu mode on the Home slot | STATUS | double → Home |
+
+**Interim content until later packages (W4b):** `INBOX` opens today's Inbox order (W4c/W4d later make it
+newest-first) and `SEND TO TEAM` opens the team phrases alone (`WRITE MESSAGE` arrives with W8). The Send list is
+the existing channel compose list promoted to a top-level list — its phrases, then `MENU` in place of `back, don't
+send`; a phrase's send, result and acknowledgement are today's, and acknowledging a result returns to the Send list
+on item 1. A catalog change while the Send list is open re-reads it like Home's: the arrow goes to item 1 and
+`PRESET CHANGED` replaces item 1's label until the next press, which sends nothing (today's rule that a catalog
+change never lets a press send, kept for a list that no longer closes).
 
 ### 6.6 Setup from Home [AGREED owner 2026-09-23, D11]
 
@@ -543,7 +571,9 @@ by sealed message (`DeviceInvite`).
    rule that leaving SETTINGS closes provisioning stays true.
 4. **A blocked gate shows a note in the SETTINGS slot**, never configuration text on the Home body (UI-17 R-3):
    `SAVE OR DISCARD` / `IN SETTINGS`, `RELOAD OR DISCARD` / `IN SETTINGS`, or `CFG UNAVAILABLE` alone when the
-   service cannot open. Either press dismisses it and returns to Home with the arrow on the item that opened it.
+   service cannot open — the reason on body row 1, `IN SETTINGS` on row 2, no arrow. The reason is frozen when the
+   note opens: a later recovery neither changes it nor resumes the setup. Either press dismisses it and returns to
+   Home with the arrow on the item that opened it.
 5. **The gate runs before the name prompt** (§4.4), so a blocked device is not asked for a name first.
 
 No scanning, PHY change or authorization shortcut is added; NEARBY stays passive and frozen per entry. Not chosen:
@@ -940,7 +970,7 @@ strip during the splash): the mark at x 52–75, y 8–31; the ID line in the 6�
 | Inbox boot boundary (newest sequence per kind, read at UI start) | UI inbox context | 1 | ≈ +8 B | |
 | Inbox ordering key (`rx_time_ms` beside each staged row) | `InboxRowBudget` (one static instance) | 8 rows | ≈ +64 B static | the merge's full-precision key (§6.8); nothing added to `UiSnapshot` |
 | Draft | `UiModel` | 1 | ≈ +170 B | `kDraftMax` 163 + fields |
-| Editor window / review page | `UiState` | 2 | ≈ +48 / +64 B each | or share `detail_line` widened to 3 rows (W3) |
+| Editor window / review page | `UiState` | 2 | ≈ +48 / +64 B each | sharing a 3-row page with `detail_line` is the review package's choice (W6/W8); W3 keeps `detail_line` at 2 rows |
 | `SendReq` | `UiModel::_req` | 1 | 8 → ≈ 20 B | |
 | Command line | static | 1 | ≈ +200 B static (199 derived, §7.1), −96 B stack | today a 96-B stack local |
 | Preset reply line | stack in `preset_emit_*` (console path) and `preset_boot_restore` (boot-diagnostic path) | one per active call | 160 → 244 B (+84 per widened buffer) | derived from the widest record (§7.7); peak stack measured at the brief, not inferred |
@@ -950,12 +980,19 @@ strip during the splash): the mark at x 52–75, y 8–31; the ID line in the 6�
 | Home card (D12) | `UiModel` + `UiState` | 1 + 2 | ≈ +40 + 2×30 B | first 19 bytes, session arrival serial, present flag, epoch, team, origin, time, count |
 | Splash | `UiModel` | 1 | ≈ +5 B | the Git ID is the existing `kGitRevision` string, read, not copied |
 
+**W4b allocation, owner-ruled 2026-09-27:** +72 B of static UI structures on the OLED boards (+64 on the host) for
+the QA-measured full six-item Home capture ([W4b pre-check](../evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md) §3): `UiState` 504→520 (six Home item
+identities, their count, the selected item and the changed latch, plus the Home view; two instances), `UiModel`
+912→936 on the boards (928→944 host; the return item and the setup origin), `UiSnapshot` 1336→1368 (the own name,
+32 bytes plus length; one static and one per-tick stack copy), `UiChrome` unchanged (the menu cue fits its padding).
+Any further retained state returns to the owner.
+
 Without the catalog growth the static estimate stays near 1 KB. The stack changes on two separate paths, so no
 neutrality is claimed: the UI send path loses its 96-B line (now static), and each widened preset buffer gains
 84 B on the console and boot-diagnostic paths; the peaks are measured at the brief. With T = 163 about +8.4 KB static on the six OLED images (`heltec_mobile` last recorded at 211724 B). Board padding differs (`UiModel`
 912 board vs 928 host; B246): every figure is re-derived with `tools/probe_board_abi.py` pins and a
-`tools/measure_board.py` pair at each brief. **Apart from the catalog estimate the owner accepted with D7, no
-allocation is granted by this document.**
+`tools/measure_board.py` pair at each brief. **Apart from the catalog estimate the owner accepted with D7 and the
+W4b structures the owner approved on 2026-09-27 (above), no allocation is granted by this document.**
 
 ### 11.2 Profiles
 
@@ -996,13 +1033,13 @@ prediction is re-checked at each gate, never assumed.
 | # | Kind | Content | Depends | Gate obligation |
 | --- | --- | --- | --- | --- |
 | W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; QA names the probe that drives `cfg set` |
-| W1 | fix, `src` | B241: `label_from_hash` terminates at the copied length (one byte reserved; the `0x%08lx` fallback and zero capacity handled); `peer_name_find` keeps its raw full-32-byte contract for the push body and `/mrpeers` persistence ([pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)) | — | `src`-only gate (P6): native (plus an exact-capacity guard on the raw API), corpus (predicted 36/36 identical), the two board envs, the firmware-UI probe driving the real adapter with poisoned destinations and assertion-failing controls **Status 2026-09-25: INDEPENDENT QA PASS; B241 closed**, uncommitted on `4a230f4`: native 2951/195777/0; corpus 36/36 identical; firmware-UI 467/902/467 with 225 verified controls / 0 unusable; gateway unchanged, mobile RAM unchanged / flash +28 B. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w1-qa.md). Product decisions and the remaining packages are unchanged. |
+| W1 | fix, `src` | B241: `label_from_hash` terminates at the copied length (one byte reserved; the `0x%08lx` fallback and zero capacity handled); `peer_name_find` keeps its raw full-32-byte contract for the push body and `/mrpeers` persistence ([pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)) | — | `src`-only gate (P6): native (plus an exact-capacity guard on the raw API), corpus (predicted 36/36 identical), the two board envs, the firmware-UI probe driving the real adapter with poisoned destinations and assertion-failing controls **Status 2026-09-25: INDEPENDENT QA PASS; B241 closed**, owner commit `8360802`: native 2951/195777/0; corpus 36/36 identical; firmware-UI 467/902/467 with 225 verified controls / 0 unusable; gateway unchanged, mobile RAM unchanged / flash +28 B. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w1-qa.md). Product decisions and the remaining packages are unchanged. |
 | W1b | fix, `lib/core` | B444: refuse a `-t` post while the team-local ID is 0 (or the owner rules the intended pre-DAD behaviour) | — | full gate; independent of the Home work, which hides SEND TO TEAM regardless |
-| W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7) |
+| W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7). **Status 2026-09-25:** **INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802`. [Receipt](../evidence/2026-09-25-standalone-mobile-home-w1c-qa.md): native 2962/195904/0; 36/36 corpus identical; ABI/RAM unchanged; flash −304/−140 B; 34/34 mutations RED. B447 unnamed half closed; named-peer precedence and B450 remain open. |
 | W2 | tool | B418: re-anchor W49/W51/W54 and their controls; rerun the supplemental probe | — | tools discovery; all board-UI controls RED |
-| W3 | refactor, `src` (C1) | pure pager extracted from the detail modal (rows as a parameter); compose-row width decoupled from `kUiPresetTextMax`; provisioning entry gate as one function | — | byte-identical renders in `probe_firmware_ui`; batteries unchanged or re-anchored with working-rule D6 care |
-| W4a | fix, `src` | B441 + the identity formatter for every device label (TEAM, compose, review, result and invite rows), including D10's unnamed rule | W1, W1c, W3 | native, `chrome`/`model` batteries, firmware-UI probe |
-| W4b | feature, `src` | Home and navigation, paired under P6: menu mode, `MENU` rows on the five top-level lists, the gutter bar, Home rows/lists/arrow rules, My device (read-only), setup origin, mark removal | W4a, W3 | native navigation matrix, `model`/`chrome`/`uistatus`, navigation tests and probe checks re-pinned (never weakened), ABI pins, RAM pair; metal UI-01 |
+| W3 | refactor, `src` (C1) | a pure fixed-byte pager extracted from the detail modal — the page count and one page's row slices, with rows and columns as parameters (the review's word wrap, §7.2, stays with W6/W8); the compose-row display width derived from the body width minus its two marker columns, no longer from the record limit `kUiPresetTextMax` (unchanged; W6 raises it); one provisioning admission function sharing the arrival opener (no Home caller yet). No new state, layout or behaviour ([pre-check](../evidence/2026-09-25-standalone-mobile-home-w3-precheck.md)) | — | byte-identical renders in `probe_firmware_ui`, proved by real-render fixtures added before the extraction (detail bodies of 0/38/39/76/241 bytes, 17-byte compose rows, the blocked PROVISION notes); native pager, display-versus-record and counted-opening cases; batteries re-anchored with working-rule D6 care, never weakened; corpus; the two board envs. **Status 2026-09-25: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802` plus W1c. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w3-qa.md); the [approved brief](../plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md) and coder freeze remain unchanged. No resident-state growth or render change in the characterized cases; W1/W1c/W3 prerequisites for W4a are satisfied. |
+| W4a | fix, `src` | B441 + the identity formatter for every device label (TEAM, compose, review, result and invite rows), including D10's unnamed rule, at the §4.1 budgets; B449 (the invite probe control O8) and B455 (O6) with it | W1, W1c, W3 | native, `chrome`/`model` batteries, firmware-UI probe; **Status 2026-09-27: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802` plus W1c/W3. [QA receipt](../evidence/2026-09-27-standalone-mobile-home-w4a-qa.md): B441/B449/B455 closed; current device labels use the §4.1 budgets with zero resident growth. Own Home/My device labels remain W4b, review labels W6/W8. [Metal UI-20](../../2026-09-20-metal-test-plan.md#ui-20) OWED. B456 records the runner’s separate missing-control false-PASS defect; this gate independently accounts for all 236 controls. The [approved brief](../plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md) and coder freeze stay unchanged. W4b prerequisites satisfied; next is its QA pre-check and author brief. |
+| W4b | feature, `src` | Home and navigation, paired under P6: menu mode, `MENU` rows on the five top-level lists, the gutter bar, Home rows/lists/arrow rules, My device (read-only), setup origin, mark removal; B456 (the firmware-UI probe's missing-control false PASS) as its instrument-first stage; allocation owner-ruled (§11.1) | W4a, W3 | native navigation matrix, `model`/`chrome`/`uistatus`, navigation tests and probe checks re-pinned (never weakened), ABI pins, RAM pair; metal UI-01. **Status 2026-09-27:** QA [pre-check](../evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md) complete; the [brief](../plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md) awaits QA review. |
 | W4c | fix, `src` | B445: the Inbox boot boundary (`dm_newest_seq()`/`chan_newest_seq()` read once at UI start); rows from before the restart show age `--` | — | native (both sides of the stamp), `model` battery, firmware-UI probe |
 | W4d | feature, `src` | Inbox newest-first merge (§6.8) over the unchanged per-kind budget, keyed on the full receive time kept beside each staged row; the identity cursor and the after-delete neighbour follow the displayed order | W4c | native (merge, ties, restart split, sub-second order), `model` battery (B231's M92/M93 re-anchored, never weakened), firmware-UI probe; metal UI-02 |
 | W5 | feature, `src` | boot splash: the mark and the build's Git ID (D3) | W4b | native (the pure line formatter, including an over-long ID), probe render, POWER metal |
@@ -1203,3 +1240,26 @@ persistence), so terminating inside it would clip a 32-byte name. B241 is fixed 
 C-string adapter — the register's listed alternative. The package becomes `src`-only and corpus-inert by construction
 [HISTORY: r2–r2.17 planned W1 as a `lib/core` change terminating inside `peer_name_find`]. §1.2, §4.1, §11.2, §11.3,
 §13 W1 and §14 follow; no owner ruling or product behaviour changes. Documentation only.
+
+**r2.19, 2026-09-25 — W3 scoped by its QA pre-check.** The [W3 pre-check](../evidence/2026-09-25-standalone-mobile-home-w3-precheck.md)
+confirmed one C1 refactor with no new state, layout or behaviour, and found that the pager W3 extracts is the detail
+modal's fixed-byte slicer — §7.2's word-wrapped review lines stay with the package that adds the review page.
+§11.1 no longer offers W3 a 3-row `detail_line` [HISTORY: r2–r2.18 listed "or share `detail_line` widened to 3 rows
+(W3)"], and §13 W3 names the three seams, the real-render proof added before the extraction and the re-anchoring
+duty. No owner ruling or product behaviour changes. Documentation only.
+
+**r2.20, 2026-09-26 — W4a budgets from its QA pre-check.** The [W4a pre-check](../evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md) measured the
+columns at every existing device-label site; §4.1 now states the budgets (TEAM 6, compose header 15, DELIVERED peer
+row 19, REPLY sender 14, invite name 6 with its fingerprint, NEW MEMBER name 14) with zero resident growth, and
+requires the full counted name before abbreviation. The `DELIVERED to AB34CD` example is corrected: the result
+draws the peer on its own 19-cell row, so an unnamed peer shows `0x<HASH8>` there [HISTORY: r2–r2.19]. §13 W4a names
+B449 and B455. Author choices within D10; no owner ruling. Documentation only.
+
+**r2.21, 2026-09-27 — W4b scoped by its QA pre-check; allocation owner-ruled.** The [W4b pre-check](../evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md)
+asked the author to settle the transitions the design left open, and these are now stated: §6.1 rule 7 names the two
+existing unfinished-confirmation cancellations (UI-16 OQ-3) as its only exceptions; the Settings preview drops its
+body arrow and the menu's `MENU` row keeps `on_back()`; §6.3 gates each action on its capability; §6.4 pins the
+`OPTIONS CHANGED` press table; §6.5 states W4b's interim Inbox and Send content and the Send list's result and
+catalog-change returns; §6.2 omits a zero route count as it does a zero unread count; §6.6 pins the blocked-gate note rows and freezes its reason. The owner approved +72 B of static
+UI structures for W4b (§11.1, 2026-09-27; §11.1's closing sentence now names that grant beside D7's). §13 W4b adds
+B456. Documentation only.

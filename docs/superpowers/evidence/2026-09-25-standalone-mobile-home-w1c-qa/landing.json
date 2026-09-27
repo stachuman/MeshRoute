@@ -1,0 +1,85 @@
+{
+  "verdict": "PASS",
+  "gate_inputs_preserved_before_landing": true,
+  "frozen_candidate_and_brief_unchanged_after_landing": true,
+  "simulator_unchanged_and_clean": true,
+  "staged_diff_empty_both_repos": true,
+  "changed_original_paths": [
+    {
+      "path": "MEMORY.md",
+      "before": {
+        "kind": "file",
+        "sha256": "881b47db91b50ef31ddca7113dff4d4954e3519b3a4adfefeb2e3aab2be60e8b"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "871aca136ea386011ced8b92593bf06d687bc8328c9798839f3ecce6b71cff67"
+      }
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "before": {
+        "kind": "file",
+        "sha256": "01a29418a20ea098cd91a50bc648566ccc9a3ac5de8d3cc87351d6daddea2f9e"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "a547cb75fe0f84f10ac91e04acc611a4e6507667d6ceab2832ce658cedb59a0f"
+      }
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-29-peer-address-book-design.md",
+      "before": {
+        "kind": "file",
+        "sha256": "9f2423af8b99adc5f925237f6c1244fce79526509e40d0d597dcd2d9b710c7c0"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "970fdf094065f355a3f4fbbb373054c3909c7563c2932148af7adfefb6c64674"
+      }
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "before": {
+        "kind": "file",
+        "sha256": "0b1af9089aef32ee9cc4af00c123553af0fd5f1716a1554f4f26e8584b14d8c9"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "94dafe3a8e50dc4ff3de378f677ed87604077eb1d345bf29a7827885107c87ec"
+      }
+    },
+    {
+      "path": "ios-companion/INBOX_SYNC_CONTRACT.md",
+      "before": {
+        "kind": "file",
+        "sha256": "d4632c089c10836d6fb402ee5daf7f549213637e1a7d197348707fd2dc5f2f2d"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "7528854944693b3ff5d3db0735cc6a69f3220c9a737aaa985fab0d83faa7fd82"
+      }
+    },
+    {
+      "path": "tracker.md",
+      "before": {
+        "kind": "file",
+        "sha256": "bcb46358607fa9dd4fe60a7c00626b44fb5acc0350399fdd04430958b73ed2c9"
+      },
+      "after": {
+        "kind": "file",
+        "sha256": "c4849ecd8b9331f81c395e7c796312d5756153c6e50542b3f364684f81e0ce5c"
+      }
+    }
+  ],
+  "qa_additions_confined_to_receipt_and_evidence_folder": true,
+  "report_sha256": "a448172191f45936b3aa59a0c9c4c868a7b2cf3b29805a959204ca8c334f76ad",
+  "findings": {
+    "B447": "unnamed half closed; named precedence OPEN",
+    "B450": "OPEN unchanged",
+    "B451": "OPEN LOW fake comment drift",
+    "B452": "CLOSED companion wording",
+    "B350": "OPEN reconfirmed",
+    "next_free": "B453"
+  }
+}

@@ -2194,14 +2194,18 @@ TEST_CASE("§S2 INTRO wire golden — a first-contact plaintext hash send rides 
         if (ui) {
             CHECK(ui->has_dst_hash);    CHECK(ui->dst_key_hash32 == Bhash);
             CHECK(ui->has_source_hash); CHECK(ui->source_hash == idA.key_hash32);
-            const size_t want = static_cast<size_t>(33) + ui->body[32] + 3;
             CHECK(ui->body.size() >= static_cast<size_t>(35));
             if (ui->body.size() >= 33) {
+                const size_t want = static_cast<size_t>(33) + ui->body[32] + 3;   // read only behind the size guard
                 bool edok = true; for (int i = 0; i < 32; ++i) if (ui->body[i] != idA.ed_pub[i]) edok = false; CHECK(edok);
                 const uint32_t edh = uint32_t(ui->body[0]) | (uint32_t(ui->body[1]) << 8) | (uint32_t(ui->body[2]) << 16) | (uint32_t(ui->body[3]) << 24);
                 CHECK(edh == idA.key_hash32);                    // ed_pub[:4] == source_hash (the receiver's self-consistency check)
                 const uint8_t nlen = ui->body[32];
                 CHECK(want == ui->body.size());
+                // ★ W1c (D10): this sender is UNNAMED, so the name field is EMPTY — asserted INDEPENDENTLY of the
+                //   emitted length byte (the `want` above is derived from that byte, so it could not see a default).
+                CHECK(nlen == 0);
+                CHECK(ui->body.size() == static_cast<size_t>(33 + 3));   // [ed_pub 32][00]["hi!"]
                 if (ui->body.size() == want) {
                     const uint8_t* msg = ui->body.data() + 33 + nlen;
                     CHECK(msg[0] == 'h'); CHECK(msg[1] == 'i'); CHECK(msg[2] == '!');   // the app message rides UNCHANGED after the prefix
@@ -2281,6 +2285,384 @@ TEST_CASE("§S2 intro_attach cfg OFF + no-identity — never attach (the escape 
       A.test_id_bind_set(9, 0x77778888u, true); A.test_suspend_tx_drain(true);
       const uint8_t b[2] = { 'h', 'i' }; (void)send_by_hash_cmd(A, 0x77778888u, b, 2);
       CHECK(A.test_tx_queue_n() >= 1); if (A.test_tx_queue_n() >= 1) CHECK(A.test_tx_type(0) == 0); }   // no identity -> plain (never attach)
+}
+
+// =============================================================================
+// ★★★ W1c (design §4.6 D10, owner-ruled 2026-09-23) — AN UNNAMED DEVICE ADVERTISES NO NAME.
+// `Node::effective_name` is the STORED name only (a counted copy, possibly empty), so an unnamed node's own-name
+// producers emit the codec's EXISTING nameless forms, and every receiver already accepts them.
+// (B) proves the exact bytes from the REAL producers, each beside a NAMED control built from a FRESH node with the
+//     same seed and fixture, so the two outputs differ only by the name (B2 is the unnamed fit boundary only).
+// (C) feeds those exact bytes to the UNCHANGED receivers: a fresh cache stays nameless (C1), and a cache that already
+//     holds the peer's name in an UNPINNED row keeps it byte-identical (C2). A pinned row would return before the
+//     `name && name_len` guard `--target=w1cretain` attacks, so it could not show the guard mattered. The INTRO
+//     receive route lives in test_dual_layer.cpp (it needs the do_post_ack driver).
+// NB: CHECK only (this TU is -fno-exceptions); every dereference is guarded.
+// =============================================================================
+namespace {
+constexpr char    kW1cName[]    = "Bench 1";
+constexpr uint8_t kW1cNameLen   = 7;
+constexpr char    kW1cLabel[]   = "Desk label";   // a `peername` label (seeds C2 on the three B447 routes)
+constexpr uint8_t kW1cLabelLen  = 10;
+constexpr uint8_t kW1cHomeId    = 5, kW1cMobileLocal = 200, kW1cReqId = 9;
+
+Identity w1c_identity(uint8_t salt) {
+    uint8_t s[32]; for (int i = 0; i < 32; ++i) s[i] = static_cast<uint8_t>(i * 5 + salt);
+    Identity id{}; identity_from_seed(id, s); return id;
+}
+NodeConfig w1c_cfg() {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    return cfg;
+}
+// The body of the FIRST queued item of `type`, parsed with that item's OWN header flags. Empty when there is none.
+std::vector<uint8_t> w1c_queued_body(const Node& n, uint8_t type) {
+    for (uint8_t i = 0; i < n.test_tx_queue_n(); ++i) {
+        if (n.test_tx_type(i) != type) continue;
+        uint8_t len = 0; const uint8_t* inner = n.test_tx_inner(i, len);
+        const auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, len), n.test_tx_flags(i));
+        if (!ui) return {};
+        return std::vector<uint8_t>(ui->body.begin(), ui->body.end());
+    }
+    return {};
+}
+// The last TRANSMITTED frame that parses as an H. Empty when there is none.
+std::vector<uint8_t> w1c_last_h(const TestHal& hal) {
+    for (auto it = hal.tx_frames.rbegin(); it != hal.tx_frames.rend(); ++it)
+        if (parse_h(std::span<const uint8_t>(it->data(), it->size())).has_value()) return *it;
+    return {};
+}
+// The WANT_PUBKEY H a REAL static requester (id 9) transmits for `reqpubkey 0x<target>`.
+std::vector<uint8_t> w1c_static_h(const Identity& id, bool named, uint32_t target) {
+    TestHal hal; Node req(hal, kW1cReqId, id.key_hash32);
+    req.on_init(w1c_cfg()); req.set_crypto_identity(id.x_secret, id.ed_pub);
+    if (named) req.set_name(kW1cName, kW1cNameLen);
+    hal._now = 100000;
+    Command c{}; c.kind = CmdKind::reqpubkey;
+    c.u.resolve.dst_hash = target; c.u.resolve.dst_id = 0; c.u.resolve.hard = true; c.u.resolve.plane = 2;
+    if (req.on_command(c).code != CmdCode::queued) return {};
+    return w1c_last_h(hal);
+}
+// The same, from a TEAM requester (the §id-hash S1 TEAM fixture): `reqpubkey -t 228`, where 228 is bound to `peer`.
+std::vector<uint8_t> w1c_team_h(const Identity& id, bool named, const Identity& peer) {
+    TestHal hal; Node req(hal, /*id=*/114, id.key_hash32);
+    NodeConfig cfg = w1c_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    req.on_init(cfg); req.set_crypto_identity(id.x_secret, id.ed_pub); req.set_team_local_id(114);
+    if (named) req.set_name(kW1cName, kW1cNameLen);
+    hal._now = 100000;
+    req.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);
+    req.team_key_set(/*id=*/228, peer.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    Command c{}; c.kind = CmdKind::reqpubkey;
+    c.u.resolve.dst_hash = 0; c.u.resolve.dst_id = 228; c.u.resolve.hard = true; c.u.resolve.plane = 1;
+    if (req.on_command(c).code != CmdCode::queued) return {};
+    return w1c_last_h(hal);
+}
+// The 0x8B body a REAL crypto-ready owner (id 5) queues when handle_h's owner branch answers `h`.
+std::vector<uint8_t> w1c_owner_answer(const Identity& owner, bool named, const std::vector<uint8_t>& h) {
+    TestHal hal; Node o(hal, kW1cHomeId, owner.key_hash32);
+    o.on_init(w1c_cfg()); o.set_crypto_identity(owner.x_secret, owner.ed_pub);
+    if (named) o.set_name(kW1cName, kW1cNameLen);
+    o.test_suspend_tx_drain(true);
+    o.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+    return w1c_queued_body(o, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY);
+}
+// The queued MOBILE_KEY_FORWARD of a home: its addressing and its RAW inner ([origin][ed_pub 32][name_len][name]).
+struct W1cForward { bool found = false; uint8_t addr_len = 0, dst = 0; std::vector<uint8_t> inner; };
+W1cForward w1c_forward_of(const Node& home) {
+    W1cForward f;
+    for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i) {
+        if (home.test_tx_type(i) != DATA_TYPE_MOBILE_KEY_FORWARD) continue;
+        uint8_t len = 0; const uint8_t* inr = home.test_tx_inner(i, len);
+        f.found = true; f.addr_len = home.test_tx_addr_len(i); f.dst = home.test_tx_dst(i);
+        f.inner.assign(inr, inr + len);
+        break;
+    }
+    return f;
+}
+// A FRESH home (id 5) hosting a live mobile at local 200, fed the requester's real H.
+W1cForward w1c_home_forward(const Identity& mobile, const std::vector<uint8_t>& h) {
+    TestHal hal; Node home(hal, kW1cHomeId, 0x00005555u);
+    home.on_init(w1c_cfg());
+    home.test_add_host_mobile(mobile.key_hash32, kW1cMobileLocal, mobile.ed_pub);
+    home.test_suspend_tx_drain(true);
+    home.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+    return w1c_forward_of(home);
+}
+// The old generated default, as CACHED DATA (W1c neither recognises nor clears it): 26 bytes, uppercase 8-hex.
+std::string w1c_old_default(uint32_t h) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string s = "MeshRoute node: 0x";
+    for (int sh = 28; sh >= 0; sh -= 4) s += hex[(h >> sh) & 0xF];
+    return s;
+}
+std::string w1c_name_of(const Node& n, uint32_t hash) {
+    char nm[40]; const uint8_t l = n.peer_name_find(hash, nm, 32); return std::string(nm, l);
+}
+void w1c_drain(Node& n) { Push p{}; while (n.next_push(p)) {} }
+// Drain every push; report the LAST `peer_key_cached` for `hash`, whose body is the cached name the app is told.
+bool w1c_cached_push(Node& n, uint32_t hash, std::string& body) {
+    Push p{}; bool seen = false;
+    while (n.next_push(p))
+        if (p.kind == PushKind::peer_key_cached && p.sender_hash == hash) {
+            body.assign(reinterpret_cast<const char*>(p.body), p.body_len); seen = true;
+        }
+    return seen;
+}
+std::vector<uint8_t> w1c_bytes(const uint8_t* p, size_t n) { return std::vector<uint8_t>(p, p + n); }
+}  // namespace
+
+// ---- (B) exact bytes from the real producers ----------------------------------------------------------------
+TEST_CASE("W1c B1 — an UNNAMED sender's INTRO body is exactly [ed_pub 32][00][msg]; the NAMED control carries [len][name]") {
+    const Identity idA = w1c_identity(1);
+    const uint32_t Bhash = 0x1234ABCDu;
+    const uint8_t msg[3] = { 'h', 'i', '!' };
+    auto intro = [&](bool named) {
+        TestHal hal; Node A(hal, /*id=*/1, idA.key_hash32);
+        A.on_init(w1c_cfg()); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+        if (named) A.set_name(kW1cName, kW1cNameLen);
+        A.test_id_bind_set(9, Bhash, /*authoritative=*/true);   // send NOW (do_send), not park
+        A.test_suspend_tx_drain(true);
+        (void)send_by_hash_cmd(A, Bhash, msg, 3);
+        return w1c_queued_body(A, DATA_TYPE_INTRO);
+    };
+    std::vector<uint8_t> want = w1c_bytes(idA.ed_pub, 32);
+    want.push_back(0);
+    want.insert(want.end(), msg, msg + 3);
+    const std::vector<uint8_t> unnamed = intro(false);
+    CHECK(unnamed.size() == static_cast<size_t>(36));
+    CHECK(unnamed == want);
+    std::vector<uint8_t> want_named = w1c_bytes(idA.ed_pub, 32);
+    want_named.push_back(kW1cNameLen);
+    want_named.insert(want_named.end(), kW1cName, kW1cName + kW1cNameLen);
+    want_named.insert(want_named.end(), msg, msg + 3);
+    const std::vector<uint8_t> named = intro(true);
+    CHECK(named.size() == static_cast<size_t>(33 + kW1cNameLen + 3));
+    CHECK(named == want_named);
+}
+
+TEST_CASE("W1c B2 — an UNNAMED INTRO attaches up to dm_max_body_bytes - 33 of body; one byte more sends PLAIN with one intro_attach_too_large") {
+    const Identity idA = w1c_identity(2);
+    const uint32_t Bhash = 0x22224444u;
+    constexpr size_t kFit = protocol::dm_max_body_bytes - 33;   // the unnamed prefix is 33 B — DERIVED, never typed
+    auto send = [&](size_t len, int& too_large, uint8_t& type, std::vector<uint8_t>& body) {
+        TestHal hal; Node A(hal, /*id=*/1, idA.key_hash32);
+        A.on_init(w1c_cfg()); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+        A.test_id_bind_set(9, Bhash, /*authoritative=*/true);
+        A.test_suspend_tx_drain(true);
+        std::vector<uint8_t> big(len);
+        for (size_t i = 0; i < len; ++i) big[i] = static_cast<uint8_t>('a' + (i % 26));
+        (void)send_by_hash_cmd(A, Bhash, big.data(), static_cast<uint8_t>(len));
+        too_large = hal.countType("intro_attach_too_large");
+        type = A.test_tx_queue_n() >= 1 ? A.test_tx_type(0) : uint8_t(0xFF);
+        body = w1c_queued_body(A, type);
+    };
+    int tl = -1; uint8_t ty = 0xFF; std::vector<uint8_t> b;
+    send(kFit, tl, ty, b);                                         // exactly fits: the INTRO fills the DM body cap
+    CHECK(ty == DATA_TYPE_INTRO);
+    CHECK(b.size() == static_cast<size_t>(protocol::dm_max_body_bytes));
+    CHECK(tl == 0);
+    if (b.size() > 32) CHECK(b[32] == 0);                          // ...and it is the UNNAMED prefix
+    send(kFit + 1, tl, ty, b);                                     // one byte more: delivery beats key bootstrap
+    CHECK(ty == 0);                                                // sent PLAIN
+    CHECK(b.size() == kFit + 1);                                   // the message alone, no prefix
+    CHECK(tl == 1);                                                // fail-loud, exactly once
+}
+
+TEST_CASE("W1c B3 — an UNNAMED owner's AUTHORITATIVE_H_ANSWER_PUBKEY (0x8B) body is exactly [leaf][id][ed_pub 32][00]") {
+    const Identity owner = w1c_identity(3), req = w1c_identity(4);
+    const std::vector<uint8_t> h = w1c_static_h(req, /*named=*/false, owner.key_hash32);   // the real H it answers
+    CHECK(h.size() == static_cast<size_t>(40));
+    std::vector<uint8_t> base = { 0 /*target_layer = our leaf 0*/, kW1cHomeId /*answer node id*/ };
+    base.insert(base.end(), owner.ed_pub, owner.ed_pub + 32);
+    std::vector<uint8_t> want = base; want.push_back(0);
+    const std::vector<uint8_t> unnamed = w1c_owner_answer(owner, false, h);
+    CHECK(unnamed.size() == static_cast<size_t>(35));
+    CHECK(unnamed == want);
+    std::vector<uint8_t> want_named = base;
+    want_named.push_back(kW1cNameLen);
+    want_named.insert(want_named.end(), kW1cName, kW1cName + kW1cNameLen);
+    const std::vector<uint8_t> named = w1c_owner_answer(owner, true, h);
+    CHECK(named.size() == static_cast<size_t>(35 + kW1cNameLen));
+    CHECK(named == want_named);
+}
+
+TEST_CASE("W1c B4 — an UNNAMED requester's WANT_PUBKEY H is exactly 40 B with no trailer; the NAMED control appends [len][name]") {
+    const Identity req = w1c_identity(5);
+    const uint32_t target = 0xDEADBEEFu;
+    const std::vector<uint8_t> u = w1c_static_h(req, false, target);
+    const std::vector<uint8_t> n = w1c_static_h(req, true, target);
+    CHECK(u.size() == static_cast<size_t>(40));
+    if (u.size() == static_cast<size_t>(40)) {
+        CHECK(u[7] == (H_FLAG_HARD | H_FLAG_WANT_PUBKEY));
+        CHECK(std::memcmp(u.data() + 8, req.ed_pub, 32) == 0);   // bytes 8..39 = our ed_pub, then NOTHING
+        const auto p = parse_h(std::span<const uint8_t>(u.data(), u.size()));
+        CHECK(p.has_value());
+        if (p) { CHECK(p->query_key32 == target); CHECK(p->name_len == 0); CHECK_FALSE(p->team_scoped); }
+    }
+    CHECK(n.size() == static_cast<size_t>(40 + 1 + kW1cNameLen));
+    if (u.size() == 40 && n.size() == static_cast<size_t>(40 + 1 + kW1cNameLen)) {
+        CHECK(std::memcmp(u.data(), n.data(), 40) == 0);          // byte-identical up to the optional trailer
+        CHECK(n[40] == kW1cNameLen);
+        CHECK(std::memcmp(n.data() + 41, kW1cName, kW1cNameLen) == 0);
+    }
+}
+
+TEST_CASE("W1c B4 team — an UNNAMED team-scoped WANT_PUBKEY H is exactly 44 B: team_id LE32 at 40..43 and nothing after") {
+    const Identity req = w1c_identity(6), peer = w1c_identity(7);
+    const std::vector<uint8_t> u = w1c_team_h(req, false, peer);
+    const std::vector<uint8_t> n = w1c_team_h(req, true, peer);
+    CHECK(u.size() == static_cast<size_t>(44));
+    if (u.size() == static_cast<size_t>(44)) {
+        CHECK(u[7] == (H_FLAG_HARD | H_FLAG_WANT_PUBKEY | H_FLAG_TEAM | H_FLAG_MOBILE_REQ));
+        CHECK(std::memcmp(u.data() + 8, req.ed_pub, 32) == 0);
+        const uint32_t tid = uint32_t(u[40]) | (uint32_t(u[41]) << 8) | (uint32_t(u[42]) << 16) | (uint32_t(u[43]) << 24);
+        CHECK(tid == 0xABCD1234u);
+        const auto p = parse_h(std::span<const uint8_t>(u.data(), u.size()));
+        CHECK(p.has_value());
+        if (p) { CHECK(p->query_key32 == peer.key_hash32); CHECK(p->team_scoped); CHECK(p->name_len == 0); }
+    }
+    CHECK(n.size() == static_cast<size_t>(44 + 1 + kW1cNameLen));
+    if (u.size() == 44 && n.size() == static_cast<size_t>(44 + 1 + kW1cNameLen)) {
+        CHECK(std::memcmp(u.data(), n.data(), 44) == 0);
+        CHECK(n[44] == kW1cNameLen);
+        CHECK(std::memcmp(n.data() + 45, kW1cName, kW1cNameLen) == 0);
+    }
+}
+
+TEST_CASE("W1c B5 — a home forwarding an UNNAMED requester's real H queues MOBILE_KEY_FORWARD with inner exactly [origin][ed_pub 32][00]") {
+    const Identity mob = w1c_identity(8), req = w1c_identity(9);
+    const std::vector<uint8_t> hu = w1c_static_h(req, false, mob.key_hash32);   // B4's bytes, not make_h
+    const std::vector<uint8_t> hn = w1c_static_h(req, true,  mob.key_hash32);
+    CHECK(hu.size() == static_cast<size_t>(40));
+    const W1cForward u = w1c_home_forward(mob, hu);
+    CHECK(u.found);
+    CHECK(u.addr_len == 1);
+    CHECK(u.dst == kW1cMobileLocal);
+    CHECK(u.inner.size() == static_cast<size_t>(34));
+    if (u.inner.size() == static_cast<size_t>(34)) {
+        CHECK(u.inner[0] == kW1cHomeId);                           // the home's canonical origin byte
+        CHECK(std::memcmp(u.inner.data() + 1, req.ed_pub, 32) == 0);
+        CHECK(u.inner[33] == 0);                                   // name_len 0, and nothing after it
+    }
+    const W1cForward n = w1c_home_forward(mob, hn);                // a SECOND fresh home: fresh last_key_fwd dedup
+    CHECK(n.found);
+    CHECK(n.inner.size() == static_cast<size_t>(34 + kW1cNameLen));
+    if (u.inner.size() == 34 && n.inner.size() == static_cast<size_t>(34 + kW1cNameLen)) {
+        CHECK(std::memcmp(u.inner.data(), n.inner.data(), 33) == 0);   // [origin][ed_pub] identical
+        CHECK(n.inner[33] == kW1cNameLen);
+        CHECK(std::memcmp(n.inner.data() + 34, kW1cName, kW1cNameLen) == 0);
+    }
+}
+
+// ---- (C) the unchanged receivers, fed the exact zero-name bytes above ---------------------------------------
+TEST_CASE("W1c C route 2 — the 0x8B key answer with an EMPTY name: a fresh cache stays nameless; a peername label survives") {
+    const Identity owner = w1c_identity(10), req = w1c_identity(11);
+    const std::vector<uint8_t> body = w1c_owner_answer(owner, false, w1c_static_h(req, false, owner.key_hash32));
+    CHECK(body.size() == static_cast<size_t>(35));
+    {   // C1 — a FRESH receiver
+        TestHal hal; Node r(hal, kW1cReqId, req.key_hash32); r.on_init(w1c_cfg());
+        r.on_hash_bind_pubkey(body.data(), static_cast<uint8_t>(body.size()));
+        uint8_t ed[32]; Node::PeerKeyConf conf{};
+        CHECK(r.peer_key_find(owner.key_hash32, ed, &conf));
+        CHECK(conf == Node::PeerKeyConf::authoritative);
+        CHECK(w1c_name_of(r, owner.key_hash32).empty());
+        std::string pb = "x"; CHECK(w1c_cached_push(r, owner.key_hash32, pb)); CHECK(pb.empty());
+    }
+    {   // C2 — the receiver already holds the owner's key with a `peername` label, in an UNPINNED row
+        TestHal hal; Node r(hal, kW1cReqId, req.key_hash32); r.on_init(w1c_cfg());
+        CHECK(r.peer_key_set(owner.key_hash32, owner.ed_pub, Node::PeerKeyConf::authoritative));
+        CHECK(r.peer_name_set(owner.key_hash32, kW1cLabel, kW1cLabelLen));
+        w1c_drain(r);
+        r.on_hash_bind_pubkey(body.data(), static_cast<uint8_t>(body.size()));
+        CHECK(w1c_name_of(r, owner.key_hash32) == std::string(kW1cLabel, kW1cLabelLen));
+        std::string pb; CHECK(w1c_cached_push(r, owner.key_hash32, pb));
+        CHECK(pb == std::string(kW1cLabel, kW1cLabelLen));
+    }
+}
+
+TEST_CASE("W1c C route 3 — WANT_PUBKEY at the OWNER with an EMPTY name: a fresh cache stays nameless; a peername label survives") {
+    const Identity owner = w1c_identity(12), req = w1c_identity(13);
+    const std::vector<uint8_t> h = w1c_static_h(req, false, owner.key_hash32);
+    CHECK(h.size() == static_cast<size_t>(40));
+    {   // C1
+        TestHal hal; Node o(hal, kW1cHomeId, owner.key_hash32);
+        o.on_init(w1c_cfg()); o.set_crypto_identity(owner.x_secret, owner.ed_pub);
+        o.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+        uint8_t ed[32]; Node::PeerKeyConf conf{};
+        CHECK(o.peer_key_find(req.key_hash32, ed, &conf));
+        CHECK(conf == Node::PeerKeyConf::authoritative);
+        CHECK(w1c_name_of(o, req.key_hash32).empty());
+        std::string pb = "x"; CHECK(w1c_cached_push(o, req.key_hash32, pb)); CHECK(pb.empty());
+    }
+    {   // C2
+        TestHal hal; Node o(hal, kW1cHomeId, owner.key_hash32);
+        o.on_init(w1c_cfg()); o.set_crypto_identity(owner.x_secret, owner.ed_pub);
+        CHECK(o.peer_key_set(req.key_hash32, req.ed_pub, Node::PeerKeyConf::authoritative));
+        CHECK(o.peer_name_set(req.key_hash32, kW1cLabel, kW1cLabelLen));
+        w1c_drain(o);
+        o.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+        CHECK(w1c_name_of(o, req.key_hash32) == std::string(kW1cLabel, kW1cLabelLen));
+        std::string pb; CHECK(w1c_cached_push(o, req.key_hash32, pb));
+        CHECK(pb == std::string(kW1cLabel, kW1cLabelLen));
+    }
+}
+
+TEST_CASE("W1c C route 4 — WANT_PUBKEY at a HOSTING HOME with an EMPTY name: a fresh cache stays nameless; an old default survives") {
+    const Identity mob = w1c_identity(14), req = w1c_identity(15);
+    const std::vector<uint8_t> h = w1c_static_h(req, false, mob.key_hash32);
+    CHECK(h.size() == static_cast<size_t>(40));
+    const std::string old_default = w1c_old_default(req.key_hash32);
+    CHECK(old_default.size() == static_cast<size_t>(26));
+    {   // C1
+        TestHal hal; Node home(hal, kW1cHomeId, 0x00005555u); home.on_init(w1c_cfg());
+        home.test_add_host_mobile(mob.key_hash32, kW1cMobileLocal, mob.ed_pub);
+        home.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+        uint8_t ed[32]; Node::PeerKeyConf conf{};
+        CHECK(home.peer_key_find(req.key_hash32, ed, &conf));
+        CHECK(conf == Node::PeerKeyConf::authoritative);
+        CHECK(w1c_name_of(home, req.key_hash32).empty());
+        std::string pb = "x"; CHECK(w1c_cached_push(home, req.key_hash32, pb)); CHECK(pb.empty());
+    }
+    {   // C2 — the old generated default, held as CACHED DATA in an unpinned row
+        TestHal hal; Node home(hal, kW1cHomeId, 0x00005555u); home.on_init(w1c_cfg());
+        home.test_add_host_mobile(mob.key_hash32, kW1cMobileLocal, mob.ed_pub);
+        CHECK(home.peer_key_set(req.key_hash32, req.ed_pub, Node::PeerKeyConf::authoritative,
+                                old_default.c_str(), static_cast<uint8_t>(old_default.size())));
+        w1c_drain(home);
+        home.on_recv(h.data(), h.size(), RxMeta{8.0f, -80.0f, 0, -1});
+        CHECK(w1c_name_of(home, req.key_hash32) == old_default);
+        std::string pb; CHECK(w1c_cached_push(home, req.key_hash32, pb));
+        CHECK(pb == old_default);
+    }
+}
+
+TEST_CASE("W1c C route 5 — MOBILE_KEY_FORWARD with an EMPTY name: a fresh cache stays nameless; an old default survives") {
+    const Identity mob = w1c_identity(16), req = w1c_identity(17);
+    const W1cForward fwd = w1c_home_forward(mob, w1c_static_h(req, false, mob.key_hash32));
+    CHECK(fwd.inner.size() == static_cast<size_t>(34));
+    // the mobile's handler receives the body AFTER the origin byte: [ed_pub 32][00] = 33 B
+    const std::vector<uint8_t> body = fwd.inner.size() == 34 ? std::vector<uint8_t>(fwd.inner.begin() + 1, fwd.inner.end())
+                                                            : std::vector<uint8_t>{};
+    CHECK(body.size() == static_cast<size_t>(33));
+    const std::string old_default = w1c_old_default(req.key_hash32);
+    {   // C1
+        TestHal hal; Node m(hal, kW1cMobileLocal, mob.key_hash32); m.on_init(w1c_cfg());
+        m.on_mobile_key_forward(body.data(), static_cast<uint8_t>(body.size()));
+        uint8_t ed[32]; Node::PeerKeyConf conf{};
+        CHECK(m.peer_key_find(req.key_hash32, ed, &conf));
+        CHECK(conf == Node::PeerKeyConf::authoritative);
+        CHECK(w1c_name_of(m, req.key_hash32).empty());
+        std::string pb = "x"; CHECK(w1c_cached_push(m, req.key_hash32, pb)); CHECK(pb.empty());
+    }
+    {   // C2
+        TestHal hal; Node m(hal, kW1cMobileLocal, mob.key_hash32); m.on_init(w1c_cfg());
+        CHECK(m.peer_key_set(req.key_hash32, req.ed_pub, Node::PeerKeyConf::authoritative,
+                             old_default.c_str(), static_cast<uint8_t>(old_default.size())));
+        w1c_drain(m);
+        m.on_mobile_key_forward(body.data(), static_cast<uint8_t>(body.size()));
+        CHECK(w1c_name_of(m, req.key_hash32) == old_default);
+        std::string pb; CHECK(w1c_cached_push(m, req.key_hash32, pb));
+        CHECK(pb == old_default);
+    }
 }
 
 // ==== F-SL-1 (2026-07-19): bounded jittered H re-flood for a parked unresolved send ==============

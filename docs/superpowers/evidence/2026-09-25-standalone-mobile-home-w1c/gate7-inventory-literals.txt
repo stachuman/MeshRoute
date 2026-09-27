@@ -1,0 +1,39 @@
+### python3 tools/gen_command_inventory.py --check
+gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)
+EXIT=0
+### python3 tools/check_command_authority.py
+PASS: command authority — ruled table / production header / generated inventory agree
+EXIT=0
+### python3 tools/check_command_authority.py --selftest
+RED: table/header disagreement -> table/header disagreement: ('acl', '—')
+RED: orphan row -> orphan ruled row: ('orphan-probe', '—')
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_help.h:161
+PASS: command authority — ruled table / production header / generated inventory agree; 6/6 selftests RED
+EXIT=0
+### python3 tools/check_a0_matrix.py
+PASS — 21 enum members each have a matrix row, the CURRENT NAMESPACE table states every current value, and all 6 named special rows are present.
+       enum:   lib/core/frame_codec.h
+       matrix: docs/superpowers/evidence/2026-08-29-custody-a0-matrix.md
+EXIT=0
+### python3 tools/check_a0_matrix.py --selftest
+  RED   (control fired)  the `TOMBSTONE_NON_WIRE` SECTION deleted (summary mention left intact: yes)
+  RED   (control fired)  the `CURRENT NAMESPACE` SECTION deleted (summary mention left intact: yes)
+
+SELFTEST PASS — 10/10 controls RED. The check is an instrument, not decoration.
+EXIT=0
+### python3 tools/check_data_type_literals.py
+PASS — 218 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.
+       (roots: lib, src, test · comments and strings stripped, so historical notes are allowed)
+       semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals
+EXIT=0
+### python3 tools/check_data_type_literals.py --selftest
+  RED   (control fired)  an ordinal-inference comparison anywhere in the MAC receive path
+           first: lib/core/node_mac_rx.cpp:2600  comparison  pa.type == 10
+
+SELFTEST PASS — 4/4 controls RED. The zero result above is a measurement.
+EXIT=0
+### git diff --check (MeshRoute)
+EXIT=0
+### git diff --check (simulator)
+EXIT=0
+sim status-lines: 0

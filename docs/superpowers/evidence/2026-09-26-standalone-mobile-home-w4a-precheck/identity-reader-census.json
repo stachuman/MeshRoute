@@ -1,0 +1,1467 @@
+[
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 175,
+    "text": "    (\"mrui::InviteMember\",     \"MR_FEAT_OLED\"),"
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 317,
+    "text": "        \"mrui::InviteMember\":      (20, 4, False),"
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 349,
+    "text": "        \"mrui::InviteMember\":      (20, 4, True),"
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 384,
+    "text": "        \"mrui::InviteMember\":      (20, 4, False),"
+  },
+  {
+    "path": "src/firmware_ui_nearby_row.h",
+    "line": 16,
+    "text": "// \u2605 THAT IS THIS TREE'S OWN LAYERING: `TeamRow` lives in `firmware_ui_model.h` and its formatter"
+  },
+  {
+    "path": "src/firmware_ui_nearby_row.h",
+    "line": 64,
+    "text": "//     (`label_for_team_id`, src/firmware_ui.cpp) \u2014 so the mutation that resolves the sender's name into"
+  },
+  {
+    "path": "src/firmware_ui_geo.h",
+    "line": 178,
+    "text": "//        (`build_snapshot`), because it is the step `label_for_team_id` already takes and the spec requires ONE"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 371,
+    "text": "    char               who[mrui::kLabelCap + 1] = {};"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 444,
+    "text": "//     the returned count, so a 15-byte label holds at most 14 name bytes \u2014 the same visible clamp as `kLabelCap`."
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 448,
+    "text": "void label_from_hash(uint32_t hash, char* out, uint8_t cap) {"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 459,
+    "text": "uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap) {"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 463,
+    "text": "    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap); return hash; }"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 467,
+    "text": "void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap) {"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 470,
+    "text": "    if (pu.sender_hash != 0) { label_from_hash(pu.sender_hash, out, cap); return; }"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 574,
+    "text": "//         it were a message.\"* The `ui_display_byte` loop below is that sanitizer. E2E ACK is bodyless so the"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 607,
+    "text": "    // \u24d8 \u00a7UI-7D slice B: the `'.'` substitution moved into `mrui::ui_display_byte` so the preview row and the detail"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 609,
+    "text": "    for (uint8_t i = 0; i < n; ++i) r.text[i] = mrui::ui_display_byte(e.body[i]);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 747,
+    "text": "    s.team_shown = (total > mrui::kMaxTeamRows) ? mrui::kMaxTeamRows : total;"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 751,
+    "text": "        mrui::TeamRow& r = s.team[i];"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 767,
+    "text": "        // \u2605 ONE RESOLUTION PER ROW (U1): `label_for_team_id` returns the very hash it labelled from, so the position"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 776,
+    "text": "        //   `kMaxTeamRows` (8). \u26d4 No flash, no radio, no allocation."
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 777,
+    "text": "        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label));"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 788,
+    "text": "        mrui::InviteMember& mem = s.member[i];"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 792,
+    "text": "        //     than copied out of `r.label`: that string carries `label_from_hash`'s `0x%08lx` fallback and"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 793,
+    "text": "        //     `label_for_team_id`'s bare `id <n>`, and either one truncated into the row's six-column name field"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 1018,
+    "text": "static_assert(int(mrui::kTeamRowCols) == kBodyCols,"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 1087,
+    "text": "// Which slice of a longer list is on screen. A cursor may address up to kMaxTeamRows entries while only kBodyRows fit."
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 1449,
+    "text": "        //    sixth field. \u21d2 `TeamRow::hops` is now written and read by nothing, exactly as `score_q4` already was;"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 1968,
+    "text": "        //      `invite_note`, the row's three columns are `ui_fmt_invite_row`'s (name \u00b7 team-local id \u00b7 member"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2000,
+    "text": "                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2006,
+    "text": "        //      `kInviteNew`, the identity is `ui_fmt_member_hash_full`'s and the two action words are"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2016,
+    "text": "            // \u2605\u2605\u2605 \u00a7UI-16 N6 \u2014 THE TWO IDENTITY ROWS ARE **DECIDED IN THE PURE UNIT** (`invite_id_rows`) and merely"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2022,
+    "text": "            const mrui::InviteIdRows ident = mrui::invite_id_rows(s.member, s.team_shown, st.invite.sel_hash);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2045,
+    "text": "            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2055,
+    "text": "            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2070,
+    "text": "            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2195,
+    "text": "        char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2275,
+    "text": "        char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2739,
+    "text": "            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who));"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2748,
+    "text": "        // \u26d4 THE LABEL IS `\"\"` AND THAT IS THE POINT, not laziness: the arm reads no name, and `label_for_origin`"
+  },
+  {
+    "path": "src/firmware_ui_nearby.h",
+    "line": 46,
+    "text": "// \u2605 THAT IS THIS TREE'S OWN LAYERING, NOT AN INVENTION: `TeamRow` lives in `firmware_ui_model.h` while its row"
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "line": 55,
+    "text": "//     \u00b7 the printable-byte domain: `mrui::ui_display_byte`'s `0x20 .. 0x7e` \u2014 \u26d4 not a second opinion about which"
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "line": 311,
+    "text": "// \u2605 THE PRINTABLE DOMAIN IS `mrui::ui_display_byte`'s (`0x20 .. 0x7e`), \u26d4 not a second opinion about which bytes"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 45,
+    "text": "// \u2605 THE LIST'S CAPACITY. It is the SNAPSHOT's team-row capacity (`mrui::kMaxTeamRows`), and the two are bound by"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 54,
+    "text": "//   truncation). \u24d8 It equals `mrui::kLabelCap + 1`, asserted in the model beside the other bound."
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 55,
+    "text": "inline constexpr uint8_t kInviteNameCap = 15;"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 190,
+    "text": "// \u26d4 IT IS NOT `TeamRow`, and the two are deliberately different projections of one member: `TeamRow::label` is"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 199,
+    "text": "struct InviteMember {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 202,
+    "text": "    char     name[kInviteNameCap] = {};    // `peer_name_find`'s answer VERBATIM; \"\" = no cached name"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 263,
+    "text": "inline InviteWindow invite_snapshot_take(const InviteMember* mem, uint8_t n) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 270,
+    "text": "        const InviteMember& m = mem[i];"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 285,
+    "text": "inline bool invite_is_new(const InviteWindow& w, const InviteMember& m) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 323,
+    "text": "// \u26d4 AND THE ROW CARRIES THE WHOLE `InviteMember` (U2), \u26d4 not an index into anything: the identity a later"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 326,
+    "text": "    InviteMember cand{};     // MEANINGFUL ONLY while `!back`"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 348,
+    "text": "inline InviteSelList invite_sel_rows(const InviteWindow& w, const InviteMember* mem, uint8_t n) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 379,
+    "text": "inline void ui_fmt_member_fingerprint(char* out, std::size_t cap, uint32_t key_hash32) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 390,
+    "text": "inline void ui_fmt_member_hash_full(char* out, std::size_t cap, uint32_t key_hash32) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 402,
+    "text": "inline const char* invite_name_of(const InviteMember* mem, uint8_t n, uint32_t key_hash32) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 419,
+    "text": "    char name[kInviteNameCap] = {};    // the cached name, \"\" when none \u2014 the row the renderer simply omits"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 421,
+    "text": "inline InviteIdRows invite_id_rows(const InviteMember* mem, uint8_t n, uint32_t key_hash32) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 423,
+    "text": "    ui_fmt_member_hash_full(r.hash, sizeof r.hash, key_hash32);"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 424,
+    "text": "    const char* nm = invite_name_of(mem, n, key_hash32);"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 436,
+    "text": "//     TEAM chain's second step already uses. \u26d4 It is NOT `label_from_hash` and \u26d4 not `label_for_team_id`"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 446,
+    "text": "inline void ui_fmt_invite_row(char* out, std::size_t cap, char marker, const InviteMember& m) {"
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "line": 448,
+    "text": "    char fp[kMemberFpCap]; ui_fmt_member_fingerprint(fp, sizeof fp, m.key_hash32);"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 30,
+    "text": "//      `TeamRow::last_heard_s` is computed from the PRIMARY ROUTE CANDIDATE's `last_seen_ms`"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 43,
+    "text": "//     \u21d2 `TeamRow::hops` is from this slice on **written and read by nothing**. The design doc needs a"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 45,
+    "text": "//   \u00b7 **`TeamRow::score_q4` has never been on the panel at all** (spec \u00a71.9 F-2): it is filled at the snapshot and"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 53,
+    "text": "//   byte of this row**. It did \u2014 `src/firmware_ui_geo.h` supplies both tokens, `TeamRow` carries the four"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 61,
+    "text": "//   new buffer. \u26a0 WHAT S5 DID COST IS THE CARRIER, AND IT IS MEASURED THERE: `TeamRow` 28 -> **40** and"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 72,
+    "text": "//   `kMaxTeamRows` (8) solves \u2014 each a `cos`, a `sqrt` and a handful of multiplies \u2014 and ONLY while the TEAM rows"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 80,
+    "text": "#include \"firmware_ui_model.h\"    // TeamRow / UiSnapshot / UiModel / Screen \u2014 the frozen facts and the dirty bit"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 90,
+    "text": "//    asserts the composed row is exactly `kTeamRowCols` at its widest expansion, so the two cannot drift silently."
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 91,
+    "text": "inline constexpr std::size_t kTeamRowCols   = 19;  // = kBodyCols; the renderer static_asserts its own width against it"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 92,
+    "text": "inline constexpr std::size_t kTeamLabelCols = 6;   // `%-6.6s` \u2014 pads AND bounds (the clamp/clip difference, \u00a77.1 r5)"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 96,
+    "text": "static_assert(1 + kTeamLabelCols + 1 + kTeamAgeCols + 1 + kTeamDistCols + 1 + kTeamDirCols == kTeamRowCols,"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 152,
+    "text": "//   `kLabelCap` label can neither push the age off the row nor leave the columns ragged. \u00a77.1 rule 5 forbids letting"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 159,
+    "text": "inline void ui_team_row(char* out, std::size_t cap, bool marked, const TeamRow& t, const GeoFix& own) {"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 190,
+    "text": "//        \u00b7 the label's **DRAWN PREFIX**, `kTeamLabelCols` bytes \u2014 \u26d4 not the whole 15-byte array: two names that"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 201,
+    "text": "//          depend on it \u2014 which is why the bucket is taken per SNAPSHOT and not from the `TeamRow` alone."
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 229,
+    "text": "inline uint32_t ui_team_geo_bucket(const UiSnapshot& s, const TeamRow& t) {"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 238,
+    "text": "        for (std::size_t c = 0; c < kTeamLabelCols; ++c)"
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "line": 270,
+    "text": "//    \u24d8 It also bounds the cost to spec \u00a76's figure \u2014 at most `kMaxTeamRows` (8) bucketed comparisons per tick, and"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 222,
+    "text": "inline constexpr uint8_t  kMaxTeamRows  = 8;    // spec \u00a711: a 3-10 member group; the snapshot reports the TRUE total too"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 224,
+    "text": "inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate label"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 229,
+    "text": "//    must hold a whole `kLabelCap` label so the invite row and the TEAM row clamp ONE name at ONE width."
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 230,
+    "text": "static_assert(kMaxInviteRows >= kMaxTeamRows,"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 232,
+    "text": "static_assert(std::size_t(kInviteNameCap) == std::size_t(kLabelCap) + 1u,"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1410,
+    "text": "//    caller's `ui_display_byte` pass stays at its copy), no clock, no modal identity, no `dirty`, no `UiState`."
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1446,
+    "text": "inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1623,
+    "text": "inline uint32_t team_member_hash_of(const InviteMember* mem, uint8_t n, uint8_t id) {"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1724,
+    "text": "struct TeamRow {"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1731,
+    "text": "    char     label[kLabelCap + 1] = {};   // resolved name / 0xhash / bare id, already clamped (spec \u00a73.3)"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1739,
+    "text": "    //   three 4-byte fields then take 28 / 32 / 36 and `sizeof(TeamRow)` is 28 -> **40**. \u26a0 There are"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1740,
+    "text": "    //   `kMaxTeamRows` (8) of these inside `UiSnapshot`, so that struct measures 616 -> **712**."
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1792,
+    "text": "    uint8_t  team_shown = 0, team_total = 0;      // shown <= kMaxTeamRows; total = rt_team_count() (spec \u00a73.3)"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1793,
+    "text": "    TeamRow  team[kMaxTeamRows] = {};"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1822,
+    "text": "    //     when \u00a7UI-17 S5 gave `TeamRow` its four peer-location fields (+12 each, x8 rows) \u2014 and `sizeof(UiState)` is"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1887,
+    "text": "    //     96 bytes further on \u2014 `TeamRow` grew 28 -> 40 and `team[]` holds eight of them, ahead of everything here \u2014"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1899,
+    "text": "    //   \u2705 CORRECTED IN PLACE 2026-08-21: this note ended *\"the PEER-location fields on `TeamRow` \u2026 are still S5's,"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1900,
+    "text": "    //     and nothing here calls `peer_loc_find`\"*. S5 has since LANDED \u2014 `TeamRow` carries all four (see its own"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1919,
+    "text": "    //     them moved +96 when \u00a7UI-17 S5 grew `TeamRow` (28 -> 40, x8 rows) ahead of them, so `own_fix` MEASURES"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2018,
+    "text": "    // \u26a0\u26a0 AND THE WINDOW THEREFORE SEES AT MOST `kMaxTeamRows` MEMBERS \u2014 the TEAM screen's own bound, INHERITED"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2023,
+    "text": "    //    it moves `TeamRow` x N and is a resource decision of its own (spec \u00a711 sizes the group at 3-10)."
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2024,
+    "text": "    // \u26d4 AND IT IS NOT `TeamRow`: that row's `label` is a DISPLAY string with two FORBIDDEN fallbacks for this"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2026,
+    "text": "    //    name at all). `InviteMember::name` is `peer_name_find`'s answer or `\"\"`, and nothing else (F-15)."
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2027,
+    "text": "    // \u24d8 COST, MEASURED not assumed (host, `offsetof`-proved): `sizeof(InviteMember)` is **20** \u2014 `key_hash32` at"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2037,
+    "text": "    InviteMember member[kMaxInviteRows] = {};"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2542,
+    "text": "    //     is **712** (\u00a7UI-17 S3's frame-freeze fields took it to 616; S5's four `TeamRow` peer-location fields, at"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2560,
+    "text": "    //     `TeamRow` peer-location fields x8 rows). \u24d8 `sizeof(UiState)` **200** on this line IS still current \u2014"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3238,
+    "text": "    //    `body_len == 0`, e.g. an E2E-ack receipt). The copy through `ui_display_byte` happens HERE, i.e. inside the"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3250,
+    "text": "        for (uint8_t i = 0; i < n; ++i) _detail_body[i] = ui_display_byte(body[i]);"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3603,
+    "text": "        copy_clamped(_reply_who,  who,  sizeof _reply_who);"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3628,
+    "text": "    const char* reply_who()  const { return _reply_who; }"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3759,
+    "text": "    char     _reply_who[kLabelCap + 1] = {};"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 40,
+    "text": "using mrui::InviteMember;"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 53,
+    "text": "using mrui::ui_fmt_invite_row;"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 54,
+    "text": "using mrui::ui_fmt_member_fingerprint;"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 55,
+    "text": "using mrui::ui_fmt_member_hash_full;"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 61,
+    "text": "InviteMember mem(uint8_t id, uint32_t hash, const char* name = \"\") {"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 62,
+    "text": "    InviteMember m{};"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 65,
+    "text": "    for (uint8_t i = 0; name[i] && i + 1 < mrui::kInviteNameCap; ++i) m.name[i] = name[i];"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 69,
+    "text": "InviteSelList rows(const InviteWindow& w, const InviteMember* live, uint8_t n) {"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 263,
+    "text": "    const InviteMember live[] = { mem(81, 0x00C0FFEEu), mem(82, 0u), mem(200, 0xAABBCCDDu, \"Wolfgangetta\") };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 280,
+    "text": "    const InviteMember edges[] = { mem(0, 0x11111111u), mem(255, 0x22222222u) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 306,
+    "text": "    InviteMember many[kMaxInviteRows];"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 316,
+    "text": "    const InviteMember live[] = { mem(81, 0x00C0FFEEu), mem(200, 0xAABBCCDDu) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 325,
+    "text": "    const InviteMember named[] = { mem(81, 0x00C0FFEEu, \"Wolfgangetta\"), mem(200, 0xAABBCCDDu, \"Bo\") };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 330,
+    "text": "    const InviteMember at_open[] = { mem(81, 0x00C0FFEEu) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 332,
+    "text": "    const InviteMember later[] = { mem(81, 0x00C0FFEEu), mem(90, 0x12345678u) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 353,
+    "text": "    const InviteMember at_open[] = { mem(81, 0x00C0FFEEu) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 355,
+    "text": "    const InviteMember redadded[] = { mem(97, 0x00C0FFEEu) };      // same hash, new id"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 366,
+    "text": "    const InviteMember at_open[] = { mem(82, 0u) };                // route-only: present, unidentified"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 370,
+    "text": "    const InviteMember resolved[] = { mem(82, 0x5A5A5A5Au) };      // the SAME id, now authoritative"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 375,
+    "text": "    const InviteMember never_bound[] = { mem(120, 0u) };           // a route-only member that ARRIVED mid-window"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 389,
+    "text": "    const InviteMember at_open[] = { mem(82, 0u) };                // present, unidentified"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 391,
+    "text": "    const InviteMember both_changed[] = { mem(99, 0x7788AABBu) };  // new id AND a new hash, one window"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 408,
+    "text": "    const InviteMember live[] = { mem(90, 0x12345678u), mem(91, 0x9ABCDEF0u) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 426,
+    "text": "    const InviteMember live[] = { mem(90, 0x12345678u, \"Ann\"), mem(91, 0x9ABCDEF0u, \"Ann\") };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 467,
+    "text": "    ui_fmt_invite_row(out, sizeof out, '>', mem(221, 0x006C2971u));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 474,
+    "text": "    ui_fmt_invite_row(out, sizeof out, ' ', mem(221, 0x006C2971u));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 478,
+    "text": "    ui_fmt_invite_row(out, sizeof out, '>', mem(0, 0xFFFFFFFFu));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 481,
+    "text": "    ui_fmt_invite_row(out, sizeof out, '>', mem(254, 0x00000000u));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 489,
+    "text": "    ui_fmt_invite_row(blank, sizeof blank, '>', mem(221, hash));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 490,
+    "text": "    ui_fmt_invite_row(named, sizeof named, '>', mem(221, hash, \"Wolfgangetta\"));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 501,
+    "text": "    ui_fmt_invite_row(row, sizeof row, '>', mem(7, hash, \"Wolfgangetta-the-longest\"));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 505,
+    "text": "    ui_fmt_invite_row(row, sizeof row, '>', mem(7, hash, \"Bo\"));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 510,
+    "text": "    ui_fmt_invite_row(row, sizeof row, '>', mem(221, hash, \"0x00c0ffee\"));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 518,
+    "text": "    const InviteMember live[] = { mem(90, 0x11111111u, \"Ann\"), mem(91, 0x22222222u, \"Ann\") };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 528,
+    "text": "    ui_fmt_invite_row(ra, sizeof ra, '>', a.cand);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 529,
+    "text": "    ui_fmt_invite_row(rb, sizeof rb, ' ', b.cand);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 545,
+    "text": "    ui_fmt_member_fingerprint(out, sizeof out, 0x006C2971u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 550,
+    "text": "    ui_fmt_member_fingerprint(out, sizeof out, 0x00000001u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 552,
+    "text": "    ui_fmt_member_fingerprint(out, sizeof out, 0xFFABCDEFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 557,
+    "text": "    ui_fmt_member_fingerprint(a, sizeof a, 0x11ABCDEFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 558,
+    "text": "    ui_fmt_member_fingerprint(b, sizeof b, 0x22ABCDEFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 565,
+    "text": "    ui_fmt_member_fingerprint(out, sizeof out, 0x00D9348Au);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 568,
+    "text": "    ui_fmt_member_fingerprint(nullptr, sizeof out, 0x006C2971u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 569,
+    "text": "    ui_fmt_member_fingerprint(out, 0, 0x00112233u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 575,
+    "text": "    ui_fmt_member_hash_full(out, sizeof out, 0x00C0FFEEu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 583,
+    "text": "    ui_fmt_member_hash_full(a, sizeof a, 0x11ABCDEFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 584,
+    "text": "    ui_fmt_member_hash_full(b, sizeof b, 0x22ABCDEFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 589,
+    "text": "    ui_fmt_member_hash_full(out, sizeof out, 0x00000001u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 591,
+    "text": "    ui_fmt_member_hash_full(out, sizeof out, 0xFFFFFFFFu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 594,
+    "text": "    ui_fmt_member_hash_full(nullptr, sizeof out, 0x00C0FFEEu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 595,
+    "text": "    ui_fmt_member_hash_full(out, 0, 0x00112233u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 607,
+    "text": "    ui_fmt_invite_row(without,   sizeof without,   '>', mem(221, 0x006C2971u));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 608,
+    "text": "    ui_fmt_invite_row(with_name, sizeof with_name, '>', mem(221, 0x006C2971u, \"TEAMNAME\"));"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 611,
+    "text": "    ui_fmt_member_fingerprint(fp, sizeof fp, 0x006C2971u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 612,
+    "text": "    ui_fmt_member_hash_full(hash, sizeof hash, 0x006C2971u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 647,
+    "text": "    const InviteMember live[] = { mem(90, 0x12345678u) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 854,
+    "text": "    const InviteMember live[] = { mem(221, 0x00BEDEADu, \"Wolfgangetta\"), mem(90, 0x006C2971u) };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 856,
+    "text": "    const mrui::InviteIdRows named = mrui::invite_id_rows(live, 2, 0x00BEDEADu);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 860,
+    "text": "    const mrui::InviteIdRows bare = mrui::invite_id_rows(live, 2, 0x006C2971u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 864,
+    "text": "    const mrui::InviteIdRows gone = mrui::invite_id_rows(live, 2, 0x11223344u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 867,
+    "text": "    const mrui::InviteIdRows nolist = mrui::invite_id_rows(nullptr, 0, 0x11223344u);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 872,
+    "text": "    const InviteMember twins[] = { mem(11, 0x0000AAAAu, \"Sam\"), mem(12, 0x0000BBBBu, \"Sam\") };"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 873,
+    "text": "    CHECK(strcmp(mrui::invite_name_of(twins, 2, 0x0000AAAAu), \"Sam\") == 0);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 874,
+    "text": "    CHECK(strcmp(mrui::invite_name_of(twins, 2, 0x0000BBBBu), \"Sam\") == 0);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 875,
+    "text": "    CHECK(strcmp(mrui::invite_name_of(twins, 2, 0x0000CCCCu), \"\") == 0);"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 876,
+    "text": "    CHECK(strcmp(mrui::invite_name_of(twins, 2, 0), \"\") == 0);           // \u26d4 0 is \"no binding\", never an identity"
+  },
+  {
+    "path": "test/test_firmware_ui_invite.cpp",
+    "line": 877,
+    "text": "    CHECK(strcmp(mrui::invite_name_of(nullptr, 3, 0x0000AAAAu), \"\") == 0);"
+  },
+  {
+    "path": "test/test_custody_internal_c.cpp",
+    "line": 59,
+    "text": "        for (uint8_t i = 0; i < n; ++i) r.text[i] = mrui::ui_display_byte(e.body[i]);"
+  },
+  {
+    "path": "test/test_custody_internal_c.cpp",
+    "line": 281,
+    "text": "//    `mrui::ui_display_byte`. \u00a77.2 says the custody body *\"must never be passed through the ordinary text"
+  },
+  {
+    "path": "test/test_custody_internal_d.cpp",
+    "line": 695,
+    "text": "        for (uint8_t i = 0; i < n; ++i) r.text[i] = mrui::ui_display_byte(e.body[i]);"
+  },
+  {
+    "path": "test/test_firmware_ui_presets.cpp",
+    "line": 684,
+    "text": "    // \u2605 THE PRINTABLE DOMAIN IS `mrui::ui_display_byte`'s, and this is the case that keeps them ONE policy."
+  },
+  {
+    "path": "test/test_firmware_ui_presets.cpp",
+    "line": 688,
+    "text": "        const bool shown   = mrui::ui_display_byte(uint8_t(c)) == char(c);"
+  },
+  {
+    "path": "test/test_firmware_ui_geo.cpp",
+    "line": 92,
+    "text": "    // \u2605\u2605\u2605 THE SUBSTITUTION THIS SCREEN EXISTS TO REFUSE. A default-constructed `TeamRow` carries `(0,0)` and"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 649,
+    "text": "    CHECK(kMaxTeamRows  == 8);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 678,
+    "text": "    CHECK(sizeof(s.team) / sizeof(s.team[0]) == kMaxTeamRows);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 688,
+    "text": "    s.now_ms = 1000; s.team_shown = kMaxTeamRows; s.team_total = 12;   // truncated view, true total larger"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 689,
+    "text": "    for (uint8_t i = 0; i < kMaxTeamRows; ++i) s.team[i].id = uint8_t(20 + i);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 692,
+    "text": "    for (uint8_t i = 1; i < kMaxTeamRows; ++i) {"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 699,
+    "text": "    CHECK(m.state().cursor == kMaxTeamRows);                          // \u2605 the BACK row exists even at the cap..."
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 977,
+    "text": "    CHECK(std::strlen(m.reply_who())  == kLabelCap);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 2571,
+    "text": "    CHECK(ui_display_byte(0x20) == ' ');                         // the boundaries of the one policy"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 2572,
+    "text": "    CHECK(ui_display_byte(0x7e) == '~');"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 2573,
+    "text": "    CHECK(ui_display_byte(0x7f) == '.');"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 2574,
+    "text": "    CHECK(ui_display_byte(0x1f) == '.');"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 6411,
+    "text": "    CHECK(list_len_of(/*entered=*/false, kMaxTeamRows) == 1);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 6414,
+    "text": "    CHECK(list_len_of(/*entered=*/true,  kMaxTeamRows) == kMaxTeamRows + 1);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7416,
+    "text": "    for (uint8_t i = 0; i < n && i < mrui::kMaxTeamRows; ++i) {"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7425,
+    "text": "    if (s.team_shown >= mrui::kMaxTeamRows) return;"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7431,
+    "text": "    for (uint8_t b = 0; name[b] && b + 1 < mrui::kInviteNameCap; ++b) s.member[i].name[b] = name[b];"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7682,
+    "text": "        mrui::ui_fmt_member_hash_full(full, sizeof full, f.m.state().invite.sel_hash);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7813,
+    "text": "    mrui::ui_fmt_member_hash_full(full, sizeof full, f.m.state().invite.sel_hash);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 7899,
+    "text": "    mrui::ui_fmt_invite_row(row, sizeof row, '>', s.member[1]);"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8275,
+    "text": "        for (int i = 0; i < mrui::kMaxTeamRows + 2 &&"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8557,
+    "text": "    for (uint8_t b = 0; nm[b] && b + 1 < mrui::kInviteNameCap; ++b) s.member[0].name[b] = nm[b];"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8566,
+    "text": "    for (uint8_t b = 0; b < mrui::kInviteNameCap; ++b) moved.member[0].name[b] = 0;"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8568,
+    "text": "    for (uint8_t b = 0; nm2[b] && b + 1 < mrui::kInviteNameCap; ++b) moved.member[0].name[b] = nm2[b];"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8577,
+    "text": "        const mrui::InviteIdRows r = mrui::invite_id_rows(moved.member, moved.team_shown,"
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "line": 8579,
+    "text": "        char want[mrui::kMemberHashCap]; mrui::ui_fmt_member_hash_full(want, sizeof want, target);"
+  },
+  {
+    "path": "test/test_node_hashlocate.cpp",
+    "line": 1981,
+    "text": "// in the UI's one C-string adapter (`src/firmware_ui.cpp`'s `label_from_hash`), deliberately NOT here: `peer_name_find`"
+  },
+  {
+    "path": "test/test_firmware_ui_chrome.cpp",
+    "line": 369,
+    "text": "        s.team_shown = (c.total > kMaxTeamRows) ? kMaxTeamRows : c.total;"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 38,
+    "text": "TeamRow row_of(const char* label, uint32_t age_s) {"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 39,
+    "text": "    TeamRow t{};"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 50,
+    "text": "    const TeamRow t = row_of(label, age_s);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 62,
+    "text": "TeamRow located_row(const char* label, uint32_t age_s, int32_t dlat, int32_t dlon, uint32_t loc_age_s) {"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 63,
+    "text": "    TeamRow t = row_of(label, age_s);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 109,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 115,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 125,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 130,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 131,
+    "text": "    // And the WIDEST label the snapshot can publish \u2014 `kLabelCap` characters \u2014 against the WIDEST age token."
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 132,
+    "text": "    char widest[kLabelCap + 1];"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 133,
+    "text": "    for (std::size_t i = 0; i < kLabelCap; ++i) widest[i] = 'W';"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 134,
+    "text": "    widest[kLabelCap] = '\\0';"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 137,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 144,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 147,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 153,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 162,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 182,
+    "text": "        if (r.cols() != kTeamRowCols) width_ok = false;"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 183,
+    "text": "        for (std::size_t i = kTeamRowCols - (1 + kTeamDistCols + 1 + kTeamDirCols); i < kTeamRowCols; ++i)"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 189,
+    "text": "    CHECK(1 + kTeamLabelCols + 1 + kTeamAgeCols + 1 + kTeamDistCols + 1 + kTeamDirCols == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 202,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 206,
+    "text": "    // ...and the WIDEST expansion of every field at once \u2014 a `kLabelCap` label, `99d`, a four-column distance and a"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 208,
+    "text": "    char widest[kLabelCap + 1];"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 209,
+    "text": "    for (std::size_t i = 0; i < kLabelCap; ++i) widest[i] = 'W';"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 210,
+    "text": "    widest[kLabelCap] = '\\0';"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 214,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 227,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 253,
+    "text": "    CHECK(r.cols() == kTeamRowCols);"
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "line": 264,
+    "text": "    CHECK(1 + std::strlen(kListBackText) <= kTeamRowCols);"
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 3051,
+    "text": "  \"inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }\","
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 3052,
+    "text": "  \"inline char ui_display_byte(uint8_t b) { return char(b); }\"),"
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 3953,
+    "text": "  \"          for (const char* p = invite_name_of(s.member, s.team_shown, _st.invite.sel_hash); *p; ++p)\\n\""
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 5681,
+    "text": "#    fix, because `label_from_hash` is the resolver the TEAM screen next door really does use."
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 5709,
+    "text": " (\"I08 \u2605\u2605 the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached \u2014 the TRUNCATED \""
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 5838,
+    "text": "  \"    ui_fmt_member_hash_full(r.hash, sizeof r.hash, key_hash32);\","
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 5839,
+    "text": "  \"    if (!invite_name_of(mem, n, key_hash32)[0]) ui_fmt_member_hash_full(r.hash, sizeof r.hash, key_hash32);\"),"
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 6479,
+    "text": "  \"        for (std::size_t c = 0; c < kTeamLabelCols; ++c)\","
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "line": 6501,
+    "text": "  \"    for (uint8_t i = 0; i < kMaxTeamRows; ++i) {\"),"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 212,
+    "text": "// \u2605\u2605\u2605\u2605 [[B241]] (W1) \u2014 THE ONE PROBE-ONLY DOOR INTO A FILE-LOCAL FUNCTION. `label_from_hash` sits in"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 215,
+    "text": "void mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 3168,
+    "text": "    // \u2605\u2605 THE THREE ROWS ARE THE THREE ANSWERS THE LABEL RESOLVER CAN GIVE (`label_for_team_id`), so a misroute cannot"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5384,
+    "text": "                char fpB[mrui::kMemberFpCap]; mrui::ui_fmt_member_fingerprint(fpB, sizeof fpB, hashB);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5433,
+    "text": "                    mrui::InviteMember want{};"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5436,
+    "text": "                    mrui::ui_fmt_invite_row(row, sizeof row, '>', want);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5483,
+    "text": "                    mrui::InviteMember blank_pick{};"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5486,
+    "text": "                    mrui::ui_fmt_invite_row(blank_target, sizeof blank_target, '>', blank_pick);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5497,
+    "text": "                        mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5607,
+    "text": "                        mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5618,
+    "text": "                        //    full hash stays put. \u24d8 Both rows are the PURE unit's `invite_id_rows`, placed here."
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5619,
+    "text": "                        const mrui::InviteIdRows want = mrui::invite_id_rows(nullptr, 0, hashB);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5679,
+    "text": "                    mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5987,
+    "text": "                    mrui::ui_fmt_member_hash_full(fullA, sizeof fullA, hashA);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6111,
+    "text": "                        mrui::ui_fmt_member_hash_full(fullC, sizeof fullC, hashC);"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6729,
+    "text": "    //      `label_from_hash` used to hand its `%s` consumers `Node::peer_name_find`'s bytes with NO terminator. A short"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6734,
+    "text": "    // \u2605 (a) drives the REAL adapter through `mr_probe_label_from_hash` (`run.sh`'s `ui_wrapper`) into a 15-byte"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6739,
+    "text": "    //   a real alarm, the one route by which `label_for_origin`'s answer reaches the panel (`UiModel::on_reply`)."
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6804,
+    "text": "        auto resolve = [&](Fenced& f, uint32_t hash, uint8_t cap) { mr_probe_label_from_hash(hash, f.out, cap); };"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6849,
+    "text": "        // 91 -> `H1`, 92 -> the NAMELESS key (`0xb2410007`), 93 -> no key at all (`id 93`, `label_for_team_id`'s own"
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6850,
+    "text": "        // arm), 94 -> a hash nobody cached (`0xb2ee41ee`, `label_from_hash`'s fallback for an UNKNOWN peer)."
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 138,
+    "text": "# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it \u2014 and the"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 141,
+    "text": "#   UI source itself, a TU that `#include`s THAT SOURCE and adds ONE external trampoline, `mr_probe_label_from_hash`."
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 151,
+    "text": "  printf '#include \"%s\"\\nvoid mr_probe_label_from_hash(uint32_t hash, char* out, uint8_t cap) { label_from_hash(hash, out, cap); }\\n' \\"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1117,
+    "text": "      's|            char who\\[mrui::kLabelCap + 1\\]; label_for_origin(pu, who, uint8_t(sizeof who));|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who)); (void)who; (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now); if (true) break;|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1251,
+    "text": "  ctl \"B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator\" yes \\"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1252,
+    "text": "      '/^void label_from_hash(uint32_t hash, char\\* out, uint8_t cap) {$/,/^}$/ {"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1430,
+    "text": "       s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_for_team_id(r.team.reserved, label, uint8_t(sizeof label));|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1432,
+    "text": "      's|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_from_hash(r.team.team_id, label, uint8_t(sizeof label));|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1509,
+    "text": "  #   `label_from_hash` is one call away, it is what the TEAM screen legitimately uses, and it looks like reuse (U1!)"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1518,
+    "text": "      's|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);|            label_for_team_id(s.my_team_id, fp, uint8_t(sizeof fp));|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1520,
+    "text": "      's|                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);|                else        mrui::ui_fmt_invite_row(label, sizeof label, char(32), r.cand);|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1524,
+    "text": "      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_fingerprint(hash, sizeof hash, st.invite.sel_hash);|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1526,
+    "text": "      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1529,
+    "text": "  ctl \"O8 the member name is published through label_from_hash \u2014 the truncated 0x third spelling (F-15)\" yes \\"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1530,
+    "text": "      's|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1533,
+    "text": "      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1584,
+    "text": "      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|'"
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "line": 1599,
+    "text": "      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash); body_text(3, \"JOIN COMPLETE\");|'"
+  }
+]

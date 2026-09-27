@@ -1,0 +1,24 @@
+{
+  "comparisons": [
+    {
+      "against": "coder-stage-A",
+      "ordered_outcome_lines_equal": 238,
+      "unreddened_check_multiset_equal": 149,
+      "rollup_order_ignored": "Only the sort/comm listing order of identical unreddened check names differs."
+    },
+    {
+      "against": "coder-final",
+      "ordered_outcome_lines_equal": 238,
+      "unreddened_check_multiset_equal": 149,
+      "rollup_order_ignored": "Only the sort/comm listing order of identical unreddened check names differs."
+    }
+  ],
+  "new_controls": [
+    "  ok   W3-D1 the detail modal's second body row repeats the first row's slice -> RED (20 check(s) failed)",
+    "  ok   W3-D2 every detail body row is clipped to 18 columns (a lost final byte) -> RED (17 check(s) failed)",
+    "  ok   W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped) -> RED (8 check(s) failed)",
+    "  ok   W3-C2 the compose location marker is inverted (L and - swapped) -> RED (15 check(s) failed)",
+    "  ok   W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2 -> RED (2 check(s) failed)",
+    "  ok   W3-N1 the settings note is drawn on body row 3 instead of row 4 -> RED (3 check(s) failed)"
+  ]
+}

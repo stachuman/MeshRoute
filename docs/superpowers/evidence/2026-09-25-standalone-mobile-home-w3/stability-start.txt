@@ -1,0 +1,55 @@
+== /home/staszek/MeshRoute: HEAD 8360802904f7bd0023279d3da844453d61207ede (inventory 8360802904f7bd0023279d3da844453d61207ede) OK
+   inventoried paths: 1352; current nonignored: 1392
+   changed vs inventory: 4
+     CHANGED MEMORY.md (allowed prep)
+     CHANGED docs/2026-07-30-open-bug-register.md (allowed prep)
+     CHANGED docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md (allowed prep)
+     CHANGED tracker.md (allowed prep)
+   missing: 0
+   new since inventory: 40
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/authorization.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/board-ui-diagnostic-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/feature-ownership-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/focused-runs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/input-check.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/inputs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/mutation-check.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/precheck-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/preservation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/required-fold-ins.patch
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/validation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-baseline.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/base-reconciliation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/baseline-summary.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/compose-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-comparison.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/gate-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/inputs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/literal-readers.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation-census.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation_census.py
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/native-binary-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/pager-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/preservation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/probe-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/readers.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/runs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/source-pins.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/symbol-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/validation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/w1c-qa-checksums.txt
+     NEW docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
+== /home/staszek/lora-universal-simulator: HEAD 6585649ea5a780f0542b2931853a667be56a5b2b (inventory 6585649ea5a780f0542b2931853a667be56a5b2b) OK
+   inventoried paths: 285; current nonignored: 285
+   changed vs inventory: 0
+   missing: 0
+   new since inventory: 0
+UNEXPLAINED CHANGED/MISSING: 0

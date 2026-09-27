@@ -1,0 +1,590 @@
+selector	battery	source	line	matches	label
+a	sliceCbudget	src/firmware_ui_model.h	2209	1	S10 ★★★ THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP — `inbox_total` collapses onto `inbox_shown` and a truncated list starts claiming it is the whole mailbox
+b	sliceCsend	src/firmware_ui_send.h	623	1	S11 ★★★★ THE UNREAD ARM IS WIDENED TO `send_e2e_acked` — an E2E receipt increments the DM unread count, so the status bar claims an unread message that the inbox list can never show
+b	uipresets	src/firmware_ui_presets.h	476	1	U01 ★★★★ `io_failed` IS TREATED AS `invalid`: the REPAIR WRITE lands on a possibly-intact record after a transient mount fault
+b	uipresets	src/firmware_ui_presets.h	620	1	U02 ★★★ THE SEMANTIC GATE IS DROPPED — a header-valid record with corrupt SLOT fields rides in as the wearer's catalog
+b	uipresets	src/firmware_ui_presets.h	638	1	U03 ★★ DEFAULTS-ON-CORRUPT, SILENTLY: the invalid load is no longer COUNTED, so nothing measures the warning
+b	uipresets	src/firmware_ui_presets.h	301	1	U04 the two unreadable warnings are COLLAPSED — a corrupt record and a dead store take the same operator action
+b	uipresets	src/firmware_ui_presets.h	299	1	U05 ★★ AN ORDINARY FIRST BOOT WARNS — `absent` is worded as a fault, which is the collapse the four states exist to prevent
+b	uipresets	src/firmware_ui_presets.h	351	1	U06 ★★★ THE GENERATION WRAP LANDS ON ZERO — the value reserved for 'no generation', disarming P3's stale-generation refusal
+b	uipresets	src/firmware_ui_presets.h	410	1	U07 ★★★ A CANONICAL-ZEROING RULE DROPPED: the slot is edited in place, so the TAIL of a longer phrase survives
+b	uipresets	src/firmware_ui_presets.h	457	1	U08 the reader stops requiring the TAIL AFTER `len` to be zero — invisible garbage is accepted as canonical
+b	uipresets	src/firmware_ui_presets.h	444	1	U09 ★★ the booleans become 'non-zero is true' instead of EXACTLY 0/1 — the coalescing compare is unreliable forever after
+b	uipresets	src/firmware_ui_presets.h	445	1	U10 ★★★ the reader no longer requires the EMERGENCY slot to be enabled — a bit-flip silently removes the alarm's phrase
+b	uipresets	src/firmware_ui_presets.h	449	1	U11 a DISABLED slot may keep its LOCATION flag — the 'disabled slots are all-zero' rule half-dropped
+b	uipresets	src/firmware_ui_presets.h	461	1	U12 the persisted generation may be ZERO — the record's one non-zero invariant dropped from the reader
+b	uipresets	src/firmware_ui_presets.h	377	1	U13 ★★ the compiled EMERGENCY default is DISABLED AND EMPTY — §3.2.2's mandatory row broken at its source
+b	uipresets	src/firmware_ui_presets.h	377	1	U14 the compiled emergency default loses its LOCATION — §3.2.2 row 1 says location ON
+b	uipresets	src/firmware_ui_presets.h	668	1	U15 ★★★ COALESCING DROPPED — every `set` writes flash, including one that changes nothing
+b	uipresets	src/firmware_ui_presets.h	670	1	U16 ★★ the coalescing pin's ABSENT arm dropped — a no-op over a fresh device writes the record anyway
+b	uipresets	src/firmware_ui_presets.h	670	1	U17 ★★★★ THE BASELINE BECOMES THE RUNNING CATALOG for every non-ok state: the REPAIR never happens AND a late-absent record never regains durability
+b	uipresets	src/firmware_ui_presets.h	670	1	U29 ★★★★ THE DEFECT VERBATIM (QG blocker 2): the absent arm coalesces against `_live` — a custom catalog whose record went ABSENT answers `unchanged` to its own re-entry and is LOST at the next boot
+b	uipresets	src/firmware_ui_presets.h	629	1	U30 ★★ an ABSENT record is materialised as an EMPTY one rather than the COMPILED DEFAULTS — so every no-op on a fresh device writes flash
+b	uipresets	src/firmware_ui_presets.h	680	1	U18 ★★★★ CANDIDATE/LIVE ORDER INVERTED: the catalog is PUBLISHED BEFORE the save, so a failed write leaves phrases that vanish at the next boot
+b	uipresets	src/firmware_ui_presets.h	676	1	U19 ★★★ THE WITHDRAWN ORDER: the candidate is saved WITHOUT the next generation (the spec row corrected in QA round 2)
+b	uipresets	src/firmware_ui_presets.h	680	1	U20 ★★ a failed save is reported as a SUCCESS — the 'success that isn't', over a catalog nothing stored
+b	uipresets	src/firmware_ui_presets.h	607	1	U21 ★ `reset all` resets the GENERATION to the compiled 1 — a SendReq sealed under an OLD catalog compares EQUAL again
+b	uipresets	src/firmware_ui_presets.h	573	1	U22 ★★★★ `clear emergency` IS ACCEPTED — the one slot the design says can never be disabled, cleared or emptied
+b	uipresets	src/firmware_ui_presets.h	554	1	U23 ★★ an ACTIVE EMERGENCY no longer refuses `set` — an alarm's retry series can have its body changed halfway through
+b	uipresets	src/firmware_ui_presets.h	600	1	U24 ★★ an ACTIVE EMERGENCY no longer refuses `reset all` — the whole catalog replaceable mid-alarm
+b	uipresets	src/firmware_ui_presets.h	332	1	U25 ★★★ OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (18) — the row always shows a location marker, so byte 18 is one the wearer cannot inspect
+b	uipresets	src/firmware_ui_presets.h	340	1	U26 the '≥ one non-space' rule dropped — a slot of spaces renders as a row the wearer believes is configured and cannot see
+b	uipresets	src/firmware_ui_presets.h	337	1	U27 the `"` / `\` refusal dropped — the two printable bytes that break every quoted console/NDJSON form P2 emits
+b	uipresets	src/firmware_ui_presets.h	336	1	U28 the printable-ASCII domain is widened to 'not a control byte', so high bytes the panel cannot show are stored
+b	uipresets	src/firmware_ui_presets.h	332	1	U31 ★★★★ THE BOUND IS TESTED AFTER A NARROW: a 273-byte phrase becomes 17 and is ACCEPTED as valid
+b	uipresets	src/firmware_ui_presets.h	552	1	U32 ★★★★ THE PUBLIC BOUNDARY IS NARROWED BACK to the record's own width — the length is laundered AT THE CALL, before any check runs
+a	model	src/firmware_ui_model.h	5286	1	M01 sync matches `seq` ONLY (the kind clause dropped)
+a	model	src/firmware_ui_model.h	5287	1	M02 the highlight does NOT follow a moved record (sync is inert)
+a	model	src/firmware_ui_model.h	5293	1	M03 a vanished pick is KEPT rather than dropped (the tempting clamp)
+a	model	src/firmware_ui_model.h	2817	1	M04 the GESTURE path stops re-anchoring the cursor (the highlight goes stale)
+a	model	src/firmware_ui_model.h	3998	1	M05 activation CLAMPS instead of refusing a lost selection
+a	model	src/firmware_ui_model.h	5308	1	M06 a row with seq 0 is selected anyway
+a	model	src/firmware_ui_model.h	5356	1	M07 the erase target assumes the DM store ([[B133]]'s exact shape)
+a	model	src/firmware_ui_model.h	5356	1	M08 the erase target is the NEIGHBOUR (an off-by-one row)
+a	model	src/firmware_ui_model.h	5451	1	M09 the answer's identity is not checked at all
+a	model	src/firmware_ui_model.h	5451	1	M10 an UNSOLICITED answer is accepted (the `_inbox_taken` guard dropped)
+a	model	src/firmware_ui_model.h	2210	1	M11 the budget's ring is chosen from the WRONG kind
+a	model	src/firmware_ui_model.h	3293	1	M12 the body length is found by scanning for NUL (i.e. strlen)
+a	model	src/firmware_ui_model.h	1448	1	M13 the sanitizer passes raw bytes through
+a	model	src/firmware_ui_model.h	1421	1	M14 pages FLOORS instead of ceiling
+a	model	src/firmware_ui_model.h	1422	1	M15 an empty body yields ZERO pages
+a	model	src/firmware_ui_model.h	2933	1	M16 the page advance STOPS at the last page instead of cycling
+a	model	src/firmware_ui_model.h	2934	1	M17 a page turn also refreshes the inactivity deadline
+a	model	src/firmware_ui_model.h	1436	1	M18 both body rows render the SAME 19 columns
+a	model	src/firmware_ui_model.h	3301	1	M20 a freshly opened modal selects `delete`
+a	model	src/firmware_ui_model.h	5344	1	M21 short press does not toggle the action
+a	model	src/firmware_ui_model.h	3360	1	M22 `io_error` CLOSES the modal (a disappearance without durable success)
+a	model	src/firmware_ui_model.h	3360	1	M23 `io_error` leaves the selection on `delete` (a retry one press away)
+a	model	src/firmware_ui_model.h	3353	1	M24 `not_found` is treated as a success and closes the modal
+a	model	src/firmware_ui_model.h	5339	1	M25 the terminal MESSAGE GONE state still accepts an action press
+a	model	src/firmware_ui_model.h	3340	1	M26 a successful delete keeps the DELETED record as the selection
+a	model	src/firmware_ui_model.h	5601	1	M27 the modal is closed at `long_fire` (compose's rule, copied)
+a	model	src/firmware_ui_model.h	5601	1	M28 the modal is not closed by a long press at all
+a	model	src/firmware_ui_model.h	5749	1	M29 a completed DETAIL frame clears the unread counters
+a	model	src/firmware_ui_model.h	2322	1	M30 the DELETE FAILED header is dropped (the failure becomes invisible)
+a	model	src/firmware_ui_model.h	2328	1	M31 the channel header omits the channel number
+a	model	src/firmware_ui_model.h	2329	1	M32 the page indicator is 0-based on the panel
+a	model	src/firmware_ui_model.h	5577	1	M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)
+a	model	src/firmware_ui_model.h	5569	1	M34 the SETTINGS screen is not list-aware (one press leaves it)
+a	model	src/firmware_ui_model.h	2830	1	M35 `short` WALKS THE ROWS while editing (the double-duty trap)
+a	model	src/firmware_ui_model.h	5628	1	M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied)
+a	model	src/firmware_ui_model.h	5628	1	M37 a long press does not leave the editor at all
+a	model	src/firmware_ui_model.h	4255	1	M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door)
+a	model	src/firmware_ui_model.h	3022	1	M39 blanking DISCARDS the draft (the forbidden discard, through the timer)
+a	model	src/firmware_ui_model.h	649	1	M40 the RELOAD row stands permanently, not only while it applies
+a	model	src/firmware_ui_model.h	644	1	M41 the BLE row is rendered unconditionally (the transport condition ignored)
+a	model	src/firmware_ui_model.h	619	1	M42 an out-of-range row index CLAMPS to row 0 instead of failing closed
+a	model	src/firmware_ui_model.h	4148	1	M43 the cursor does NOT follow its row when the list changes under it
+a	model	src/firmware_ui_model.h	2746	1	M44 a REFUSED save reads as SAVED (the success that isn't)
+a	model	src/firmware_ui_model.h	4243	1	M45 the SAVE outcome is recorded BEFORE the service returns it
+a	model	src/firmware_ui_model.h	1377	1	M46 the unsaved marker is dropped from §3.3's row
+a	model	src/firmware_ui_model.h	1376	1	M47 the conflict headline is re-spelled here instead of called from the service
+a	model	src/firmware_ui_model.h	2840	1	M48 the transient note is never retired (a stale outcome under a fresh act)
+a	model	src/firmware_ui_model.h	4188	1	M49 the editor SETS instead of cycling (one press can never turn a value off)
+a	model	src/firmware_ui_model.h	2031	1	M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot)
+a	model	src/firmware_ui_model.h	1401	1	M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only)
+a	model	src/firmware_ui_model.h	1403	1	M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols
+a	model	src/firmware_ui_model.h	4358	1	M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)
+a	model	src/firmware_ui_model.h	592	1	M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)
+a	model	src/firmware_ui_model.h	4289	1	M55 the §4 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan §4's conflation, through the ORDER)
+a	model	src/firmware_ui_model.h	4290	1	M56 the UNSAVED cell is dropped — PROVISION opens over an unsaved draft (§3.6.3's precondition gone)
+a	model	src/firmware_ui_model.h	4289	1	M57 the CONFLICT cell is dropped — the two states collapse into one
+a	model	src/firmware_ui_model.h	2733	1	M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)
+a	model	src/firmware_ui_model.h	4290	1	M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)
+a	model	src/firmware_ui_model.h	790	1	M60 static join is hidden because the TEAM plane is off (plan §6's named defect, verbatim)
+a	model	src/firmware_ui_model.h	789	1	M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids)
+a	model	src/firmware_ui_model.h	4313	1	M62 a confirmation opens with CONFIRM selected (the destructive default §3.6.3 rules out)
+a	model	src/firmware_ui_model.h	2829	1	M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it)
+a	model	src/firmware_ui_model.h	4143	1	M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list)
+a	model	src/firmware_ui_model.h	4458	1	M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance)
+a	model	src/firmware_ui_model.h	5627	1	M66 the provisioning sub-view survives the alarm (§3.6.5 rule 1's pre-emption dropped)
+a	model	src/firmware_ui_model.h	4532	1	M68 ★★ the confirmation fires the transaction on BACK too (the safe action performs the destructive one)
+a	model	src/firmware_ui_model.h	4531	1	M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)
+a	model	src/firmware_ui_model.h	4543	1	M70 ★★ the RESULT screen is entered BEFORE the transaction runs (§8 pin 2, inverted)
+a	model	src/firmware_ui_model.h	4322	1	M71 the answer is never retired, so a stale verdict survives into the next screen
+a	model	src/firmware_ui_model.h	4384	1	M72 the result arm RE-RUNS the transaction on the press that leaves it
+a	model	src/firmware_ui_model.h	4549	1	M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)
+a	model	src/firmware_ui_model.h	1285	1	M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead)
+a	model	src/firmware_ui_model.h	1210	1	M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse)
+a	model	src/firmware_ui_model.h	648	1	M76 the PROVISION row is unconditional again (the parent-row ruling not applied)
+a	model	src/firmware_ui_model.h	813	1	M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION
+a	model	src/firmware_ui_model.h	4477	1	M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left)
+a	model	src/firmware_ui_model.h	4593	1	M79 ★★ the join confirmation fires the transaction on BACK too (the safe action performs the join)
+a	model	src/firmware_ui_model.h	4592	1	M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join)
+a	model	src/firmware_ui_model.h	4603	1	M81 ★★ the RESULT screen is entered BEFORE the join transaction runs (§8 pin 2, inverted, join half)
+a	model	src/firmware_ui_model.h	2949	1	M82 ⛔⛔ 60 s becomes a TERMINAL FAILURE (plan §2.3 rule 5's forbidden deadline, and retries are unbounded)
+a	model	src/firmware_ui_model.h	4392	1	M83 ⛔ BACK from the waiting screen CANCELS the persisted join (plan §2.3 rule 4's forbidden rollback)
+a	model	src/firmware_ui_model.h	5627	1	M84 ⛔ the ALARM cancels the persisted join (§3.6.5 pre-empts the SCREEN, never the operation)
+a	model	src/firmware_ui_model.h	3174	1	M85 ⛔⛔ ANY `join_refused` push FAILS the screen (plan §2.3 rule 6: no reason terminally fails v1)
+a	model	src/firmware_ui_model.h	4624	1	M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD
+a	model	src/firmware_ui_model.h	3180	1	M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator)
+a	model	src/firmware_ui_model.h	3184	1	M88 the adopted answer carries no node id (plan §2.3 rule 2's `resulting node id` never shows)
+a	model	src/firmware_ui_model.h	4580	1	M89 the SELECT list activates the row INDEX as a slot number (§B66 — slot 3 is joined as slot 2)
+a	model	src/firmware_ui_model.h	4615	1	M90 the join intent carries no profile, so the adapter is handed an empty slot
+a	model	src/firmware_ui_model.h	4616	1	M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)
+a	model	src/firmware_ui_model.h	2235	1	M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM)
+a	model	src/firmware_ui_model.h	2236	1	M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied)
+a	model	src/firmware_ui_model.h	2985	1	M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever)
+a	model	src/firmware_ui_model.h	2985	1	M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame)
+a	model	src/firmware_ui_model.h	3332	1	M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing
+a	model	src/firmware_ui_model.h	4126	1	M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen)
+a	model	src/firmware_ui_model.h	5569	1	M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel
+a	model	src/firmware_ui_model.h	4019	1	M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)
+a	model	src/firmware_ui_model.h	4020	1	M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws)
+a	model	src/firmware_ui_model.h	4117	1	M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)
+a	model	src/firmware_ui_model.h	3914	1	M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)
+a	model	src/firmware_ui_model.h	4265	1	M102 [[B232]] the BACK row jumps to STATUS instead of leaving the MENU
+a	model	src/firmware_ui_model.h	4077	1	M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index
+a	model	src/firmware_ui_model.h	1385	1	M104 [[B232]] the entry row has no label (an entry nobody can read — C2)
+a	model	src/firmware_ui_model.h	4108	1	M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)
+a	model	src/firmware_ui_model.h	311	1	M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered
+a	model	src/firmware_ui_model.h	294	1	M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit
+a	model	src/firmware_ui_model.h	3962	1	M109 [[UI-17]] the BACK row leaves the SCREEN instead of closing the view (the jump the contract removes)
+a	model	src/firmware_ui_model.h	3924	1	M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)
+a	model	src/firmware_ui_model.h	364	1	M111 [[B223]] the leave reset never resets — an entered list outlives its screen
+a	model	src/firmware_ui_model.h	350	1	M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made)
+a	model	src/firmware_ui_model.h	380	1	M114 [[UI-17]] `is this screen entered` is inverted for the two list screens
+a	model	src/firmware_ui_model.h	328	1	M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead
+a	model	src/firmware_ui_model.h	330	1	M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS)
+a	model	src/firmware_ui_model.h	328	1	M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering
+a	model	src/firmware_ui_model.h	351	1	M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end)
+a	model	src/firmware_ui_model.h	349	1	M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later)
+a	model	src/firmware_ui_model.h	4095	1	M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses
+a	model	src/firmware_ui_model.h	2852	1	S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (§3.2.1 restored over §3.3)
+a	model	src/firmware_ui_model.h	2852	1	S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (§3.5 restored over §3.3)
+a	model	src/firmware_ui_model.h	5645	1	S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (§B101's close dropped)
+a	model	src/firmware_ui_model.h	2931	1	S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK
+a	model	src/firmware_ui_model.h	2931	1	S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick
+a	model	src/firmware_ui_model.h	5377	1	S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page
+a	model	src/firmware_ui_model.h	5429	1	S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open
+a	model	src/firmware_ui_model.h	3238	1	S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (§R1's exact defect, one plane over)
+a	model	src/firmware_ui_model.h	3236	1	S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed)
+a	model	src/firmware_ui_model.h	5429	1	S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash)
+a	model	src/firmware_ui_model.h	5406	1	S11 [[UI-17]] `wake_active` is INVERTED — the window is live everywhere except during it
+a	model	src/firmware_ui_model.h	5406	1	S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again
+a	model	src/firmware_ui_model.h	5406	1	S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives
+a	model	src/firmware_ui_model.h	3238	1	S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank)
+a	model	src/firmware_ui_model.h	3237	1	S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push)
+a	model	src/firmware_ui_model.h	3237	1	S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome
+a	model	src/firmware_ui_model.h	3236	1	S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message
+a	model	src/firmware_ui_model.h	791	1	N01 ★★ the JOIN TEAM child is FOLDED into the CREATE predicate — the coincidence encoded as a rule
+a	model	src/firmware_ui_model.h	811	1	N02 ★★ the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list — the third child opens a sub-view no visible row leads to
+a	model	src/firmware_ui_model.h	4647	1	N03 ★★ the own-team id is not handed to the capture — the team we are already in is offered as a candidate
+a	model	src/firmware_ui_model.h	2968	1	N04 ★★★ the scan is RE-READ EVERY TICK — owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor
+a	model	src/firmware_ui_model.h	4668	1	N05 ★★ BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)
+a	model	src/firmware_ui_model.h	4669	1	N06 ★★ ANY double ACTS, not just the one on a TEAM row — leaving the list opens a JOIN confirmation
+a	model	src/firmware_ui_model.h	4674	1	N07 ★★ the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change)
+a	model	src/firmware_ui_model.h	4674	1	N08 ★★★ the act is handed the CURSOR INDEX instead of the row identity (§B66)
+a	model	src/firmware_ui_model.h	4674	1	N09 ★★★ the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]])
+a	model	src/firmware_ui_model.h	4688	1	N10 ★★ the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract)
+a	model	src/firmware_ui_model.h	1229	1	N11 ★★ `team_joined` is mapped onto CREATE's string — a JOIN reports TEAM CREATED (F-4, at its source)
+a	model	src/firmware_ui_model.h	4688	1	N12 ★★ a double on BACK falls through into the act (one press means the other)
+a	model	src/firmware_ui_model.h	4705	1	N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` — a LEAVE
+a	model	src/firmware_ui_model.h	5014	1	V01 ★★ the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot — the `last_seen_ms` defect §1.3 names, at the one site where that field is in scope
+a	model	src/firmware_ui_model.h	5117	1	V02 ★★★ the snapshot is re-taken at every RENDER instead of at the window's OPEN — so the candidate the window exists to surface is inside the snapshot by the time it is drawn
+a	model	src/firmware_ui_model.h	4498	1	V03 ★★ the snapshot is NEVER taken — the window opens with no authorities at all
+a	model	src/firmware_ui_model.h	4500	1	B249-1 ★★★ the fresh INVITE open never requests the existing triggered team announcement
+a	model	src/firmware_ui_model.h	4500	1	B249-2 ★★★ the fresh INVITE open requests the announcement TWICE
+a	model	src/firmware_ui_model.h	4498	1	B249-3 ★★★ the announcement request precedes the member snapshot and established invitation arm
+a	model	src/firmware_ui_model.h	5120	1	V04 ★★★ the expiry RENEWS the window instead of closing it — the bounded window is unbounded and the panel never says WINDOW CLOSED (P-11)
+a	model	src/firmware_ui_model.h	5118	1	V05 ★★★ the open window WRITES `_last_input_ms` on every tick — the panel never blanks and the node never light-sleeps while it is up (OQ-3's refusal)
+a	model	src/firmware_ui_model.h	4332	1	V06 ★★★ the handled set is made PERSISTENT — a candidate rejected in one window stays suppressed in the next, which the ruling forbids (F-13: it is discarded when the window closes)
+a	model	src/firmware_ui_model.h	5119	1	V07 ★★★ the confirmation does NOT freeze the selection — every refresh re-points it at the row under the cursor, so a member arriving between the two presses moves the target (F-14)
+a	model	src/firmware_ui_model.h	5029	1	V08 ★★★ the row is keyed by the DISPLAY NAME instead of the hash — N4's selection and N5's reqpubkey target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346)
+a	model	src/firmware_ui_model.h	5426	1	V09 ★★★ the window's `left != 0` term is dropped — at the EXACT deadline the window is still open, so the five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)
+a	model	src/firmware_ui_model.h	5035	1	V10 ★★★ the request is AUTO-ISSUED on candidate entry — the operator never selected REQUEST PUBKEY or double-confirmed it (the owner-ratified ban reversed)
+a	model	src/firmware_ui_model.h	4313	1	V11 ★★ the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK — an immediate double airs it
+a	model	src/firmware_ui_model.h	5119	1	V12 ★★★ the request timeout ENABLES GRANT KEY although no matching key arrived
+a	model	src/firmware_ui_model.h	5035	1	V13 ★★★ the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata makes an airtime-and-secret decision)
+a	model	src/firmware_ui_model.h	5071	1	V14 ★★★ the WAITING FOR PUBKEY screen is entered whatever the seam answered — an unattached seam and a synchronous refusal both claim an outstanding request (the QG blocker, restored)
+a	model	src/firmware_ui_model.h	5055	1	V15 ★★★ THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) — the private key is shipped to whatever the MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act
+a	model	src/firmware_ui_model.h	5085	1	V16 ★★★ `REJECT` CALLS THE SEND — the SAFE default arm, the one selected on entry, ships the team's private key; one double-press on an unchanged confirmation grants instead of declining
+a	model	src/firmware_ui_model.h	5086	1	V17 ★★ `REJECT` no longer adds the hash to the handled set (F-13) — the local refresh re-offers the candidate the operator has just declined, one tick later
+a	model	src/firmware_ui_model.h	5049	1	V18 ★★★ the window's own deadline is not consulted by the act — a grant fires out of an EXPIRED window because the closing tick has not run yet
+a	model	src/firmware_ui_model.h	4337	1	V19 ★★ the verdict is retired by the entry that OPENS it — the result screen renders the empty word for the act that just ran, and the correlated edge has nothing to promote
+a	model	src/firmware_ui_model.h	3077	1	V20 ★★ a push may promote the verdict on ANY screen — an alarm (or a menu) left a queued handle in RAM, and a correlated edge upgrades a verdict nobody can see
+a	model	src/firmware_ui_model.h	5109	1	V21 ★★★ THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution — a re-DAD inside the window leaves the verdict permanently unpromotable (§UI-16 N6b, QG blocker 2)
+a	model	src/firmware_ui_model.h	3141	1	V22 ★★★ THE TWO RULED SENTENCES ARE SWAPPED — a save that FAILED renders `TEAM KEY RECEIVED`, which is the one word spec §4-K4 forbids on that path (the key is live in RAM and will not survive a reboot)
+a	model	src/firmware_ui_model.h	3156	1	V23 ★★★ THE NOTE NAVIGATES — a radio arrival opens the provisioning result arm under the operator's thumb, which is the one thing spec §4-K4 pin 3 rules out in as many words
+a	model	src/firmware_ui_model.h	3156	1	V24 ★★★ THE NOTE WAKES A DARK PANEL — §UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post; widening it here is a new owner ruling nobody made
+a	model	src/firmware_ui_model.h	3140	1	V25 ★★ THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT — a previous verdict's `reason` / `team_id` / `node_id` survive under the new headline, so the panel renders another act's data beside this one's word
+a	model	src/firmware_ui_model.h	1234	1	V26 ★★ THE SUCCESS LEXEME IS RE-SPELLED — S-25 is §3.6.4's own word carried VERBATIM, and it is declared once so an owner re-ruling changes it in exactly one place
+a	model	src/firmware_ui_model.h	1307	1	V27 ★★ THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST — the ruled 26-column sentence is truncated to fit the 19-column body instead of rendering across two rows (§7.1 rule 5 — a durability claim may not be clipped)
+a	model	src/firmware_ui_model.h	1357	1	V28 ★ THE THIRD ROW BECOMES A GENERAL SLOT — `save_failed` grows one too, so the row stops meaning "the ruled sentence continues here" and the arm that owns it can no longer be told from the arms that do not
+a	model	src/firmware_ui_model.h	4858	1	V29 ★★★★ `BACK` PERFORMS THE INSTALL — the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline)
+a	model	src/firmware_ui_model.h	4819	1	V30 ★★★ THE OFFER OPENS WITHOUT THE KEYRING'S REPORT — every nearby join lands on `SAVED KEY FOUND`, so the operator is offered a key for a team no record exists for
+a	model	src/firmware_ui_model.h	4819	1	V31 ★★ THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT — a CREATE's result screen leads into a saved-key offer for a team whose key was just minted
+a	model	src/firmware_ui_model.h	4880	1	V32 ★★★ THE ACT IS KEYED ON THE **FINGERPRINT** — the low 24 bits the offer screen printed, which 255 other teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret)
+a	model	src/firmware_ui_model.h	4820	1	V33 ★★★ THE OFFER OPENS ON THE **ACT** — `prov_confirm` is moved to CONFIRM after the entry, so the first `double` installs a stored secret (P-13 broken at the one screen that reaches a key)
+a	model	src/firmware_ui_model.h	3016	1	V34 ★★★ THE UNFINISHED OFFER SURVIVES THE BLANK — the operator wakes onto a screen they may not remember opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret)
+a	model	src/firmware_ui_model.h	4343	1	V35 ★★ THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY — a stale team id survives into later screens, so a later act can be aimed at a team the operator left
+a	model	src/firmware_ui_model.h	1267	1	V36 ★★ THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD — a failed activation renders `TEAM KEY ACTIVE`, which is the 'success that isn't' over a node that holds no key
+a	model	src/firmware_ui_model.h	1323	1	V37 ★★ THE SUCCESS SCREEN GROWS THE DURABILITY WARNING — `NOT SAVED` under a key that IS durable, i.e. S-27's ruled sentence said about the one path where it is false
+a	model	src/firmware_ui_model.h	1156	1	V38 ★ the ruled offer lexeme is re-spelled — S-28 is owner-ruled and declared once, so a re-ruling must change it in exactly one place
+a	model	src/firmware_ui_model.h	1176	1	V39 ★ the ruled ACTION lexeme is re-spelled — S-29 is owner-ruled, and the word the operator presses is the one place the offer states what it will do
+a	model	src/firmware_ui_model.h	4755	1	V40 ★★★★ THE LANDING IS REVERTED TO THE MENU — the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes
+a	model	src/firmware_ui_model.h	4755	1	V41 ★★★ THE SCOPE OVERRUN — the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the operator away from the flow the remedies are in (the ⛔ consistency extension nobody ruled)
+a	model	src/firmware_ui_model.h	3156	1	V42 ★★★★ THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING — a radio receipt moves the panel to STATUS under the operator's thumb. ⛔ Spec §4-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination
+a	model	src/firmware_ui_model.h	4947	1	V43 ★★★★ THE CONFIRMATION IS BYPASSED — `double` on **BACK** falls through into the removal, so one press destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible)
+a	model	src/firmware_ui_model.h	4931	1	V44 ★★★★ THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION — the protected record lands on a screen that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns the refusal only after pressing it)
+a	model	src/firmware_ui_model.h	4932	1	V45 ★★★★ THE REMOVAL IS KEYED ON THE **CURSOR** — a row INDEX stands in for the record's identity, and the list skips a corrupt zero-id record, so the index names a different record than the panel drew (§B66, over a delete)
+a	model	src/firmware_ui_model.h	4838	1	V46 ★★★★ THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal — the ruling's *two explicit transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on the way, and the operator never chose either half
+a	model	src/firmware_ui_model.h	4981	1	V47 ★★★ THE "REFRESHED LIST" IS NOT REFRESHED — acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so the record just removed is still on the panel: a screen contradicting an act it reported as complete
+a	model	src/firmware_ui_model.h	1276	1	V48 ★★★ A FAILED REMOVAL RENDERS THE SUCCESS WORD — `KEY FORGOTTEN` for a store that refused or a write that did not land, which is the 'success that isn't' over a key that is still there (spec §4-K6 pin 5)
+a	model	src/firmware_ui_model.h	4838	1	V49 ★★ THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN — the navigation decision is taken by comparing `reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of the dead end ([[B48]]'s class at the navigation layer)
+a	model	src/firmware_ui_model.h	4785	1	V51 ★★★★ THE RECEIVED-GRANT FULL LANDING IS DROPPED — the fifth received grant shows three correct rows and then acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing
+a	model	src/firmware_ui_model.h	4785	1	V52 ★★★ **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST — a corrupt store, an unreadable record or a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy
+a	model	src/firmware_ui_model.h	3150	1	V53 ★★★ THE FLAG IS ACCEPTED ON THE **SAVED** ARM — a `TEAM KEY RECEIVED` screen whose acknowledgement opens a removal list, i.e. the 'success that isn't' from the other side
+a	model	src/firmware_ui_model.h	4784	1	V54 ★★★ THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER — the static-join result screen renders the same note and would then give ONE receipt TWO endings
+a	model	src/firmware_ui_model.h	3981	1	W01 ★★★★ THE ACT AUTO-FIRES ON ROW SELECTION — merely opening a member's act sub-view opens the grant chain, so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the no-unsolicited shape, and the headline control of this slice)
+a	model	src/firmware_ui_model.h	5175	1	W02 ★★★★ THE CONFIRMATION IS SKIPPED — the act performs the grant itself instead of opening the chain's REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard)
+a	model	src/firmware_ui_model.h	5055	1	W03 ★★★★ A **SECOND OUTCOME MAPPING IS FORKED** — the act stops going through the ONE reused call and maps the dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued)
+a	model	src/firmware_ui_model.h	5154	1	W04 ★★★ THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when the operator pointed at the row — a member that re-ran team-DAD between the two is granted to whoever now wears its id, or to nobody (P-7d)
+a	model	src/firmware_ui_model.h	1671	1	W05 ★★★ THE TARGET IS KEYED BY THE **DISPLAY NAME** — a mutable, self-asserted label decides whose private key is shipped, which is [[B48]]'s class at the worst possible site (P-7d)
+a	model	src/firmware_ui_model.h	1652	1	W06 ★★★ THE SELF REFUSAL IS DROPPED — the roster row that is US offers a GRANT KEY, and the operator is invited to run a pubkey ceremony against themselves
+a	model	src/firmware_ui_model.h	1650	1	W07 ★★★ THE KEYLESS OFFER APPEARS — a node with NO team content key offers to grant one, so the act's own precondition is discovered at the seam instead of never being offered (§K7 pin 6)
+a	model	src/firmware_ui_model.h	1651	1	W08 ★★ THE AUTHORITATIVE FLOOR IS DROPPED — a ROUTE-ONLY member (no binding, no seal target) is offered as a grant target, which is the same fail-OPEN F-7 keeps off the invite list
+a	model	src/firmware_ui_model.h	5168	1	W09 ★★★ THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT — the door that deliberately bypasses the F-11 diff starts feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer
+a	model	src/firmware_ui_model.h	1690	1	W10 ★★ THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (§B66) — the grant's slot is claimed whether or not the act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row
+a	model	src/firmware_ui_model.h	5171	1	W11 ★★ THE RULED FIVE-MINUTE BOUND IS NOT ARMED — the approval opened from the roster has no deadline at all, so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door
+a	model	src/firmware_ui_model.h	5157	1	W12 ★★★★ THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains — every shared exit sees `none` and falls to PROVISION instead of returning to the member who opened it
+a	model	src/firmware_ui_model.h	5157	1	W13 ★★★ THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action — the empty roster carrier is treated as having no caller and terminal acknowledgement loses its parent
+a	model	src/firmware_ui_model.h	5193	1	W14 ★★★ BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING — a roster REJECT/ack opens PROVISION's invitation parent instead of returning to TEAM
+a	model	src/firmware_ui_model.h	5190	1	W15 ★★★ BOTH ORIGINS COLLAPSE TO THE TEAM LANDING — an invitation-window REJECT leaves its window and selects a roster row the invitation never named
+a	model	src/firmware_ui_model.h	5187	1	W16 ★★★ GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed — the natural no-selection expiry re-opens an invitation list it has no selected caller for
+a	model	src/firmware_ui_model.h	5203	1	W17 ★★★ THE ROSTER IS RESTORED PASSIVE — the caller's entered list is lost and the next double only enters row zero instead of operating at the saved member
+a	model	src/firmware_ui_model.h	5203	1	W18 ★★★ SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY — the top-level screen says TEAM while the sub-state still owns SETTINGS
+a	model	src/firmware_ui_model.h	5207	1	W19 ★★★ THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity — selecting member 1 and returning silently points at member 0
+a	model	src/firmware_ui_model.h	5210	1	W20 ★★★ THE B64 IDENTITY-FOLLOW STEP IS REMOVED — a member reordered while the terminal screen was up leaves the highlight at the old row
+a	model	src/firmware_ui_model.h	5242	1	W21 ★★★ A GONE RETURN SELECTS ITS NEIGHBOUR — the existing B64 refusal is replaced by row zero, so the next double opens a DM for somebody else
+a	model	src/firmware_ui_model.h	3062	1	W22 ★★★ A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST — it loses the operation the operator started instead of opening the safe-default confirmation
+a	model	src/firmware_ui_model.h	3059	1	W23 ★★★ A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION — invite-origin behaviour is no longer byte-identical and the refreshed candidate list is skipped
+a	model	src/firmware_ui_model.h	5193	1	W24 ★★★ A RETURN REPEATS THE PUBKEY REQUEST — cancellation/acknowledgement grows an unauthorised second device command instead of being navigation-only
+a	model	src/firmware_ui_model.h	5193	1	W25 ★★★ A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT — the result's frozen hash is sent a second time before the roster landing
+a	model	src/firmware_ui_model.h	4309	1	W26 ★★★ AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN — a later invitation window with no selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION
+a	model	src/firmware_ui_model.h	4309	1	W27 ★★★ EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED — after pre-emption, a fresh unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent
+a	model	src/firmware_ui_model.h	824	1	V50 ★ the ruled RETENTION lexemes are re-spelled — S-40/S-42 are owner-ruled and declared once, so a re-ruling must change each in exactly one place (the V38/V39 treatment, one screen over)
+a	model	src/firmware_ui_model.h	5518	1	Y01 ★★★★ THE SLOT IS DERIVED FROM THE ROW INDEX — §B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for
+a	model	src/firmware_ui_model.h	1588	1	Y02 ★★★ A DISABLED SLOT IS RENDERED — the tempting "show them all, the wearer can see which are empty". §3.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS
+a	model	src/firmware_ui_model.h	1728	1	Y03 ★★★★ THE L / - COLUMN IS DROPPED FROM A PRESET ROW — OQ-A's premise is that BOTH location states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-`
+a	model	src/firmware_ui_model.h	1707	1	Y04 ★★★ THE FIXED TABLE IS RESURRECTED — the projection bypassed and the retired kDmTexts re-created inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads
+a	model	src/firmware_ui_model.h	1690	1	Y05 ★★★★ K7's GRANT KEY ROW IS DISPLACED — pinned at the COMPILED list's length instead of the projection's, which is R-1's "may not move K7's row" broken the moment the wearer enables a third preset
+a	model	src/firmware_ui_model.h	5552	1	Y06 ★★★★ THE MODAL CLOSES ON A NO-OP — the equality dropped, so ANY ui preset verb (including an identical set that wrote nothing) shuts an open compose. Spec §2's table rules the opposite in two of its rows
+a	model	src/firmware_ui_model.h	1600	1	Y07 ★★★ THE EMPTY STATE IS BYPASSED — §3.2.1's note never answered, so a wearer who cleared every preset gets a sub-view with one unexplained back row and no reason for it
+a	model	src/firmware_ui_model.h	3494	1	Y08 ★★★★ PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE — spec §2 gives the refusal a RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted
+b	config	src/firmware_config_service.h	411	1	C01 the no-op gate is dropped (every SAVE writes)
+b	config	src/firmware_config_service.h	410	1	C02 the no-op gate is checked BEFORE the conflict gate (a moved record reads as 'nothing to do')
+b	config	src/firmware_config_service.h	410	1	C03 the conflict gate compares PERSISTED with the DRAFT instead of with the BASELINE
+b	config	src/firmware_config_service.h	410	1	C04 LAST-WRITER-WINS: the conflict gate is dropped entirely
+b	config	src/firmware_config_service.h	406	1	C32 the LATCH is ignored at SAVE: only the bytes are compared (change -> notify -> revert -> SAVE)
+b	config	src/firmware_config_service.h	413	1	C05 the marker is cleared BEFORE the durable write returns (a fact not established by the act)
+b	config	src/firmware_config_service.h	413	1	C06 the live apply happens BEFORE the durable write
+b	config	src/firmware_config_service.h	405	1	C07 SAVE trusts the per-field setter and skips whole-candidate validation
+b	config	src/firmware_config_service.h	408	1	C08 an unreadable record is treated as 'first provision — just write a fresh one'
+b	config	src/firmware_config_service.h	412	1	C09 the write starts from a CLEAN record instead of the reloaded one (every non-covered field is lost)
+b	config	src/firmware_config_service.h	416	1	C10 the reboot-class outcome is collapsed into `saved` (the two flags become one)
+b	config	src/firmware_config_service.h	171	1	C11 cfg_values_into_blob drops one field (S1/L9 field-drop rot)
+b	config	src/firmware_config_service.h	161	1	C12 cfg_values_from_blob crosses two fields
+b	config	src/firmware_config_service.h	217	1	C13 cfg_live_fields drops a live-class field (it is applied as OFF)
+b	config	src/firmware_config_service.h	150	1	C14 CfgValues equality compares only the first field
+b	config	src/firmware_config_service.h	372	1	C15 `set` COERCES an out-of-domain value instead of refusing it
+b	config	src/firmware_config_service.h	186	1	C16 the MENU's off/on narrowing leaks into the SHARED service's ble_mode domain
+b	config	src/firmware_config_service.h	196	1	C17 the whole-candidate check stops after the first field
+b	config	src/firmware_config_service.h	345	1	C18 `config_unsaved` compares the DRAFT with EFFECTIVE (the third state, wrongly chosen)
+b	config	src/firmware_config_service.h	364	1	C19 `reboot_required` reads the DRAFT, so an unsaved edit already demands a reboot
+b	config	src/firmware_config_service.h	363	1	C20 `reboot_required` ignores the apply class (a live-class difference demands a reboot too)
+b	config	src/firmware_config_service.h	132	1	C21 ble_mode is classified LIVE (the tempting 'it is only a flag')
+b	config	src/firmware_config_service.h	330	1	C22 re-entering SETTINGS re-snapshots, silently discarding the draft
+b	config	src/firmware_config_service.h	424	1	C23 DISCARD clears the marker but keeps the draft
+b	config	src/firmware_config_service.h	451	1	C24 RELOAD keeps the WHOLE draft (the last-writer-wins resurrection §3.6.1 forbids)
+b	config	src/firmware_config_service.h	451	1	C25 RELOAD overwrites the operator's edits, i.e. it becomes a second DISCARD
+b	config	src/firmware_config_service.h	423	1	C26 a failed reload/discard wipes the draft anyway
+b	config	src/firmware_config_service.h	468	1	C27 the external-write hook compares against the DRAFT, so an untouched field raises a false conflict
+b	config	src/firmware_config_service.h	475	1	C28 `BACK` discards the draft (the forbidden attention-timeout discard)
+b	config	src/firmware_config_service.h	476	1	C29 blanking discards the draft
+b	config	src/firmware_config_service.h	307	1	C30 the conflict headline is dropped (the refusal becomes invisible)
+b	config	src/firmware_config_service.h	307	1	C31 the two ruled headlines are swapped
+a	chrome	src/firmware_ui_chrome.h	173	1	X01 the compact age takes a 32-bit millisecond parameter (the ~49.7-day wrap, re-created)
+a	chrome	src/firmware_ui_chrome.h	175	1	X02 `ever` is ignored, so a never-confirmed home renders `0s` instead of `--`
+a	chrome	src/firmware_ui_chrome.h	182	1	X03 the seconds bucket is inclusive (60 s renders `60s`, not `1m`)
+a	chrome	src/firmware_ui_chrome.h	185	1	X04 the 100-day cutoff is inclusive (100 d renders a day count instead of `old`)
+a	chrome	src/firmware_ui_chrome.h	148	1	X05 the tokens are not NUL-padded (equality then depends on what the buffer held before)
+a	chrome	src/firmware_ui_chrome.h	542	1	X06 the mail slot carries the RAW combined count instead of the drawn digits
+a	chrome	src/firmware_ui_chrome.h	571	1	X07 the battery ROUNDS instead of truncating (4199 mV becomes 4.2V)
+a	chrome	src/firmware_ui_chrome.h	465	1	X08 equality is a `memcmp` over the struct, padding included (§8.2 forbids it in as many words)
+a	chrome	src/firmware_ui_chrome.h	558	1	X09 NO TEAM is collapsed into a team with zero teammates (`--` becomes `0`)
+a	chrome	src/firmware_ui_chrome.h	559	1	X10 the key slot is filled with no team configured (`blank` collapses into `crossed`)
+a	chrome	src/firmware_ui_chrome.h	562	1	X11 the people count is the UI's row capacity, not the true total (the retired `T8/12`)
+a	chrome	src/firmware_ui_chrome.h	546	1	X12 a build with no mobile plane draws the CROSSED house (§4.2's forbidden fault icon)
+a	chrome	src/firmware_ui_chrome.h	545	1	X13 the home slot is classified without asking whether the plane exists at all
+a	chrome	src/firmware_ui_chrome.h	549	1	X14 a blank home slot still prints `--` ('not applicable' rendered as 'never confirmed')
+a	chrome	src/firmware_ui_chrome.h	393	1	X15 UNSAVED outranks CONFLICT (the operator is not told their draft is stale)
+a	chrome	src/firmware_ui_chrome.h	394	1	X16 RESTART-REQUIRED outranks UNSAVED (an unsaved draft hides behind a reboot notice)
+a	chrome	src/firmware_ui_chrome.h	329	1	X17 the emergency exception is dropped (the rail is drawn over a 128-px headline)
+a	chrome	src/firmware_ui_chrome.h	386	1	X18 the rail is always visible
+a	chrome	src/firmware_ui_chrome.h	341	1	X19 the compose modal does not claim the rail (a DM compose from TEAM reads TEAM)
+a	chrome	src/firmware_ui_chrome.h	343	1	X20 the send RESULT phase falls back to the screen underneath it
+a	chrome	src/firmware_ui_chrome.h	355	1	X21 a body-replacing inbox modal loses its slot (precedence dropped)
+a	chrome	src/firmware_ui_chrome.h	593	1	X22 a non-team build still exposes the TEAM/SEND rail slots (misleading dead icons)
+a	chrome	src/firmware_ui_chrome.h	586	1	X23 the rail fields are published while the rail is SUPPRESSED (visible equality stops being visible)
+a	chrome	src/firmware_ui_chrome.h	341	1	X24 the inbox-detail clause is tested BEFORE compose (the rail names a body the renderer is not drawing)
+a	chrome	src/firmware_ui_chrome.h	572	1	X25 an unrenderable battery reading is CLAMPED to a plausible voltage instead of `--`
+a	chrome	src/firmware_ui_chrome.h	226	1	X26 the formatter's own width guard is dropped (it can emit a token wider than the frozen slot)
+a	chrome	src/firmware_ui_chrome.h	514	1	X27 the invalidation marks the model CLEAN when nothing changed (§8.3.1's WITHDRAWN instruction)
+a	chrome	src/firmware_ui_chrome.h	514	1	X28 the invalidation's sense is inverted (it raises when nothing moved, and misses what did)
+a	chrome	src/firmware_ui_chrome.h	515	1	X29 nothing ever invalidates (the strip goes stale on a lit panel)
+a	chrome	src/firmware_ui_chrome.h	139	1	X30 the slot mask bit is not one-per-slot (two rail slots share a bit)
+a	chrome	src/firmware_ui_chrome.h	267	1	X31 the mask is widened to the whole id (the top byte leaks into the shared token)
+a	chrome	src/firmware_ui_chrome.h	274	1	X32 the width loses its ZERO (a low id renders SPACE-padded, `     1` for `000001`)
+a	chrome	src/firmware_ui_chrome.h	274	1	X33 the hex digits are LOWER case (the two ends of a join render the same team differently)
+a	chrome	src/firmware_ui_chrome.h	290	1	X34 the FULL id loses its zero padding (a low id renders short, and it is the AUTHORITY value)
+a	chrome	src/firmware_ui_chrome.h	290	1	X35 the success screen's 'full id' is the MASKED one (the fingerprint drawn twice, no authority value)
+a	chrome	src/firmware_ui_chrome.h	306	1	X36 a TEAMLESS node is warned that its membership will be replaced (a warning about nothing)
+a	chrome	src/firmware_ui_chrome.h	309	1	X37 the replacement warning names the team by a PRIVATE truncation of the shared token
+a	chrome	src/firmware_ui_chrome.h	116	1	X38 100 % is drawn as the full gauge (the warning mark never appears — right about the level, silent about the consequence)
+a	chrome	src/firmware_ui_chrome.h	115	1	X39 the pct is tested BEFORE `enabled` (a node with NO duty limit reports itself duty-blocked at 100)
+a	chrome	src/firmware_ui_chrome.h	115	1	X40 `enabled` is ignored, so an UNLIMITED node draws an empty gauge (`0 % used`, which it never measured)
+a	chrome	src/firmware_ui_chrome.h	118	1	X41 the step map divides by the gauge's ROW count, not its LEVEL count (the full gauge becomes unreachable)
+a	chrome	src/firmware_ui_chrome.h	118	1	X42 every step boundary begins one percent early (the off-by-one a re-derived table would agree with)
+a	chrome	src/firmware_ui_chrome.h	477	1	X43 the gauge is dropped from the equality (a visible bucket change owes no repaint — the strip goes stale)
+a	chrome	src/firmware_ui_chrome.h	577	1	X44 the projection hard-codes the gauge, so the slot always claims there is no duty limit
+b	icons	src/firmware_ui_icons.h	265	1	I01 the SEND arrow is authored MIRRORED (send drawn as receive — an error that reads as a feature)
+b	icons	src/firmware_ui_icons.h	146	1	I02 the KEY is authored MSB-first (each byte bit-reversed — the V4-port hazard §8.1 names)
+b	icons	src/firmware_ui_icons.h	168	1	I03 the battery is declared 8 px wide, so its rows stop being 2 bytes (a 7x14 smear)
+b	icons	src/firmware_ui_icons.h	291	1	I04 two SETTINGS badge states share one picture (§6's priority becomes unobservable)
+b	icons	src/firmware_ui_icons.h	348	1	I05 the final MARK is authored MIRRORED (left and right exchange places)
+b	icons	src/firmware_ui_icons.h	351	1	I06 the MARK is authored MSB-first (every byte bit-reversed — the V4-port hazard §8.1 names, at stride 3)
+b	icons	src/firmware_ui_icons.h	346	1	I07 the MARK is declared 8 px wide, so its rows stop being 3 bytes (I03's smear, one asset up)
+b	icons	src/firmware_ui_icons.h	205	1	I08 the DISABLED gauge is authored as the EMPTY one (`no duty limit` collapses into `0 % used`)
+b	icons	src/firmware_ui_icons.h	239	1	I09 the BLOCKED gauge loses its warning mark (100 % becomes indistinguishable from 99 %)
+b	icons	src/firmware_ui_icons.h	224	1	I10 one fill level inks the wrong row count (two adjacent levels draw the same picture)
+b	icons	src/firmware_ui_icons.h	222	1	I11 a fill level is authored TOP-DOWN (the gauge drains as utilization rises)
+b	joinprofiles	src/firmware_join_profiles.h	67	1	J02 MHz -> Hz becomes MHz -> kHz (every stored frequency is 1000x low)
+b	joinprofiles	src/firmware_join_profiles.h	189	1	J03 ★ THE TEMPTING U1 'REUSE': MHz->Hz composed from the two EXISTING helpers (rounds TWICE: 869462500 -> 869463000)
+b	joinprofiles	src/firmware_join_profiles.h	190	1	J04 the bandwidth is stored in kHz, not Hz (the units-swap mutation the brief names)
+b	joinprofiles	src/firmware_join_profiles.h	158	1	J01 ★★ the non-finite guard is dropped, so a NaN reaches the INTEGRAL cast (UB) exactly as B216 lets it
+b	joinprofiles	src/firmware_join_profiles.h	158	1	J01b the non-finite guard runs AFTER validate_join, so a NaN is reported as an out-of-range number
+b	joinprofiles	src/firmware_join_profiles.h	289	1	J05 ⛔⛔ `clear` BECOMES A BACKDOOR REPAIR: an unreadable store is reseeded and three unread slots are destroyed
+b	joinprofiles	src/firmware_join_profiles.h	269	1	J11 `set` silently reseeds an UNREADABLE store (corruption becomes indistinguishable from a fresh device)
+b	joinprofiles	src/firmware_join_profiles.h	292	1	J06 `clear` on an ABSENT store seeds a record (a write where the contract allows ZERO)
+b	joinprofiles	src/firmware_join_profiles.h	313	1	J07 `reset confirm` on an ABSENT store writes an empty record (ZERO writes is the contract)
+b	joinprofiles	src/firmware_join_profiles.h	319	1	J12 the CORRUPT reset goes through the byte compare, so a corrupt store whose bytes look empty is left corrupt
+b	joinprofiles	src/firmware_join_profiles.h	273	1	J15 the ABSENT seed is dropped, so a partial read's GARBAGE is written back as the record
+b	joinprofiles	src/firmware_join_profiles.h	328	1	J08 the byte-identical coalescing guard is dropped (every re-set writes flash)
+b	joinprofiles	src/firmware_join_profiles.h	303	1	J13 `reset` no longer requires `confirm` (all four slots discarded on a typo)
+b	joinprofiles	src/firmware_join_profiles.h	220	1	J09 the slot bound is off by one at the TOP end (slot 4 refuses)
+b	joinprofiles	src/firmware_join_profiles.h	173	1	J14 an over-long name is TRUNCATED instead of refused (a 'success that isn't')
+b	joinprofiles	src/firmware_join_profiles.h	185	1	J10 the slot is not zeroed before composition, so a shorter name leaves a stale tail (coalescing loses meaning)
+b	joinprofiles	src/firmware_join_profiles.h	311	1	J17 ★★★ `reset confirm` REPAIRS a store it could not read — four possibly-intact profiles destroyed by a mount fault
+b	joinprofiles	src/firmware_join_profiles.h	251	1	J18 ★★★ `list` reports a STORAGE FAILURE as an empty store (the `NO PROFILES` lie, one layer up)
+b	joinprofiles	src/firmware_join_profiles.h	232	1	J19 the two unreadable answers are COLLAPSED, so a dead flash is told to type `reset confirm`
+b	joinprofiles	src/firmware_join_profiles.h	227	1	J20 `io_failed` stops counting as unreadable, so `set`/`clear` write onto a record they never read
+b	joinprofiles	src/firmware_join_profiles.h	264	1	J16 validation runs AFTER the load, so a refused request still costs a flash READ
+b	uiprov	src/firmware_ui_prov.h	126	1	V01 the PHY precondition is dropped (the owner's refusal never fires)
+b	uiprov	src/firmware_ui_prov.h	126	1	V02 the precondition is INVERTED (a converged node is refused, a divergent one creates)
+b	uiprov	src/firmware_ui_prov.h	121	1	V05 ★★ the comparison's ProvPhy is left `present = false` — `live_phy_matches` then ALWAYS returns true
+b	uiprov	src/firmware_ui_prov.h	125	1	V04 [[B211]]: the `sf_list` is left out of the comparison (the field a hand-written equality forgets)
+b	uiprov	src/firmware_ui_prov.h	122	1	V06 the persisted PHY is read from the LIVE snapshot instead of the record (the comparison compares live to live)
+b	uiprov	src/firmware_ui_prov.h	109	1	V07 an unreadable record is treated as a satisfied precondition (the create proceeds on no evidence)
+b	uiprov	src/firmware_ui_prov.h	138	1	V03 ★★ `phy.present = TRUE` on the REQUEST — the retune [[B209]] forbids, smuggled in as 'capture the PHY'
+b	uiprov	src/firmware_ui_prov.h	138	1	V08 the create is not a MINT (it becomes `team 0`, i.e. a LEAVE)
+b	uiprov	src/firmware_ui_prov.h	139	1	V09 the build floor is dropped, so a 0 in the record refuses for the wrong reason
+b	uiprov	src/firmware_ui_prov.h	140	1	V10 the notification fires on EVERY verdict ([[B194]] inverted: a claim on a write that never happened)
+b	uiprov	src/firmware_ui_prov.h	150	1	V11 a FAILED save is reported as a refusal (the operator is not told the write failed)
+b	uiprov	src/firmware_ui_prov.h	155	1	V12 a staging refusal loses the service's typed reason (the panel says nothing actionable)
+b	uiprov	src/firmware_ui_prov.h	148	1	V13 the created answer carries no id, so the success screen cannot show one
+b	uiprov	src/firmware_ui_prov.h	485	1	V14 the intent dispatch performs a create for the INERT `none` op
+b	uiprov	src/firmware_ui_prov.h	440	1	V15 the join notification fires on EVERY verdict ([[B194]] inverted, one feature over)
+b	uiprov	src/firmware_ui_prov.h	451	1	V16 a FAILED join save is reported as a refusal (the operator is not told the write failed)
+b	uiprov	src/firmware_ui_prov.h	434	1	V17 the EMPTY-slot floor is dropped — an unwritten slot runs the transaction
+b	uiprov	src/firmware_ui_prov.h	439	1	V18 ★★ the units conversion is re-derived here in kHz — 869462500 Hz joins 869462.5 MHz
+b	uiprov	src/firmware_ui_prov.h	448	1	V19 ⛔⛔ a STARTED transaction claims ADOPTION — the `JOINED`-before-a-correlated-adopt defect, at its source
+b	uiprov	src/firmware_ui_prov.h	455	1	V20 a join refusal loses the transaction's typed reason (the screen cannot say WHICH field is wrong)
+b	uiprov	src/firmware_ui_prov.h	416	1	V21 the SELECT read never marks itself served (every store reads as a missing seam)
+b	uiprov	src/firmware_ui_prov.h	471	1	V22 the intent dispatch sends a JOIN to the TEAM-CREATE act (the two ops collapse)
+b	uiprov	src/firmware_ui_prov.h	259	1	V23 ★★★ `mint` is left TRUE — a JOIN that MINTS A NEW TEAM (the headline control)
+b	uiprov	src/firmware_ui_prov.h	250	1	V24 the join arm's PHY precondition never refuses (the owner ruling applies to creates only)
+b	uiprov	src/firmware_ui_prov.h	244	1	V25 ★★ the join precondition is built with `present = false`, so `live_phy_matches` ALWAYS passes
+b	uiprov	src/firmware_ui_prov.h	260	1	V26 ★★ `rq.phy.present` is set TRUE on the request — a membership join that RETUNES ([[B209]])
+b	uiprov	src/firmware_ui_prov.h	284	1	V27 ★★ a FAILED save is rendered as a SUCCESS — `TEAM JOINED` for a write that did not land
+b	uiprov	src/firmware_ui_prov.h	296	1	V28 `no_change` is rendered as a success — the screen claims a membership nothing wrote
+b	uiprov	src/firmware_ui_prov.h	225	1	V29 the zero-id floor is dropped — `team_id = 0` reaches the transaction, where it means LEAVE
+b	uiprov	src/firmware_ui_prov.h	262	1	V30 the join notification fires on every verdict ([[B194]] inverted, a third time)
+b	uiprov	src/firmware_ui_prov.h	269	1	V31 the joined answer carries no id, so the success screen can show neither identity
+b	uiprov	src/firmware_ui_prov.h	475	1	V32 the intent dispatch sends the NEARBY JOIN to the create act (a JOIN that mints, by routing)
+b	uiprov	src/firmware_ui_prov.h	279	1	V33 ★★★★ THE JOIN **INSTALLS** THE RETAINED KEY INSTEAD OF REPORTING IT — P-2b broken by the one edit that looks like a convenience (the headline control)
+b	uiprov	src/firmware_ui_prov.h	279	1	V34 ★★★ THE OFFER IS REPORTED UNCONDITIONALLY — `SAVED KEY FOUND` for a team whose key was never retained
+b	uiprov	src/firmware_ui_prov.h	279	1	V35 ★★★ THE QUESTION IS KEYED ON THE **FINGERPRINT** — the low 24 bits the panel prints, which 255 other teams share ([[B48]]'s display-shaped-field class, one screen over)
+b	uiprov	src/firmware_ui_prov.h	262	1	V36 ★★ THE QUESTION IS ASKED BEFORE THE VERDICT IS KNOWN — a REFUSED or FAILED join reports a retained key for a team it never joined, so the offer opens on a membership that does not exist
+b	uiprov	src/firmware_ui_prov.h	333	1	V37 ★★★ A FAILED ACTIVATION IS RENDERED AS A SUCCESS — everything but the zero floor reads as `installed`, so `TEAM KEY ACTIVE` appears over a node that holds no key at all
+b	uiprov	src/firmware_ui_prov.h	324	1	V38 ★★ the activation's ZERO FLOOR is dropped — a `team_id` of 0 reaches the device seam instead of being refused before it
+b	uiprov	src/firmware_ui_prov.h	341	1	V39 ★ the failure loses the SERVICE's typed token, so the panel cannot say WHICH way the activation failed
+b	uiprov	src/firmware_ui_prov.h	480	1	V40 ★★ the intent dispatch sends the SAVED-KEY activation to the nearby-JOIN act — a second membership transaction for an operator decision about a key
+b	uiprov	src/firmware_ui_prov.h	380	1	V41 ★★★★ A FAILED REMOVAL IS RENDERED AS A SUCCESS — everything but the protected-record refusal reads as `forgotten`, so `KEY FORGOTTEN` appears for a write that did not land and for a store nobody could read (spec §4-K6 pin 5, and the fail-closed direction inverted by one word)
+b	uiprov	src/firmware_ui_prov.h	371	1	V42 ★★ the removal's ZERO FLOOR is dropped — a `team_id` of 0 reaches the device seam instead of being refused before it, so a screen that can DESTROY a stored secret can reach one with a wildcard
+b	uiprov	src/firmware_ui_prov.h	387	1	V43 ★ the failure loses the SERVICE's typed token, so the panel cannot say WHICH way the removal refused — and `active_key` (a correct refusal) becomes indistinguishable from `nv_save_failed` (a write that did not land)
+b	uiprov	src/firmware_ui_prov.h	168	1	V44 ★★★ THE `KEYRING FULL` DOOR OPENS FOR **EVERY** REFUSAL — a PHY divergence, a corrupt keyring or an unopenable store all send the acknowledgement into the retention list, so the operator is invited to delete a key over a fault that has nothing to do with the four records
+b	uiprov	src/firmware_ui_prov.h	484	1	V45 ★★ the intent dispatch sends the REMOVAL to the ACTIVATION — the fifth op installs a key where the operator asked to forget one, i.e. the two acts on one seam swapped
+b	uijoin	src/firmware_ui_join.h	270	1	J01 TERM 1 dropped — a BOOT DAD completes a screen nobody opened (`join_adopted` fires at every boot)
+b	uijoin	src/firmware_ui_join.h	274	1	J02 TERM 2 dropped — a HEAL RE-ADOPT on the record's CURRENT layer completes the operator's join
+b	uijoin	src/firmware_ui_join.h	279	1	J03 TERM 3 dropped — an adopt on ANY leaf completes the screen (the nibble is never checked)
+b	uijoin	src/firmware_ui_join.h	284	1	J04 TERM 4a dropped — somebody ELSE's adoption completes our screen (the id is never compared)
+b	uijoin	src/firmware_ui_join.h	283	1	J05 TERM 4b dropped — a ZERO dst completes the screen (a node that adopted NOTHING reports success)
+b	uijoin	src/firmware_ui_join.h	267	1	J06 ★★ the KIND GATE widened to `join_refused` — a wire-version OBSERVATION ABOUT ANOTHER PEER reaches the screen
+b	uijoin	src/firmware_ui_join.h	279	1	J07 ★★ TRAP 2: term 3 compares the push's NIBBLE against the FULL byte (plan v3's unsatisfiable rule, restored)
+b	uijoin	src/firmware_ui_join.h	274	1	J08 ★★ TRAP 2, the mirror: term 2 compares the NIBBLE against the persisted FULL byte
+b	uijoin	src/firmware_ui_join.h	129	1	J09 ⛔ `io_failed` is collapsed into `invalid` — a mount failure invites `reset confirm`, discarding 4 presets
+b	uijoin	src/firmware_ui_join.h	128	1	J10 ⛔ an UNREADABLE store reads as an EMPTY one (the [[B218]] collapse, i.e. corruption as a fresh device)
+b	uijoin	src/firmware_ui_join.h	121	1	J11 a MISSING SEAM reads as an ordinary empty store (the panel claims a store it never asked)
+b	uijoin	src/firmware_ui_join.h	142	1	J12 the two remedies are swapped (a corrupt record is sent to `faults`, a dead store to `reset`)
+b	uijoin	src/firmware_ui_join.h	92	1	J13 ⛔ a store that could not be READ still offers its slots (a join from a record nobody could load)
+b	uijoin	src/firmware_ui_join.h	95	1	J14 the row carries its POSITION instead of its SLOT NUMBER (§B66 — slot 3 becomes slot 2)
+b	uijoin	src/firmware_ui_join.h	94	1	J15 an EMPTY slot becomes a row, so a `double` can land on one
+b	uijoin	src/firmware_ui_join.h	100	1	J16 BACK becomes CONDITIONAL on the store (leaving depends on a record)
+b	uijoin	src/firmware_ui_join.h	231	1	J17 ⛔⛔ the waiting screen says `JOINED` before any adopt (plan §2.3 rule 1, verbatim)
+b	uijoin	src/firmware_ui_join.h	230	1	J18 the 60 s threshold is 0, so the panel opens on `STILL JOINING`
+b	uijoin	src/firmware_ui_join.h	157	1	J19 an empty NAME renders nothing instead of plan §11's `PROFILE n` default
+b	uijoin	src/firmware_ui_join.h	158	1	J20 ⛔ the stored label is read as a C string (it is NOT NUL-terminated — the read runs into `freq_hz`)
+b	uijoin	src/firmware_ui_join.h	216	1	J21 the frequency loses its four decimals — 869.4625 MHz renders (and reads) as 869
+b	uijoin	src/firmware_ui_join.h	202	1	J22 the confirmation shows the LEAF NIBBLE instead of the full layer byte (17 reads as 1)
+b	uijoin	src/firmware_ui_join.h	195	1	J23 the bandwidth is rendered in Hz (500000.00 — the units mix plan §3's mutation controls name)
+b	uijoin	src/firmware_ui_join.h	236	1	J24 the RESULT's node line drops the id (the one thing plan §2.3 rule 2 requires it to show)
+b	uijoin	src/firmware_ui_join.h	223	1	J25 the confirmation's two actions are swapped, so `>BACK` performs the join
+b	uijoin	src/firmware_ui_join.h	169	1	J26 ★ B247's validity authority is bypassed — corrupt slot bytes are formatted as plausible PHY values
+b	provservice	src/firmware_provisioning_service.h	612	1	P01 the sf_list arm is folded back into the generic refusal (the pre-[[B230]] source, verbatim)
+b	provservice	src/firmware_provisioning_service.h	612	1	P02 the classification is INVERTED (a PRESENT sf_list is reported as the empty one)
+b	provservice	src/firmware_provisioning_service.h	612	1	P03 ★★ the ORDER is reversed — the tail complaint wins, so the failing command is suggested again
+b	provservice	src/firmware_provisioning_service.h	211	1	P04 the new arm answers with its NEIGHBOUR's token (the enum splits, the words do not)
+b	provservice	src/firmware_provisioning_service.h	799	1	P05 ★★★ [[B240]] RESTORED: the created/imported key is never written to the keyring (only /mrcfg moves)
+b	provservice	src/firmware_provisioning_service.h	799	1	P06 ★★ THE ORDER IS REVERSED: the /mrcfg record that ACTIVATES the key is written BEFORE the key is durable
+b	provservice	src/firmware_provisioning_service.h	801	1	P07 ★★★ P-15 SOFTENED: a keyring REFUSAL (full/corrupt) no longer refuses the transaction — /mrcfg claims an active key nothing stored
+b	provservice	src/firmware_provisioning_service.h	695	1	P08 ★★ `team 0` LEAVES THE BINDING ARMED — a re-join silently reactivates the retained key (P-2b)
+b	provservice	src/firmware_provisioning_service.h	688	1	P09 the key is STORED but never ACTIVATED — a reboot finds a keyring record no binding points at
+b	provservice	src/firmware_provisioning_service.h	231	1	P10 the two unreadable keyring answers are COLLAPSED, so a dead store is reported as a corrupt record
+a	uistatus	src/firmware_ui_status.h	206	1	S01 ★★ row 4's priority is INVERTED — RESTART NEEDED only when there is nothing else to show
+a	uistatus	src/firmware_ui_status.h	180	1	S02 the fix predicate becomes AND — a node on the equator or the meridian loses its position
+a	uistatus	src/firmware_ui_status.h	180	1	S03 the fix predicate reads ONE coordinate only (the core's refusal reads both)
+a	uistatus	src/firmware_ui_status.h	215	1	S04 ★★ the coordinate ROUNDS instead of truncating (a position further along than the stored one)
+a	uistatus	src/firmware_ui_status.h	84	1	S05 ⛔ NO TEAM is replaced by a zero id — `TEAM 00000000`, a plausible team nobody is in
+a	uistatus	src/firmware_ui_status.h	97	1	S06 row 1 says NO TEAM too (note a: two of five body rows spent on ONE fact)
+a	uistatus	src/firmware_ui_status.h	98	1	S07 ⛔ a node before team-DAD renders `ME T0` — a PLAUSIBLE id for a node that has none
+a	uistatus	src/firmware_ui_status.h	135	1	S08 ★★★ the WITHDRAWN word returns — `4 HEARD` for a count that is ROUTE EVIDENCE
+a	uistatus	src/firmware_ui_status.h	129	1	S09 NO TEAM KEY loses its priority to the count (the actionable half stops being said)
+a	uistatus	src/firmware_ui_status.h	126	1	S10 row 2's `team_id != 0` half is dropped, so a teamless node reads `-- KNOWN`
+a	uistatus	src/firmware_ui_status.h	159	1	S11 the unread token becomes the RAW SUM (the strip's 99+ and this row stop agreeing)
+a	uistatus	src/firmware_ui_status.h	161	1	S12 the HOME half is drawn on a build with NO mobile plane (`--` for not-applicable)
+a	uistatus	src/firmware_ui_status.h	208	1	S13 ★★ row 4 RE-DERIVES the fix instead of trusting the published `own_fix` (a second definition)
+b	uiteam	src/firmware_ui_team.h	166	1	T01 ★★ the label loses its PRECISION — a long name pushes the age and both reserved columns off the row
+b	uiteam	src/firmware_ui_team.h	166	1	T02 ★★ the two location columns are dropped from the format, so the row loses them silently
+b	uiteam	src/firmware_ui_team.h	167	1	T03 the marker is INVERTED — a passive preview marks every teammate it never picked
+b	uiteam	src/firmware_ui_team.h	142	1	T04 ⛔ an UNKNOWN route age is rendered as an AGE (`old`) instead of `--`
+b	uiteam	src/firmware_ui_team.h	218	1	T05 ★★ the bucket's minute boundary is widened, so it stops agreeing with the drawn token
+b	uiteam	src/firmware_ui_team.h	214	1	T06 the UNKNOWN age shares `0s`'s bucket — a `--` row that turns to `0s` never repaints
+b	uiteam	src/firmware_ui_team.h	280	1	T07 ★★★ the invalidation CLEARS on the equal arm (§8.3.1's WITHDRAWN instruction, restored)
+b	uiteam	src/firmware_ui_team.h	238	1	T08 ★★★ the comparison takes the RAW ages, so a lit TEAM screen repaints every second
+b	uiteam	src/firmware_ui_team.h	240	1	T09 the label is compared over its WHOLE array — a rename nobody can see repaints the panel
+b	uiteam	src/firmware_ui_team.h	278	1	T10 the visibility gate is dropped entirely — every screen asks for TEAM's repaints
+b	uiteam	src/firmware_ui_team.h	268	1	T13 ★★ the COMPOSE term is dropped — a DM composed FROM team keeps asking for row repaints
+b	uiteam	src/firmware_ui_team.h	267	1	T14 the EMERGENCY term is dropped, so an alarm's body pays for the roster's repaints
+b	uiteam	src/firmware_ui_team.h	269	1	T15 the DETAIL term is dropped (the third body-replacing view stops being one)
+b	uiteam	src/firmware_ui_team.h	270	1	T16 the SCREEN term is dropped, so INBOX and SETTINGS ask for TEAM's repaints too
+b	uiteam	src/firmware_ui_team.h	237	1	T11 the row loop runs to the ARRAY's end, so rows the panel never draws ask for paints
+b	uiteam	src/firmware_ui_team.h	236	1	T12 the roster SIZE stops being compared — a teammate joining or leaving never repaints
+b	uiteam	src/firmware_ui_team.h	165	1	T17 ★★★ the row hard-wires the cache age to ZERO, so a STALE position renders as a current one
+b	uiteam	src/firmware_ui_team.h	165	1	T18 the two location columns are composed and DROPPED (the row never shows a distance)
+b	uiteam	src/firmware_ui_team.h	130	1	T19 ★★ the own fix is RE-DERIVED from the coordinates instead of the published own_fix (a second definition)
+b	uiteam	src/firmware_ui_team.h	239	1	T20 ★★ the geo bucket leaves the repaint comparison, so a distance that turns never repaints
+b	uigeo	src/firmware_ui_geo.h	52	1	G01 ★★ the freshness comparison narrows to `<`, so a position AT the bound blanks
+b	uigeo	src/firmware_ui_geo.h	51	1	G02 ★★ the bound itself is widened to an hour (a ten-minute ruling, quietly re-ruled)
+b	uigeo	src/firmware_ui_geo.h	192	1	G03 the OWN-FIX term is dropped — a node with no position of its own still draws distances
+b	uigeo	src/firmware_ui_geo.h	193	1	G04 ⛔ the CACHE-MISS term is dropped, so an uncached peer renders from (0,0)
+b	uigeo	src/firmware_ui_geo.h	194	1	G05 ★★★ the FRESHNESS term is dropped — a week-old position renders as a current one
+b	uigeo	src/firmware_ui_geo.h	143	1	G06 ★★★ the ANTIMERIDIAN FOLD is removed (two neighbours read as half a planet apart)
+b	uigeo	src/firmware_ui_geo.h	140	1	G07 ★★★ the longitude difference is taken in `int32_t`, where it OVERFLOWS
+b	uigeo	src/firmware_ui_geo.h	165	1	G08 ★★ the octant thresholds are swapped (every cardinal still looks right)
+b	uigeo	src/firmware_ui_geo.h	158	1	G09 ★★ `cos(mid_lat)` is dropped, so the longitude leg is unscaled (equator arithmetic everywhere)
+b	uigeo	src/firmware_ui_geo.h	157	1	G17 ★★★ the LATITUDE difference is taken between two FLOATS (a metre lost to the mantissa)
+b	uigeo	src/firmware_ui_geo.h	158	1	G18 ★★★ the LONGITUDE difference is taken between two FLOATS (and the fold goes with it)
+b	uigeo	src/firmware_ui_geo.h	152	1	G10 ★★★★ `has_bearing` is forced TRUE for a zero-length vector (a FABRICATED `N` at one campsite)
+b	uigeo	src/firmware_ui_geo.h	245	1	G11 ★★★ the direction column is written whether the vector has a bearing or not
+b	uigeo	src/firmware_ui_geo.h	221	1	G12 ★★ the one-decimal arm ROUNDS instead of truncating (and overruns four columns)
+b	uigeo	src/firmware_ui_geo.h	220	1	G13 the metres arm runs to 10 km, so a five-column `1000m` is drawn in a four-column field
+b	uigeo	src/firmware_ui_geo.h	216	1	G14 ★★ the saturation arm is spelled `>=`, so a NaN falls through to an UNDEFINED cast
+b	uigeo	src/firmware_ui_geo.h	268	1	G15 the bucket's decimal arm turns ten times per token, so it stops agreeing with what is drawn
+b	uigeo	src/firmware_ui_geo.h	277	1	G16 ★★ the bucket forgets the DIRECTION, so a bearing that turns never repaints the panel
+b	uisend	src/firmware_ui_send.h	681	1	U01 ★★★ the `enc` GATE IS DROPPED — a CLEARTEXT stranger's post lights a dark panel (§8.15 broken)
+b	uisend	src/firmware_ui_send.h	681	1	U02 ★★ the gate is INVERTED — only the posts we could NOT open wake the panel
+b	uisend	src/firmware_ui_send.h	637	1	U03 ★★★ the `enc` gate is COPIED onto the msg_recv arm, so an UNSEALED DM stops waking
+b	uisend	src/firmware_ui_send.h	610	1	U04 ★★ the wake is hoisted ABOVE the kind gate — every push kind wakes the panel
+b	uisend	src/firmware_ui_send.h	681	1	U05 the wake is dropped from the channel_recv arm only (a sealed team post no longer wakes)
+b	uisend	src/firmware_ui_send.h	637	1	U06 the wake is dropped from the msg_recv arm only (a DM addressed to us no longer wakes)
+b	uisend	src/firmware_ui_send.h	378	1	U07 ★★★ the `send_aired` arm never offers the push to the INVITE verdict — `GRANT QUEUED` can never become `KEY SENT`, and every pure case in both other suites stays green
+b	uisend	src/firmware_ui_send.h	380	1	U08 ★★ the `send_failed` arm never offers the push to the INVITE verdict — a grant that gave up sits on `GRANT QUEUED` for as long as the operator looks at it
+b	uisend	src/firmware_ui_send.h	377	1	U09 ★★ the invite offer is made FIRST, before the two UI send slots — a UI DM holding the same handle loses its own TxDone edge to the grant verdict (the offer ORDER, inverted)
+b	uisend	src/firmware_ui_send.h	660	1	U10 ★★★ the `team_key_received` arm is never spelled out — a receipt K3 persisted and FORWARDED reaches the router and renders nothing at all, while every K3 case stays green
+b	uisend	src/firmware_ui_send.h	661	1	U11 ★★★ the arm renders the FAILURE wording for a push K3 FORWARDED — the panel says `TEAM KEY ACTIVE` / `NOT SAVED` about a key that IS durable, which is the ruled pair told backwards
+b	uisend	src/firmware_ui_send.h	661	1	U12 ★★★ the arm WAKES the panel — §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel post, and widening it to a grant receipt is a new owner ruling nobody made
+b	uisend	src/firmware_ui_send.h	661	1	U13 ★★ the receipt is COUNTED as an arriving DM — a phantom in the unread bar the operator can never open, because `lib/core` never inboxes a grant (it consumes the DM as control traffic)
+b	uisend	src/firmware_ui_send.h	495	1	U14 ★★★★ THE GENERATION CHECK IS DROPPED — the freeze reduced to "is the slot still enabled?", which is the half that CANNOT see a `reset <slot>`: the words are identical again, the generation moved, and the wearer's press is honoured against a catalog he never saw (design §3.3's headline)
+b	uisend	src/firmware_ui_send.h	548	1	U15 ★★★★ `-l` IS STRIPPED ON A LOCATED CHANNEL POST WITH NO FIX — the exact "make the preset send" fix §3.2.3 forbids in as many words (*never silently strip -l*). The post AIRS, without the coordinates the wearer configured, and nothing on the panel says so
+b	uinearby	src/firmware_ui_nearby.h	117	1	Y01 ★★★ the OWN-TEAM filter is DROPPED — the team we are already in is offered as a candidate
+b	uinearby	src/firmware_ui_nearby.h	117	1	Y02 ★★ the own-team filter is INVERTED — the ONLY team offered is the one we cannot join
+b	uinearby	src/firmware_ui_nearby.h	117	1	Y03 ★★ the filter compares the DISPLAY FINGERPRINT instead of the full id — a different team with the same low 24 bits silently vanishes from the list
+b	uinearby	src/firmware_ui_nearby.h	120	1	Y04 ★★★ the captured list is SORTED BY SIGNAL ('show the best first') — the ruled first-observed order is gone and the list re-orders under the cursor
+b	uinearby	src/firmware_ui_nearby.h	115	1	Y05 the capture's BOUND is dropped — a publisher that overran would write past the fixed array
+b	uinearby	src/firmware_ui_nearby.h	114	1	Y06 a null source is answered with a FULL-LOOKING list instead of failing closed
+b	uinearby	src/firmware_ui_nearby.h	150	1	Y07 ★★ BACK becomes CONDITIONAL — an empty scan offers no way out at all
+b	uinearby	src/firmware_ui_nearby.h	145	1	Y08 ★ BACK is put FIRST instead of last — the row one press from the top is now the exit, and the last row is a team (the shape §B66 forbids reasoning about positionally)
+b	uinearby	src/firmware_ui_nearby.h	138	1	Y09 the row list stops FAILING CLOSED past its end — an out-of-range cursor is handed a plausible row
+b	uinearby	src/firmware_ui_nearby.h	174	1	Y10 the empty-state note is INVERTED — a list WITH teams says NO TEAMS NEARBY
+b	uinearby	src/firmware_ui_nearby.h	168	1	Y11 F-1's honest second line is dropped to a copy of the first (the panel stops naming the LEAF gate)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	47	1	Z01 ★★★ the tier is RE-DERIVED from raw q4 thresholds instead of calling presence_quality_tier — the SECOND definition of signal quality the ruling forbids
+b	uinearbyrow	src/firmware_ui_nearby_row.h	73	1	Z02 ★★ the fingerprint is re-spelled locally instead of calling the ONE shared helper (U1)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	73	1	Z03 ★ the fingerprint is drawn from the WHOLE 32-bit id — a second, wider token beside the shared six-hex one
+b	uinearbyrow	src/firmware_ui_nearby_row.h	75	1	Z04 ★★ an UNDATEABLE observation is rendered as `0s` instead of `--` — an age the surface cannot know reads as 'just now' (the fabricated-freshness class)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	75	1	Z05 the 64-bit age is CAST to 32 bits on the way into the one bucketing (the ~49.7-day wrap, re-created)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	76	1	Z06 the row's three tokens are drawn in the WRONG ORDER (age where the signal belongs)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	48	1	Z07 the tier DENOMINATOR is hardcoded — a token that names a scale the tier map no longer has
+b	uinearbyrow	src/firmware_ui_nearby_row.h	98	1	Z08 ★★ the join title re-spells the fingerprint locally instead of calling the ONE shared helper (U1)
+b	uinearbyrow	src/firmware_ui_nearby_row.h	99	1	Z09 the join title asks about NO team at all (the id is dropped from the question)
+b	uiinvite	src/firmware_ui_invite.h	289	1	I01 ★★★ AUTHORITY (b) IS DROPPED — a route-only member whose hash turns authoritative mid-window is announced as NEW MEMBER although it was present all along (F-11's own defect)
+b	uiinvite	src/firmware_ui_invite.h	288	1	I02 ★★★ AUTHORITY (a) IS DROPPED — a member that re-ran team-DAD (same hash, new id) is announced as NEW
+b	uiinvite	src/firmware_ui_invite.h	287	1	I03 ★★ the AUTHORITATIVE floor is lowered — a member with NO key binding is listed as grantable, with an invented all-zero fingerprint (F-7 / C2)
+b	uiinvite	src/firmware_ui_invite.h	286	1	I04 ★★ the candidate list is produced WHILE THE WINDOW IS CLOSED — the `taken` guard is ignored, so a state with no snapshot treats every member as new (P-12)
+b	uiinvite	src/firmware_ui_invite.h	466	1	I05 ★★ `NEW MEMBER` is re-spelled as the design's FORBIDDEN word (S-33)
+b	uiinvite	src/firmware_ui_invite.h	354	1	I06 ★★★ THE HANDLED SET IS DROPPED — a REJECTed candidate comes back on the very next refresh (F-13's self-contradiction, restored)
+b	uiinvite	src/firmware_ui_invite.h	455	1	I07 ★★ the cached name REPLACES the member fingerprint instead of filling the column beside it — the identity aid vanishes the moment a name arrives (F-15 rule 2)
+b	uiinvite	src/firmware_ui_invite.h	455	1	I08 ★★ the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached — the TRUNCATED `0x` third spelling of the hash, in six columns (F-15's named refusal)
+b	uiinvite	src/firmware_ui_invite.h	455	1	I09 ★ the name is rendered WITHOUT the six-column clamp — a long name pushes the id and the fingerprint off the 19-column row
+b	uiinvite	src/firmware_ui_invite.h	392	1	I10 ★★★ THE CONFIRMATION DROPS THE FULL HASH — the irreversible act's screen is downgraded to the six-column selection aid, which 255 other peers answer to (P-7c / [[B48]])
+b	uiinvite	src/firmware_ui_invite.h	265	1	I11 ★★★ THE NULL SOURCE FAILS **OPEN** — `(nullptr, n > 0)` is recorded as a TAKEN, EMPTY snapshot, so every member the window then observes is announced as NEW MEMBER (C2, inverted)
+b	uiinvite	src/firmware_ui_invite.h	129	1	I12 ★★★ the preflight floor is lowered from AUTHORITATIVE to OVERHEARD — a spoofable key enables GRANT KEY
+b	uiinvite	src/firmware_ui_invite.h	141	1	I13 ★★★ the reqpubkey carrier is changed from TEAM to GLOBAL — the identity request flies on the wrong plane
+b	uiinvite	src/firmware_ui_invite.h	183	1	I14 ★★★ ANY peer_key_cached enables GRANT KEY — the candidate's full hash is not compared
+b	uiinvite	src/firmware_ui_invite.h	183	1	I15 ★★ a peer_key_cached for ANOTHER peer completes this candidate's name-refresh wait — one member can inherit another arrival's ceremony
+b	uiinvite	src/firmware_ui_invite.h	164	1	I16 ★★★ the MISSING SEAM reads as a started request — an unattached model (a !MR_FEAT_OLED-shaped build, a partially-wired probe) claims WAITING FOR PUBKEY having issued nothing at all
+b	uiinvite	src/firmware_ui_invite.h	156	1	I17 ★★★ the `ok` term is dropped from the verdict — a line that never parsed carries `CmdResult`'s DEFAULT `queued` code, so a format/parse failure reads as a successfully started workflow
+b	uiinvite	src/firmware_ui_invite.h	156	1	I18 ★★★ the CODE term is dropped — every synchronous refusal the executor can return (`err_no_identity`, a full TX queue) is reported to the operator as a request under way
+b	uiinvite	src/firmware_ui_invite.h	156	1	I19 ★★ the verdict ALSO demands `accepted` — the over-strict fix: the LOCAL-cache completion (`queued`, no frame taken) is misread as a refusal, stranding the operator whose request already succeeded
+b	uiinvite	src/firmware_ui_invite.h	621	1	I20 ★★★ `queued` IS MAPPED STRAIGHT TO `KEY SENT` — the F-9 defect restored: an admission to the TX queue is reported to the operator as a private key that has physically aired
+b	uiinvite	src/firmware_ui_invite.h	623	1	I21 ★★ the explicitly-STORED park is reported with the ADMISSION word — a send sitting behind an H resolve, with no flight and no handle, reads exactly like one really admitted to the TX queue
+b	uiinvite	src/firmware_ui_invite.h	725	1	I22 ★★★ the correlation is dropped to the `ctr` ALONE — a LOCAL handle, which `command.h` warns legitimately names another flight, so another origination's TxDone edge promotes this grant to KEY SENT
+b	uiinvite	src/firmware_ui_invite.h	725	1	I23 ★★★ the correlation is dropped ENTIRELY — ANY send_aired on the node promotes the verdict, which is the false-confirmation shape the whole attribution layer exists to prevent
+b	uiinvite	src/firmware_ui_invite.h	725	1	I24 ★★ the zero-handle term is dropped — a PARKED grant (ctr == 0) correlates against the ctr-0 push six unrelated operations emit, i.e. a wildcard match
+b	uiinvite	src/firmware_ui_invite.h	632	1	I25 ★★★ THE SIX REFUSAL ARMS ARE COLLAPSED to one `failed` — `NO TEAM KEY` (ask a teammate), `NO IDENTITY` (this node cannot seal) and `NOT IN A TEAM` (join first) stop being three different remedies (S-24)
+b	uiinvite	src/firmware_ui_invite.h	637	1	I26 ★★ `delegated` returns a PLAUSIBLE word instead of failing loudly — the unreachable arm is mapped to the admission word, so a refused grant reads as a queued one
+b	uiinvite	src/firmware_ui_invite.h	524	1	I27 ★★★ the grant's PLANE is changed away from TEAM — the member enumerated on the team plane is addressed on another one, and `delegated` becomes reachable on the real seam
+b	uiinvite	src/firmware_ui_invite.h	570	1	I28 ★★★ an arm prints a COMPLETION word — `KEY SENT` becomes `JOIN COMPLETE` (S-32), which claims an end-to-end outcome no layer of this protocol acknowledges for a grant
+b	uiinvite	src/firmware_ui_invite.h	423	1	I29 ★★★ THE CONFIRMATION DROPS THE FULL HASH WHEN A NAME IS PRESENT (P-7c) — a mutable, self-asserted label becomes the ONLY identity on the screen that ships a private key
+b	uiinvite	src/firmware_ui_invite.h	354	1	I30 ★★ the HANDLED SET is keyed by the display NAME rather than the hash (P-7d) — the name is MUTABLE, so a rejection stops answering for the member that was rejected and starts answering for whoever wears the name
+b	uiinvite	src/firmware_ui_invite.h	711	1	I31 ★★★ `GRANT PARKED` IS INFERRED FROM `ctr == 0` AGAIN — the withdrawn N6 rule restored, so a state the core never reported is put on the panel from a counter that does not answer that question (S-37)
+b	uiinvite	src/firmware_ui_invite.h	624	1	I32 ★★★ `GRANT QUEUE FULL` IS COLLAPSED INTO `GRANT FAILED` — the admission refusal borrows the correlated in-flight failure's word, which S-38 forbids in as many words
+a	w4aident	src/firmware_ui_model.h	1483	1	F01 ★★ the MARKER IS DROPPED — the last kept cell is the next name byte, a SILENT clip (B441's defect restored)
+a	w4aident	src/firmware_ui_model.h	1481	1	F02 ★★★ the SANITIZER IS BYPASSED — raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells)
+a	w4aident	src/firmware_ui_model.h	1483	1	F03 ★★ the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.`
+a	w4aident	src/firmware_ui_model.h	1489	1	F04 ★★★ an unnamed peer at 6-9 columns gets a CLIPPED `0x…` hash instead of its fingerprint (the third spelling)
+a	w4aident	src/firmware_ui_model.h	1488	1	F05 ★★ the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled
+a	w4aident	src/firmware_ui_model.h	1487	1	F06 ★★★ NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)
+a	w4aident	src/firmware_ui_model.h	1480	1	F07 ★★ the marker is written ONE PAST the budget — the abbreviated label is `cols + 1` cells wide
+a	w4aident	src/firmware_ui_model.h	1477	1	F08 ★★ the CAPACITY rule is dropped — a destination shorter than the budget gets a partial result past its end
+a	w4aident	src/firmware_ui_model.h	1478	1	F09 ★★ a NAME is ignored whenever a hash is known — the peer's chosen name is replaced by its hash token

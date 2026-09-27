@@ -1,0 +1,56 @@
+{
+  "checks": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_paths_checked": 1455,
+      "changed_original_paths": [],
+      "new_evidence_paths_at_check": [
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/baselines.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.cpp",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/census.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/control-reproduction.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-comparison.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-glyphs.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-inputs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/gate-summary.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/identity-reader-census.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/inputs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measure.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measurements.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/mutation-selectors.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-anchor-measurement.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-reproduce.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preflight.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preservation.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/runs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/start.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/validation.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-qa-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-qa-checksums.txt"
+      ],
+      "nothing_staged": true,
+      "clean": false
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_paths_checked": 285,
+      "changed_original_paths": [],
+      "new_evidence_paths_at_check": [],
+      "nothing_staged": true,
+      "clean": true
+    }
+  ],
+  "scope": "Only W4a pre-check evidence added. Input files, including uncommitted W1c/W3 implementation and QA landings, unchanged. This preservation record, raw-artifacts index, validation and SHA256SUMS are themselves added evidence."
+}

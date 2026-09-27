@@ -1,0 +1,699 @@
+[
+  {
+    "label": "hygiene",
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.06,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/hygiene.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "native-build",
+    "argv": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 2.113,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/native-build.log",
+    "log_sha256": "a7b3163b75729979f4815164cd04560a2d87517b548fccf06976084c6a6196c4"
+  },
+  {
+    "label": "native-binary",
+    "argv": [
+      "./.pio/build/native/program"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.736,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/native-binary.log",
+    "log_sha256": "f77aa85ac2cd33b3e7fe13dc2fad654a71fcfe27fae37184377301734ee1ccd1"
+  },
+  {
+    "label": "sim-configure",
+    "argv": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w1c-qa-20260925-u2uf04es/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.492,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/sim-configure.log",
+    "log_sha256": "094e57b23e8a9df378b2d686f74f9c09200eb50cd54b40ec3d33a4c22928cdcc"
+  },
+  {
+    "label": "sim-build",
+    "argv": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w1c-qa-20260925-u2uf04es/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 32.702,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/sim-build.log",
+    "log_sha256": "7e80541c5ba6d580f6364ed96fe0407e2638907a0ea4bf78b3476bb0b64d8794"
+  },
+  {
+    "label": "corpus",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w1c-qa-20260925-u2uf04es/corpus",
+      "--lus",
+      "/tmp/meshroute-w1c-qa-20260925-u2uf04es/sim-build/orchestrator/lus",
+      "--jobs",
+      "4",
+      "--require-anchors"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 52.653,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/corpus.log",
+    "log_sha256": "0fd4e2d35b733dadf56daa2cd3c8feb549fe7d86bb335c0e36ffc62bcbe34a1d"
+  },
+  {
+    "label": "abi-node-full",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 18.09,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/abi-node-full.log",
+    "log_sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+  },
+  {
+    "label": "abi-b278",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_b278_row_abi.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 13.236,
+    "phase": "baseline",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/abi-b278.log",
+    "log_sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9"
+  },
+  {
+    "label": "inbox-verbs-default",
+    "argv": [
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 693.33,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-default.log",
+    "log_sha256": "cc43aa2503efda486c6598c7bae921d9c96f1ae75116d571b65e09bb0731150a"
+  },
+  {
+    "label": "inbox-verbs-noneg",
+    "argv": [
+      "tools/probe_inbox_verbs/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 37.739,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-noneg.log",
+    "log_sha256": "e7c00269ad301a7a00a6b4b121b6068fdcc5bed6540491d2635bbc5a472fc349"
+  },
+  {
+    "label": "console-sink-default",
+    "argv": [
+      "tools/probe_console_sink/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 67.541,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/console-sink-default.log",
+    "log_sha256": "3928d5f96df12eb9df73b45d57e3b6f39ac9167a7cc207a183bb2a0c90b6d4b4"
+  },
+  {
+    "label": "console-sink-noneg",
+    "argv": [
+      "tools/probe_console_sink/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 21.723,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/console-sink-noneg.log",
+    "log_sha256": "89049de19c13fe5920383d7282dd3c5ebe888174ecd7df95f441869efc5b7c49"
+  },
+  {
+    "label": "firmware-ui-default",
+    "argv": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 350.017,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/firmware-ui-default.log",
+    "log_sha256": "a24b5983f722ee9eb3a594079a0a1ca042b455c9c2dbc85bfa82bd0d39457867"
+  },
+  {
+    "label": "firmware-ui-noneg",
+    "argv": [
+      "tools/probe_firmware_ui/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 38.105,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/firmware-ui-noneg.log",
+    "log_sha256": "1db8cb56559f571978262e5674564be1fe8b6fbeb764f90f6221ab794333bb08"
+  },
+  {
+    "label": "custody-usb-default",
+    "argv": [
+      "tools/probe_custody_usb/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 20.058,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/custody-usb-default.log",
+    "log_sha256": "f34358c2f8bf9fb0defa523b81d18cf77a971cc7f1bafa0424e30cdac51c5118"
+  },
+  {
+    "label": "custody-usb-noneg",
+    "argv": [
+      "tools/probe_custody_usb/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 12.832,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/custody-usb-noneg.log",
+    "log_sha256": "42595c22cb26a0c8f6b678e9862bcb8990cec41f27cbeefdfcd5568054b2d244"
+  },
+  {
+    "label": "ble-line-default",
+    "argv": [
+      "tools/probe_ble_line/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 9.498,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/ble-line-default.log",
+    "log_sha256": "b09ce0bff86a1ef3dcebbf6f7f5b16b8c28b6a15e148e8328f01c37a65914ce1"
+  },
+  {
+    "label": "ble-line-noneg",
+    "argv": [
+      "tools/probe_ble_line/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 1.487,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/ble-line-noneg.log",
+    "log_sha256": "fa68d6f47b0d87e2a1bd2aa26cb17134b64b0d6df5f9d44f5a5deb8f9d372287"
+  },
+  {
+    "label": "features-default",
+    "argv": [
+      "tools/probe_features/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 72.481,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/features-default.log",
+    "log_sha256": "3288a24c31b225321d2d6462be17923db73c8984874902a84d2d85de1b0e8c4d"
+  },
+  {
+    "label": "features-noneg",
+    "argv": [
+      "tools/probe_features/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 2.943,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/features-noneg.log",
+    "log_sha256": "97735a212cde67ddc813935979d84642d5e85789c0dea868704ef3a2c84c0b65"
+  },
+  {
+    "label": "deferred-actions-default",
+    "argv": [
+      "tools/probe_deferred_actions/run.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 315.485,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/deferred-actions-default.log",
+    "log_sha256": "601c58eb9ee5cd57c117fbade4cda0cf6840d1a5a2e9461238abd73dc956aa4e"
+  },
+  {
+    "label": "deferred-actions-noneg",
+    "argv": [
+      "tools/probe_deferred_actions/run.sh",
+      "--no-neg"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 37.382,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/deferred-actions-noneg.log",
+    "log_sha256": "0b9169387d26e65015a9f7af13ecfd8339f6b5788b40527b0864e33db6a81d0a"
+  },
+  {
+    "label": "inbox-verbs-client",
+    "argv": [
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "env_extra": {
+      "MR_PROBE_ARM": "client"
+    },
+    "exit": 0,
+    "seconds": 346.433,
+    "phase": "probes",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-client.log",
+    "log_sha256": "8668976093c5549a2c7825dae1b2ba7fa20eaee68b9dd509cf3a43a57512334b"
+  },
+  {
+    "label": "inventory",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 2.186,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inventory.log",
+    "log_sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "label": "command_authority",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_command_authority.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.049,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/command_authority.log",
+    "log_sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "label": "command_authority-selftest",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.074,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/command_authority-selftest.log",
+    "log_sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16"
+  },
+  {
+    "label": "a0_matrix",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_a0_matrix.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.035,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/a0_matrix.log",
+    "log_sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f"
+  },
+  {
+    "label": "a0_matrix-selftest",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_a0_matrix.py",
+      "--selftest"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.056,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/a0_matrix-selftest.log",
+    "log_sha256": "d7b7f034a1a4da5f19c640d9cfbce1d46fccad1ac943c73bfbc03cc84e06b786"
+  },
+  {
+    "label": "data_type_literals",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_data_type_literals.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 1.69,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/data_type_literals.log",
+    "log_sha256": "82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930"
+  },
+  {
+    "label": "data_type_literals-selftest",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/check_data_type_literals.py",
+      "--selftest"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 7.982,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/data_type_literals-selftest.log",
+    "log_sha256": "b386b12cc92cae5297bd33aaa38d073b2e8e9c9256c44754c6d6c93947837a86"
+  },
+  {
+    "label": "simulator-whitespace",
+    "argv": [
+      "git",
+      "-C",
+      "/home/staszek/lora-universal-simulator",
+      "diff",
+      "--check"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.004,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/simulator-whitespace.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "label": "tools-discovery",
+    "argv": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 728.836,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/tools-discovery.log",
+    "log_sha256": "2a6e3c8af963a94485ccf9b16de69a32335a40582cd06516ca919b1307d79e1a"
+  },
+  {
+    "label": "warning-census",
+    "argv": [
+      "tools/warning_census.sh"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 153.063,
+    "phase": "checkers",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/warning-census.log",
+    "log_sha256": "df2a1694b8638e023ac2e17f9d526a2a4560f8f19958c29dd3d3fe3d2cd9326b"
+  },
+  {
+    "label": "mutation-radmin8node",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin8node"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 38.854,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-radmin8node.log",
+    "log_sha256": "1d355811707e80ebd92c8528287388caf4ea473e5d65b721f6f355047a71d471"
+  },
+  {
+    "label": "mutation-radmin73node",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=radmin73node"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 22.523,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-radmin73node.log",
+    "log_sha256": "5f453760693b63eb9057fed94cc7a455fae36fed737cd95ff914fefdd78a411a"
+  },
+  {
+    "label": "mutation-teamgrant",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=teamgrant"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 19.64,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-teamgrant.log",
+    "log_sha256": "9821ef7fde4ba301851fb42f31c59bc9074fc415d3d8240a075643d37fd41a2d"
+  },
+  {
+    "label": "mutation-b159map",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b159map"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 14.194,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-b159map.log",
+    "log_sha256": "5b12c9b876eac7f9e9b3e28d589cf4cf34611dd113356a10142c7f2b51456a45"
+  },
+  {
+    "label": "mutation-sliceBnode",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceBnode"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 36.466,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-sliceBnode.log",
+    "log_sha256": "8539b0d747215544722385d0ff9ecd212dd302be90c0363c0f28f2bee3f93975"
+  },
+  {
+    "label": "mutation-sliceEnode",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceEnode"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 17.444,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-sliceEnode.log",
+    "log_sha256": "06a3960d87bd27161a5c042cea26fa1cb0bfec3bd40b966273801df5b4089ec5"
+  },
+  {
+    "label": "mutation-w1cname",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w1cname"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "1",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 17.209,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-w1cname.log",
+    "log_sha256": "ced964e13f3b196d2bd842422ab810c113bc649d12056d76091fce396f5f1b8b"
+  },
+  {
+    "label": "mutation-b161hash",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=b161hash"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 41.124,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-b161hash.log",
+    "log_sha256": "afd1d6a7adca760398a9bc75667751b5a36b5ee981cb92ee31e7d1ff5614e19f"
+  },
+  {
+    "label": "mutation-w1cretain",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w1cretain"
+    ],
+    "env_extra": {
+      "MR_MUT_KEEP_SCRATCH": "1",
+      "MR_MUT_SCRATCH": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/mutations"
+    },
+    "exit": 0,
+    "seconds": 30.539,
+    "phase": "mutations",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-w1cretain.log",
+    "log_sha256": "b8abc166b72cdf5fd932dea75558a8ac5894ac907dda97dfca8da2f26855dff8"
+  },
+  {
+    "label": "boards-final-1",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w1c-qa/final-1"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 44.188,
+    "phase": "boards",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-final-1.log",
+    "log_sha256": "52c913f5ea6aca698f9404f9d09c112038a57c6c9b0cea763be6a4a81738d4cc"
+  },
+  {
+    "label": "boards-final-2",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w1c-qa/final-2"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 44.183,
+    "phase": "boards",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-final-2.log",
+    "log_sha256": "66272cdd9b83657b0f9dcd0f670c9940e7ae02ffea23c44b0cb1c875a091c559"
+  },
+  {
+    "label": "boards-compare-gateway",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "compare",
+      ".pio-measure/w1c-qa/final-1/gateway/manifest.json",
+      ".pio-measure/w1c-qa/final-2/gateway/manifest.json"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.048,
+    "phase": "boards",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-compare-gateway.log",
+    "log_sha256": "e61693f9a8d63eff5ea1d30c1598e386cd13e84ceb434aabe4a67187002f1978"
+  },
+  {
+    "label": "boards-compare-heltec_mobile",
+    "argv": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "compare",
+      ".pio-measure/w1c-qa/final-1/heltec_mobile/manifest.json",
+      ".pio-measure/w1c-qa/final-2/heltec_mobile/manifest.json"
+    ],
+    "env_extra": {},
+    "exit": 0,
+    "seconds": 0.051,
+    "phase": "boards",
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-compare-heltec_mobile.log",
+    "log_sha256": "01e7f96025241c282f33aa733f55380661964068b6c40a3080bf021549404e89"
+  }
+]

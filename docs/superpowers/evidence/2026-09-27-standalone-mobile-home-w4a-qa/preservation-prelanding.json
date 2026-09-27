@@ -1,0 +1,20 @@
+[
+  {
+    "root": "/home/staszek/MeshRoute",
+    "paths": 1548,
+    "head": "8360802904f7bd0023279d3da844453d61207ede",
+    "changed": [],
+    "added": [],
+    "status_identical": true,
+    "whitespace_exit": 0
+  },
+  {
+    "root": "/home/staszek/lora-universal-simulator",
+    "paths": 285,
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "changed": [],
+    "added": [],
+    "status_identical": true,
+    "whitespace_exit": 0
+  }
+]

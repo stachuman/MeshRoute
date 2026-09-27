@@ -1,0 +1,5 @@
+configure exit=0
+build exit=0
+e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2  /tmp/claude-1001/-home-staszek-MeshRoute/7019fa4d-8324-4b18-b429-3c8de8a32587/scratchpad/w1c-gate/sim-build/orchestrator/lus
+corpus exit=0
+sim status-lines: 0

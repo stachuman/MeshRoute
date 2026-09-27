@@ -1,0 +1,36 @@
+diff --git a/artifacts/2026-09-26-standalone-mobile-home-w4a/base-copies/tools/probe_firmware_ui/run.sh b/artifacts/2026-09-26-standalone-mobile-home-w4a/stageA-snapshot/run.sh
+index e71184f..3e0af83 100755
+--- a/artifacts/2026-09-26-standalone-mobile-home-w4a/base-copies/tools/probe_firmware_ui/run.sh
++++ b/artifacts/2026-09-26-standalone-mobile-home-w4a/stageA-snapshot/run.sh
+@@ -1522,13 +1522,27 @@ if [ "${1:-}" != "--no-neg" ]; then
+       's|                body_text(uint8_t(3 + row), label);|                body_text(uint8_t(2 + row), label);|'
+   ctl "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)" yes \
+       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_fingerprint(hash, sizeof hash, st.invite.sel_hash);|'
+-  ctl "O6 the confirmation shows the cached NAME instead of the hash — a mutable label as the only identity (P-7c)" yes \
+-      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|'
++  # ⛔ O6 RETIRED 2026-09-26 (W4a stage A, [[B455]]), kept visible rather than deleted. Its label claimed *"the
++  #   confirmation shows the cached NAME instead of the hash"*, but its substitution rewrote the two
++  #   `st.invite.sel_hash` full-hash calls of the NEED / WAITING FOR PUBKEY screens into `label_from_hash`, and the one
++  #   check it failed was P23d's request confirmation, on the LOWERCASE spelling. MEASURED before retirement: RED on
++  #   exactly "P23d the request confirmation carries the FULL hash" (1 check). ⇒ the property its label names is
++  #   O20's (the named NEW MEMBER confirmation keeps its full hash, 3 checks) and native I29's; the two request
++  #   screens' full hash stays pinned by O5 / O9 (both sites) and by P23d itself. A duplicate of O20 is not re-added.
+   ctl "O7 the INVITE child is published as absent on a build and a node that have it" yes \
+       's|    s.prov_invite      = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0) \&\& (g_node.config().team_id != 0);|    s.prov_invite      = false;|'
++  # ⛔⛔ O8 REPAIRED 2026-09-26 (W4a stage A, [[B449]]). Its second substitution was over-escaped (`.\\\\0.` asks sed
++  #     for TWO backslashes) and matched ZERO times, so the surviving `mem.name[nn] = '\0'` blanked every name and the
++  #     control failed P23d rule 3 / P23e — checks about a blanked REAL name, not the forbidden fallback. Each
++  #     substitution now has its own exactly-one guard. ★ THE PROOF: the nameless candidate row reads
++  #     `>0x00be T221 BEDEAD`, and exactly P23b's blank-name-field check and P23d's blank-name precondition fail.
++  o8a='s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|'
++  o8b='s|            mem.name\[nn\] = .\\0.;|            ;|'
++  once '            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));' "$o8a" &&
++  once "            mem.name[nn] = '\\0';" "$o8b" &&
+   ctl "O8 the member name is published through label_from_hash — the truncated 0x third spelling (F-15)" yes \
+-      's|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|
+-       s|            mem.name\[nn\] = .\\\\0.;|            ;|'
++      "$o8a
++$o8b"
+   ctl "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)" yes \
+       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'
+   # ★★★★ [[B249]] THE WRONG PRODUCTION DESTINATION. W53 pins this structurally; this independent behavioral

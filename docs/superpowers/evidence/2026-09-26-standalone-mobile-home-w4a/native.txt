@@ -1,0 +1,12 @@
+# W4a §4.1 step 2 — native: pio test -e native (the wrapper's '0 test cases' is not the count), then the binary
+$ pio test -e native
+--------------------- native:* [PASSED] Took 1.93 seconds ---------------------
+================== 0 test cases: 0 succeeded in 00:00:01.933 ==================
+$ ./.pio/build/native/program
+[doctest] test cases:   2986 |   2986 passed | 0 failed | 0 skipped
+[doctest] assertions: 197299 | 197299 passed | 0 failed |
+[doctest] Status: SUCCESS!
+
+derived: 2986 cases / 197299 assertions / 0 failed / 0 skipped (pre-W4a pin 2973/196111; +13/+1188)
+PIN line: 734:PIN_CASES, PIN_ASSERTS = 2986, 197299
+derivation: 733:# W4a (identity labels): +10 w4a-ident (model) + 1 team repaint edge + 2 invite (row bound, confirmation names) = +13 cases/+1188 = 2986/197299; measured by the full native binary.

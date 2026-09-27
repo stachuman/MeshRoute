@@ -1,0 +1,94 @@
+=== inbox-verbs-default (EXIT=0)
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+PASS
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+PASS
+BOTH ARMS PASS
+=== inbox-verbs-client-explicit (EXIT=0)
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+PASS
+=== console-sink-default (EXIT=0)
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   structural: 84 passed / 0 failed / 84 total
+   ownership: 6 passed / 0 failed / 6 total
+== router/parser ownership controls (each MUST refuse) ==
+real sources verified UNCHANGED; 8 sink + 35 source + 23 help + 5 BLE + 22 radmin3 + 21 radmin4 controls run + 22 activation controls + 16 executor ownership controls (CONTROLS-TOTAL 152)
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+PASS: probe + structural + controls all green
+=== firmware-ui-default (EXIT=0)
+467 passed / 0 failed / 467 total
+       902 passed / 0 failed / 902 total
+       467 passed / 0 failed / 467 total
+checks per arm: l2 438 · v3 873
+coverage: 733 of 874 checks (both arms, unioned) are reddened by at least one control
+controls: 225 verified / 0 unusable
+PASS
+=== custody-usb-default (EXIT=0)
+probe: 27 ok, 0 failed
+probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)
+controls: 10 verified / 0 unusable (pin 10)
+PASS
+=== ble-line-default (EXIT=0)
+probe: 55 checks against the REAL device_ble.h intake, 0 failed
+probe: 55 checks against the REAL device_ble.h intake, 0 failed (pin 55)
+controls: 12 verified / 0 unusable (pin 12)
+PASS
+=== features-default (EXIT=0)
+== the ruled configuration matrix: nine cells, each host-compiled and host-RUN ==
+ownership controls: 43 verified / 0 unusable
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+controls: 58 verified / 0 unusable (pin 58)
+PASS
+=== deferred-actions-default (EXIT=0)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+ACTION PROBE PASS; output=/tmp/mr-action-probe-59i75ado
+=== inbox-verbs-noneg (EXIT=0)
+PASS
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+BOTH ARMS PASS
+=== console-sink-noneg (EXIT=0)
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   structural: 84 passed / 0 failed / 84 total
+   ownership: 6 passed / 0 failed / 6 total
+PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg.
+=== firmware-ui-noneg (EXIT=0)
+467 passed / 0 failed / 467 total
+       902 passed / 0 failed / 902 total
+       467 passed / 0 failed / 467 total
+controls: 0 verified / 0 unusable
+PASS
+=== custody-usb-noneg (EXIT=0)
+probe: 27 ok, 0 failed
+probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+=== ble-line-noneg (EXIT=0)
+probe: 55 checks against the REAL device_ble.h intake, 0 failed
+probe: 55 checks against the REAL device_ble.h intake, 0 failed (pin 55)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+=== features-noneg (EXIT=0)
+== the ruled configuration matrix: nine cells, each host-compiled and host-RUN ==
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+=== deferred-actions-noneg (EXIT=0)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+ACTION PROBE PASS; output=/tmp/mr-action-probe-xnv9wt_3

@@ -50,6 +50,20 @@ void fmt(Row& r, bool marked, const char* label, uint32_t age_s) {
     const TeamRow t = row_of(label, age_s);
     ui_team_row(r.b, sizeof r.b, marked, t, GeoFix{});
 }
+// ★ W4a — THE IDENTITY PROJECTION `build_snapshot` APPLIES BEFORE IT PUBLISHES (`label_for_team_id` ->
+//   `ui_fmt_identity` at `kTeamLabelCols`): a counted NAME, or — unnamed — the key hash. ⛔ `row_of` above stays the
+//   raw carrier on purpose: it is how the SYNTHETIC over-long / invisible-tail inputs below reach the row directly,
+//   which is the only way the row's own six-column bound (uiteam T01) and the six-byte comparison (T09) stay measurable.
+TeamRow projected_row_of(const char* name, uint32_t key_hash32, uint32_t age_s) {
+    TeamRow t{};
+    (void)ui_fmt_identity(t.label, sizeof t.label, name, uint8_t(name ? std::strlen(name) : 0), key_hash32,
+                          uint8_t(kTeamLabelCols));
+    t.last_heard_s = age_s;
+    return t;
+}
+void fmt_projected(Row& r, bool marked, const char* name, uint32_t key_hash32, uint32_t age_s) {
+    ui_team_row(r.b, sizeof r.b, marked, projected_row_of(name, key_hash32, age_s), GeoFix{});
+}
 
 // ---- §UI-17 S5's fixture: our own fix, and a teammate at a stated offset from it ---------------------------------
 // ⓘ ⛔ NOT `(0,0)`: that pair is the core's own "no fix at all", so a located fixture built on it would be driving a
@@ -117,22 +131,35 @@ TEST_CASE("ui17-team: the ruled row is EXACTLY 19 columns, marker + label + age 
 
 TEST_CASE("ui17-team: a long label is CLAMPED to six columns and cannot push the age off the row") {
     Row r;
-    // ⛔ THE DEFECT THIS EXCLUDES is `%-6s` (a padding without a precision): it pads a SHORT label and lets a long
-    //    one run, so a 14-column stored name would push the age, the distance and the direction off the panel and
-    //    u8g2 would clip them silently. §7.1 rule 5 forbids exactly that as a truncation policy.
-    fmt(r, false, "Wolfgangetta", 12);
-    CHECK(std::strcmp(r.b, " Wolfga 12s        ") == 0);
+    // ★ W4a — THE PUBLISHED LABEL IS THE FORMATTER's SIX CELLS, so a long name is abbreviated VISIBLY: five cells and
+    //   the generated `»` (0xBB, written as its own literal — a hex escape would swallow the next hex digit).
+    fmt_projected(r, false, "Wolfgangetta", 0, 12);
+    CHECK(std::strcmp(r.b, " Wolfg" "\xBB" " 12s        ") == 0);
     CHECK(r.cols() == kTeamRowCols);
-    // The resolver's `0x<hash>` fallback is TEN columns and clamps the same way — six characters of a hex hash are
-    // still a distinguishable label, which is why the ruled format can afford six.
-    fmt(r, true, "0xdeadbeef", 12);
-    CHECK(std::strcmp(r.b, ">0xdead 12s        ") == 0);
+    // ⛔ A STORED NAME THAT LOOKS LIKE A HASH IS A NAME, and abbreviates as one — provenance is never read off the
+    //    spelling. ...while a TRUE unnamed peer is its six-digit uppercase member fingerprint, ⛔ never a clipped `0x…`.
+    fmt_projected(r, true, "0xdeadbeef", 0, 12);
+    CHECK(std::strcmp(r.b, ">0xdea" "\xBB" " 12s        ") == 0);
     CHECK(r.cols() == kTeamRowCols);
-    // And the WIDEST label the snapshot can publish — `kLabelCap` characters — against the WIDEST age token.
+    fmt_projected(r, true, nullptr, 0xDEADBEEFu, 12);
+    CHECK(std::strcmp(r.b, ">ADBEEF 12s        ") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+    // And the WIDEST name the carrier can hold — `kLabelCap` characters — against the WIDEST age token.
     char widest[kLabelCap + 1];
     for (std::size_t i = 0; i < kLabelCap; ++i) widest[i] = 'W';
     widest[kLabelCap] = '\0';
-    fmt(r, true, widest, 99u * 24u * 60u * 60u);              // -> `99d`
+    fmt_projected(r, true, widest, 0, 99u * 24u * 60u * 60u);  // -> `99d`
+    CHECK(std::strcmp(r.b, ">WWWWW" "\xBB" " 99d        ") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+    // ★★ THE ROW's OWN BOUND, ON A SYNTHETIC OVER-LONG CARRIER passed straight to `ui_team_row` WITHOUT the
+    //    projection (W4R-3). ⛔ The defect it excludes is `%-6s` (a padding without a precision): it pads a SHORT
+    //    label and lets a long one run, pushing the age, the distance and the direction off the panel. No correct
+    //    snapshot publishes such a carrier any more, which is exactly why it is fed here directly — formatted labels
+    //    alone could not tell the two formats apart (uiteam T01).
+    fmt(r, false, "Wolfgangetta", 12);
+    CHECK(std::strcmp(r.b, " Wolfga 12s        ") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+    fmt(r, true, widest, 99u * 24u * 60u * 60u);
     CHECK(std::strcmp(r.b, ">WWWWWW 99d        ") == 0);
     CHECK(r.cols() == kTeamRowCols);
 }
@@ -203,14 +230,16 @@ TEST_CASE("ui17-team: a located teammate fills DIST and DIR, and the row is STIL
     // ...a marked row moves the marker and ⛔ nothing else, exactly as it does without a location.
     ui_team_row(r.b, sizeof r.b, /*marked=*/true, located_row("id 60", 12, 184000, 0, 30), kOwnFix);
     CHECK(std::strcmp(r.b, ">id 60  12s 2.0k  N") == 0);
-    // ...and the WIDEST expansion of every field at once — a `kLabelCap` label, `99d`, a four-column distance and a
-    // two-column octant — is still 19. ⛔ This is the row's real width proof; the others are its corners.
+    // ...and the WIDEST expansion of every field at once — a `kLabelCap` name as the snapshot publishes it (W4a: the
+    // formatter's six cells, `WWWWW` + `»`), `99d`, a four-column distance and a two-column octant — is still 19.
+    // ⛔ This is the row's real width proof; the others are its corners.
     char widest[kLabelCap + 1];
     for (std::size_t i = 0; i < kLabelCap; ++i) widest[i] = 'W';
     widest[kLabelCap] = '\0';
+    const TeamRow widest_label = projected_row_of(widest, 0, 0);
     ui_team_row(r.b, sizeof r.b, true,
-                located_row(widest, 99u * 86400u, /*dlat=*/-184000, /*dlon=*/-460000, 600), kOwnFix);
-    CHECK(std::strcmp(r.b, ">WWWWWW 99d 3.7k SW") == 0);
+                located_row(widest_label.label, 99u * 86400u, /*dlat=*/-184000, /*dlon=*/-460000, 600), kOwnFix);
+    CHECK(std::strcmp(r.b, ">WWWWW" "\xBB" " 99d 3.7k SW") == 0);
     CHECK(r.cols() == kTeamRowCols);
 }
 
@@ -546,6 +575,9 @@ TEST_CASE("ui17-team: the OCTANT, the freshness bound and OUR OWN fix each repai
 TEST_CASE("ui17-team: the LABEL's drawn prefix is compared — a rename past column 6 is invisible") {
     UiModel m; FrameGate g; UiInboxCounters c{};
     UiSnapshot s = team_snap(2, 3600);
+    // ⓘ W4a: these two are SYNTHETIC carriers written straight into the snapshot (W4R-3) — the published label is
+    //   the formatter's six cells now, and two formatted labels this long render identically. Raw carriers whose
+    //   first six bytes match and whose tails differ are what keep the six-byte comparison attackable (uiteam T09).
     std::snprintf(s.team[0].label, sizeof s.team[0].label, "%s", "Wolfgangetta");
     team_settle(m, g, c, s);
     const UiSnapshot frozen = s;
@@ -562,6 +594,37 @@ TEST_CASE("ui17-team: the LABEL's drawn prefix is compared — a rename past col
     CHECK(ui_team_rows_equal(live, frozen) == false);
     CHECK(ui_team_invalidate(m, live, frozen) == true);
     CHECK(m.state().dirty == true);
+}
+
+TEST_CASE("ui17-team: W4a — an exact six-byte name renamed LONGER repaints; two long names drawn alike do not") {
+    // ★★ §2.4's NEW EDGE, THROUGH THE PUBLISHED (FORMATTED) LABELS. `Wolfga` fits the six cells whole; renamed to
+    //    `Wolfgangetta` it is drawn `Wolfg` + `»` — the SAME prefix, a DIFFERENT sixth cell — so the panel changed and
+    //    must repaint. Comparing the raw first six bytes would have called these equal.
+    // ⓘ Only the LABEL is replaced: the id, age and geo fields stay the fixture's, so the label is the one variable.
+    auto set_label = [](TeamRow& t, const char* name) {
+        const TeamRow p = projected_row_of(name, 0, 0);
+        std::memcpy(t.label, p.label, sizeof t.label);
+    };
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = team_snap(2, 3600);
+    set_label(s.team[0], "Wolfga");
+    team_settle(m, g, c, s);
+    const UiSnapshot frozen = s;
+    UiSnapshot live = s;
+    set_label(live.team[0], "Wolfgangetta");
+    CHECK(std::strcmp(live.team[0].label, "Wolfg" "\xBB") == 0);
+    CHECK(ui_team_rows_equal(live, frozen) == false);
+    CHECK(ui_team_invalidate(m, live, frozen) == true);
+    CHECK(m.state().dirty == true);
+    // ...while two LONG names that render the same five cells and marker are the same panel: no repaint is owed.
+    m.clear_dirty();
+    const UiSnapshot long_a = live;
+    UiSnapshot long_b = live;
+    set_label(long_b.team[0], "Wolfgastein");
+    CHECK(std::strcmp(long_b.team[0].label, "Wolfg" "\xBB") == 0);
+    CHECK(ui_team_rows_equal(long_b, long_a) == true);
+    CHECK(ui_team_invalidate(m, long_b, long_a) == false);
+    CHECK(m.state().dirty == false);
 }
 
 TEST_CASE("ui17-team: the comparison is POSITIONAL and bounded by the rows the panel actually draws") {

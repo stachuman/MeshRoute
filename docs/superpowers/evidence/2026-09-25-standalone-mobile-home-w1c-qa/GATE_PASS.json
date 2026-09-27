@@ -1,0 +1,214 @@
+{
+  "verdict": "PASS",
+  "base": "8360802904f7bd0023279d3da844453d61207ede",
+  "simulator": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "gate_commands": 46,
+  "native": [
+    2962,
+    195904,
+    0,
+    0
+  ],
+  "corpus_identical_streams": 36,
+  "s18_events": 269517,
+  "s18_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+  "abi_node": [
+    235208,
+    122176,
+    157304
+  ],
+  "tools_tests": 356,
+  "mutations": {
+    "batteries": 9,
+    "red": 34,
+    "unusable": 0,
+    "vacuous": 0
+  },
+  "boards": [
+    {
+      "env": "gateway",
+      "equality_with_coder_final1": {
+        "measurements": true,
+        "toolchain": true,
+        "fixed_identity": true,
+        "paths": true,
+        "payload": true,
+        "elf": true
+      },
+      "measurements": {
+        "flash_bytes": 571936,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 980,
+          ".text": 570948
+        },
+        "object_count": 285,
+        "ram_bytes": 203740,
+        "symbol_count": 6593,
+        "symbol_size_total": 752316,
+        "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      },
+      "source": {
+        "deleted_files": [],
+        "file_count": 1321,
+        "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+        "git_status_sha256": "bcbce257b089ee87d1c37d8ebf97b2a5de73fb6ed8d26c4b440288585dcd1fe5",
+        "tree_sha256": "cdca7a62df9682f1826638e51c4fa272dab407f4c8870a01d564b70ff0fcdb6b"
+      },
+      "coder_source": {
+        "deleted_files": [],
+        "file_count": 1272,
+        "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+        "git_status_sha256": "bf041107215b5423e0ce8fcc3c967fd36d0b27740af6e5e4178e5dec694ac2e4",
+        "tree_sha256": "c0985789027ef53b74228942b3a9645cdce8e81c42f9759f036b4809873a4160"
+      },
+      "normal_pio_metadata": {
+        "entry_count": 10653,
+        "exists": true,
+        "sha256": "9a0d25c84a7c58a8e2d23d39151448427a83041b0e18992af55f874a4d55622c"
+      },
+      "coder_normal_pio_metadata": {
+        "entry_count": 10653,
+        "exists": true,
+        "sha256": "558ebbb088b217cdc8adbb269717191f2902cbf1deb931a2ee3afb8a79edd44d"
+      },
+      "base_to_final": {
+        "ram_bytes": {
+          "base": 203740,
+          "final": 203740,
+          "delta": 0
+        },
+        "flash_bytes": {
+          "base": 572240,
+          "final": 571936,
+          "delta": -304
+        },
+        "object_count": {
+          "base": 285,
+          "final": 285,
+          "delta": 0
+        },
+        "symbol_count": {
+          "base": 6597,
+          "final": 6593,
+          "delta": -4
+        },
+        "symbol_size_total": {
+          "base": 752617,
+          "final": 752316,
+          "delta": -301
+        }
+      }
+    },
+    {
+      "env": "heltec_mobile",
+      "equality_with_coder_final1": {
+        "measurements": true,
+        "toolchain": true,
+        "fixed_identity": true,
+        "paths": true,
+        "payload": true,
+        "elf": true
+      },
+      "measurements": {
+        "flash_bytes": 1394592,
+        "loadable_sections": {
+          ".dram0.data": 25260,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 218100,
+          ".flash.text": 1072362,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 211724,
+        "symbol_count": 13296,
+        "symbol_size_total": 1495992,
+        "symbols_sha256": "8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070"
+      },
+      "payload": {
+        "bytes": 1395232,
+        "filename": "firmware.bin",
+        "sha256": "38739c4aba867f1800caa596b3a8aa1e4e204301284858f9351bd76af03c1c3a"
+      },
+      "source": {
+        "deleted_files": [],
+        "file_count": 1321,
+        "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+        "git_status_sha256": "bcbce257b089ee87d1c37d8ebf97b2a5de73fb6ed8d26c4b440288585dcd1fe5",
+        "tree_sha256": "cdca7a62df9682f1826638e51c4fa272dab407f4c8870a01d564b70ff0fcdb6b"
+      },
+      "coder_source": {
+        "deleted_files": [],
+        "file_count": 1272,
+        "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+        "git_status_sha256": "bf041107215b5423e0ce8fcc3c967fd36d0b27740af6e5e4178e5dec694ac2e4",
+        "tree_sha256": "c0985789027ef53b74228942b3a9645cdce8e81c42f9759f036b4809873a4160"
+      },
+      "normal_pio_metadata": {
+        "entry_count": 10653,
+        "exists": true,
+        "sha256": "9a0d25c84a7c58a8e2d23d39151448427a83041b0e18992af55f874a4d55622c"
+      },
+      "coder_normal_pio_metadata": {
+        "entry_count": 10653,
+        "exists": true,
+        "sha256": "558ebbb088b217cdc8adbb269717191f2902cbf1deb931a2ee3afb8a79edd44d"
+      },
+      "base_to_final": {
+        "ram_bytes": {
+          "base": 211724,
+          "final": 211724,
+          "delta": 0
+        },
+        "flash_bytes": {
+          "base": 1394732,
+          "final": 1394592,
+          "delta": -140
+        },
+        "object_count": {
+          "base": 329,
+          "final": 329,
+          "delta": 0
+        },
+        "symbol_count": {
+          "base": 13297,
+          "final": 13296,
+          "delta": -1
+        },
+        "symbol_size_total": {
+          "base": 1496134,
+          "final": 1495992,
+          "delta": -142
+        }
+      }
+    }
+  ],
+  "original_inputs_preserved": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "file_count": 1321,
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "head_unchanged": true,
+      "status_unchanged": true,
+      "changed_original_or_added_paths": {},
+      "staged_diff_empty": true
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "file_count": 285,
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "head_unchanged": true,
+      "status_unchanged": true,
+      "changed_original_or_added_paths": {},
+      "staged_diff_empty": true
+    }
+  ]
+}

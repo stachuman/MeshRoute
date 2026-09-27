@@ -1,0 +1,214 @@
+=== hygiene (exit 0)
+
+=== native-build (exit 0)
+
+=== native-binary (exit 0)
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+[doctest] test cases:   2962 |   2962 passed | 0 failed | 0 skipped
+[doctest] assertions: 195904 | 195904 passed | 0 failed |
+[doctest] Status: SUCCESS!
+
+=== sim-configure (exit 0)
+
+=== sim-build (exit 0)
+
+=== corpus (exit 0)
+PASS: 36/36 streams produced and validated, 0 failures
+
+=== abi-node-full (exit 0)
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+
+=== abi-b278 (exit 0)
+PASS: B278 production correlation-row ABI mirror (42 measurements, 6/6 controls RED)
+
+=== inbox-verbs-default (exit 0)
+PASS
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+PASS
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+PASS
+BOTH ARMS PASS
+
+=== inbox-verbs-noneg (exit 0)
+PASS
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+BOTH ARMS PASS
+
+=== console-sink-default (exit 0)
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   structural: 84 passed / 0 failed / 84 total
+   ownership: 6 passed / 0 failed / 6 total
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+PASS: probe + structural + controls all green
+
+=== console-sink-noneg (exit 0)
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   structural: 84 passed / 0 failed / 84 total
+   ownership: 6 passed / 0 failed / 6 total
+PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg.
+
+=== firmware-ui-default (exit 0)
+467 passed / 0 failed / 467 total
+       902 passed / 0 failed / 902 total
+       467 passed / 0 failed / 467 total
+checks per arm: l2 438 · v3 873
+coverage: 733 of 874 checks (both arms, unioned) are reddened by at least one control
+controls: 225 verified / 0 unusable
+PASS
+
+=== firmware-ui-noneg (exit 0)
+467 passed / 0 failed / 467 total
+       902 passed / 0 failed / 902 total
+       467 passed / 0 failed / 467 total
+controls: 0 verified / 0 unusable
+PASS
+
+=== custody-usb-default (exit 0)
+probe: 27 ok, 0 failed
+probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)
+controls: 10 verified / 0 unusable (pin 10)
+PASS
+
+=== custody-usb-noneg (exit 0)
+probe: 27 ok, 0 failed
+probe: 27 checks against the REAL print_custody_failure(), 0 failed (pin 27)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+
+=== ble-line-default (exit 0)
+probe: 55 checks against the REAL device_ble.h intake, 0 failed
+probe: 55 checks against the REAL device_ble.h intake, 0 failed (pin 55)
+controls: 12 verified / 0 unusable (pin 12)
+PASS
+
+=== ble-line-noneg (exit 0)
+probe: 55 checks against the REAL device_ble.h intake, 0 failed
+probe: 55 checks against the REAL device_ble.h intake, 0 failed (pin 55)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+
+=== features-default (exit 0)
+ownership controls: 43 verified / 0 unusable
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+controls: 58 verified / 0 unusable (pin 58)
+PASS
+
+=== features-noneg (exit 0)
+matrix: 9 configuration cells (pin 9), 112 checks against the REAL mr_features.h, 0 failed (pin 112)
+PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)
+
+=== deferred-actions-default (exit 0)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+40 controls compile/assertion RED
+ACTION PROBE PASS; output=/tmp/mr-action-probe-7k0mnj_5
+
+=== deferred-actions-noneg (exit 0)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+ACTION PROBE PASS; output=/tmp/mr-action-probe-ud0lritn
+
+=== inbox-verbs-client (exit 0)
+PASS
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+PASS
+
+=== inventory (exit 0)
+
+=== command_authority (exit 0)
+PASS: command authority — ruled table / production header / generated inventory agree
+
+=== command_authority-selftest (exit 0)
+PASS: command authority — ruled table / production header / generated inventory agree; 6/6 selftests RED
+
+=== a0_matrix (exit 0)
+PASS — 21 enum members each have a matrix row, the CURRENT NAMESPACE table states every current value, and all 6 named special rows are present.
+
+=== a0_matrix-selftest (exit 0)
+
+=== data_type_literals (exit 0)
+PASS — 218 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.
+
+=== data_type_literals-selftest (exit 0)
+
+=== simulator-whitespace (exit 0)
+
+=== tools-discovery (exit 0)
+PASS: §B278 census selftest, 0 failure(s)
+Ran 356 tests in 728.727s
+OK
+PASS: §B278 census selftest, 0 failure(s)
+
+=== warning-census (exit 0)
+gateway_heltec         329       171       171         0     238852    1337828  ok
+gateway_heltec_v4      330       175       175         0     239124    1335884  ok
+heltec_mobile          329       175       175         0     211724    1394592  ok
+heltec_v3              329       175       175         0     214068    1392288  ok
+heltec_v4              330       179       179         0     214340    1390252  ok
+heltec_v4_mobile       330       179       179         0     211996    1392532  ok
+PASS — 6 OLED env(s) match their pinned warning baseline
+
+=== mutation-radmin8node (exit 0)
+mutations: 1 RED / 0 unusable
+
+=== mutation-radmin73node (exit 0)
+mutations: 5 RED / 0 unusable
+
+=== mutation-teamgrant (exit 0)
+mutations: 4 RED / 0 unusable
+
+=== mutation-b159map (exit 0)
+mutations: 2 RED / 0 unusable
+
+=== mutation-sliceBnode (exit 0)
+mutations: 8 RED / 0 unusable
+
+=== mutation-sliceEnode (exit 0)
+mutations: 3 RED / 0 unusable
+
+=== mutation-w1cname (exit 0)
+mutations: 4 RED / 0 unusable
+
+=== mutation-b161hash (exit 0)
+mutations: 6 RED / 0 unusable
+
+=== mutation-w1cretain (exit 0)
+mutations: 1 RED / 0 unusable
+
+=== boards-final-1 (exit 0)
+PASS: deterministic board measurement env=gateway
+PASS: deterministic board measurement env=heltec_mobile
+PASS: ruled pair gateway, heltec_mobile jobs=1 wall=42.1s usable_cores=24
+
+=== boards-final-2 (exit 0)
+PASS: deterministic board measurement env=gateway
+PASS: deterministic board measurement env=heltec_mobile
+PASS: ruled pair gateway, heltec_mobile jobs=1 wall=42.1s usable_cores=24
+
+=== boards-compare-gateway (exit 0)
+PASS: exact repeatability env=gateway
+
+=== boards-compare-heltec_mobile (exit 0)
+PASS: exact repeatability env=heltec_mobile
+

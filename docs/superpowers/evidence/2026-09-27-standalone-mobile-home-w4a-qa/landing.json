@@ -1,0 +1,113 @@
+{
+  "repositories": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_paths": 1548,
+      "changed": [
+        {
+          "path": "MEMORY.md",
+          "before": {
+            "kind": "file",
+            "sha256": "271edd08f42e1a4d1f43b954bfbe293bbf91e360ee8548892d9fc61d733a5278"
+          },
+          "after": {
+            "kind": "file",
+            "sha256": "3ca2bfcdfc7ea5bb92aec0faa19b802644b734ff986c284b297c672d39a82854"
+          }
+        },
+        {
+          "path": "docs/2026-07-30-open-bug-register.md",
+          "before": {
+            "kind": "file",
+            "sha256": "922564134f257cb0c06a0c5edcb55ebf527f9d226a3d2ddbacd5a473a27249ef"
+          },
+          "after": {
+            "kind": "file",
+            "sha256": "249c2415b3faad702fd623cc62f1c27b0d11ef6260559928fe388d94da5cc210"
+          }
+        },
+        {
+          "path": "docs/2026-09-20-metal-test-plan.md",
+          "before": {
+            "kind": "file",
+            "sha256": "3cd7a26575a881624df7e12783edcb6d3090f4722d05671862e8224ba24314ec"
+          },
+          "after": {
+            "kind": "file",
+            "sha256": "8bcff449e7c94b88243a07a1b589afe6bb0fb8a4eb8f3430852b871a9e3e451d"
+          }
+        },
+        {
+          "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+          "before": {
+            "kind": "file",
+            "sha256": "0b5706dec5a8dbae27d231a6b019c2eb2947f2f789b12ad7ecbec52998adadf8"
+          },
+          "after": {
+            "kind": "file",
+            "sha256": "c081bd14a7a68ca1feb53451d607a3640ed9a1507d5acad18dd8bd5174cabe05"
+          }
+        },
+        {
+          "path": "tracker.md",
+          "before": {
+            "kind": "file",
+            "sha256": "a03b3cbe4f9caedf4fa077d1b20344cdb7a0411bfccab7b476da2d9d9cc9cb08"
+          },
+          "after": {
+            "kind": "file",
+            "sha256": "bc63d514749f08cc8dfc93234118e901614062ca3ef6515cb2691d468d1e27bd"
+          }
+        }
+      ],
+      "missing": [],
+      "added_before_final_index": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/board-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/coder-raw-verification.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-audit.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-completeness-proof.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-completeness-proof.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/corpus-layout-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/focused-controls.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/focused-controls.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/gate-validation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/inputs-start.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout-measure.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout-query.cpp",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/gateway/manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/heltec_mobile/manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/pair.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/mutation-results.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/preservation-prelanding.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/run-ledger.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/source-audit.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/stage-a-o8-anchors.json"
+      ],
+      "staged": 0,
+      "whitespace_exit": 0
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_paths": 285,
+      "changed": [],
+      "missing": [],
+      "added_before_final_index": [],
+      "staged": 0,
+      "whitespace_exit": 0
+    }
+  ],
+  "report_sha256": "7d3ec5d41084b24c877b94c82c2cfb641bef7d2c7a2b6178e6ffc16d58bb461a",
+  "report": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa.md",
+  "documentation_only": true,
+  "brief_and_coder_receipt_unchanged": true,
+  "links_checked": true,
+  "index_rule": "SHA256SUMS covers all other files in this folder; report is bound by report_sha256 here. No self-hash."
+}

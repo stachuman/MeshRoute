@@ -1,0 +1,13 @@
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+lib/core/node_hashlocate.cpp:767:    char nm[32]; const uint8_t nlen = effective_name(nm, 32);      // INTRO name field is <=32 B (matches the PeerKey name cap)
+lib/core/node_hashlocate.cpp:1262:    const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + n + 1), 32);   // §1.3: ‖ [name_len][name] (OUR name; the owner answers its own key)
+lib/core/node_hashlocate.cpp:2321:        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors the AUTHORITATIVE_H_ANSWER_PUBKEY / MOBILE_PUBKEY_PUSH / MOBILE_H_ANSWER_PUBKEY answer frames)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+lib/core/node.cpp:32:    if (name) { uint8_t l = 0; while (name[l] && l < sizeof _name) ++l; set_name(name, l); }   // §1.3: keep the ctor/sim name (was discarded) so effective_name + the pubkey exchange can carry it
+lib/core/node.cpp:41:uint8_t Node::effective_name(char* out, uint8_t cap) const {
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+test/test_node_r3.cpp:9064:    uint8_t n = node.effective_name(buf, sizeof buf);
+test/test_node_r3.cpp:9067:    n = node.effective_name(buf, sizeof buf);
+test/test_node_r3.cpp:9070:    n = named.effective_name(buf, sizeof buf);

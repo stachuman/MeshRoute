@@ -1,0 +1,116 @@
+{
+  "instrument": "tools/probe_board_abi.py",
+  "checks": 290,
+  "red_controls": 9,
+  "layouts": [
+    {
+      "type": "meshroute::Node",
+      "native": {
+        "sizeof": 235208,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      },
+      "heltec_mobile": {
+        "sizeof": 122176,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 157304,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      }
+    },
+    {
+      "type": "mrui::UiState",
+      "native": {
+        "sizeof": 504,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      },
+      "heltec_mobile": {
+        "sizeof": 504,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 504,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      }
+    },
+    {
+      "type": "mrui::UiSnapshot",
+      "native": {
+        "sizeof": 1336,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      },
+      "heltec_mobile": {
+        "sizeof": 1336,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 1336,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      }
+    },
+    {
+      "type": "mrui::UiModel",
+      "native": {
+        "sizeof": 928,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      },
+      "heltec_mobile": {
+        "sizeof": 912,
+        "alignof": 8,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 912,
+        "alignof": 8,
+        "feature_tu_compiled": false
+      }
+    },
+    {
+      "type": "mrui::ComposeSlot",
+      "native": {
+        "sizeof": 20,
+        "alignof": 1,
+        "feature_tu_compiled": false
+      },
+      "heltec_mobile": {
+        "sizeof": 20,
+        "alignof": 1,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 20,
+        "alignof": 1,
+        "feature_tu_compiled": false
+      }
+    },
+    {
+      "type": "mrui::ComposeList",
+      "native": {
+        "sizeof": 161,
+        "alignof": 1,
+        "feature_tu_compiled": false
+      },
+      "heltec_mobile": {
+        "sizeof": 161,
+        "alignof": 1,
+        "feature_tu_compiled": true
+      },
+      "gateway": {
+        "sizeof": 161,
+        "alignof": 1,
+        "feature_tu_compiled": false
+      }
+    }
+  ],
+  "residency_warning": "Layout measurements are not linked board RAM measurements."
+}

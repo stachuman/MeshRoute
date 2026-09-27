@@ -1,0 +1,10 @@
+symbol                                                             object(final): size@obj            elf base elf final  delta
+_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE                [(6394, 'firmware_commands.cpp.o')     5574      5578     +4
+_ZN9meshroute4Node10on_commandERKNS_7CommandE                      [(2746, 'node.cpp.o')]                 2710      2706     -4
+_ZN9meshroute4Node15emit_hash_queryEmbbNS_5PlaneEb                 [(342, 'node_hashlocate.cpp.o')]        334       338     +4
+_ZN9meshroute4Node19intro_attach_prefixEmNS_11CryptIntentEhPhh     [(186, 'node_hashlocate.cpp.o')]        182       186     +4
+_ZN9meshroute4Node30send_hash_bind_pubkey_responseEhhhPKhmb        [(162, 'node_hashlocate.cpp.o')]        154       158     +4
+_ZN9meshroute4Node8on_timerEm                                      [(1383, 'node.cpp.o')]                 1276      1272     -4
+_ZNK9meshroute4Node14effective_nameEPch                            [(39, 'node.cpp.o')]                    170        39   -131
+_ZZNK9meshroute4Node14effective_nameEPchE3pfx                      -                                        19      None    -19
+sum of symbol-size deltas: -142

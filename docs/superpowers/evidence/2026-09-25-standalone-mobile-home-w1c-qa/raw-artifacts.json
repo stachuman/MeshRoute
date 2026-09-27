@@ -1,0 +1,312 @@
+[
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/a0_matrix-selftest.log",
+    "bytes": 1051,
+    "sha256": "d7b7f034a1a4da5f19c640d9cfbce1d46fccad1ac943c73bfbc03cc84e06b786"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/a0_matrix.log",
+    "bytes": 258,
+    "sha256": "b559a0a24a965549abfabef120fe2b33b1c91f1d23a073f28a040d104f281d5f"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/abi-b278.log",
+    "bytes": 3564,
+    "sha256": "1b29bcf17b36109bd7310a9a7ea79e59496e4848bffd300e3fe58e7e16dea0e9"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/abi-node-full.log",
+    "bytes": 5471,
+    "sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-base-1-gateway-sections.txt",
+    "bytes": 1398,
+    "sha256": "5832cf09186c16d137bdd3768af7ef6534d7c45a43fb8708b8cb22d6a075d280"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-base-1-gateway-symbols.txt",
+    "bytes": 288301,
+    "sha256": "4d1096d7519945a785ebd6e868e2df7089a12c522c5959db819f57ee40503e3b"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-base-1-heltec_mobile-sections.txt",
+    "bytes": 3673,
+    "sha256": "2db3675ce2dce56cb9469db8c8ca081971e89e518a9b34f95abd41bbbb4ac46b"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-base-1-heltec_mobile-symbols.txt",
+    "bytes": 763834,
+    "sha256": "a0e270222204b0fe7955bb7bee0c0c614fb98f205546d7ebfacb93a2e1c8c64f"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-final-1-gateway-sections.txt",
+    "bytes": 1398,
+    "sha256": "638242b4c1b530b9436f1a5315ccb48924b43568e4b76bed58cefa566774330c"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-final-1-gateway-symbols.txt",
+    "bytes": 288129,
+    "sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-final-1-heltec_mobile-sections.txt",
+    "bytes": 3673,
+    "sha256": "82dd64b439ae68b6750b32767dd418116e8ed90640bd9998de522f28b8585a3d"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/archive-final-1-heltec_mobile-symbols.txt",
+    "bytes": 763749,
+    "sha256": "8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/ble-line-default.log",
+    "bytes": 6754,
+    "sha256": "b09ce0bff86a1ef3dcebbf6f7f5b16b8c28b6a15e148e8328f01c37a65914ce1"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/ble-line-noneg.log",
+    "bytes": 5443,
+    "sha256": "fa68d6f47b0d87e2a1bd2aa26cb17134b64b0d6df5f9d44f5a5deb8f9d372287"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-compare-gateway.log",
+    "bytes": 224,
+    "sha256": "e61693f9a8d63eff5ea1d30c1598e386cd13e84ceb434aabe4a67187002f1978"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-compare-heltec_mobile.log",
+    "bytes": 231,
+    "sha256": "01e7f96025241c282f33aa733f55380661964068b6c40a3080bf021549404e89"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-final-1.log",
+    "bytes": 929,
+    "sha256": "52c913f5ea6aca698f9404f9d09c112038a57c6c9b0cea763be6a4a81738d4cc"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/boards-final-2.log",
+    "bytes": 929,
+    "sha256": "66272cdd9b83657b0f9dcd0f670c9940e7ae02ffea23c44b0cb1c875a091c559"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/command_authority-selftest.log",
+    "bytes": 704,
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/command_authority.log",
+    "bytes": 88,
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/console-sink-default.log",
+    "bytes": 36714,
+    "sha256": "3928d5f96df12eb9df73b45d57e3b6f39ac9167a7cc207a183bb2a0c90b6d4b4"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/console-sink-noneg.log",
+    "bytes": 14902,
+    "sha256": "89049de19c13fe5920383d7282dd3c5ebe888174ecd7df95f441869efc5b7c49"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/corpus.log",
+    "bytes": 3363,
+    "sha256": "0fd4e2d35b733dadf56daa2cd3c8feb549fe7d86bb335c0e36ffc62bcbe34a1d"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/custody-usb-default.log",
+    "bytes": 3835,
+    "sha256": "f34358c2f8bf9fb0defa523b81d18cf77a971cc7f1bafa0424e30cdac51c5118"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/custody-usb-noneg.log",
+    "bytes": 2570,
+    "sha256": "42595c22cb26a0c8f6b678e9862bcb8990cec41f27cbeefdfcd5568054b2d244"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/data_type_literals-selftest.log",
+    "bytes": 902,
+    "sha256": "b386b12cc92cae5297bd33aaa38d073b2e8e9c9256c44754c6d6c93947837a86"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/data_type_literals.log",
+    "bytes": 306,
+    "sha256": "82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/deferred-actions-default.log",
+    "bytes": 238,
+    "sha256": "601c58eb9ee5cd57c117fbade4cda0cf6840d1a5a2e9461238abd73dc956aa4e"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/deferred-actions-noneg.log",
+    "bytes": 204,
+    "sha256": "0b9169387d26e65015a9f7af13ecfd8339f6b5788b40527b0864e33db6a81d0a"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/features-default.log",
+    "bytes": 25024,
+    "sha256": "3288a24c31b225321d2d6462be17923db73c8984874902a84d2d85de1b0e8c4d"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/features-noneg.log",
+    "bytes": 15133,
+    "sha256": "97735a212cde67ddc813935979d84642d5e85789c0dea868704ef3a2c84c0b65"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/firmware-ui-default.log",
+    "bytes": 39104,
+    "sha256": "a24b5983f722ee9eb3a594079a0a1ca042b455c9c2dbc85bfa82bd0d39457867"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/firmware-ui-noneg.log",
+    "bytes": 2454,
+    "sha256": "1db8cb56559f571978262e5674564be1fe8b6fbeb764f90f6221ab794333bb08"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/hygiene.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-client.log",
+    "bytes": 51984,
+    "sha256": "8668976093c5549a2c7825dae1b2ba7fa20eaee68b9dd509cf3a43a57512334b"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-default.log",
+    "bytes": 159346,
+    "sha256": "cc43aa2503efda486c6598c7bae921d9c96f1ae75116d571b65e09bb0731150a"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inbox-verbs-noneg.log",
+    "bytes": 129181,
+    "sha256": "e7c00269ad301a7a00a6b4b121b6068fdcc5bed6540491d2635bbc5a472fc349"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/inventory.log",
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-b159map.log",
+    "bytes": 2730,
+    "sha256": "5b12c9b876eac7f9e9b3e28d589cf4cf34611dd113356a10142c7f2b51456a45"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-b161hash.log",
+    "bytes": 6680,
+    "sha256": "afd1d6a7adca760398a9bc75667751b5a36b5ee981cb92ee31e7d1ff5614e19f"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-R01.log",
+    "bytes": 2640,
+    "sha256": "1069e046bf469c14403688eb470a48e8660ca0bfc69be55d23c89d2e83eb8273"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W01.log",
+    "bytes": 9546,
+    "sha256": "54e81cf99c45acd721e1a74b8d37f4db131323412e54b40d41642e862a7fbd24"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W02.log",
+    "bytes": 1555,
+    "sha256": "68044758ab052636bc5c690ff66990a2c4a590179a1af598856a9db8b5ad3cb0"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W03.log",
+    "bytes": 866,
+    "sha256": "6f7fa71bd50eee5963a0016b81979393cea08c5a533178653e289d95cdd58425"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-cases-W04.log",
+    "bytes": 1107,
+    "sha256": "f45db4a1427c641d72ce65a768c19a586c30dc1af641d978a186a768b45ceeeb"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-radmin73node.log",
+    "bytes": 5040,
+    "sha256": "5f453760693b63eb9057fed94cc7a455fae36fed737cd95ff914fefdd78a411a"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-radmin8node.log",
+    "bytes": 1721,
+    "sha256": "1d355811707e80ebd92c8528287388caf4ea473e5d65b721f6f355047a71d471"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-sliceBnode.log",
+    "bytes": 10958,
+    "sha256": "8539b0d747215544722385d0ff9ecd212dd302be90c0363c0f28f2bee3f93975"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-sliceEnode.log",
+    "bytes": 4644,
+    "sha256": "06a3960d87bd27161a5c042cea26fa1cb0bfec3bd40b966273801df5b4089ec5"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-teamgrant.log",
+    "bytes": 5544,
+    "sha256": "9821ef7fde4ba301851fb42f31c59bc9074fc415d3d8240a075643d37fd41a2d"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-w1cname.log",
+    "bytes": 5063,
+    "sha256": "ced964e13f3b196d2bd842422ab810c113bc649d12056d76091fce396f5f1b8b"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/mutation-w1cretain.log",
+    "bytes": 2027,
+    "sha256": "b8abc166b72cdf5fd932dea75558a8ac5894ac907dda97dfca8da2f26855dff8"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/native-binary.log",
+    "bytes": 409,
+    "sha256": "f77aa85ac2cd33b3e7fe13dc2fad654a71fcfe27fae37184377301734ee1ccd1"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/native-build.log",
+    "bytes": 414,
+    "sha256": "a7b3163b75729979f4815164cd04560a2d87517b548fccf06976084c6a6196c4"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/radio-structural.log",
+    "bytes": 38,
+    "sha256": "3fbe7d00e0bdfc4be541f9f65e3b2329024d00aac250688ecc164a31cc2d9132"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/sim-build.log",
+    "bytes": 8312,
+    "sha256": "7e80541c5ba6d580f6364ed96fe0407e2638907a0ea4bf78b3476bb0b64d8794"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/sim-configure.log",
+    "bytes": 1012,
+    "sha256": "094e57b23e8a9df378b2d686f74f9c09200eb50cd54b40ec3d33a4c22928cdcc"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/simulator-whitespace.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/tools-discovery.log",
+    "bytes": 13205,
+    "sha256": "2a6e3c8af963a94485ccf9b16de69a32335a40582cd06516ca919b1307d79e1a"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/artifacts/2026-09-25-standalone-mobile-home-w1c-qa/warning-census.log",
+    "bytes": 646,
+    "sha256": "df2a1694b8638e023ac2e17f9d526a2a4560f8f19958c29dd3d3fe3d2cd9326b"
+  },
+  {
+    "path": "/tmp/meshroute-w1c-qa-20260925-u2uf04es/sim-build/orchestrator/lus",
+    "bytes": 2466296,
+    "sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2"
+  },
+  {
+    "path": "/home/staszek/MeshRoute/.pio/build/native/program",
+    "bytes": 66524304,
+    "sha256": "12a60109b942439f62438779b0482475fd4d8ad9924fa9ace5f2f5ed6b1c129c"
+  }
+]

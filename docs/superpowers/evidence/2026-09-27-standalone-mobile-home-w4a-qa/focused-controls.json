@@ -1,0 +1,265 @@
+{
+  "snapshot": "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/focused/stage-a-tree",
+  "initial_paths_copied": 1548,
+  "historical_overlays": "10 hash-verified preflight files, then stage-A runner/main",
+  "runs": [
+    {
+      "mode": "stage-a",
+      "name": "live",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-stage-a-live.log",
+      "sha256": "d72dc7f5dbb3a8844d3323d9ecb164148d0f5cd02bd4af7070c859fe8c553c58",
+      "failures": [],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "stage-a",
+      "name": "O8",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-stage-a-O8.log",
+      "sha256": "64adbf8af50798657ff97a461a41fe473170faaefde4d2b254e2104c0604d779",
+      "failures": [
+        "FAIL P23b \u2605 rule 2 \u2014 a BLANK name column and a POPULATED member fingerprint, at 19 columns  body_row_is(3, row) && strlen(row) == 19u && strstr(row, fpB) != nullptr && strncmp(row + 1, \"      \", 6) == 0",
+        "FAIL P23d precondition: the candidate's row is on the panel with a BLANK name  row_now != nullptr && strstr(before, fpB) != nullptr && strncmp(before + 1, \"      \", 6) == 0"
+      ],
+      "row_hex": [
+        "3e307830306265205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "stage-a",
+      "name": "O6",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-stage-a-O6.log",
+      "sha256": "65dc6fd9b3a7ded89a2fec03bc05ea002cd70aa6d739da424a9703adbd32c3d3",
+      "failures": [
+        "FAIL P23d the request confirmation carries the FULL hash               body_row_is(1, full)"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "live",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-live.log",
+      "sha256": "c5f29d955c0b931a9dcda7145c7b57c1755b676405a7ea2e537fd930bf175c81",
+      "failures": [],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "B241a",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-B241a.log",
+      "sha256": "a1da87eeb847b1e01eaab5cdc1fd50709078ac18fbfdaaa2907171785ba8cc62",
+      "failures": [
+        "FAIL P18a row 0 is the NAMED teammate, abbreviated to six cells with the marker  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18a row 1 is the unnamed key's six-digit member fingerprint      body_row_is(1, \" C0FFEE  2m        \")",
+        "FAIL P18b entering marks row 0 and moves no other column               body_row_is(0, \">Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18b a short walks to row 1, which is now the marked one          body_row_is(1, \">C0FFEE  2m        \") && body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18c precondition: page 0 drew the row the frame froze            strcmp(frozen, \" Wolfg\" \"\\xBB\" \"  3m        \") == 0",
+        "FAIL P18c ...and the NEXT frame renders the newer route age            body_row_is(0, \" Wolfg\" \"\\xBB\" \"  8m        \")",
+        "FAIL P18d precondition: the lit TEAM screen shows a 12s route age      body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18d \u2605 the age turns on a LIT panel with no press and no push   g_c.begin_frame == frames0 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 13s        \")",
+        "FAIL P18d ...a second turn repaints too (the rule is not one-shot)     g_c.begin_frame == frames0 + 2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d \u26d4 the 2 Hz throttle still REFUSES a turn inside its window  g_c.begin_frame == frames2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d ...and the refused request is not lost, it paints next       g_c.begin_frame == frames2 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 15s        \")",
+        "FAIL P18d2 precondition: the panel is lit on the three minute-aged rows  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \") && body_row_is(2, \" id 83   1m        \")",
+        "FAIL P18e precondition: the panel is lit on TEAM                       body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18e the wake paints the CURRENT route age, not the dark one      body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H1\", 2)",
+        "FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H2\", 2)",
+        "FAIL P28a a 27-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[2].name)",
+        "FAIL P28a \u2605\u2605 renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, \"H1\", 2)",
+        "FAIL P28a a 14-byte name lands whole, NUL at byte 14                   label_is(f, named[3].name, 14)",
+        "FAIL P28a a 15-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[4].name)",
+        "FAIL P28a a 32-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[5].name)",
+        "FAIL P28a a NAMELESS cached key renders exactly 0x plus eight hex digits  fallback_is(f, h[7])",
+        "FAIL P28a an UNKNOWN hash renders exactly 0x plus eight hex digits     fallback_is(f, unknown)",
+        "FAIL P28a synthetic: capacity 1 writes only the terminator             only_nul",
+        "FAIL P28b TEAM row 1 carries the NAMELESS key's six-digit member fingerprint  label_col(r[1], \" 410007 \")",
+        "FAIL P28b TEAM row 3 carries the UNKNOWN hash's six-digit member fingerprint  label_col(r[3], \" EE41EE \")",
+        "FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28c the compose HEADER names the NAMELESS teammate exactly       body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the NAMELESS teammate exactly     body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28c the compose HEADER names the UNKNOWN-hash teammate exactly   body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the UNKNOWN-hash teammate exactly  body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28d the REPLY from the NAMELESS sender names it exactly          hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0",
+        "FAIL P28d the REPLY from the UNKNOWN-hash sender names it exactly      hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0",
+        "FAIL P30a TEAM: the long name is five cells and the marker             label_col(body_row(0), \" Maxim\" \"\\xBB\" \" \")",
+        "FAIL P30a TEAM: the high-byte name is two dots and AB, padded          label_col(body_row(1), \" ..AB   \")",
+        "FAIL P30b the compose HEADER shows the long name at 15 cells           body_row_is(0, c.head)",
+        "FAIL P30b the DELIVERED row shows the long name at 19 cells            g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)",
+        "FAIL P30b the compose HEADER shows the high-byte name at 15 cells      body_row_is(0, c.head)",
+        "FAIL P30b the DELIVERED row shows the high-byte name at 19 cells       g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)",
+        "FAIL P30c the REPLY names the long sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0",
+        "FAIL P30c the REPLY names the high-byte sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "B241b",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-B241b.log",
+      "sha256": "275d4a067364310a3a9cb5964ff4efbce953d898bafa734698dea0fd36931a00",
+      "failures": [
+        "FAIL P18a row 0 is the NAMED teammate, abbreviated to six cells with the marker  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18a row 1 is the unnamed key's six-digit member fingerprint      body_row_is(1, \" C0FFEE  2m        \")",
+        "FAIL P18b entering marks row 0 and moves no other column               body_row_is(0, \">Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18b a short walks to row 1, which is now the marked one          body_row_is(1, \">C0FFEE  2m        \") && body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18c precondition: page 0 drew the row the frame froze            strcmp(frozen, \" Wolfg\" \"\\xBB\" \"  3m        \") == 0",
+        "FAIL P18c ...and the NEXT frame renders the newer route age            body_row_is(0, \" Wolfg\" \"\\xBB\" \"  8m        \")",
+        "FAIL P18d precondition: the lit TEAM screen shows a 12s route age      body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18d \u2605 the age turns on a LIT panel with no press and no push   g_c.begin_frame == frames0 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 13s        \")",
+        "FAIL P18d ...a second turn repaints too (the rule is not one-shot)     g_c.begin_frame == frames0 + 2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d \u26d4 the 2 Hz throttle still REFUSES a turn inside its window  g_c.begin_frame == frames2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d ...and the refused request is not lost, it paints next       g_c.begin_frame == frames2 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 15s        \")",
+        "FAIL P18d2 precondition: the panel is lit on the three minute-aged rows  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \") && body_row_is(2, \" id 83   1m        \")",
+        "FAIL P18e precondition: the panel is lit on TEAM                       body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18e the wake paints the CURRENT route age, not the dark one      body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P28a H1 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H1\", 2)",
+        "FAIL P28a H2 lands exactly, NUL at byte 2, both canaries intact        label_is(f, \"H2\", 2)",
+        "FAIL P28a a 27-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[2].name)",
+        "FAIL P28a \u2605\u2605 renamed to H1 over the old content: NUL at byte 2, no stale tail  renamed && label_is(f, \"H1\", 2)",
+        "FAIL P28a a 15-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[4].name)",
+        "FAIL P28a a 32-byte name is 13 bytes and the marker, NUL at byte 14    abbrev_is(f, named[5].name)",
+        "FAIL P28a a NAMELESS cached key renders exactly 0x plus eight hex digits  fallback_is(f, h[7])",
+        "FAIL P28a an UNKNOWN hash renders exactly 0x plus eight hex digits     fallback_is(f, unknown)",
+        "FAIL P28b TEAM row 1 carries the NAMELESS key's six-digit member fingerprint  label_col(r[1], \" 410007 \")",
+        "FAIL P28b TEAM row 3 carries the UNKNOWN hash's six-digit member fingerprint  label_col(r[3], \" EE41EE \")",
+        "FAIL P28c the compose HEADER names the named teammate exactly          body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the named teammate exactly        body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28c the compose HEADER names the NAMELESS teammate exactly       body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the NAMELESS teammate exactly     body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28c the compose HEADER names the UNKNOWN-hash teammate exactly   body_row_is(0, head)",
+        "FAIL P28c the DELIVERED result names the UNKNOWN-hash teammate exactly  body_row_is(1, \"DELIVERED to\") && body_row_is(2, p.label)",
+        "FAIL P28d the REPLY from the NAMELESS sender names it exactly          hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0",
+        "FAIL P28d the REPLY from the UNKNOWN-hash sender names it exactly      hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, want) == 0",
+        "FAIL P30a TEAM: the long name is five cells and the marker             label_col(body_row(0), \" Maxim\" \"\\xBB\" \" \")",
+        "FAIL P30a TEAM: the high-byte name is two dots and AB, padded          label_col(body_row(1), \" ..AB   \")",
+        "FAIL P30b the compose HEADER shows the long name at 15 cells           body_row_is(0, c.head)",
+        "FAIL P30b the DELIVERED row shows the long name at 19 cells            g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)",
+        "FAIL P30b the compose HEADER shows the high-byte name at 15 cells      body_row_is(0, c.head)",
+        "FAIL P30b the DELIVERED row shows the high-byte name at 19 cells       g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)",
+        "FAIL P30c the REPLY names the long sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0",
+        "FAIL P30c the REPLY names the high-byte sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S1",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S1.log",
+      "sha256": "df255319f7df19b07b9aac3c189c0de381afeaf291546bc6378fb92e4f1660da",
+      "failures": [
+        "FAIL P18a row 0 is the NAMED teammate, abbreviated to six cells with the marker  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18a row 1 is the unnamed key's six-digit member fingerprint      body_row_is(1, \" C0FFEE  2m        \")",
+        "FAIL P18b entering marks row 0 and moves no other column               body_row_is(0, \">Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18b a short walks to row 1, which is now the marked one          body_row_is(1, \">C0FFEE  2m        \") && body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P18c precondition: page 0 drew the row the frame froze            strcmp(frozen, \" Wolfg\" \"\\xBB\" \"  3m        \") == 0",
+        "FAIL P18c ...and the NEXT frame renders the newer route age            body_row_is(0, \" Wolfg\" \"\\xBB\" \"  8m        \")",
+        "FAIL P18d precondition: the lit TEAM screen shows a 12s route age      body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18d \u2605 the age turns on a LIT panel with no press and no push   g_c.begin_frame == frames0 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 13s        \")",
+        "FAIL P18d ...a second turn repaints too (the rule is not one-shot)     g_c.begin_frame == frames0 + 2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d \u26d4 the 2 Hz throttle still REFUSES a turn inside its window  g_c.begin_frame == frames2 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 14s        \")",
+        "FAIL P18d ...and the refused request is not lost, it paints next       g_c.begin_frame == frames2 + 1 && body_row_is(0, \" Wolfg\" \"\\xBB\" \" 15s        \")",
+        "FAIL P18d2 precondition: the panel is lit on the three minute-aged rows  body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \") && body_row_is(2, \" id 83   1m        \")",
+        "FAIL P18e precondition: the panel is lit on TEAM                       body_row_is(0, \" Wolfg\" \"\\xBB\" \" 12s        \")",
+        "FAIL P18e the wake paints the CURRENT route age, not the dark one      body_row_is(0, \" Wolfg\" \"\\xBB\" \"  3m        \")",
+        "FAIL P28b TEAM row 1 carries the NAMELESS key's six-digit member fingerprint  label_col(r[1], \" 410007 \")",
+        "FAIL P28b TEAM row 3 carries the UNKNOWN hash's six-digit member fingerprint  label_col(r[3], \" EE41EE \")",
+        "FAIL P30a TEAM: the long name is five cells and the marker             label_col(body_row(0), \" Maxim\" \"\\xBB\" \" \")"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S2",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S2.log",
+      "sha256": "894d0690d6ff5fd4f11837451f2bef4cc4c0fa76284f2349d635c1246205feba",
+      "failures": [
+        "FAIL P28a synthetic: capacity 1 writes only the terminator             only_nul",
+        "FAIL P30a TEAM: the high-byte name is two dots and AB, padded          label_col(body_row(1), \" ..AB   \")",
+        "FAIL P30b the compose HEADER shows the high-byte name at 15 cells      body_row_is(0, c.head)",
+        "FAIL P30b the DELIVERED row shows the high-byte name at 19 cells       g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)",
+        "FAIL P30c the REPLY names the high-byte sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S3",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S3.log",
+      "sha256": "5ef6cb543557f6f2519ebe2eac27f4c5563f1c4a6ff67adaa6a1ce2772f86891",
+      "failures": [
+        "FAIL P30b the DELIVERED row shows the long name at 19 cells            g_exec.calls == 1 && body_row_is(1, \"DELIVERED to\") && body_row_is(2, c.delivered)"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S4",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S4.log",
+      "sha256": "6acf79d3f3ab87826f1f8dd7e7e23776c4efde4063c2f4168ab8262a2f1cc034",
+      "failures": [
+        "FAIL P30c the REPLY names the long sender at 14 cells, the marker intact  hd != nullptr && strcmp(hd, \"REPLY\") == 0 && dt != nullptr && strcmp(dt, rp.line) == 0"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S5",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S5.log",
+      "sha256": "12b35d8ae5143a7a1b261b08cb485f4a86a8f42336a2272b2ac1743cbf4ad3f5",
+      "failures": [
+        "FAIL P23d \u2605\u2605 rule 3 \u2014 the name column now reads `Wolfg` + the marker, SIX cells (W4a)  named && row_after != nullptr && strncmp(row_after + 1, \"Wolfg\" \"\\xBB\", 6) == 0",
+        "FAIL P23e \u26d4 the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, \"Wolfgangetta\")",
+        "FAIL P30d the long name's candidate row: five cells, the marker, its id and fingerprint  body_row_is(3, \">Maxim\" \"\\xBB\" \" T101 A1B2C3\")",
+        "FAIL P30d NEW MEMBER keeps the FULL hash and shows the long name at 14 cells  body_row_is(0, mrui::kInviteNew) && body_row_is(1, \"0x00A1B2C3\") && body_row_is(2, \"Maximilian-Al\" \"\\xBB\")"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "W4a-S6",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-W4a-S6.log",
+      "sha256": "5ff83f7ce759da0ff29f47806043326673130eafbf853008476a2888ac9f6520",
+      "failures": [
+        "FAIL P23d \u2605\u2605 rule 3 \u2014 the name column now reads `Wolfg` + the marker, SIX cells (W4a)  named && row_after != nullptr && strncmp(row_after + 1, \"Wolfg\" \"\\xBB\", 6) == 0",
+        "FAIL P30d the long name's candidate row: five cells, the marker, its id and fingerprint  body_row_is(3, \">Maxim\" \"\\xBB\" \" T101 A1B2C3\")"
+      ],
+      "row_hex": [
+        "3e202020202020205432323120424544454144"
+      ]
+    },
+    {
+      "mode": "final",
+      "name": "O8",
+      "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/focused-final-O8.log",
+      "sha256": "a54f0655b4380dae7fd0b9610b411ab7621ff19572ea7c0e96adbd3e315e0d52",
+      "failures": [
+        "FAIL P23b \u2605 rule 2 \u2014 a BLANK name column and a POPULATED member fingerprint, at 19 columns  body_row_is(3, row) && strlen(row) == 19u && strstr(row, fpB) != nullptr && strncmp(row + 1, \"      \", 6) == 0",
+        "FAIL P23d precondition: the candidate's row is on the panel with a BLANK name  row_now != nullptr && strstr(before, fpB) != nullptr && strncmp(before + 1, \"      \", 6) == 0"
+      ],
+      "row_hex": [
+        "3e3078303042bb205432323120424544454144"
+      ]
+    }
+  ]
+}

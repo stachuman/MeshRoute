@@ -1,0 +1,122 @@
+{
+  "corpus": {
+    "scenarios": 36,
+    "fields_per_row": [
+      14
+    ],
+    "differences": [],
+    "s18": {
+      "anchor_assertion_failures": 0,
+      "anchor_events": 269517,
+      "anchor_match": true,
+      "anchor_md5_prefix": "32afbf11",
+      "assertion_failures": 0,
+      "events": 269517,
+      "exit_status": 0,
+      "name": "s18_meshroute",
+      "output_bytes": 38698103,
+      "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+      "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "promoted": true,
+      "scenario_path": "simulation/s18_meshroute.json",
+      "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+    },
+    "inputs_stable": true,
+    "lus_sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2"
+  },
+  "layout": {
+    "targets": {
+      "native": {
+        "mrui::UiState": {
+          "size": 504,
+          "align": 8
+        },
+        "mrui::UiSnapshot": {
+          "size": 1336,
+          "align": 8
+        },
+        "mrui::UiModel": {
+          "size": 928,
+          "align": 8
+        },
+        "mrui::TeamRow": {
+          "size": 40,
+          "align": 4
+        },
+        "mrui::InviteMember": {
+          "size": 20,
+          "align": 4
+        },
+        "mrui::InviteIdRows": {
+          "size": 26,
+          "align": 1
+        },
+        "OutcomeView": {
+          "size": 52,
+          "align": 4
+        }
+      },
+      "heltec_mobile": {
+        "mrui::UiState": {
+          "size": 504,
+          "align": 8
+        },
+        "mrui::UiSnapshot": {
+          "size": 1336,
+          "align": 8
+        },
+        "mrui::UiModel": {
+          "size": 912,
+          "align": 8
+        },
+        "mrui::TeamRow": {
+          "size": 40,
+          "align": 4
+        },
+        "mrui::InviteMember": {
+          "size": 20,
+          "align": 4
+        },
+        "mrui::InviteIdRows": {
+          "size": 26,
+          "align": 1
+        },
+        "OutcomeView": {
+          "size": 52,
+          "align": 4
+        }
+      },
+      "gateway": {
+        "mrui::UiState": {
+          "size": 504,
+          "align": 8
+        },
+        "mrui::UiSnapshot": {
+          "size": 1336,
+          "align": 8
+        },
+        "mrui::UiModel": {
+          "size": 912,
+          "align": 8
+        },
+        "mrui::TeamRow": {
+          "size": 40,
+          "align": 4
+        },
+        "mrui::InviteMember": {
+          "size": 20,
+          "align": 4
+        },
+        "mrui::InviteIdRows": {
+          "size": 26,
+          "align": 1
+        },
+        "OutcomeView": {
+          "size": 52,
+          "align": 4
+        }
+      }
+    },
+    "equals_coder_baseline_and_final": true
+  }
+}

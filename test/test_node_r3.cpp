@@ -9057,18 +9057,56 @@ TEST_CASE("§mobile 6.4 / Wave 2 + step 2 — reqpubkey -t emits a TEAM-scoped W
     CHECK_FALSE(got_global_h);   // ★ step 2: the unroutable-origin WANT_PUBKEY is suppressed, not flooded
 }
 
-TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+// ★★ W1c (design §4.6 D10, owner-ruled 2026-09-23): AN UNNAMED DEVICE ADVERTISES NO NAME. `effective_name` is a
+// plain counted copy of the STORED name — it no longer makes up `MeshRoute node: 0x<hash>` — and it never writes a
+// terminator, because every caller (INTRO, the 0x8B key answer, the WANT_PUBKEY H, `whoami`) writes a COUNTED field.
+// ⓘ Every call hands a 40-byte destination pre-filled with poison, whatever `cap` it passes, so a mutant that copies
+//   too much, synthesises a default or reserves a terminator writes IN BOUNDS and fails a byte check below.
+TEST_CASE("W1c — effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated") {
     TestHal hal; Node node(hal, /*id=*/17, /*key=*/0xDEADBEEFu);
     NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(node.on_init(cfg));
+    constexpr char kPoison = 0x5A;
     char buf[40];
-    uint8_t n = node.effective_name(buf, sizeof buf);
-    CHECK(std::string(buf, n) == "MeshRoute node: 0xDEADBEEF");   // ★ empty -> hash default (uppercase 8-hex)
+    auto poison = [&]() { std::memset(buf, kPoison, sizeof buf); };
+    auto poisoned_from = [&](size_t from) { for (size_t i = from; i < sizeof buf; ++i) if (buf[i] != kPoison) return false; return true; };
+    // 1. UNNAMED (constructed without a name): 0 bytes and NOTHING written — no default, no terminator.
+    poison();
+    CHECK(node.effective_name(buf, sizeof buf) == 0);
+    CHECK(poisoned_from(0));
+    // 2. a NAMED node asked with cap 0: 0, destination untouched.
     node.set_name("Alice", 5);
-    n = node.effective_name(buf, sizeof buf);
-    CHECK(std::string(buf, n) == "Alice");
-    Node named(hal, 3, 0x11u, "Bob");                            // ★ a ctor/sim name is kept (was discarded)
-    n = named.effective_name(buf, sizeof buf);
-    CHECK(std::string(buf, n) == "Bob");
+    poison();
+    CHECK(node.effective_name(buf, 0) == 0);
+    CHECK(poisoned_from(0));
+    // 3. the stored name: exactly 5 bytes, and byte 5 is still poison (no terminator).
+    poison();
+    CHECK(node.effective_name(buf, sizeof buf) == 5);
+    CHECK(std::memcmp(buf, "Alice", 5) == 0);
+    CHECK(poisoned_from(5));
+    // 4. a 32-byte name fills a 32-byte request — no byte is reserved.
+    const char n32[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+    static_assert(sizeof n32 - 1 == 32, "the case is about a MAXIMUM (32-byte) name");
+    node.set_name(n32, 32);
+    poison();
+    CHECK(node.effective_name(buf, 32) == 32);
+    CHECK(std::memcmp(buf, n32, 32) == 0);
+    CHECK(poisoned_from(32));
+    // 5. the same name at cap 7: clamped to the REQUESTED capacity, nothing past it.
+    poison();
+    CHECK(node.effective_name(buf, 7) == 7);
+    CHECK(std::memcmp(buf, n32, 7) == 0);
+    CHECK(poisoned_from(7));
+    // 6. the constructor name is kept.
+    Node named(hal, 3, 0x11u, "Bob");
+    poison();
+    CHECK(named.effective_name(buf, sizeof buf) == 3);
+    CHECK(std::memcmp(buf, "Bob", 3) == 0);
+    CHECK(poisoned_from(3));
+    // 7. `set_name(…, 0)` after a name (the boot path for an unnamed /mrid) leaves the node UNNAMED again.
+    node.set_name("", 0);
+    poison();
+    CHECK(node.effective_name(buf, sizeof buf) == 0);
+    CHECK(poisoned_from(0));
 }
 
 TEST_CASE("§1.3 — peer_key_set caches a peer's name and REFRESHES it on every call (immutable key, MUTABLE name); peer_name_find reads it") {

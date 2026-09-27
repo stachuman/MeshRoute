@@ -1,0 +1,158 @@
+date: 2026-09-25T16:55:26+00:00
+brief: 9a84d03b0f2e9826df67feba52ff87c50644383bfb85ef8bc06af7ed8e25d825  docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
+HEAD: 8360802904f7bd0023279d3da844453d61207ede branch main; staged: 0
+sim: 6585649ea5a780f0542b2931853a667be56a5b2b status-lines=0
+== fenced files (final)
+2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1  src/firmware_ui_model.h
+42dc27ffb4c2205bf8743a9c3d39d80fc6d9b6e33068262bff9c6ddc8799ee63  test/test_firmware_ui_model.cpp
+d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a  tools/probe_firmware_ui/probe_main.cpp
+f754b745c75968dd615e80e092144bad681775d10b6a99c6914446249b4f2579  tools/probe_firmware_ui/run.sh
+9429254f5d2ec79c32ac1dd4beca3fc9fbadab0d432e8fa57087f8bb4cebe932  tools/probe_ui_model_mutations.py
+   5777 src/firmware_ui_model.h
+  10229 test/test_firmware_ui_model.cpp
+   7283 tools/probe_firmware_ui/probe_main.cpp
+   1753 tools/probe_firmware_ui/run.sh
+  12450 tools/probe_ui_model_mutations.py
+== pinned consumer (never edited)
+6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f  src/firmware_ui.cpp
+== preparation set (must equal the brief's §1)
+OK docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+OK docs/2026-07-30-open-bug-register.md
+OK docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md
+OK docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/SHA256SUMS
+OK tracker.md
+OK MEMORY.md
+== pre-check folder: 23 OK
+== review folder: 12 OK; receipt 05511a43a7b9b1cfceadf209e5c5d0f246c10f3d60aab930fe962b2b6854b511
+== W1c candidate files outside the fence (byte-identical to preflight = HEAD-diff unchanged): see inventory below
+== inventory vs the pre-check inputs.json (allowed changed: the 4 prep docs + the 5 fenced files)
+== /home/staszek/MeshRoute: HEAD 8360802904f7bd0023279d3da844453d61207ede (inventory 8360802904f7bd0023279d3da844453d61207ede) OK
+   inventoried paths: 1352; current nonignored: 1424
+   changed vs inventory: 9
+     CHANGED MEMORY.md (allowed: preparation document or W3 fenced file)
+     CHANGED docs/2026-07-30-open-bug-register.md (allowed: preparation document or W3 fenced file)
+     CHANGED docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md (allowed: preparation document or W3 fenced file)
+     CHANGED src/firmware_ui_model.h (allowed: preparation document or W3 fenced file)
+     CHANGED test/test_firmware_ui_model.cpp (allowed: preparation document or W3 fenced file)
+     CHANGED tools/probe_firmware_ui/probe_main.cpp (allowed: preparation document or W3 fenced file)
+     CHANGED tools/probe_firmware_ui/run.sh (allowed: preparation document or W3 fenced file)
+     CHANGED tools/probe_ui_model_mutations.py (allowed: preparation document or W3 fenced file)
+     CHANGED tracker.md (allowed: preparation document or W3 fenced file)
+   missing: 0
+   new since inventory: 72
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/authorization.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/board-ui-diagnostic-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/feature-ownership-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/focused-runs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/input-check.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/inputs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/mutation-check.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/precheck-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/preservation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/required-fold-ins.patch
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/validation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-baseline.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/abi-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/base-reconciliation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/baseline-summary.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/compose-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-comparison.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/corpus-manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/gate-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/inputs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/literal-readers.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation-census.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/mutation_census.py
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/native-binary-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/pager-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/preservation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/probe-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/readers.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/runs.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/source-pins.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/symbol-users.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/validation.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/w1c-qa-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/attribution-base1-final1.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/attribution-heltec_mobile-object-vs-elf.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/attribution-heltec_mobile-symbols.diff
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/coder-ledger.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/compare-base-gateway.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/compare-base-heltec_mobile.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/compare-final-gateway.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/compare-final-heltec_mobile.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/corpus-compare.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/corpus-manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/discovery-census-corpus-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/harness-vs-W1c-candidate.diff
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/base-1/gateway/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/base-1/heltec_mobile/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/base-2/gateway/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/base-2/heltec_mobile/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/final-1/gateway/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/final-1/heltec_mobile/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/final-2/gateway/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/manifests/final-2/heltec_mobile/manifest.json
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/native-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/preflight.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/probes-summary.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/raw-logs.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/reader-audit.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/reanchor-table.md
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/stability-end.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/stability-start.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/stage-a.txt
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/stageB-native-test-vs-stageA.diff
+     NEW docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/union-summary.txt
+     NEW docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md
+== /home/staszek/lora-universal-simulator: HEAD 6585649ea5a780f0542b2931853a667be56a5b2b (inventory 6585649ea5a780f0542b2931853a667be56a5b2b) OK
+   inventoried paths: 285; current nonignored: 285
+   changed vs inventory: 0
+   missing: 0
+   new since inventory: 0
+UNEXPLAINED CHANGED/MISSING: 0
+== git status
+ M MEMORY.md
+ M docs/2026-07-30-open-bug-register.md
+ M docs/superpowers/specs/2026-07-29-peer-address-book-design.md
+ M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+ M ios-companion/INBOX_SYNC_CONTRACT.md
+ M lib/console/console_parse.cpp
+ M lib/core/node.cpp
+ M lib/core/node.h
+ M src/firmware_commands.cpp
+ M src/firmware_ui_model.h
+ M src/fw_main.cpp
+ M test/test_dual_layer.cpp
+ M test/test_firmware_ui_model.cpp
+ M test/test_node_hashlocate.cpp
+ M test/test_node_r3.cpp
+ M tools/probe_firmware_ui/probe_main.cpp
+ M tools/probe_firmware_ui/run.sh
+ M tools/probe_inbox_verbs/probe_main.cpp
+ M tools/probe_inbox_verbs/run.sh
+ M tools/probe_ui_model_mutations.py
+ M tracker.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-precheck/
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3/
+?? docs/superpowers/plans/2026-09-25-standalone-mobile-home-w1c-no-default-name.md
+?? docs/superpowers/plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md

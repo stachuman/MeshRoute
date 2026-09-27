@@ -1,0 +1,52 @@
+[
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/board-ui-diagnostic.log",
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8",
+    "bytes": 1851
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/feature-ownership.log",
+    "sha256": "1d6c3f4439e531f2608c398f67a8d4fe5c1f69e039ccd6c4ee5f0326d48a2247",
+    "bytes": 2717
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/finalize.py",
+    "sha256": "fb69290a0d7d93f7891fce9b0bb29aa6fe55f9967fce50db257aae1675394db2",
+    "bytes": 4057
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/focused-runs.json",
+    "sha256": "3bb722cabe365ee8044a9902dfafe18c303c243fe682b06b48b7f4c12dcbf2fe",
+    "bytes": 331
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/input-check.json",
+    "sha256": "6359993d1f6e2ed809f46c34c84d6cbf8dd0a5950afe3b852df128a97d4f9ff8",
+    "bytes": 6122
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/inputs.json",
+    "sha256": "391371ca9d7c769c2fcace7b7a21061740413f6c0b44f2ca30d1b50d033c30a7",
+    "bytes": 321251
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/inspect_inputs.py",
+    "sha256": "401cbb1f851fae35093789c7b02200ab6e4297ad7aeedd9d143f98255ab9592a",
+    "bytes": 3287
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/make_foldins.py",
+    "sha256": "b81ccee5928fb6e1c07242d5335ba68dcda57ae78c3073ac0554ebd73a14db35",
+    "bytes": 4983
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/mutation-check.json",
+    "sha256": "0e9151c97d8590175ebe02044d1746b1c81fe32aba6208323dd0cc24331a8070",
+    "bytes": 719
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-brief-review/precheck-checksums.txt",
+    "sha256": "76a17fa404786b3d7fbc0edd21e1da2f9e47424ed1a01d48ca2da55e2afc84c3",
+    "bytes": 512
+  }
+]

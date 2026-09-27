@@ -1,0 +1,28 @@
+{
+  "command": [
+    "python3",
+    "-B",
+    "tools/probe_board_abi.py",
+    "--struct",
+    "meshroute::Node",
+    "--no-neg"
+  ],
+  "exit": 0,
+  "checks": 38,
+  "controls_run": false,
+  "full_gate": false,
+  "measured": {
+    "native": [
+      235208,
+      8
+    ],
+    "heltec_mobile": [
+      122176,
+      8
+    ],
+    "gateway": [
+      157304,
+      8
+    ]
+  }
+}

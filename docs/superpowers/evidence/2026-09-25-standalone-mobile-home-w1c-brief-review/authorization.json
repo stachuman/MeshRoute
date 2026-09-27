@@ -1,0 +1,11 @@
+{
+  "reviewed_revision": 1,
+  "reviewed_sha256": "fc76a1b95f12091773f709ea331eaee734bede1b4771c3171b4cb699f8f980ec",
+  "prepared_revision": 2,
+  "authorized_after_exact_fold_ins_sha256": "39bfd6f0025b37c65826ac71b3effffbf82df25b7fa05c405c79b957992dfce6",
+  "actual_brief_unchanged": true,
+  "fold_in_count": 2,
+  "header_change": "revision 2; verdict held in separate receipt",
+  "git_apply_check_pass": true,
+  "independent_scratch_patch_application_hash_matches": true
+}

@@ -1,0 +1,178 @@
+{
+  "reference": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa/corpus-manifest.json",
+  "fields": [
+    "output_md5",
+    "output_sha256",
+    "output_bytes",
+    "events",
+    "exit_status",
+    "assertion_failures",
+    "anchor_match",
+    "scenario_sha256"
+  ],
+  "identical": 36,
+  "total": 36,
+  "inputs_stable": true,
+  "s18": {
+    "anchor_assertion_failures": 0,
+    "anchor_events": 269517,
+    "anchor_match": true,
+    "anchor_md5_prefix": "32afbf11",
+    "assertion_failures": 0,
+    "events": 269517,
+    "exit_status": 0,
+    "name": "s18_meshroute",
+    "output_bytes": 38698103,
+    "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+    "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+    "promoted": true,
+    "scenario_path": "simulation/s18_meshroute.json",
+    "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+  },
+  "rows": [
+    {
+      "name": "s06_seattle_lifecycle",
+      "differences": []
+    },
+    {
+      "name": "s07_seattle_mobile_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s09_two_layer_gateway",
+      "differences": []
+    },
+    {
+      "name": "s09_two_layer_gateway_metal",
+      "differences": []
+    },
+    {
+      "name": "s10_two_layer_separation",
+      "differences": []
+    },
+    {
+      "name": "s15_three_layer",
+      "differences": []
+    },
+    {
+      "name": "s15_three_layer_metal",
+      "differences": []
+    },
+    {
+      "name": "s16_dense_gateway",
+      "differences": []
+    },
+    {
+      "name": "s17_metro",
+      "differences": []
+    },
+    {
+      "name": "s18_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s19_singlelayer_multihop_chain",
+      "differences": []
+    },
+    {
+      "name": "s20_random_mesh",
+      "differences": []
+    },
+    {
+      "name": "s21_leaf_config_divergence",
+      "differences": []
+    },
+    {
+      "name": "s21_mobile_dm_milestone_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s22_leaf_config_join",
+      "differences": []
+    },
+    {
+      "name": "s22_mobile_team_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s23_leaf_config_epoch_write",
+      "differences": []
+    },
+    {
+      "name": "s23_mobile_team_multihop_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s24_static_and_team_multihop_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s25_two_team_separation_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s26_team_reroute_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s27_cross_layer_mobiles_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s28_mixed_team_channels_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s29_mixed_leaf_team_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s30_team_dad_mediation_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s31_dual_carrier_gateway",
+      "differences": []
+    },
+    {
+      "name": "s32_dual_cr_gateway",
+      "differences": []
+    },
+    {
+      "name": "s33_mixed_cr_channel_overhear",
+      "differences": []
+    },
+    {
+      "name": "s34_team_switch_clears_plane",
+      "differences": []
+    },
+    {
+      "name": "s35a_cochannel_isolation_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s35b_cochannel_isolation_control_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s36_reprovision_purges_carriers",
+      "differences": []
+    },
+    {
+      "name": "s37_team_homed_origin_meshroute",
+      "differences": []
+    },
+    {
+      "name": "s38_team_origin_learn_meshroute",
+      "differences": []
+    },
+    {
+      "name": "sim_9node_base",
+      "differences": []
+    },
+    {
+      "name": "twin_9node_dm",
+      "differences": []
+    }
+  ]
+}

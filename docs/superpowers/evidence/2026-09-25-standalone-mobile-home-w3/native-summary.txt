@@ -1,0 +1,21 @@
+# W3 §4.1 step 2 — native on the final tree: pio test -e native (exit 0), then ./.pio/build/native/program (exit 0)
+[doctest] test cases:   2973 |   2973 passed | 0 failed | 0 skipped
+[doctest] assertions: 196111 | 196111 passed | 0 failed |
+[doctest] Status: SUCCESS!
+
+derivation: 2962 / 195904 (W1c, the pre-W3 PIN)
+  stage A  +7 cases /  +74 assertions  test_firmware_ui_model.cpp w3-open x2, w3-prov x5 (counted loads)
+  stage B  +4 cases / +133 assertions  test_firmware_ui_model.cpp w3-pager x4 (the pure helpers)
+  restated  0 / 0                       two CHECKs in the chrome4-audit compose budget now read kComposeTextCols (1:1)
+  total    2973 / 196111, 0 failed, 0 skipped
+w3-* cases alone: test cases:  11 |  11 passed | 0 failed | 2962 skipped
+                  assertions: 207 | 207 passed | 0 failed |
+
+PIN re-synced? YES — 2962/195904 + stage A 7/74 + stage B 4/133 = 2973/196111 (tools/probe_ui_model_mutations.py, one derivation line + the literal)
+
+## the restatements, by name (stage-A test file -> final), in TEST_CASE "chrome4-audit: every PURE panel string fits the rail's 19-column body"
+  CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));  ->  CHECK(1u + 1u + size_t(kComposeTextCols) == size_t(kCols));
+  CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));              ->  CHECK(strlen(w17) == size_t(kComposeTextCols));
+  (+ the two comment blocks around them, corrected so the record limit and the display geometry read as separate facts)
+  every other stage-A line of the file is unchanged; stage B's diff otherwise only ADDS the four w3-pager cases
+  stage-A file sha256 e752732b71c08af62b8131f25a35a7f39bb23ef11b66d21329796d685effb3f1 (reconstructed byte-exact for the diff)

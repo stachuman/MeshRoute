@@ -1,0 +1,26 @@
+{
+  "repositories": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_paths": 1242,
+      "original_paths_types_bytes_symlinks_unchanged": true,
+      "staged_files": []
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_paths": 285,
+      "original_paths_types_bytes_symlinks_unchanged": true,
+      "staged_files": []
+    }
+  ],
+  "all_37_pinned_inputs_unchanged": true,
+  "report": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md",
+  "report_sha256": "f7d81ec0b8f3bb2ff0b9a0c13f64ab645ec43f9ee0d2e5d47696b87e8769bd2a",
+  "raw_archive": "artifacts/2026-09-25-standalone-mobile-home-w1c-precheck",
+  "raw_archive_checksums_sha256": "3ebb0db37b8ee2e54dc7e662b9298f75cb438bf10cf4c06817fddfc272b7dd24",
+  "report_links_resolve": true,
+  "report_whitespace_clean": true,
+  "only_authorized_evidence_added": true
+}

@@ -1,0 +1,7 @@
+authorization.json: OK
+input-check.json: OK
+precheck-checksums.txt: OK
+preservation.json: OK
+radio-structural.txt: OK
+required-fold-ins.patch: OK
+source-checks.json: OK

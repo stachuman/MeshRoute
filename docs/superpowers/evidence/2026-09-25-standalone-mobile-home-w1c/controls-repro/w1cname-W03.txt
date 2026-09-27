@@ -1,0 +1,6 @@
+w1cname W03 ★ the EMPTY path writes a terminator (out[0] = NUL when unnamed) — the count is still 0, but `writes nothing` is broken
+build rc=1 run rc=1
+[doctest] test cases:   2962 |   2961 passed | 1 failed | 0 skipped
+[doctest] assertions: 195904 | 195902 passed | 2 failed |
+FAILING CASES:
+  W1c — effective_name is the STORED name only: unnamed writes nothing; a name is a counted copy clamped to cap, never terminated

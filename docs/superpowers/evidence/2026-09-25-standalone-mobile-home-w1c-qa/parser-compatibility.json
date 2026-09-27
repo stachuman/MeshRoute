@@ -1,0 +1,163 @@
+{
+  "source": "own default inbox-verbs log; all six rows on both arms",
+  "rows": [
+    {
+      "row": "X21",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": ""
+      }
+    },
+    {
+      "row": "X22",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": ""
+      }
+    },
+    {
+      "row": "X23",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"Bench 1\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "Bench 1"
+      }
+    },
+    {
+      "row": "X24",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"Bench 1\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "Bench 1"
+      }
+    },
+    {
+      "row": "X25",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+      }
+    },
+    {
+      "row": "X26",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+      }
+    },
+    {
+      "row": "X21",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": ""
+      }
+    },
+    {
+      "row": "X22",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": ""
+      }
+    },
+    {
+      "row": "X23",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"Bench 1\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "Bench 1"
+      }
+    },
+    {
+      "row": "X24",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"Bench 1\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "Bench 1"
+      }
+    },
+    {
+      "row": "X25",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+      }
+    },
+    {
+      "row": "X26",
+      "line": "[whoami] id=5 hash=0x2972535171 name=\"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345\" leaf=0 gw=0 gwonly=0 mobile=0",
+      "parsed": {
+        "node_id": 5,
+        "hash": "0x2972535171",
+        "leaf": 0,
+        "gw": false,
+        "gwonly": false,
+        "mobile": false,
+        "name": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+      }
+    }
+  ],
+  "passed": 12,
+  "limitation": "Shared Print fake renders HEX as decimal. This confirms name-field and textual identity preservation, not real Arduino hexadecimal digit formatting."
+}

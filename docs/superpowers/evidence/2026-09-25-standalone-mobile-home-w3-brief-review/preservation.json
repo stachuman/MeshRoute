@@ -1,0 +1,35 @@
+{
+  "checks": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "original_paths_preserved": 1378,
+      "changed_original_inputs": [],
+      "new_review_evidence": [
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review.md",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/authorization.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/board-ui-diagnostic-summary.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/feature-ownership-summary.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/focused-runs.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/input-check.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/inputs.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/mutation-check.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/precheck-checksums.txt",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-brief-review/required-fold-ins.patch"
+      ],
+      "staged_paths": [],
+      "simulator_clean": null
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "original_paths_preserved": 285,
+      "changed_original_inputs": [],
+      "new_review_evidence": [],
+      "staged_paths": [],
+      "simulator_clean": true
+    }
+  ],
+  "note": "Only review evidence was added. This preservation file, validation.json and SHA256SUMS are finalized after the inventory check."
+}

@@ -538,6 +538,14 @@ TARGET_SRC = {
     #   compiles (§B115), so the bool -> lexeme decision it makes was hoisted into `console_json.h` — where a
     #   battery CAN reach it. The target exists so "the ack can only ever say success" is a reddenable claim.
     "b134ack":      "lib/console/console_json.h",    # [[B134]] — the mark_read ack's result mapping
+    # ★★ ADDED 2026-09-25 BY W1c (design §4.6 D10: an unnamed device advertises NO name). Two targets, one per source
+    #    file, because the runner's guards are file-keyed: `w1cname` attacks the ONE changed function
+    #    (`Node::effective_name`); `w1cretain` is a DEPENDENCY control on the UNCHANGED `Node::peer_key_set` refresh
+    #    guard, which is what keeps a zero-name advertisement from erasing a retained name (B447's unnamed half).
+    "w1cname":      "lib/core/node.cpp",             # W1c — the stored-name-only counted copy
+    "w1cretain":    "lib/core/node_hashlocate.cpp",  # W1c — the cache's `name && name_len` refresh guard (not edited)
+    # ★★ ADDED 2026-09-26 BY W4a ([[B441]], design §4.1): the ONE device-label formatter, `mrui::ui_fmt_identity`.
+    "w4aident":     "src/firmware_ui_model.h",       # W4a — sanitize, abbreviate with `»`, member tokens, no fabrication
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -720,7 +728,10 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # Both complete native binaries and per-file filtered runs measured this attribution.
 # Slice 10: +2 assertions (test_device_nv v25-floor and 280-byte-size refusals), 0 cases = 2950/195770; measured by the full native binary.
 # W1 (B241): +1 case / +7 assertions (test_node_hashlocate exact-capacity raw-name guard) = 2951/195777; measured by the full native binary.
-PIN_CASES, PIN_ASSERTS = 2951, 195777
+# W1c (D10): §1.3 accessor case replaced 4->19 (+15), hashlocate B1-B5+C2-C5 +10 cases/+96, dual-layer INTRO route +1/+14, INTRO golden +2 = 2962/195904; measured by the full native binary.
+# W3 (UI-model seams): stage A +7 cases/+74 (test_firmware_ui_model w3-open/w3-prov counted loads) + stage B +4 cases/+133 (w3-pager helpers), 2 budget asserts restated in place = 2973/196111; measured by the full native binary.
+# W4a (identity labels): +10 w4a-ident (model) + 1 team repaint edge + 2 invite (row bound, confirmation names) = +13 cases/+1188 = 2986/197299; measured by the full native binary.
+PIN_CASES, PIN_ASSERTS = 2986, 197299
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -3042,19 +3053,23 @@ MUTS_MODEL = [
  ("M13 the sanitizer passes raw bytes through",
   "inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }",
   "inline char ui_display_byte(uint8_t b) { return char(b); }"),
+ # ⚠ M14/M15/M18's ANCHORS MOVED 2026-09-25 (W3): the page arithmetic now lives in the pure pager helpers
+ #   `detail_page_count` / `detail_page_rows`, which `on_inbox_opened` / `refresh_detail_page` call at the modal's
+ #   geometry. Each mutant keeps its meaning — a partial page floored away, zero pages for an empty body, and every
+ #   row re-reading row 0's columns. The withdrawn anchors were the same three statements in the modal's own body.
  ("M14 pages FLOORS instead of ceiling",
-  "const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);",
-  "const uint8_t p = uint8_t(n / kDetailPageChars);"),
+  "const uint32_t p = (uint32_t(len) + per - 1) / per;",
+  "const uint32_t p = uint32_t(len) / per;"),
  ("M15 an empty body yields ZERO pages",
-  "_st.detail_pages = p ? p : uint8_t(1);", "_st.detail_pages = p;"),
+  "return p ? uint8_t(p) : uint8_t(1);", "return uint8_t(p);"),
  ("M16 the page advance STOPS at the last page instead of cycling",
   "_st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);",
   "if (_st.detail_page + 1 < _st.detail_pages) _st.detail_page = uint8_t(_st.detail_page + 1);"),
  ("M17 a page turn also refreshes the inactivity deadline",
   "_detail_page_at_ms = s.now_ms;", "_detail_page_at_ms = s.now_ms; _last_input_ms = s.now_ms;"),
  ("M18 both body rows render the SAME 19 columns",
-  "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
-  "const uint16_t i = uint16_t(off + n);"),
+  "const uint32_t i = off + uint32_t(row) * Cols + n;",
+  "const uint32_t i = off + n;"),
  # ⛔⛔ M19 IS **WITHDRAWN IN PLACE** 2026-08-21 (§UI-17 S2, §9 R-1), and it is left standing as a comment rather than
  #     deleted because the reason is the record. It read:
  #       ("M19 the modal has no inactivity timeout",
@@ -3233,25 +3248,29 @@ MUTS_MODEL = [
  ("M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
   "    arm = Provision::closed;",
   "    if (arm == Provision::menu) arm = Provision::closed;"),
+ # ⚠ M55/M56/M57/M59's ANCHORS MOVED 2026-09-25 (W3): the §4 gate's two refusals now live in `provision_admit`,
+ #   which the `CfgRow::provision` arm calls, so a refusal is `return false` rather than `break`. Each mutant keeps its
+ #   meaning: the order swapped, the unsaved refusal dropped, the conflict refusal dropped, and — M59 — the unsaved
+ #   guard SAVING and then ADMITTING, so the arm enters PROVISION itself (the helpful write C2 forbids).
  ("M55 the §4 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan §4's conflation, through the ORDER)",
-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }\n"
-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }\n"
-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }"),
+  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }\n"
+  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }\n"
+  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }"),
  ("M56 the UNSAVED cell is dropped — PROVISION opens over an unsaved draft (§3.6.3's precondition gone)",
-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
-  "                ;"),
+  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+  "        ;"),
  ("M57 the CONFLICT cell is dropped — the two states collapse into one",
-  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }",
-  "                ;"),
+  "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }",
+  "        ;"),
  ("M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
   '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
   '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
   '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
   '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
  ("M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
-  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
-  "                if (_cfg->config_unsaved())         { (void)_cfg->save(); enter_provision(Provision::menu); break; }"),
+  "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+  "        if (_cfg->config_unsaved()) { (void)_cfg->save(); return true; }"),
  ("M60 static join is hidden because the TEAM plane is off (plan §6's named defect, verbatim)",
   "    if (join_static) l.row[l.n++] = ProvRow::join_static;",
   "    if (create_team && join_static) l.row[l.n++] = ProvRow::join_static;"),
@@ -3462,9 +3481,12 @@ MUTS_MODEL = [
  # ⛔⛔ M100 IS THE REGISTER'S NAMED WRONG FIX: defer `open()` to the menu. The §3.6.1 BASELINE is then never taken
  #     for an operator who only cycled past SETTINGS, so `note_external_write` has nothing to compare against and the
  #     conflict latch — and the rail badge that reads it — stay silent on a companion write.
+ # ⚠ M100's ANCHOR MOVED 2026-09-25 (W3): `sync_settings` now calls the repeat-safe opener `ensure_config_open`. The
+ #   mutant keeps its shape and meaning — the opener runs only off the closed view, i.e. as if placed below the
+ #   closed-view return — so passive arrival again takes no baseline.
  ("M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
-  "            (void)_cfg->open();",
-  "            if (_st.settings != Settings::closed) (void)_cfg->open();"),
+  "        ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below",
+  "        if (_st.settings != Settings::closed) ensure_config_open();"),
  ("M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)",
   "if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }",
   ";"),
@@ -5683,19 +5705,23 @@ MUTS_UIINVITE = [
   "self-contradiction, restored)",
   "            if (invite_handled_has(w, mem[i].key_hash32)) continue;",
   "            // (the handled set is no longer consulted)"),
+ # ⚠ I07/I08/I09's ANCHOR MOVED 2026-09-26 (W4a): the row now places a PREPARED six-cell name (`name6`, the renderer's
+ #   projection of the carrier) instead of reading `m.name`. Each mutant keeps its meaning on that argument: the name
+ #   replaces the fingerprint, the name column falls back to a `0x` spelling, and the column loses its own precision
+ #   (I09 stays RED through the SYNTHETIC over-long prepared name `test_firmware_ui_invite.cpp` feeds the row directly).
  ("I07 ★★ the cached name REPLACES the member fingerprint instead of filling the column beside it — the identity "
   "aid vanishes the moment a name arrives (F-15 rule 2)",
-  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
-  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, "", unsigned(m.id), m.name[0] ? m.name : fp);'),
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, name6, unsigned(m.id), fp);',
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, "", unsigned(m.id), name6[0] ? name6 : fp);'),
  ("I08 ★★ the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached — the TRUNCATED "
   "`0x` third spelling of the hash, in six columns (F-15's named refusal)",
-  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, name6, unsigned(m.id), fp);',
   '    char nm[12]; snprintf(nm, sizeof nm, "0x%08lx", (unsigned long)m.key_hash32);\n'
-  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name[0] ? m.name : nm, unsigned(m.id), fp);'),
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, name6[0] ? name6 : nm, unsigned(m.id), fp);'),
  ("I09 ★ the name is rendered WITHOUT the six-column clamp — a long name pushes the id and the fingerprint off "
   "the 19-column row",
-  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
-  '    snprintf(out, cap, "%c%s T%-3u %6s", marker, m.name, unsigned(m.id), fp);'),
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, name6, unsigned(m.id), fp);',
+  '    snprintf(out, cap, "%c%s T%-3u %6s", marker, name6, unsigned(m.id), fp);'),
  ("I10 ★★★ THE CONFIRMATION DROPS THE FULL HASH — the irreversible act's screen is downgraded to the six-column "
   "selection aid, which 255 other peers answer to (P-7c / [[B48]])",
   '    snprintf(out, cap, "0x%08lX", (unsigned long)key_hash32);',
@@ -11685,6 +11711,92 @@ MUTS_RADMIN8RNG = [
  ('E01 host without entropy provider claims success', 'return n == 0; // no entropy provider', 'return true; // no entropy provider'),
 ]
 
+# ★★ W1c (design §4.6 D10) — `Node::effective_name` is the STORED name only: a counted copy of min(_name_len, cap)
+#    bytes, nothing written for 0, never terminated. Each entry is a tempting wrong shape of that one function. W01
+#    reddens the accessor case (test_node_r3.cpp) AND every producer/receiver case (W1c B1-B5, C1-C5, the INTRO golden);
+#    W02-W04 redden the accessor case ONLY — every production caller passes cap 32 and no producer case uses a 32-byte
+#    name, so a reserved terminator, a NUL on the empty path or an ignored cap cannot move a counted wire byte there.
+MUTS_W1CNAME = [
+ ("W01 ★★★ the retired DEFAULT is restored for an empty name — an unnamed node advertises `MeshRoute node: 0x<hash>` "
+  "again (D10 undone)",
+  "    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n    return n;\n}",
+  "    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n"
+  "    if (_name_len == 0 && cap != 0) {\n"
+  "        static const char pfx[] = \"MeshRoute node: 0x\";\n"
+  "        const char hex[] = \"0123456789ABCDEF\";\n"
+  "        uint8_t k = 0;\n"
+  "        for (uint8_t i = 0; pfx[i] && k < cap; ++i) out[k++] = pfx[i];\n"
+  "        for (int sh = 28; sh >= 0 && k < cap; sh -= 4) out[k++] = hex[(_key_hash32 >> sh) & 0xF];\n"
+  "        return k;\n"
+  "    }\n"
+  "    return n;\n}"),
+ ("W02 ★★ a TERMINATOR is reserved — the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its "
+  "last byte on the wire",
+  "    const uint8_t n = _name_len < cap ? _name_len : cap;\n    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n"
+  "    return n;",
+  "    if (cap == 0) return 0;\n"
+  "    const uint8_t n = _name_len < uint8_t(cap - 1) ? _name_len : uint8_t(cap - 1);\n"
+  "    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n"
+  "    out[n] = '\\0';\n"
+  "    return n;"),
+ ("W03 ★ the EMPTY path writes a terminator (out[0] = NUL when unnamed) — the count is still 0, but `writes nothing` "
+  "is broken",
+  "    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n    return n;\n}",
+  "    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];\n    if (n == 0 && cap != 0) out[0] = '\\0';\n    return n;\n}"),
+ ("W04 ★★ the CAPACITY is ignored — the whole stored name is copied whatever `cap` the caller passed",
+  "    const uint8_t n = _name_len < cap ? _name_len : cap;\n",
+  "    const uint8_t n = _name_len;\n"),
+]
+
+# ★★ W1c DEPENDENCY CONTROL — `Node::peer_key_set` is NOT edited by W1c, and this entry is why that is safe: its
+#    refresh branch renames only under `name && name_len`, so a zero-name advertisement (routes 2-5 hand it a NON-NULL
+#    name pointer with count 0) cannot erase a retained name. Drop the count term and `peer_name_set(…, 0)` erases it.
+#    ⚠ The bare guard statement appears TWICE (refresh + insert), so the anchor carries the refresh line's own comment.
+#    ⓘ Route 1 (INTRO) passes a NULL name for a zero count, so this entry cannot redden it — stated, not claimed.
+MUTS_W1CRETAIN = [
+ ("R01 ★★★ an EMPTY advertisement ERASES a retained name — the refresh guard `name && name_len` loses its count term "
+  "(B447's unnamed half)",
+  "            if (name && name_len) (void)peer_name_set(key_hash32, name, name_len);   // §1.3: REFRESH the name "
+  "(mutable) even when the key is unchanged. §AB2: ONE name writer (cannot miss — we are inside its match)",
+  "            if (name) (void)peer_name_set(key_hash32, name, name_len);   // §1.3: REFRESH the name "
+  "(mutable) even when the key is unchanged. §AB2: ONE name writer (cannot miss — we are inside its match)"),
+]
+
+# ★★★★ W4a ([[B441]], design §4.1) — `mrui::ui_fmt_identity`, THE ONE DEVICE-LABEL FORMATTER. Each entry is a
+#      tempting wrong shape of it, and each reddens `test_firmware_ui_model.cpp`'s `w4a-ident` matrix (plus, where the
+#      shape reaches them, the TEAM/invite fixtures that project through it). Brief §2.7 requires F01-F07; F08-F09 are
+#      the capacity rule and the name-before-hash provenance rule, attacked the same way.
+MUTS_W4AIDENT = [
+ ("F01 ★★ the MARKER IS DROPPED — the last kept cell is the next name byte, a SILENT clip (B441's defect restored)",
+  "        if (keep < len) out[end++] = kIdentityMarker;",
+  "        if (keep < len) { out[end] = ui_display_byte(uint8_t(bytes[end])); ++end; }"),
+ ("F02 ★★★ the SANITIZER IS BYPASSED — raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells)",
+  "        for (uint8_t i = 0; i < keep; ++i) out[i] = ui_display_byte(uint8_t(bytes[i]));",
+  "        for (uint8_t i = 0; i < keep; ++i) out[i] = bytes[i];"),
+ ("F03 ★★ the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.`",
+  "        if (keep < len) out[end++] = kIdentityMarker;",
+  "        if (keep < len) { out[end] = kIdentityMarker; out[end] = ui_display_byte(uint8_t(out[end])); ++end; }"),
+ ("F04 ★★★ an unnamed peer at 6-9 columns gets a CLIPPED `0x…` hash instead of its fingerprint (the third spelling)",
+  "    if (std::size_t(cols) >= kMemberFpCap - 1)   { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }",
+  "    if (std::size_t(cols) >= kMemberFpCap - 1)   { char h[kMemberHashCap]; ui_fmt_member_hash_full(h, sizeof h, key_hash32); "
+  "snprintf(out, cap, \"%.*s\", int(cols), h); return IdentityFmt::hash; }"),
+ ("F05 ★★ the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled",
+  "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }",
+  "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }"),
+ ("F06 ★★★ NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)",
+  "    if (key_hash32 == 0) return IdentityFmt::none;",
+  "    if (key_hash32 == 0) { snprintf(out, cap, \"0x%08lX\", 0ul); return IdentityFmt::none; }"),
+ ("F07 ★★ the marker is written ONE PAST the budget — the abbreviated label is `cols + 1` cells wide",
+  "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
+  "        const uint8_t keep = (len <= cols) ? len : cols;"),
+ ("F08 ★★ the CAPACITY rule is dropped — a destination shorter than the budget gets a partial result past its end",
+  "    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result",
+  "    // (the capacity is no longer checked against the budget)"),
+ ("F09 ★★ a NAME is ignored whenever a hash is known — the peer's chosen name is replaced by its hash token",
+  "    if (len > 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read",
+  "    if (len > 0 && key_hash32 == 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read"),
+]
+
 MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE, 'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
@@ -11734,7 +11846,9 @@ MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE
                   "uisend": MUTS_UISEND, "teamkeyring": MUTS_TEAMKEYRING,
                   "teamseen": MUTS_TEAMSEEN, "teamseensite": MUTS_TEAMSEENSITE,
                   "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW,
-                  "uiinvite": MUTS_UIINVITE}
+                  "uiinvite": MUTS_UIINVITE,
+                  "w1cname": MUTS_W1CNAME, "w1cretain": MUTS_W1CRETAIN,
+                  "w4aident": MUTS_W4AIDENT}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

@@ -1,0 +1,49 @@
+# firmware-UI controls: RED check counts per control — baseline (unmodified) / stage A / final. Source: the stock run.sh logs
+# base-probe-firmware-ui.log, stageA-fwui-probe.log, gate5-fwui-default.log (artifacts). 'build-fails' = C0 (must_build=no).
+# totals: baseline 231, stage A 230, final 236; identical on all three: 196
+# controls whose count FELL baseline->final: 0 []
+
+control      base  stageA  final  note
+B241a          10      10     42  re-anchored onto the one formatter call: the pre-fix body now also reaches P18/P28b-d/P30 (lowercase 0x, raw bytes); still fails P28a H1/H2/rename
+B241b           5       5     40  re-anchored onto the one formatter call: the pre-fix body now also reaches P18/P28b-d/P30 (lowercase 0x, raw bytes); still fails P28a H1/H2/rename
+C10           310     310    318  count rose: the new P30 checks / richer re-anchor
+C105           29      29     31  count rose: the new P30 checks / richer re-anchor
+C106           10      10     11  count rose: the new P30 checks / richer re-anchor
+C11            51      51     58  count rose: the new P30 checks / richer re-anchor
+C111           65      65     66  count rose: the new P30 checks / richer re-anchor
+C112           26      26     28  count rose: the new P30 checks / richer re-anchor
+C118          225     225    233  count rose: the new P30 checks / richer re-anchor
+C120           68      68     77  count rose: the new P30 checks / richer re-anchor
+C135            4       4      5  count rose: the new P30 checks / richer re-anchor
+C136           31      31     32  count rose: the new P30 checks / richer re-anchor
+C137           45      45     47  count rose: the new P30 checks / richer re-anchor
+C5            270     270    278  count rose: the new P30 checks / richer re-anchor
+C72           203     203    209  count rose: the new P30 checks / richer re-anchor
+C73           267     267    276  count rose: the new P30 checks / richer re-anchor
+C74            69      69     71  count rose: the new P30 checks / richer re-anchor
+C77           180     180    182  count rose: the new P30 checks / richer re-anchor
+C78           160     160    162  count rose: the new P30 checks / richer re-anchor
+C79           169     169    175  count rose: the new P30 checks / richer re-anchor
+C80           177     177    179  count rose: the new P30 checks / richer re-anchor
+C81            94      94    100  count rose: the new P30 checks / richer re-anchor
+C82             5       5      7  count rose: the new P30 checks / richer re-anchor
+C93            24      24     25  count rose: the new P30 checks / richer re-anchor
+C94           137     137    139  count rose: the new P30 checks / richer re-anchor
+C95           132     132    134  count rose: the new P30 checks / richer re-anchor
+L10           318     318    323  count rose: the new P30 checks / richer re-anchor
+N10           286     286    299  count rose: the new P30 checks / richer re-anchor
+O1              6       6      8  count rose: the new P30 checks / richer re-anchor
+O20             3       3      5  count rose: the new P30 checks / richer re-anchor
+O3              1       1      2  count rose: the new P30 checks / richer re-anchor
+O4              7       7      9  count rose: the new P30 checks / richer re-anchor
+O6              1       -      -  retired in stage A (B455; coverage O20)
+O7            115     115    120  count rose: the new P30 checks / richer re-anchor
+O9b           101     101    106  count rose: the new P30 checks / richer re-anchor
+W4a-S1          -       -     17  NEW (W4a)
+W4a-S2          -       -      5  NEW (W4a)
+W4a-S3          -       -      1  NEW (W4a)
+W4a-S4          -       -      1  NEW (W4a)
+W4a-S5          -       -      4  NEW (W4a)
+W4a-S6          -       -      2  NEW (W4a)
+
+# unchanged controls: C0=build-fails C1=5 C100=1 C101=1 C102=2 C103=1 C104=1 C107=19 C108=3 C109=5 C110=5 C113=1 C114=6 C115=2 C116=5 C117=1 C119=4 C12=2 C121=1 C122=1 C123=1 C124=4 C125=18 C126=5 C127=3 C128=11 C129=2 C13=1 C130=14 C131=5 C132=13 C133=4 C134=1 C138=13 C139=15 C14=4 C140=1 C141=1 C15=7 C16=4 C17=17 C18=6 C19=39 C2=1 C20=51 C21=7 C22=43 C23=33 C24=45 C25=1 C26=1 C27=4 C28=47 C29=60 C3=4 C30=64 C31=2 C32=2 C33=6 C34=2 C35=1 C36=1 C37=8 C38=12 C39=1 C4=12 C40=2 C41=4 C42=2 C43=2 C44=1 C45=1 C46=4 C47=3 C48=2 C49=3 C50=3 C51=1 C52=2 C53=1 C54=1 C55=1 C56=2 C57=1 C58=3 C59=3 C6=1 C60=1 C61=4 C62=6 C63=4 C64=2 C65=1 C66=10 C67=24 C68=1 C69=51 C7=4 C70=29 C71=5 C75=6 C76=1 C8=4 C83=4 C84=2 C85=5 C86=10 C87=23 C88=19 C89=1 C9=1 C90=59 C91=1 C92=58 C96=2 C97=6 C98=4 C99=4 CC1=3 CC2=3 K1=50 K10=2 K2=1 K3=28 K4=24 K5=38 K5a=2 K5b=1 K5c=2 K6=4 K7=1 K8=1 K9=2 L1=20 L11=1 L12=1 L13=1 L14=1 L15=1 L16=8 L17=1 L18=7 L19=1 L2=5 L20=4 L21=1 L22=1 L3=3 L4=1 L5=1 L6=8 L7=44 L8=153 L9=148 N1=96 N11=1 N12=2 N13=2 N14=2 N15=2 N16=1 N2=5 N3=65 N4=8 N5=66 N6=1 N7=1 N8=105 N9=8 O10=144 O11=2 O12=3 O13=3 O14=3 O15=2 O16=143 O17=16 O18=17 O19=13 O2=1 O21=3 O22=11 O23=3 O5=3 O8=2 O9=1 R1=5 R2=4 R3=12 R4=1 W3-C1=8 W3-C2=15 W3-D1=20 W3-D2=17 W3-N1=3 W3-U1=2

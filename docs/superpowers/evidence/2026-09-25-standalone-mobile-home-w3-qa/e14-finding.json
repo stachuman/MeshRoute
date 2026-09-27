@@ -1,0 +1,14 @@
+{
+  "battery": "sliceEcascade",
+  "source": "lib/core/node_cascade.cpp",
+  "entry": [
+    "E14 \u2605\u2605\u2605\u2605 THE SLICE-F INSERTION POINT PREMATURELY ENQUEUES A CUSTODY NOTICE \u2014 Slice E emits custody traffic it is explicitly forbidden to emit (\u00a717-E bullet 4), on a `0x81` that is not even allocated yet",
+    "    (void)ctx;   // Slice E: the context is built, observed and deliberately not consumed. Slice F reads it here.",
+    "    (void)ctx;\n    { TxItem notice{}; notice.type = 0x81; notice.dst = dst; notice.ctr = ctr;\n      if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = notice; }"
+  ],
+  "current_matches": 0,
+  "head_matches": 0,
+  "entry_equal_to_head": true,
+  "source_equal_to_head": true,
+  "execution_claim": "Literal-match reproduction only; the unrelated battery was not executed."
+}

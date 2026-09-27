@@ -1,0 +1,143 @@
+tools/probe_ui_model_mutations.py:4375:  "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }",
+tools/probe_ui_model_mutations.py:4376:  "inline const char* compose_empty_note(const ComposeList& l) { (void)l; return nullptr; }"),
+tools/probe_ui_model_mutations.py:7399:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+tools/probe_ui_model_mutations.py:7415:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+tools/probe_ui_model_mutations.py:7417:  "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"),
+tools/probe_board_abi.py:179:    ("mrui::ComposeSlot",      "MR_FEAT_OLED"),
+tools/probe_board_abi.py:180:    ("mrui::ComposeList",      "MR_FEAT_OLED"),
+tools/probe_board_abi.py:321:        "mrui::ComposeSlot":       (20, 1, False),
+tools/probe_board_abi.py:322:        "mrui::ComposeList":       (161, 1, False),
+tools/probe_board_abi.py:353:        "mrui::ComposeSlot":       (20, 1, True),
+tools/probe_board_abi.py:354:        "mrui::ComposeList":       (161, 1, True),
+tools/probe_board_abi.py:388:        "mrui::ComposeSlot":       (20, 1, False),
+tools/probe_board_abi.py:389:        "mrui::ComposeList":       (161, 1, False),
+src/firmware_ui.cpp:2169://    build failure instead of a mis-send. UI-7 needs the strings in a PURE header anyway (`ui_compose_send_line`
+src/firmware_ui.cpp:2292:    const mrui::ComposeList& list = dm ? s.preset_dm : s.preset_ch;
+src/firmware_ui.cpp:2305:        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);
+src/firmware_ui_presets.h:84://       of the live record (`mrui::compose_project` -> `UiSnapshot::preset_dm` / `preset_ch`, frozen per frame),
+src/firmware_ui_presets.h:332:    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;
+src/firmware_ui_presets.h:362://    the model consumes THIS catalog through `mrui::compose_project`, and the drift-fence case that guarded the two
+src/firmware_ui_presets.h:414:    if (len > mrnv::kUiPresetTextMax) len = mrnv::kUiPresetTextMax;   // validate_preset_text already refused this
+tools/probe_firmware_ui/run.sh:1227:      's|    const mrui::ComposeList\& list = dm ? s.preset_dm : s.preset_ch;|    const mrui::ComposeList\& list = s.preset_ch;|'
+tools/probe_firmware_ui/run.sh:1233:      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        snprintf(l, sizeof l, "%c%s", ((first + row) == st.cursor) ? 0x3e : 0x20, mrui::compose_row_text(uint8_t(first + row), list, grant));|'
+tools/probe_firmware_ui/run.sh:1627:  #   `s|… mrui::compose_row_text(uint8_t(first + row), dm, grant));|… dm, false));|`. P3 moved the row's WHOLE line
+tools/probe_firmware_ui/run.sh:1628:  #   into the pure composer, so the same `grant`-blind resolution is now spelled on `compose_row_line`.
+tools/probe_firmware_ui/run.sh:1630:      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, false, (first + row) == st.cursor);|'
+test/test_firmware_ui_send.cpp:1240:// ★★★★ §UI-10/11 P3 — **THE CATALOG THESE CASES SEND FROM.** `ui_compose_send_line` and `ui_perform_send` read the
+test/test_firmware_ui_send.cpp:1284:    const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, kDm1, dflt_gen()},
+test/test_firmware_ui_send.cpp:1294:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, kDm2, dflt_gen()},
+test/test_firmware_ui_send.cpp:1301:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh2, dflt_gen()},
+test/test_firmware_ui_send.cpp:1315:    CHECK(ui_compose_send_line(with_fix, sizeof with_fix, alarm, dflt_cat(), 0, /*have_fix=*/true) > 0);
+test/test_firmware_ui_send.cpp:1317:    CHECK(ui_compose_send_line(no_fix, sizeof no_fix, alarm, dflt_cat(), 0, /*have_fix=*/false) > 0);
+test/test_firmware_ui_send.cpp:1333:    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/true) > 0);
+test/test_firmware_ui_send.cpp:1335:    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/false) > 0);
+test/test_firmware_ui_send.cpp:1346:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+test/test_firmware_ui_send.cpp:1361:        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, fix) > 0);
+test/test_firmware_ui_send.cpp:1365:        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, c.generation},
+test/test_firmware_ui_send.cpp:1371:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, true) > 0);
+test/test_firmware_ui_send.cpp:1381:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDm1 + 2), dflt_gen()},
+test/test_firmware_ui_send.cpp:1385:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0,
+test/test_firmware_ui_send.cpp:1389:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, dflt_gen()}, dflt_cat(), 0, false) == 0);
+test/test_firmware_ui_send.cpp:1390:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, mrnv::kUiPresets, dflt_gen()},
+test/test_firmware_ui_send.cpp:1397:    CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, kDm1, dflt_gen()},
+test/test_firmware_ui_send.cpp:1404:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, dflt_gen()},
+test/test_firmware_ui_send.cpp:1406:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()},
+test/test_firmware_ui_send.cpp:1408:    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+test/test_firmware_ui_send.cpp:1411:    //   the cap must now clear, and it is `mrnv::kUiPresetTextMax` rather than the longest compiled string.
+test/test_firmware_ui_send.cpp:1419:        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, wide.generation},
+test/test_firmware_ui_send.cpp:1421:        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, wide.generation},
+test/test_firmware_ui_send.cpp:1423:        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+test/test_firmware_ui_presets.cpp:24:                                 //    compose_project`, which is what the panel actually renders the defaults
+test/test_firmware_ui_presets.cpp:102:    CHECK(mrnv::kUiPresetTextMax == 17);          // ★ OQ-A's owner ruling, and `text[18]` = 17 + the terminator
+test/test_firmware_ui_presets.cpp:200:    //   device are the compiled defaults, arriving through the SHIPPED projection (`mrui::compose_project`) rather
+test/test_firmware_ui_presets.cpp:203:    mrui::ComposeList dm{}, ch{};
+test/test_firmware_ui_presets.cpp:204:    mrui::compose_project(f.cat.live(), PresetKind::dm,      dm);
+test/test_firmware_ui_presets.cpp:205:    mrui::compose_project(f.cat.live(), PresetKind::channel, ch);
+test/test_firmware_ui_presets.cpp:702:    CHECK((n273 & 0xFFu) == mrnv::kUiPresetTextMax);
+test/test_firmware_ui_presets.cpp:726:    CHECK(s.len == mrnv::kUiPresetTextMax);        // clamped, ⛔ never 273 bytes into an 18-byte buffer
+src/device_nv.h:347:    uint8_t len;       // 0..kUiPresetTextMax; ★ the bytes AT and AFTER `len` are ZERO (canonical)
+src/device_nv.h:356:constexpr uint8_t kUiPresetTextMax = 17;   // OQ-A: 17 printable ASCII bytes for EVERY preset, both location states
+src/firmware_ui_send.h:470://   promoted-`%u` worst case the paragraph above sizes for. The bound is `mrnv::kUiPresetTextMax` (OQ-A's 17), so a
+src/firmware_ui_send.h:534:inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req, const mrnv::UiPresetBlob& cat,
+src/firmware_ui_send.h:584:    const int n = ui_compose_send_line(line, sizeof line, req, cat, team_channel_id, have_fix);
+src/firmware_ui_model.h:1416:// the strings in a PURE header anyway (`ui_compose_send_line` composes the console line and the native suite asserts
+src/firmware_ui_model.h:1469:struct ComposeSlot {
+src/firmware_ui_model.h:1470:    // 17 characters + the terminator — `mrnv::kUiPresetTextMax` is OQ-A's owner ruling and is ⛔ never re-typed here.
+src/firmware_ui_model.h:1471:    char    text[mrnv::kUiPresetTextMax + 1] = {};
+src/firmware_ui_model.h:1477:// ⓘ COST, MEASURED not assumed: `sizeof(ComposeSlot)` is **20** (alignof 1 — 18 char + 2 uint8, no padding), so
+src/firmware_ui_model.h:1478://   `sizeof(ComposeList)` is 8 x 20 + 1 = **161** and the pair on `UiSnapshot` costs 322. The `offsetof` proof is in
+src/firmware_ui_model.h:1480:struct ComposeList {
+src/firmware_ui_model.h:1481:    ComposeSlot row[mrfw::kPresetPerKind] = {};
+src/firmware_ui_model.h:1495:inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind, ComposeList& out) {
+src/firmware_ui_model.h:1496:    out = ComposeList{};
+src/firmware_ui_model.h:1501:        ComposeSlot& r = out.row[out.n++];
+src/firmware_ui_model.h:1504:        uint8_t n = s.len < mrnv::kUiPresetTextMax ? s.len : mrnv::kUiPresetTextMax;
+src/firmware_ui_model.h:1511:inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }
+src/firmware_ui_model.h:1535://   occupy `0 .. n-1` where **`n` is the PROJECTED LIST's own length** (`ComposeList::n`), `GRANT KEY` sits at `n`,
+src/firmware_ui_model.h:1594:inline uint8_t compose_row_count(const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1599:inline ComposeRow compose_row_kind(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1608:inline uint8_t compose_row_slot(uint8_t idx, const ComposeList& l) {
+src/firmware_ui_model.h:1616:inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1627://      `mrnv::kUiPresetTextMax` is 17 and why a conditional bound was WRONG. ⛔ There is no third answer for a
+src/firmware_ui_model.h:1636:inline char compose_row_loc_marker(uint8_t idx, const ComposeList& l, bool grant) {
+src/firmware_ui_model.h:1645://     `emg_attempt_line` / `ui_compose_send_line` discipline. The renderer places the answer; it decides nothing.
+src/firmware_ui_model.h:1648:inline void compose_row_line(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool grant,
+src/firmware_ui_model.h:1652:    if (m) snprintf(out, cap, "%c%c%s", selected ? '>' : ' ', m, compose_row_text(idx, l, grant));
+src/firmware_ui_model.h:1653:    else   snprintf(out, cap, "%c%s",   selected ? '>' : ' ', compose_row_text(idx, l, grant));
+src/firmware_ui_model.h:2036:    ComposeList preset_dm{};
+src/firmware_ui_model.h:2037:    ComposeList preset_ch{};
+src/firmware_ui_model.h:2045:    compose_project(cat, mrfw::PresetKind::dm,      s.preset_dm);
+src/firmware_ui_model.h:2046:    compose_project(cat, mrfw::PresetKind::channel, s.preset_ch);
+src/firmware_ui_model.h:3424:    //   and every channel line this UI sends carries `-t` with no `-g` (`ui_compose_send_line`), so `want_global` is
+src/firmware_ui_model.h:5110:    //   carries, the id `compose_peer` already stores, and the id `ui_compose_send_line` already puts on the wire
+src/firmware_ui_model.h:5401:        const ComposeList& list = dm ? s.preset_dm : s.preset_ch;
+test/test_firmware_ui_model.cpp:659:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:660:        compose_project(preset_defaults_blob(), mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:661:        compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:2143:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:2144:        compose_project(b, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:2145:        compose_project(b, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:2148:        for (const ComposeList* l : { &dm, &ch })
+test/test_firmware_ui_model.cpp:2153:                CHECK(std::strcmp(compose_row_text(uint8_t(n - 1), *l, grant), "back, don't send") == 0);
+test/test_firmware_ui_model.cpp:5251:    //      LONGER than any of them. ⇒ the budget is now proved against the BOUND (`mrnv::kUiPresetTextMax`, 17), so
+test/test_firmware_ui_model.cpp:5254:    CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));
+test/test_firmware_ui_model.cpp:5260:        CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));
+test/test_firmware_ui_model.cpp:5264:        ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:5265:        compose_project(wide, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:5266:        compose_project(wide, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:5268:        for (const ComposeList* l : { &dm, &ch })
+test/test_firmware_ui_model.cpp:5271:                    compose_row_line(row, sizeof row, i, *l, /*grant=*/true, sel);
+test/test_firmware_ui_model.cpp:7720:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:7963:    const mrui::ComposeList& l = (m.state().compose == Compose::dm) ? s.preset_dm : s.preset_ch;
+test/test_firmware_ui_model.cpp:8035:    CHECK(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true) == mrui::kInviteGrantKey);
+test/test_firmware_ui_model.cpp:8036:    CHECK(strcmp(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true), "GRANT KEY") == 0);
+test/test_firmware_ui_model.cpp:8641:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:8973:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:9403:    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
+test/test_firmware_ui_model.cpp:9586:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9587:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9626:    ComposeList dm{}, ch{};
+test/test_firmware_ui_model.cpp:9627:    compose_project(cat, mrfw::PresetKind::dm,      dm);
+test/test_firmware_ui_model.cpp:9628:    compose_project(cat, mrfw::PresetKind::channel, ch);
+test/test_firmware_ui_model.cpp:9648:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9649:    compose_project(full, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9669:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9670:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9689:    compose_row_line(b, sizeof b, 0, l, /*grant=*/false, /*selected=*/true);
+test/test_firmware_ui_model.cpp:9691:    compose_row_line(b, sizeof b, 1, l, /*grant=*/false, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9694:    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9696:    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/true);
+test/test_firmware_ui_model.cpp:9698:    compose_row_line(b, sizeof b, uint8_t(l.n + 1), l, /*grant=*/true, /*selected=*/false);
+test/test_firmware_ui_model.cpp:9705:    ComposeList l{};
+test/test_firmware_ui_model.cpp:9706:    compose_project(cat, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9713:    ComposeList some{};
+test/test_firmware_ui_model.cpp:9714:    compose_project(gapped_cat({3}), mrfw::PresetKind::dm, some);
+test/test_firmware_ui_model.cpp:9858:        compose_row_line(b, sizeof b, i, frozen.preset_dm, false, false);
+test/test_firmware_ui_model.cpp:9883:        ComposeList l{};
+test/test_firmware_ui_model.cpp:9890:        compose_project(c, mrfw::PresetKind::dm, l);
+test/test_firmware_ui_model.cpp:9894:        CHECK(compose_row_text(k, l, /*grant=*/true) == kInviteGrantKey);
+test/test_firmware_ui_model.cpp:9906:    CHECK(sizeof(mrui::ComposeSlot) == 20u);               // 18 char + slot + loc, alignof 1, no padding
+test/test_firmware_ui_model.cpp:9907:    CHECK(sizeof(mrui::ComposeList) == 161u);              // 8 x 20 + the count
+test/test_firmware_ui_model.cpp:9908:    CHECK(offsetof(mrui::ComposeSlot, text) == 0u);
+test/test_firmware_ui_model.cpp:9909:    CHECK(offsetof(mrui::ComposeSlot, slot) == 18u);
+test/test_firmware_ui_model.cpp:9910:    CHECK(offsetof(mrui::ComposeSlot, loc)  == 19u);

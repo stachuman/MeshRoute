@@ -36,21 +36,12 @@ Node::Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name)
     if (node_id == 0xFF) _hal.panic("node_id 0xFF is reserved (invalid)");
 }
 
-// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
-// the key_hash32 is STABLE (the node_id can change via join/lease), so the default is a persistent identity.
+// §1.3 / W1c (design §4.6 D10): the STORED name only, which may be empty — an unnamed node advertises NO name. A
+// counted copy of min(_name_len, cap) bytes that never terminates (its callers write counted fields); 0 writes nothing.
 uint8_t Node::effective_name(char* out, uint8_t cap) const {
-    if (cap == 0) return 0;
-    if (_name_len > 0) {                                          // an explicit name
-        const uint8_t n = _name_len < cap ? _name_len : cap;
-        for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
-        return n;
-    }
-    static const char pfx[] = "MeshRoute node: 0x";
-    const char hex[] = "0123456789ABCDEF";
-    uint8_t k = 0;
-    for (uint8_t i = 0; pfx[i] && k < cap; ++i) out[k++] = pfx[i];
-    for (int sh = 28; sh >= 0 && k < cap; sh -= 4) out[k++] = hex[(_key_hash32 >> sh) & 0xF];
-    return k;
+    const uint8_t n = _name_len < cap ? _name_len : cap;
+    for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
+    return n;
 }
 
 // Reassign identity post-construct: the device boots id=0 then loads it from NV; the join runtime sets

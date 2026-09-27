@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "added": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/inputs.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/layout-pricing.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/measurement-receipt.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/preservation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/source-audit.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/source-checks.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-brief-review/verdict.json"
+      ],
+      "changed_or_missing": [],
+      "diff_check": "PASS",
+      "head": "8360802904f7bd0023279d3da844453d61207ede",
+      "only_review_evidence_added": true,
+      "protected_paths": 1593,
+      "root": "/home/staszek/MeshRoute",
+      "staged_paths": 0
+    },
+    {
+      "added": [],
+      "changed_or_missing": [],
+      "diff_check": "PASS",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "only_review_evidence_added": true,
+      "protected_paths": 285,
+      "root": "/home/staszek/lora-universal-simulator",
+      "staged_paths": 0
+    }
+  ],
+  "new_metadata_note": "preservation.json and SHA256SUMS were reserved before this path census; their contents finalized afterward.",
+  "report_links_verified": 4,
+  "scope": "All initial tracked and nonignored untracked input paths preserved; only this review report/folder added. Raw results are under ignored artifacts/."
+}

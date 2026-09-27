@@ -1,0 +1,93 @@
+{
+  "heads": [
+    "8360802904f7bd0023279d3da844453d61207ede",
+    "6585649ea5a780f0542b2931853a667be56a5b2b"
+  ],
+  "paths": [
+    1548,
+    285
+  ],
+  "frozen_files": [
+    {
+      "path": "src/firmware_ui.cpp",
+      "sha256": "bfe5d70e0795effcbeaa7623dc3ee84f4481bc5b04d5728f8167619b92f3530e"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "sha256": "4a499098be6b55cb2c3c02c3cf5462b87489eca34e8a15d30e6b18c2346239c9"
+    },
+    {
+      "path": "src/firmware_ui_invite.h",
+      "sha256": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c"
+    },
+    {
+      "path": "src/firmware_ui_team.h",
+      "sha256": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf"
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "sha256": "ba92a0f5348144150f6c9ecb6cd5c35dee728396bfae81799fd1be260a62f373"
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "sha256": "1833ed10acc01bd71d7ca7142b3180ff5fb68bff2ac508181033edbd36ece38a"
+    },
+    {
+      "path": "test/test_firmware_ui_invite.cpp",
+      "sha256": "8b5c32bea178acda225b3651596e0e204a305a915ba1dfbb79e33ce313b39438"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "sha256": "3090a371e36295338a02e6c878eb1c32471f33dffd6260e68698d31b560c6905"
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "89e41dd80920ba42e72216d982a0702c3444fcf1a62ec71df44ccddd86252468"
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "b1574c35d23cf0e5bf2f2898be6bf14c8ef453accbd6db51eefe5e71e3e10b4b"
+    }
+  ],
+  "preparation": [
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+    "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS",
+    "tracker.md",
+    "MEMORY.md"
+  ],
+  "checksums": [
+    {
+      "folder": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a",
+      "count": 44
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck",
+      "count": 30
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review",
+      "count": 12
+    }
+  ],
+  "changed_from_precheck": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "src/firmware_ui.cpp",
+    "src/firmware_ui_invite.h",
+    "src/firmware_ui_model.h",
+    "src/firmware_ui_team.h",
+    "test/test_firmware_ui_invite.cpp",
+    "test/test_firmware_ui_model.cpp",
+    "test/test_firmware_ui_team.cpp",
+    "tools/probe_firmware_ui/probe_main.cpp",
+    "tools/probe_firmware_ui/run.sh",
+    "tools/probe_ui_model_mutations.py",
+    "tracker.md"
+  ],
+  "report_sha256": "9427e4a6ff834ad1f43b09fe4631fe3bd70662bcd12e62801525eded26641b01",
+  "brief_sha256": "7fafe9ef08aa50842a30240b08fa079cf8ce67c608f46d8ebe390ed879fff067",
+  "staged": false
+}

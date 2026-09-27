@@ -1,0 +1,221 @@
+[
+  {
+    "name": "boards",
+    "args": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w4a-qa-20260927"
+    ],
+    "exit": 0,
+    "ordering": "Completed alone before the other gate builds; elapsed time not independently recorded in this ledger",
+    "manifest_pair": ".pio-measure/w4a-qa-20260927/pair.json"
+  },
+  {
+    "name": "native-build",
+    "args": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "seconds": 2.116,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/native-build.log",
+    "log_sha256": "ecdfe49b6d991c3572375523fc6f057456034811c42d52c1fb10267751342afb"
+  },
+  {
+    "name": "native-binary",
+    "args": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "seconds": 0.782,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/native-binary.log",
+    "log_sha256": "d895833f01e8bb6627b0faa71cf4705ba680e414e83185a5fc17d7f3e2593b16"
+  },
+  {
+    "name": "sim-configure",
+    "args": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.498,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/sim-configure.log",
+    "log_sha256": "9c5315b533e03efacfc798f160b41071a08f28d1067e5ed1c6c0a0d7baf51f39"
+  },
+  {
+    "name": "sim-build",
+    "args": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 31.708,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/sim-build.log",
+    "log_sha256": "01fe3ca1a2f0eea34df726797c829d5c85c1cac57c9b1ed8b5232eed953af98b"
+  },
+  {
+    "name": "corpus",
+    "args": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/corpus",
+      "--lus",
+      "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/sim-build/orchestrator/lus",
+      "--require-anchors",
+      "--jobs",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 52.794,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/corpus.log",
+    "log_sha256": "8daa2ef2896791e331eeb39bd9280f4e1516f392766dbd721485b5d125ac729f"
+  },
+  {
+    "name": "abi",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "seconds": 19.796,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/abi.log",
+    "log_sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c"
+  },
+  {
+    "name": "layout",
+    "args": [
+      "python3",
+      "-B",
+      "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a/w4a_layout.py",
+      "/tmp/meshroute-w4a-qa-20260927-hq5ehaj8/layout",
+      "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/layout.json"
+    ],
+    "exit": 0,
+    "seconds": 10.86,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/layout.log",
+    "log_sha256": "5c365687441e6b488223602c84d9df06db48e852e2cc59c01bdebff66507bb2b"
+  },
+  {
+    "name": "firmware-ui",
+    "args": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 354.024,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/firmware-ui.log",
+    "log_sha256": "21fe47d552468589b3973f3afc0c76a7a116a721409f646e943546cfc470dafb"
+  },
+  {
+    "name": "board-ui-noneg",
+    "args": [
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "exit": 1,
+    "seconds": 11.411,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/board-ui-noneg.log",
+    "log_sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8"
+  },
+  {
+    "name": "discovery",
+    "args": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "seconds": 732.907,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/discovery.log",
+    "log_sha256": "85b0fa6574f99eb86d0481ef988afd154a91d596631f03ee9ac0dfd66f40e8df"
+  },
+  {
+    "name": "mutation-model",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=model"
+    ],
+    "exit": 0,
+    "seconds": 740.472,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/mutation-model.log",
+    "log_sha256": "1ff69be8c1e65da4cf6a1950c0f74cfa00e79a1aada23e86173bd88163419f4c"
+  },
+  {
+    "name": "mutation-sliceCbudget",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=sliceCbudget"
+    ],
+    "exit": 0,
+    "seconds": 23.462,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/mutation-sliceCbudget.log",
+    "log_sha256": "7eec711796f8621edf19a0f61289f90e2632009f093ba19b8f2b975e4f1953ed"
+  },
+  {
+    "name": "mutation-uiteam",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=uiteam"
+    ],
+    "exit": 0,
+    "seconds": 63.898,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/mutation-uiteam.log",
+    "log_sha256": "57258a97e3b63ff2e96c49fcd7748bf15fff762ab11e39ae4a3abd94b7edac0b"
+  },
+  {
+    "name": "mutation-uiinvite",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=uiinvite"
+    ],
+    "exit": 0,
+    "seconds": 145.037,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/mutation-uiinvite.log",
+    "log_sha256": "9eb1dc6d229d59df081cb70fb217a04dab4f96883079f506e03a0b969e318983"
+  },
+  {
+    "name": "mutation-w4aident",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w4aident"
+    ],
+    "exit": 0,
+    "seconds": 83.921,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-27-standalone-mobile-home-w4a-qa/mutation-w4aident.log",
+    "log_sha256": "239bde6402b294db61678c3c65c0c7df662756b8c944ac4aa69f8201361367a1"
+  }
+]

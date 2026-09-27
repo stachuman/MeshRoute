@@ -1,0 +1,128 @@
+{
+  "artifacts": {
+    "elf": {
+      "bytes": 769648,
+      "filename": "firmware.elf",
+      "sha256": "cfab68a8e3c77ab2993601b39feb1a851f11ac8e6851dca01116b4ee13dbf9ca"
+    },
+    "payload": {
+      "bytes": 1609655,
+      "filename": "firmware.hex",
+      "sha256": "cd56846e3272db109eff6f77d54c5ea97a05072c679976a4357188c1a35ae9c1"
+    }
+  },
+  "concurrency": {
+    "limitation": "The measurement lock excludes only this runner. Source-mutating mutation batteries in the same checkout do not share it and must not run concurrently.",
+    "measurement_lock": "/home/staszek/MeshRoute/.pio-measure/measurement.lock",
+    "mutation_batteries_share_lock": false
+  },
+  "environment": "gateway",
+  "fixed_identity": {
+    "build_stamp": "Jan  1 2000 00:00:00",
+    "build_stamp_count": 1,
+    "git_revision": "b206b206b206",
+    "git_revision_count": 1,
+    "source_date_epoch": "946684800"
+  },
+  "host": {
+    "limitation": "Linux/POSIX-only: requires fcntl advisory locking and PTYs.",
+    "platform": "linux"
+  },
+  "measurements": {
+    "flash_bytes": 572240,
+    "loadable_sections": {
+      ".ARM.exidx": 8,
+      ".data": 980,
+      ".text": 571252
+    },
+    "object_count": 285,
+    "ram_bytes": 203740,
+    "symbol_count": 6597,
+    "symbol_size_total": 752617,
+    "symbols_sha256": "4d1096d7519945a785ebd6e868e2df7089a12c522c5959db819f57ee40503e3b"
+  },
+  "normal_pio_metadata": {
+    "entry_count": 10653,
+    "exists": true,
+    "sha256": "003ab9cad96a890b964f5f4c4b5ffa64c9ef2e142135d64103bb5deb0a286cb6"
+  },
+  "paths": {
+    "build_root": "/home/staszek/MeshRoute/.pio-measure/env/gateway/build",
+    "env_build_dir": "/home/staszek/MeshRoute/.pio-measure/env/gateway/build/gateway",
+    "libdeps_root": "/home/staszek/MeshRoute/.pio-measure/env/gateway/libdeps",
+    "normal_pio_root": "/home/staszek/MeshRoute/.pio",
+    "normal_pio_used": false,
+    "project_root": "/home/staszek/MeshRoute",
+    "workspace_root": "/home/staszek/MeshRoute/.pio-measure/env/gateway/workspace"
+  },
+  "schema": 2,
+  "source": {
+    "deleted_files": [],
+    "file_count": 1272,
+    "git_head": "8360802904f7bd0023279d3da844453d61207ede",
+    "git_status_sha256": "e4246745a78be21a3f69ccce5888a7fb7c60516575150f36af48d644f4e1409c",
+    "tree_sha256": "a568b18e76c0dab97505784f211a2e7be35c45f6b80e16fa5ee5f50886b16294"
+  },
+  "toolchain": {
+    "command_state_schema": 2,
+    "commands": {
+      "cc": {
+        "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+        "command_template": "${TEMPFILE('$CC -o $TARGET -c $CFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CCCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+        "tool_token": "arm-none-eabi-gcc",
+        "version": "arm-none-eabi-gcc (xPack GNU Arm Embedded GCC x86_64) 12.3.1 20230626",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      },
+      "cxx": {
+        "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "command_template": "${TEMPFILE('$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CXXCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "tool_token": "arm-none-eabi-g++",
+        "version": "arm-none-eabi-g++ (xPack GNU Arm Embedded GCC x86_64) 12.3.1 20230626",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      },
+      "link": {
+        "command": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "command_template": "${TEMPFILE('$LINK -o $TARGET $LINKFLAGS $__RPATH $SOURCES $_LIBDIRFLAGS $_LIBFLAGS','$LINKCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++",
+        "tool_token": "arm-none-eabi-g++",
+        "version": "arm-none-eabi-g++ (xPack GNU Arm Embedded GCC x86_64) 12.3.1 20230626",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      }
+    },
+    "link_aliases": [
+      "cxx"
+    ],
+    "packages": [
+      {
+        "name": "framework-arduinoadafruitnrf52",
+        "version": "1.10700.0 (1.7.0)"
+      },
+      {
+        "name": "framework-cmsis",
+        "version": "2.50700.210515 (5.7.0)"
+      },
+      {
+        "name": "tool-adafruit-nrfutil",
+        "version": "1.503.0 (5.3)"
+      },
+      {
+        "name": "tool-sreccat",
+        "version": "1.164.0 (1.64)"
+      },
+      {
+        "name": "toolchain-gccarmnoneeabi",
+        "version": "1.120301.0 (12.3.1)"
+      }
+    ],
+    "platform": "Nordic nRF52 (10.11.0) > Seeed Studio XIAO nRF52840",
+    "platformio": "PlatformIO Core, version 6.1.19"
+  }
+}

@@ -1,0 +1,328 @@
+{
+  "brief_sha256": "6db3cfa2cf982a0334d5e4e6c3cca395dc8efb5fed7023ee5f161b0afa3340ef",
+  "pins": [
+    {
+      "path": "src/firmware_ui.cpp",
+      "expected": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+      "actual": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+      "match": true,
+      "expected_lines": 2785,
+      "actual_lines": 2785
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "expected": "2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1",
+      "actual": "2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1",
+      "match": true,
+      "expected_lines": 5777,
+      "actual_lines": 5777
+    },
+    {
+      "path": "src/firmware_ui_invite.h",
+      "expected": "fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f",
+      "actual": "fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f",
+      "match": true,
+      "expected_lines": 746,
+      "actual_lines": 746
+    },
+    {
+      "path": "src/firmware_ui_team.h",
+      "expected": "aefa86f4785f30aa6551308f3f666da4d04eee20426e33eddd4591edb165fbc3",
+      "actual": "aefa86f4785f30aa6551308f3f666da4d04eee20426e33eddd4591edb165fbc3",
+      "match": true,
+      "expected_lines": 280,
+      "actual_lines": 280
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "expected": "42dc27ffb4c2205bf8743a9c3d39d80fc6d9b6e33068262bff9c6ddc8799ee63",
+      "actual": "42dc27ffb4c2205bf8743a9c3d39d80fc6d9b6e33068262bff9c6ddc8799ee63",
+      "match": true,
+      "expected_lines": 10229,
+      "actual_lines": 10229
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "expected": "b14780f646a4eaea8d51d1ab0bd916383c246c6f54a155179e4dfe999de2397d",
+      "actual": "b14780f646a4eaea8d51d1ab0bd916383c246c6f54a155179e4dfe999de2397d",
+      "match": true,
+      "expected_lines": 592,
+      "actual_lines": 592
+    },
+    {
+      "path": "test/test_firmware_ui_invite.cpp",
+      "expected": "2a2f7c6fd67af6a2580404247557afea22a31bb3299454f4a7c13b80df5626a7",
+      "actual": "2a2f7c6fd67af6a2580404247557afea22a31bb3299454f4a7c13b80df5626a7",
+      "match": true,
+      "expected_lines": 1314,
+      "actual_lines": 1314
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "expected": "d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a",
+      "actual": "d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a",
+      "match": true,
+      "expected_lines": 7283,
+      "actual_lines": 7283
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "expected": "f754b745c75968dd615e80e092144bad681775d10b6a99c6914446249b4f2579",
+      "actual": "f754b745c75968dd615e80e092144bad681775d10b6a99c6914446249b4f2579",
+      "match": true,
+      "expected_lines": 1753,
+      "actual_lines": 1753
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "expected": "9429254f5d2ec79c32ac1dd4beca3fc9fbadab0d432e8fa57087f8bb4cebe932",
+      "actual": "9429254f5d2ec79c32ac1dd4beca3fc9fbadab0d432e8fa57087f8bb4cebe932",
+      "match": true,
+      "expected_lines": 12450,
+      "actual_lines": 12450
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "expected": "0b5706dec5a8dbae27d231a6b019c2eb2947f2f789b12ad7ecbec52998adadf8",
+      "actual": "0b5706dec5a8dbae27d231a6b019c2eb2947f2f789b12ad7ecbec52998adadf8",
+      "match": true
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "expected": "922564134f257cb0c06a0c5edcb55ebf527f9d226a3d2ddbacd5a473a27249ef",
+      "actual": "922564134f257cb0c06a0c5edcb55ebf527f9d226a3d2ddbacd5a473a27249ef",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+      "expected": "f7e55b32d4c268ed04bbf0ff88e0fba39c4c31d920586b7a453410af614288ca",
+      "actual": "f7e55b32d4c268ed04bbf0ff88e0fba39c4c31d920586b7a453410af614288ca",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS",
+      "expected": "e4268d8d429a023161a90942857a0c88aa47ff1037bd499421038d69fd1ae92a",
+      "actual": "e4268d8d429a023161a90942857a0c88aa47ff1037bd499421038d69fd1ae92a",
+      "match": true
+    },
+    {
+      "path": "tracker.md",
+      "expected": "a03b3cbe4f9caedf4fa077d1b20344cdb7a0411bfccab7b476da2d9d9cc9cb08",
+      "actual": "a03b3cbe4f9caedf4fa077d1b20344cdb7a0411bfccab7b476da2d9d9cc9cb08",
+      "match": true
+    },
+    {
+      "path": "MEMORY.md",
+      "expected": "271edd08f42e1a4d1f43b954bfbe293bbf91e360ee8548892d9fc61d733a5278",
+      "actual": "271edd08f42e1a4d1f43b954bfbe293bbf91e360ee8548892d9fc61d733a5278",
+      "match": true
+    }
+  ],
+  "precheck_checksums": [
+    {
+      "path": "baselines.py",
+      "match": true
+    },
+    {
+      "path": "byte-copy-proof.cpp",
+      "match": true
+    },
+    {
+      "path": "byte-copy-proof.txt",
+      "match": true
+    },
+    {
+      "path": "census.py",
+      "match": true
+    },
+    {
+      "path": "control-reproduction.json",
+      "match": true
+    },
+    {
+      "path": "corpus-comparison.json",
+      "match": true
+    },
+    {
+      "path": "corpus-manifest.json",
+      "match": true
+    },
+    {
+      "path": "font-glyphs.txt",
+      "match": true
+    },
+    {
+      "path": "font-inputs.json",
+      "match": true
+    },
+    {
+      "path": "font-proof.c",
+      "match": true
+    },
+    {
+      "path": "format-feasibility.json",
+      "match": true
+    },
+    {
+      "path": "format-feasibility.py",
+      "match": true
+    },
+    {
+      "path": "gate-summary.txt",
+      "match": true
+    },
+    {
+      "path": "identity-reader-census.json",
+      "match": true
+    },
+    {
+      "path": "inputs.json",
+      "match": true
+    },
+    {
+      "path": "layout-measure.py",
+      "match": true
+    },
+    {
+      "path": "layout-measurements.json",
+      "match": true
+    },
+    {
+      "path": "mutation-selectors.json",
+      "match": true
+    },
+    {
+      "path": "o8-anchor-measurement.json",
+      "match": true
+    },
+    {
+      "path": "o8-reproduce.py",
+      "match": true
+    },
+    {
+      "path": "preflight.json",
+      "match": true
+    },
+    {
+      "path": "preservation.json",
+      "match": true
+    },
+    {
+      "path": "raw-artifacts.json",
+      "match": true
+    },
+    {
+      "path": "runs.json",
+      "match": true
+    },
+    {
+      "path": "start.py",
+      "match": true
+    },
+    {
+      "path": "validation.json",
+      "match": true
+    },
+    {
+      "path": "w1c-checksums.txt",
+      "match": true
+    },
+    {
+      "path": "w1c-qa-checksums.txt",
+      "match": true
+    },
+    {
+      "path": "w3-checksums.txt",
+      "match": true
+    },
+    {
+      "path": "w3-qa-checksums.txt",
+      "match": true
+    }
+  ],
+  "inventory_changes": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "original_count": 1455,
+      "current_count": 1488,
+      "changed": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "tracker.md"
+      ],
+      "missing": [],
+      "added": [
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/baselines.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.cpp",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/census.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/control-reproduction.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-comparison.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-glyphs.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-inputs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/gate-summary.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/identity-reader-census.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/inputs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measure.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measurements.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/mutation-selectors.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-anchor-measurement.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-reproduce.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preflight.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preservation.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/runs.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/start.py",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/validation.json",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-qa-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-checksums.txt",
+        "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-qa-checksums.txt",
+        "docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md"
+      ]
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "original_count": 285,
+      "current_count": 285,
+      "changed": [],
+      "missing": [],
+      "added": []
+    }
+  ],
+  "links": [
+    {
+      "target": "../evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+      "exists": true
+    },
+    {
+      "target": "../specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-07-30-open-bug-register.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-09-02-agent-roles.md",
+      "exists": true
+    },
+    {
+      "target": "../evidence/README.md",
+      "exists": true
+    }
+  ],
+  "heads": [
+    "8360802904f7bd0023279d3da844453d61207ede",
+    "6585649ea5a780f0542b2931853a667be56a5b2b"
+  ],
+  "simulator_status": "",
+  "staged": ""
+}

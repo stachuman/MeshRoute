@@ -1,0 +1,140 @@
+# W4a §4.1 step 9 — mutation union: python3 tools/probe_ui_model_mutations.py --target=<name>, each alone, after the last board pair
+# (scratch trees under /tmp; the harness reports the real tree untouched)
+
+== model
+  mutations: 239 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 31.5s + battery 713.2s = 744.7s total, 239 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 30/30 entries, 30 RED / 0 worthless, wall 710.0s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 1: 30/30 entries, 30 RED / 0 worthless, wall 700.0s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 2: 30/30 entries, 30 RED / 0 worthless, wall 698.9s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 3: 30/30 entries, 30 RED / 0 worthless, wall 712.7s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 4: 30/30 entries, 30 RED / 0 worthless, wall 713.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 5: 30/30 entries, 30 RED / 0 worthless, wall 686.4s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 6: 30/30 entries, 30 RED / 0 worthless, wall 691.2s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+    worker 7: 29/29 entries, 29 RED / 0 worthless, wall 677.9s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441e
+== sliceCbudget
+  mutations: 1 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  timing: copy 2.8s + battery 20.3s = 23.1s total, 1 entries over 1 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 1/1 entries, 1 RED / 0 worthless, wall 20.2s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+== uiteam
+  mutations: 20 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 25.5s + battery 47.4s = 72.9s total, 20 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 3/3 entries, 3 RED / 0 worthless, wall 39.3s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 1: 3/3 entries, 3 RED / 0 worthless, wall 47.3s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 2: 3/3 entries, 3 RED / 0 worthless, wall 40.5s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 3: 3/3 entries, 3 RED / 0 worthless, wall 41.3s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 4: 2/2 entries, 2 RED / 0 worthless, wall 37.8s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 5: 2/2 entries, 2 RED / 0 worthless, wall 39.4s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 6: 2/2 entries, 2 RED / 0 worthless, wall 39.3s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+    worker 7: 2/2 entries, 2 RED / 0 worthless, wall 42.1s, rc 0, source restored: md5 128edec3e449592a63b1e1f4f741ebe5 
+== uiinvite
+  mutations: 32 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 23.8s + battery 99.1s = 123.0s total, 32 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 4/4 entries, 4 RED / 0 worthless, wall 85.6s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 1: 4/4 entries, 4 RED / 0 worthless, wall 97.2s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 2: 4/4 entries, 4 RED / 0 worthless, wall 94.4s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 3: 4/4 entries, 4 RED / 0 worthless, wall 97.2s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 4: 4/4 entries, 4 RED / 0 worthless, wall 99.0s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 5: 4/4 entries, 4 RED / 0 worthless, wall 97.8s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 6: 4/4 entries, 4 RED / 0 worthless, wall 88.9s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+    worker 7: 4/4 entries, 4 RED / 0 worthless, wall 92.8s, rc 0, source restored: md5 7ab52cd8b272bd66056c8b1001fbc842 
+== w4aident
+  mutations: 9 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 22.3s + battery 17.8s = 40.1s total, 9 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 2/2 entries, 2 RED / 0 worthless, wall 17.7s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 1: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 2: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 3: 1/1 entries, 1 RED / 0 worthless, wall 12.5s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 4: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 5: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 6: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+    worker 7: 1/1 entries, 1 RED / 0 worthless, wall 14.1s, rc 0, source restored: md5 e6bcf8ba8bc7180659b3de20a441ed17 
+== uisend
+  mutations: 15 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 22.8s + battery 25.2s = 48.0s total, 15 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 2/2 entries, 2 RED / 0 worthless, wall 24.8s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 1: 2/2 entries, 2 RED / 0 worthless, wall 25.1s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 2: 2/2 entries, 2 RED / 0 worthless, wall 22.0s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 3: 2/2 entries, 2 RED / 0 worthless, wall 24.8s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 4: 2/2 entries, 2 RED / 0 worthless, wall 23.6s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 5: 2/2 entries, 2 RED / 0 worthless, wall 23.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 6: 2/2 entries, 2 RED / 0 worthless, wall 23.9s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+    worker 7: 1/1 entries, 1 RED / 0 worthless, wall 14.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+== sliceCsend
+  mutations: 1 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  timing: copy 2.7s + battery 11.3s = 14.1s total, 1 entries over 1 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 1/1 entries, 1 RED / 0 worthless, wall 11.3s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4 
+== chrome
+  mutations: 44 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 21.8s + battery 81.7s = 103.6s total, 44 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 6/6 entries, 6 RED / 0 worthless, wall 81.6s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 1: 6/6 entries, 6 RED / 0 worthless, wall 76.4s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 2: 6/6 entries, 6 RED / 0 worthless, wall 76.4s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 3: 6/6 entries, 6 RED / 0 worthless, wall 74.1s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 4: 5/5 entries, 5 RED / 0 worthless, wall 68.5s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 5: 5/5 entries, 5 RED / 0 worthless, wall 75.5s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 6: 5/5 entries, 5 RED / 0 worthless, wall 56.3s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+    worker 7: 5/5 entries, 5 RED / 0 worthless, wall 63.2s, rc 0, source restored: md5 3bcb2c42970f5b133578889ed45e7a12 
+== uinearbyrow
+  mutations: 9 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 22.2s + battery 23.0s = 45.3s total, 9 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 2/2 entries, 2 RED / 0 worthless, wall 22.9s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 1: 1/1 entries, 1 RED / 0 worthless, wall 16.2s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 2: 1/1 entries, 1 RED / 0 worthless, wall 16.7s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 3: 1/1 entries, 1 RED / 0 worthless, wall 17.2s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 4: 1/1 entries, 1 RED / 0 worthless, wall 18.2s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 5: 1/1 entries, 1 RED / 0 worthless, wall 17.2s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 6: 1/1 entries, 1 RED / 0 worthless, wall 15.7s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+    worker 7: 1/1 entries, 1 RED / 0 worthless, wall 16.8s, rc 0, source restored: md5 413f852e19c8e6c225e65435f643c514 
+== uigeo
+  mutations: 18 RED / 0 unusable
+  ok   clean baseline 2986 / 197299 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 22.4s + battery 25.6s = 48.0s total, 18 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 3/3 entries, 3 RED / 0 worthless, wall 25.5s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 1: 3/3 entries, 3 RED / 0 worthless, wall 23.0s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 2: 2/2 entries, 2 RED / 0 worthless, wall 20.6s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 3: 2/2 entries, 2 RED / 0 worthless, wall 20.7s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 4: 2/2 entries, 2 RED / 0 worthless, wall 20.7s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 5: 2/2 entries, 2 RED / 0 worthless, wall 20.7s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 6: 2/2 entries, 2 RED / 0 worthless, wall 20.7s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+    worker 7: 2/2 entries, 2 RED / 0 worthless, wall 19.4s, rc 0, source restored: md5 ac51d507942f3d675b500f7727a207da 
+
+UNION: 10 batteries, 388 configured entries run, 388 RED
+
+== the re-anchored entries (uiinvite I07/I08/I09) and the kept team anchors (uiteam T01/T02/T03/T09)
+  ok   I07 ★★ the cached name REPLACES the member fingerprint instead of filling the column beside it — the identity aid vanishes the moment a name arrives (F-15 rule 2) -> RED (13 assertion(s) 
+  ok   I08 ★★ the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached — the TRUNCATED `0x` third spelling of the hash, in six columns (F-15's named refusal) -> RED
+  ok   I09 ★ the name is rendered WITHOUT the six-column clamp — a long name pushes the id and the fingerprint off the 19-column row -> RED (20 assertion(s) failed, match count 1)
+  ok   T01 ★★ the label loses its PRECISION — a long name pushes the age and both reserved columns off the row -> RED (6 assertion(s) failed, match count 1)
+  ok   T02 ★★ the two location columns are dropped from the format, so the row loses them silently -> RED (41 assertion(s) failed, match count 1)
+  ok   T03 the marker is INVERTED — a passive preview marks every teammate it never picked -> RED (22 assertion(s) failed, match count 1)
+  ok   T09 the label is compared over its WHOLE array — a rename nobody can see repaints the panel -> RED (3 assertion(s) failed, match count 1)
+== the new battery (w4aident F01-F09)
+  ok   F01 ★★ the MARKER IS DROPPED — the last kept cell is the next name byte, a SILENT clip (B441's defect restored) -> RED (34 assertion(s) failed, match count 1)
+  ok   F04 ★★★ an unnamed peer at 6-9 columns gets a CLIPPED `0x…` hash instead of its fingerprint (the third spelling) -> RED (4 assertion(s) failed, match count 1)
+  ok   F03 ★★ the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.` -> RED (31 assertion(s) failed, match count 1)
+  ok   F08 ★★ the CAPACITY rule is dropped — a destination shorter than the budget gets a partial result past its end -> RED (6 assertion(s) failed, match count 1)
+  ok   F02 ★★★ the SANITIZER IS BYPASSED — raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells) -> RED (168 assertion(s) failed, match count 1)
+  ok   F05 ★★ the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled -> RED (3 assertion(s) failed, match count 1)
+  ok   F06 ★★★ NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost) -> RED (24 assertion(s) failed, match count 1)
+  ok   F07 ★★ the marker is written ONE PAST the budget — the abbreviated label is `cols + 1` cells wide -> RED (36 assertion(s) failed, match count 1)
+  ok   F09 ★★ a NAME is ignored whenever a hash is known — the peer's chosen name is replaced by its hash token -> RED (13 assertion(s) failed, match count 1)

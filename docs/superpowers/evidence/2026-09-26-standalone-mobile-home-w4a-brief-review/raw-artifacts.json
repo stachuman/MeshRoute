@@ -1,0 +1,22 @@
+[
+  {
+    "path": "artifacts/2026-09-26-standalone-mobile-home-w4a-brief-review/initial-inputs.json",
+    "bytes": 355875,
+    "sha256": "da0fca4b0331212be81a9bf7186a5944a60e3bbc16541ac907fb039ed465c68f"
+  },
+  {
+    "path": "artifacts/2026-09-26-standalone-mobile-home-w4a-brief-review/make-foldins.py",
+    "bytes": 8044,
+    "sha256": "7d33a0e0b4e3f1e6b090a9e2cedd3d9a8aa1801530ac57f049abb8899e2baec3"
+  },
+  {
+    "path": "artifacts/2026-09-26-standalone-mobile-home-w4a-brief-review/proposed-revision-2.md",
+    "bytes": 41473,
+    "sha256": "7fafe9ef08aa50842a30240b08fa079cf8ce67c608f46d8ebe390ed879fff067"
+  },
+  {
+    "path": "artifacts/2026-09-26-standalone-mobile-home-w4a-brief-review/scratch-cxx17-failure.txt",
+    "bytes": 66983,
+    "sha256": "a9cea1657e922d38cd1901dcc618c593bc3898b019741084758ed8a99178d797"
+  }
+]

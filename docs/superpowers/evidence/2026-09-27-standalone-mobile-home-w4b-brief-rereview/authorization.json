@@ -1,0 +1,20 @@
+{
+  "allocation_unchanged": true,
+  "authorized_after_exact_fold_in_sha256": "a20e2dbf70ddf10aaeb67590ed7de1d816ec1e64ed520b3d69ac1713709b4f64",
+  "authorized_condition": "Only after exact required-fold-in.patch is applied, yielding the authorized SHA-256; no further review required. Current reviewed bytes are not the dispatch pin.",
+  "brief": "docs/superpowers/plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md",
+  "date": "2026-09-27",
+  "finding": "W4BR-1",
+  "fold_in": "Only C99/C124 must-fail cell; no header/status/revision edits",
+  "git_apply_check": "PASS",
+  "head": "8360802904f7bd0023279d3da844453d61207ede",
+  "implementation_qa_pass": false,
+  "owner_ruling_requested": false,
+  "patch_sha256": "324483db14fb66d7b4345461f4748b36defdf5f82b134b354cd9c4b970800ba7",
+  "raw_authorized_candidate": "artifacts/2026-09-27-standalone-mobile-home-w4b-brief-rereview/authorized-brief.md",
+  "raw_reviewed_brief": "artifacts/2026-09-27-standalone-mobile-home-w4b-brief-rereview/reviewed-brief-r2.md",
+  "report_sha256": "c0c4b098bdbdaa734e863a94b6acaf857c2bc7ee69f8797020b9fc47e702c266",
+  "reviewed_sha256": "75893d37bd1ff4f3ab4404891d833f99458f87a11b4cc053d105a4341576e419",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "verdict": "PASS with fold-ins"
+}

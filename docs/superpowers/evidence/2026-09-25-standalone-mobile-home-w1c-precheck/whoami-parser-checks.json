@@ -1,0 +1,41 @@
+[
+  {
+    "input": "[whoami] id=17 hash=0xDEADBEEF name=\"\" leaf=0 gw=0 gwonly=0 mobile=1",
+    "expected_name": "",
+    "result": {
+      "node_id": 17,
+      "hash": "0xDEADBEEF",
+      "leaf": 0,
+      "gw": false,
+      "gwonly": false,
+      "mobile": true,
+      "name": ""
+    }
+  },
+  {
+    "input": "[whoami] id=17 hash=0xDEADBEEF name=\"Bench 1\" leaf=0 gw=0 gwonly=0 mobile=1",
+    "expected_name": "Bench 1",
+    "result": {
+      "node_id": 17,
+      "hash": "0xDEADBEEF",
+      "leaf": 0,
+      "gw": false,
+      "gwonly": false,
+      "mobile": true,
+      "name": "Bench 1"
+    }
+  },
+  {
+    "input": "[whoami] id=17 hash=0xDEADBEEF leaf=0 gw=0 gwonly=0 mobile=1",
+    "expected_name": null,
+    "result": {
+      "node_id": 17,
+      "hash": "0xDEADBEEF",
+      "leaf": 0,
+      "gw": false,
+      "gwonly": false,
+      "mobile": true,
+      "name": null
+    }
+  }
+]

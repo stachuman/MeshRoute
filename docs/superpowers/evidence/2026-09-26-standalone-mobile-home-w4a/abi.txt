@@ -1,0 +1,29 @@
+# W4a §4.1 step 4 — ABI: python3 -B tools/probe_board_abi.py (full, controls on)
+  RED: (1) the divergence fixture is replaced by an ABI-invariant struct
+  RED: (2) a pinned sizeof is moved by 8 (the [[B246]] delta)
+  RED: (2b) a pinned alignof is doubled
+  RED: (3) a still-pinned struct is dropped from the probe TU
+  RED: (3b) an unpinned struct is emitted into the probe TU
+  RED: (4a) the flag derivation loses MR_PROFILE_GATEWAY (wrong feature build)
+  RED: (4b) the flag derivation loses MR_FEAT_OLED=1 (wrong feature-TU inclusion)
+  RED: (4c) an env declares MR_FEAT_OLED=1 without compiling firmware_ui.cpp
+  RED: (5) the probe TU does not compile -- must be FAILING, never measured
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+
+# supplemental three-type layout (pre-check base recipe; driver w4a_layout.py; generated TU outside the checkout)
+## baseline (unmodified tree)
+native UiState=504/8 UiSnapshot=1336/8 UiModel=928/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+heltec_mobile UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+gateway UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+## final
+native UiState=504/8 UiSnapshot=1336/8 UiModel=928/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+heltec_mobile UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+gateway UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4
+targets identical baseline vs final: True
+OutcomeView declaration sha256 (extracted once from firmware_ui.cpp): 4d59c9673dd40689608bf6062090d6461860496956e65bb71d883e35f5e7f8af (baseline equal: True )
+generated TU sha256: baseline 786020e68cc44551ec0206419c02f0b78e33c0b1761c25a2f21c287f800e671f | final 1fb6f19cb1528c80f7b99b73051b45a31c5da1c77f5af7fa2bf31f5c2d90c0a5
+inputs (final):
+   4a499098be6b55cb2c3c02c3cf5462b87489eca34e8a15d30e6b18c2346239c9 src/firmware_ui_model.h
+   f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c src/firmware_ui_invite.h
+   bfe5d70e0795effcbeaa7623dc3ee84f4481bc5b04d5728f8167619b92f3530e src/firmware_ui.cpp
+   d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d tools/probe_board_abi.py

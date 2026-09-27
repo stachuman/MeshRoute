@@ -1,0 +1,22 @@
+{
+  "source": "tools/probe_board_abi.py",
+  "sha256": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d",
+  "types": {
+    "mrui::TeamRow": false,
+    "mrui::InviteIdRows": false,
+    "OutcomeView": false,
+    "mrui::InviteMember": true,
+    "mrui::UiSnapshot": true,
+    "mrui::UiModel": true,
+    "mrui::UiState": true,
+    "meshroute::Node": true
+  },
+  "source_lines": [
+    143,
+    170,
+    171,
+    172,
+    175
+  ],
+  "supplemental_precheck": "2026-09-26-standalone-mobile-home-w4a-precheck/layout-measurements.json"
+}

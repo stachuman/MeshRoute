@@ -1,0 +1,109 @@
+{
+  "gateway": {
+    "measurements": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 769540,
+        "filename": "firmware.elf",
+        "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      }
+    },
+    "matching_sections": [
+      "measurements",
+      "artifacts",
+      "toolchain",
+      "fixed_identity",
+      "paths",
+      "concurrency",
+      "host",
+      "schema"
+    ],
+    "differences": {
+      "source.git_status_sha256": {
+        "coder": "5e1cf0573679b725deeb7283a59df3872b964e30ebc7db5bc069ccbb1a0b4c2c",
+        "qa": "eaa773451d14bc910f3a024d88f1b61f60ab214fd025325ad4db6d8a2d4e1532"
+      },
+      "source.file_count": {
+        "coder": 1502,
+        "qa": 1548
+      },
+      "source.tree_sha256": {
+        "coder": "b1430478c2a4d8caf8897aa035009b6d29ff04c5dc76dc1efd710a69e6d98fe2",
+        "qa": "2f4fb7bd80e1c8a0ab70fcac079f482ad5bc51f6f316a08564a6804452a10aa7"
+      }
+    }
+  },
+  "heltec_mobile": {
+    "measurements": {
+      "flash_bytes": 1394840,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218084,
+        ".flash.text": 1072626,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211724,
+      "symbol_count": 13298,
+      "symbol_size_total": 1496263,
+      "symbols_sha256": "e1aa13504ab1be78f94950caee335b680b7b37d66e8348c9d094659864d750a8"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 21603360,
+        "filename": "firmware.elf",
+        "sha256": "9543b9c3bb8116c8f1d77c6e181d84db37414ec79812cc6c53f8b95159e47d15"
+      },
+      "payload": {
+        "bytes": 1395472,
+        "filename": "firmware.bin",
+        "sha256": "820b8bd30655d698abbf78c9c4d752de62ff7b732c705fa4b5aec73b66fe8a11"
+      }
+    },
+    "matching_sections": [
+      "measurements",
+      "artifacts",
+      "toolchain",
+      "fixed_identity",
+      "paths",
+      "concurrency",
+      "host",
+      "schema"
+    ],
+    "differences": {
+      "source.git_status_sha256": {
+        "coder": "5e1cf0573679b725deeb7283a59df3872b964e30ebc7db5bc069ccbb1a0b4c2c",
+        "qa": "eaa773451d14bc910f3a024d88f1b61f60ab214fd025325ad4db6d8a2d4e1532"
+      },
+      "source.file_count": {
+        "coder": 1502,
+        "qa": 1548
+      },
+      "source.tree_sha256": {
+        "coder": "b1430478c2a4d8caf8897aa035009b6d29ff04c5dc76dc1efd710a69e6d98fe2",
+        "qa": "2f4fb7bd80e1c8a0ab70fcac079f482ad5bc51f6f316a08564a6804452a10aa7"
+      }
+    }
+  }
+}

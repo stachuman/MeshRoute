@@ -1,0 +1,17 @@
+symbol                                                                     object(final)  elf base elf final  delta
+_Z10mr_ui_tickm                                                                     7366      7026      7018     -8
+_Z13mr_ui_on_pushRKN9meshroute4PushE                                                 658       647       646     -1
+_ZN12_GLOBAL__N_115inbox_detail_cbEPvRKN9meshroute10InboxEntryE                      263       255       263     +8
+_ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm                                421       417       413     -4
+_ZN4mrfw18UiProvisionAdapter7performERKN4mrui12UiProvIntentE                         273       269       265     -4
+_ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE                                  38        37        38     +1
+_ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE                                120       118       120     +2
+_ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE                          519       504       500     -4
+_ZN4mrui7UiModel13sync_settingsERKNS_10UiSnapshotE                                   217       311       209   -102
+_ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE                               534       514       522     +8
+_ZN4mrui7UiModel18ensure_config_openEv$isra$0                                        110         -       110   +110
+_ZN4mrui7UiModel19refresh_detail_pageEv                                              132       134       132     -2
+_ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE               183       183       179     -4
+_ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE              293       282       278     -4
+_ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE                             128       122       121     -1
+sum of symbol-size deltas: -5

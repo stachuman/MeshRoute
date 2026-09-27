@@ -1,0 +1,162 @@
+[
+  {
+    "battery": "radmin8node",
+    "red": 1,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 2,
+    "entries": [
+      "ok   N01 B408 counts home delegation ring instead of mobile E2E ring -> RED (22 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "radmin73node",
+    "red": 5,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 6,
+    "entries": [
+      "ok   N01 service does not mark due work -> RED (6 assertion(s) failed, match count 1)",
+      "ok   N02 consumer clock is stale -> RED (5 assertion(s) failed, match count 1)",
+      "ok   N03 consumed promise leaves wake armed -> RED (1 assertion(s) failed, match count 1)",
+      "ok   N04 status clock is stale -> RED (1 assertion(s) failed, match count 1)",
+      "ok   N05 last outcome lost -> RED (1 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "teamgrant",
+    "red": 4,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 5,
+    "entries": [
+      "ok   G01 \u2605\u2605\u2605 THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` \u2014 a full TX queue (or a full parked ring) drops the frame at the door and the caller is told it was admitted, which is the QG blocker verbatim -> RED (7 assertion(s) failed, match count 1)",
+      "ok   G02 \u2605\u2605\u2605 THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` \u2014 the pre-correction answer, which left the panel to guess the parked state from a zero handle (the inference S-37 now forbids) -> RED (28 assertion(s) failed, match count 1)",
+      "ok   G03 \u2605\u2605\u2605 A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `queued` \u2014 the loud refusals (the joining gate, a seal failure, the type-19 structural refusals) are dressed as a successful enqueue -> RED (7 assertion(s) failed, match count 1)",
+      "ok   G04 \u2605\u2605\u2605 THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED \u2014 the caller gets a handle with no address, so no `send_aired` can ever correlate and the grant screen waits for ever -> RED (19 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "b159map",
+    "red": 2,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 3,
+    "entries": [
+      "ok   B16 the expiry is mapped to a NON-TERMINAL outcome \u2014 the flight re-enters retry instead of ending -> RED (2 assertion(s) failed, match count 1)",
+      "ok   B17 the wrong-flight guard is dropped \u2014 a SUPERSEDED flight's expiry fails the LIVE flight -> RED (2 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "sliceBnode",
+    "red": 8,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 9,
+    "entries": [
+      "ok   N01 \u2605\u2605\u2605 THE GRANT'S AIRED PUSH IS DELETED \u2014 \u00a7UI-16's panel can never leave `GRANT QUEUED`, because the generic `send_aired` it used to wait for is suppressed for a protocol-internal type and nothing replaces it. This is [[B268]] VERBATIM, and it is the defect the whole ruling exists to close -> RED (6 assertion(s) failed, match count 1)",
+      "ok   N02 \u2605\u2605\u2605 THE CORRELATION IS DROPPED \u2014 the aired push carries dst 0 instead of the flight's own, so the verdict either never promotes or promotes on a WRONG-FLIGHT match. `{dst, ctr}` is the whole reason a re-DAD inside the grant window cannot strand or misattribute the screen -> RED (4 assertion(s) failed, match count 1)",
+      "ok   N03 \u2605\u2605\u2605 THE SUPPRESSION IS DISABLED FOR EVERY TYPE \u2014 the grant takes the GENERIC `send_aired` path again, so a protocol-internal frame re-acquires a user-send outcome (\u00a76.2(5) undone) AND its own kind is never minted -> RED (7 assertion(s) failed, match count 1)",
+      "ok   N04 \u2605\u2605\u2605 THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED \u2014 a `join`/`leave` with a deferred grant strands the panel, and every deferred APPLICATION carrier loses its `send_failed` too ([[B268]] blocker-1) -> RED (3 assertion(s) failed, match count 1)",
+      "ok   N05 \u2605\u2605 THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED \u2014 the SIXTH site this sweep found reverts to releasing a stranded flight in total silence, grant included ([[B268]] blocker-1) -> RED (2 assertion(s) failed, match count 1)",
+      "ok   N06 \u2605\u2605\u2605 THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM \u2014 every APPLICATION ENVELOPE (INTRO / MOBILE_SEND / SEALED_RELAY) loses its user-send failure at EVERY one of the eleven terminal sites at once, which is \u00a76.4 inverted -> RED (3 assertion(s) failed, match count 1)",
+      "ok   N07 \u2605\u2605\u2605 THE HELPER'S TRAIT TERM IS DROPPED \u2014 a cascade-exhausted E2E ack / hash answer pushes `send_failed` under ITS dst and ITS ctr again, into the ring the companion correlates by ctr ([[B59]]'s exact shape) -> RED (13 assertion(s) failed, match count 1)",
+      "ok   N08 \u2605\u2605\u2605 THE HELPER'S GRANT ARM IS DELETED \u2014 every one of the eleven post-admission carrier deaths stops reporting the grant at once: the \u00a7UI-16 panel is stranded on `GRANT QUEUED` whatever kills the flight -> RED (23 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "sliceEnode",
+    "red": 3,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 4,
+    "entries": [
+      "ok   E01 \u2605\u2605\u2605\u2605 [[B263]] IS RESTORED \u2014 the `own_origination` term is dropped from the central gate, so a TRANSIT terminal give-up again pushes a generic `send_failed` under the ORIGINAL sender's `{dst, ctr}`: a user-send completion for a send this node never made, able to collide with a real local one -> RED (4 assertion(s) failed, match count 1)",
+      "ok   E02 \u2605\u2605\u2605 THE TRANSIT AXIS IS INVERTED \u2014 only RELAYED carriers report and our own sends go silent, which is [[B263]] with the sign flipped: every real user-send failure disappears from the app -> RED (34 assertion(s) failed, match count 1)",
+      "ok   E03 \u2605\u2605\u2605 THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED \u2014 `own_origination` becomes an alternative to the caller's own `generic_owed` answer, so the three deliberately-silent terminals start reporting AND the transit fence is gone -> RED (6 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "w1cname",
+    "red": 4,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 5,
+    "entries": [
+      "ok   W01 \u2605\u2605\u2605 the retired DEFAULT is restored for an empty name \u2014 an unnamed node advertises `MeshRoute node: 0x<hash>` again (D10 undone) -> RED (45 assertion(s) failed, match count 1)",
+      "ok   W02 \u2605\u2605 a TERMINATOR is reserved \u2014 the copy is clamped to cap - 1 and NUL-terminated, so a 32-byte name loses its last byte on the wire -> RED (8 assertion(s) failed, match count 1)",
+      "ok   W03 \u2605 the EMPTY path writes a terminator (out[0] = NUL when unnamed) \u2014 the count is still 0, but `writes nothing` is broken -> RED (2 assertion(s) failed, match count 1)",
+      "ok   W04 \u2605\u2605 the CAPACITY is ignored \u2014 the whole stored name is copied whatever `cap` the caller passed -> RED (4 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "b161hash",
+    "red": 6,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 7,
+    "entries": [
+      "ok   H01 B161 TEAM origin is taken directly from the static node id instead of the one stamp_origin authority -> RED (18 assertion(s) failed, match count 1)",
+      "ok   H02 B161 the shared helper restores the legacy raw body and never writes the canonical origin envelope -> RED (134 assertion(s) failed, match count 1)",
+      "ok   H03 B161 type 13 drops the H query's TEAM plane and falls back to AUTO -> RED (2 assertion(s) failed, match count 1)",
+      "ok   H04 B161 type 13 omits both name_len and the name tail from the transmitted body -> RED (25 assertion(s) failed, match count 1)",
+      "ok   H05 B161 production type 5 is accidentally rebuilt by overwriting its established body prefix -> RED (3 assertion(s) failed, match count 1)",
+      "ok   H06 B161 a type-13 hash/pubkey mismatch still installs mobile-home state and drains -> RED (1 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  },
+  {
+    "battery": "w1cretain",
+    "red": 1,
+    "unusable": 0,
+    "baseline": [
+      2962,
+      195904,
+      0
+    ],
+    "baseline_records": 2,
+    "entries": [
+      "ok   R01 \u2605\u2605\u2605 an EMPTY advertisement ERASES a retained name \u2014 the refresh guard `name && name_len` loses its count term (B447's unnamed half) -> RED (8 assertion(s) failed, match count 1)"
+    ],
+    "exit": 0
+  }
+]

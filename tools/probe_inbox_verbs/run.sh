@@ -239,10 +239,13 @@ STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 # R7-A29/A30 and R7-A13..A16 x1 each, and removes one refusal-only R7-A20: +12 -1 = +11.
 # CLIENT stays 378 + local status dispatch and five absent target-field checks = 384.
 # Slice 10: +20 shared migration/golden rows (three four-slot loops + eight scalar checks).
-PIN_CHECKS_ACCEPT=1394
+# W1c (D10): +6 shared X21..X26 `whoami` exact identity-line rows, appended at the END of the X block —
+# unnamed (name="") / `Bench 1` / a 32-byte name, each on the TEXT and the JSON arm: 1394 + 6 = 1400.
+PIN_CHECKS_ACCEPT=1400
 # 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.
 # 8b adds ten observer/transport checks and eight real-Node binding-veto checks.
-PIN_CHECKS_CLIENT=477
+# W1c: the same six shared X21..X26 rows: 477 + 6 = 483.
+PIN_CHECKS_CLIENT=483
 PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
@@ -258,10 +261,13 @@ PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "
 #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).
 # 7b-2: 50 + five service/open links and five exact status-value controls.
 # Slice 10: +A10-C1 config wrong-slot read, on both arms; every prior control retained.
-PIN_CONTROLS_ACCEPT=61
+# W1c: +2 shared router controls on both arms, W1c-C1 (a made-up default restored) and W1c-C2 (the empty
+# name field dropped), each RED on X21/X22 only: 61 + 2 = 63.
+PIN_CONTROLS_ACCEPT=63
 # 8ac adds eleven real firmware decision controls to the previous 45.
 # 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.
-PIN_CONTROLS_CLIENT=69
+# W1c: the same two shared router controls: 69 + 2 = 71.
+PIN_CONTROLS_CLIENT=71
 PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
@@ -762,6 +768,18 @@ if [ "${1:-}" != "--no-neg" ]; then
     's|/\*v_min=\*/kVersionMinLoad, /\*v_max=\*/kVersion|/\*v_min=\*/27, /\*v_max=\*/kVersion|'
   ctl 'A10-C1 config loader reads the administration identity slot' nvh \
     's|    const int n = read_slot(kSlotCfg, \&out, sizeof out);|    const int n = read_slot(kSlotAdmid, \&out, sizeof out);|'
+
+  # ★★ W1c (design §4.6 D10) — `whoami`'s TWO WRONG ANSWERS FOR AN UNNAMED NODE, at the router, on BOTH arms. Each must
+  #    go RED on X21/X22 (the unnamed rows) and on nothing else. Each substitution carries its own exactly-one-match
+  #    guard (`s6_ctl`), because the stock `cmp` only sees a mutation that changes nothing at all ([[B449]]).
+  #    · C1: the retired default brought back at the router when the core returns 0 — D10 says unnamed = no name.
+  #    · C2: the tempting "omit when empty" — the field must be PRESENT and empty (`name=""`), not dropped.
+  s6_ctl 'W1c-C1 whoami restores a made-up default name when the node is unnamed' \
+    'uint8_t nn = g_node.effective_name(nm, sizeof nm);' \
+    's|uint8_t nn = g_node.effective_name(nm, sizeof nm);|uint8_t nn = g_node.effective_name(nm, sizeof nm); if (nn == 0) nn = uint8_t(snprintf(nm, sizeof nm, "MeshRoute node: 0x%08lX", static_cast<unsigned long>(g_node.key_hash32())));|'
+  s6_ctl 'W1c-C2 whoami omits the name field when the node is unnamed' \
+    'out.print(F(" name=\"")); out.write(nm, nn); out.print(' \
+    's|out.print(F(" name=\\"")); out.write(nm, nn); out.print(|if (nn) { out.print(F(" name=\\"")); out.write(nm, nn); } if (nn) out.print(|'
 
 fi
 

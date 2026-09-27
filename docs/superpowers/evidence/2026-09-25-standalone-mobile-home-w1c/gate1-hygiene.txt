@@ -1,0 +1,4 @@
+git diff --check exit=0
+1915 (base 1915) src/firmware_commands.cpp
+1875 (base 1875) src/fw_main.cpp
+376 (base 376) lib/console/console_parse.cpp

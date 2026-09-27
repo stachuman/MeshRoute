@@ -1,0 +1,75 @@
+{
+  "scope": "Read-only verification of previously checksummed coder logs; not QA execution of dependency batteries",
+  "batteries": [
+    {
+      "battery": "model",
+      "retained_summary_lines": [
+        "  [w5] shard 5: 30 RED / 0 unusable   (of 30 entries)",
+        "  [w3] shard 3: 30 RED / 0 unusable   (of 30 entries)",
+        "  [w2] shard 2: 30 RED / 0 unusable   (of 30 entries)",
+        "  [w1] shard 1: 30 RED / 0 unusable   (of 30 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)",
+        "mutations: 239 RED / 0 unusable"
+      ]
+    },
+    {
+      "battery": "sliceCbudget",
+      "retained_summary_lines": [
+        "  [w0]   ok   clean baseline 2973 / 196111 / 0   (DERIVED from this tree)",
+        "  [w0] shard 0: 1 RED / 0 unusable   (of 1 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 1 tree(s) agree)",
+        "mutations: 1 RED / 0 unusable"
+      ]
+    },
+    {
+      "battery": "uipresets",
+      "retained_summary_lines": [
+        "  [w7] shard 7: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w5] shard 5: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w3] shard 3: 4 RED / 0 unusable   (of 4 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)",
+        "mutations: 32 RED / 0 unusable"
+      ]
+    },
+    {
+      "battery": "uisend",
+      "retained_summary_lines": [
+        "  [w6] shard 6: 2 RED / 0 unusable   (of 2 entries)",
+        "  [w3] shard 3: 2 RED / 0 unusable   (of 2 entries)",
+        "  [w0] shard 0: 2 RED / 0 unusable   (of 2 entries)",
+        "  [w5] shard 5: 2 RED / 0 unusable   (of 2 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)",
+        "mutations: 15 RED / 0 unusable"
+      ]
+    },
+    {
+      "battery": "config",
+      "retained_summary_lines": [
+        "  [w7] shard 7: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w0] shard 0: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w4] shard 4: 4 RED / 0 unusable   (of 4 entries)",
+        "  [w2] shard 2: 4 RED / 0 unusable   (of 4 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)",
+        "mutations: 32 RED / 0 unusable"
+      ]
+    },
+    {
+      "battery": "uiprov",
+      "retained_summary_lines": [
+        "  [w4] shard 4: 6 RED / 0 unusable   (of 6 entries)",
+        "  [w0] shard 0: 6 RED / 0 unusable   (of 6 entries)",
+        "  [w1] shard 1: 6 RED / 0 unusable   (of 6 entries)",
+        "  [w6] shard 6: 5 RED / 0 unusable   (of 5 entries)",
+        "======================================================================================================================",
+        "  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)",
+        "mutations: 45 RED / 0 unusable"
+      ]
+    }
+  ]
+}

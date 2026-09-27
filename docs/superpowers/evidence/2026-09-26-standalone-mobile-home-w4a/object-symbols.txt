@@ -1,0 +1,22 @@
+# firmware_ui.cpp.o for heltec_mobile, scratch builds (pio run -t <object>, MESHROUTE_GIT_REV_OVERRIDE=b206b206b206)
+# base = verified base-copies/src/*; final = the final tree. scratch-final symbol table == measured object's: True
+  7366 ->   7426  _Z10mr_ui_tickm
+   658 ->    703  _Z13mr_ui_on_pushRKN9meshroute4PushE
+    54 ->      -  _ZN12_GLOBAL__N_115label_from_hashEmPch
+    65 ->      -  _ZN12_GLOBAL__N_117label_for_team_idEhPch$constprop$0
+     - ->    119  _ZN12_GLOBAL__N_117label_for_team_idEhPchh
+  3544 ->   3576  _ZN12_GLOBAL__N_121draw_provision_screenERKN4mrui7UiStateERKNS0_10UiSnapshotE$constprop$0
+     - ->      5  _ZN12_GLOBAL__N_1L16kComposeToPrefixE
+    30 ->     33  _ZN12mrcon_detail14GuardedConsole5writeEPKhj
+   330 ->    326  _ZN4mrfw12project_teamERKNS_11TeamRequestERKN9meshroute10NodeConfigERKNS_12ProvSnapshotERNS_8IEntropyERNS_14TeamProjectionERNS3_14RoleSetRefusalE
+   421 ->    417  _ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm
+   490 ->    494  _ZN4mrfw19ProvisioningService10apply_teamERNS_11TeamRequestERKN9meshroute10NodeConfigERKNS_12ProvSnapshotE
+   181 ->    180  _ZN4mrui15ui_fmt_home_ageEPcjby
+     - ->    149  _ZN4mrui15ui_fmt_identityEPcjPKchmh$isra$0
+   303 ->    299  _ZN4mrui18ui_route_recv_pushERNS_15UiInboxCountersERNS_7UiModelERKN9meshroute4PushEhbPKcm$isra$0
+    96 ->     95  _ZN4mrui18ui_team_age_bucketEm
+   519 ->    523  _ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE
+   249 ->    248  _ZN4mrui7UiModel10on_outcomeERKNS_11SendOutcomeEm
+   983 ->    979  _ZN4mrui7UiModel17provision_gestureENS_7GestureERKNS_10UiSnapshotE
+   534 ->    533  _ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE
+   128 ->    129  _ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE

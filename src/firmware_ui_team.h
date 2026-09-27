@@ -148,9 +148,11 @@ inline void ui_team_age_token(char* out, std::size_t cap, uint32_t age_s) {
 //   PASSIVE preview (nothing is picked) and while `team_pick_gone` stands (a `>` beside a teammate the model has
 //   already refused to send to is the mis-send in display form). ⛔ This function does not re-derive that rule — it
 //   is `UiState`'s, and `draw_team_screen` states it once for both row kinds.
-// ⓘ `%-6.6s` PADS **AND** BOUNDS, which is the whole difference between a clamp and a clip: a 14-column
-//   `kLabelCap` label can neither push the age off the row nor leave the columns ragged. §7.1 rule 5 forbids letting
-//   the panel clip as a truncation policy, so the bound is expressed HERE where its meaning can be judged.
+// ⓘ `%-6.6s` PADS **AND** BOUNDS, which is the whole difference between a clamp and a clip. ⓘ W4a: the published
+//   label is ALREADY `ui_fmt_identity`'s six-cell answer (an abbreviated name ends in `»`, an unnamed peer is its
+//   six-digit member fingerprint, a keyless one its bare id), so the precision no longer shapes what a correct
+//   snapshot shows — it is the row's own, independent bound: whatever a `kLabelCap` carrier holds, the age and
+//   both location columns cannot move. §7.1 rule 5 forbids letting the panel clip as a truncation policy.
 // ★★★ §UI-17 S5 — THE TWO COLUMNS ARE COMPOSED HERE, FROM THE ROW's OWN PUBLISHED CACHE FIELDS AND THE FROZEN OWN
 //     FIX, and ⛔ the caller may not pre-compute them: a condition written in `firmware_ui.cpp` is a condition no
 //     battery can attack. `ui_geo_columns` owns the four-term rule, the freshness bound and both tables; this
@@ -238,7 +240,10 @@ inline bool ui_team_rows_equal(const UiSnapshot& a, const UiSnapshot& b) {
         for (std::size_t c = 0; c < kTeamLabelCols; ++c)
             if (a.team[i].label[c] != b.team[i].label[c]) return false;
         // ⓘ A label SHORTER than the drawn width is NUL-padded (`build_snapshot` value-initialises the snapshot and
-        //   `snprintf` terminates), so the loop above compares defined bytes for every reachable label.
+        //   the formatter terminates), so the loop above compares defined bytes for every reachable label.
+        // ⓘ W4a: the six bytes compared are the FORMATTED label's, so an exact six-byte name (`Wolfga`) renamed to a
+        //   longer one with the same prefix (`Wolfg` + `»`) repaints, while two long names that render the same five
+        //   cells and marker still do not.
     }
     return true;
 }

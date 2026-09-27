@@ -1,0 +1,153 @@
+--- a/docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md
++++ b/docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md
+@@ -1,7 +1,7 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # Standalone Home W4a — one identity formatter for every device label (B441, with B449 and B455; `src`)
+ 
+-**Revision 1 — 2026-09-26 — DRAFT, awaiting Quality-Agent review.**
++**Revision 2 — 2026-09-26 — QUALITY-AGENT PASS with fold-ins; authorized by the [QA brief-review receipt](../evidence/2026-09-26-standalone-mobile-home-w4a-brief-review.md).**
+ 
+ - **Base:** commit **`8360802`** (`8360802904f7bd0023279d3da844453d61207ede`) **plus the uncommitted, QA-passed W1c and W3
+   candidates and their landings**. This is not HEAD alone: the pre-check's inventory is the authority for the whole
+@@ -73,7 +73,8 @@
+ | Panel font: `variants/heltec_common/board_ui.cpp` `set_font`, `u8g2_font_6x10_tf` (U8g2 2.35.30) | 0xBB glyph present (`»`, advance 6); 0x7F–0x9F have no glyph; 0xA0–0xFF draw as Latin-1; the driver does not filter | **None** — metal residue (§7) |
+ | `tools/probe_firmware_ui` | W1 wrapper plus trampoline `mr_probe_label_from_hash`; W3's `once <anchor> <script>` guard (`run.sh` `:~1270`); controls B241a/b, N4, N9, O2, O5, O6, O8, O9, O18, O20, O22, C114, C120 bear on labels (pre-check Q5) | §2.5–§2.6 |
+ | `tools/probe_ui_model_mutations.py` | `model` 239, `sliceCbudget` 1, `uiteam` 20, `uiinvite` 32; (b) `uisend` 15, `sliceCsend` 1, `chrome` 44, `uinearbyrow` 9, `uigeo` 18 — each matches once (pre-check census). `PIN_CASES, PIN_ASSERTS = 2973, 196111` | A new battery, re-anchors and the PIN (§2.7) |
+-| `tools/probe_board_abi.py` | `TeamRow` 40, `InviteMember` 20, `InviteIdRows` 26, `OutcomeView` 52, `UiSnapshot` 1336, `UiModel` 928 / 912 / 912, `UiState` 504, `Node` unchanged | **None** — zero resident growth, no re-pin |
++| `tools/probe_board_abi.py` | Stock pins: `InviteMember` 20, `UiSnapshot` 1336, `UiModel` 928 / 912 / 912, `UiState` 504; `Node` 235208 / 122176 / 157304 (native / heltec_mobile / gateway) | **None** — zero resident growth, no re-pin |
++| Pre-check Q3 supplemental compile-only measurement, using the three real ABI toolchains | `TeamRow` 40, `InviteIdRows` 26, `OutcomeView` 52 on each ABI. These three are **not stock ABI-probe entries** | Repeat the supplemental measurement under §4; do not claim the stock sweep measures them |
+ | `tools/probe_board_ui/run.sh` W43 | Requires the literals `static_assert(kBodyCols == mrui::kDetailCols,` and `constexpr int kBodyCols = 19;` in the UI | Keep both. B418's W49/W51/W54 are W2's |
+ 
+ **Executable inputs.** These are the fenced files. Each hash is the working-tree SHA-256 at authoring time.
+@@ -143,7 +144,7 @@
+ - A name's own `0xBB` byte becomes `.`. Only the generated marker is `0xBB`.
+ - A stored name that looks like a hash (`0xdeadbeef`) is a name and is formatted as one — its provenance is never
+   inferred from its spelling.
+-- `cols == 0` returns `no_fit`.
++- `cols == 0` writes `out[0] = '\0'` when `cap > 0`, then returns `no_fit`. No name byte is read.
+ 
+ **Unnamed (`len == 0`) with `key_hash32 != 0`:**
+ - `cols ≥ 10`: `ui_fmt_member_hash_full`, which gives `0x<HASH8>` uppercase.
+@@ -174,8 +175,9 @@
+   - invite name = `kInviteNameCap − 1` (14);
+   - candidate-row name = the invite row's name column (6).
+ 
+-  Each stack or output buffer is sized from its budget (budget + 1), so `no_fit` is unreachable at every production
+-  site. State this with a compile-time check where the buffer is declared.
++  Each new stack output buffer is sized from its budget (budget + 1); existing resident carriers keep their size
++  and have at least that capacity. Every production budget is at least six. State these bounds with compile-time
++  checks where applicable, so `no_fit` is unreachable at the listed production sites.
+ 
+ ### 2.3 The sites and their budgets (design §4.1 r2.20) — zero resident growth
+ 
+@@ -259,11 +261,20 @@
+   - control bytes and embedded NUL in counted synthetic input, kept distinct from what the console can admit;
+   - a literal raw 0xBB; name versus hash provenance;
+   - the hash boundaries at `cols` 6, 9 and 10;
+-  - `cols` 0–5 `no_fit`; cap 0 and 1 safety, with guard bytes on both sides;
++  - **unnamed, nonzero hash:** `cols` 0–5 returns `no_fit` with empty output when cap > 0;
++  - **named:** `cols == 0` returns `no_fit` with empty output when cap > 0; `cols` 1–5 follows the same exact-fit
++    or abbreviation rule as any positive budget (including a marker-only abbreviation at one column);
++  - cap 0 and 1 safety, with guard bytes on both sides;
+   - `none` with no hash;
+   - the two-pass equivalence (§2.3);
+   - a preformatted marker copied through `on_reply` unchanged.
+ - **Native invite and team cases:**
++  - retain or add a labelled **synthetic over-long TEAM carrier**, passed directly to `ui_team_row` without identity
++    projection, to prove its independent six-column bound and keep `uiteam` T01 RED; ordinary formatted labels
++    alone cannot distinguish T01;
++  - retain or add a labelled **synthetic invisible-tail difference** in two TEAM carriers whose first six bytes
++    match, to keep T09 RED on its original off-screen comparison property. This is separate from §2.4's reachable
++    rename cases; do not rely on two identical, zero-padded formatted labels to expose T09;
+   - a synthetic over-long prepared name fed to `ui_fmt_invite_row`, which must stay 19 columns — this keeps `uiinvite`
+     I09 meaningful;
+   - long and high-byte optional names on the confirmation.
+@@ -280,8 +291,9 @@
+   token.
+ - **O8, post-change.** The unnamed member's name field is filled from the formatter's **hash branch**: the publication
+   formats even when the raw lookup returned 0, passing the real hash. The row then shows a hash-derived token in the
+-  name column and must fail the literal blank-field, 19-column and fingerprint checks (P23b/P23d). Record the actual row
+-  bytes and failed checks.
++  name column and must fail P23b/P23d's literal **blank-name** assertions. The row must still be 19 columns and
++  retain the correct separate fingerprint: those conjuncts are preserved invariants, not required failures. Record
++  the actual row bytes and failed checks.
+ - **O20, O5, O9, O18, O22, C114, C120, O3** keep their purpose and topology. C114's `if (hash != 0)` and the invite
+   guard's `if (hash != 0u)` stay distinct, and are never collapsed into a second match.
+ - **At least four new controls**, each RED on its intended new checks:
+@@ -306,8 +318,9 @@
+   5. the fingerprint used at 10 or more columns;
+   6. `none` fabricating `0x00000000`;
+   7. the marker written one past the budget.
+-- **Re-anchors, meaning kept:**
+-  - `uiteam` T02, T03, T09 — the fixtures now carry formatted labels, and the off-screen-byte comparison contract stays;
++- **Re-anchors where needed, meaning kept; retain an existing anchor verbatim when its source statement stays:**
++  - `uiteam` T01, T02, T03, T09 — the normal fixtures now carry formatted labels; T01's independent row bound and
++    T09's off-screen-byte comparison remain protected by the labelled synthetic inputs in §2.6;
+   - `uiinvite` I07, I08, I09 onto the prepared-name input — I09 stays RED through §2.6's over-long synthetic input.
+   - Unchanged: I10, I29, I30, `model` M13 and every other entry.
+   - Each re-anchor is listed old → new, with its RED.
+@@ -358,12 +371,22 @@
+ 
+ The owner ruling of 2026-09-16 (P6) gives the coder the full chain, and QA the `src`-only independent gate.
+ 
++**Supplemental ABI measurement (alongside, never instead of, the stock probe):** use the pre-check's
++`layout-measure.py` **base** recipe for `TeamRow`, `InviteIdRows` and `OutcomeView`, without any counterfactual
++capacity edits. Read the current headers and extract the current `OutcomeView` declaration exactly once from
++`firmware_ui.cpp`; do not hand-copy or maintain a mirror declaration. Generate size/alignment symbols in a temporary
++TU outside the checkout and use the stock ABI module's `measure` with each target's real flags/toolchain. Derive and
++compare the three layouts with the pre-check and the coder's before-state. Preserve the small driver, generated TU,
++input hashes and per-target results in evidence. No stock probe edit or pin change is authorized. This is a layout
++measurement, not a claim of instantiated RAM; the stock board pair remains the RAM authority.
++
+ **Ordering:** the two runs of each board pair are back-to-back, and nothing runs between or during them. Mutation
+ batteries run separately from board measurements. No `--no-neg` result substitutes for a control gate.
+ 
+ ### 4.1 The coder's gate
+ 
+ **Baselines, on the unmodified tree, before stage A:**
++- **Supplemental ABI measurement:** the three types above, on all three ABIs. Run it outside the paired board runs.
+ - **Firmware-UI probe:** default mode, all arms. Record the counts and controls (pre-check: 518 / 964 / 518, 231 / 0).
+ - **Board-UI supplemental:** `tools/probe_board_ui/run.sh --no-neg`. Record its exact failure set (expected: B418's
+   W49/W51/W54).
+@@ -381,8 +404,8 @@
+      -DMESHROUTE_DIR=<MeshRoute>`, then `cmake --build <dir> --target lus`;
+    - `python3 -B tools/run_corpus.py --out <new dir> --lus <dir>/orchestrator/lus --require-anchors`;
+    - expect 36/36, compared field by field with the pre-check manifest.
+-4. **ABI:** `python3 -B tools/probe_board_abi.py` (full, controls on). Every §1 size is unchanged and 9/9 controls are
+-   RED.
++4. **ABI:** `python3 -B tools/probe_board_abi.py` (full, controls on), plus the supplemental three-type measurement
++   above. Every §1 size is unchanged; stock controls are 9/9 RED. Report the two instruments separately.
+ 5. **Probes:**
+    - **Firmware-UI, default mode, all arms:** green; every control verified, including the new and re-anchored ones
+      and O8's post-change proof; 0 unusable. Report per-arm counts against the baseline and stage A, and explain O6's
+@@ -423,7 +446,8 @@
+ - **Boards** — its own `pair --jobs=1` into a fresh `.pio-measure/` directory, read field by field against the coder's
+   `final-1`;
+ - **Selector (a)** — `model`, `sliceCbudget`, `uiteam`, `uiinvite` and `w4aident`, the touched batteries;
+-- **The affected probes** — firmware-UI (all arms, controls) and the ABI probe.
++- **The affected probes** — firmware-UI (all arms, controls), the stock ABI probe and an independent supplemental
++  measurement of the three types above.
+ 
+ The census, the full union and discovery stay in the coder's chain.
+ 
+@@ -432,8 +456,10 @@
+ - **Expectations:** an existing expectation changed outside the §2.6 ledger, or any expectation weakened.
+ - **Resident state:** a resident member or array change, or any ABI change.
+ - **Fence:** an edit outside §3.
+-- **Formatter:** a label path that reads a pre-clipped copy, sanitizes twice, or reaches a console, JSON or companion
+-  path.
++- **Formatter:** a first identity projection that reads a pre-clipped raw name, or any re-sanitization of formatted
++  output except §2.3's explicitly permitted name-only 14→6 projection; any label reaching a console, JSON or
++  companion path. The permitted projection must prove its equivalence and must never re-sanitize a retained marker
++  at an equal or wider budget.
+ - **Controls and entries:**
+   - O8's proof failing on the wrong checks, or a new or re-anchored control or entry that is vacuous, does not compile,
+     crashes or goes RED only on unrelated checks;
+@@ -520,3 +546,7 @@
+ - It fixes the formatter's API and no-fit contract, the two-pass rule for names, O8's pre- and post-change proofs, and
+   O6's retirement (registered as B455).
+ - It defines the closed expectation ledger.
++
++**Revision 2 (2026-09-26)** folds in QA W4R-1–W4R-3: precise formatter edge/STOP wording and O8 failure
++attribution; explicit supplemental layout measurements; retained synthetic TEAM width/tail controls. Product
++choices, resident allocation, source fence and gate split are unchanged.

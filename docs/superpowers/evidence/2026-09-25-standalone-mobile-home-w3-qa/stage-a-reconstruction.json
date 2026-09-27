@@ -1,0 +1,32 @@
+{
+  "root": "/tmp/meshroute-w3-qa-n5ab83ph/stage-a",
+  "complete_frozen_paths_copied": 1425,
+  "overrides": {
+    "src/firmware_ui_model.h": "98b1992aec2a380b9594e769aa81ee7abb24196e723dec19fc6fc9597c08d2b5",
+    "test/test_firmware_ui_model.cpp": "e752732b71c08af62b8131f25a35a7f39bb23ef11b66d21329796d685effb3f1"
+  },
+  "probe_files_equal_to_frozen_candidate": true,
+  "note": "Controlled stage-A reconstruction. Only model and native test replaced with verified stage-A bytes; remaining frozen files include uncommitted and untracked work. Used for UI characterization replay, not a historical whole-tree claim.",
+  "replay": {
+    "exit": 0,
+    "mode": "--no-neg (positive render characterization only; independent final full control gate separate)",
+    "per_arm_counts": [
+      [
+        "518",
+        "0",
+        "518"
+      ],
+      [
+        "964",
+        "0",
+        "964"
+      ],
+      [
+        "518",
+        "0",
+        "518"
+      ]
+    ],
+    "identical_to_final": true
+  }
+}

@@ -1,0 +1,138 @@
+== D6/P7 reader audit BEFORE editing (2026-09-25T08:24:02+00:00); base 8360802
+== edited lines (base text):
+node.cpp: // §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+node.cpp: // the key_hash32 is STABLE (the node_id can change via join/lease), so the default is a persistent identity.
+node.cpp: uint8_t Node::effective_name(char* out, uint8_t cap) const {
+node.cpp:     if (cap == 0) return 0;
+node.cpp:     if (_name_len > 0) {                                          // an explicit name
+node.cpp:         const uint8_t n = _name_len < cap ? _name_len : cap;
+node.cpp:         for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
+node.cpp:         return n;
+node.cpp:     }
+node.cpp:     static const char pfx[] = "MeshRoute node: 0x";
+node.cpp:     const char hex[] = "0123456789ABCDEF";
+node.cpp:     uint8_t k = 0;
+node.cpp:     for (uint8_t i = 0; pfx[i] && k < cap; ++i) out[k++] = pfx[i];
+node.cpp:     for (int sh = 28; sh >= 0 && k < cap; sh -= 4) out[k++] = hex[(_key_hash32 >> sh) & 0xF];
+node.cpp:     return k;
+node.h:     uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
+node.h:     char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+firmware_commands.cpp:1399:     { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
+fw_main.cpp:927:     g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+console_parse.cpp:     //   touching its key or its confidence. Chosen over extending `peerkey` because rename-WITHOUT-rekey is the common
+console_parse.cpp:     //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+console_parse.cpp:     //   `peerkey` alone that would mean re-sending the whole 64-hex pubkey to change a string.
+
+### grep -rn -- 'effective_name' lib src test tools (excluding *.log)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+lib/core/node.cpp:32:    if (name) { uint8_t l = 0; while (name[l] && l < sizeof _name) ++l; set_name(name, l); }   // §1.3: keep the ctor/sim name (was discarded) so effective_name + the pubkey exchange can carry it
+lib/core/node.cpp:41:uint8_t Node::effective_name(char* out, uint8_t cap) const {
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (nev
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+test/test_node_r3.cpp:9064:    uint8_t n = node.effective_name(buf, sizeof buf);
+test/test_node_r3.cpp:9067:    n = node.effective_name(buf, sizeof buf);
+test/test_node_r3.cpp:9070:    n = named.effective_name(buf, sizeof buf);
+lib/core/node_hashlocate.cpp:767:    char nm[32]; const uint8_t nlen = effective_name(nm, 32);      // INTRO name field is <=32 B (matches the PeerKey name cap)
+lib/core/node_hashlocate.cpp:1262:    const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + n + 1), 32);   // §1.3: ‖ [name_len][name] (OUR name; the owner answers its own key)
+lib/core/node_hashlocate.cpp:2321:        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors the AUTHORITATIVE_H_ANSWER_PUBKE
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+
+### grep -rn -- 'MeshRoute node: 0x' lib src test tools (excluding *.log)
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (nev
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+lib/core/node.cpp:39:// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+lib/core/node.cpp:48:    static const char pfx[] = "MeshRoute node: 0x";
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+test/test_node_r3.cpp:9065:    CHECK(std::string(buf, n) == "MeshRoute node: 0xDEADBEEF");   // ★ empty -> hash default (uppercase 8-hex)
+lib/console/console_parse.cpp:197:    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+test/test_device_nv.cpp:299:    CHECK(put(b, k, kPeerConfAuthoritative, "MeshRoute node: 0x40414243") == PeerPut::inserted);
+test/test_node_hashlocate.cpp:1781:    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "MeshRoute node: 0x6c29", 22));
+
+### grep -rn -- 'MeshRoute node' lib src test tools (excluding *.log)
+lib/core/node.cpp:39:// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+lib/core/node.cpp:48:    static const char pfx[] = "MeshRoute node: 0x";
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (nev
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+test/test_node_r3.cpp:9065:    CHECK(std::string(buf, n) == "MeshRoute node: 0xDEADBEEF");   // ★ empty -> hash default (uppercase 8-hex)
+tools/meshroute_client_ble.py:5:# BLE (Nordic UART Service) host client for a MeshRoute node — the wireless twin of meshroute_client.py.
+tools/meshroute_client_ble.py:42:#   meshroute_client_ble.py scan                         # list advertising MeshRoute nodes
+tools/meshroute_client_ble.py:160:        sys.exit("error: no MeshRoute node found advertising. Is ble_mode on + advertising? Try `scan`.")
+tools/meshroute_client_ble.py:245:        print("no MeshRoute nodes found (advertising NUS). Is a node in range with ble_mode on?")
+tools/meshroute_client_ble.py:247:    print(f"found {len(nodes)} MeshRoute node(s):")
+tools/meshroute_client_ble.py:337:    sc = sub.add_parser("scan", help="list advertising MeshRoute nodes")
+lib/console/console_parse.cpp:197:    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+test/test_device_nv.cpp:299:    CHECK(put(b, k, kPeerConfAuthoritative, "MeshRoute node: 0x40414243") == PeerPut::inserted);
+tools/meshroute_client.py:5:# Serial host client for a MeshRoute node (XIAO nRF52840 / Heltec) over USB-CDC. Three jobs:
+test/test_node_hashlocate.cpp:1781:    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "MeshRoute node: 0x6c29", 22));
+
+### grep -rn -- 'always show the effective name' lib src test tools (excluding *.log)
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+
+### grep -rn -- 'load the human name into the core' lib src test tools (excluding *.log)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+
+### grep -rn -- 'defaults to MeshRoute' lib src test tools (excluding *.log)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+
+### grep -rn -- 'advertises the default' lib src test tools (excluding *.log)
+lib/console/console_parse.cpp:197:    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+
+### grep -rn -- 'rename-WITHOUT-rekey' lib src test tools (excluding *.log)
+lib/console/console_parse.cpp:196:    //   touching its key or its confidence. Chosen over extending `peerkey` because rename-WITHOUT-rekey is the common
+
+### grep -rn -- 'An empty name defaults' lib src test tools (excluding *.log)
+lib/core/node.cpp:39:// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+
+### grep -rn -- 'STABLE hash' lib src test tools (excluding *.log)
+lib/core/node.h:576:    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (nev
+test/test_node_r3.cpp:9060:TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+
+### grep -rn -- 'pfx\[\] = "MeshRoute' lib src test tools (excluding *.log)
+lib/core/node.cpp:48:    static const char pfx[] = "MeshRoute node: 0x";
+
+### grep -rn -- 'hex\[\] = "0123456789ABCDEF"' lib src test tools (excluding *.log)
+lib/core/node.cpp:49:    const char hex[] = "0123456789ABCDEF";
+
+### grep -rn -- 'set_name(idb.name' lib src test tools (excluding *.log)
+src/fw_main.cpp:927:    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+src/firmware_config.cpp:280:        if (mrnv::save_id(idb)) { g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len)); out.println(F("> cfg ok name (saved to /mrid)")); }   // §1.3: live-update the core name (pubkey exchang
+
+### grep -rn -- 'out.write(nm, nn)' lib src test tools (excluding *.log)
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+
+### grep -rn -- 'g_node.effective_name' lib src test tools (excluding *.log)
+src/firmware_commands.cpp:1399:    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x
+
+### grep -rn -- 'human label (the /mrid IdBlob.name' lib src test tools (excluding *.log)
+lib/core/node.h:2978:    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+
+== mutation-anchor overlap audit (static AST; entries of every battery whose TARGET_SRC is an edited file)
+b159map      lib/core/node.cpp            count=1 lines 2551-2552 overlap_edited=False  B16 the expiry is mapped to a NON-TERMINAL outcome — the flight re-ent
+b159map      lib/core/node.cpp            count=1 lines 2545-2546 overlap_edited=False  B17 the wrong-flight guard is dropped — a SUPERSEDED flight's expiry f
+radmin73node lib/core/node.cpp            count=1 lines 133-133 overlap_edited=False  N01 service does not mark due work
+radmin73node lib/core/node.cpp            count=1 lines 143-143 overlap_edited=False  N02 consumer clock is stale
+radmin73node lib/core/node.cpp            count=1 lines 144-144 overlap_edited=False  N03 consumed promise leaves wake armed
+radmin73node lib/core/node.cpp            count=1 lines 149-149 overlap_edited=False  N04 status clock is stale
+radmin73node lib/core/node.cpp            count=1 lines 154-154 overlap_edited=False  N05 last outcome lost
+radmin8node  lib/core/node.h              count=1 lines 165-165 overlap_edited=False  N01 B408 counts home delegation ring instead of mobile E2E ring
+sliceBnode   lib/core/node.cpp            count=1 lines 2452-2455 overlap_edited=False  N01 ★★★ THE GRANT'S AIRED PUSH IS DELETED — §UI-16's panel can never l
+sliceBnode   lib/core/node.cpp            count=1 lines 2453-2453 overlap_edited=False  N02 ★★★ THE CORRELATION IS DROPPED — the aired push carries dst 0 inst
+sliceBnode   lib/core/node.cpp            count=1 lines 2439-2439 overlap_edited=False  N03 ★★★ THE SUPPRESSION IS DISABLED FOR EVERY TYPE — the grant takes t
+sliceBnode   lib/core/node.cpp            count=1 lines 887-890 overlap_edited=False  N04 ★★★ THE HELPER CALL IN THE REPROVISION DEFERRED-PURGE IS DELETED —
+sliceBnode   lib/core/node.cpp            count=1 lines 2614-2617 overlap_edited=False  N05 ★★ THE HELPER CALL IN THE LBT/STASH DATA GIVE-UP IS DELETED — the 
+sliceBnode   lib/core/node.cpp            count=1 lines 2364-2364 overlap_edited=False  N06 ★★★ THE HELPER'S GENERIC ARM NARROWS TO THE UNTYPED DM — every APP
+sliceBnode   lib/core/node.cpp            count=1 lines 2364-2364 overlap_edited=False  N07 ★★★ THE HELPER'S TRAIT TERM IS DROPPED — a cascade-exhausted E2E a
+sliceBnode   lib/core/node.cpp            count=1 lines 2367-2371 overlap_edited=False  N08 ★★★ THE HELPER'S GRANT ARM IS DELETED — every one of the eleven po
+sliceEnode   lib/core/node.cpp            count=1 lines 2364-2364 overlap_edited=False  E01 ★★★★ [[B263]] IS RESTORED — the `own_origination` term is dropped 
+sliceEnode   lib/core/node.cpp            count=1 lines 2364-2364 overlap_edited=False  E02 ★★★ THE TRANSIT AXIS IS INVERTED — only RELAYED carriers report an
+sliceEnode   lib/core/node.cpp            count=1 lines 2364-2364 overlap_edited=False  E03 ★★★ THE TWO OWNERSHIP TERMS ARE OR-ED INSTEAD OF AND-ED — `own_ori
+teamgrant    lib/core/node.cpp            count=1 lines 376-376 overlap_edited=False  G01 ★★★ THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` — a full
+teamgrant    lib/core/node.cpp            count=1 lines 375-375 overlap_edited=False  G02 ★★★ THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` — the pre-c
+teamgrant    lib/core/node.cpp            count=1 lines 377-377 overlap_edited=False  G03 ★★★ A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `q
+teamgrant    lib/core/node.cpp            count=1 lines 373-373 overlap_edited=False  G04 ★★★ THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED — the ca

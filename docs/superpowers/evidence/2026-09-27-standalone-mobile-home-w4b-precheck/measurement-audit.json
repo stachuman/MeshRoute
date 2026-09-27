@@ -1,0 +1,70 @@
+{
+  "replay": "all five variants and three targets reproduced",
+  "driver_sha256": "d0e129c21337be56b1ddd7bc66a238e0aa6c171ec79e3b3d51b804700e9025f8",
+  "derived_static_deltas": {
+    "compact_profile": {
+      "native": {
+        "deltas": {
+          "mrui::UiModel": 8,
+          "mrui::UiState": 8,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 48,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      },
+      "heltec_mobile": {
+        "deltas": {
+          "mrui::UiModel": 16,
+          "mrui::UiState": 8,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 56,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      },
+      "gateway": {
+        "deltas": {
+          "mrui::UiModel": 16,
+          "mrui::UiState": 8,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 56,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      }
+    },
+    "reuse_focus_append_name": {
+      "native": {
+        "deltas": {
+          "mrui::UiModel": 16,
+          "mrui::UiState": 16,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 64,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      },
+      "heltec_mobile": {
+        "deltas": {
+          "mrui::UiModel": 24,
+          "mrui::UiState": 16,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 72,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      },
+      "gateway": {
+        "deltas": {
+          "mrui::UiModel": 24,
+          "mrui::UiState": 16,
+          "mrui::UiSnapshot": 32,
+          "mrui::UiChrome": 0
+        },
+        "static_symbol_sum": 72,
+        "linked_ram": "not measured; ordinary gateway does not compile UI"
+      }
+    }
+  }
+}

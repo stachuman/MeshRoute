@@ -1,0 +1,68 @@
+{
+  "scope": "Read-only source inspection and sed applied to strings only; no runtime control results claimed",
+  "controls": {
+    "C99": {
+      "label": "C99 the mark is drawn in the chrome, so EVERY screen shows it",
+      "line": 1010,
+      "sed": "s|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\\n    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|",
+      "source_diff": [
+        "--- \n",
+        "+++ \n",
+        "@@ -1286,2 +1286,3 @@\n",
+        "     mrui::draw_hline(0, kBarRuleY, 128);",
+        "+    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);",
+        " }"
+      ]
+    },
+    "C124": {
+      "label": "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)",
+      "line": 1168,
+      "sed": "s|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|",
+      "source_diff": [
+        "--- \n",
+        "+++ \n",
+        "@@ -1286,2 +1286,3 @@\n",
+        "     mrui::draw_hline(0, kBarRuleY, 128);",
+        "+    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);",
+        " }"
+      ]
+    }
+  },
+  "witnesses": [
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 3016,
+      "source": "if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4511,
+      "source": "case ProvRow::back:        close_provisioning(); return;"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4357,
+      "source": "void close_provisioning() {\n        _st.settings = Settings::browsing;"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "line": 612,
+      "source": "void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { record(false, x, y, w, h, bits, \"\"); }"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "line": 613,
+      "source": "void draw_rect(int x, int y, int w, int h) { ++g_c.draw_rect_calls; record(false, x, y, w, h, nullptr, \"[rect]\"); }"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "line": 427,
+      "source": "int body_rects_on_page(int page = 0) {\n    int n = 0;\n    for (int i = 0; i < g_c.n_rec; ++i) {\n        const Canvas::Rec& r = g_c.rec[i];\n        if (r.is_text || r.page != page || strcmp(r.s, \"[rect]\") != 0) continue;\n        if (!(r.x == kRailX && r.w == kRailW)) ++n;\n    }\n    return n;\n}"
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "line": 1363,
+      "source": "if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);"
+    }
+  ]
+}

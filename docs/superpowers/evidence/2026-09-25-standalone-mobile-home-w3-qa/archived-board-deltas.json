@@ -1,0 +1,331 @@
+[
+  {
+    "env": "gateway",
+    "source": "verified coder base-1/final-1 archives (base not rebuilt by QA)",
+    "compatibility": {
+      "toolchain": true,
+      "paths": true,
+      "fixed_identity": true
+    },
+    "ram_delta": 0,
+    "flash_delta": 0,
+    "measurements_before": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "measurements_after": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "payload_equal": true,
+    "symbol_changes": [],
+    "symbol_size_sum_delta": 0
+  },
+  {
+    "env": "heltec_mobile",
+    "source": "verified coder base-1/final-1 archives (base not rebuilt by QA)",
+    "compatibility": {
+      "toolchain": true,
+      "paths": true,
+      "fixed_identity": true
+    },
+    "ram_delta": 0,
+    "flash_delta": -4,
+    "measurements_before": {
+      "flash_bytes": 1394592,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218100,
+        ".flash.text": 1072362,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211724,
+      "symbol_count": 13296,
+      "symbol_size_total": 1495992,
+      "symbols_sha256": "8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070"
+    },
+    "measurements_after": {
+      "flash_bytes": 1394588,
+      "loadable_sections": {
+        ".dram0.data": 25260,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218100,
+        ".flash.text": 1072358,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 211724,
+      "symbol_count": 13297,
+      "symbol_size_total": 1495987,
+      "symbols_sha256": "417acc130738b3b17e1c915300ca5d5dd2208d5d1ad8bb0dbe028acd3c603e1e"
+    },
+    "payload_equal": false,
+    "symbol_changes": [
+      {
+        "symbol_fields": [
+          "_Z10mr_ui_tickm",
+          "FUNC",
+          "GLOBAL",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          7026
+        ],
+        "after_sizes": [
+          7018
+        ],
+        "delta": -8
+      },
+      {
+        "symbol_fields": [
+          "_Z13mr_ui_on_pushRKN9meshroute4PushE",
+          "FUNC",
+          "GLOBAL",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          647
+        ],
+        "after_sizes": [
+          646
+        ],
+        "delta": -1
+      },
+      {
+        "symbol_fields": [
+          "_ZN12_GLOBAL__N_115inbox_detail_cbEPvRKN9meshroute10InboxEntryE",
+          "FUNC",
+          "LOCAL",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          255
+        ],
+        "after_sizes": [
+          263
+        ],
+        "delta": 8
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          417
+        ],
+        "after_sizes": [
+          413
+        ],
+        "delta": -4
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrfw18UiProvisionAdapter7performERKN4mrui12UiProvIntentE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          269
+        ],
+        "after_sizes": [
+          265
+        ],
+        "delta": -4
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          37
+        ],
+        "after_sizes": [
+          38
+        ],
+        "delta": 1
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          118
+        ],
+        "after_sizes": [
+          120
+        ],
+        "delta": 2
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          504
+        ],
+        "after_sizes": [
+          500
+        ],
+        "delta": -4
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel13sync_settingsERKNS_10UiSnapshotE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          311
+        ],
+        "after_sizes": [
+          209
+        ],
+        "delta": -102
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          514
+        ],
+        "after_sizes": [
+          522
+        ],
+        "delta": 8
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel18ensure_config_openEv$isra$0",
+          "FUNC",
+          "LOCAL",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [],
+        "after_sizes": [
+          110
+        ],
+        "delta": 110
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel19refresh_detail_pageEv",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          134
+        ],
+        "after_sizes": [
+          132
+        ],
+        "delta": -2
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          183
+        ],
+        "after_sizes": [
+          179
+        ],
+        "delta": -4
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          282
+        ],
+        "after_sizes": [
+          278
+        ],
+        "delta": -4
+      },
+      {
+        "symbol_fields": [
+          "_ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE",
+          "FUNC",
+          "WEAK",
+          "DEFAULT",
+          ".flash.text"
+        ],
+        "before_sizes": [
+          122
+        ],
+        "after_sizes": [
+          121
+        ],
+        "delta": -1
+      }
+    ],
+    "symbol_size_sum_delta": -5
+  }
+]

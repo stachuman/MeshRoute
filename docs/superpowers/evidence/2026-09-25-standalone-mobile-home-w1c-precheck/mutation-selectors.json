@@ -1,0 +1,66 @@
+{
+  "method": "AST only; harness was not imported",
+  "mappings": 105,
+  "recommended_files": [
+    "lib/core/node.cpp",
+    "lib/core/node.h",
+    "src/firmware_commands.cpp",
+    "src/fw_main.cpp",
+    "lib/console/console_parse.cpp",
+    "test/test_node_r3.cpp",
+    "test/test_node_hashlocate.cpp",
+    "test/test_frame_codec.cpp",
+    "tools/probe_inbox_verbs/probe_main.cpp",
+    "tools/probe_inbox_verbs/run.sh"
+  ],
+  "selector_a": [
+    {
+      "target": "radmin8node",
+      "source": "lib/core/node.h",
+      "entries": 1
+    },
+    {
+      "target": "radmin73node",
+      "source": "lib/core/node.cpp",
+      "entries": 5
+    },
+    {
+      "target": "teamgrant",
+      "source": "lib/core/node.cpp",
+      "entries": 4
+    },
+    {
+      "target": "b159map",
+      "source": "lib/core/node.cpp",
+      "entries": 2
+    },
+    {
+      "target": "sliceBnode",
+      "source": "lib/core/node.cpp",
+      "entries": 8
+    },
+    {
+      "target": "sliceEnode",
+      "source": "lib/core/node.cpp",
+      "entries": 3
+    }
+  ],
+  "selector_a_total": 23,
+  "if_node_hashlocate_changed_add": [
+    {
+      "target": "grantpark",
+      "source": "lib/core/node_hashlocate.cpp",
+      "entries": 3
+    },
+    {
+      "target": "b161hash",
+      "source": "lib/core/node_hashlocate.cpp",
+      "entries": 6
+    },
+    {
+      "target": "b251hash",
+      "source": "lib/core/node_hashlocate.cpp",
+      "entries": 55
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+[
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/abi.log",
+    "sha256": "aadad7b421129a6bdc83699de643e17722a50cdc80cedf1d172f0400237e836c",
+    "bytes": 5471
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/base-reconciliation.json",
+    "sha256": "d24ff410415cb5d4cc279e86446951404cf96256f6753cd19085c998c7767ecb",
+    "bytes": 2370
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/baseline-runs.json",
+    "sha256": "6572f124871fa7d3e1780e247c659f8f4f34c6769313e81e0f39a5d48507ca21",
+    "bytes": 419
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/compose-users.txt",
+    "sha256": "e48df4968de84ba201fed4530e5e4e9e920d5b6bc68d36d4d4c3de05a566fd61",
+    "bytes": 16698
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/corpus.log",
+    "sha256": "d88175eff4906672582ed4b9cfd097e43f53ba55d49edcf90be6e2f919318287",
+    "bytes": 3359
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/extra-baseline-runs.json",
+    "sha256": "b0d233521ca15ac1b7e9d34b41a37b19e8692616de8a5926ffbc60629df90c5c",
+    "bytes": 1062
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/firmware-ui.log",
+    "sha256": "a24b5983f722ee9eb3a594079a0a1ca042b455c9c2dbc85bfa82bd0d39457867",
+    "bytes": 39104
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/gate-users.txt",
+    "sha256": "750447dc3f397a1b3788da67e1e22db0fd1c5efb12b5fab063f042ed98377fe0",
+    "bytes": 37726
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/inputs.json",
+    "sha256": "fcc2b842a0d3ada16b29d93f44b4a505e60cc9a4a35c1abffb45f0eade060e02",
+    "bytes": 313169
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/mutation-census.json",
+    "sha256": "95f2f7060bedd301726e1961e6c7b5264614938eadf13a581fe89bd62b63e4f5",
+    "bytes": 78159
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/mutation_census.py",
+    "sha256": "d5f9d98f90a52aa4580fea7ce38fc1b2ceba94c0ae1a31c4ae965c773b68496f",
+    "bytes": 1882
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/native-binary.log",
+    "sha256": "f77aa85ac2cd33b3e7fe13dc2fad654a71fcfe27fae37184377301734ee1ccd1",
+    "bytes": 409
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/native-build.log",
+    "sha256": "f2fc5275fba05bf6d7bfa6dcce7c51d27eb9d29a634555f2a333b84e72f66592",
+    "bytes": 414
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/package_evidence.py",
+    "sha256": "2856c7baba7c3c372ca81b1f4308a91f81c06f53851ff53333ba47a19c7acc15",
+    "bytes": 5385
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/pager-users.txt",
+    "sha256": "4c72a9aba7a0788ebde88efaa3426cd3b17665ed81aaa7b15f6a18f91b54771c",
+    "bytes": 15744
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/readers.txt",
+    "sha256": "6c8c7ab27815c9d6431140489c9e068195277974129acf8b51b5c535257588bd",
+    "bytes": 59724
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/run_baselines.py",
+    "sha256": "1e3cbe1158923c21f9c2da67cb5b630be294ea77de933ecdfc275976187b2a05",
+    "bytes": 815
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/run_extra_baselines.py",
+    "sha256": "73adaf9dd295bf1acc2720b70eea5455eccd848f67141220b50d739e4aaeb6bc",
+    "bytes": 1302
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/scratch.json",
+    "sha256": "834be0d10cb96b8787c789e4212cf82bba6d0733eace53f006424c1ffae1c743",
+    "bytes": 51
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/sim-build.log",
+    "sha256": "cefa062e705acf973d87f6c4e88687966f11233952896076fe8d9dc886e99cc6",
+    "bytes": 8312
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/sim-configure.log",
+    "sha256": "3e42f9b3192847eeedc3ad825bc9fc9e8abf7124c26c78cba5d66dcadd1e4c81",
+    "bytes": 1008
+  },
+  {
+    "path": "artifacts/2026-09-25-standalone-mobile-home-w3-precheck/w1c-qa-checksums.txt",
+    "sha256": "4129f3e1acbfc8a45e72c5d97b591172509194b8befabdc70d39639b3d6b4ea6",
+    "bytes": 974
+  }
+]

@@ -194,7 +194,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
 
     //   ★ §AB2 (spec 2026-07-29 §2.3): peername 0x<hash> "<text>" — set/overwrite a CACHED peer's name, without
     //   touching its key or its confidence. Chosen over extending `peerkey` because rename-WITHOUT-rekey is the common
-    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+    //   case (a peer advertises no name, so it is shown by its ID, or a name the operator wants to replace), and with
     //   `peerkey` alone that would mean re-sending the whole 64-hex pubkey to change a string.
     //   C2 refusals: the hash MUST be 0x-prefixed and non-zero (parse_hex32_0x — the same rule that kills the
     //   id-vs-hash ambiguity everywhere in this file); the name MUST be a non-empty quoted token. An unknown hash and an

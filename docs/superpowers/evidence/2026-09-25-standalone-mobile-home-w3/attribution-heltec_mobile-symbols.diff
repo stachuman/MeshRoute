@@ -1,0 +1,58 @@
+801c801
+< _Z10mr_ui_tickm	FUNC	GLOBAL	DEFAULT	.flash.text	7026
+---
+> _Z10mr_ui_tickm	FUNC	GLOBAL	DEFAULT	.flash.text	7018
+805c805
+< _Z13mr_ui_on_pushRKN9meshroute4PushE	FUNC	GLOBAL	DEFAULT	.flash.text	647
+---
+> _Z13mr_ui_on_pushRKN9meshroute4PushE	FUNC	GLOBAL	DEFAULT	.flash.text	646
+1062c1062
+< _ZN12_GLOBAL__N_115inbox_detail_cbEPvRKN9meshroute10InboxEntryE	FUNC	LOCAL	DEFAULT	.flash.text	255
+---
+> _ZN12_GLOBAL__N_115inbox_detail_cbEPvRKN9meshroute10InboxEntryE	FUNC	LOCAL	DEFAULT	.flash.text	263
+1631c1631
+< _ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm	FUNC	WEAK	DEFAULT	.flash.text	417
+---
+> _ZN4mrfw17ui_prov_join_teamERNS_17ITeamCreateDeviceEm	FUNC	WEAK	DEFAULT	.flash.text	413
+1644c1644
+< _ZN4mrfw18UiProvisionAdapter7performERKN4mrui12UiProvIntentE	FUNC	WEAK	DEFAULT	.flash.text	269
+---
+> _ZN4mrfw18UiProvisionAdapter7performERKN4mrui12UiProvIntentE	FUNC	WEAK	DEFAULT	.flash.text	265
+1773c1773
+< _ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE	FUNC	WEAK	DEFAULT	.flash.text	37
+---
+> _ZN4mrui13cfg_row_fieldENS_6CfgRowERN4mrfw8CfgFieldE	FUNC	WEAK	DEFAULT	.flash.text	38
+1803c1803
+< _ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE	FUNC	WEAK	DEFAULT	.flash.text	118
+---
+> _ZN4mrui19saved_keys_sel_rowsERKN4mrfw12SavedKeyListE	FUNC	WEAK	DEFAULT	.flash.text	120
+1827c1827
+< _ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	504
+---
+> _ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	500
+1835c1835
+< _ZN4mrui7UiModel13sync_settingsERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	311
+---
+> _ZN4mrui7UiModel13sync_settingsERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	209
+1847c1847
+< _ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	514
+---
+> _ZN4mrui7UiModel17settings_activateERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	522
+1850a1851
+> _ZN4mrui7UiModel18ensure_config_openEv$isra$0	FUNC	LOCAL	DEFAULT	.flash.text	110
+1854c1855
+< _ZN4mrui7UiModel19refresh_detail_pageEv	FUNC	WEAK	DEFAULT	.flash.text	134
+---
+> _ZN4mrui7UiModel19refresh_detail_pageEv	FUNC	WEAK	DEFAULT	.flash.text	132
+1859c1860
+< _ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	183
+---
+> _ZN4mrui7UiModel21settings_edit_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	179
+1861c1862
+< _ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	282
+---
+> _ZN4mrui7UiModel22provision_menu_gestureENS_7GestureERKNS_10UiSnapshotE	FUNC	WEAK	DEFAULT	.flash.text	278
+1865c1866
+< _ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE	FUNC	WEAK	DEFAULT	.flash.text	122
+---
+> _ZN4mrui7UiModel25saved_keys_select_gestureENS_7GestureE	FUNC	WEAK	DEFAULT	.flash.text	121

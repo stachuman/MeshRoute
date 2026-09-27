@@ -1,0 +1,93 @@
+{
+  "brief": "docs/superpowers/plans/2026-09-25-standalone-mobile-home-w1c-no-default-name.md",
+  "brief_sha256": "fc76a1b95f12091773f709ea331eaee734bede1b4771c3171b4cb699f8f980ec",
+  "pins": [
+    {
+      "path": "lib/core/node.cpp",
+      "sha256": "f33b971c89cfabd239022327da07d8549ba05fe98e16547a76d2df7bbf7b5317"
+    },
+    {
+      "path": "lib/core/node.h",
+      "sha256": "3b9971fbd4f82a3f0d07c860488d5e63cf8f727fb3111f56c2dd585df4f20fad"
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "sha256": "761f3d43129e7c5b6d0e31b156abd963039aef85ebd7d0935382ab0705a2db15"
+    },
+    {
+      "path": "src/fw_main.cpp",
+      "sha256": "9472d8ab71e92e51423c8695738f33e79cae822b5d383c75312121c744a71cbc"
+    },
+    {
+      "path": "lib/console/console_parse.cpp",
+      "sha256": "3134d5406a69daf1f95439c10ff82be96e3c681ecb58cbf23716dcfeba593502"
+    },
+    {
+      "path": "test/test_node_r3.cpp",
+      "sha256": "a6ee531c11c056d579ef566dd4746f7f00dbbe529e37329d9484ba892ae33454"
+    },
+    {
+      "path": "test/test_node_hashlocate.cpp",
+      "sha256": "198c0211715a82cf3e5d676d4e3f84ed8bf2f077c1eadc2041d75de34e5462ba"
+    },
+    {
+      "path": "test/test_dual_layer.cpp",
+      "sha256": "260890cbef5d1b2d8e5b76597ebaaae403bd5729129d98e11afb3ed574c58d77"
+    },
+    {
+      "path": "tools/probe_inbox_verbs/probe_main.cpp",
+      "sha256": "ae776415d524c01635fe7bc5c84bf7837967fd296710c26eefcdb46eb93e4a2e"
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "sha256": "2d1411e94bf39770886dbb65a28de7dcbb9ef35bd2e65f4e4775c45a94e388f8"
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "f135d051b626909ce2dd6099af8db5a98c79565d16e7b8c7d9c5a782bfd99afa"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "sha256": "0b1af9089aef32ee9cc4af00c123553af0fd5f1716a1554f4f26e8584b14d8c9"
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "sha256": "01a29418a20ea098cd91a50bc648566ccc9a3ac5de8d3cc87351d6daddea2f9e"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md",
+      "sha256": "f7d81ec0b8f3bb2ff0b9a0c13f64ab645ec43f9ee0d2e5d47696b87e8769bd2a"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/SHA256SUMS",
+      "sha256": "fcfa56b5422b0bb9cbf9f4417cdd2561bf8cdb11897da094cb535b638315b24d"
+    },
+    {
+      "path": "tracker.md",
+      "sha256": "bcb46358607fa9dd4fe60a7c00626b44fb5acc0350399fdd04430958b73ed2c9"
+    },
+    {
+      "path": "MEMORY.md",
+      "sha256": "881b47db91b50ef31ddca7113dff4d4954e3519b3a4adfefeb2e3aab2be60e8b"
+    }
+  ],
+  "links": [
+    {
+      "target": "../evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md",
+      "exists": true
+    },
+    {
+      "target": "../specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-07-30-open-bug-register.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-09-02-agent-roles.md",
+      "exists": true
+    }
+  ],
+  "all_11_source_inputs_match_committed_base": true
+}

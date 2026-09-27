@@ -1,0 +1,99 @@
+# W3 §4.1 step 9 — mutation union: python3 tools/probe_ui_model_mutations.py --target=<name>, each alone, after the last board pair
+# (scratch trees under /tmp; the harness reports the real tree untouched)
+
+== model
+  mutations: 239 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 19.0s + battery 682.1s = 701.1s total, 239 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 30/30 entries, 30 RED / 0 worthless, wall 672.4s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 1: 30/30 entries, 30 RED / 0 worthless, wall 682.0s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 2: 30/30 entries, 30 RED / 0 worthless, wall 680.3s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 3: 30/30 entries, 30 RED / 0 worthless, wall 679.5s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 4: 30/30 entries, 30 RED / 0 worthless, wall 677.8s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 5: 30/30 entries, 30 RED / 0 worthless, wall 678.6s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 6: 30/30 entries, 30 RED / 0 worthless, wall 671.9s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+    worker 7: 29/29 entries, 29 RED / 0 worthless, wall 665.8s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d
+== sliceCbudget
+  mutations: 1 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 1 tree(s) agree)
+  timing: copy 2.3s + battery 19.9s = 22.2s total, 1 entries over 1 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 1/1 entries, 1 RED / 0 worthless, wall 19.8s, rc 0, source restored: md5 b91a61e36b12b7495ace6dd28586d234
+== uipresets
+  mutations: 32 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 18.7s + battery 155.1s = 173.8s total, 32 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 4/4 entries, 4 RED / 0 worthless, wall 153.4s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 1: 4/4 entries, 4 RED / 0 worthless, wall 149.6s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 2: 4/4 entries, 4 RED / 0 worthless, wall 149.6s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 3: 4/4 entries, 4 RED / 0 worthless, wall 155.0s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 4: 4/4 entries, 4 RED / 0 worthless, wall 149.7s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 5: 4/4 entries, 4 RED / 0 worthless, wall 154.7s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 6: 4/4 entries, 4 RED / 0 worthless, wall 148.6s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+    worker 7: 4/4 entries, 4 RED / 0 worthless, wall 153.4s, rc 0, source restored: md5 6a8a33a9a3abe0e0e724b0fab0d50f7e
+== uisend
+  mutations: 15 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 19.0s + battery 42.7s = 61.7s total, 15 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 2/2 entries, 2 RED / 0 worthless, wall 38.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 1: 2/2 entries, 2 RED / 0 worthless, wall 37.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 2: 2/2 entries, 2 RED / 0 worthless, wall 38.0s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 3: 2/2 entries, 2 RED / 0 worthless, wall 38.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 4: 2/2 entries, 2 RED / 0 worthless, wall 37.7s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 5: 2/2 entries, 2 RED / 0 worthless, wall 42.6s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 6: 2/2 entries, 2 RED / 0 worthless, wall 38.5s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+    worker 7: 1/1 entries, 1 RED / 0 worthless, wall 27.5s, rc 0, source restored: md5 78b512a8834f701f382f6036f2092ea4
+== config
+  mutations: 32 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 19.2s + battery 126.5s = 145.7s total, 32 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 4/4 entries, 4 RED / 0 worthless, wall 123.8s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 1: 4/4 entries, 4 RED / 0 worthless, wall 121.4s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 2: 4/4 entries, 4 RED / 0 worthless, wall 126.4s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 3: 4/4 entries, 4 RED / 0 worthless, wall 118.6s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 4: 4/4 entries, 4 RED / 0 worthless, wall 123.9s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 5: 4/4 entries, 4 RED / 0 worthless, wall 123.8s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 6: 4/4 entries, 4 RED / 0 worthless, wall 121.4s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+    worker 7: 4/4 entries, 4 RED / 0 worthless, wall 123.8s, rc 0, source restored: md5 f83718d3db5c43be8b13696d093dcd41
+== uiprov
+  mutations: 45 RED / 0 unusable
+  ok   clean baseline 2973 / 196111 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  timing: copy 19.4s + battery 79.5s = 98.9s total, 45 entries over 8 worker(s)
+  real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+    worker 0: 6/6 entries, 6 RED / 0 worthless, wall 77.2s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 1: 6/6 entries, 6 RED / 0 worthless, wall 77.7s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 2: 6/6 entries, 6 RED / 0 worthless, wall 75.2s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 3: 6/6 entries, 6 RED / 0 worthless, wall 74.3s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 4: 6/6 entries, 6 RED / 0 worthless, wall 77.1s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 5: 5/5 entries, 5 RED / 0 worthless, wall 62.6s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 6: 5/5 entries, 5 RED / 0 worthless, wall 79.4s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+    worker 7: 5/5 entries, 5 RED / 0 worthless, wall 61.8s, rc 0, source restored: md5 eafa2407d0c4796eefddb2450865e38d
+
+UNION: 6 batteries, 364 configured entries run, 364 RED
+
+== the eight re-anchored entries (model)
+  ok   M14 pages FLOORS instead of ceiling -> RED (25 assertion(s) failed, match count 1)
+  ok   M15 an empty body yields ZERO pages -> RED (6 assertion(s) failed, match count 1)
+  ok   M18 both body rows render the SAME 19 columns -> RED (15 assertion(s) failed, match count 1)
+  ok   M55 the §4 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan §4's conflation, through the ORDER) -> RED (4 assertion(s) failed, match count 1)
+  ok   M56 the UNSAVED cell is dropped — PROVISION opens over an unsaved draft (§3.6.3's precondition gone) -> RED (8 assertion(s) failed, match count 1)
+  ok   M57 the CONFLICT cell is dropped — the two states collapse into one -> RED (10 assertion(s) failed, match count 1)
+  ok   M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids) -> RED (17 assertion(s) failed, match count 1)
+  ok   M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix) -> RED (986 assertion(s) failed, match count 1)
+== the untouched named anchors
+  ok   M12 the body length is found by scanning for NUL (i.e. strlen) -> RED (34 assertion(s) failed, match count 1)
+  ok   M13 the sanitizer passes raw bytes through -> RED (164 assertion(s) failed, match count 1)
+  ok   M16 the page advance STOPS at the last page instead of cycling -> RED (1 assertion(s) failed, match count 1)
+  ok   M17 a page turn also refreshes the inactivity deadline -> RED (18 assertion(s) failed, match count 1)
+  ok   M20 a freshly opened modal selects `delete` -> RED (57 assertion(s) failed, match count 1)
+  ok   M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only) -> RED (46 assertion(s) failed, match count 1)
+  ok   M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols -> RED (2 assertion(s) failed, match count 1)
+  ok   M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses) -> RED (8 assertion(s) failed, match count 1)
+  ok   S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK -> RED (8 assertion(s) failed, match count 1)
+  ok   S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page -> RED (6 assertion(s) failed, match count 1)
+  ok   S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick -> RED (12 assertion(s) failed, match count 1)
+  ok   Y02 ★★★ A DISABLED SLOT IS RENDERED — the tempting "show them all, the wearer can see which are empty". §3.2.2 says the OLED lists only ENABLED

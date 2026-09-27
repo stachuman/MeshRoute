@@ -42,6 +42,7 @@ Use `OWED`, `PASS <build> <date>`, `FAIL → B###`, `N/A <reason>`, or `RETIRED 
 | [UI-17](#ui-17) | emergency isolation, reply wake and safe exit | OWED |
 | [UI-18](#ui-18) | duty gauge | OWED |
 | [UI-19](#ui-19) | non-team OLED profile | OWED |
+| [UI-20](#ui-20) | identity-label glyphs, abbreviation and unnamed peers (W4a) | OWED |
 | [CUSTODY-01](#custody-01) | static relay failure, persistence and deletion | OWED |
 | [CUSTODY-02](#custody-02) | translated report to the originating mobile | OWED |
 | [CUSTODY-03](#custody-03) | lost correlation and optional re-home | OWED |
@@ -489,6 +490,17 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 3. Confirm ordinary navigation/blank/wake and a real radio receive after the profile change.
 
 **PASS:** physical display matches the compiled feature profile. **STOP:** phantom team actions, shifted rail or lost radio service.
+
+<a id="ui-20"></a>
+
+### UI-20 — identity labels on the physical font (W4a)
+
+1. Use two OLED peers and UI-07’s actual new-candidate window; also view that peer on TEAM. Establish its real public-key hash and controlled name cache. On the displaying peer, `peername 0x<HASH8> "Wolfgangetta"` must return exactly `{"ev":"peer_name_set","hash":<decimal hash>,"name":"Wolfgangetta"}`; `nameof 0x<HASH8>` must retain `"name":"Wolfgangetta"` (ID fields depend on the fixture). Reopen the screens after changing the cache.
+2. TEAM and the invite candidate both show `Wolfg»` in the six-cell name field: one legible final chevron cell, stable neighbouring columns, no spill. NEW MEMBER still shows the full `0x<HASH8>` and the fitting `Wolfgangetta` name.
+3. Repeat with `peername 0x<HASH8> "łAB"` (UTF-8 bytes `C5 82 41 42`); expect the same acknowledgement shape with `"name":"łAB"`. On both screens the name is `..AB`, four cells, with no Latin-1 glyph or missing cell.
+4. Repeat with a genuinely unnamed peer and a fresh cache on the displaying peer: verify its `nameof` result has no `name` field. TEAM shows the six-digit fingerprint; the invite name field is blank beside its separate fingerprint; NEW MEMBER shows the whole `0x<HASH8>`. Empty advertisements do not erase an older cached name: such a fixture does not exercise this arm.
+
+**PASS:** the real `6x10_tf` font draws the expected cells legibly on both screens. **STOP:** missing/doubled marker, raw Latin-1, collapsed cells, clipped hash or fabricated invite name. Leave unexercised arms OWED if the cache/candidate fixture cannot be established; host byte captures do not establish glyph appearance. No new console line is introduced by W4a; the acknowledgements above establish the physical fixture.
 
 ## Custody over real radios
 

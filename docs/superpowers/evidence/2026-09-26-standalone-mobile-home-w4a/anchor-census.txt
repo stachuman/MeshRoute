@@ -1,0 +1,17 @@
+# W4a — AST anchor census of the mutation registry (never imports the harness): every entry's anchor must occur EXACTLY ONCE in its target
+# script: an AST read of tools/probe_ui_model_mutations.py (TARGET_SRC, MUTS_BY_TARGET, MUTS_*), run on the final tree
+## the union batteries (brief §4.1 step 9)
+model              src/firmware_ui_model.h                   239 bad=0 []
+sliceCbudget       src/firmware_ui_model.h                     1 bad=0 []
+uiteam             src/firmware_ui_team.h                     20 bad=0 []
+uiinvite           src/firmware_ui_invite.h                   32 bad=0 []
+w4aident           src/firmware_ui_model.h                     9 bad=0 []
+uisend             src/firmware_ui_send.h                     15 bad=0 []
+sliceCsend         src/firmware_ui_send.h                      1 bad=0 []
+chrome             src/firmware_ui_chrome.h                   44 bad=0 []
+uinearbyrow        src/firmware_ui_nearby_row.h                9 bad=0 []
+uigeo              src/firmware_ui_geo.h                      18 bad=0 []
+union entries: 388 = floor 379 + w4aident 9; bad = 0
+
+## every other battery (context): 108 batteries; the only non-once anchor is E14 (sliceEcascade, lib/core/node_cascade.cpp == HEAD) — already registered as B453
+sliceEcascade      lib/core/node_cascade.cpp                  13 bad=1 [('E14 ★★★★ THE SLICE-F INSERTION POINT PREMATURELY ENQUEUES A CUSTODY NO', 0)]

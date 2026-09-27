@@ -1,0 +1,971 @@
+{
+  "expected": 236,
+  "observed": 236,
+  "missing": [],
+  "extra": [],
+  "duplicates": [],
+  "shell_or_control_errors": [],
+  "arm_counts": [
+    [
+      "529",
+      "0",
+      "529"
+    ],
+    [
+      "980",
+      "0",
+      "980"
+    ],
+    [
+      "529",
+      "0",
+      "529"
+    ]
+  ],
+  "controls": [
+    {
+      "label": "C1  mac_idle() -> true (no gate at all)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C2  mac_idle() keeps only the radio clause",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C3  mac_idle() keeps only the queue clause",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C10 mac_idle() -> false (suppressed for ever; the panel never paints)",
+      "result": "(318 check(s) failed)"
+    },
+    {
+      "label": "C11 next_page()'s verdict is never fed back to the gate",
+      "result": "(58 check(s) failed)"
+    },
+    {
+      "label": "C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)",
+      "result": "(12 check(s) failed)"
+    },
+    {
+      "label": "C5  the idle arm forces a repaint, bypassing the 2 Hz throttle",
+      "result": "(278 check(s) failed)"
+    },
+    {
+      "label": "C6  the ADC burst is no longer gated on a MAC-idle radio",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C7  the cadence gates on SUCCEEDED instead of ATTEMPTED",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C8  the 30 s period is never re-armed (sample every pass)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C9  the dead-panel report tests board_init() the wrong way round",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C12 mr_ui_init no longer brings the panel up",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C13 an unavailable read ERASES the last good value",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C14 the battery token is invented instead of formatted (a plausible voltage for --)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C15 the strip renders a PERCENTAGE instead of volts (ruled out)",
+      "result": "(7 check(s) failed)"
+    },
+    {
+      "label": "C16 the strip hardcodes a voltage instead of reading the frozen chrome",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C17 the record lookup matches seq only (the kind clause dropped)",
+      "result": "(17 check(s) failed)"
+    },
+    {
+      "label": "C18 the erase targets the DM store unconditionally (B133's shape)",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C19 the preview row carries msg_id where the identity should be",
+      "result": "(39 check(s) failed)"
+    },
+    {
+      "label": "C20 the preview row hardcodes the kind (every row reads DM)",
+      "result": "(51 check(s) failed)"
+    },
+    {
+      "label": "C21 every erase is reported as a SUCCESS regardless of the outcome",
+      "result": "(7 check(s) failed)"
+    },
+    {
+      "label": "C27 the erase targets the CHANNEL store unconditionally",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C28 opening a record DELETES it (the switch arms crossed)",
+      "result": "(47 check(s) failed)"
+    },
+    {
+      "label": "CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "CC2 the gate is applied AFTER the budget (the row slot and the total are already spent)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C22 the tick never serves the inbox request (the modal cannot open)",
+      "result": "(43 check(s) failed)"
+    },
+    {
+      "label": "C23 the body length is left for the model to measure (the strlen shape)",
+      "result": "(33 check(s) failed)"
+    },
+    {
+      "label": "C24 draw_frame stops giving the modal the body",
+      "result": "(45 check(s) failed)"
+    },
+    {
+      "label": "C25 the MESSAGE GONE refusal row is dropped from the list",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C29 the SETTINGS screen is never drawn (the switch arm dropped)",
+      "result": "(60 check(s) failed)"
+    },
+    {
+      "label": "C30 the model is never given the config service (the menu is inert)",
+      "result": "(64 check(s) failed)"
+    },
+    {
+      "label": "C31 the draft marker renders UiState::dirty instead of config_unsaved()",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C32 the value row shows a default instead of the DRAFT",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C33 the SETTINGS badge always draws the clean gear (the state becomes invisible)",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C34 the editor is indistinguishable from the browsing row (no bracket)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C35 RESTART NEEDED never reaches STATUS (the reboot fact is dropped)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C36 the BLE row is rendered unconditionally (the transport condition ignored)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C37 the hook never tells the service (the notification is dropped)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)",
+      "result": "(12 check(s) failed)"
+    },
+    {
+      "label": "C39 the is_open() guard is dropped (flash is read on every cfg set)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C40 an unreadable record is treated as a conflict (a latch from no evidence)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C42 ChanState::aired says QUEUED (the earned state never shows)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C43 the no-relay outcome reads SENT, no relay again",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C44 DmState::aired_waiting is rendered as QUEUED too",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C45 the fail-closed guard is dropped (sleeps after a hardware refusal)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C46 the board is never asked (the arm is answered from a constant)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C47 a held button is treated as a hardware failure (latches sleep off for the boot)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C48 the arm failure is never said on the console",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C52 the arm report is inverted (silent on the first failure, cries later)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C53 the failure is said on every pass, not once (a USB-CDC flood)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C54 an arm is put back into mr_ui_init() (B200, literally)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C55 the disarm's answer is discarded (a stuck level is reported as clean)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C57 the boot announces a wake source again (nothing arms one there)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C58 a SUCCESSFUL arm is reported as a failure (the vacuity control)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C59 the disarm is never performed (the board is not even asked)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C60 a successful disarm reports a problem anyway (cries wolf)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C49 the hook always permits sleep (the whole policy bypassed)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C50 the hook never permits sleep (the panel-lit answer for ever)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C51 the policy is re-derived here without the input term (B197 back)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C26 the highlight is NOT suppressed while the refusal stands",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C61 the strip is drawn from the LIVE chrome instead of the frozen copy",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C63 the comparison reference is updated where the change is OBSERVED, not at the freeze",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C64 every home state draws the same house (the four-state table bypassed)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C65 a missing team content key draws the NORMAL key (the slot claims a capability)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C66 the battery token's column is moved (the frozen slot redefined)",
+      "result": "(10 check(s) failed)"
+    },
+    {
+      "label": "C67 every glyph is drawn at the same x (the layout table bypassed)",
+      "result": "(24 check(s) failed)"
+    },
+    {
+      "label": "C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C69 the strip is drawn after the body, so body-replacing views lose it",
+      "result": "(51 check(s) failed)"
+    },
+    {
+      "label": "C70 the strip's icons are drawn below their y=0..8 band",
+      "result": "(29 check(s) failed)"
+    },
+    {
+      "label": "C71 the blanked arm falls through and paints into a dark panel",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C74 a chrome change is treated as user input (the panel never blanks)",
+      "result": "(71 check(s) failed)"
+    },
+    {
+      "label": "C72 the live chrome is built once and cached (a stale projection for ever)",
+      "result": "(209 check(s) failed)"
+    },
+    {
+      "label": "C73 the strip opens a frame of its own while composing",
+      "result": "(276 check(s) failed)"
+    },
+    {
+      "label": "C75 the strip parks the panel mid-compose (a bus command from a draw)",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C76 the emergency rail suppression is dropped entirely (\u00a75.3)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C77 the rail is never drawn (the screens lose their only heading)",
+      "result": "(182 check(s) failed)"
+    },
+    {
+      "label": "C78 every rail slot gets a selection frame (exactly-one becomes all-five)",
+      "result": "(162 check(s) failed)"
+    },
+    {
+      "label": "C79 the selection comes from a renderer-local cursor, not the frozen nav",
+      "result": "(175 check(s) failed)"
+    },
+    {
+      "label": "C80 the rail packs its slots consecutively (a second layout)",
+      "result": "(179 check(s) failed)"
+    },
+    {
+      "label": "C81 the ordinary body is drawn at x=0, under the rail's icons",
+      "result": "(100 check(s) failed)"
+    },
+    {
+      "label": "C82 the emergency headline is shifted to kBodyX (a clipped distress string)",
+      "result": "(7 check(s) failed)"
+    },
+    {
+      "label": "C83 the STATUS identity goes back onto one 21-column row",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C84 the withdrawn CFG marker is put back on the STATUS body (\u00a76.1's other direction)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C85 SETTINGS drops its actionable marker text, leaving only the badge (\u00a76 forbids)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED)",
+      "result": "(10 check(s) failed)"
+    },
+    {
+      "label": "C87 the rail's glyphs are drawn at the body's x, over the text",
+      "result": "(23 check(s) failed)"
+    },
+    {
+      "label": "C88 the PROVISION row is rendered unconditionally (the ruling not applied)",
+      "result": "(19 check(s) failed)"
+    },
+    {
+      "label": "C89 the child predicates are published as TRUE on a build with no children",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer)",
+      "result": "(59 check(s) failed)"
+    },
+    {
+      "label": "C91 the closed view keeps the note/reboot row to itself (\u00a76's icon-only error)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C92 the entry row's label is re-spelled at the draw site",
+      "result": "(58 check(s) failed)"
+    },
+    {
+      "label": "C93 the list is drawn as ENTERED whatever the model says",
+      "result": "(25 check(s) failed)"
+    },
+    {
+      "label": "C94 an entered list is drawn as PASSIVE (no marker, no exit)",
+      "result": "(139 check(s) failed)"
+    },
+    {
+      "label": "C95 the interactive list's BACK row is never drawn",
+      "result": "(134 check(s) failed)"
+    },
+    {
+      "label": "C96 the reserved 24x24 mark is never drawn (the slot vanishes)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C97 rows 0-2 are drawn at the body origin, through the reserved mark",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C98 row 3 is drawn at the NARROWED origin (18 columns in 14)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C99 the mark is drawn in the chrome, so EVERY screen shows it",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C100 STATUS row 2 is never placed (the pure row is composed and dropped)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C101 STATUS row 2 is placed on row 1's baseline (a misroute)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C102 row 4 reads the LIVE config again (the row can TEAR mid-frame)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C103 own_fix is published as a constant (a fix that was never configured)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C104 own_fix is published from ONE coordinate (the OR narrowed to lat)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C105 the pre-S4 row (9-column label + hops) is composed inline again",
+      "result": "(31 check(s) failed)"
+    },
+    {
+      "label": "C106 every row is drawn from snapshot row 0 (the wrong teammate)",
+      "result": "(11 check(s) failed)"
+    },
+    {
+      "label": "C107 the row marker is hard-wired off (no pick is ever shown)",
+      "result": "(19 check(s) failed)"
+    },
+    {
+      "label": "C108 the team rows are ALSO drawn at the STATUS x=40 origin",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C109 the S4 repaint invalidation is never called (F-8 re-opened)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C110 the invalidation compares the live snapshot with ITSELF",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C111 the tick marks the model dirty unconditionally instead",
+      "result": "(66 check(s) failed)"
+    },
+    {
+      "label": "C112 the roster is drawn in REVERSE order (a re-sort by any other name)",
+      "result": "(28 check(s) failed)"
+    },
+    {
+      "label": "C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C114 the cache is never read, so no teammate ever has a position",
+      "result": "(6 check(s) failed)"
+    },
+    {
+      "label": "C115 the location age is published as ZERO, so a stale position renders as current",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C116 latitude and longitude are published crossed",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C117 the cache miss is published as a hit (0,0 becomes a position)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C118 the renderer transmits a request for a peer it has no position for",
+      "result": "(233 check(s) failed)"
+    },
+    {
+      "label": "C119 the wake is hard-wired into the device push entry (wake-on-any-push)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel",
+      "result": "(77 check(s) failed)"
+    },
+    {
+      "label": "C121 the mark is drawn at the STATUS text origin (through rows 0-2)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C122 the mark slot is drawn with a STRIP glyph (right place, wrong bytes)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C123 S6's swap is HALF DONE: the placeholder rect is still drawn behind the artwork",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C125 the duty gauge's slot is moved (the amendment's frozen x redefined)",
+      "result": "(18 check(s) failed)"
+    },
+    {
+      "label": "C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C128 every fill level draws the same picture (the bucket's level ignored)",
+      "result": "(11 check(s) failed)"
+    },
+    {
+      "label": "C129 the gauge is read live from the node instead of the frozen bucket",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "C130 the utilization is never published (the gauge is empty at every percentage)",
+      "result": "(14 check(s) failed)"
+    },
+    {
+      "label": "C131 the duty limit is published as always-on (an unlimited node claims a utilization)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C132 the gauge is driven by the five-minute anti-spam budget, not duty_status()",
+      "result": "(13 check(s) failed)"
+    },
+    {
+      "label": "C133 the home slot keeps its superseded x (the re-anchoring only half done)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "C134 an ARMED alarm is not treated as busy (the fire has not happened yet)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "C136 an IDLE node answers busy (every preset verb dead with no alarm at all)",
+      "result": "(32 check(s) failed)"
+    },
+    {
+      "label": "C137 the catalog is never published into the frame (every compose list is empty on the device)",
+      "result": "(47 check(s) failed)"
+    },
+    {
+      "label": "C138 the DM compose renders the CHANNEL list (the two projections crossed)",
+      "result": "(13 check(s) failed)"
+    },
+    {
+      "label": "C139 the row is composed here as %c%s (the location column dropped)",
+      "result": "(15 check(s) failed)"
+    },
+    {
+      "label": "C140 the zero-enabled empty state is bypassed (no note is ever placed)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator",
+      "result": "(42 check(s) failed)"
+    },
+    {
+      "label": "B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated",
+      "result": "(40 check(s) failed)"
+    },
+    {
+      "label": "W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker)",
+      "result": "(17 check(s) failed)"
+    },
+    {
+      "label": "W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "W3-D1 the detail modal's second body row repeats the first row's slice",
+      "result": "(20 check(s) failed)"
+    },
+    {
+      "label": "W3-D2 every detail body row is clipped to 18 columns (a lost final byte)",
+      "result": "(17 check(s) failed)"
+    },
+    {
+      "label": "W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "W3-C2 the compose location marker is inverted (L and - swapped)",
+      "result": "(15 check(s) failed)"
+    },
+    {
+      "label": "W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "L1 the result's headline is dropped (the verdict never shows)",
+      "result": "(20 check(s) failed)"
+    },
+    {
+      "label": "L2 the id and fingerprint rows are swapped",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "L3 the fingerprint row is dropped (only the full id is drawn)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "L4 the REPLACES warning is composed unconditionally",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L5 the REPLACES warning is never drawn (\u00a73.6.3 not applied)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L6 the refusal detail row is dropped (a verdict with no reason)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "L7 the confirm and result arms are crossed (the wrong screen)",
+      "result": "(44 check(s) failed)"
+    },
+    {
+      "label": "L8 the model is never given the provisioning adapter",
+      "result": "(153 check(s) failed)"
+    },
+    {
+      "label": "L9 the CREATE child is published as absent on a build that has it",
+      "result": "(148 check(s) failed)"
+    },
+    {
+      "label": "L10 the parent row is hidden on a build that HAS a child",
+      "result": "(323 check(s) failed)"
+    },
+    {
+      "label": "L11 the slot label is drawn from the ROW INDEX instead of the slot number (\u00a7B66)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L12 the store-state note is never drawn (an unreadable store looks like an empty list)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L13 the note is drawn but the list is not moved down (the rows collide with it)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L14 the confirmation shows only the label \u2014 design \u00a73.6.3's COMPLETE values are dropped",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L15 the confirmation always renders SLOT 1 (the pick is ignored)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L16 the waiting screen says JOINED before any correlated adopt (plan \u00a72.3 rule 1)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "L17 the RESULT never shows the adopted node id (the one thing \u00a72.3 rule 2 requires)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology",
+      "result": "(7 check(s) failed)"
+    },
+    {
+      "label": "L19 the session guard is dropped (a /mrcfg read on every inbound push)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L20 the push tap is never called, so no adopt can ever complete the screen",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "L21 \u2605\u2605 the waiting head is hard-wired to false, so STILL JOINING can never appear",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "L22 the kind prefilter is dropped (every push pays a /mrcfg read again)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "N1 the projection is never published (an audible team reads as an empty band)",
+      "result": "(96 check(s) failed)"
+    },
+    {
+      "label": "N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "N3 the ring is walked BACKWARDS (strongest/newest first) \u2014 the ruled first-observed order is gone",
+      "result": "(65 check(s) failed)"
+    },
+    {
+      "label": "N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "N10 the scan pings each observed team to refresh it (a read-only scan that transmits)",
+      "result": "(299 check(s) failed)"
+    },
+    {
+      "label": "N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns)",
+      "result": "(66 check(s) failed)"
+    },
+    {
+      "label": "N6 F-1's honest second line is never drawn (the panel claims a general PHY scan)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "N7 the empty note is drawn but the list is not moved down (the note and BACK collide)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "N8 the JOIN TEAM child is published as absent on a build that has it",
+      "result": "(105 check(s) failed)"
+    },
+    {
+      "label": "N11 the join confirmation is drawn with the CREATE title",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "N13 the confirmation names the team we are LEAVING, not the selected one",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "N15 the result screen never learned about team_joined (no id, no fingerprint)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "K5b the offer draws no team identity at all (which team is this key for?)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "K5c the offer is drawn with the CREATE title instead of S-28",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)",
+      "result": "(8 check(s) failed)"
+    },
+    {
+      "label": "O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "O3 every candidate row is drawn UNMARKED \u2014 the cursor is invisible on the one list that grants a key",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)",
+      "result": "(9 check(s) failed)"
+    },
+    {
+      "label": "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O7 the INVITE child is published as absent on a build and a node that have it",
+      "result": "(120 check(s) failed)"
+    },
+    {
+      "label": "O8 the unnamed member's name field is filled from the formatter's HASH branch \u2014 a third hash spelling (F-15)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler",
+      "result": "(106 check(s) failed)"
+    },
+    {
+      "label": "O10 \u2605\u2605 the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing)",
+      "result": "(144 check(s) failed)"
+    },
+    {
+      "label": "O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "O16 \u2605\u2605 the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued)",
+      "result": "(143 check(s) failed)"
+    },
+    {
+      "label": "O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer)",
+      "result": "(16 check(s) failed)"
+    },
+    {
+      "label": "O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c)",
+      "result": "(17 check(s) failed)"
+    },
+    {
+      "label": "O19 \u2605\u2605 the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable)",
+      "result": "(13 check(s) failed)"
+    },
+    {
+      "label": "O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "O21 \u2605\u2605 the grant forward SWALLOWS the origination handle \u2014 nothing can ever correlate",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O23 \u2605\u2605 the grant forward SWALLOWS the SEND-TIME resolved dst \u2014 the TxDone edge can never match (N6b)",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "O22 \u2605\u2605 the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)",
+      "result": "(11 check(s) failed)"
+    },
+    {
+      "label": "K1 \u2605\u2605\u2605 the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note)",
+      "result": "(50 check(s) failed)"
+    },
+    {
+      "label": "K2 \u2605\u2605 the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage)",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)",
+      "result": "(28 check(s) failed)"
+    },
+    {
+      "label": "K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end)",
+      "result": "(24 check(s) failed)"
+    },
+    {
+      "label": "K5 \u2605\u2605 the fifth child is never published, so SAVED KEYS is unreachable from the panel",
+      "result": "(38 check(s) failed)"
+    },
+    {
+      "label": "K6 \u2605\u2605\u2605 the ACTIVE marker is drawn on EVERY row \u2014 the protected record is indistinguishable (S-44 collapsed)",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "K7 \u2605\u2605\u2605\u2605 the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id \u2014 a short-token collision can then name the wrong record on the one screen that destroys one",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "K9 \u2605\u2605\u2605 the removal's verdict screen draws a FIXED word instead of the outcome's own \u2014 a failed removal reads as KEY FORGOTTEN",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one",
+      "result": "(2 check(s) failed)"
+    },
+    {
+      "label": "R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66)",
+      "result": "(5 check(s) failed)"
+    },
+    {
+      "label": "R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out",
+      "result": "(4 check(s) failed)"
+    },
+    {
+      "label": "R3 \u2605\u2605\u2605\u2605 the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed)",
+      "result": "(12 check(s) failed)"
+    },
+    {
+      "label": "R4 \u2605\u2605\u2605 our own stable identity is never published, so the SELF veto can never fire",
+      "result": "(1 check(s) failed)"
+    },
+    {
+      "label": "W3-N1 the settings note is drawn on body row 3 instead of row 4",
+      "result": "(3 check(s) failed)"
+    },
+    {
+      "label": "C0  restoring #include \"fw_context.h\" breaks the host build",
+      "result": "build fails, as required"
+    }
+  ]
+}

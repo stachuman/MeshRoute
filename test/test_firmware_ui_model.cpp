@@ -2432,6 +2432,135 @@ TEST_CASE("ui7d-modal: the body is WRAPPED into two 19-column rows without dropp
     CHECK(m.state().detail_line[1][0] == '\0');
 }
 
+// ---------------------------------------------------------------------------------------------- W3 — the pure pager
+// ★★ W3 STAGE B — `detail_page_count` / `detail_page_rows`, at the modal's geometry and at others, over LOCAL buffers
+//    (`UiState` is not widened). A row buffer is pre-filled with `#` so "exactly one NUL, the tail untouched" is a
+//    measurement rather than an assumption.
+TEST_CASE("w3-pager: the (19, 2) geometry IS the detail modal — every page of every boundary body agrees") {
+    static uint8_t big[MESHROUTE_NS::protocol::inbox_max_body];
+    for (uint16_t i = 0; i < sizeof big; ++i) big[i] = uint8_t('A' + (i % 26));
+    for (uint16_t len : { 0, 1, 38, 39, 76, 77, 241 }) {
+        UiModel m; auto s = snap_inbox(1);
+        to_inbox(m, s);
+        CHECK(open_detail(m, s, big, uint8_t(len)) == true);
+        const uint8_t pages = detail_page_count<kDetailCols, kDetailBodyRows>(uint8_t(len));
+        CHECK(m.state().detail_pages == pages);
+        for (uint8_t p = 0; p < pages; ++p) {
+            if (p) m.on_tick(snap_inbox(1, 1000 + uint32_t(p) * kDetailPageMs));
+            CHECK(m.state().detail_page == p);
+            char rows[kDetailBodyRows][kDetailCols + 1];
+            detail_page_rows<kDetailCols, kDetailBodyRows>(reinterpret_cast<const char*>(big), uint8_t(len), p, rows);
+            for (uint8_t r = 0; r < kDetailBodyRows; ++r) CHECK(std::strcmp(m.state().detail_line[r], rows[r]) == 0);
+        }
+    }
+}
+
+TEST_CASE("w3-pager: (19, 2) counts and slices — full, partial and empty rows, one NUL each, the tail untouched") {
+    CHECK(detail_page_count<19, 2>(0) == 1);                     // ⛔ never zero
+    CHECK(detail_page_count<19, 2>(1) == 1);
+    CHECK(detail_page_count<19, 2>(38) == 1);                    // an exact multiple adds no empty page
+    CHECK(detail_page_count<19, 2>(39) == 2);                    // ...and one byte more does
+    CHECK(detail_page_count<19, 2>(76) == 2);
+    CHECK(detail_page_count<19, 2>(77) == 3);
+    CHECK(detail_page_count<19, 2>(241) == 7);
+    CHECK(detail_page_count<19, 2>(255) == 7);                   // the uint8_t maximum
+    char body[241];
+    for (int i = 0; i < 241; ++i) body[i] = char('a' + i % 26);
+    char rows[2][20];
+    // 241 bytes, page 7 of 7: it starts at byte 228 — 13 bytes on the first row, the second row EMPTY
+    memset(rows, '#', sizeof rows);
+    detail_page_rows<19, 2>(body, 241, 6, rows);
+    CHECK(memcmp(rows[0], body + 228, 13) == 0);
+    CHECK(rows[0][13] == '\0');
+    CHECK(rows[0][14] == '#');                                   // ⛔ nothing past the NUL is written
+    CHECK(rows[1][0] == '\0');
+    CHECK(rows[1][1] == '#');
+    // 76 bytes: two FULL pages, NUL at column 19 on every row
+    detail_page_rows<19, 2>(body, 76, 0, rows);
+    CHECK(memcmp(rows[0], body, 19) == 0);       CHECK(rows[0][19] == '\0');
+    CHECK(memcmp(rows[1], body + 19, 19) == 0);  CHECK(rows[1][19] == '\0');
+    detail_page_rows<19, 2>(body, 76, 1, rows);
+    CHECK(memcmp(rows[0], body + 38, 19) == 0);  CHECK(rows[0][19] == '\0');
+    CHECK(memcmp(rows[1], body + 57, 19) == 0);  CHECK(rows[1][19] == '\0');
+    // 39 bytes, page 2: ONE byte, then an empty row
+    memset(rows, '#', sizeof rows);
+    detail_page_rows<19, 2>(body, 39, 1, rows);
+    CHECK(rows[0][0] == body[38]);
+    CHECK(rows[0][1] == '\0');
+    CHECK(rows[0][2] == '#');
+    CHECK(rows[1][0] == '\0');
+    // length 0: two empty rows, and nothing else touched
+    memset(rows, '#', sizeof rows);
+    detail_page_rows<19, 2>(body, 0, 0, rows);
+    CHECK(rows[0][0] == '\0');
+    CHECK(rows[0][1] == '#');
+    CHECK(rows[1][0] == '\0');
+    CHECK(rows[1][1] == '#');
+}
+
+TEST_CASE("w3-pager: a THREE-row geometry pages by 57 and fills three rows") {
+    CHECK(detail_page_count<19, 3>(0) == 1);
+    CHECK(detail_page_count<19, 3>(57) == 1);
+    CHECK(detail_page_count<19, 3>(58) == 2);
+    CHECK(detail_page_count<19, 3>(114) == 2);
+    CHECK(detail_page_count<19, 3>(241) == 5);                   // ceil(241 / 57)
+    char body[241];
+    for (int i = 0; i < 241; ++i) body[i] = char('A' + i % 26);
+    char rows[3][20];
+    detail_page_rows<19, 3>(body, 241, 1, rows);                 // bytes 57..113, three full rows
+    CHECK(memcmp(rows[0], body + 57, 19) == 0);  CHECK(rows[0][19] == '\0');
+    CHECK(memcmp(rows[1], body + 76, 19) == 0);  CHECK(rows[1][19] == '\0');
+    CHECK(memcmp(rows[2], body + 95, 19) == 0);  CHECK(rows[2][19] == '\0');
+    memset(rows, '#', sizeof rows);
+    detail_page_rows<19, 3>(body, 241, 4, rows);                 // the last page starts at 228: 13 bytes, two empty
+    CHECK(memcmp(rows[0], body + 228, 13) == 0);
+    CHECK(rows[0][13] == '\0');
+    CHECK(rows[1][0] == '\0');
+    CHECK(rows[2][0] == '\0');
+    CHECK(rows[2][1] == '#');
+}
+
+TEST_CASE("w3-pager: small geometries — lengths 0, 1, exact multiples, +1 and the maximum, with no truncation") {
+    // (1, 1): one byte a page, so the page count IS the length — up to the uint8_t maximum
+    CHECK(detail_page_count<1, 1>(0) == 1);
+    CHECK(detail_page_count<1, 1>(1) == 1);
+    CHECK(detail_page_count<1, 1>(2) == 2);
+    CHECK(detail_page_count<1, 1>(255) == 255);
+    // (4, 2): eight a page
+    CHECK(detail_page_count<4, 2>(8) == 1);
+    CHECK(detail_page_count<4, 2>(9) == 2);
+    CHECK(detail_page_count<4, 2>(16) == 2);
+    CHECK(detail_page_count<4, 2>(17) == 3);
+    CHECK(detail_page_count<4, 2>(255) == 32);
+    // the widest geometry: `len + per - 1` must not wrap anywhere near the top of the range
+    CHECK(detail_page_count<255, 255>(0) == 1);
+    CHECK(detail_page_count<255, 255>(255) == 1);
+    CHECK(detail_page_count<255, 1>(255) == 1);
+    const char nine[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+    char r42[2][5];
+    memset(r42, '#', sizeof r42);
+    detail_page_rows<4, 2>(nine, 9, 0, r42);
+    CHECK(memcmp(r42[0], "1234", 5) == 0);                       // four bytes and the NUL
+    CHECK(memcmp(r42[1], "5678", 5) == 0);
+    memset(r42, '#', sizeof r42);
+    detail_page_rows<4, 2>(nine, 9, 1, r42);
+    CHECK(r42[0][0] == '9');
+    CHECK(r42[0][1] == '\0');
+    CHECK(r42[0][2] == '#');
+    CHECK(r42[1][0] == '\0');
+    CHECK(r42[1][1] == '#');
+    // (1, 1) at the maximum: page 254 of a 255-byte body is its last byte — a counted body may hold NUL bytes
+    char big[255];
+    for (int i = 0; i < 255; ++i) big[i] = char(i);
+    char r11[1][2];
+    detail_page_rows<1, 1>(big, 255, 254, r11);
+    CHECK(uint8_t(r11[0][0]) == 254);
+    CHECK(r11[0][1] == '\0');
+    detail_page_rows<1, 1>(big, 255, 0, r11);
+    CHECK(r11[0][0] == '\0');                                    // byte 0 IS a NUL, copied as a byte, not a stop
+    CHECK(r11[0][1] == '\0');
+}
+
 TEST_CASE("ui7d-modal: unsupported display bytes are replaced VISIBLY — NUL, control and high-bit alike") {
     const uint8_t b[] = { 'o', 0x00, 'k', 0x07, 0x1f, 0x7f, 0x80, 0xff, 'z' };
     UiModel m; auto s = snap_inbox(1);
@@ -2443,6 +2572,208 @@ TEST_CASE("ui7d-modal: unsupported display bytes are replaced VISIBLY — NUL, c
     CHECK(ui_display_byte(0x7e) == '~');
     CHECK(ui_display_byte(0x7f) == '.');
     CHECK(ui_display_byte(0x1f) == '.');
+}
+
+// ---------------------------------------------------------------------------------------------- W4a — ui_fmt_identity
+// ★★★ W4a ([[B441]]) — THE ONE DEVICE-LABEL FORMATTER, PINNED BYTE BY BYTE. Every output lands in a buffer FENCED by
+//     guard bytes on both sides, and every byte past the passed capacity must still be a guard afterwards: a write
+//     past the budget or the capacity is a measurement here, never undefined behaviour.
+// ⓘ The inputs are COUNTED synthetic bytes. Control bytes and an embedded NUL are included on purpose: the console
+//   cannot admit them as a name today, but the formatter's contract is over any 0..32 counted bytes.
+// ⓘ Expected strings are LITERALS. The generated marker is written as its own literal (`"Wolfg" "\xBB"`), because a
+//   hex escape swallows every hex digit that follows it.
+namespace {
+struct IdBuf {
+    char pre[8];
+    char out[48];
+    char post[8];
+};
+constexpr char kGuard = char(0x5A);
+IdentityFmt id_fmt(IdBuf& b, std::size_t cap, const char* bytes, uint8_t len, uint32_t hash, uint8_t cols) {
+    std::memset(&b, kGuard, sizeof b);
+    return ui_fmt_identity(b.out, cap, bytes, len, hash, cols);
+}
+// Every byte outside `out[0 .. cap)` is untouched.
+bool id_fenced(const IdBuf& b, std::size_t cap) {
+    for (char c : b.pre)  if (c != kGuard) return false;
+    for (char c : b.post) if (c != kGuard) return false;
+    for (std::size_t i = cap; i < sizeof b.out; ++i) if (b.out[i] != kGuard) return false;
+    return true;
+}
+bool id_is(const IdBuf& b, std::size_t cap, const char* want) {
+    return std::strcmp(b.out, want) == 0 && id_fenced(b, cap);
+}
+}  // namespace
+
+TEST_CASE("w4a-ident: every byte is ONE cell — ASCII as-is, DEL, C0 controls, NUL and every high byte as `.`") {
+    IdBuf b{};
+    for (int v = 0; v < 256; ++v) {
+        const char one = char(v);
+        CHECK(id_fmt(b, 20, &one, 1, 0, 19) == IdentityFmt::name);
+        const char want = (v >= 0x20 && v <= 0x7E) ? char(v) : '.';
+        CHECK(b.out[0] == want);
+        CHECK(b.out[1] == '\0');
+        CHECK(id_fenced(b, 20));
+    }
+    // ★ UTF-8 is NOT decoded: `ł` (C5 82) is two cells, both `.` — never a Latin-1 glyph, never a lost cell.
+    const char utf8[] = { char(0xC5), char(0x82), 'A', 'B' };
+    CHECK(id_fmt(b, 7, utf8, 4, 0, 6) == IdentityFmt::name);
+    CHECK(id_is(b, 7, "..AB"));
+    // An embedded NUL is a COUNTED byte, not a terminator: the three bytes after it are still shown.
+    const char nul[] = { 'A', '\0', 'B', 'C' };
+    CHECK(id_fmt(b, 7, nul, 4, 0, 6) == IdentityFmt::name);
+    CHECK(id_is(b, 7, "A.BC"));
+}
+
+TEST_CASE("w4a-ident: lengths — exactly the budget stays whole, one more abbreviates VISIBLY, 32 bytes too") {
+    const char* src = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";          // 32 counted bytes, the raw API's maximum
+    IdBuf b{};
+    // budget 6 (TEAM, candidate row)
+    CHECK(id_fmt(b, 7, src, 6, 0, 6) == IdentityFmt::name);   CHECK(id_is(b, 7, "ABCDEF"));
+    CHECK(id_fmt(b, 7, src, 7, 0, 6) == IdentityFmt::name);   CHECK(id_is(b, 7, "ABCDE" "\xBB"));
+    CHECK(id_fmt(b, 7, src, 32, 0, 6) == IdentityFmt::name);  CHECK(id_is(b, 7, "ABCDE" "\xBB"));
+    // budget 14 (REPLY, invite carrier)
+    CHECK(id_fmt(b, 15, src, 14, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLMN"));
+    CHECK(id_fmt(b, 15, src, 15, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLM" "\xBB"));
+    CHECK(id_fmt(b, 15, src, 32, 0, 14) == IdentityFmt::name); CHECK(id_is(b, 15, "ABCDEFGHIJKLM" "\xBB"));
+    // budget 15 (compose header) and 19 (DELIVERED)
+    CHECK(id_fmt(b, 16, src, 15, 0, 15) == IdentityFmt::name); CHECK(id_is(b, 16, "ABCDEFGHIJKLMNO"));
+    CHECK(id_fmt(b, 16, src, 16, 0, 15) == IdentityFmt::name); CHECK(id_is(b, 16, "ABCDEFGHIJKLMN" "\xBB"));
+    CHECK(id_fmt(b, 20, src, 19, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQRS"));
+    CHECK(id_fmt(b, 20, src, 20, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQR" "\xBB"));
+    CHECK(id_fmt(b, 20, src, 32, 0, 19) == IdentityFmt::name); CHECK(id_is(b, 20, "ABCDEFGHIJKLMNOPQR" "\xBB"));
+    // ★ The abbreviated result is EXACTLY the budget wide — the marker takes the last cell, never one past it.
+    CHECK(std::strlen(b.out) == 19u);
+    // A roomier capacity changes nothing about the budget.
+    CHECK(id_fmt(b, 48, src, 32, 0, 6) == IdentityFmt::name); CHECK(id_is(b, 48, "ABCDE" "\xBB"));
+}
+
+TEST_CASE("w4a-ident: a raw 0xBB in a NAME is `.`; only the GENERATED marker is 0xBB") {
+    IdBuf b{};
+    const char raw_bb[] = { 'a', 'b', char(0xBB) };
+    CHECK(id_fmt(b, 7, raw_bb, 3, 0, 6) == IdentityFmt::name);
+    CHECK(id_is(b, 7, "ab."));
+    // ...and a long name carrying one: the source 0xBB is a dot, the generated one is the marker.
+    const char mixed[] = { 'a', 'b', char(0xBB), 'd', 'e', 'f', 'g', 'h' };
+    CHECK(id_fmt(b, 7, mixed, 8, 0, 6) == IdentityFmt::name);
+    CHECK(id_is(b, 7, "ab.de" "\xBB"));
+    CHECK(b.out[5] == kIdentityMarker);
+    CHECK(b.out[2] == '.');
+}
+
+TEST_CASE("w4a-ident: PROVENANCE — a stored name that looks like a hash is a NAME; a true unnamed hash is a hash") {
+    IdBuf b{};
+    const char looks[] = "0xdeadbeef";
+    CHECK(id_fmt(b, 7, looks, 10, 0xDEADBEEFu, 6) == IdentityFmt::name);
+    CHECK(id_is(b, 7, "0xdea" "\xBB"));                         // abbreviated AS A NAME, lowercase kept
+    CHECK(id_fmt(b, 11, looks, 10, 0xDEADBEEFu, 10) == IdentityFmt::name);
+    CHECK(id_is(b, 11, "0xdeadbeef"));
+    // ...and the unnamed peer with that very hash is the ruled uppercase member token instead.
+    CHECK(id_fmt(b, 7, nullptr, 0, 0xDEADBEEFu, 6) == IdentityFmt::hash);
+    CHECK(id_is(b, 7, "ADBEEF"));
+    CHECK(id_fmt(b, 11, nullptr, 0, 0xDEADBEEFu, 10) == IdentityFmt::hash);
+    CHECK(id_is(b, 11, "0xDEADBEEF"));
+}
+
+TEST_CASE("w4a-ident: the unnamed boundaries — fingerprint at 6 and 9, full hash from 10, NOTHING under 6") {
+    IdBuf b{};
+    const uint32_t h = 0x00BEDEADu;
+    CHECK(id_fmt(b, 7,  nullptr, 0, h, 6)  == IdentityFmt::hash); CHECK(id_is(b, 7,  "BEDEAD"));
+    CHECK(id_fmt(b, 10, nullptr, 0, h, 9)  == IdentityFmt::hash); CHECK(id_is(b, 10, "BEDEAD"));
+    CHECK(id_fmt(b, 11, nullptr, 0, h, 10) == IdentityFmt::hash); CHECK(id_is(b, 11, "0x00BEDEAD"));
+    CHECK(id_fmt(b, 20, nullptr, 0, h, 19) == IdentityFmt::hash); CHECK(id_is(b, 20, "0x00BEDEAD"));
+    // ⛔ UNDER SIX CELLS A HASH IS NEVER CLIPPED: empty output, `no_fit`, for every budget 0..5.
+    for (uint8_t cols = 0; cols < 6; ++cols) {
+        CHECK(id_fmt(b, 20, nullptr, 0, h, cols) == IdentityFmt::no_fit);
+        CHECK(id_is(b, 20, ""));
+    }
+}
+
+TEST_CASE("w4a-ident: NAMED small budgets — 0 is no_fit, 1..5 follow the ordinary rule (a marker alone at 1)") {
+    IdBuf b{};
+    CHECK(id_fmt(b, 20, "Wolf", 4, 0x1234u, 0) == IdentityFmt::no_fit);
+    CHECK(id_is(b, 20, ""));
+    CHECK(id_fmt(b, 20, "W", 1, 0, 1) == IdentityFmt::name);    CHECK(id_is(b, 20, "W"));
+    CHECK(id_fmt(b, 20, "Wo", 2, 0, 1) == IdentityFmt::name);   CHECK(id_is(b, 20, "\xBB"));
+    CHECK(id_fmt(b, 20, "Wolf", 4, 0, 3) == IdentityFmt::name); CHECK(id_is(b, 20, "Wo" "\xBB"));
+    CHECK(id_fmt(b, 20, "Wolf", 4, 0, 4) == IdentityFmt::name); CHECK(id_is(b, 20, "Wolf"));
+    CHECK(id_fmt(b, 20, "Wolfga", 6, 0, 5) == IdentityFmt::name); CHECK(id_is(b, 20, "Wolf" "\xBB"));
+}
+
+TEST_CASE("w4a-ident: CAPACITY — 0 writes nothing, a short capacity writes only the NUL, never a partial result") {
+    IdBuf b{};
+    CHECK(id_fmt(b, 0, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);
+    CHECK(id_fenced(b, 0));                                      // ⛔ not even out[0]
+    CHECK(id_fmt(b, 1, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);
+    CHECK(id_is(b, 1, ""));
+    CHECK(id_fmt(b, 6, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::no_fit);    // cap < cols + 1
+    CHECK(id_is(b, 6, ""));
+    CHECK(id_fmt(b, 10, nullptr, 0, 0x00BEDEADu, 10) == IdentityFmt::no_fit);     // the full hash would not fit
+    CHECK(id_is(b, 10, ""));
+    CHECK(id_fmt(b, 7, "Wolfgangetta", 12, 0x1234u, 6) == IdentityFmt::name);     // cap == cols + 1 is enough
+    CHECK(id_is(b, 7, "Wolfg" "\xBB"));
+    // A null destination is refused without a write, whatever the capacity says.
+    CHECK(ui_fmt_identity(nullptr, 20, "Wolf", 4, 0, 6) == IdentityFmt::no_fit);
+}
+
+TEST_CASE("w4a-ident: NO name and NO hash is `none` and empty — ⛔ never a fabricated 0x00000000") {
+    IdBuf b{};
+    for (uint8_t cols = 0; cols <= 19; ++cols) {
+        CHECK(id_fmt(b, 20, nullptr, 0, 0, cols) == IdentityFmt::none);
+        CHECK(id_is(b, 20, ""));
+    }
+}
+
+TEST_CASE("w4a-ident: the name-only TWO-PASS rule — full name at 6 == the 14-cell carrier re-formatted at 6") {
+    // ★ The candidate row re-formats the 14-cell invite carrier at six (brief §2.3). For NAMES that must equal
+    //   formatting the full name at six, over every length 1..32, every byte value, and a raw 0xBB at every position.
+    // ⓘ Each local keeps ONE spare byte past the capacity it passes, so a budget-overrun mutant writes owned memory
+    //   and fails the comparison instead of invoking undefined behaviour.
+    auto direct_vs_two_pass = [](const char* name, uint8_t len) {
+        char c14[15 + 1], a6[7 + 1], b6[7 + 1];
+        (void)ui_fmt_identity(a6, 7, name, len, 0, 6);
+        (void)ui_fmt_identity(c14, 15, name, len, 0, 14);
+        (void)ui_fmt_identity(b6, 7, c14, uint8_t(std::strlen(c14)), 0, 6);
+        return std::strcmp(a6, b6) == 0;
+    };
+    bool all = true;
+    int n = 0;
+    char name[32];
+    for (int v = 0; v < 256; ++v)
+        for (uint8_t len = 1; len <= 32; ++len) {
+            std::memset(name, v, sizeof name);
+            if (!direct_vs_two_pass(name, len)) all = false;
+            ++n;
+        }
+    for (uint8_t len = 1; len <= 32; ++len)
+        for (uint8_t at = 0; at < len; ++at) {
+            for (uint8_t i = 0; i < len; ++i) name[i] = char('a' + i % 26);
+            name[at] = char(0xBB);
+            if (!direct_vs_two_pass(name, len)) all = false;
+            ++n;
+        }
+    CHECK(all == true);
+    CHECK(n == 256 * 32 + (32 * 33) / 2);
+    // ...and the marker survives the second pass exactly where it should: the carrier's cell 13 is outside cells 0-4.
+    char c14[15 + 1], b6[7 + 1];
+    (void)ui_fmt_identity(c14, 15, "Wolfgangetta-the-longest", 24, 0, 14);
+    CHECK(std::strcmp(c14, "Wolfgangetta-" "\xBB") == 0);
+    (void)ui_fmt_identity(b6, 7, c14, uint8_t(std::strlen(c14)), 0, 6);
+    CHECK(std::strcmp(b6, "Wolfg" "\xBB") == 0);
+}
+
+TEST_CASE("w4a-ident: a PREFORMATTED sender with its marker is copied through on_reply UNCHANGED (no re-sanitize)") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 5100);
+    char who[kLabelCap + 1 + 1];                                     // one spare byte: see the two-pass case
+    CHECK(ui_fmt_identity(who, kLabelCap + 1, "Wolfgangetta-the-longest", 24, 0, kLabelCap) == IdentityFmt::name);
+    CHECK(std::strcmp(who, "Wolfgangetta-" "\xBB") == 0);
+    m.on_reply(who, "OK", 6000);
+    CHECK(m.emergency() == Emergency::reply);
+    CHECK(std::strcmp(m.reply_who(), "Wolfgangetta-" "\xBB") == 0);   // the 0xBB marker survived, byte for byte
+    CHECK(m.reply_who()[13] == kIdentityMarker);
 }
 
 TEST_CASE("ui7d-modal: a long body advances every 2 s and CYCLES, marking dirty each time") {
@@ -3055,12 +3386,13 @@ struct UiFakeStore : mrfw::ICfgStore {
     bool can_load = true;      // false -> `load` reports no usable record (the ONLY producer of no_record/nv_failed)
     bool can_save = true;      // false -> the durable write FAILS and the record is untouched
     int  writes   = 0;
+    int  loads    = 0;         // W3: every load ATTEMPT, refused or not — the counted witness for the opener
     UiFakeStore() {
         rec.magic = mrnv::kMagic; rec.version = mrnv::kVersion;
         rec.e2e_dm = 0; rec.intro_attach = 1; rec.mobile_autoregister = 0; rec.ble_mode = 0;
         rec.node_id = 42; rec.channel_ctr = 7;      // two NON-covered fields, so a save that dropped them is visible
     }
-    bool load(mrnv::Blob& out) override { if (!can_load) return false; out = rec; return true; }
+    bool load(mrnv::Blob& out) override { ++loads; if (!can_load) return false; out = rec; return true; }
     bool save(const mrnv::Blob& b) override { ++writes; if (!can_save) return false; rec = b; return true; }
 };
 // The EFFECTIVE seam. `eff` starts equal to the persisted record (a freshly booted node) and `apply_live` MOVES it,
@@ -3908,6 +4240,165 @@ TEST_CASE("ui15-gate: with NO usable config the MENU never opens, so the gate is
     CHECK(m2.state().settings == Settings::closed);
     CHECK(m2.state().provisioning == Provision::closed);
     CHECK(m2.state().prov_block == ProvBlock::none);
+}
+
+// ---------------------------------------------------------------------------------------------- W3 — the counted open
+// ★★★ W3 (standalone Home) STAGE A — the service's OPENING and PROVISION's ADMISSION, characterized by COUNTED loads
+//     before W3 extracts the repeat-safe opener and the admission function. The `ui15-gate` cases above prove the
+//     notes and the absence of writes; these add the one fact they could not see: how many times the store is READ.
+//     ⓘ MEASURED 2026-09-25 in a scratch tree: a sync that re-read the store once open, an admission that re-read it
+//       before deciding, and a one-shot latch on a failed open each redden cases here. The two re-reads leave
+//       `ui15-gate`'s CLEAN and UNSAVED cases green — re-reading an unconflicted record changes no state — so for
+//       those cells the load count is the only witness.
+TEST_CASE("w3-open: arrival opens the service ONCE — repeated ticks and gestures on SETTINGS add no load") {
+    CfgFix f; const auto s = cfg_snap();
+    CHECK(f.store.loads == 0);
+    to_settings(f.m, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.svc.is_open());
+    CHECK(f.store.loads == 1);
+    for (int i = 0; i < 20; ++i) f.m.on_tick(s);
+    CHECK(f.store.loads == 1);
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);          // into the menu
+    CHECK(f.m.state().settings == Settings::browsing);
+    for (int i = 0; i < 4; ++i) { f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s); }
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.store.loads == 1);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+}
+
+TEST_CASE("w3-open: a FAILED open stays closed and a LATER sync tries again — no attempted-latch") {
+    UiFakeStore store; UiFakeLive live;
+    store.can_load = false;
+    mrfw::ConfigService svc{store, live};
+    UiModel m; m.attach_config(svc);
+    const auto s = prov_snap();
+    to_settings(m, s);
+    CHECK(m.state().screen == Screen::settings);
+    CHECK(svc.is_open() == false);
+    const int l1 = store.loads;
+    CHECK(l1 >= 1);                                          // the arrival tried
+    m.on_tick(s);
+    CHECK(store.loads == l1 + 1);                            // ...and the next sync tries AGAIN, once
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(store.loads == l1 + 2);                            // a gesture's sync is a try too
+    CHECK(svc.is_open() == false);
+    CHECK(m.state().settings == Settings::closed);           // ⛔ no menu over no draft
+    store.can_load = true;
+    m.on_tick(s);
+    CHECK(svc.is_open() == true);                            // the store recovered: the very next sync opens it
+    CHECK(store.loads == l1 + 3);
+    for (int i = 0; i < 10; ++i) m.on_tick(s);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().settings == Settings::browsing);
+    CHECK(store.loads == l1 + 3);                            // ...and once open, never read again by a sync
+    CHECK(store.writes == 0);
+    CHECK(live.applies == 0);
+}
+
+TEST_CASE("w3-prov: a CLEAN PROVISION activation adds no load, write or apply, and keeps the draft") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    CHECK(f.store.loads == 1);                               // the arrival's one open, and nothing since
+    const mrfw::CfgValues d0 = f.svc.draft();
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.store.loads == 1);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.draft() == d0);
+}
+
+TEST_CASE("w3-prov: an UNSAVED PROVISION refusal adds no load, write or apply, and keeps the draft") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    const int l0 = f.store.loads; const mrfw::CfgValues d0 = f.svc.draft();
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().prov_block == ProvBlock::unsaved);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.store.loads == l0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.draft() == d0);
+    CHECK(f.svc.config_unsaved() == true);
+}
+
+TEST_CASE("w3-prov: a CONFLICT PROVISION refusal adds no load, write or apply, and keeps the draft") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings_menu(f.m, s);
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);                  // a READ-free latch: the caller hands the record over
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    const int l0 = f.store.loads; const mrfw::CfgValues d0 = f.svc.draft();
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.store.loads == l0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.draft() == d0);
+    CHECK(f.svc.conflict() == true);
+}
+
+TEST_CASE("w3-prov: a BOTH-flags PROVISION refusal adds no load, write or apply, and keeps the draft") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    const int l0 = f.store.loads; const mrfw::CfgValues d0 = f.svc.draft();
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.store.loads == l0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.draft() == d0);
+}
+
+TEST_CASE("w3-prov: the refusal note belongs to ONE activation — the next activation replaces or clears it") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(strcmp(settings_note(f.m.state()), "RELOAD OR DISCARD") == 0);
+    // The service resolves the conflict WITHOUT a press (a gesture would move the cursor and retire the note on its
+    // own): the three-way merge keeps the edit, so the draft is still unsaved.
+    CHECK(f.svc.reload() == mrfw::CfgRefresh::ok);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.svc.config_unsaved() == true);
+    f.m.on_gesture(Gesture::double_press, s);                // the NEXT activation, no navigation between
+    CHECK(f.m.state().prov_block == ProvBlock::unsaved);
+    CHECK(strcmp(settings_note(f.m.state()), "SAVE OR DISCARD") == 0);
+    CHECK(f.svc.discard() == mrfw::CfgRefresh::ok);
+    f.m.on_gesture(Gesture::double_press, s);                // ...and once the draft is clean, it is admitted
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().prov_block == ProvBlock::none);
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
 }
 
 // ---------------------------------------------------------------------------------------------- §5 — the transitions
@@ -5245,19 +5736,21 @@ TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body
     // ...and the wrapped body rows themselves
     CHECK(size_t(kDetailCols) <= kCols);
 
-    // ---- ★★★★ §UI-10/11 P3 — THE COMPOSE ROWS, AT THE **WIDEST PHRASE THE CATALOG CAN HOLD**. ⛔ WITHDRAWN AND
+    // ---- ★★★★ §UI-10/11 P3 — THE COMPOSE ROWS, AT THE **WIDEST PHRASE A ROW DISPLAYS WHOLE**. ⛔ WITHDRAWN AND
     //      KEPT VISIBLE: this used to walk `kDmTexts` / `kChannelTexts` and check `1 + strlen(text) <= kCols`, i.e.
     //      the FIVE compiled strings. Those tables are retired, and — the point of OQ-A — a configured phrase can be
-    //      LONGER than any of them. ⇒ the budget is now proved against the BOUND (`mrnv::kUiPresetTextMax`, 17), so
-    //      it holds for every phrase the wearer can ever store rather than for the five that shipped.
-    // ★★ OQ-A's ARITHMETIC, ASSERTED RATHER THAN RESTATED: selection marker 1 + location marker 1 + text 17 = 19.
-    CHECK(1u + 1u + size_t(mrnv::kUiPresetTextMax) == size_t(kCols));
+    //      LONGER than any of them. ⇒ the budget is proved against the row's DISPLAY bound (`kComposeTextCols`, 17).
+    // ⓘ W3: TWO SEPARATE FACTS, which agree today. The row's text width is permanent GEOMETRY (asserted here); the
+    //   record's own limit `mrnv::kUiPresetTextMax` (OQ-A's 17) is the record's, pinned by the presets suite. So the
+    //   17-byte fixture below is the DISPLAY bound, and it is also the longest phrase the record accepts today.
+    // ★★ THE ROW's ARITHMETIC, ASSERTED RATHER THAN RESTATED: selection marker 1 + location marker 1 + text 17 = 19.
+    CHECK(1u + 1u + size_t(kComposeTextCols) == size_t(kCols));
     {
         // A catalog whose two DM and two channel slots all carry a MAXIMUM-LENGTH phrase, in both location states.
         mrnv::UiPresetBlob wide{};
         mrfw::preset_defaults(wide);
         const char* w17 = "ABCDEFGHIJKLMNOPQ";                 // exactly 17
-        CHECK(strlen(w17) == size_t(mrnv::kUiPresetTextMax));
+        CHECK(strlen(w17) == size_t(kComposeTextCols));
         for (uint8_t i : { uint8_t(mrfw::kPresetDmFirst), uint8_t(mrfw::kPresetDmFirst + 1),
                            uint8_t(mrfw::kPresetChannelFirst), uint8_t(mrfw::kPresetChannelFirst + 1) })
             mrfw::preset_slot_put(wide.slot[i], true, (i % 2) == 0, w17, strlen(w17));
@@ -5282,8 +5775,10 @@ TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body
     //    the five COMPILED strings, and the catalog is now the WEARER's. Nothing in this tree can stop him
     //    configuring `dm1` and `dm2` to the same words — and refusing a duplicate would be a new owner ruling
     //    (§3.2.3's `set` validation has no such clause). ⇒ what survives is the half that is still ours to keep:
-    //    a phrase can never be CLAMPED at all, because `validate_preset_text` refuses 18+ bytes outright, so two
-    //    distinct phrases can never become identical *through truncation*. That is asserted above.
+    //    TODAY no stored phrase is CLAMPED by the row — `validate_preset_text` refuses more than the record's 17
+    //    bytes, and 17 is also the row's display width — so two distinct phrases cannot become identical *through
+    //    truncation*. That is asserted above. ⓘ It holds because the two limits agree, not because one derives the
+    //    other; a record limit wider than the row would need its own display ruling, which this test does not make.
     // ⓘ The emergency body is EXEMPT and stays 21 columns at x = 0 (§5.3) — the emergency phrase is not a body row
     //   at all (it is the wire text of the alarm), and the `Font::large` headlines have their own 12-column budget,
     //   pinned by `tools/probe_board_ui`'s W11b.
@@ -7603,7 +8098,10 @@ TEST_CASE("ui16-reqpubkey-push: wrong hash stays waiting; right hash refreshes t
     // `build_snapshot` now publishes the name from the EXISTING cache under this same hash; simulate that one read.
     memcpy(s.member[1].name, "Wolfgangetta", 12);
     char row[mrui::kInviteRowCap];
-    mrui::ui_fmt_invite_row(row, sizeof row, '>', s.member[1]);
+    // ⓘ W4a: the row takes a PREPARED name. It is handed the carrier VERBATIM here, because this case measures the
+    //   model's name-arrival flow and the row's placement — the row's own `%-6.6s` bounds it. The renderer's
+    //   projection of that carrier (`Wolfg` + `»`) is pinned in `test_firmware_ui_invite.cpp` and by the probe's P23d.
+    mrui::ui_fmt_invite_row(row, sizeof row, '>', s.member[1], s.member[1].name);
     CHECK(strcmp(row, ">Wolfga T200 BBCCDD") == 0);                 // name added; fingerprint unchanged
     CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
     f.m.on_gesture(Gesture::double_press, s);

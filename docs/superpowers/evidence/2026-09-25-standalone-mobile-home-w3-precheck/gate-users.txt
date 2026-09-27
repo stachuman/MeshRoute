@@ -1,0 +1,315 @@
+test/test_firmware_config_service.cpp:145:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:150:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:165:    CHECK(g.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:178:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:200:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:237:    CHECK(f.svc.config_unsaved() == true);                            // and so is the marker
+test/test_firmware_config_service.cpp:252:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:254:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:336:    CHECK(f.svc.config_unsaved() == true);                            // … and so does the marker
+test/test_firmware_config_service.cpp:343:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:357:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:386:// --- behaviour 9: reboot_required is INDEPENDENT of config_unsaved ----------------------------------------------
+test/test_firmware_config_service.cpp:393:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:397:    CHECK(f.svc.config_unsaved() == false);                          // ★ the two flags are independent
+test/test_firmware_config_service.cpp:409:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:430:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:469:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:492:    CHECK(f.svc.config_unsaved() == false);                          // discard threw the draft away, as it must
+test/test_firmware_config_service.cpp:512:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:550:    CHECK(f.svc.config_unsaved() == true);                           // (still unsaved for the operator's own reason)
+test/test_firmware_config_service.cpp:578:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:607:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_config_service.cpp:635:    CHECK(f.svc.config_unsaved() == true);                           // one field still differs from the new baseline
+test/test_firmware_config_service.cpp:672:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:675:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:677:    CHECK(f.svc.open() == CfgOpen::already_open);
+test/test_firmware_config_service.cpp:679:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_config_service.cpp:693:    CHECK(strcmp(mrfw::cfg_open_name(CfgOpen::already_open), "already_open") == 0);
+src/firmware_ui.cpp:221://   reaches SETTINGS and `already_open` makes every later arrival a no-op, so the draft survives BACK, a blank and a
+src/firmware_ui.cpp:382:// ⛔ `unsaved` IS `config_unsaved()`, NEVER `UiState::dirty` — `dirty` means "a repaint is owed" and is read three
+src/firmware_ui.cpp:953:// ★ The three predicates are read only while the service is OPEN. That is not defensive: `config_unsaved()` and
+src/firmware_ui.cpp:960:    v.unsaved  = s_cfg.config_unsaved();
+src/firmware_ui.cpp:1615://    string is GONE — §UI-15 slice 4 replaced the placeholder refusal with §4's TWO remedy cells (`ProvBlock`), whose
+test/test_firmware_ui_invite.cpp:457:    //    the discard — `enter_provision` — and `test_firmware_ui_model.cpp` drives the close/re-open path.)
+tools/probe_firmware_ui/run.sh:606:  ctl "C31 the draft marker renders UiState::dirty instead of config_unsaved()" yes \
+tools/probe_firmware_ui/run.sh:607:      's|    v.unsaved  = s_cfg.config_unsaved();|    v.unsaved  = s_model.state().dirty;|'
+src/firmware_ui_invite.h:297://     that lives and dies with the window (`UiModel::enter_provision` discards it on the way out).
+tools/probe_ui_model_mutations.py:3190: #     `ConfigService::_open` is never cleared once set — so no gesture sequence reaches `settings_activate` with a
+tools/probe_ui_model_mutations.py:3218: # ★ THE AIM IS THE ONE PLAN §4 NAMES: **THE STATE COLLAPSE**. `conflict()` and `config_unsaved()` are different
+tools/probe_ui_model_mutations.py:3244:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }\n"
+tools/probe_ui_model_mutations.py:3245:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3246:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }\n"
+tools/probe_ui_model_mutations.py:3247:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }"),
+tools/probe_ui_model_mutations.py:3249:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3252:  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }",
+tools/probe_ui_model_mutations.py:3255:  '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
+tools/probe_ui_model_mutations.py:3256:  '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
+tools/probe_ui_model_mutations.py:3257:  '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
+tools/probe_ui_model_mutations.py:3258:  '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
+tools/probe_ui_model_mutations.py:3260:  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+tools/probe_ui_model_mutations.py:3261:  "                if (_cfg->config_unsaved())         { (void)_cfg->save(); enter_provision(Provision::menu); break; }"),
+tools/probe_ui_model_mutations.py:3290:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+tools/probe_ui_model_mutations.py:3305:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+tools/probe_ui_model_mutations.py:3308:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+tools/probe_ui_model_mutations.py:3316:  "        UiProvAnswer a{};\n        enter_provision(Provision::create_result);\n        if (_prov) {"),
+tools/probe_ui_model_mutations.py:3354:  "            case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;",
+tools/probe_ui_model_mutations.py:3355:  "            case ProvRow::join_static: enter_provision(Provision::join_select); return;"),
+tools/probe_ui_model_mutations.py:3357:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }\n"
+tools/probe_ui_model_mutations.py:3362:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }",
+tools/probe_ui_model_mutations.py:3364:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }"),
+tools/probe_ui_model_mutations.py:3367:  "        UiProvAnswer a{};\n        enter_provision(Provision::join_result);\n        const uint8_t sel = _st.join_sel;"),
+tools/probe_ui_model_mutations.py:3371:  "                if (still) { _join.active = false; enter_provision(Provision::join_result);\n"
+tools/probe_ui_model_mutations.py:3375:  "            case Provision::join_waiting:   enter_provision(Provision::menu); return;",
+tools/probe_ui_model_mutations.py:3376:  "            case Provision::join_waiting:   _join.active = false; enter_provision(Provision::menu); return;"),
+tools/probe_ui_model_mutations.py:3384:  "            _join.active = false; enter_provision(Provision::join_result);\n"
+tools/probe_ui_model_mutations.py:3395:  "            enter_provision(Provision::join_result);",
+tools/probe_ui_model_mutations.py:3397:  "            enter_provision(Provision::join_result);"),
+tools/probe_ui_model_mutations.py:3443: # ⛔ M97 IS THE REVERSION, LITERALLY: it puts the auto-enter back where `sync_settings` used to hold it.
+tools/probe_ui_model_mutations.py:3765:  "        if (r.back) { enter_provision(Provision::menu); return; }",
+tools/probe_ui_model_mutations.py:3771: #      ->  "        NearbySelRow r{};\n        if (!l.at(_st.cursor, r)) return;\n        enter_provision(Provision::menu);"
+tools/probe_ui_model_mutations.py:3775: #   `enter_provision(Provision::nearby_confirm)`, so an injected landing two lines above it is OVERWRITTEN on every
+tools/probe_ui_model_mutations.py:3783:  "        if (r.back) { enter_provision(Provision::menu); return; }\n"
+tools/probe_ui_model_mutations.py:3795:  "        enter_provision(Provision::nearby_confirm);",
+tools/probe_ui_model_mutations.py:3797:  "        enter_provision(Provision::nearby_confirm);\n"
+tools/probe_ui_model_mutations.py:3806:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }",
+tools/probe_ui_model_mutations.py:3807:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }"),
+tools/probe_ui_model_mutations.py:3812:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }\n"
+tools/probe_ui_model_mutations.py:3855:  "                enter_provision(Provision::invite);\n"
+tools/probe_ui_model_mutations.py:3859:  "                enter_provision(Provision::invite);"),
+tools/probe_ui_model_mutations.py:3862:  "        enter_provision(Provision::invite_closed);",
+tools/probe_ui_model_mutations.py:3903:  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+tools/probe_ui_model_mutations.py:3906:  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+tools/probe_ui_model_mutations.py:3913:  "        enter_provision(Provision::invite_closed);",
+tools/probe_ui_model_mutations.py:3916:  "            enter_provision(Provision::invite_confirm); return; }\n"
+tools/probe_ui_model_mutations.py:3918:  "        enter_provision(Provision::invite_closed);"),
+tools/probe_ui_model_mutations.py:3921:  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+tools/probe_ui_model_mutations.py:3923:  "        enter_provision((r.cand.name[0] || invite_grant_preflight(_invite_dev, _st.invite.sel_hash))\n"
+tools/probe_ui_model_mutations.py:3927: #      `--target=uiinvite` I16-I19). The shipped shape was `issue(...); enter_provision(wait)`, i.e. the screen
+tools/probe_ui_model_mutations.py:3933:  "            enter_provision(Provision::invite_wait_pubkey);",
+tools/probe_ui_model_mutations.py:3935:  "        enter_provision(Provision::invite_wait_pubkey);"),
+tools/probe_ui_model_mutations.py:3945: #   replaces its direct `enter_provision(invite)` with the one shared landing helper. The old patterns therefore
+tools/probe_ui_model_mutations.py:3965:  "        if (!window_active(s.now_ms)) { enter_provision(Provision::invite_closed); return; }",
+tools/probe_ui_model_mutations.py:3984:  "        enter_provision(Provision::invite_result);",
+tools/probe_ui_model_mutations.py:3987:  "        enter_provision(Provision::invite_result);"),
+tools/probe_ui_model_mutations.py:3998:  "        enter_provision(Provision::create_result);\n"
+tools/probe_ui_model_mutations.py:4026:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+tools/probe_ui_model_mutations.py:4043:  "            enter_provision(Provision::saved_key);\n"
+tools/probe_ui_model_mutations.py:4045:  "            enter_provision(Provision::saved_key);\n"
+tools/probe_ui_model_mutations.py:4050:  "            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);",
+tools/probe_ui_model_mutations.py:4087:  "        enter_provision(Provision::menu);"),
+tools/probe_ui_model_mutations.py:4106:  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::saved_keys); return; }",
+tools/probe_ui_model_mutations.py:4111:  "        enter_provision(r.key.active ? Provision::saved_keys_active : Provision::saved_keys_confirm);",
+tools/probe_ui_model_mutations.py:4112:  "        enter_provision(Provision::saved_keys_confirm);"),
+tools/probe_ui_model_mutations.py:4122:  "            enter_provision(Provision::saved_keys);\n"
+tools/probe_ui_model_mutations.py:4133:  "        enter_provision(Provision::saved_keys);\n"
+tools/probe_ui_model_mutations.py:4136:  "        enter_provision(Provision::saved_keys);\n"
+tools/probe_ui_model_mutations.py:4183:  "        enter_provision(invite_grant_preflight(_invite_dev, target)\n"
+tools/probe_ui_model_mutations.py:4186:  "        enter_provision(Provision::invite_need_pubkey);"),
+tools/probe_ui_model_mutations.py:4198:  "          _st.grant = r; enter_provision(Provision::invite_result); }"),
+tools/probe_ui_model_mutations.py:4257:  "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
+tools/probe_ui_model_mutations.py:4262:  "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
+tools/probe_ui_model_mutations.py:4270:  "                enter_provision(Provision::menu);\n"
+tools/probe_ui_model_mutations.py:4273:  "                enter_provision(Provision::invite);\n"
+tools/probe_ui_model_mutations.py:4301:  "                enter_provision(Provision::invite_confirm);\n"
+tools/probe_ui_model_mutations.py:4304:  "                enter_provision(Provision::invite);\n"
+tools/probe_ui_model_mutations.py:4309:  "                enter_provision(Provision::invite);\n"
+tools/probe_ui_model_mutations.py:4312:  "                enter_provision(Provision::invite_confirm);\n"
+tools/probe_ui_model_mutations.py:4459: ("C18 `config_unsaved` compares the DRAFT with EFFECTIVE (the third state, wrongly chosen)",
+tools/probe_ui_model_mutations.py:4460:  "bool config_unsaved() const { return _open && _draft != _baseline; }",
+tools/probe_ui_model_mutations.py:4461:  "bool config_unsaved() const { return _open && _draft != _live.effective(); }"),
+tools/probe_ui_model_mutations.py:4473:  "if (_open) return CfgOpen::already_open;",
+tools/probe_firmware_ui/probe_main.cpp:54://     `config_unsaved()`, so the mutation that would wrongly keep it lives in the SERVICE, where the native battery's
+src/firmware_ui_chrome.h:359:    // only on `Screen::settings` (`sync_settings` closes it on leaving) — and listed anyway, because §5.2 lists it
+src/firmware_ui_chrome.h:409:        o.unsaved          = c->config_unsaved();
+src/firmware_config_service.h:21://       `config_unsaved()`   = DRAFT     vs BASELINE (the recorded persisted snapshot)
+src/firmware_config_service.h:29:// ⛔ IT IS `config_unsaved`, NEVER `dirty`. `UiState::dirty` (src/firmware_ui_model.h) already means "a repaint is
+src/firmware_config_service.h:241:    already_open,  // ⛔ A NO-OP, AND THAT IS THE POINT: re-entering SETTINGS after `BACK` or a blank MUST NOT reset
+src/firmware_config_service.h:254:                   // LONGER unsaved — `reboot_required()` and `config_unsaved()` are independent facts.
+src/firmware_config_service.h:267:        case CfgOpen::already_open: return "already_open";
+src/firmware_config_service.h:328:    // Snapshot the persisted covered fields and RECORD THE BASELINE. See `CfgOpen::already_open`.
+src/firmware_config_service.h:330:        if (_open) return CfgOpen::already_open;
+src/firmware_config_service.h:345:    bool config_unsaved() const { return _open && _draft != _baseline; }
+src/firmware_config_service.h:474:    // reset. ⛔ Neither may ever grow into a `discard()`; the re-entry case is covered by `CfgOpen::already_open`.
+src/firmware_ui_model.h:51:// three literals (`cfg_marker_text`, `kCfgRestartText`), the row-identity cursor (`sync_settings` /
+src/firmware_ui_model.h:56:// entry gate (two DISTINCT refusals with two DIFFERENT remedies — `ProvBlock`), the §6 availability model
+src/firmware_ui_model.h:77:// ⛔ IT REVERSES §UI-14's DOCUMENTED LANDING, in which `sync_settings` auto-entered `browsing` on arrival and the
+src/firmware_ui_model.h:170:// ⛔ THE MARKER IS `config_unsaved`, NEVER `dirty` — `UiState::dirty` (below) already means "a repaint is owed", and
+src/firmware_ui_model.h:253://                the screen closes it, see `sync_settings`), and it is ALSO the view SETTINGS now LANDS on — one
+src/firmware_ui_model.h:394:// ★ THE INVARIANT, and it is enforced by TWO primitives and nowhere else (`enter_provision` / `close_provisioning`,
+src/firmware_ui_model.h:501://    an expired window, and `enter_provision`'s discard of the volatile per-window state (F-13).
+src/firmware_ui_model.h:507://     what makes `enter_provision` drop the window's whole state on the way into it — the act ended the window.
+src/firmware_ui_model.h:563://     CONFLATED TWO STATES"*. `conflict()` and `config_unsaved()` are different comparisons (see
+src/firmware_ui_model.h:567:enum class ProvBlock : uint8_t { none = 0, conflict, unsaved };
+src/firmware_ui_model.h:586://    writers (`close_provisioning`, `settings_follow_screen` and — for every non-window arm — `enter_provision`).
+src/firmware_ui_model.h:602:    provision,                                                 // §3.6.3's entry point — see `settings_activate`
+src/firmware_ui_model.h:1013://      `enter_provision` — and the durable-adoption note is the newest fact about exactly that. A second slot would
+src/firmware_ui_model.h:1168:// ★★★ THE SAFE ARM IS THE ZERO VALUE AND THEREFORE THE DEFAULT (P-13): `enter_provision` re-establishes
+src/firmware_ui_model.h:1181:// ★★★ THE SAFE ARM IS THE ZERO VALUE AND THEREFORE THE DEFAULT (P-13): `enter_provision` re-establishes
+src/firmware_ui_model.h:1368:// `config_unsaved` and `reboot_required` are INDEPENDENT (§3.6.1: a save that needs a reboot is durably saved and NO
+src/firmware_ui_model.h:2446:    //     HERE: `config_unsaved`, `conflict`, `reboot_required` and the draft VALUES. Those are the SERVICE's, read
+src/firmware_ui_model.h:2481:    ProvBlock   prov_block = ProvBlock::none;
+src/firmware_ui_model.h:2487:    // ★ EVERY ARM ENTRY CLEARS IT (`enter_provision`) and only `run_create_team` writes it, immediately after
+src/firmware_ui_model.h:2568:    // ⓘ 0 = NO OFFER IS OPEN. It is retired by EVERY `enter_provision` (the `prov_answer` rule, one field over) and
+src/firmware_ui_model.h:2581:    // ⓘ 0 = NOTHING SELECTED. It is retired by EVERY `enter_provision` (the `saved_key_team` rule, one field up) and
+src/firmware_ui_model.h:2595:    // ⓘ It is deliberately NOT retired by `enter_provision`: `saved_keys -> saved_keys_confirm -> saved_keys` is one
+src/firmware_ui_model.h:2601:    //      lifetime — `enter_provision` takes it on the way into the window and DISCARDS it on the way out of
+src/firmware_ui_model.h:2642:    switch (st.prov_block) {
+src/firmware_ui_model.h:2643:        case ProvBlock::conflict: return "RELOAD OR DISCARD";
+src/firmware_ui_model.h:2644:        case ProvBlock::unsaved:  return "SAVE OR DISCARD";
+src/firmware_ui_model.h:2645:        case ProvBlock::none:     break;
+src/firmware_ui_model.h:2728:        sync_settings(s);                // ★ §UI-14: the screen owns the editor's lifetime — see the function
+src/firmware_ui_model.h:2741:        // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
+src/firmware_ui_model.h:2898:        sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
+src/firmware_ui_model.h:2908:            // ⛔ THE WINDOW's DEADLINE IS UNTOUCHED BY THIS: `enter_provision(invite)` re-anchors the cursor and
+src/firmware_ui_model.h:2924:            //   the honest landing is the one `BACK` itself takes. ⓘ `enter_provision` retires `saved_key_team`
+src/firmware_ui_model.h:2926:            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);
+src/firmware_ui_model.h:2967:                enter_provision(Provision::menu);
+src/firmware_ui_model.h:2970:                enter_provision(Provision::invite);
+src/firmware_ui_model.h:2973:                enter_provision(Provision::invite_confirm);
+src/firmware_ui_model.h:3007:    //   this note is retired by every `enter_provision`, exactly as a create/join verdict is, and ⛔ can never sit
+src/firmware_ui_model.h:3091:            enter_provision(Provision::join_result);
+src/firmware_ui_model.h:3776:    // ★ The SETTINGS cursor's selection, held by ROW IDENTITY rather than by index — see `sync_settings` for why that
+src/firmware_ui_model.h:3919:            //     row offers. It is checked here rather than inside `settings_activate` because that function is
+src/firmware_ui_model.h:3934:            settings_activate(s);
+src/firmware_ui_model.h:3941:    //         baseline (§3.6.1). ⚠ RE-ENTERING returns `already_open`, which is a NO-OP BY CONTRACT: the draft
+src/firmware_ui_model.h:3947:    // ⓘ `open()` on a tick is free after the first: `already_open` returns before touching the store, so this is not a
+src/firmware_ui_model.h:3950:    //    paths that can leave SETTINGS (the `short` that advances the CYCLE, and `sync_settings` itself), because a
+src/firmware_ui_model.h:3951:    //    guard belongs to the INVARIANT and not to the site where it was first needed. ⛔ Leaving it to `sync_settings`
+src/firmware_ui_model.h:3979:    //     a call site (the `enter_provision`/`close_provisioning` pairing one level down, U1/U3):
+src/firmware_ui_model.h:3980:    //       · the arm, · the cursor at row 0, · and `_cfg_sel_valid` false so `sync_settings` re-anchors the pick.
+src/firmware_ui_model.h:3981:    // ⓘ THE MENU ALWAYS OPENS ON ITS FIRST ROW, exactly as `enter_provision`'s *"each arm's list starts at its own
+src/firmware_ui_model.h:3996:    //    lets `sync_settings` re-anchor on the next pass (*"first arrival: whatever row 0 is IS the pick"*). ⛔ TEAM
+src/firmware_ui_model.h:4022:    void sync_settings(const UiSnapshot& s) {
+src/firmware_ui_model.h:4070:        // ⛔ The same sub-view guard as `sync_settings`'s, and it belongs to the INVARIANT rather than to the site
+src/firmware_ui_model.h:4106:    void settings_activate(const UiSnapshot& s) {
+src/firmware_ui_model.h:4131:            //       · `config_unsaved()` — the ordinary unsaved draft. SAVE or DISCARD.
+src/firmware_ui_model.h:4133:            //     is USUALLY also unsaved, so testing `config_unsaved()` first would print SAVE for a conflict — the
+src/firmware_ui_model.h:4140:            //   ⛔ It is deliberately NOT reported as a `ProvBlock`: those two are §4's cells and carry §4's remedies,
+src/firmware_ui_model.h:4144:                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }
+src/firmware_ui_model.h:4145:                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }
+src/firmware_ui_model.h:4146:                enter_provision(Provision::menu);
+src/firmware_ui_model.h:4155:                //    ⛔ Nothing here decides that a save happened, and nothing clears a marker — `config_unsaved()`
+src/firmware_ui_model.h:4191:        _st.cfg_have_save = false; _st.cfg_refresh_failed = false; _st.prov_block = ProvBlock::none;
+src/firmware_ui_model.h:4197:    // ★ EVERY ARM CHANGE GOES THROUGH `enter_provision`, so §3.6.3's *"a confirmation opens with BACK selected"* is
+src/firmware_ui_model.h:4205:    void enter_provision(Provision p) {
+src/firmware_ui_model.h:4247:    //   The highlight lands back on the PROVISION row by itself — `sync_settings` re-anchors from `_cfg_sel_row`,
+src/firmware_ui_model.h:4275:            //    `case Provision::create_result:  enter_provision(Provision::menu); return;`. The two properties it
+src/firmware_ui_model.h:4286:            case Provision::join_waiting:   enter_provision(Provision::menu); return;
+src/firmware_ui_model.h:4289:            //    `case Provision::join_result:    enter_provision(Provision::menu); return;`. `ADOPTED` — and every
+src/firmware_ui_model.h:4298:                if (!team_key_note_ack_landed() && !team_key_full_ack_landed()) enter_provision(Provision::menu);
+src/firmware_ui_model.h:4320:            case Provision::saved_keys_active:  enter_provision(Provision::saved_keys); return;
+src/firmware_ui_model.h:4360:            //    rule honoured rather than waived): `enter_provision` is what re-anchors the cursor on BACK, so
+src/firmware_ui_model.h:4362:            case ProvRow::create_team: enter_provision(Provision::create_confirm); return;
+src/firmware_ui_model.h:4371:            case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;
+src/firmware_ui_model.h:4380:            case ProvRow::join_team:   load_nearby(s);       enter_provision(Provision::nearby);      return;
+src/firmware_ui_model.h:4393:                enter_provision(Provision::invite);
+src/firmware_ui_model.h:4404:            case ProvRow::saved_keys:  load_saved_keys();    enter_provision(Provision::saved_keys);  return;
+src/firmware_ui_model.h:4426:        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4446:        enter_provision(Provision::create_result);
+src/firmware_ui_model.h:4470:        if (r.back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4472:        //   so index 1 is slot 2 on one record and slot 3 on another. `enter_provision` re-anchors the cursor and the
+src/firmware_ui_model.h:4475:        enter_provision(Provision::join_confirm);
+src/firmware_ui_model.h:4487:        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }
+src/firmware_ui_model.h:4519:            enter_provision(Provision::join_waiting);
+src/firmware_ui_model.h:4528:            enter_provision(Provision::join_result);
+src/firmware_ui_model.h:4550:    //    acting on it. ★ Reaching the act costs `short` THEN `double` (P-13), which `enter_provision`'s BACK default
+src/firmware_ui_model.h:4563:        if (r.back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4566:        //     it rides the row WHOLE from the observation cache (U2). `enter_provision` re-anchors the cursor and
+src/firmware_ui_model.h:4569:        enter_provision(Provision::nearby_confirm);
+src/firmware_ui_model.h:4582:        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }
+src/firmware_ui_model.h:4608:        enter_provision(Provision::create_result);
+src/firmware_ui_model.h:4643:    // ⓘ `prov_answer` is deliberately NOT retired: retiring is what an ENTRY does (`enter_provision`), and LEAVING has
+src/firmware_ui_model.h:4681:        enter_provision(Provision::saved_keys);
+src/firmware_ui_model.h:4714:            enter_provision(Provision::saved_key);
+src/firmware_ui_model.h:4734:            enter_provision(Provision::saved_keys);
+src/firmware_ui_model.h:4737:        enter_provision(Provision::menu);
+src/firmware_ui_model.h:4752:        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4780:        enter_provision(Provision::create_result);
+src/firmware_ui_model.h:4813:        if (r.back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4823:        // ⛔ THE ORDER IS LOAD-BEARING: `enter_provision` RETIRES `forget_team` (and re-anchors the cursor and the
+src/firmware_ui_model.h:4825:        enter_provision(r.key.active ? Provision::saved_keys_active : Provision::saved_keys_confirm);
+src/firmware_ui_model.h:4841:        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::saved_keys); return; }
+src/firmware_ui_model.h:4865:        enter_provision(Provision::saved_keys_result);
+src/firmware_ui_model.h:4877:        enter_provision(Provision::saved_keys);
+src/firmware_ui_model.h:4896:    //   deadline only. The sole transition above requests AFTER this function and AFTER `enter_provision`, making
+src/firmware_ui_model.h:4918:        if (r.back) { enter_provision(Provision::menu); return; }
+src/firmware_ui_model.h:4929:        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)
+src/firmware_ui_model.h:4943:        if (!window_active(s.now_ms)) { enter_provision(Provision::invite_closed); return; }
+src/firmware_ui_model.h:4966:            enter_provision(Provision::invite_wait_pubkey);
+src/firmware_ui_model.h:4990:    // ★ THE VERDICT IS WRITTEN **BEFORE** `enter_provision`, deliberately: that primitive discards the window's
+src/firmware_ui_model.h:5004:        enter_provision(Provision::invite_result);
+src/firmware_ui_model.h:5014:        enter_provision(Provision::invite_closed);
+src/firmware_ui_model.h:5069:        enter_provision(invite_grant_preflight(_invite_dev, target)
+src/firmware_ui_model.h:5082:                enter_provision(Provision::menu);
+src/firmware_ui_model.h:5085:                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);
+test/test_firmware_ui_model.cpp:3093:    //   is when `sync_settings` OPENS the service. Without it the baseline would be snapshotted later — at whatever
+test/test_firmware_ui_model.cpp:3113://   helper: `sync_settings` re-anchors the highlight onto the remembered ROW, and it runs at the top of every gesture
+test/test_firmware_ui_model.cpp:3330:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:3362:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "") == 0);
+test/test_firmware_ui_model.cpp:3369:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3373:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+test/test_firmware_ui_model.cpp:3379:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+test/test_firmware_ui_model.cpp:3380:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()),
+test/test_firmware_ui_model.cpp:3433:    CHECK(f.svc.config_unsaved() == true);                 // ★ the marker is `config_unsaved`, never `dirty`
+test/test_firmware_ui_model.cpp:3436:    CHECK(f.svc.config_unsaved() == false);                // ...back to the baseline, so the marker clears again
+test/test_firmware_ui_model.cpp:3445:TEST_CASE("ui14-edit: `dirty` and `config_unsaved` are DIFFERENT FACTS and this is the file where both are read") {
+test/test_firmware_ui_model.cpp:3449:    CHECK(f.svc.config_unsaved() == false);                // ...and NOTHING is unsaved
+test/test_firmware_ui_model.cpp:3454:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3457:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3480:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:3512:    CHECK(f.svc.config_unsaved() == true);                 // ★ the marker is RETAINED — nothing was established
+test/test_firmware_ui_model.cpp:3529:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:3559:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+test/test_firmware_ui_model.cpp:3587:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3590:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:3610:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3623:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3632:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3637:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+test/test_firmware_ui_model.cpp:3638:    // RE-ENTERING must not reset it either — `CfgOpen::already_open` is a no-op by contract
+test/test_firmware_ui_model.cpp:3642:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3651:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3655:    CHECK(f.svc.config_unsaved() == true);                  // ⛔ the forbidden discard did NOT happen
+test/test_firmware_ui_model.cpp:3798:    CHECK(st.prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3820:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3824:    CHECK(f.m.state().prov_block == ProvBlock::unsaved);
+test/test_firmware_ui_model.cpp:3829:    //    rather than a state assertion: a gate that "helpfully" saved would leave `config_unsaved()` false and every
+test/test_firmware_ui_model.cpp:3833:    CHECK(f.svc.config_unsaved() == true);                    // the draft is exactly where the operator left it
+test/test_firmware_ui_model.cpp:3836:    CHECK(f.m.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3844:    // `config_unsaved()`. That is the cell v1 conflated: the two predicates are different comparisons.
+test/test_firmware_ui_model.cpp:3848:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:3851:    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+test/test_firmware_ui_model.cpp:3874:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:3877:    // ⇒ testing `config_unsaved()` FIRST would print SAVE OR DISCARD here: the §4 conflation, arriving through the
+test/test_firmware_ui_model.cpp:3879:    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+test/test_firmware_ui_model.cpp:3890:// ⓘ `settings_activate`'s own `!_cfg || !_cfg->is_open()` arm is unchanged and is now unreachable, stated in code.
+test/test_firmware_ui_model.cpp:3902:    CHECK(m.state().prov_block == ProvBlock::none);           // ⛔ §4's remedies do not apply to "there is no draft"
+test/test_firmware_ui_model.cpp:3910:    CHECK(m2.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:3922:    // ★ THE PICK SURVIVED THE SUB-VIEW: `sync_settings` re-anchors from the row identity the operator left on, which
+test/test_firmware_ui_model.cpp:3967:    // `enter_provision` is the ONE primitive every arm entry goes through, and `menu` is the entry this slice can
+test/test_firmware_ui_model.cpp:4059:    // ★ THE NEGATIVE HALF FIRST: a tick must NOT close the sub-view. `sync_settings` runs on every tick and every
+test/test_firmware_ui_model.cpp:4357:    // ★ §3.6.3: *"opens a confirmation with BACK selected initially"* — and it is `enter_provision` that establishes
+test/test_firmware_ui_model.cpp:4648:    CHECK(f.m.state().prov_block == ProvBlock::none);
+test/test_firmware_ui_model.cpp:4724:    //    ⓘ Read BEFORE the activation, because `enter_provision` re-anchors the cursor to each arm's first row.
+test/test_firmware_ui_model.cpp:5069:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:5080://   now UNREACHABLE by construction — see `settings_activate`'s note, which says so in code.
+test/test_firmware_ui_model.cpp:5184:    for (ProvBlock b : { ProvBlock::none, ProvBlock::unsaved, ProvBlock::conflict }) {
+test/test_firmware_ui_model.cpp:5185:        st.prov_block = b; CHECK(strlen(settings_note(st)) <= kCols);
+test/test_firmware_ui_model.cpp:5187:    st.prov_block = ProvBlock::none;
+test/test_firmware_ui_model.cpp:5314:    st.prov_block = ProvBlock::unsaved;   CHECK(strcmp(settings_note(st), "SAVE OR DISCARD") == 0);
+test/test_firmware_ui_model.cpp:5315:    st.prov_block = ProvBlock::conflict;  CHECK(strcmp(settings_note(st), "RELOAD OR DISCARD") == 0);
+test/test_firmware_ui_model.cpp:5381:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:5417:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+test/test_firmware_ui_model.cpp:5455:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:5461:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+test/test_firmware_ui_model.cpp:5485:    CHECK(f.svc.config_unsaved() == true);
+test/test_firmware_ui_model.cpp:5494:    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+test/test_firmware_ui_model.cpp:5513:    CHECK(f.svc.config_unsaved() == false);
+test/test_firmware_ui_model.cpp:6638:    // ★ §3.6.4 point 3: *"opens a confirmation with BACK selected initially"* — established by `enter_provision`, so
+test/test_firmware_ui_model.cpp:6679:    //   back at 0: `enter_provision` re-anchors it, which is exactly why the SELECTION cannot be a cursor read.)
+test/test_firmware_ui_model.cpp:6741:        // ★ AND THE VERDICT IS RETIRED BY THE ENTRY (`enter_provision`), so no later screen can render a stale one.
+test/test_firmware_ui_model.cpp:6882:        // ★★★★ AND IT OPENS ON `BACK` (P-13 / spec §4-K5): `enter_provision` re-establishes the zero value, so the
+test/test_firmware_ui_model.cpp:8704:    //    retires it through `enter_provision`, exactly as it retires a create/join verdict — so a note can never sit
+test/test_firmware_ui_model.cpp:8711:    //   it does not run `enter_provision` at all and the slot is therefore not zeroed BY THAT PRESS.
+test/test_firmware_ui_model.cpp:9097:    // ★ §3.6.3's default, established by `enter_provision` so it cannot be forgotten by the entry that lands here.

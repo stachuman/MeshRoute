@@ -1,0 +1,74 @@
+# W3 reader audit (D6/P7) — generated 2026-09-25T16:05:19+00:00 on the final tree
+
+## 1. kUiPresetTextMax: CODE readers (comments stripped with sed 's://.*::'), per file
+src/firmware_ui_model.h: 0 code reference(s)
+src/firmware_ui.cpp: 0 code reference(s)
+src/firmware_ui_presets.h: 2 code reference(s)
+    332:    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;
+    414:    if (len > mrnv::kUiPresetTextMax) len = mrnv::kUiPresetTextMax;
+src/firmware_ui_send.h: 0 code reference(s)
+src/device_nv.h: 1 code reference(s)
+    356:constexpr uint8_t kUiPresetTextMax = 17;
+src/firmware_ui_preset_verbs.h: 0 code reference(s)
+src/firmware_commands.cpp: 0 code reference(s)
+
+## 2. the same token anywhere in firmware_ui_model.h, comments included (expected: the one explanatory comment)
+1496://     the text has 17 columns in BOTH location states. That is permanent GEOMETRY. `mrnv::kUiPresetTextMax` is the
+
+## 3. the compose-row path's width authority after W3
+test/test_firmware_ui_model.cpp:5540:    //      LONGER than any of them. ⇒ the budget is proved against the row's DISPLAY bound (`kComposeTextCols`, 17).
+test/test_firmware_ui_model.cpp:5545:    CHECK(1u + 1u + size_t(kComposeTextCols) == size_t(kCols));
+test/test_firmware_ui_model.cpp:5551:        CHECK(strlen(w17) == size_t(kComposeTextCols));
+src/firmware_ui_model.h:1499:inline constexpr uint8_t kComposeTextCols = uint8_t(kDetailCols - 2);
+src/firmware_ui_model.h:1513:    // The row's DISPLAY width (`kComposeTextCols`, 17) + the terminator — see that constant: the record's own limit
+src/firmware_ui_model.h:1515:    char    text[kComposeTextCols + 1] = {};
+src/firmware_ui_model.h:1548:        uint8_t n = s.len < kComposeTextCols ? s.len : kComposeTextCols;   // the DISPLAY width, never the record's
+src/firmware_ui_model.h:1671://      text width (`kComposeTextCols`) is 17 in both states and why a conditional bound was WRONG — OQ-A set the
+
+## 4. pager helpers and their callers
+1416:constexpr uint8_t detail_page_count(uint8_t len) {
+1427:inline void detail_page_rows(const char* body, uint8_t len, uint8_t page, char (&out)[Rows][Cols + 1]) {
+3254:        _st.detail_pages = detail_page_count<kDetailCols, kDetailBodyRows>(n);
+5400:    // is a slice and nothing else; `detail_page_rows` owns the slicing, and its writes are the ones this function
+5403:        detail_page_rows<kDetailCols, kDetailBodyRows>(_detail_body, _detail_len, _st.detail_page, _st.detail_line);
+
+## 5. opener / admission and their callers
+4072:        ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below
+4161:            //   same standing as `provision_admit`'s `!_cfg || !_cfg->is_open()` refusal (W3 moved it there), which has
+4184:            // ★ W3: THE ORDER ABOVE LIVES IN `provision_admit` (opener, no-service refusal, conflict, unsaved, admit),
+4187:                if (provision_admit()) enter_provision(Provision::menu);
+4231:    void ensure_config_open() {
+4241:    bool provision_admit() {
+4242:        ensure_config_open();
+
+## 6. removed/renamed symbols: none. Grep for any symbol W3 removed across lib/src/test/tools (P7)
+   W3 removed no symbol; the extraction added detail_page_count, detail_page_rows, kComposeTextCols, ensure_config_open, provision_admit.
+
+## 7. Every tool that reads a fenced file, classified (D6/P7), and what was rerun on the final tree
+
+| Reader | How it reads | Rerun on the final tree |
+| --- | --- | --- |
+| tools/probe_firmware_ui/run.sh + probe_main.cpp | fenced; compile the model through firmware_ui.cpp | step 5: default PASS (231/0) + --no-neg |
+| tools/probe_ui_model_mutations.py | fenced; native build per entry, anchors in the model | step 9: the six-battery union |
+| tools/probe_board_abi.py | compiles firmware_ui_model.h into its ABI TU (line 113) | step 4: PASS 290 checks, 9/9 controls, every figure unchanged |
+| tools/probe_board_ui/run.sh | S4a greps board_ui.h for an include of the model; one control inserts that include; comments name probe_firmware_ui | step 5: --no-neg, failure set = baseline (W49/W51/W54, B418); full mode not run (B418, W2's) |
+| tools/test_mutation_unusable_reason.py, tools/test_worker_formula_derived.py | read the harness source | step 6: discovery 356 OK |
+| tools/probe_features/ownership.py (feature matrix's scanner) | DIRECTORY scan of lib/src/test — reads the model header and the native test | rerun: PASS, O1..O13 ok, 218-file integrity; W3's diff names no MR_FEAT_/RADMIN/capability token (0 matches), so its predicates are untouched |
+| tools/check_data_type_literals.py | DIRECTORY scan of lib/src/test | rerun: PASS (218 files) + --selftest 4/4 RED |
+| tools/probe_build_identity.py | DIRECTORY scan of src for build-stamp producers | rerun: PASS 27 checks, 12/12 controls RED; W3 adds no __DATE__/__TIME__/GIT_REV |
+| tools/probe_ble_line/run.sh, probe_console_sink/ownership.py, probe_custody_usb/run.sh, probe_features/run.sh, probe_inbox_verbs/run.sh | COMMENT mentions of the harness's PIN idiom only (lines 71 / 56 / 63 / 69 / 116, 537) | not run: no fenced file is read |
+| gen_command_inventory.py, check_command_authority.py | scan the command sources; firmware_ui_model.h is not in their scan | not run separately (discovery runs the inventory's real-tree test) |
+
+Removed symbols (P7): none. New lib/core TU (P7): none — W3 touches no lib/ file, so the simulator source list needs no fence.
+
+## 8. Who COMPILES the model header (transitive #include closure over src/ and lib/, computed on the final tree)
+
+Files that include src/firmware_ui_model.h directly or transitively: src/firmware_ui.cpp, and the headers
+firmware_ui_chrome.h, firmware_ui_geo.h, firmware_ui_nearby_row.h, firmware_ui_prov.h, firmware_ui_send.h,
+firmware_ui_status.h, firmware_ui_team.h. src/firmware_ui.cpp is the ONLY src/lib translation unit among them.
+Native test TUs that include it: test_firmware_ui_model.cpp, test_firmware_ui_presets.cpp, test_custody_internal_c.cpp,
+test_custody_internal_d.cpp — all in the native suite (step 2).
+The not-run probes (tools/probe_console_sink, probe_inbox_verbs, probe_custody_usb, probe_ble_line,
+probe_deferred_actions): `grep -rln "firmware_ui\|ui_emergency_active"` over probe_console_sink, probe_deferred_actions,
+probe_custody_usb and probe_ble_line finds nothing; probe_inbox_verbs names src/firmware_ui.cpp only in a comment that
+says it does NOT compile it (run.sh:71). None compiles or reads a fenced file.

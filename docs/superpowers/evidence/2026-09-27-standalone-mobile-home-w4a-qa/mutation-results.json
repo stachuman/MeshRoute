@@ -1,0 +1,1542 @@
+[
+  {
+    "battery": "model",
+    "count": 239,
+    "baselines": 9,
+    "results": [
+      {
+        "label": "M07 the erase target assumes the DM store ([[B133]]'s exact shape)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M05 activation CLAMPS instead of refusing a lost selection",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M04 the GESTURE path stops re-anchoring the cursor (the highlight goes stale)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M03 a vanished pick is KEPT rather than dropped (the tempting clamp)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M02 the highlight does NOT follow a moved record (sync is inert)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M06 a row with seq 0 is selected anyway",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M01 sync matches `seq` ONLY (the kind clause dropped)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M08 the erase target is the NEIGHBOUR (an off-by-one row)",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "M15 an empty body yields ZERO pages",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "M13 the sanitizer passes raw bytes through",
+        "failed_assertions": 332,
+        "matches": 1
+      },
+      {
+        "label": "M09 the answer's identity is not checked at all",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M12 the body length is found by scanning for NUL (i.e. strlen)",
+        "failed_assertions": 34,
+        "matches": 1
+      },
+      {
+        "label": "M14 pages FLOORS instead of ceiling",
+        "failed_assertions": 25,
+        "matches": 1
+      },
+      {
+        "label": "M10 an UNSOLICITED answer is accepted (the `_inbox_taken` guard dropped)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M11 the budget's ring is chosen from the WRONG kind",
+        "failed_assertions": 13,
+        "matches": 1
+      },
+      {
+        "label": "M16 the page advance STOPS at the last page instead of cycling",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M20 a freshly opened modal selects `delete`",
+        "failed_assertions": 57,
+        "matches": 1
+      },
+      {
+        "label": "M17 a page turn also refreshes the inactivity deadline",
+        "failed_assertions": 18,
+        "matches": 1
+      },
+      {
+        "label": "M25 the terminal MESSAGE GONE state still accepts an action press",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M22 `io_error` CLOSES the modal (a disappearance without durable success)",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "M18 both body rows render the SAME 19 columns",
+        "failed_assertions": 15,
+        "matches": 1
+      },
+      {
+        "label": "M23 `io_error` leaves the selection on `delete` (a retry one press away)",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "M24 `not_found` is treated as a success and closes the modal",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M21 short press does not toggle the action",
+        "failed_assertions": 44,
+        "matches": 1
+      },
+      {
+        "label": "M32 the page indicator is 0-based on the panel",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M27 the modal is closed at `long_fire` (compose's rule, copied)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M26 a successful delete keeps the DELETED record as the selection",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M31 the channel header omits the channel number",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M30 the DELETE FAILED header is dropped (the failure becomes invisible)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M29 a completed DETAIL frame clears the unread counters",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M28 the modal is not closed by a long press at all",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "M35 `short` WALKS THE ROWS while editing (the double-duty trap)",
+        "failed_assertions": 110,
+        "matches": 1
+      },
+      {
+        "label": "M40 the RELOAD row stands permanently, not only while it applies",
+        "failed_assertions": 17,
+        "matches": 1
+      },
+      {
+        "label": "M34 the SETTINGS screen is not list-aware (one press leaves it)",
+        "failed_assertions": 936,
+        "matches": 1
+      },
+      {
+        "label": "M39 blanking DISCARDS the draft (the forbidden discard, through the timer)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door)",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "M41 the BLE row is rendered unconditionally (the transport condition ignored)",
+        "failed_assertions": 22,
+        "matches": 1
+      },
+      {
+        "label": "M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M37 a long press does not leave the editor at all",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M43 the cursor does NOT follow its row when the list changes under it",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M47 the conflict headline is re-spelled here instead of called from the service",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M48 the transient note is never retired (a stale outcome under a fresh act)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M42 an out-of-range row index CLAMPS to row 0 instead of failing closed",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M49 the editor SETS instead of cycling (one press can never turn a value off)",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "M46 the unsaved marker is dropped from \u00a73.3's row",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "M44 a REFUSED save reads as SAVED (the success that isn't)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M45 the SAVE outcome is recorded BEFORE the service returns it",
+        "failed_assertions": 13,
+        "matches": 1
+      },
+      {
+        "label": "M55 the \u00a74 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan \u00a74's conflation, through the ORDER)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only)",
+        "failed_assertions": 46,
+        "matches": 1
+      },
+      {
+        "label": "M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
+        "failed_assertions": 81,
+        "matches": 1
+      },
+      {
+        "label": "M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M57 the CONFLICT cell is dropped \u2014 the two states collapse into one",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "M56 the UNSAVED cell is dropped \u2014 PROVISION opens over an unsaved draft (\u00a73.6.3's precondition gone)",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)",
+        "failed_assertions": 32,
+        "matches": 1
+      },
+      {
+        "label": "M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it)",
+        "failed_assertions": 892,
+        "matches": 1
+      },
+      {
+        "label": "M62 a confirmation opens with CONFIRM selected (the destructive default \u00a73.6.3 rules out)",
+        "failed_assertions": 557,
+        "matches": 1
+      },
+      {
+        "label": "M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
+        "failed_assertions": 17,
+        "matches": 1
+      },
+      {
+        "label": "M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list)",
+        "failed_assertions": 720,
+        "matches": 1
+      },
+      {
+        "label": "M60 static join is hidden because the TEAM plane is off (plan \u00a76's named defect, verbatim)",
+        "failed_assertions": 15,
+        "matches": 1
+      },
+      {
+        "label": "M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids)",
+        "failed_assertions": 21,
+        "matches": 1
+      },
+      {
+        "label": "M72 the result arm RE-RUNS the transaction on the press that leaves it",
+        "failed_assertions": 92,
+        "matches": 1
+      },
+      {
+        "label": "M68 \u2605\u2605 the confirmation fires the transaction on BACK too (the safe action performs the destructive one)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M71 the answer is never retired, so a stale verdict survives into the next screen",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead)",
+        "failed_assertions": 9,
+        "matches": 1
+      },
+      {
+        "label": "M66 the provisioning sub-view survives the alarm (\u00a73.6.5 rule 1's pre-emption dropped)",
+        "failed_assertions": 59,
+        "matches": 1
+      },
+      {
+        "label": "M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
+        "failed_assertions": 81,
+        "matches": 1
+      },
+      {
+        "label": "M70 \u2605\u2605 the RESULT screen is entered BEFORE the transaction runs (\u00a78 pin 2, inverted)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join)",
+        "failed_assertions": 90,
+        "matches": 1
+      },
+      {
+        "label": "M79 \u2605\u2605 the join confirmation fires the transaction on BACK too (the safe action performs the join)",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "M76 the PROVISION row is unconditional again (the parent-row ruling not applied)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M82 \u26d4\u26d4 60 s becomes a TERMINAL FAILURE (plan \u00a72.3 rule 5's forbidden deadline, and retries are unbounded)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse)",
+        "failed_assertions": 13,
+        "matches": 1
+      },
+      {
+        "label": "M81 \u2605\u2605 the RESULT screen is entered BEFORE the join transaction runs (\u00a78 pin 2, inverted, join half)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left)",
+        "failed_assertions": 138,
+        "matches": 1
+      },
+      {
+        "label": "M88 the adopted answer carries no node id (plan \u00a72.3 rule 2's `resulting node id` never shows)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M84 \u26d4 the ALARM cancels the persisted join (\u00a73.6.5 pre-empts the SCREEN, never the operation)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M90 the join intent carries no profile, so the adapter is handed an empty slot",
+        "failed_assertions": 41,
+        "matches": 1
+      },
+      {
+        "label": "M83 \u26d4 BACK from the waiting screen CANCELS the persisted join (plan \u00a72.3 rule 4's forbidden rollback)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M89 the SELECT list activates the row INDEX as a slot number (\u00a7B66 \u2014 slot 3 is joined as slot 2)",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "M85 \u26d4\u26d4 ANY `join_refused` push FAILS the screen (plan \u00a72.3 rule 6: no reason terminally fails v1)",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel",
+        "failed_assertions": 40,
+        "matches": 1
+      },
+      {
+        "label": "M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM)",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen)",
+        "failed_assertions": 71,
+        "matches": 1
+      },
+      {
+        "label": "M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "M102 [[B232]] the BACK row jumps to STATUS instead of leaving the MENU",
+        "failed_assertions": 29,
+        "matches": 1
+      },
+      {
+        "label": "M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)",
+        "failed_assertions": 1637,
+        "matches": 1
+      },
+      {
+        "label": "M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws)",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)",
+        "failed_assertions": 934,
+        "matches": 1
+      },
+      {
+        "label": "M104 [[B232]] the entry row has no label (an entry nobody can read \u2014 C2)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+        "failed_assertions": 986,
+        "matches": 1
+      },
+      {
+        "label": "M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made)",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "M111 [[B223]] the leave reset never resets \u2014 an entered list outlives its screen",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit",
+        "failed_assertions": 312,
+        "matches": 1
+      },
+      {
+        "label": "M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered",
+        "failed_assertions": 321,
+        "matches": 1
+      },
+      {
+        "label": "M114 [[UI-17]] `is this screen entered` is inverted for the two list screens",
+        "failed_assertions": 1667,
+        "matches": 1
+      },
+      {
+        "label": "M109 [[UI-17]] the BACK row leaves the SCREEN instead of closing the view (the jump the contract removes)",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (\u00a73.2.1 restored over \u00a73.3)",
+        "failed_assertions": 19,
+        "matches": 1
+      },
+      {
+        "label": "M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses",
+        "failed_assertions": 388,
+        "matches": 1
+      },
+      {
+        "label": "M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering",
+        "failed_assertions": 643,
+        "matches": 1
+      },
+      {
+        "label": "S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (\u00a7B101's close dropped)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (\u00a73.5 restored over \u00a73.3)",
+        "failed_assertions": 23,
+        "matches": 1
+      },
+      {
+        "label": "M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS)",
+        "failed_assertions": 26,
+        "matches": 1
+      },
+      {
+        "label": "M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (\u00a7R1's exact defect, one plane over)",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "S11 [[UI-17]] `wake_active` is INVERTED \u2014 the window is live everywhere except during it",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open",
+        "failed_assertions": 33,
+        "matches": 1
+      },
+      {
+        "label": "S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "N02 \u2605\u2605 the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list \u2014 the third child opens a sub-view no visible row leads to",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "N01 \u2605\u2605 the JOIN TEAM child is FOLDED into the CREATE predicate \u2014 the coincidence encoded as a rule",
+        "failed_assertions": 14,
+        "matches": 1
+      },
+      {
+        "label": "S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "N08 \u2605\u2605\u2605 the act is handed the CURSOR INDEX instead of the row identity (\u00a7B66)",
+        "failed_assertions": 28,
+        "matches": 1
+      },
+      {
+        "label": "N07 \u2605\u2605 the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change)",
+        "failed_assertions": 85,
+        "matches": 1
+      },
+      {
+        "label": "N10 \u2605\u2605 the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract)",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "N04 \u2605\u2605\u2605 the scan is RE-READ EVERY TICK \u2014 owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "N09 \u2605\u2605\u2605 the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]])",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "N05 \u2605\u2605 BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "N03 \u2605\u2605 the own-team id is not handed to the capture \u2014 the team we are already in is offered as a candidate",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "N06 \u2605\u2605 ANY double ACTS, not just the one on a TEAM row \u2014 leaving the list opens a JOIN confirmation",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "V03 \u2605\u2605 the snapshot is NEVER taken \u2014 the window opens with no authorities at all",
+        "failed_assertions": 172,
+        "matches": 1
+      },
+      {
+        "label": "V02 \u2605\u2605\u2605 the snapshot is re-taken at every RENDER instead of at the window's OPEN \u2014 so the candidate the window exists to surface is inside the snapshot by the time it is drawn",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "B249-2 \u2605\u2605\u2605 the fresh INVITE open requests the announcement TWICE",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "N12 \u2605\u2605 a double on BACK falls through into the act (one press means the other)",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "B249-1 \u2605\u2605\u2605 the fresh INVITE open never requests the existing triggered team announcement",
+        "failed_assertions": 18,
+        "matches": 1
+      },
+      {
+        "label": "N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` \u2014 a LEAVE",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "N11 \u2605\u2605 `team_joined` is mapped onto CREATE's string \u2014 a JOIN reports TEAM CREATED (F-4, at its source)",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "V01 \u2605\u2605 the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot \u2014 the `last_seen_ms` defect \u00a71.3 names, at the one site where that field is in scope",
+        "failed_assertions": 111,
+        "matches": 1
+      },
+      {
+        "label": "V08 \u2605\u2605\u2605 the row is keyed by the DISPLAY NAME instead of the hash \u2014 N4's selection and N5's reqpubkey target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
+        "failed_assertions": 85,
+        "matches": 1
+      },
+      {
+        "label": "V07 \u2605\u2605\u2605 the confirmation does NOT freeze the selection \u2014 every refresh re-points it at the row under the cursor, so a member arriving between the two presses moves the target (F-14)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V04 \u2605\u2605\u2605 the expiry RENEWS the window instead of closing it \u2014 the bounded window is unbounded and the panel never says WINDOW CLOSED (P-11)",
+        "failed_assertions": 14,
+        "matches": 1
+      },
+      {
+        "label": "V10 \u2605\u2605\u2605 the request is AUTO-ISSUED on candidate entry \u2014 the operator never selected REQUEST PUBKEY or double-confirmed it (the owner-ratified ban reversed)",
+        "failed_assertions": 18,
+        "matches": 1
+      },
+      {
+        "label": "V09 \u2605\u2605\u2605 the window's `left != 0` term is dropped \u2014 at the EXACT deadline the window is still open, so the five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "V05 \u2605\u2605\u2605 the open window WRITES `_last_input_ms` on every tick \u2014 the panel never blanks and the node never light-sleeps while it is up (OQ-3's refusal)",
+        "failed_assertions": 31,
+        "matches": 1
+      },
+      {
+        "label": "B249-3 \u2605\u2605\u2605 the announcement request precedes the member snapshot and established invitation arm",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "V06 \u2605\u2605\u2605 the handled set is made PERSISTENT \u2014 a candidate rejected in one window stays suppressed in the next, which the ruling forbids (F-13: it is discarded when the window closes)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "V16 \u2605\u2605\u2605 `REJECT` CALLS THE SEND \u2014 the SAFE default arm, the one selected on entry, ships the team's private key; one double-press on an unchanged confirmation grants instead of declining",
+        "failed_assertions": 17,
+        "matches": 1
+      },
+      {
+        "label": "V15 \u2605\u2605\u2605 THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) \u2014 the private key is shipped to whatever the MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act",
+        "failed_assertions": 140,
+        "matches": 1
+      },
+      {
+        "label": "V12 \u2605\u2605\u2605 the request timeout ENABLES GRANT KEY although no matching key arrived",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "V18 \u2605\u2605\u2605 the window's own deadline is not consulted by the act \u2014 a grant fires out of an EXPIRED window because the closing tick has not run yet",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "V17 \u2605\u2605 `REJECT` no longer adds the hash to the handled set (F-13) \u2014 the local refresh re-offers the candidate the operator has just declined, one tick later",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "V13 \u2605\u2605\u2605 the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata makes an airtime-and-secret decision)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V14 \u2605\u2605\u2605 the WAITING FOR PUBKEY screen is entered whatever the seam answered \u2014 an unattached seam and a synchronous refusal both claim an outstanding request (the QG blocker, restored)",
+        "failed_assertions": 14,
+        "matches": 1
+      },
+      {
+        "label": "V11 \u2605\u2605 the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK \u2014 an immediate double airs it",
+        "failed_assertions": 52,
+        "matches": 1
+      },
+      {
+        "label": "V24 \u2605\u2605\u2605 THE NOTE WAKES A DARK PANEL \u2014 \u00a7UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post; widening it here is a new owner ruling nobody made",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V23 \u2605\u2605\u2605 THE NOTE NAVIGATES \u2014 a radio arrival opens the provisioning result arm under the operator's thumb, which is the one thing spec \u00a74-K4 pin 3 rules out in as many words",
+        "failed_assertions": 77,
+        "matches": 1
+      },
+      {
+        "label": "V20 \u2605\u2605 a push may promote the verdict on ANY screen \u2014 an alarm (or a menu) left a queued handle in RAM, and a correlated edge upgrades a verdict nobody can see",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V26 \u2605\u2605 THE SUCCESS LEXEME IS RE-SPELLED \u2014 S-25 is \u00a73.6.4's own word carried VERBATIM, and it is declared once so an owner re-ruling changes it in exactly one place",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "V25 \u2605\u2605 THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT \u2014 a previous verdict's `reason` / `team_id` / `node_id` survive under the new headline, so the panel renders another act's data beside this one's word",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "V21 \u2605\u2605\u2605 THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution \u2014 a re-DAD inside the window leaves the verdict permanently unpromotable (\u00a7UI-16 N6b, QG blocker 2)",
+        "failed_assertions": 9,
+        "matches": 1
+      },
+      {
+        "label": "V22 \u2605\u2605\u2605 THE TWO RULED SENTENCES ARE SWAPPED \u2014 a save that FAILED renders `TEAM KEY RECEIVED`, which is the one word spec \u00a74-K4 forbids on that path (the key is live in RAM and will not survive a reboot)",
+        "failed_assertions": 89,
+        "matches": 1
+      },
+      {
+        "label": "V19 \u2605\u2605 the verdict is retired by the entry that OPENS it \u2014 the result screen renders the empty word for the act that just ran, and the correlated edge has nothing to promote",
+        "failed_assertions": 60,
+        "matches": 1
+      },
+      {
+        "label": "V32 \u2605\u2605\u2605 THE ACT IS KEYED ON THE **FINGERPRINT** \u2014 the low 24 bits the offer screen printed, which 255 other teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V31 \u2605\u2605 THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT \u2014 a CREATE's result screen leads into a saved-key offer for a team whose key was just minted",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V34 \u2605\u2605\u2605 THE UNFINISHED OFFER SURVIVES THE BLANK \u2014 the operator wakes onto a screen they may not remember opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "V28 \u2605 THE THIRD ROW BECOMES A GENERAL SLOT \u2014 `save_failed` grows one too, so the row stops meaning \"the ruled sentence continues here\" and the arm that owns it can no longer be told from the arms that do not",
+        "failed_assertions": 15,
+        "matches": 1
+      },
+      {
+        "label": "V29 \u2605\u2605\u2605\u2605 `BACK` PERFORMS THE INSTALL \u2014 the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V33 \u2605\u2605\u2605 THE OFFER OPENS ON THE **ACT** \u2014 `prov_confirm` is moved to CONFIRM after the entry, so the first `double` installs a stored secret (P-13 broken at the one screen that reaches a key)",
+        "failed_assertions": 19,
+        "matches": 1
+      },
+      {
+        "label": "V30 \u2605\u2605\u2605 THE OFFER OPENS WITHOUT THE KEYRING'S REPORT \u2014 every nearby join lands on `SAVED KEY FOUND`, so the operator is offered a key for a team no record exists for",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "V27 \u2605\u2605 THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST \u2014 the ruled 26-column sentence is truncated to fit the 19-column body instead of rendering across two rows (\u00a77.1 rule 5 \u2014 a durability claim may not be clipped)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V40 \u2605\u2605\u2605\u2605 THE LANDING IS REVERTED TO THE MENU \u2014 the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes",
+        "failed_assertions": 33,
+        "matches": 1
+      },
+      {
+        "label": "V39 \u2605 the ruled ACTION lexeme is re-spelled \u2014 S-29 is owner-ruled, and the word the operator presses is the one place the offer states what it will do",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V42 \u2605\u2605\u2605\u2605 THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING \u2014 a radio receipt moves the panel to STATUS under the operator's thumb. \u26d4 Spec \u00a74-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "V36 \u2605\u2605 THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD \u2014 a failed activation renders `TEAM KEY ACTIVE`, which is the 'success that isn't' over a node that holds no key",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "V41 \u2605\u2605\u2605 THE SCOPE OVERRUN \u2014 the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the operator away from the flow the remedies are in (the \u26d4 consistency extension nobody ruled)",
+        "failed_assertions": 23,
+        "matches": 1
+      },
+      {
+        "label": "V37 \u2605\u2605 THE SUCCESS SCREEN GROWS THE DURABILITY WARNING \u2014 `NOT SAVED` under a key that IS durable, i.e. S-27's ruled sentence said about the one path where it is false",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V38 \u2605 the ruled offer lexeme is re-spelled \u2014 S-28 is owner-ruled and declared once, so a re-ruling must change it in exactly one place",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V35 \u2605\u2605 THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY \u2014 a stale team id survives into later screens, so a later act can be aimed at a team the operator left",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V48 \u2605\u2605\u2605 A FAILED REMOVAL RENDERS THE SUCCESS WORD \u2014 `KEY FORGOTTEN` for a store that refused or a write that did not land, which is the 'success that isn't' over a key that is still there (spec \u00a74-K6 pin 5)",
+        "failed_assertions": 21,
+        "matches": 1
+      },
+      {
+        "label": "V47 \u2605\u2605\u2605 THE \"REFRESHED LIST\" IS NOT REFRESHED \u2014 acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so the record just removed is still on the panel: a screen contradicting an act it reported as complete",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "V51 \u2605\u2605\u2605\u2605 THE RECEIVED-GRANT FULL LANDING IS DROPPED \u2014 the fifth received grant shows three correct rows and then acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "V44 \u2605\u2605\u2605\u2605 THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION \u2014 the protected record lands on a screen that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns the refusal only after pressing it)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "V49 \u2605\u2605 THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN \u2014 the navigation decision is taken by comparing `reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of the dead end ([[B48]]'s class at the navigation layer)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "V45 \u2605\u2605\u2605\u2605 THE REMOVAL IS KEYED ON THE **CURSOR** \u2014 a row INDEX stands in for the record's identity, and the list skips a corrupt zero-id record, so the index names a different record than the panel drew (\u00a7B66, over a delete)",
+        "failed_assertions": 18,
+        "matches": 1
+      },
+      {
+        "label": "V46 \u2605\u2605\u2605\u2605 THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal \u2014 the ruling's *two explicit transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on the way, and the operator never chose either half",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "V43 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS BYPASSED \u2014 `double` on **BACK** falls through into the removal, so one press destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "W03 \u2605\u2605\u2605\u2605 A **SECOND OUTCOME MAPPING IS FORKED** \u2014 the act stops going through the ONE reused call and maps the dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued)",
+        "failed_assertions": 47,
+        "matches": 1
+      },
+      {
+        "label": "W02 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS SKIPPED \u2014 the act performs the grant itself instead of opening the chain's REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard)",
+        "failed_assertions": 62,
+        "matches": 1
+      },
+      {
+        "label": "W05 \u2605\u2605\u2605 THE TARGET IS KEYED BY THE **DISPLAY NAME** \u2014 a mutable, self-asserted label decides whose private key is shipped, which is [[B48]]'s class at the worst possible site (P-7d)",
+        "failed_assertions": 139,
+        "matches": 1
+      },
+      {
+        "label": "V53 \u2605\u2605\u2605 THE FLAG IS ACCEPTED ON THE **SAVED** ARM \u2014 a `TEAM KEY RECEIVED` screen whose acknowledgement opens a removal list, i.e. the 'success that isn't' from the other side",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "V54 \u2605\u2605\u2605 THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER \u2014 the static-join result screen renders the same note and would then give ONE receipt TWO endings",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "W04 \u2605\u2605\u2605 THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when the operator pointed at the row \u2014 a member that re-ran team-DAD between the two is granted to whoever now wears its id, or to nobody (P-7d)",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "V52 \u2605\u2605\u2605 **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST \u2014 a corrupt store, an unreadable record or a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "W01 \u2605\u2605\u2605\u2605 THE ACT AUTO-FIRES ON ROW SELECTION \u2014 merely opening a member's act sub-view opens the grant chain, so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the no-unsolicited shape, and the headline control of this slice)",
+        "failed_assertions": 111,
+        "matches": 1
+      },
+      {
+        "label": "W11 \u2605\u2605 THE RULED FIVE-MINUTE BOUND IS NOT ARMED \u2014 the approval opened from the roster has no deadline at all, so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
+        "failed_assertions": 50,
+        "matches": 1
+      },
+      {
+        "label": "W10 \u2605\u2605 THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (\u00a7B66) \u2014 the grant's slot is claimed whether or not the act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
+        "failed_assertions": 64,
+        "matches": 1
+      },
+      {
+        "label": "W13 \u2605\u2605\u2605 THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action \u2014 the empty roster carrier is treated as having no caller and terminal acknowledgement loses its parent",
+        "failed_assertions": 98,
+        "matches": 1
+      },
+      {
+        "label": "W07 \u2605\u2605\u2605 THE KEYLESS OFFER APPEARS \u2014 a node with NO team content key offers to grant one, so the act's own precondition is discovered at the seam instead of never being offered (\u00a7K7 pin 6)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "W08 \u2605\u2605 THE AUTHORITATIVE FLOOR IS DROPPED \u2014 a ROUTE-ONLY member (no binding, no seal target) is offered as a grant target, which is the same fail-OPEN F-7 keeps off the invite list",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "W12 \u2605\u2605\u2605\u2605 THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains \u2014 every shared exit sees `none` and falls to PROVISION instead of returning to the member who opened it",
+        "failed_assertions": 98,
+        "matches": 1
+      },
+      {
+        "label": "W06 \u2605\u2605\u2605 THE SELF REFUSAL IS DROPPED \u2014 the roster row that is US offers a GRANT KEY, and the operator is invited to run a pubkey ceremony against themselves",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "W09 \u2605\u2605\u2605 THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT \u2014 the door that deliberately bypasses the F-11 diff starts feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "W19 \u2605\u2605\u2605 THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity \u2014 selecting member 1 and returning silently points at member 0",
+        "failed_assertions": 10,
+        "matches": 1
+      },
+      {
+        "label": "W18 \u2605\u2605\u2605 SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY \u2014 the top-level screen says TEAM while the sub-state still owns SETTINGS",
+        "failed_assertions": 35,
+        "matches": 1
+      },
+      {
+        "label": "W21 \u2605\u2605\u2605 A GONE RETURN SELECTS ITS NEIGHBOUR \u2014 the existing B64 refusal is replaced by row zero, so the next double opens a DM for somebody else",
+        "failed_assertions": 17,
+        "matches": 1
+      },
+      {
+        "label": "W15 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE TEAM LANDING \u2014 an invitation-window REJECT leaves its window and selects a roster row the invitation never named",
+        "failed_assertions": 42,
+        "matches": 1
+      },
+      {
+        "label": "W16 \u2605\u2605\u2605 GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed \u2014 the natural no-selection expiry re-opens an invitation list it has no selected caller for",
+        "failed_assertions": 13,
+        "matches": 1
+      },
+      {
+        "label": "W20 \u2605\u2605\u2605 THE B64 IDENTITY-FOLLOW STEP IS REMOVED \u2014 a member reordered while the terminal screen was up leaves the highlight at the old row",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "W14 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING \u2014 a roster REJECT/ack opens PROVISION's invitation parent instead of returning to TEAM",
+        "failed_assertions": 96,
+        "matches": 1
+      },
+      {
+        "label": "W17 \u2605\u2605\u2605 THE ROSTER IS RESTORED PASSIVE \u2014 the caller's entered list is lost and the next double only enters row zero instead of operating at the saved member",
+        "failed_assertions": 22,
+        "matches": 1
+      },
+      {
+        "label": "W27 \u2605\u2605\u2605 EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED \u2014 after pre-emption, a fresh unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "W26 \u2605\u2605\u2605 AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN \u2014 a later invitation window with no selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for",
+        "failed_assertions": 9,
+        "matches": 1
+      },
+      {
+        "label": "W23 \u2605\u2605\u2605 A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION \u2014 invite-origin behaviour is no longer byte-identical and the refreshed candidate list is skipped",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "W24 \u2605\u2605\u2605 A RETURN REPEATS THE PUBKEY REQUEST \u2014 cancellation/acknowledgement grows an unauthorised second device command instead of being navigation-only",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "V50 \u2605 the ruled RETENTION lexemes are re-spelled \u2014 S-40/S-42 are owner-ruled and declared once, so a re-ruling must change each in exactly one place (the V38/V39 treatment, one screen over)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "W22 \u2605\u2605\u2605 A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST \u2014 it loses the operation the operator started instead of opening the safe-default confirmation",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "W25 \u2605\u2605\u2605 A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT \u2014 the result's frozen hash is sent a second time before the roster landing",
+        "failed_assertions": 26,
+        "matches": 1
+      },
+      {
+        "label": "Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every preset gets a sub-view with one unexplained back row and no reason for it",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows",
+        "failed_assertions": 225,
+        "matches": 1
+      },
+      {
+        "label": "Y03 \u2605\u2605\u2605\u2605 THE L / - COLUMN IS DROPPED FROM A PRESET ROW \u2014 OQ-A's premise is that BOTH location states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-`",
+        "failed_assertions": 18,
+        "matches": 1
+      },
+      {
+        "label": "Y04 \u2605\u2605\u2605 THE FIXED TABLE IS RESURRECTED \u2014 the projection bypassed and the retired kDmTexts re-created inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "Y08 \u2605\u2605\u2605\u2605 PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE \u2014 spec \u00a72 gives the refusal a RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS",
+        "failed_assertions": 84,
+        "matches": 1
+      },
+      {
+        "label": "Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset",
+        "failed_assertions": 37,
+        "matches": 1
+      }
+    ]
+  },
+  {
+    "battery": "sliceCbudget",
+    "count": 1,
+    "baselines": 2,
+    "results": [
+      {
+        "label": "S10 \u2605\u2605\u2605 THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP \u2014 `inbox_total` collapses onto `inbox_shown` and a truncated list starts claiming it is the whole mailbox",
+        "failed_assertions": 3,
+        "matches": 1
+      }
+    ]
+  },
+  {
+    "battery": "uiteam",
+    "count": 20,
+    "baselines": 9,
+    "results": [
+      {
+        "label": "T05 \u2605\u2605 the bucket's minute boundary is widened, so it stops agreeing with the drawn token",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "T02 \u2605\u2605 the two location columns are dropped from the format, so the row loses them silently",
+        "failed_assertions": 41,
+        "matches": 1
+      },
+      {
+        "label": "T07 \u2605\u2605\u2605 the invalidation CLEARS on the equal arm (\u00a78.3.1's WITHDRAWN instruction, restored)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "T01 \u2605\u2605 the label loses its PRECISION \u2014 a long name pushes the age and both reserved columns off the row",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "T04 \u26d4 an UNKNOWN route age is rendered as an AGE (`old`) instead of `--`",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T03 the marker is INVERTED \u2014 a passive preview marks every teammate it never picked",
+        "failed_assertions": 22,
+        "matches": 1
+      },
+      {
+        "label": "T06 the UNKNOWN age shares `0s`'s bucket \u2014 a `--` row that turns to `0s` never repaints",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "T08 \u2605\u2605\u2605 the comparison takes the RAW ages, so a lit TEAM screen repaints every second",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T10 the visibility gate is dropped entirely \u2014 every screen asks for TEAM's repaints",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "T09 the label is compared over its WHOLE array \u2014 a rename nobody can see repaints the panel",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T14 the EMERGENCY term is dropped, so an alarm's body pays for the roster's repaints",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "T13 \u2605\u2605 the COMPOSE term is dropped \u2014 a DM composed FROM team keeps asking for row repaints",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T11 the row loop runs to the ARRAY's end, so rows the panel never draws ask for paints",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T15 the DETAIL term is dropped (the third body-replacing view stops being one)",
+        "failed_assertions": 1,
+        "matches": 1
+      },
+      {
+        "label": "T16 the SCREEN term is dropped, so INBOX and SETTINGS ask for TEAM's repaints too",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T12 the roster SIZE stops being compared \u2014 a teammate joining or leaving never repaints",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T17 \u2605\u2605\u2605 the row hard-wires the cache age to ZERO, so a STALE position renders as a current one",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "T20 \u2605\u2605 the geo bucket leaves the repaint comparison, so a distance that turns never repaints",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "T19 \u2605\u2605 the own fix is RE-DERIVED from the coordinates instead of the published own_fix (a second definition)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "T18 the two location columns are composed and DROPPED (the row never shows a distance)",
+        "failed_assertions": 6,
+        "matches": 1
+      }
+    ]
+  },
+  {
+    "battery": "uiinvite",
+    "count": 32,
+    "baselines": 9,
+    "results": [
+      {
+        "label": "I01 \u2605\u2605\u2605 AUTHORITY (b) IS DROPPED \u2014 a route-only member whose hash turns authoritative mid-window is announced as NEW MEMBER although it was present all along (F-11's own defect)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I08 \u2605\u2605 the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached \u2014 the TRUNCATED `0x` third spelling of the hash, in six columns (F-15's named refusal)",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "I07 \u2605\u2605 the cached name REPLACES the member fingerprint instead of filling the column beside it \u2014 the identity aid vanishes the moment a name arrives (F-15 rule 2)",
+        "failed_assertions": 13,
+        "matches": 1
+      },
+      {
+        "label": "I02 \u2605\u2605\u2605 AUTHORITY (a) IS DROPPED \u2014 a member that re-ran team-DAD (same hash, new id) is announced as NEW",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I05 \u2605\u2605 `NEW MEMBER` is re-spelled as the design's FORBIDDEN word (S-33)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I04 \u2605\u2605 the candidate list is produced WHILE THE WINDOW IS CLOSED \u2014 the `taken` guard is ignored, so a state with no snapshot treats every member as new (P-12)",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "I03 \u2605\u2605 the AUTHORITATIVE floor is lowered \u2014 a member with NO key binding is listed as grantable, with an invented all-zero fingerprint (F-7 / C2)",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "I06 \u2605\u2605\u2605 THE HANDLED SET IS DROPPED \u2014 a REJECTed candidate comes back on the very next refresh (F-13's self-contradiction, restored)",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "I09 \u2605 the name is rendered WITHOUT the six-column clamp \u2014 a long name pushes the id and the fingerprint off the 19-column row",
+        "failed_assertions": 20,
+        "matches": 1
+      },
+      {
+        "label": "I11 \u2605\u2605\u2605 THE NULL SOURCE FAILS **OPEN** \u2014 `(nullptr, n > 0)` is recorded as a TAKEN, EMPTY snapshot, so every member the window then observes is announced as NEW MEMBER (C2, inverted)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I16 \u2605\u2605\u2605 the MISSING SEAM reads as a started request \u2014 an unattached model (a !MR_FEAT_OLED-shaped build, a partially-wired probe) claims WAITING FOR PUBKEY having issued nothing at all",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "I15 \u2605\u2605 a peer_key_cached for ANOTHER peer completes this candidate's name-refresh wait \u2014 one member can inherit another arrival's ceremony",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "I13 \u2605\u2605\u2605 the reqpubkey carrier is changed from TEAM to GLOBAL \u2014 the identity request flies on the wrong plane",
+        "failed_assertions": 7,
+        "matches": 1
+      },
+      {
+        "label": "I12 \u2605\u2605\u2605 the preflight floor is lowered from AUTHORITATIVE to OVERHEARD \u2014 a spoofable key enables GRANT KEY",
+        "failed_assertions": 12,
+        "matches": 1
+      },
+      {
+        "label": "I10 \u2605\u2605\u2605 THE CONFIRMATION DROPS THE FULL HASH \u2014 the irreversible act's screen is downgraded to the six-column selection aid, which 255 other peers answer to (P-7c / [[B48]])",
+        "failed_assertions": 21,
+        "matches": 1
+      },
+      {
+        "label": "I14 \u2605\u2605\u2605 ANY peer_key_cached enables GRANT KEY \u2014 the candidate's full hash is not compared",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "I17 \u2605\u2605\u2605 the `ok` term is dropped from the verdict \u2014 a line that never parsed carries `CmdResult`'s DEFAULT `queued` code, so a format/parse failure reads as a successfully started workflow",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "I23 \u2605\u2605\u2605 the correlation is dropped ENTIRELY \u2014 ANY send_aired on the node promotes the verdict, which is the false-confirmation shape the whole attribution layer exists to prevent",
+        "failed_assertions": 24,
+        "matches": 1
+      },
+      {
+        "label": "I24 \u2605\u2605 the zero-handle term is dropped \u2014 a PARKED grant (ctr == 0) correlates against the ctr-0 push six unrelated operations emit, i.e. a wildcard match",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I20 \u2605\u2605\u2605 `queued` IS MAPPED STRAIGHT TO `KEY SENT` \u2014 the F-9 defect restored: an admission to the TX queue is reported to the operator as a private key that has physically aired",
+        "failed_assertions": 60,
+        "matches": 1
+      },
+      {
+        "label": "I21 \u2605\u2605 the explicitly-STORED park is reported with the ADMISSION word \u2014 a send sitting behind an H resolve, with no flight and no handle, reads exactly like one really admitted to the TX queue",
+        "failed_assertions": 30,
+        "matches": 1
+      },
+      {
+        "label": "I19 \u2605\u2605 the verdict ALSO demands `accepted` \u2014 the over-strict fix: the LOCAL-cache completion (`queued`, no frame taken) is misread as a refusal, stranding the operator whose request already succeeded",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "I22 \u2605\u2605\u2605 the correlation is dropped to the `ctr` ALONE \u2014 a LOCAL handle, which `command.h` warns legitimately names another flight, so another origination's TxDone edge promotes this grant to KEY SENT",
+        "failed_assertions": 24,
+        "matches": 1
+      },
+      {
+        "label": "I18 \u2605\u2605\u2605 the CODE term is dropped \u2014 every synchronous refusal the executor can return (`err_no_identity`, a full TX queue) is reported to the operator as a request under way",
+        "failed_assertions": 23,
+        "matches": 1
+      },
+      {
+        "label": "I25 \u2605\u2605\u2605 THE SIX REFUSAL ARMS ARE COLLAPSED to one `failed` \u2014 `NO TEAM KEY` (ask a teammate), `NO IDENTITY` (this node cannot seal) and `NOT IN A TEAM` (join first) stop being three different remedies (S-24)",
+        "failed_assertions": 26,
+        "matches": 1
+      },
+      {
+        "label": "I31 \u2605\u2605\u2605 `GRANT PARKED` IS INFERRED FROM `ctr == 0` AGAIN \u2014 the withdrawn N6 rule restored, so a state the core never reported is put on the panel from a counter that does not answer that question (S-37)",
+        "failed_assertions": 2,
+        "matches": 1
+      },
+      {
+        "label": "I29 \u2605\u2605\u2605 THE CONFIRMATION DROPS THE FULL HASH WHEN A NAME IS PRESENT (P-7c) \u2014 a mutable, self-asserted label becomes the ONLY identity on the screen that ships a private key",
+        "failed_assertions": 5,
+        "matches": 1
+      },
+      {
+        "label": "I28 \u2605\u2605\u2605 an arm prints a COMPLETION word \u2014 `KEY SENT` becomes `JOIN COMPLETE` (S-32), which claims an end-to-end outcome no layer of this protocol acknowledges for a grant",
+        "failed_assertions": 8,
+        "matches": 1
+      },
+      {
+        "label": "I32 \u2605\u2605\u2605 `GRANT QUEUE FULL` IS COLLAPSED INTO `GRANT FAILED` \u2014 the admission refusal borrows the correlated in-flight failure's word, which S-38 forbids in as many words",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "I27 \u2605\u2605\u2605 the grant's PLANE is changed away from TEAM \u2014 the member enumerated on the team plane is addressed on another one, and `delegated` becomes reachable on the real seam",
+        "failed_assertions": 11,
+        "matches": 1
+      },
+      {
+        "label": "I30 \u2605\u2605 the HANDLED SET is keyed by the display NAME rather than the hash (P-7d) \u2014 the name is MUTABLE, so a rejection stops answering for the member that was rejected and starts answering for whoever wears the name",
+        "failed_assertions": 16,
+        "matches": 1
+      },
+      {
+        "label": "I26 \u2605\u2605 `delegated` returns a PLAUSIBLE word instead of failing loudly \u2014 the unreachable arm is mapped to the admission word, so a refused grant reads as a queued one",
+        "failed_assertions": 2,
+        "matches": 1
+      }
+    ]
+  },
+  {
+    "battery": "w4aident",
+    "count": 9,
+    "baselines": 9,
+    "results": [
+      {
+        "label": "F04 \u2605\u2605\u2605 an unnamed peer at 6-9 columns gets a CLIPPED `0x\u2026` hash instead of its fingerprint (the third spelling)",
+        "failed_assertions": 4,
+        "matches": 1
+      },
+      {
+        "label": "F01 \u2605\u2605 the MARKER IS DROPPED \u2014 the last kept cell is the next name byte, a SILENT clip (B441's defect restored)",
+        "failed_assertions": 34,
+        "matches": 1
+      },
+      {
+        "label": "F02 \u2605\u2605\u2605 the SANITIZER IS BYPASSED \u2014 raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells)",
+        "failed_assertions": 168,
+        "matches": 1
+      },
+      {
+        "label": "F05 \u2605\u2605 the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled",
+        "failed_assertions": 3,
+        "matches": 1
+      },
+      {
+        "label": "F06 \u2605\u2605\u2605 NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)",
+        "failed_assertions": 24,
+        "matches": 1
+      },
+      {
+        "label": "F08 \u2605\u2605 the CAPACITY rule is dropped \u2014 a destination shorter than the budget gets a partial result past its end",
+        "failed_assertions": 6,
+        "matches": 1
+      },
+      {
+        "label": "F07 \u2605\u2605 the marker is written ONE PAST the budget \u2014 the abbreviated label is `cols + 1` cells wide",
+        "failed_assertions": 36,
+        "matches": 1
+      },
+      {
+        "label": "F03 \u2605\u2605 the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.`",
+        "failed_assertions": 31,
+        "matches": 1
+      },
+      {
+        "label": "F09 \u2605\u2605 a NAME is ignored whenever a hash is known \u2014 the peer's chosen name is replaced by its hash token",
+        "failed_assertions": 13,
+        "matches": 1
+      }
+    ]
+  }
+]

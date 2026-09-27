@@ -1,0 +1,60 @@
+{
+  "native": {
+    "cases": 2962,
+    "assertions": 195904,
+    "failures": 0,
+    "skips": 0
+  },
+  "firmware_ui": {
+    "arms": {
+      "l2": {
+        "passed": 467,
+        "failed": 0,
+        "total": 467
+      },
+      "v3": {
+        "passed": 902,
+        "failed": 0,
+        "total": 902
+      },
+      "ble_row": {
+        "passed": 467,
+        "failed": 0,
+        "total": 467
+      }
+    },
+    "verified_controls": 225,
+    "unusable": 0,
+    "coverage_summary_is_not_binary_total": {
+      "l2": 438,
+      "v3": 873
+    }
+  },
+  "abi": {
+    "checks": 290,
+    "red_controls": 9,
+    "unusable": 0
+  },
+  "corpus": {
+    "streams": 36,
+    "anchors_matched": 36,
+    "identical_to_w1c_qa": 36,
+    "s18": {
+      "anchor_assertion_failures": 0,
+      "anchor_events": 269517,
+      "anchor_match": true,
+      "anchor_md5_prefix": "32afbf11",
+      "assertion_failures": 0,
+      "events": 269517,
+      "exit_status": 0,
+      "name": "s18_meshroute",
+      "output_bytes": 38698103,
+      "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+      "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "promoted": true,
+      "scenario_path": "simulation/s18_meshroute.json",
+      "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+    }
+  },
+  "all_run_exits_zero": true
+}

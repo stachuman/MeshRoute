@@ -1,0 +1,17 @@
+{
+  "native": [
+    235208,
+    8,
+    true
+  ],
+  "heltec_mobile": [
+    122176,
+    8,
+    true
+  ],
+  "gateway": [
+    157304,
+    8,
+    true
+  ]
+}

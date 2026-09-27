@@ -1,0 +1,132 @@
+[
+  {
+    "path": "AGENTS.md",
+    "sha256": "abbbce6592f4cfc09a295e54985978f88a9d954eeffcb5449fdc9da7d7e89340",
+    "lines": 63
+  },
+  {
+    "path": "docs/CODE_GUIDELINES.md",
+    "sha256": "c356981674305605c3d4ef255e42ec3ec5bdb15c26350e83bdea94b0ac8dd839",
+    "lines": 43
+  },
+  {
+    "path": "docs/2026-09-02-agent-roles.md",
+    "sha256": "037d6bc5a3843f2df2520c17a6fb27b72709edde5b47f256e0ca6e130c5ef254",
+    "lines": 137
+  },
+  {
+    "path": "MEMORY.md",
+    "sha256": "871aca136ea386011ced8b92593bf06d687bc8328c9798839f3ecce6b71cff67",
+    "lines": 199
+  },
+  {
+    "path": "tracker.md",
+    "sha256": "c4849ecd8b9331f81c395e7c796312d5756153c6e50542b3f364684f81e0ce5c",
+    "lines": 105
+  },
+  {
+    "path": "docs/2026-07-30-open-bug-register.md",
+    "sha256": "a547cb75fe0f84f10ac91e04acc611a4e6507667d6ceab2832ce658cedb59a0f",
+    "lines": 610
+  },
+  {
+    "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "sha256": "94dafe3a8e50dc4ff3de378f677ed87604077eb1d345bf29a7827885107c87ec",
+    "lines": 1205
+  },
+  {
+    "path": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa.md",
+    "sha256": "a448172191f45936b3aa59a0c9c4c868a7b2cf3b29805a959204ca8c334f76ad",
+    "lines": 193
+  },
+  {
+    "path": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa/SHA256SUMS",
+    "sha256": "45350b95de3a25376a2566785e189c922da962dfaead93b50e58409ed70685fb",
+    "lines": 29
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "sha256": "98b1992aec2a380b9594e769aa81ee7abb24196e723dec19fc6fc9597c08d2b5",
+    "lines": 5726
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "sha256": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+    "lines": 2785
+  },
+  {
+    "path": "src/device_nv.h",
+    "sha256": "47ca6053e56e4268c78b1044dbadad8e7d3eee2baf5258822cdf7df7912eac54",
+    "lines": 1564
+  },
+  {
+    "path": "src/firmware_config_service.h",
+    "sha256": "c61448a35e461d016c936103560ca0eedc1da550ed0cbe88f1b1f938c241748d",
+    "lines": 487
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "sha256": "7f0c2bbacf4e203229a2f15dfadecdf49f0973698d18fd99fd90bf19907827a3",
+    "lines": 705
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "sha256": "0a12ffc21cef8c7d55abf06add55bcac1bf6da2f436da0fe3652d418eb0ce44d",
+    "lines": 699
+  },
+  {
+    "path": "src/firmware_ui_chrome.h",
+    "sha256": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+    "lines": 598
+  },
+  {
+    "path": "test/test_firmware_ui_model.cpp",
+    "sha256": "bb4650abf84dbd33156a62ffd3214d87ba64d1a9dbb352a6a13e43f9962a095f",
+    "lines": 9936
+  },
+  {
+    "path": "test/test_firmware_ui_presets.cpp",
+    "sha256": "d0f321aec4b96db54feb4d0dcb74d2eccf7180db3da493068d713de5677f49dd",
+    "lines": 904
+  },
+  {
+    "path": "test/test_firmware_ui_send.cpp",
+    "sha256": "b1287e803bf336297fa4ae850cf18e59e5048dc2de50ed888e57af5cb0a694fe",
+    "lines": 2835
+  },
+  {
+    "path": "test/test_firmware_config_service.cpp",
+    "sha256": "a4ae64ec046d4a90b2a32cff018d8eb4ec26ff69486918b1aeb973a227d6907e",
+    "lines": 762
+  },
+  {
+    "path": "tools/probe_firmware_ui/probe_main.cpp",
+    "sha256": "887df0c299143570c9c119943f58dfa7f0e4398b881bc14c38a0b594e68cd324",
+    "lines": 7052
+  },
+  {
+    "path": "tools/probe_firmware_ui/run.sh",
+    "sha256": "cf18d721854f13264bdef9a0a223a8f85c9707cf6641088947c02c019c1c6a3e",
+    "lines": 1702
+  },
+  {
+    "path": "tools/probe_ui_model_mutations.py",
+    "sha256": "336e4c13ebb09b7ca7b8a4b4db42b1beda1157af09ca2edf7406b67b17c9d400",
+    "lines": 12438
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "sha256": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d",
+    "lines": 1053
+  },
+  {
+    "path": "tools/probe_board_ui/run.sh",
+    "sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+    "lines": 1428
+  },
+  {
+    "path": "simulation/BASELINE.md",
+    "sha256": "71f140988e9d1a5bf1be49dd1feb8fc7ebb8e46c7a4b119e16db62f0df76962f",
+    "lines": 11899
+  }
+]

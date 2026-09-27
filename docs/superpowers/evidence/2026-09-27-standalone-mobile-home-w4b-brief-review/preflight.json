@@ -1,0 +1,159 @@
+{
+  "brief_sha256": "a354c251da007415de8b3b616d65da47933918d0dcc8e67cc0d4c90a3edf599e",
+  "pins": [
+    {
+      "path": "src/firmware_ui_model.h",
+      "sha256": "4a499098be6b55cb2c3c02c3cf5462b87489eca34e8a15d30e6b18c2346239c9",
+      "lines": 5822
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "sha256": "bfe5d70e0795effcbeaa7623dc3ee84f4481bc5b04d5728f8167619b92f3530e",
+      "lines": 2834
+    },
+    {
+      "path": "src/firmware_ui_chrome.h",
+      "sha256": "1fb0d8f0bd320bbf033263d203129ad101e9e2d37b772c55b0ae2d20e04fb037",
+      "lines": 598
+    },
+    {
+      "path": "src/firmware_ui_status.h",
+      "sha256": "b6e42c8e5d595c41f1f34fdf684176729b69e65f895582b6ef10c3f8648f710b",
+      "lines": 221
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "sha256": "ba92a0f5348144150f6c9ecb6cd5c35dee728396bfae81799fd1be260a62f373",
+      "lines": 10434
+    },
+    {
+      "path": "test/test_firmware_ui_chrome.cpp",
+      "sha256": "6ab7d9307b249a1fb6eafbff1387e0e399062bb0f69fba09a3c2e866aea28e64",
+      "lines": 1310
+    },
+    {
+      "path": "test/test_firmware_ui_status.cpp",
+      "sha256": "5d70ed87a048ddff375b624fc237b2d3dcc6cdaa38a029d24face08544bc4ec4",
+      "lines": 392
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "sha256": "1833ed10acc01bd71d7ca7142b3180ff5fb68bff2ac508181033edbd36ece38a",
+      "lines": 655
+    },
+    {
+      "path": "test/test_firmware_ui_send.cpp",
+      "sha256": "b1287e803bf336297fa4ae850cf18e59e5048dc2de50ed888e57af5cb0a694fe",
+      "lines": 2835
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "sha256": "3090a371e36295338a02e6c878eb1c32471f33dffd6260e68698d31b560c6905",
+      "lines": 7471
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "89e41dd80920ba42e72216d982a0702c3444fcf1a62ec71df44ccddd86252468",
+      "lines": 1836
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "b1574c35d23cf0e5bf2f2898be6bf14c8ef453accbd6db51eefe5e71e3e10b4b",
+      "lines": 12493
+    },
+    {
+      "path": "tools/probe_board_abi.py",
+      "sha256": "d6edbea5b7437e2011d4237245e570a07129708261f1f4c517a8bb515fe6178d",
+      "lines": 1053
+    },
+    {
+      "path": "tools/test_probe_board_abi.py",
+      "sha256": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3",
+      "lines": 524
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "sha256": "a358e8ae4443b6ae658ae0223da479a124c3eaa8d56fdc9bd16cf25d9ca0bebe",
+      "lines": null
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "sha256": "1ff3a21bfb97cab0f56d2dc23ac597bd37c7b31e53482c5a775c73fcea9e4673",
+      "lines": null
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md",
+      "sha256": "38b699335991cf04ffc21c7eb9702f36f3f8a3ba640ad5ff0d9b5a51047294aa",
+      "lines": null
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/SHA256SUMS",
+      "sha256": "a6ba6d303a256f4a6ae57453bd7432d9850b64de99a4c98857948e2335a2af85",
+      "lines": null
+    },
+    {
+      "path": "tracker.md",
+      "sha256": "bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2",
+      "lines": null
+    },
+    {
+      "path": "MEMORY.md",
+      "sha256": "fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092",
+      "lines": null
+    }
+  ],
+  "precheck_verified": [
+    "baseline-summary.json",
+    "control-completeness.tsv",
+    "corpus-manifest.json",
+    "inputs.json",
+    "layout-measure.py",
+    "layout-pricing.json",
+    "measurement-audit.json",
+    "mutation-anchors.tsv",
+    "native-cases.tsv",
+    "preflight.json",
+    "preservation.json",
+    "raw-artifacts.json",
+    "runs.json",
+    "symbol-readers.tsv"
+  ],
+  "reconciliation": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "paths": 1593,
+      "changed": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "tracker.md"
+      ],
+      "added": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/baseline-summary.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/control-completeness.tsv",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/inputs.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/layout-measure.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/layout-pricing.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/measurement-audit.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/mutation-anchors.tsv",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/native-cases.tsv",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/preservation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/runs.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/symbol-readers.tsv",
+        "docs/superpowers/plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md"
+      ]
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "paths": 285,
+      "changed": [],
+      "added": []
+    }
+  ],
+  "links_checked": 6
+}

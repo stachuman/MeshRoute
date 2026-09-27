@@ -47,11 +47,11 @@ namespace mrui {
 //   model (the model includes IT: `UiSnapshot` publishes the member array and `UiState` freezes the window).
 inline constexpr uint8_t kMaxInviteRows = 8;
 
-// ★ THE CACHED NAME's STORAGE, and it is deliberately WIDER than the six columns the row draws: the clamp is the
-//   FORMAT's (`%-6.6s`), ⛔ never the buffer's. A buffer clamped to six would make the 6-column rule unattackable
-//   — the mutation that drops the clamp would render the same six characters — and it would also be a SECOND
-//   truncation of one name (§UI-17 S-11 clamps the TEAM row at six from a 14-column label; one name, one
-//   truncation). ⓘ It equals `mrui::kLabelCap + 1`, asserted in the model beside the other bound.
+// ★ THE CACHED NAME's STORAGE, and it is deliberately WIDER than the six columns the row draws. ⓘ W4a: the carrier
+//   holds the name FORMATTED at 14 cells (`mrui::ui_fmt_identity` at `kInviteNameCap - 1`, from the FULL raw name),
+//   which is what the NEW MEMBER confirmation draws; the candidate row's six cells are a second, STRICTLY NARROWER
+//   projection of that carrier (`kInviteRowNameCols`), and the row still bounds its own column (`%-6.6s`), so a
+//   mutation that drops the row's clamp stays measurable. ⓘ It equals `mrui::kLabelCap + 1`, asserted in the model.
 inline constexpr uint8_t kInviteNameCap = 15;
 
 // AUTHORITY (b)'s STORAGE: one bit per team-local id, 0..255. ⓘ 32 bytes, derived from the id's own width — ⛔
@@ -188,10 +188,10 @@ inline bool invite_peer_key_cached_matches(const MESHROUTE_NS::Push& pu, uint32_
 //     TEAM row, from the SAME single `team_key_of_id` resolution (spec §6: *"one `team_key_of_id` resolution per
 //     row and hands it to both consumers (U1), ⛔ never two lookups for one row"*).
 // ⛔ IT IS NOT `TeamRow`, and the two are deliberately different projections of one member: `TeamRow::label` is
-//    a DISPLAY string with fallbacks (`peer_name_find` -> `0x<hash>` -> `id <n>`), and two of those three
-//    fallbacks are FORBIDDEN here — a truncated `0x` form in a six-column field is a THIRD spelling of the hash,
-//    beside the full id and the fingerprint (spec §4-N4, F-15). ⇒ `name` below is `Node::peer_name_find`'s
-//    ANSWER AND NOTHING ELSE, and `""` — the blank column — is the honest state until one is cached.
+//    a DISPLAY string with fallbacks (a name -> the member fingerprint -> `id <n>`), and both fallbacks are
+//    FORBIDDEN here — a hash-derived token in the name column would be a THIRD spelling of the hash beside the
+//    full id and the fingerprint column (spec §4-N4, F-15). ⇒ `name` below is `Node::peer_name_find`'s ANSWER,
+//    formatted as a NAME (W4a) and nothing else, and `""` — the blank column — is the state until one is cached.
 // ⓘ `key_hash32 == 0` MEANS **NO AUTHORITATIVE BINDING** (F-7): `team_key_of_id`'s floor is `authoritative`, a
 //   `claimed` on-air binding cannot answer it, and `_team_peer` bits are set from a keyless multi-hop DV entry
 //   (`lib/core/node.cpp:645`). Such a member is a REAL member — it is recorded in authority (b) below — but it
@@ -199,7 +199,7 @@ inline bool invite_peer_key_cached_matches(const MESHROUTE_NS::Push& pu, uint32_
 struct InviteMember {
     uint32_t key_hash32 = 0;
     uint8_t  id = 0;                       // the TEAM-plane local id (C3: it indexes nothing here)
-    char     name[kInviteNameCap] = {};    // `peer_name_find`'s answer VERBATIM; "" = no cached name
+    char     name[kInviteNameCap] = {};    // the cached name as `ui_fmt_identity` formats it at 14; "" = none
 };
 
 // ★★★★ THE WINDOW'S WHOLE STATE — the TWO snapshot authorities (F-11), the volatile handled set (F-13) and the
@@ -426,27 +426,33 @@ inline InviteIdRows invite_id_rows(const InviteMember* mem, uint8_t n, uint32_t 
     return r;
 }
 
-// ★★★★ THE CANDIDATE ROW (spec §8 S-35, F-15 rules 2-3): `%c%-6.6s T%-3u %6s` -> `>Wolfga T221 6C2971`.
+// ★★★★ THE CANDIDATE ROW (spec §8 S-35, F-15 rules 2-3): `%c%-6.6s T%-3u %6s` -> `>Wolfg» T221 6C2971`.
 //      WIDTH PROOF, DERIVED AND NOT GUESSED: `1 + 6 + 1 + 4 + 1 + 6 = 19` — exactly the rail's body budget.
 // ★★★ THE NAME IS AN **ADDED COLUMN**, ⛔ NEVER A SWAPPED TOKEN. Rule 2 (*initially the member fingerprint*) and
 //     rule 3 (*then prefer the cached name*) are ⛔ not a substitution: the identity aid the operator has learned
 //     to read STAYS PUT and a BLANK COLUMN FILLS IN. That is strictly safer than swapping — and it is what lets
 //     rule 4 hold at row level too, because the row never stops carrying a hash-derived token.
 // ★★★ AND THE NAME'S SOURCE IS `Node::peer_name_find` AND NOTHING ELSE (U1) — the SAME single name source the
-//     TEAM chain's second step already uses. ⛔ It is NOT `label_from_hash` and ⛔ not `label_for_team_id`
-//     (`src/firmware_ui.cpp`): both fall back to `0x%08lx` (ten columns) and to a bare id, which in a six-column
-//     field would render a TRUNCATED `0x` FORM — a THIRD spelling of the hash beside the full id and the
-//     fingerprint. The publisher hands this carrier `""` when no name is cached, and `""` is what `%-6.6s`
-//     renders as six spaces.
-// ⓘ THE 6-COLUMN CLAMP MATCHES THE TEAM ROW's (§UI-17 S-11) DELIBERATELY: a member that appears on BOTH screens
-//   must not render two different truncations of one name.
+//     TEAM chain's second step already uses — formatted as a NAME and never through a hash fallback. ⛔ A
+//     hash-derived token in this six-column field would be a THIRD spelling of the hash beside the full id and the
+//     fingerprint. The publisher hands the carrier `""` when no name is cached, and `""` is what `%-6.6s` renders
+//     as six spaces.
+// ★★ W4a — THE NAME ARRIVES **PREPARED** (`name6`): this header sits BELOW the model and cannot call
+//    `mrui::ui_fmt_identity`, so the renderer projects the 14-cell carrier to `kInviteRowNameCols` cells first (the
+//    name-only two-pass rule, `firmware_ui_model.h`) and hands the result in. ⓘ The row STILL bounds its own column
+//    with `%-6.6s`: whatever a caller passes, the id and the fingerprint cannot move. A null `name6` is the blank
+//    column, exactly as `""` is.
+// ⓘ THE 6-COLUMN FIELD MATCHES THE TEAM ROW's (§UI-17 S-11) DELIBERATELY: a member that appears on BOTH screens
+//   renders ONE six-cell projection of one name (`Wolfg»` on both).
 // ⓘ THE MARKER IS A PARAMETER, ⛔ not composed by the caller afterwards: the width proof above only closes if the
 //   marker is inside the 19 columns, and a caller that prefixed its own would silently make the row 20.
 inline constexpr std::size_t kInviteRowCap = 20;    // 19 columns + NUL
-inline void ui_fmt_invite_row(char* out, std::size_t cap, char marker, const InviteMember& m) {
+inline constexpr uint8_t     kInviteRowNameCols = 6;   // the row's name column — the `6` of `%-6.6s` below
+inline void ui_fmt_invite_row(char* out, std::size_t cap, char marker, const InviteMember& m, const char* name6) {
     if (!out || cap == 0) return;
+    if (!name6) name6 = "";
     char fp[kMemberFpCap]; ui_fmt_member_fingerprint(fp, sizeof fp, m.key_hash32);
-    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);
+    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, name6, unsigned(m.id), fp);
 }
 
 // =========================================================================================== the lexemes

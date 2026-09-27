@@ -1,6 +1,6 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-09-20**
+Last refreshed: **2026-09-25**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
@@ -32,7 +32,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Backlog — priority order
 
-- [Standalone mobile Home/editor design, revision 2.18](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) — reviewed design and package status; [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18) and [W1 independent QA receipt](docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1-qa.md) hold the current dispatch and closure evidence.
+- [Standalone mobile Home/editor design, revision 2.21](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) — reviewed design and package status; [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18) holds the current dispatch: W1 closed ([QA receipt](docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1-qa.md)); W1c also passed independent software QA ([receipt](docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa.md)), uncommitted on `8360802`; B447's unnamed half is closed, named-peer precedence remains open. W3 also passed independent QA ([receipt](docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa.md)), uncommitted on the same base. W4a also passed independent software QA ([receipt](docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa.md)), uncommitted on the same base: B441/B449/B455 closed; B456 records a separate probe-completeness gap; [metal UI-20](docs/2026-09-20-metal-test-plan.md#ui-20) OWED. W4b (Home and navigation, with B456): pre-check complete, allocation owner-ruled (+72 B); the [brief](docs/superpowers/plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md) awaits QA review; commits do not block progress.
 
 - [Heltec V4 L76K GNSS/location design](docs/superpowers/specs/2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md) — first-review draft; ready for final review and implementation planning.
 
@@ -60,8 +60,8 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-The standalone Home/editor redesign remains a draft; its owner agreements and open review questions live
-in the linked design above. Existing backlog priorities are unchanged by this refresh.
+The standalone Home/editor design is REVIEWED; implementation proceeds through separately checked packages.
+The current package status and dispatch are linked above. Existing backlog priorities remain unchanged.
 
 - **NEXT QUEUE:** owner metal qualification follows [the maintained plan](docs/2026-09-20-metal-test-plan.md): CUSTODY-02/03 retains B278's closure obligation; RADMIN and USB-BLE carry the completed remote-admin arc's physical residue. Current per-board results live only in that plan.
   USB-BLE-01 (former Part 58) closes B208's product residue independently. [[B280]], [[B281]], [[B282]], [[B283]], [[B112]]

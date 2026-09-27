@@ -1,0 +1,88 @@
+{
+  "reconciliation": [
+    {
+      "root": "/home/staszek/MeshRoute",
+      "original_paths": 1548,
+      "current_paths": 1576,
+      "authorized_landing_changes": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "docs/2026-09-20-metal-test-plan.md",
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "tracker.md"
+      ],
+      "unexpected_changes": [],
+      "new_paths": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/board-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/coder-raw-verification.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-audit.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-completeness-proof.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/control-completeness-proof.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/corpus-layout-comparison.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/focused-controls.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/focused-controls.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/gate-validation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/inputs-start.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/landing.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout-measure.py",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout-query.cpp",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/layout.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/gateway/manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/heltec_mobile/manifest.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/manifests/pair.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/mutation-results.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/preservation-prelanding.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/run-ledger.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/source-audit.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa/stage-a-o8-anchors.json"
+      ]
+    },
+    {
+      "root": "/home/staszek/lora-universal-simulator",
+      "original_paths": 285,
+      "current_paths": 285,
+      "authorized_landing_changes": [],
+      "unexpected_changes": [],
+      "new_paths": []
+    }
+  ],
+  "indexes": [
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c",
+      "entries": 86,
+      "index_sha256": "17f42f01baedf570b072acbc667a28afb3c3905424aa0c2a74058fb57009cd8f"
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-qa",
+      "entries": 29,
+      "index_sha256": "45350b95de3a25376a2566785e189c922da962dfaead93b50e58409ed70685fb"
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3",
+      "entries": 31,
+      "index_sha256": "60768607c2db45417ed3bff8015b8d6b08ad322d188de0d65c6bbcb048cae30e"
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w3-qa",
+      "entries": 29,
+      "index_sha256": "c368794f3a788a1d93d08942dad6c802bd60356ad01c928750e8411192161b4a"
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a",
+      "entries": 44,
+      "index_sha256": "88dd1139e572a86cb3cafea9b7bb3d3838d4d179f8215e746b328603f19abc38"
+    },
+    {
+      "folder": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4a-qa",
+      "entries": 26,
+      "index_sha256": "7c6d4b02c1b527e5592a43c8fbd8f44140b10facf39145705028647b37ca0d25"
+    }
+  ],
+  "staged": 0
+}

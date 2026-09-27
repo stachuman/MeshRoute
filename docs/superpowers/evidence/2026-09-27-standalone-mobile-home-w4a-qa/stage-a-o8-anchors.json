@@ -1,0 +1,12 @@
+[
+  {
+    "variable": "o8a",
+    "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|",
+    "matched_lines": 1
+  },
+  {
+    "variable": "o8b",
+    "script": "s|            mem.name\\[nn\\] = .\\\\0.;|            ;|",
+    "matched_lines": 1
+  }
+]

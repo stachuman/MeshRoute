@@ -1,0 +1,8 @@
+OK  X21 parse_whoami('[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': ''}
+OK  X23 parse_whoami('[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': 'Bench 1'}
+OK  X25 parse_whoami('[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'}
+OK  X21 parse_whoami('[whoami] id=5 hash=0x2972535171 name="" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': ''}
+OK  X23 parse_whoami('[whoami] id=5 hash=0x2972535171 name="Bench 1" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': 'Bench 1'}
+OK  X25 parse_whoami('[whoami] id=5 hash=0x2972535171 name="ABCDEFGHIJKLMNOPQRSTUVWXYZ012345" leaf=0 gw=0 gwonly=0 mobile=0') -> {'node_id': 5, 'hash': '0x2972535171', 'leaf': 0, 'gw': False, 'gwonly': False, 'mobile': False, 'name': 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'}
+rows parsed: 6; bad: 0
+exit=0

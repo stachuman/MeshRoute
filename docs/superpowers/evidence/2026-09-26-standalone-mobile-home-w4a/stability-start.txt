@@ -1,0 +1,62 @@
+== /home/staszek/MeshRoute: HEAD 8360802904f7bd0023279d3da844453d61207ede (inventory 8360802904f7bd0023279d3da844453d61207ede) OK
+   inventoried paths: 1455; current nonignored: 1502
+   changed vs inventory: 4
+     CHANGED MEMORY.md (allowed: preparation document or W4a fenced file)
+     CHANGED docs/2026-07-30-open-bug-register.md (allowed: preparation document or W4a fenced file)
+     CHANGED docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md (allowed: preparation document or W4a fenced file)
+     CHANGED tracker.md (allowed: preparation document or W4a fenced file)
+   missing: 0
+   new since inventory: 47
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review.md
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/abi-coverage.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/authorization.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/focused-review.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/format-composition.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/input-check.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/mutation-check.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/preservation.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/required-fold-ins.patch
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/team-fixture-measurement.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/team-fixture-proof.cpp
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-brief-review/validation.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/SHA256SUMS
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/baselines.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.cpp
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/byte-copy-proof.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/census.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/control-reproduction.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-comparison.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/corpus-manifest.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-glyphs.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-inputs.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/format-feasibility.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/gate-summary.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/identity-reader-census.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/inputs.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measure.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/layout-measurements.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/mutation-selectors.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-anchor-measurement.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/o8-reproduce.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preflight.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/preservation.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/raw-artifacts.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/runs.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/start.py
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/validation.json
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w1c-qa-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-checksums.txt
+     NEW docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/w3-qa-checksums.txt
+     NEW docs/superpowers/plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md
+== /home/staszek/lora-universal-simulator: HEAD 6585649ea5a780f0542b2931853a667be56a5b2b (inventory 6585649ea5a780f0542b2931853a667be56a5b2b) OK
+   inventoried paths: 285; current nonignored: 285
+   changed vs inventory: 0
+   missing: 0
+   new since inventory: 0
+UNEXPLAINED CHANGED/MISSING: 0

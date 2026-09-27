@@ -1,0 +1,62 @@
+{
+  "base": {
+    "command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/meshroute-w4a-brief-review/base",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/meshcore/src/helpers/radiolib",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/meshroute-w4a-brief-review/base/proof.cpp",
+      "-o",
+      "/tmp/meshroute-w4a-brief-review/base/proof"
+    ],
+    "compile_exit": 0,
+    "output": "formatted=20576f6c6667bb203132732020202020202020\nsynthetic_overlong= Wolfga 12s        \nequal_formatted=1\ndifferent_invisible_tail=1\n"
+  },
+  "T01": {
+    "command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/meshroute-w4a-brief-review/T01",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/meshcore/src/helpers/radiolib",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/meshroute-w4a-brief-review/T01/proof.cpp",
+      "-o",
+      "/tmp/meshroute-w4a-brief-review/T01/proof"
+    ],
+    "compile_exit": 0,
+    "output": "formatted=20576f6c6667bb203132732020202020202020\nsynthetic_overlong= Wolfgangetta 12s        \nequal_formatted=1\ndifferent_invisible_tail=1\n"
+  },
+  "T09": {
+    "command": [
+      "g++",
+      "-std=c++20",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/meshroute-w4a-brief-review/T09",
+      "-I/home/staszek/MeshRoute/src",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/meshcore/src/helpers/radiolib",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/meshroute-w4a-brief-review/T09/proof.cpp",
+      "-o",
+      "/tmp/meshroute-w4a-brief-review/T09/proof"
+    ],
+    "compile_exit": 0,
+    "output": "formatted=20576f6c6667bb203132732020202020202020\nsynthetic_overlong= Wolfga 12s        \nequal_formatted=1\ndifferent_invisible_tail=0\n"
+  }
+}

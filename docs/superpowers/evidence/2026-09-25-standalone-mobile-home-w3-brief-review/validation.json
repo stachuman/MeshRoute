@@ -1,0 +1,9 @@
+{
+  "review_report_sha256": "05511a43a7b9b1cfceadf209e5c5d0f246c10f3d60aab930fe962b2b6854b511",
+  "reviewed_brief_unchanged": true,
+  "prospective_authorization": "9a84d03b0f2e9826df67feba52ff87c50644383bfb85ef8bc06af7ed8e25d825",
+  "patch_apply_check": true,
+  "links_checked": 9,
+  "both_repositories_whitespace_clean": true,
+  "original_paths_preserved": 1663
+}

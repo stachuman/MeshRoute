@@ -1,0 +1,45 @@
+{
+  "verdict": "INDEPENDENT SOFTWARE QA PASS",
+  "scope": "W3 revision 2, src-only independent gate (P6, brief 4.2)",
+  "native": {
+    "cases": 2973,
+    "assertions": 196111,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpus": {
+    "identical": 36,
+    "scenario_fields": 14
+  },
+  "firmware_ui": {
+    "per_arm": [
+      518,
+      964,
+      518
+    ],
+    "controls": 231,
+    "unusable": 0
+  },
+  "abi": {
+    "checks": 290,
+    "red_controls": 9,
+    "unusable": 0
+  },
+  "mutations": {
+    "batteries": 2,
+    "red": 240,
+    "unusable": 0,
+    "vacuous": 0
+  },
+  "tools": {
+    "tests": 356,
+    "skipped": 0,
+    "exit": 0
+  },
+  "board_final_equals_coder": true,
+  "no_new_metal_verdict": true,
+  "findings": {
+    "B453": "OPEN, unrelated pre-existing sliceEcascade E14 zero-match",
+    "B454": "CLOSED, tracker status wording in authorized landing"
+  }
+}

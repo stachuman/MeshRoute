@@ -1,0 +1,78 @@
+HEAD: 8360802904f7bd0023279d3da844453d61207ede
+sim: 6585649ea5a780f0542b2931853a667be56a5b2b status-lines=0
+== fenced files (sha256, lines)
+62ba7b086a00b0cf515ecb713632830ae18dd4ac9359a1f955b5fbff68f21604 2626 lib/core/node.cpp
+647ad11fda25d38504616ca86c70c474a8be1fc24541103a32827d735707a3fe 4088 lib/core/node.h
+3eea954914b6b3d788dbe9c672972578da15144bd8f6944ae65d3367ef13893f 1915 src/firmware_commands.cpp
+4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766 1875 src/fw_main.cpp
+414d18a8f5ca1bb815698998a52caaf90f30edfe114625ebd7f344b5d6c49aed 376 lib/console/console_parse.cpp
+6a5199144921d0f3866f806e6a38435040d66314ed5ebd7c450d23be327b49b6 11712 test/test_node_r3.cpp
+18dee2d5cdcc6da5d751b9ea50761d88fc5f17fe987e530de6e04b375e43fc54 5211 test/test_node_hashlocate.cpp
+6b0f34a867437ec9297bca794a21fd907343677a08f952cdbd283f1831742550 9263 test/test_dual_layer.cpp
+e6f6ef9f13431b7bbb2560dd4eeea51f84acb5526977ec0b4d9c8b55327bbab6 2116 tools/probe_inbox_verbs/probe_main.cpp
+06d49b25e3126970ac30e9e279d844a433f3b2f1fd1c994ebad762f43fcf76c4 873 tools/probe_inbox_verbs/run.sh
+336e4c13ebb09b7ca7b8a4b4db42b1beda1157af09ca2edf7406b67b17c9d400 12438 tools/probe_ui_model_mutations.py
+== brief
+39bfd6f0025b37c65826ac71b3effffbf82df25b7fa05c405c79b957992dfce6  docs/superpowers/plans/2026-09-25-standalone-mobile-home-w1c-no-default-name.md
+== preparation set
+docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md: OK
+docs/2026-07-30-open-bug-register.md: OK
+docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md: OK
+docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/SHA256SUMS: OK
+tracker.md: OK
+MEMORY.md: OK
+== pre-check SUMS: 18 OK
+== review receipt
+7be92c30698142f635ec3c6747618ad0bfa823dc08ff715e25a67bd39c3e9ac4  docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review.md
+9138fdf00afa4ba1a264f4a359f57c25a703a90e0b5b929acdb0b3192957b1d2  docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/SHA256SUMS
+review SUMS: 7 OK
+== tracked inventory
+ca393c0d18451a252dd58c62db8a679793e2ec15cff1284f15a93334c93f6741  docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md
+inventory unchanged vs HEAD
+== git status
+ M MEMORY.md
+ M docs/2026-07-30-open-bug-register.md
+ M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md
+ M lib/console/console_parse.cpp
+ M lib/core/node.cpp
+ M lib/core/node.h
+ M src/firmware_commands.cpp
+ M src/fw_main.cpp
+ M test/test_dual_layer.cpp
+ M test/test_node_hashlocate.cpp
+ M test/test_node_r3.cpp
+ M tools/probe_inbox_verbs/probe_main.cpp
+ M tools/probe_inbox_verbs/run.sh
+ M tools/probe_ui_model_mutations.py
+ M tracker.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/authorization.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/input-check.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/precheck-checksums.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/preservation.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/radio-structural.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/required-fold-ins.patch
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-brief-review/source-checks.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck.md
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/SHA256SUMS
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/abi-baseline.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/abi-pins.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/base-reconciliation.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/corpus-comparison.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/corpus-manifest.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/default-name-users.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/effective-name-users.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/landing.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/mutation-selectors.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/name-assignment-census.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/pinned-inputs.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/preservation.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/retired-push-census.txt
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/runs.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/scenario-name-census.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/source_inventory.py
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/whoami-parser-checks.json
+?? docs/superpowers/evidence/2026-09-25-standalone-mobile-home-w1c-precheck/whoami-users.txt
+?? docs/superpowers/plans/2026-09-25-standalone-mobile-home-w1c-no-default-name.md
+2026-09-25T09:37:27+00:00

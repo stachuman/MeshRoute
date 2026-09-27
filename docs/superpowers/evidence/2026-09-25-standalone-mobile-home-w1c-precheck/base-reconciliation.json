@@ -1,0 +1,17 @@
+{
+  "requested_previous_base": "4a230f4 plus frozen W1",
+  "actual_head": "8360802904f7bd0023279d3da844453d61207ede",
+  "parent_matches": true,
+  "frozen_candidate_and_landing_hashes_match": {
+    "src/firmware_ui.cpp": "6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f",
+    "tools/probe_firmware_ui/run.sh": "cf18d721854f13264bdef9a0a223a8f85c9707cf6641088947c02c019c1c6a3e",
+    "tools/probe_firmware_ui/probe_main.cpp": "887df0c299143570c9c119943f58dfa7f0e4398b881bc14c38a0b594e68cd324",
+    "test/test_node_hashlocate.cpp": "198c0211715a82cf3e5d676d4e3f84ed8bf2f077c1eadc2041d75de34e5462ba",
+    "tools/probe_ui_model_mutations.py": "f135d051b626909ce2dd6099af8db5a98c79565d16e7b8c7d9c5a782bfd99afa",
+    "MEMORY.md": "fc1c7ba0b6fb627b5d0934cc23b772bad5104b63a45cec9cfa36a69d2c749b04",
+    "docs/2026-07-30-open-bug-register.md": "b0113bb18750b6c51f0d2725e6a6b43b9aa7069f7f3759db160ce9fdb1be1887",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "b0f72299af8edcae6421c11e5d9af7d5cd03d62a8a6006bd8cc661583ec1698e",
+    "tracker.md": "b22ecb5696ecee4726fb61285fe7ff99d4024b57643a578dc46606441b76b199"
+  },
+  "initial_tree_clean": true
+}

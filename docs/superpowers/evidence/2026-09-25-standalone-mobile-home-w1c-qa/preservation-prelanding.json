@@ -1,0 +1,20 @@
+[
+  {
+    "root": "/home/staszek/MeshRoute",
+    "file_count": 1321,
+    "head": "8360802904f7bd0023279d3da844453d61207ede",
+    "head_unchanged": true,
+    "status_unchanged": true,
+    "changed_original_or_added_paths": {},
+    "staged_diff_empty": true
+  },
+  {
+    "root": "/home/staszek/lora-universal-simulator",
+    "file_count": 285,
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "head_unchanged": true,
+    "status_unchanged": true,
+    "changed_original_or_added_paths": {},
+    "staged_diff_empty": true
+  }
+]

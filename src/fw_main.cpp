@@ -924,7 +924,7 @@ void setup() {
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: install the E2E crypto identity (X25519 + ed_pub)
-    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
+    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); an empty /mrid name leaves the node UNNAMED and it advertises no name (W1c D10)
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
     // §RADMIN slice 3 — the two TARGET STORES' READ-ONLY boot report, independent of /mrcfg.

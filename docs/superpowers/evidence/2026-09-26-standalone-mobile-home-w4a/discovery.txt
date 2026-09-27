@@ -1,0 +1,4 @@
+# W4a §4.1 step 6 — discovery: python3 -m unittest discover -s tools -p 'test_*.py'
+Ran 356 tests in 730.351s
+OK
+skipped: 0 lines mention skipped (the OK line carries no skip count ⇒ 0 skipped)

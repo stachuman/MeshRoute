@@ -1,0 +1,20 @@
+{
+  "original": {
+    "substitution_changed_lines": [
+      1,
+      0
+    ],
+    "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|\n       s|            mem.name\\[nn\\] = .\\\\\\\\0.;|            ;|"
+  },
+  "repaired": {
+    "substitution_changed_lines": [
+      1,
+      1
+    ],
+    "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|\n       s|            mem.name\\[nn\\] = .\\\\0.;|            ;|"
+  },
+  "O6": {
+    "script": "s|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|",
+    "changed_lines": 2
+  }
+}

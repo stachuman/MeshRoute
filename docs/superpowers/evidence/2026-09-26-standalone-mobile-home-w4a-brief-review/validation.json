@@ -1,0 +1,86 @@
+{
+  "brief_unchanged": true,
+  "authorized_prospective_sha256": "7fafe9ef08aa50842a30240b08fa079cf8ce67c608f46d8ebe390ed879fff067",
+  "patch_check_exit": 0,
+  "patch_applied": false,
+  "links": [
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "../plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/required-fold-ins.patch",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/authorization.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/input-check.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/abi-coverage.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/mutation-check.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/team-fixture-measurement.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/preservation.json",
+      "exists": true
+    },
+    {
+      "document": "2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "target": "2026-09-26-standalone-mobile-home-w4a-brief-review/SHA256SUMS",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../evidence/2026-09-26-standalone-mobile-home-w4a-brief-review.md",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../evidence/2026-09-26-standalone-mobile-home-w4a-precheck.md",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../../2026-07-30-open-bug-register.md",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../../2026-09-02-agent-roles.md",
+      "exists": true
+    },
+    {
+      "document": "proposed-revision-2.md",
+      "target": "../evidence/README.md",
+      "exists": true
+    }
+  ],
+  "report_sha256": "73b20bed46ea7ec458e6e213d41f6fba2163fd5e0a14b363fe40d5b5f0b2f23c",
+  "initial_compile_failure": "C++17 lacked std::span; retained raw output; corrected to C++20",
+  "full_gate_run": false
+}

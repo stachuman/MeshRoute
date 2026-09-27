@@ -1,0 +1,48 @@
+{
+  "measurement": "Focused real v3 renderer; original source or isolated mutants; copied probe adds one printf only, no assertion changed. Full stock probe ran separately.",
+  "O8": {
+    "original": {
+      "substitution_changed_lines": [
+        1,
+        0
+      ],
+      "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|\n       s|            mem.name\\[nn\\] = .\\\\\\\\0.;|            ;|"
+    },
+    "repaired": {
+      "substitution_changed_lines": [
+        1,
+        1
+      ],
+      "script": "s|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|\n       s|            mem.name\\[nn\\] = .\\\\0.;|            ;|"
+    },
+    "O6": {
+      "script": "s|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|",
+      "changed_lines": 2
+    }
+  },
+  "runs": {
+    "live": [
+      "DIAGNOSTIC P23d actual candidate row=[>       T221 BEDEAD]",
+      "964 passed / 0 failed / 964 total"
+    ],
+    "original": [
+      "DIAGNOSTIC P23d actual candidate row=[>       T221 BEDEAD]",
+      "  FAIL P23d \u2605\u2605 rule 3 \u2014 the name column now reads `Wolfga`, CLAMPED to six  named && row_after != nullptr && strncmp(row_after + 1, \"Wolfga\", 6) == 0",
+      "  FAIL P23e \u26d4 the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, \"Wolfgangetta\")",
+      "962 passed / 2 failed / 964 total"
+    ],
+    "repaired": [
+      "  FAIL P23b \u2605 rule 2 \u2014 a BLANK name column and a POPULATED member fingerprint, at 19 columns  body_row_is(3, row) && strlen(row) == 19u && strstr(row, fpB) != nullptr && strncmp(row + 1, \"      \", 6) == 0",
+      "DIAGNOSTIC P23d actual candidate row=[>0x00be T221 BEDEAD]",
+      "  FAIL P23d precondition: the candidate's row is on the panel with a BLANK name  row_now != nullptr && strstr(before, fpB) != nullptr && strncmp(before + 1, \"      \", 6) == 0",
+      "962 passed / 2 failed / 964 total"
+    ],
+    "O6": [
+      "DIAGNOSTIC P23d actual candidate row=[>       T221 BEDEAD]",
+      "  FAIL P23d the request confirmation carries the FULL hash               body_row_is(1, full)",
+      "963 passed / 1 failed / 964 total"
+    ]
+  },
+  "O6_disposition": "Its 2 matched sites are NEED PUBKEY / WAITING FOR PUBKEY, not NEW MEMBER. Only P23d full-hash fails. Named NEW MEMBER is already protected by O20 (3 RED checks in stock probe) and uiinvite I29. Recommend explicit O6 retirement in W4a, preserving O20 and full-hash checks; author records disposition, no silent weakening.",
+  "preparation_attempt": "First diagnostic harness attempt used a wrong scratch-relative ROOT and failed before compiling any source. Corrected explicit root, reran clean; log retained, no result inherited."
+}

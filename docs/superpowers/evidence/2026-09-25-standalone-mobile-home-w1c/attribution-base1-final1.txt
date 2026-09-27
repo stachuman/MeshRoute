@@ -1,0 +1,56 @@
+== gateway
+  DELTA measurements.flash_bytes: base=572240 final=571936
+  same  measurements.loadable_sections..ARM.exidx: base=8 final=8
+  same  measurements.loadable_sections..data: base=980 final=980
+  DELTA measurements.loadable_sections..text: base=571252 final=570948
+  same  measurements.object_count: base=285 final=285
+  same  measurements.ram_bytes: base=203740 final=203740
+  DELTA measurements.symbol_count: base=6597 final=6593
+  DELTA measurements.symbol_size_total: base=752617 final=752316
+  DELTA measurements.symbols_sha256: base='4d1096d7519945a785ebd6e868e2df7089a12c522c5959db819f57ee40503e3b' final='17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed'
+  DELTA artifacts.payload.bytes: base=1609655 final=1608800
+  same  artifacts.payload.filename: base='firmware.hex' final='firmware.hex'
+  DELTA artifacts.payload.sha256: base='cd56846e3272db109eff6f77d54c5ea97a05072c679976a4357188c1a35ae9c1' final='97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886'
+  delta artifacts.elf.bytes (diagnostic only): base=769648 final=769540
+  same  artifacts.elf.filename (diagnostic only): base='firmware.elf' final='firmware.elf'
+  delta artifacts.elf.sha256 (diagnostic only): base='cfab68a8e3c77ab2993601b39feb1a851f11ac8e6851dca01116b4ee13dbf9ca' final='4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba'
+  same  normal_pio_metadata.entry_count: base=10653 final=10653
+  same  normal_pio_metadata.exists: base=True final=True
+  EXPECTED-DIFF normal_pio_metadata.sha256: base='003ab9cad96a890b964f5f4c4b5ffa64c9ef2e142135d64103bb5deb0a286cb6' final='558ebbb088b217cdc8adbb269717191f2902cbf1deb931a2ee3afb8a79edd44d'
+  same  source.deleted_files: base=[] final=[]
+  same  source.file_count: base=1272 final=1272
+  same  source.git_head: base='8360802904f7bd0023279d3da844453d61207ede' final='8360802904f7bd0023279d3da844453d61207ede'
+  EXPECTED-DIFF source.git_status_sha256: base='e4246745a78be21a3f69ccce5888a7fb7c60516575150f36af48d644f4e1409c' final='bf041107215b5423e0ce8fcc3c967fd36d0b27740af6e5e4178e5dec694ac2e4'
+  EXPECTED-DIFF source.tree_sha256: base='a568b18e76c0dab97505784f211a2e7be35c45f6b80e16fa5ee5f50886b16294' final='c0985789027ef53b74228942b3a9645cdce8e81c42f9759f036b4809873a4160'
+  compatibility fields checked: 48; differing: 0
+== heltec_mobile
+  DELTA measurements.flash_bytes: base=1394732 final=1394592
+  same  measurements.loadable_sections..dram0.data: base=25260 final=25260
+  same  measurements.loadable_sections..flash.appdesc: base=256 final=256
+  DELTA measurements.loadable_sections..flash.rodata: base=218116 final=218100
+  DELTA measurements.loadable_sections..flash.text: base=1072486 final=1072362
+  same  measurements.loadable_sections..iram0.text: base=77843 final=77843
+  same  measurements.loadable_sections..iram0.vectors: base=1027 final=1027
+  same  measurements.loadable_sections..rtc.force_fast: base=8 final=8
+  same  measurements.loadable_sections..rtc.text: base=256 final=256
+  same  measurements.object_count: base=329 final=329
+  same  measurements.ram_bytes: base=211724 final=211724
+  DELTA measurements.symbol_count: base=13297 final=13296
+  DELTA measurements.symbol_size_total: base=1496134 final=1495992
+  DELTA measurements.symbols_sha256: base='a0e270222204b0fe7955bb7bee0c0c614fb98f205546d7ebfacb93a2e1c8c64f' final='8c9305043ddffd794a8b7a99143a50f4380d9487bf560f79c72450d05a354070'
+  DELTA artifacts.payload.bytes: base=1395376 final=1395232
+  same  artifacts.payload.filename: base='firmware.bin' final='firmware.bin'
+  DELTA artifacts.payload.sha256: base='ae61574884fd6cd913768f32408f9fbf6ed9234ec71d3d7d313ce937de211ed2' final='38739c4aba867f1800caa596b3a8aa1e4e204301284858f9351bd76af03c1c3a'
+  delta artifacts.elf.bytes (diagnostic only): base=21599160 final=21598228
+  same  artifacts.elf.filename (diagnostic only): base='firmware.elf' final='firmware.elf'
+  delta artifacts.elf.sha256 (diagnostic only): base='bd2fcec6d7d1d49699299deb395f76198c487d6873dcdbc14c1aaa7f54b1f2f8' final='ae4d80655954de4e979a2392c225ec49fba747e630adf4e921ef59c3a94bb23e'
+  same  normal_pio_metadata.entry_count: base=10653 final=10653
+  same  normal_pio_metadata.exists: base=True final=True
+  EXPECTED-DIFF normal_pio_metadata.sha256: base='003ab9cad96a890b964f5f4c4b5ffa64c9ef2e142135d64103bb5deb0a286cb6' final='558ebbb088b217cdc8adbb269717191f2902cbf1deb931a2ee3afb8a79edd44d'
+  same  source.deleted_files: base=[] final=[]
+  same  source.file_count: base=1272 final=1272
+  same  source.git_head: base='8360802904f7bd0023279d3da844453d61207ede' final='8360802904f7bd0023279d3da844453d61207ede'
+  EXPECTED-DIFF source.git_status_sha256: base='e4246745a78be21a3f69ccce5888a7fb7c60516575150f36af48d644f4e1409c' final='bf041107215b5423e0ce8fcc3c967fd36d0b27740af6e5e4178e5dec694ac2e4'
+  EXPECTED-DIFF source.tree_sha256: base='a568b18e76c0dab97505784f211a2e7be35c45f6b80e16fa5ee5f50886b16294' final='c0985789027ef53b74228942b3a9645cdce8e81c42f9759f036b4809873a4160'
+  compatibility fields checked: 48; differing: 0
+VERDICT: compatible (toolchain/identity/paths identical); deltas listed above

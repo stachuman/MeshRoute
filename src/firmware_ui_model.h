@@ -221,12 +221,14 @@ namespace mrui {
 inline constexpr uint32_t kBlankMs      = 15000;
 inline constexpr uint8_t  kMaxTeamRows  = 8;    // spec §11: a 3-10 member group; the snapshot reports the TRUE total too
 inline constexpr uint8_t  kMaxInboxRows = 8;
-inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate label
+inline constexpr uint8_t  kLabelCap     = 14;   // the resident label carriers' cell width (+ NUL); REPLY's budget
 // ★★ §UI-16 N4 — THE TWO BOUNDS THE INVITE UNIT COULD NOT STATE FOR ITSELF, ASSERTED RATHER THAN COMMENTED.
 //    `firmware_ui_invite.h` may not include this header (this one includes IT), so its capacities are declared
 //    there and TIED here: the member array is filled by the SAME loop, bounded by the SAME count, as `team[]`
-//    (spec §6: one enumeration, one `team_key_of_id` resolution, two consumers), and the cached name it carries
-//    must hold a whole `kLabelCap` label so the invite row and the TEAM row clamp ONE name at ONE width.
+//    (spec §6: one enumeration, one `team_key_of_id` resolution, two consumers), and the member's name carrier is
+//    the SAME width as the label carriers. ⓘ W4a: every device label is `ui_fmt_identity`'s answer at its site's
+//    budget — the invite carrier holds the name formatted at 14 cells, and the six-cell TEAM and candidate-row
+//    names are projections of the one formatter, so one name still has ONE rendering rule on this panel.
 static_assert(kMaxInviteRows >= kMaxTeamRows,
               "§UI-16 N4: the invite member array is filled from the TEAM enumeration and must not be shorter");
 static_assert(std::size_t(kInviteNameCap) == std::size_t(kLabelCap) + 1u,
@@ -1403,11 +1405,90 @@ inline constexpr uint8_t  kDetailMaxPages  =
     uint8_t((MESHROUTE_NS::protocol::inbox_max_body + kDetailPageChars - 1) / kDetailPageChars);
 inline constexpr uint32_t kDetailPageMs    = 2000;   // spec §3.5: long bodies advance every 2 s and CYCLE
 
+// ★★★ W3 — THE PAGER, AS TWO PURE HELPERS OVER A **COUNTED** BODY. The detail modal calls them at its own geometry
+//     (`kDetailCols` x `kDetailBodyRows`) and its outputs are unchanged; the geometry is a PARAMETER so a later screen
+//     with other dimensions reuses this arithmetic instead of re-typing it.
+// ⛔ WHAT THEY DO NOT DO, by contract: no `strlen` (a body is counted bytes, never a C string), no sanitizing (the
+//    caller's `ui_display_byte` pass stays at its copy), no clock, no modal identity, no `dirty`, no `UiState`.
+// ⓘ The geometry is constrained at COMPILE time — a page of zero rows or zero columns has no meaning, so there is no
+//   fallback for one. The arithmetic is 32-bit: no length <= 255 and no page in range can truncate.
+// The page count: ceil(len / (Cols x Rows)), and ⛔ NEVER ZERO — an empty body still has one page, or the modal would
+// render `1/0` and the cycling arithmetic in `on_tick` would divide by zero.
+template <uint8_t Cols, uint8_t Rows>
+constexpr uint8_t detail_page_count(uint8_t len) {
+    static_assert(Cols > 0 && Rows > 0, "a page holds at least one row of one column");
+    const uint32_t per = uint32_t(Cols) * Rows;
+    const uint32_t p = (uint32_t(len) + per - 1) / per;
+    return p ? uint8_t(p) : uint8_t(1);
+}
+// One page's rows, WITHOUT DROPPING BYTES: row `r` of page `page` is the next `Cols` counted bytes, in order. Each row
+// gets its bytes and then EXACTLY ONE NUL — an empty row included. ⛔ The rest of a row buffer is NOT cleared: every
+// reader stops at the NUL, and a clear would be a write the modal never made. The length is the truth about the
+// record, so this reads `len` and never looks for a terminator.
+template <uint8_t Cols, uint8_t Rows>
+inline void detail_page_rows(const char* body, uint8_t len, uint8_t page, char (&out)[Rows][Cols + 1]) {
+    static_assert(Cols > 0 && Rows > 0, "a page holds at least one row of one column");
+    const uint32_t off = uint32_t(page) * Cols * Rows;
+    for (uint8_t row = 0; row < Rows; ++row) {
+        char* dst = out[row];
+        uint8_t n = 0;
+        for (; n < Cols; ++n) {
+            const uint32_t i = off + uint32_t(row) * Cols + n;
+            if (i >= uint32_t(len)) break;
+            dst[n] = body[i];
+        }
+        dst[n] = '\0';
+    }
+}
+
 // ★★ THE ONE DISPLAY-BYTE SANITIZER (U1), shared by the preview row and the detail body. An inbox body is NOT a C
 // string — it is raw record bytes that may contain NUL, control bytes and high-bit bytes — and spec §3.5 requires
 // unsupported bytes to be replaced VISIBLY rather than treated as control characters. `'.'` is the policy the UI-7
 // preview already shipped; this is that expression, moved to where both callers can reach it, not a second one.
 inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }
+
+// ★★★★ W4a ([[B441]], design §4.1) — ONE FORMATTER FOR EVERY DEVICE LABEL ON THE PANEL. A cached name is raw
+//      counted bytes (up to `peer_name_max`, 32): the small font draws 0xA0-0xFF as Latin-1 and has NO glyph for
+//      0x7F-0x9F, so UTF-8 used to reach the glass as mojibake or lost cells, and a long name was clipped silently.
+//      Every site now asks THIS function, at its own column budget `cols`:
+//        · a NAME (`len > 0`): each byte through `ui_display_byte` (the one sanitizer), and a name wider than the
+//          budget keeps `cols - 1` cells and then gets the GENERATED marker `kIdentityMarker` (0xBB, `»`). The
+//          marker is written AFTER sanitizing, so a name's own 0xBB byte becomes `.` and only the generated one
+//          survives. A stored name that LOOKS like a hash is a name: provenance is never inferred from spelling;
+//        · UNNAMED with a known hash: `0x<HASH8>` when 10 or more cells fit, the six-digit member fingerprint when
+//          6-9 fit — the two ruled member tokens (`firmware_ui_invite.h`), ⛔ never a clipped `0x…`;
+//        · NO name and NO hash: `""` and `none` — the caller keeps its own `id <n>`; ⛔ never a fabricated
+//          `0x00000000`.
+// ⛔ NEVER A PARTIAL RESULT: a capacity below `cols + 1`, a zero budget for a name, or a budget under six cells for
+//    a hash writes an empty string (when `cap > 0`) and answers `no_fit`. `cap == 0` writes nothing at all.
+// ⛔ PANEL ONLY: a lone 0xBB is not UTF-8, so no console, JSON, companion, wire or NV path may call this. The input
+//    is COUNTED — never `strlen`'d, and never read when `len == 0` (so `bytes` may be null then). No state, no
+//    allocation, no UTF-8 decoding, no substitution table (`C5 82` is two cells, `..`).
+// ⓘ THE TWO-PASS RULE, FOR NAMES ONLY (brief §2.3): the invite candidate row re-formats the 14-cell carrier at six.
+//   For a name that equals formatting the full name at six — a first-pass marker sits at cell 13, outside the kept
+//   cells 0-4 — and it is only ever STRICTLY narrower. It is never applied to a hash (`test_firmware_ui_model.cpp`
+//   pins the equivalence, including a raw 0xBB at every position).
+inline constexpr char kIdentityMarker = char(0xBB);   // the generated abbreviation marker `»`: one 6-px font cell
+enum class IdentityFmt : uint8_t { name, hash, none, no_fit };
+inline IdentityFmt ui_fmt_identity(char* out, std::size_t cap, const char* bytes, uint8_t len,
+                                   uint32_t key_hash32, uint8_t cols) {
+    if (!out || cap == 0) return IdentityFmt::no_fit;               // nothing may be written
+    out[0] = '\0';
+    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result
+    if (len > 0) {
+        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read
+        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);
+        for (uint8_t i = 0; i < keep; ++i) out[i] = ui_display_byte(uint8_t(bytes[i]));
+        uint8_t end = keep;
+        if (keep < len) out[end++] = kIdentityMarker;               // generated AFTER sanitizing: stays 0xBB
+        out[end] = '\0';
+        return IdentityFmt::name;
+    }
+    if (key_hash32 == 0) return IdentityFmt::none;
+    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }
+    if (std::size_t(cols) >= kMemberFpCap - 1)   { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }
+    return IdentityFmt::no_fit;                                     // under six cells: never a clipped hash
+}
 
 // ★★ §B66 CLOSED HERE 2026-08-05 (UI-7) — THE COUNT IS NOW DERIVED FROM THE TABLE, so the two cannot disagree.
 // The LAST row of a compose list is `back, don't send` and the model identifies it POSITIONALLY (`cursor + 1 == n`),
@@ -1455,6 +1536,13 @@ inline constexpr const char* kNoPresetsText = "no presets set";
 // ⓘ 14 columns, inside the 19-column body.
 inline constexpr const char* kPresetChangedText = "PRESET CHANGED";
 
+// ★★★ W3 — THE COMPOSE ROW's TEXT WIDTH IS THE PANEL's, NOT THE RECORD's. A preset row is selection marker 1 +
+//     location marker 1 + text on the body's `kDetailCols` (19 — the renderer asserts it equals its `kBodyCols`), so
+//     the text has 17 columns in BOTH location states. That is permanent GEOMETRY. `mrnv::kUiPresetTextMax` is the
+//     RECORD's limit (OQ-A's ruling, also 17 today) and belongs to the record path — validation, storage and the send.
+//     ⛔ The two are separate facts that agree today; nothing on the compose row reads the record's constant.
+inline constexpr uint8_t kComposeTextCols = uint8_t(kDetailCols - 2);
+
 // ================================================================== §UI-10/11 P3 — THE COMPOSE LIST'S FROZEN ROWS
 // ★★★★ ONE ROW OF A COMPOSE LIST, AS THE FRAME FREEZES IT. §3.2.3's last paragraph: *"Page-buffer painting likewise
 //      freezes one catalog generation for the whole frame so a BLE update between OLED pages cannot tear two versions
@@ -1467,8 +1555,9 @@ inline constexpr const char* kPresetChangedText = "PRESET CHANGED";
 //      emergency, 1..8 = dm1..dm8, 9..16 = channel1..channel8), carried whole so the `SendReq` it seals names the
 //      record and nothing else.
 struct ComposeSlot {
-    // 17 characters + the terminator — `mrnv::kUiPresetTextMax` is OQ-A's owner ruling and is ⛔ never re-typed here.
-    char    text[mrnv::kUiPresetTextMax + 1] = {};
+    // The row's DISPLAY width (`kComposeTextCols`, 17) + the terminator — see that constant: the record's own limit
+    // is a separate fact.
+    char    text[kComposeTextCols + 1] = {};
     uint8_t slot = 0;        // ★ the STABLE slot id — see the block above
     bool    loc  = false;    // `include_location` — the row's `L` / `-` column (§3.2.2)
 };
@@ -1501,7 +1590,7 @@ inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind
         ComposeSlot& r = out.row[out.n++];
         r.slot = i;
         r.loc  = (s.loc != 0);
-        uint8_t n = s.len < mrnv::kUiPresetTextMax ? s.len : mrnv::kUiPresetTextMax;
+        uint8_t n = s.len < kComposeTextCols ? s.len : kComposeTextCols;   // the DISPLAY width, never the record's
         for (uint8_t k = 0; k < n; ++k) r.text[k] = s.text[k];
         r.text[n] = '\0';
     }
@@ -1623,8 +1712,9 @@ inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool gran
 }
 // ★★★★ THE ROW's **LOCATION COLUMN** — OQ-A's owner ruling of 2026-08-25, and its premise is that there are ALWAYS
 //      EXACTLY TWO STATES: *"the row ALWAYS shows `L` **or** `-` per the parent design, so BOTH states consume
-//      selection marker 1 + location marker 1 + text ⇒ 17 in 19 columns unconditionally"*. That is why
-//      `mrnv::kUiPresetTextMax` is 17 and why a conditional bound was WRONG. ⛔ There is no third answer for a
+//      selection marker 1 + location marker 1 + text ⇒ 17 in 19 columns unconditionally"*. That is why the row's
+//      text width (`kComposeTextCols`) is 17 in both states and why a conditional bound was WRONG — OQ-A set the
+//      record's own limit to the same 17, which is the record's fact, not this row's. ⛔ There is no third answer for a
 //      PRESET row: a blank column would silently mean `-`, i.e. *"this message carries no coordinates"*, on a row
 //      whose flag might say the opposite — the wearer confirms this column as part of the double press.
 // ★★ `'\0'` IS THE ANSWER FOR AN **ACTION** ROW, AND IT IS R-1, NOT AN OMISSION: `GRANT KEY` and `back, don't send`
@@ -1683,7 +1773,7 @@ struct TeamRow {
     //    quality" has never been on the panel. Both are still FILLED by `build_snapshot`; this line is what stops a
     //    reader from concluding the renderer merely forgot them ([[meshroute-mark-done-vs-missing-in-code]]).
     uint8_t  id = 0; uint32_t last_heard_s = 0; int16_t score_q4 = 0; uint8_t hops = 0;
-    char     label[kLabelCap + 1] = {};   // resolved name / 0xhash / bare id, already clamped (spec §3.3)
+    char     label[kLabelCap + 1] = {};   // `ui_fmt_identity` at the TEAM budget (6): name / fingerprint / bare id
     // ★★★★ §UI-17 S5 — THE PEER's LAST **AUTHENTICATED** POSITION, AS THE CACHE HANDED IT OVER. Published by
     //      `build_snapshot` from `Node::peer_loc_find` (a `const` read of the §AB4 ring, `node_hashlocate.cpp:432`);
     //      the freshness / distance / bearing DECISIONS are `firmware_ui_geo.h`'s, where the native suite drives
@@ -1977,8 +2067,8 @@ struct UiSnapshot {
     //    and the console's `team`/`peers` verbs remain the complete view. ⛔ Widening this is NOT this slice's:
     //    it moves `TeamRow` x N and is a resource decision of its own (spec §11 sizes the group at 3-10).
     // ⛔ AND IT IS NOT `TeamRow`: that row's `label` is a DISPLAY string with two FORBIDDEN fallbacks for this
-    //    screen (`0x<hash>` truncated into six columns is a third spelling of the hash; a bare `id <n>` is not a
-    //    name at all). `InviteMember::name` is `peer_name_find`'s answer or `""`, and nothing else (F-15).
+    //    screen (the member fingerprint of an unnamed peer, and a bare `id <n>`, which is not a name at all).
+    //    `InviteMember::name` is the NAME formatted at 14 cells or `""`, and nothing else (F-15, W4a).
     // ⓘ COST, MEASURED not assumed (host, `offsetof`-proved): `sizeof(InviteMember)` is **20** — `key_hash32` at
     //   0, `id` at 4, the 15-byte `name` at 5, no tail hole at alignof 4 — x `kMaxInviteRows` (8) = **160**,
     //   landing at offset **840**, the struct's old 8-aligned END, so it opens NO hole and
@@ -3204,10 +3294,9 @@ public:
         if (n > MESHROUTE_NS::protocol::inbox_max_body) n = MESHROUTE_NS::protocol::inbox_max_body;
         for (uint8_t i = 0; i < n; ++i) _detail_body[i] = ui_display_byte(body[i]);
         _detail_body[n] = '\0'; _detail_len = n;
-        // ★ pages = max(1, ceil(len / kDetailPageChars)) — ⛔ never zero: an empty body still has a page, or the modal
-        //   would render `1/0` and the cycling arithmetic above would divide by zero.
-        const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);
-        _st.detail_pages = p ? p : uint8_t(1);
+        // ★ pages = max(1, ceil(len / kDetailPageChars)), from the pager — ⛔ never zero: an empty body still has a
+        //   page, or the modal would render `1/0` and the cycling arithmetic above would divide by zero.
+        _st.detail_pages = detail_page_count<kDetailCols, kDetailBodyRows>(n);
         _st.detail_page = 0;
         _st.detail_action = InboxAction::back;                // spec §3.5: deletion costs short -> double, always
         _st.detail_del_failed = false;
@@ -3712,7 +3801,7 @@ protected:
     //    `sync_team_cursor` for the whole argument, the C3 plane note and why no arithmetic value is reserved.
     uint8_t  _team_sel_id    = 0;
     bool     _team_sel_valid = false;
-    char     _reply_who[kLabelCap + 1] = {};
+    char     _reply_who[kLabelCap + 1] = {};   // W4a: arrives FORMATTED (14 cells); copied verbatim, never re-sanitized
     char     _reply_text[21]           = {};
 
     // ★★★★ §UI-7D slice B's STATE. The INBOX selection is held by IDENTITY for the §B64 reason one plane over: the row
@@ -4022,12 +4111,10 @@ private:
     void sync_settings(const UiSnapshot& s) {
         settings_follow_screen();
         if (_st.screen != Screen::settings) return;
-        if (_cfg && !_cfg->is_open()) {
-            // ⛔ A REFUSED OPEN IS NOT RETRIED SILENTLY BEHIND A WORKING-LOOKING MENU: `no_record` means the store
-            //    could not produce a record, so there is no baseline and nothing may be saved. The renderer says so
-            //    (C2) and every activation below refuses, because `is_open()` stays false.
-            (void)_cfg->open();
-        }
+        // ⛔ A REFUSED OPEN IS NOT RETRIED SILENTLY BEHIND A WORKING-LOOKING MENU: `no_record` means the store could
+        //    not produce a record, so there is no baseline and nothing may be saved. The renderer says so (C2) and
+        //    every activation below refuses, because `is_open()` stays false — and the NEXT sync tries again.
+        ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below
         // ★★★★ [[B232]] — ARRIVAL LANDS ON THE **CLOSED** SINGLE-ENTRY VIEW, and this early return is where the old
         //      auto-enter used to be (`_st.settings = Settings::browsing` on the first tick after arrival). That is
         //      what cost the operator up to NINE short presses to cycle past a screen every other screen passes in one.
@@ -4116,7 +4203,7 @@ private:
             //   (`activate`'s closed-view guard), and `_open` is never cleared once set (firmware_config_service.h) —
             //   so no gesture sequence reaches this line with a shut service. ⇒ its mutation was WITHDRAWN from the
             //   battery (M50; the property is now measured one layer out, by M105) and this is defence in depth, the
-            //   same standing as the `CfgRow::provision` arm's `!_cfg || !_cfg->is_open()` line below, which has
+            //   same standing as `provision_admit`'s `!_cfg || !_cfg->is_open()` refusal (W3 moved it there), which has
             //   never had a mutation for exactly this reason.
             if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }
             return;
@@ -4139,11 +4226,10 @@ private:
             //   established without a baseline, and the file's standing rule is that a null service FAILS CLOSED.
             //   ⛔ It is deliberately NOT reported as a `ProvBlock`: those two are §4's cells and carry §4's remedies,
             //   neither of which applies when there is no draft at all — the panel already says `CFG UNAVAILABLE`.
+            // ★ W3: THE ORDER ABOVE LIVES IN `provision_admit` (opener, no-service refusal, conflict, unsaved, admit),
+            //   so this arm only performs the transition the admission allows.
             case CfgRow::provision:
-                if (!_cfg || !_cfg->is_open())      break;
-                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }
-                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }
-                enter_provision(Provision::menu);
+                if (provision_admit()) enter_provision(Provision::menu);
                 break;
             case CfgRow::reload:
                 // The conflict's OTHER way out ([[B192]], owner-ruled: the three-way merge). Reported form: fields the
@@ -4183,6 +4269,26 @@ private:
             case CfgRow::count: break;
         }
         _st.dirty = true;
+    }
+    // ★★★ W3 — THE REPEAT-SAFE OPENER. Attached and not open ⇒ call `open()` ONCE; already open ⇒ nothing (no read).
+    //     ⛔ NO "attempted" LATCH: a refused open leaves the service closed and the NEXT caller tries again, which is
+    //     how a store that recovers is picked up (the `w3-open` cases count the loads).
+    void ensure_config_open() {
+        if (_cfg && !_cfg->is_open()) (void)_cfg->open();
+    }
+    // ★★★ W3 — PROVISION's ADMISSION, in its ruled order: (1) the opener; (2) refuse with NO note while unattached or
+    //     still not open; (3) CONFLICT refuses with its note; (4) UNSAVED refuses with its note; (5) admit. The order
+    //     of (3) and (4) IS the behaviour — see the `CfgRow::provision` arm. ⛔ It never saves, applies or transitions:
+    //     the caller performs the transition it allows.
+    // ⚠ STEP (2) IS UNREACHABLE FROM TODAY's ONLY CALLER, stated rather than implied: the SETTINGS menu cannot be
+    //   entered while the service is not open (`activate`'s closed-view guard), and `_open` is never cleared once set.
+    //   Its first reachable caller — and so its first test — is W4b's Home entry. No test hook is added to reach it.
+    bool provision_admit() {
+        ensure_config_open();
+        if (!_cfg || !_cfg->is_open()) return false;
+        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }
+        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }
+        return true;
     }
     // The note is TRANSIENT — it describes the last act, so the next navigation press retires it (the `team_pick_gone`
     // idiom). ⛔ It is cleared as a SET, in one place: three flags cleared at three sites would be the drift that lets
@@ -5110,8 +5216,8 @@ private:
     //   carries, the id `compose_peer` already stores, and the id `ui_compose_send_line` already puts on the wire
     //   (`send <id> "<text>" -t -a`). ⇒ the thing tracked and the thing addressed are the SAME value, so they cannot
     //   drift. No new snapshot field was added.
-    // ⛔ NOT the row's `label`. That is a DISPLAY string (a resolved name, else `0x<hash>`, else the bare id) and a
-    //   display-shaped field must never make an addressing decision — the same rule that killed B48.
+    // ⛔ NOT the row's `label`. That is a DISPLAY string (a formatted name, else the member fingerprint, else the bare
+    //   id) and a display-shaped field must never make an addressing decision — the same rule that killed B48.
     // ⚠ C3, PLANE DISCIPLINE: `_team_sel_id` is a TEAM-plane local id. It is only ever COMPARED against a snapshot
     //   row's `id` and copied into `compose_peer`; it indexes nothing and never reaches a static `node_id`-keyed array.
     //   There is no write path here at all, and on a `!MR_FEAT_TEAM` build `team_build` is false, so `Screen::team` is
@@ -5334,22 +5440,12 @@ private:
         _inbox_nb_valid = false;
         _st.dirty = true;
     }
-    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: `kDetailCols` columns each (19 since
-    // §CHROME-4 — the rail's 116-px body), taken in order. The
-    // bytes are already sanitized (`on_inbox_opened`), so this is a slice and nothing else — and it reads `_detail_len`
-    // rather than looking for a terminator, because the length is the truth about the record.
+    // The current page, wrapped into the two body rows: the TWO-ROW ADAPTER over the pager (W3), `kDetailCols` columns
+    // each (19 since §CHROME-4 — the rail's 116-px body). The bytes are already sanitized (`on_inbox_opened`), so this
+    // is a slice and nothing else; `detail_page_rows` owns the slicing, and its writes are the ones this function
+    // always made — counted bytes, one NUL per row, no clearing.
     void refresh_detail_page() {
-        const uint16_t off = uint16_t(uint16_t(_st.detail_page) * kDetailPageChars);
-        for (uint8_t row = 0; row < kDetailBodyRows; ++row) {
-            char* dst = _st.detail_line[row];
-            uint8_t n = 0;
-            for (; n < kDetailCols; ++n) {
-                const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);
-                if (i >= _detail_len) break;
-                dst[n] = _detail_body[i];
-            }
-            dst[n] = '\0';
-        }
+        detail_page_rows<kDetailCols, kDetailBodyRows>(_detail_body, _detail_len, _st.detail_page, _st.detail_line);
     }
     bool inbox_answer_is(InboxWhat w, InboxKind k, uint32_t seq) const {
         return _inbox_taken && _inbox_req.what == w && _inbox_req.kind == k && _inbox_req.seq == seq;

@@ -124,9 +124,10 @@ the whole point of this change, and it belongs in the contract as an obligation,
 peername 0x<hash> "<text>"     →  {"ev":"peer_name_set","hash":<u32>,"name":"<text>"}
 ```
 - Sets/overwrites the cached name **without touching the key or the confidence.**
-- Chosen over extending `peerkey` because **rename-without-rekey is the common case**: a peer advertises the
-  default `MeshRoute node: 0x…` and the user wants a real label; with `peerkey name=` alone that would mean
-  re-sending the whole 64-hex pubkey to change a string.
+- Chosen over extending `peerkey` because **rename-without-rekey is the common case**: a peer advertises no name
+  and is shown by its ID, or the user wants a different label; `peerkey name=` alone would require re-sending the
+  whole 64-hex pubkey to change a string. W1c (D10, independently gated 2026-09-25) removes the generated default.
+  Empty advertisements retain the cached label; precedence against a named peer's own advertisement remains B447.
 - **C2:** refuse loud if the hash is unknown (nothing to attach a name to), if the name exceeds 32, and on a
   malformed hash. Never create a keyless placeholder row as a side effect.
 - ⚠ **Optional companion one-shot, not required:** `peerkey <hex64> name="<text>"` for the QR-import flow where

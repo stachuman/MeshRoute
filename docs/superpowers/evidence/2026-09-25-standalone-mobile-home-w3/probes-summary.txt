@@ -1,0 +1,47 @@
+# W3 §4.1 step 5 — probes on the final tree
+
+## firmware-UI, default mode (gate): tools/probe_firmware_ui/run.sh -> exit 0, PASS
+518 passed / 0 failed / 518 total
+964 passed / 0 failed / 964 total
+518 passed / 0 failed / 518 total
+ok   none of the 231 ctl labels (all 231 calls) contains a backtick or a $-substitution
+sources unchanged: md5 ac070e2b784925548a7e246ba69f6b1c
+checks per arm: l2 489 · v3 935
+coverage: 787 of 936 checks (both arms, unioned) are reddened by at least one control
+controls: 231 verified / 0 unusable
+per arm vs baseline: l2 467 -> 518, v3 902 -> 964, BLE 467 -> 518 (the stage-A fixtures); controls 225 -> 231 (the six W3 controls), 0 unusable
+W3 controls:
+  ok   W3-D1 the detail modal's second body row repeats the first row's slice -> RED (20 check(s) failed)
+  ok   W3-D2 every detail body row is clipped to 18 columns (a lost final byte) -> RED (17 check(s) failed)
+  ok   W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped) -> RED (8 check(s) failed)
+  ok   W3-C2 the compose location marker is inverted (L and - swapped) -> RED (15 check(s) failed)
+  ok   W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2 -> RED (2 check(s) failed)
+  ok   W3-N1 the settings note is drawn on body row 3 instead of row 4 -> RED (3 check(s) failed)
+stage A -> final: every control-outcome line (233), the unreddened list and every other ok/FAIL line identical
+
+## firmware-UI --no-neg (diagnostic only, B350): exit 0
+518 passed / 0 failed / 518 total
+964 passed / 0 failed / 964 total
+518 passed / 0 failed / 518 total
+
+## board-UI supplemental --no-neg: exit 1, failure set identical to the baseline (B418's W49/W51/W54, W2's)
+  FAIL W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate (not wired in firmware_commands.cpp)
+  FAIL W51 ble_dispatch_line has NO ui arm of its own and keeps the shared dispatch fallback (not wired in fw_main.cpp)
+  FAIL W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status, help) is MR_FEAT_OLED-gated (not wired in firmware_commands.cpp)
+  Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+  Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+  traits:      14 passed / 0 failed / 14 controls verified RED
+  missing:     12 passed / 0 failed / 12 controls failed loud
+  structural: 23 passed / 0 failed / 23 total
+  wiring:     56 passed / 3 failed / 59 total; 171 negative control(s) verified RED
+baseline had the same three FAIL lines byte-for-byte and the same structural/wiring/V3/V4 figures
+
+## ABI (step 4): python3 -B tools/probe_board_abi.py -> exit 0 (size/align per env; every figure equals brief §1)
+  struct                                      native           heltec_mobile                 gateway
+  meshroute::Node                         235208/8 T              122176/8 T              157304/8 T *
+  mrui::UiState                              504/8 -                 504/8 T                 504/8 -
+  mrui::UiSnapshot                          1336/8 -                1336/8 T                1336/8 -
+  mrui::UiModel                              928/8 -                 912/8 T                 912/8 - *
+  mrui::ComposeSlot                           20/1 -                  20/1 T                  20/1 -
+  mrui::ComposeList                          161/1 -                 161/1 T                 161/1 -
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)

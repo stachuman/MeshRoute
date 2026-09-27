@@ -1,0 +1,21 @@
+{
+  "kind": "hypothetical name-only formatting composition, not shipped code",
+  "checks": 8976,
+  "errors": 0,
+  "budgets": [
+    14,
+    6
+  ],
+  "constraints": [
+    "First pass reads the complete counted raw name (up to 32 bytes).",
+    "Name-only: no hash fallback in the stored InviteMember name.",
+    "Second budget is strictly smaller; never feed an inserted marker to an equal/wider sanitizing pass.",
+    "14-cell confirmation renders the stored result directly.",
+    "TEAM separately formats its source at six cells before snapshot/invalidation."
+  ],
+  "examples": {
+    "Wolfgangetta": "576f6c6667bb",
+    "Wolfga": "576f6c666761",
+    "Wolfg": "576f6c6667"
+  }
+}

@@ -1,0 +1,10 @@
+Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+traits:      14 passed / 0 failed / 14 controls verified RED
+missing:     12 passed / 0 failed / 12 controls failed loud
+== §UI-6 wiring checks + their negative controls (each must PASS live and FAIL reverted) ==
+  FAIL W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate (not wired in firmware_commands.cpp)
+  FAIL W51 ble_dispatch_line has NO ui arm of its own and keeps the shared dispatch fallback (not wired in fw_main.cpp)
+  FAIL W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status, help) is MR_FEAT_OLED-gated (not wired in firmware_commands.cpp)
+structural: 23 passed / 0 failed / 23 total
+wiring:     56 passed / 3 failed / 59 total; 171 negative control(s) verified RED

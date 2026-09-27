@@ -1,0 +1,48 @@
+# W4a stage A — the instrument repairs against the UNCHANGED product (brief §2.5)
+
+## Product and probe inputs during the stage-A run (sha256)
+79d68a22acd6d386657901ff345df1d40b6ac1af7d0dc13d7cd44844374964f9  tools/probe_firmware_ui/run.sh
+d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a  tools/probe_firmware_ui/probe_main.cpp
+6fe8c435f0c3ada0a5355a2c4d8b934875c5d4e0cfd06f6fa1c90f07a4307e2f  src/firmware_ui.cpp
+2a452940474091d90b20e91f43205b2c04f160206ace8042342e357f62079af1  src/firmware_ui_model.h
+fc1c72570f80fe399d868bd020d7a991594a2fd0f5dd1a49ba3e003379750c9f  src/firmware_ui_invite.h
+aefa86f4785f30aa6551308f3f666da4d04eee20426e33eddd4591edb165fbc3  src/firmware_ui_team.h
+
+## Stage A freeze (end of stage A)
+79d68a22acd6d386657901ff345df1d40b6ac1af7d0dc13d7cd44844374964f9  tools/probe_firmware_ui/run.sh
+d0cf6502737b3d12f60bda7a54cc04c2fe9b82896204a4369472a4019d89673a  tools/probe_firmware_ui/probe_main.cpp
+
+## Stock run.sh (all arms, controls) on stage A — summary
+518 passed / 0 failed / 518 total
+       964 passed / 0 failed / 964 total
+       518 passed / 0 failed / 518 total
+  ok   none of the 230 ctl labels (all 230 calls) contains a backtick or a $-substitution
+sources unchanged: md5 ac070e2b784925548a7e246ba69f6b1c
+checks per arm: l2 489 · v3 935
+coverage: 787 of 936 checks (both arms, unioned) are reddened by at least one control
+controls: 230 verified / 0 unusable
+PASS
+
+## Controls: baseline -> stage A (label-level difference)
+220d219
+<   ok   O6 
+(only O6 removed)
+
+## O8 and the full-hash topology in the stage-A run
+  ok   O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c) -> RED (3 check(s) failed)
+  ok   O8 the member name is published through label_from_hash — the truncated 0x third spelling (F-15) -> RED (2 check(s) failed)
+  ok   O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d) -> RED (1 check(s) failed)
+  ok   O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c) -> RED (3 check(s) failed)
+
+## O6 pre-retirement measurement (scratch build: the base product + the O6 mutant, frozen stage-A probe)
+l2 exit=0 518 passed / 0 failed / 518 total
+v3 exit=1 963 passed / 1 failed / 964 total
+  FAIL P23d the request confirmation carries the FULL hash               body_row_is(1, full)
+
+## O8 BEFORE the repair (the first substitution alone applied; the second matched zero times)
+l2 exit=0 518 passed / 0 failed / 518 total
+v3 exit=1 962 passed / 2 failed / 964 total
+  FAIL P23d ★★ rule 3 — the name column now reads `Wolfga`, CLAMPED to six  named && row_after != nullptr && strncmp(row_after + 1, "Wolfga", 6) == 0
+  FAIL P23e ⛔ the confirmation shows the NAME **and** keeps the full hash (P-7c)  body_row_is(1, want.hash) && body_row_is(2, "Wolfgangetta")
+
+## O8 row bytes after the repair — see o8-rows.txt

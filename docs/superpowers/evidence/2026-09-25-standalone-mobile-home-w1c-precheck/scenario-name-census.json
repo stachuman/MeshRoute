@@ -1,0 +1,1124 @@
+{
+  "total_nodes": 783,
+  "scenarios": [
+    {
+      "name": "s06_seattle_lifecycle",
+      "nodes": 33,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "ab84cbe94bc45c1f1aa38a7353bb8977c3df9c8add8226201521779e2b2302f2",
+      "commands": 148,
+      "verbs": {
+        "send": 36,
+        "send_e2e": 112
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 33
+      }
+    },
+    {
+      "name": "s07_seattle_mobile_meshroute",
+      "nodes": 36,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "1e48ba12a93b56a354a5aeef00dbb0330ed759b9b8f3738ac2f68ec6e382b7c7",
+      "commands": 207,
+      "verbs": {
+        "send": 36,
+        "send_e2e": 171
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 36
+      }
+    },
+    {
+      "name": "s09_two_layer_gateway",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 4,
+      "verbs": {
+        "send": 2,
+        "send_layer": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "meshroute": 10
+      }
+    },
+    {
+      "name": "s09_two_layer_gateway_metal",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 4,
+      "verbs": {
+        "send": 2,
+        "send_layer_e2e": 1,
+        "send_layer": 1
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "meshroute": 10
+      }
+    },
+    {
+      "name": "s10_two_layer_separation",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 4,
+      "verbs": {
+        "send": 2,
+        "send_layer": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 10
+      }
+    },
+    {
+      "name": "s15_three_layer",
+      "nodes": 34,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "12cc37ab93e92b6ade0c7e0a74b4faa7654155424b84f9be07f6a7a88c509e71",
+      "commands": 79,
+      "verbs": {
+        "send": 34,
+        "send_layer": 21,
+        "send_channel": 24
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 34
+      }
+    },
+    {
+      "name": "s15_three_layer_metal",
+      "nodes": 34,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "12cc37ab93e92b6ade0c7e0a74b4faa7654155424b84f9be07f6a7a88c509e71",
+      "commands": 79,
+      "verbs": {
+        "send": 34,
+        "send_layer_e2e": 1,
+        "send_layer": 20,
+        "send_channel": 24
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 34
+      }
+    },
+    {
+      "name": "s16_dense_gateway",
+      "nodes": 21,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "8fc8711c5a578601d095bb64f068a7b100a7ed233118040ef7bdf3f8854ef424",
+      "commands": 80,
+      "verbs": {
+        "send_layer": 80
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 21
+      }
+    },
+    {
+      "name": "s17_metro",
+      "nodes": 252,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "26bf45a0a6f33a9c9a863fc9437b377dc4aa68743dceadf61f2f406ba5a97451",
+      "commands": 96,
+      "verbs": {
+        "send": 30,
+        "send_layer": 48,
+        "send_channel": 18
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 252
+      }
+    },
+    {
+      "name": "s18_meshroute",
+      "nodes": 138,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "3d18c3e899605322b4d0086e3ee8b7af56e5c661230cc582c09b06da16c99a01",
+      "commands": 113,
+      "verbs": {
+        "send": 43,
+        "send_e2e": 70
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 138
+      }
+    },
+    {
+      "name": "s19_singlelayer_multihop_chain",
+      "nodes": 6,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "1f38d25da334b829d58e75b91788be210def15936b58bbd03b96a3acfad57b7d",
+      "commands": 8,
+      "verbs": {
+        "send": 8
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 6
+      }
+    },
+    {
+      "name": "s20_random_mesh",
+      "nodes": 40,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "7c08ed5883e1d4f06d437321564e2799acc541deff89bde31cc521fe984d9fe0",
+      "commands": 120,
+      "verbs": {
+        "send": 120
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 40
+      }
+    },
+    {
+      "name": "s21_leaf_config_divergence",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "55740131bb6a9a2153850e21618b0ec2c5d05eed9760d12800ae5fe48e3d9b82",
+      "commands": 3,
+      "verbs": {
+        "send": 3
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 4
+      }
+    },
+    {
+      "name": "s21_mobile_dm_milestone_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "ea4c9a840dd369c1a1b8cd2ac57f9ce59e8aadcbda7463c252f1844c636d96d5",
+      "commands": 3,
+      "verbs": {
+        "send_hash": 3
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "s22_leaf_config_join",
+      "nodes": 3,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "1c4b32c74e96f3020d5be233eecf0853b5a8f4993d343df4588e1e84ba8dc4f5",
+      "commands": 2,
+      "verbs": {
+        "send": 2
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 3
+      }
+    },
+    {
+      "name": "s22_mobile_team_meshroute",
+      "nodes": 6,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "4cff0581f511cce8c639b9543ec878a9067994cbca5102784748815c82123bb0",
+      "commands": 11,
+      "verbs": {
+        "reqpubkey": 1,
+        "send_channel": 2,
+        "send_hash": 4,
+        "send_hashx": 2,
+        "send_e2e": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 6
+      }
+    },
+    {
+      "name": "s23_leaf_config_epoch_write",
+      "nodes": 3,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "67bdc179a47aef2821d7dbf2b9f7b93a3b267752267a0ee981558b38d59a1d50",
+      "commands": 6,
+      "verbs": {
+        "send": 3,
+        "leafwrite": 3
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 3
+      }
+    },
+    {
+      "name": "s23_mobile_team_multihop_meshroute",
+      "nodes": 6,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "4b3d997ba3bf83494710c85a38a229de8093406384d3ee95ce3b250907384908",
+      "commands": 4,
+      "verbs": {
+        "send": 4
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 6
+      }
+    },
+    {
+      "name": "s24_static_and_team_multihop_meshroute",
+      "nodes": 7,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "2ff9e1aff4f02a850978cc79c22fb1e8afc9394975f3887a2e46d8ec1dfb15a7",
+      "commands": 5,
+      "verbs": {
+        "send_hash": 5
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 7
+      }
+    },
+    {
+      "name": "s25_two_team_separation_meshroute",
+      "nodes": 5,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "71457c067a1ffd1ac19398e1667178a8f87b16df78a439a6cea5ca72b3de9469",
+      "commands": 3,
+      "verbs": {
+        "send_hash": 3
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 5
+      }
+    },
+    {
+      "name": "s26_team_reroute_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "a0f4214338e58d055b594d8bd3a5522cf232a2f8a379f39f0f194d65b71c9ec3",
+      "commands": 4,
+      "verbs": {
+        "send_hash": 4
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "s27_cross_layer_mobiles_meshroute",
+      "nodes": 18,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "601a1eb6dab07bb7a263487b850bbb0e14fa8a7a1218119e65ba283edc3d85c9",
+      "commands": 15,
+      "verbs": {
+        "send_hash": 3,
+        "send_layer": 4,
+        "send_hashx": 2,
+        "send_layerx": 6
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 18
+      }
+    },
+    {
+      "name": "s28_mixed_team_channels_meshroute",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "a996336c031f996a4de6f97628f5d69e243460997b5979b7751c350761a8d033",
+      "commands": 8,
+      "verbs": {
+        "send_channel": 4,
+        "send_hash": 2,
+        "send_channel_g": 1,
+        "send_channel_b": 1
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 10
+      }
+    },
+    {
+      "name": "s29_mixed_leaf_team_meshroute",
+      "nodes": 6,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "2b31414292149ea255103ad4aa1c3f89a50b17c60e45bc1be7be842c920568e4",
+      "commands": 6,
+      "verbs": {
+        "send_hash": 4,
+        "send_channel": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 6
+      }
+    },
+    {
+      "name": "s30_team_dad_mediation_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "29f5fc0a247975daa16325d4a3111869d57130267770c0340dafa6ac155df81f",
+      "commands": 4,
+      "verbs": {
+        "send_hash": 4
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "s31_dual_carrier_gateway",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 4,
+      "verbs": {
+        "send": 2,
+        "send_layer": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "meshroute": 10
+      }
+    },
+    {
+      "name": "s32_dual_cr_gateway",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 4,
+      "verbs": {
+        "send": 2,
+        "send_layer": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "meshroute": 10
+      }
+    },
+    {
+      "name": "s33_mixed_cr_channel_overhear",
+      "nodes": 10,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "04dc67d97ec49c86f23aedd87403e98cab6d672340b010d62505017d5c06ef8a",
+      "commands": 20,
+      "verbs": {
+        "send": 2,
+        "send_layer": 2,
+        "send_channel": 16
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "meshroute": 10
+      }
+    },
+    {
+      "name": "s34_team_switch_clears_plane",
+      "nodes": 5,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "71457c067a1ffd1ac19398e1667178a8f87b16df78a439a6cea5ca72b3de9469",
+      "commands": 9,
+      "verbs": {
+        "send_channel": 3,
+        "send_hash": 5,
+        "team": 1
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 5
+      }
+    },
+    {
+      "name": "s35a_cochannel_isolation_meshroute",
+      "nodes": 8,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "a4acd2fe1b57849c034ded8be424534c0e272f47bc109a28b967e2fcd7e37878",
+      "commands": 9,
+      "verbs": {
+        "send": 9
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 8
+      }
+    },
+    {
+      "name": "s35b_cochannel_isolation_control_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "2cf60cfd2dd0913fb26548d1099f2e051809140d1f38e3452449a054bc0d18cd",
+      "commands": 4,
+      "verbs": {
+        "send": 4
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "s36_reprovision_purges_carriers",
+      "nodes": 6,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "1f38d25da334b829d58e75b91788be210def15936b58bbd03b96a3acfad57b7d",
+      "commands": 7,
+      "verbs": {
+        "send": 4,
+        "leave": 2,
+        "send_channel": 1
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 6
+      }
+    },
+    {
+      "name": "s37_team_homed_origin_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "c0523fb8578fa0dadfc746698a3cd7f92d73fe3fb6b9f8f6d4ccaf12be5e4c87",
+      "commands": 4,
+      "verbs": {
+        "send_e2e": 3,
+        "routes": 1
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "s38_team_origin_learn_meshroute",
+      "nodes": 4,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "4b61df4ee49fffd7a95ce02bcad42380a0b2c03e0644b5123baeeda4bb86c7d4",
+      "commands": 2,
+      "verbs": {
+        "send_e2e": 2
+      },
+      "lua_commands": [],
+      "scripts": [
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua",
+        "scenarios/dv_dual_sf.lua"
+      ],
+      "engines": {
+        "default": 4
+      }
+    },
+    {
+      "name": "sim_9node_base",
+      "nodes": 9,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "42890a2fe71ea7272840e8a859f33d55128af32e2d5bcb602899c2c9b2e95ff2",
+      "commands": 27,
+      "verbs": {
+        "send_e2e": 12,
+        "send_channel": 15
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 9
+      }
+    },
+    {
+      "name": "twin_9node_dm",
+      "nodes": 9,
+      "missing_or_empty_names": [],
+      "embedded_nul_names": [],
+      "node_names_sha256": "95027978161699aaa429c25402b598e1a36b2cf4a29953b538e3f06a30ae2d51",
+      "commands": 54,
+      "verbs": {
+        "send_e2e": 54
+      },
+      "lua_commands": [],
+      "scripts": [],
+      "engines": {
+        "meshroute": 9
+      }
+    }
+  ],
+  "command_verbs": {
+    "send": 382,
+    "send_e2e": 426,
+    "send_layer": 184,
+    "send_layer_e2e": 2,
+    "send_channel": 109,
+    "send_hash": 37,
+    "reqpubkey": 1,
+    "send_hashx": 4,
+    "leafwrite": 3,
+    "send_layerx": 6,
+    "send_channel_g": 1,
+    "send_channel_b": 1,
+    "team": 1,
+    "leave": 2,
+    "routes": 1
+  },
+  "rename_candidates": [],
+  "source_limitation": "require_field<string> proves presence/type, not nonemptiness; scenario contents establish nonempty names."
+}

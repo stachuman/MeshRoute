@@ -25,6 +25,7 @@
 //   and its cover is `tools/probe_firmware_ui`'s INVITE phase, which drives REAL members through the REAL node.
 #include "doctest.h"
 #include "firmware_ui_invite.h"
+#include "firmware_ui_model.h"        // ★ W4a: `mrui::ui_fmt_identity` — the renderer's candidate-name projection
 #include "node.h"                 // NodeConfig — the DERIVATION pin for the window's five minutes
 #include "protocol_constants.h"   // team_seen_retain_ms — N1's two periods, the other half of that derivation
 #include "identity.h"             // ★ §UI-16 N6 pin 12: Identity / identity_from_seed — the equivalence fixture's
@@ -64,6 +65,16 @@ InviteMember mem(uint8_t id, uint32_t hash, const char* name = "") {
     m.key_hash32 = hash;
     for (uint8_t i = 0; name[i] && i + 1 < mrui::kInviteNameCap; ++i) m.name[i] = name[i];
     return m;
+}
+// ★ W4a — THE CANDIDATE ROW AS THE RENDERER DRAWS IT: the member's name carrier projected to the row's six-cell
+//   column by `mrui::ui_fmt_identity` (NAME only — hash 0, so an empty carrier stays the blank column), then placed.
+//   ⛔ The expected rows below stay LITERALS; only the INPUT goes through the projection, as on the device.
+// ⓘ `name6` keeps one spare byte past the capacity it passes, so a budget-overrun mutant is measured, not undefined.
+void cand_row(char* out, std::size_t cap, char marker, const InviteMember& m) {
+    char name6[mrui::kInviteRowNameCols + 1 + 1];
+    (void)mrui::ui_fmt_identity(name6, mrui::kInviteRowNameCols + 1u, m.name, uint8_t(strlen(m.name)), 0,
+                                mrui::kInviteRowNameCols);
+    ui_fmt_invite_row(out, cap, marker, m, name6);
 }
 // The candidate rows for one live member list, in one call.
 InviteSelList rows(const InviteWindow& w, const InviteMember* live, uint8_t n) {
@@ -464,21 +475,21 @@ TEST_CASE("ui16-handled: a handled candidate leaves the list, and the set is HAS
 // ================================================================== pins 14-16 — THE ROW AND ITS NAME LIFECYCLE
 TEST_CASE("ui16-row: pin 14 — rule 2's INITIAL state: a BLANK name column and a populated fingerprint") {
     char out[mrui::kInviteRowCap];
-    ui_fmt_invite_row(out, sizeof out, '>', mem(221, 0x006C2971u));
+    cand_row(out, sizeof out, '>', mem(221, 0x006C2971u));
     CHECK(strcmp(out, ">       T221 6C2971") == 0);
     CHECK(strlen(out) == 19u);                                     // ⛔ EXACTLY the body budget, 1+6+1+4+1+6
     // ⛔ THE FINGERPRINT COLUMN IS NEVER EMPTY — that is the identity aid the operator reads, and the row exists
     //    only for members that HAVE one (the authoritative floor, F-7).
     CHECK(strstr(out, "6C2971") != nullptr);
     // ...the marker is a parameter, so an unselected row differs in exactly one byte.
-    ui_fmt_invite_row(out, sizeof out, ' ', mem(221, 0x006C2971u));
+    cand_row(out, sizeof out, ' ', mem(221, 0x006C2971u));
     CHECK(strcmp(out, "        T221 6C2971") == 0);
     CHECK(strlen(out) == 19u);
     // ★ THE WIDTH HOLDS AT BOTH ENDS OF THE ID SPACE, which is where a `%-3u` would betray a `%u`.
-    ui_fmt_invite_row(out, sizeof out, '>', mem(0, 0xFFFFFFFFu));
+    cand_row(out, sizeof out, '>', mem(0, 0xFFFFFFFFu));
     CHECK(strcmp(out, ">       T0   FFFFFF") == 0);
     CHECK(strlen(out) == 19u);
-    ui_fmt_invite_row(out, sizeof out, '>', mem(254, 0x00000000u));
+    cand_row(out, sizeof out, '>', mem(254, 0x00000000u));
     CHECK(strcmp(out, ">       T254 000000") == 0);
     CHECK(strlen(out) == 19u);
 }
@@ -486,9 +497,9 @@ TEST_CASE("ui16-row: pin 14 — rule 2's INITIAL state: a BLANK name column and 
 TEST_CASE("ui16-row: pin 15 — rule 3's UPGRADE: the name FILLS A COLUMN and the fingerprint is UNCHANGED") {
     char blank[mrui::kInviteRowCap], named[mrui::kInviteRowCap];
     const uint32_t hash = 0x006C2971u;
-    ui_fmt_invite_row(blank, sizeof blank, '>', mem(221, hash));
-    ui_fmt_invite_row(named, sizeof named, '>', mem(221, hash, "Wolfgangetta"));
-    CHECK(strcmp(named, ">Wolfga T221 6C2971") == 0);
+    cand_row(blank, sizeof blank, '>', mem(221, hash));
+    cand_row(named, sizeof named, '>', mem(221, hash, "Wolfgangetta"));
+    CHECK(strcmp(named, ">Wolfg" "\xBB" " T221 6C2971") == 0);    // W4a: abbreviated VISIBLY, never clipped
     CHECK(strlen(named) == 19u);
     // ★★★ THE NAME IS AN **ADDED COLUMN**, ⛔ NEVER A SWAP: the six fingerprint characters are byte-identical
     //     before and after the name arrives, and the row's LENGTH does not move either.
@@ -496,19 +507,40 @@ TEST_CASE("ui16-row: pin 15 — rule 3's UPGRADE: the name FILLS A COLUMN and th
     CHECK(strcmp(blank + 13, named + 13) == 0);                    // ...and the fingerprint alone, byte for byte
     CHECK(strstr(named, "6C2971") != nullptr);
     CHECK(strlen(blank) == strlen(named));
-    // ★ CLAMPED TO SIX — the TEAM row's own `%-6.6s` (§UI-17 S-11), so one name has ONE truncation on this panel.
+    // ★ SIX CELLS — the TEAM row's own field (§UI-17 S-11), and W4a's ONE projection: a longer name keeps five cells
+    //   and the generated `»`, on both screens.
     char row[mrui::kInviteRowCap];
-    ui_fmt_invite_row(row, sizeof row, '>', mem(7, hash, "Wolfgangetta-the-longest"));
-    CHECK(strcmp(row, ">Wolfga T7   6C2971") == 0);
+    cand_row(row, sizeof row, '>', mem(7, hash, "Wolfgangetta-the-longest"));
+    CHECK(strcmp(row, ">Wolfg" "\xBB" " T7   6C2971") == 0);
     CHECK(strlen(row) == 19u);
     // ...and a name SHORTER than six pads rather than shifting the columns.
-    ui_fmt_invite_row(row, sizeof row, '>', mem(7, hash, "Bo"));
+    cand_row(row, sizeof row, '>', mem(7, hash, "Bo"));
     CHECK(strcmp(row, ">Bo     T7   6C2971") == 0);
     CHECK(strlen(row) == 19u);
-    // ⛔ AND NOTHING IN THE NAME CAN REACH THE IDENTITY COLUMNS: a name that LOOKS like a hash still renders in
-    //    its own six columns and changes neither the id nor the fingerprint (S-36's rule at row level).
-    ui_fmt_invite_row(row, sizeof row, '>', mem(221, hash, "0x00c0ffee"));
-    CHECK(strcmp(row, ">0x00c0 T221 6C2971") == 0);
+    // ⛔ AND NOTHING IN THE NAME CAN REACH THE IDENTITY COLUMNS: a name that LOOKS like a hash is a NAME — it
+    //    abbreviates as one, in its own six columns — and changes neither the id nor the fingerprint (S-36's rule).
+    cand_row(row, sizeof row, '>', mem(221, hash, "0x00c0ffee"));
+    CHECK(strcmp(row, ">0x00c" "\xBB" " T221 6C2971") == 0);
+}
+
+TEST_CASE("ui16-row: W4a — the row BOUNDS its own name column, whatever prepared name a caller hands it") {
+    // ★★ A SYNTHETIC OVER-LONG PREPARED NAME, passed straight to `ui_fmt_invite_row` (brief §2.6): no correct caller
+    //    hands it more than six cells, which is exactly why this input is the one that keeps the row's own `%-6.6s`
+    //    measurable (uiinvite I09) — the id and the fingerprint cannot move, and the row stays 19 columns.
+    char row[mrui::kInviteRowCap];
+    ui_fmt_invite_row(row, sizeof row, '>', mem(7, 0x006C2971u), "Wolfgangetta-the-longest");
+    CHECK(strcmp(row, ">Wolfga T7   6C2971") == 0);
+    CHECK(strlen(row) == 19u);
+    // ...and a NULL prepared name is the blank column, exactly as `""` is.
+    ui_fmt_invite_row(row, sizeof row, '>', mem(7, 0x006C2971u), nullptr);
+    CHECK(strcmp(row, ">       T7   6C2971") == 0);
+    // ★ A HIGH-BYTE NAME, through the renderer's projection: `ł` (C5 82) is two `.` cells, never a Latin-1 glyph.
+    InviteMember hb = mem(7, 0x006C2971u);
+    const char raw[] = { char(0xC5), char(0x82), 'A', 'B' };
+    CHECK(mrui::ui_fmt_identity(hb.name, sizeof hb.name, raw, 4, hb.key_hash32, uint8_t(mrui::kInviteNameCap - 1)) ==
+          mrui::IdentityFmt::name);
+    cand_row(row, sizeof row, '>', hb);
+    CHECK(strcmp(row, ">..AB   T7   6C2971") == 0);
 }
 
 TEST_CASE("ui16-row: pin 16 — the row's IDENTITY is the key_hash32, so two same-named candidates are two rows") {
@@ -525,8 +557,8 @@ TEST_CASE("ui16-row: pin 16 — the row's IDENTITY is the key_hash32, so two sam
     CHECK(strcmp(a.cand.name, b.cand.name) == 0);                  // ...same name, and still two rows
     // ...and their ROWS differ, because the fingerprint is what tells them apart on the glass.
     char ra[mrui::kInviteRowCap], rb[mrui::kInviteRowCap];
-    ui_fmt_invite_row(ra, sizeof ra, '>', a.cand);
-    ui_fmt_invite_row(rb, sizeof rb, ' ', b.cand);
+    cand_row(ra, sizeof ra, '>', a.cand);
+    cand_row(rb, sizeof rb, ' ', b.cand);
     CHECK(strcmp(ra, ">Ann    T90  111111") == 0);
     CHECK(strcmp(rb, " Ann    T91  222222") == 0);
     // ★ HANDLING ONE LEAVES THE OTHER: a name-keyed set would silence both (the mutation this pins).
@@ -604,8 +636,8 @@ TEST_CASE("ui16-noident: pin 9 — no NAME-SHAPED value can reach an identity co
     //   asserted by exact bytes in the probe's INVITE phase; what is measurable HERE is that no name changes an
     //   identity token, which is the property that rule would be violated by.
     char with_name[mrui::kInviteRowCap], without[mrui::kInviteRowCap];
-    ui_fmt_invite_row(without,   sizeof without,   '>', mem(221, 0x006C2971u));
-    ui_fmt_invite_row(with_name, sizeof with_name, '>', mem(221, 0x006C2971u, "TEAMNAME"));
+    cand_row(without,   sizeof without,   '>', mem(221, 0x006C2971u));
+    cand_row(with_name, sizeof with_name, '>', mem(221, 0x006C2971u, "TEAMNAME"));
     CHECK(strcmp(without + 7, with_name + 7) == 0);                // the id and fingerprint columns are identical
     char fp[mrui::kMemberFpCap], hash[mrui::kMemberHashCap];
     ui_fmt_member_fingerprint(fp, sizeof fp, 0x006C2971u);
@@ -878,6 +910,26 @@ TEST_CASE("ui16-grant-idrows: the FULL hash is on the confirmation EVEN WHEN a n
     // ⚠ THE ROW's SIX-COLUMN CLAMP IS THE **FORMAT's**, ⛔ not the buffer's: the confirmation carries the WHOLE
     //   cached name, so the two screens' truncations cannot silently become one.
     CHECK(strlen(named.name) == 12u);
+}
+
+TEST_CASE("ui16-grant-idrows: W4a — a LONG or HIGH-BYTE name reaches the confirmation as its 14-cell carrier, verbatim") {
+    // ★ The publisher formats the carrier at 14 cells (`kInviteNameCap - 1`) from the FULL raw name; the confirmation
+    //   copies that carrier UNCHANGED — ⛔ no second sanitizing pass, so the generated `»` survives — and the full
+    //   hash row stays unconditional beside it (P-7c).
+    InviteMember live[2] = { mem(221, 0x00BEDEADu), mem(90, 0x006C2971u) };
+    const char* longest = "Wolfgangetta-the-longest";
+    CHECK(mrui::ui_fmt_identity(live[0].name, sizeof live[0].name, longest, uint8_t(strlen(longest)),
+                                live[0].key_hash32, uint8_t(mrui::kInviteNameCap - 1)) == mrui::IdentityFmt::name);
+    const char hi[] = { char(0xC5), char(0x82), 'A', 'B' };
+    CHECK(mrui::ui_fmt_identity(live[1].name, sizeof live[1].name, hi, 4, live[1].key_hash32,
+                                uint8_t(mrui::kInviteNameCap - 1)) == mrui::IdentityFmt::name);
+    const mrui::InviteIdRows a = mrui::invite_id_rows(live, 2, 0x00BEDEADu);
+    CHECK(strcmp(a.hash, "0x00BEDEAD") == 0);
+    CHECK(strcmp(a.name, "Wolfgangetta-" "\xBB") == 0);
+    CHECK(a.name[13] == mrui::kIdentityMarker);
+    const mrui::InviteIdRows b = mrui::invite_id_rows(live, 2, 0x006C2971u);
+    CHECK(strcmp(b.hash, "0x006C2971") == 0);
+    CHECK(strcmp(b.name, "..AB") == 0);
 }
 
 TEST_CASE("ui16-grant-words: no arm prints a COMPLETION word, and every one fits the 19-column body") {
